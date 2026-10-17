@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import type { ToolsInput } from '@mastra/core/agent';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
 
 const logger = createLogger('ToolRegistry');
 

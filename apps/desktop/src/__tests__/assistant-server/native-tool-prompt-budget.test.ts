@@ -8,6 +8,7 @@ import {
   type ScannedSkill,
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
+import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
@@ -280,7 +281,7 @@ const PROMPT_BUDGET_TAVILY = {
  */
 function buildPromptBudgetDesktopTools(
   skillScriptResolver: ScannedWorkspaceSkills
-): NonNullable<RuntimeData['mastraTools']> {
+): HostToolDefinitions {
   const runtimeData = { provider: 'openrouter' } as RuntimeData;
   return buildHostNativeTools(runtimeData, {
     executors: {
@@ -368,7 +369,7 @@ async function readDesktopHostSystemContextForBudget(args: {
 }
 
 function snapshotProviderToolSurface(
-  tools: NonNullable<RuntimeData['mastraTools']>
+  tools: HostToolDefinitions
 ): Readonly<Record<string, MastraProviderTool>> {
   return Object.fromEntries(
     Object.entries(tools).map(([toolId, tool]) => {
@@ -475,9 +476,7 @@ function buildProviderFunctionTools(
   });
 }
 
-function buildAuthoredProviderFunctionTools(
-  tools: NonNullable<RuntimeData['mastraTools']>
-): ProviderFunctionTool[] {
+function buildAuthoredProviderFunctionTools(tools: HostToolDefinitions): ProviderFunctionTool[] {
   const providerTools = snapshotProviderToolSurface(tools);
   const nameMap = new Map(
     Object.keys(providerTools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/g, '_'), toolId])

@@ -1,9 +1,6 @@
 import type { McpDiscoverySkip } from '@brainstrike/agent/mcp-client';
-import {
-  guardToolExecution,
-  type RuntimeData,
-  type ScaledToolResultBudget,
-} from '@brainstrike/agent/tool-runtime';
+import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
+import { guardToolExecution, type ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   assertMcpAuthorityReconstruction,
   createAgentHostToolBindings,
@@ -13,7 +10,7 @@ import type { HostRunSnapshot } from '@brainstrike/agent-host/protocol';
 import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import type { McpHostRuntime } from './node-host-runtime.js';
 
-type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
+type CanonicalTools = HostToolDefinitions;
 type ExecutableMcpBindings = HostMcpToolSelection['bindings'];
 
 /** Structural injection of the shipped collector, until its public barrel is available. */

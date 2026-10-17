@@ -88,10 +88,12 @@ describe('executeCommand live shell output (real subprocess, real writer)', () =
     const result = await execute(
       { command },
       {
-        outputWriter: (chunk: { type: string }) => {
-          written.push(chunk);
-        },
         toolCallId: 'call-exec-stream-1',
+        writer: {
+          custom: async (chunk: { type: string }) => {
+            written.push(chunk);
+          },
+        },
       }
     );
 

@@ -10,12 +10,13 @@ import { HOST_META_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import type { StateStore } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
-import type { StandardSchemaWithJSON } from '@mastra/core/schema';
-import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
+import { RequestContext } from '@mastra/core/request-context';
+import { createTool, noopObserve, type ToolExecutionContext } from '@mastra/core/tools';
+import { asSchema, type FlexibleSchema } from 'ai';
 import { committedRowAddress, committedRunAncestors } from '../committed-identities.js';
 import { readHostRow } from '../event-storage.js';
+import { executableInputSchema } from '../executable-input-schema.js';
 import type { HostTool, HostToolDiscovery } from '../ports.js';
-import { canonicalToolInputSchema, createCanonicalToolContext } from './canonical-context.js';
 import { committedMemoryTranscript } from './committed-memory-transcript.js';
 
 /** Mastra's fixed meta-tool ids, beside Brainstrike's catalog tool. */
@@ -58,7 +59,14 @@ interface DiscoveryTool<TInput> {
     | ((input: TInput, context: ToolExecutionContext) => Promise<unknown>)
     | undefined;
   readonly id: string;
-  readonly inputSchema?: StandardSchemaWithJSON<TInput> | undefined;
+  readonly inputSchema?: FlexibleSchema<TInput> | undefined;
+}
+
+function requireDiscoverySchema<TInput>(tool: DiscoveryTool<TInput>): FlexibleSchema<TInput> {
+  if (!tool.inputSchema) {
+    throw new Error(`Discovery tool ${tool.id} has no input schema`);
+  }
+  return tool.inputSchema;
 }
 
 /**
@@ -77,14 +85,23 @@ function discoveryHostTool<TInput>(
       if (!(execute && inputSchema)) {
         throw new Error(`Discovery tool ${tool.id} has no executor or input schema`);
       }
-      const parsed = await inputSchema['~standard'].validate(input);
-      if (parsed.issues) {
+      const validate = asSchema(executableInputSchema(inputSchema)).validate;
+      if (!validate) {
+        throw new Error(`Discovery tool ${tool.id} has no input validator`);
+      }
+      const parsed = await validate(input);
+      if (!parsed.success) {
         throw new Error(`Discovery tool ${tool.id} received invalid input`);
       }
-      return await execute.call(tool, parsed.value, createCanonicalToolContext(context, tool.id));
+      return await execute.call(tool, parsed.value, {
+        abortSignal: context.signal,
+        observe: noopObserve,
+        requestContext: new RequestContext(),
+        runId: context.runId,
+      });
     },
     identity: `host-tool-discovery:${declared.id}`,
-    inputSchema: canonicalToolInputSchema(declared.inputSchema),
+    inputSchema: requireDiscoverySchema(declared),
     risk: 'read',
   };
 }

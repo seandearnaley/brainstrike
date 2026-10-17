@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
 import { expect, it } from 'vitest';
-import { createRunPythonTool, RunPythonResultSchema } from '../tools/run-python-tool';
+import { RunPythonResultSchema } from '../tools/run-python-tool';
 
 const streams = { stderr: '', stderrOmittedBytes: 0, stdout: 'result', stdoutOmittedBytes: 0 };
 const valid = [
@@ -19,19 +19,10 @@ const valid = [
   { kind: 'declined' },
   { detail: 'Unavailable', kind: 'unavailable', reason: 'sandbox_readiness_failed' },
 ];
-it.each(valid)(
-  'validates the actual $kind result and its cleanup note through Mastra registration',
-  async (value) => {
-    const tool = createRunPythonTool({
-      resolveApprovalDecision: () => 'allow',
-      resolveHost: async () => ({}),
-    });
-    const noted = { ...value, scratchCleanupFailed: true, scratchDir: '/disposable/scratch' };
-    expect(Schema.decodeUnknownSync(RunPythonResultSchema)(noted)).toEqual(noted);
-    const result = await tool.outputSchema?.['~standard'].validate(noted);
-    expect(result).toEqual({ value: noted });
-  }
-);
+it.each(valid)('validates the actual $kind result and its cleanup note', async (value) => {
+  const noted = { ...value, scratchCleanupFailed: true, scratchDir: '/disposable/scratch' };
+  expect(Schema.decodeUnknownSync(RunPythonResultSchema)(noted)).toEqual(noted);
+});
 it.each([
   {},
   { exitCode: 0, kind: 'completed' },

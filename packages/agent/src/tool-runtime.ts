@@ -4,6 +4,11 @@ export { formatSkillsCatalog } from '@mastra/core/processors';
 export { DEFAULT_AGENT_MAX_STEPS } from './agent-loop-defaults';
 export { resolveAssistantResilienceConfig } from './config/resilience-config';
 export { LIST_AVAILABLE_TOOLS_ID } from './deferred-tool-catalog';
+export type {
+  HostToolDefinition,
+  HostToolDefinitions,
+  HostToolExecutionContext,
+} from './host-tool-definition';
 export {
   buildContextBudgetNote,
   buildCurrentDateNote,

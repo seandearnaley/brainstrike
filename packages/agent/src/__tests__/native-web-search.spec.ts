@@ -1,3 +1,4 @@
+import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildNativeToolRiskMap,
   DEFAULT_PERMISSION_POLICIES,
@@ -5,6 +6,7 @@ import {
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import type { ToolsInput } from '@mastra/core/agent';
+import { asSchema, generateText } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 import { filterToolsByPermissionWithMetadata } from '../permissions/permission-tool-gate';
 import {
@@ -304,4 +306,43 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
     expect(result[SANITIZED_ID]).toBeUndefined();
     expect(Object.keys(result)).toHaveLength(0);
   });
+});
+
+it('passes the held OpenAI native tool intact through the installed AI SDK', async () => {
+  const native = createProviderNativeWebSearchTool('openai', undefined);
+  if (!native) {
+    throw new Error('OpenAI native search is missing');
+  }
+  expect(await asSchema(native.inputSchema).jsonSchema).toMatchObject({ type: 'object' });
+  const requests: unknown[] = [];
+  const provider = createOpenAI({
+    apiKey: 'test-key',
+    fetch: async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        created_at: 0,
+        id: 'resp-native',
+        model: 'gpt-5.6-terra',
+        object: 'response',
+        output: [
+          {
+            content: [{ annotations: [], text: 'done', type: 'output_text' }],
+            id: 'msg-native',
+            role: 'assistant',
+            status: 'completed',
+            type: 'message',
+          },
+        ],
+        status: 'completed',
+        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+      });
+    },
+  });
+  await generateText({
+    model: provider.responses('gpt-5.6-terra'),
+    prompt: 'Search',
+    tools: { search: native },
+  });
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({ tools: [expect.objectContaining({ type: 'web_search' })] });
 });

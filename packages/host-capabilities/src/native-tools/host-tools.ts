@@ -17,9 +17,9 @@ import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-met
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import {
-  type MastraTool,
-  type MastraTools,
   type NativeToolBuildContext,
+  type NativeToolDefinition,
+  type NativeToolDefinitions,
   type NativeToolPorts,
   SHARED_NATIVE_TOOL_EXECUTORS,
   SHARED_NATIVE_TOOL_IDS,
@@ -80,7 +80,9 @@ export function isSharedNativeToolId(id: string): id is SharedNativeToolId {
 }
 
 /** One request-scoped executor entry over the shared build context. */
-export type NativeToolExecutor = (context: NativeToolBuildContext) => MastraTool | undefined;
+export type NativeToolExecutor = (
+  context: NativeToolBuildContext
+) => NativeToolDefinition | undefined;
 
 export interface SharedNativeHostToolsOptions {
   /** Post-edit language-server diagnostics the shell can run in this process. */
@@ -157,7 +159,7 @@ export function createSharedNativeHostTools(
       webExtract: options.webExtract,
       webSearch: options.webSearch,
     };
-    const tools: MastraTools = {};
+    const tools: NativeToolDefinitions = {};
     for (const id of options.ids) {
       // The catalog's localProvider: 'unregistered' tools have no local executor.
       if (context.isLocalProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(id)) {

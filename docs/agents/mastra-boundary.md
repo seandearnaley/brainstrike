@@ -45,8 +45,8 @@ direct dependency of `packages/agent`, `packages/agent-host` and
 memory and background-task storage adapters, and schema. Each is a separate
 decision on its own evidence — none of them makes Mastra an owner of product state, and none
 is a licence to widen the surface. The host's tool representation is its own
-(`HostTool`, converted to the AI SDK's `ToolSet` at the edge); do not reintroduce
-a vendor tool type as the pipeline's intermediate shape.
+(`HostToolDefinition` at the producer, `HostTool` after authority binding, and the AI SDK's `ToolSet` at the edge); do not reintroduce
+a vendor tool type as the pipeline's intermediate shape. Producers receive one host execution context with top-level identity and a structural writer; question/plan suspension and per-call network consent belong to HostCore. MCP keeps its raw JSON Schema and Ajv validator; missing validators refuse registration and reopened approvals validate their committed raw input before execution.
 
 Brainstrike owns HTTP entry/auth/origin checks, streaming, tool admission, native
 workspace tools and committed persistence. Mastra-owned tables are not altered to

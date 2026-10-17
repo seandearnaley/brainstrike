@@ -4,12 +4,7 @@
  * desktop agent host from the app paths it was launched with. This module must
  * not import Electron: the host bundle loads it.
  */
-import {
-  createRunPythonTool,
-  resolveRequestPermissionPolicy,
-  resolveSelfApprovalDecision,
-} from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { createRunPythonTool } from '@brainstrike/agent';
 import type { NativeToolExecutor } from '@brainstrike/host-capabilities/native-tools';
 
 /** Where this process finds the bundled interpreter and the sandbox helper. */
@@ -21,28 +16,8 @@ export interface CodeExecutionHost {
 }
 
 export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
-  // BST-1067. Registered as the factory-returned Tool object DIRECTLY (not
-  // re-wrapped in the registry's { description, execute, id, inputSchema }
-  // literal shape): BST-1070 added a suspendSchema for the network
-  // escalation, and the literal would silently drop it — leaving the network
-  // gate never firing, with no error and no run event. The catalog marks it
-  // `localProvider: 'unregistered'`, so no fold builds it for the built-in
-  // local provider.
-  return ({ runtimeData }) =>
+  return () =>
     createRunPythonTool({
-      // Gate A decision (BST-1097): run_python raises its OWN approval
-      // suspension instead of carrying Mastra's per-tool
-      // `requireApproval` flag (the flag re-fires on the Gate B resume
-      // leg and denies it). Resolved lazily at execute() time from THIS
-      // request's permission snapshot through the SAME resolvers the
-      // permission gate uses (`resolveRequestPermissionPolicy` →
-      // `resolveSelfApprovalDecision`), so the tool and the gate cannot
-      // disagree about the decision.
-      resolveApprovalDecision: () =>
-        resolveSelfApprovalDecision(
-          resolveRequestPermissionPolicy(runtimeData?.permissionPolicyRequest),
-          NATIVE_TOOL_ID.runPython
-        ),
       resolveHost: async (signal) => {
         // LAZY import, deliberately. `@brainstrike/agent/fence-executor`
         // pulls in @anthropic-ai/sandbox-runtime AND evaluates

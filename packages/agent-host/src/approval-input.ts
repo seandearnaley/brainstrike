@@ -118,12 +118,13 @@ export async function validateApprovalInput(
     throw new Error('Committed approval is missing its raw schema input');
   }
   const schema = asSchema(executableInputSchema(registered.inputSchema));
+  if (!schema.validate) {
+    throw new Error('Executable tool has no input validator');
+  }
   const rawInput = inputs.get(event.interactionId);
   const validated = registered.reconstructApprovalInput
     ? { success: true as const, value: await registered.reconstructApprovalInput(rawInput) }
-    : schema.validate
-      ? await schema.validate(rawInput)
-      : { success: true as const, value: rawInput };
+    : await schema.validate(rawInput);
   if (!validated.success) {
     throw validated.error;
   }
@@ -187,13 +188,17 @@ export function approvalRuntimeSchema(
   admitted: (rawInput: unknown) => { readonly value: unknown } | undefined
 ): FlexibleSchema<unknown> {
   const schema = asSchema(executableInputSchema(inputSchema));
+  const validate = schema.validate;
+  if (!validate) {
+    throw new Error('Executable tool has no input validator');
+  }
   return jsonSchema(() => schema.jsonSchema, {
     validate: async (rawInput) => {
       const existing = admitted(rawInput);
       if (existing) {
         return { success: true, value: existing.value };
       }
-      return schema.validate ? await schema.validate(rawInput) : { success: true, value: rawInput };
+      return await validate(rawInput);
     },
   });
 }

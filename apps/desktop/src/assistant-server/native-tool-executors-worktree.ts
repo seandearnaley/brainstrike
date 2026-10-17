@@ -6,8 +6,8 @@
  */
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type {
-  MastraTool,
   NativeToolBuildContext,
+  NativeToolDefinition,
 } from '@brainstrike/host-capabilities/native-tools';
 import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktree-tools';
 
@@ -18,8 +18,8 @@ import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktre
 export function worktreeToolExecutors<Context extends NativeToolBuildContext>(
   capability: (context: Context) => WorktreeToolCapability | undefined
 ): {
-  readonly [NATIVE_TOOL_ID.listWorktrees]: (context: Context) => MastraTool | undefined;
-  readonly [NATIVE_TOOL_ID.manageWorktree]: (context: Context) => MastraTool | undefined;
+  readonly [NATIVE_TOOL_ID.listWorktrees]: (context: Context) => NativeToolDefinition | undefined;
+  readonly [NATIVE_TOOL_ID.manageWorktree]: (context: Context) => NativeToolDefinition | undefined;
 } {
   return {
     [NATIVE_TOOL_ID.listWorktrees]: (context) =>

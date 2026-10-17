@@ -4,7 +4,6 @@ import {
   type ToolProjectionRewriteEntry,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { effectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import {
@@ -17,14 +16,13 @@ import {
   resolveReadWorkspaceFileRootLabel,
 } from './read-workspace-file-model-projection.js';
 import { readProjectionHeaderPrefix } from './read-workspace-file-result-contract.js';
-import { redactToolErrorForLog, resolveToolExecuteInputCandidate } from './tool-execute-support.js';
+import { redactToolErrorForLog } from './tool-execute-support.js';
 import { decodedPersistedModelOutputChars } from './tool-projection-prune.js';
 import {
   decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
 } from './workspace-model-projection-helpers.js';
 
-const grepInputSchema = effectToolInputSchema(GrepSearchInputSchema);
 const decodeGrepHistory = Schema.decodeUnknownResult(GrepSearchInputSchema, {
   onExcessProperty: 'error',
 });
@@ -331,7 +329,7 @@ function normalizeGrepKey(
   invocation: PersistedToolInvocation,
   persisted: boolean
 ): string | undefined {
-  const candidate = resolveToolExecuteInputCandidate(grepInputSchema, invocation.args);
+  const candidate = invocation.args;
   // OpenAI can persist an omitted optional array as null even when the
   // executed grep succeeded. Treat only that representation as omission;
   // required fields and other malformed history still fail schema validation.

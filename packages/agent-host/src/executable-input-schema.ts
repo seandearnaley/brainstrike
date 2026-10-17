@@ -1,7 +1,7 @@
 import { type FlexibleSchema, jsonSchema, TypeValidationError } from 'ai';
 
 /** Keep the authority's JSON Schema and validator intact, including 2020-12 composition. */
-export function executableInputSchema(input: FlexibleSchema<unknown>): FlexibleSchema<unknown> {
+export function executableInputSchema<Input>(input: FlexibleSchema<Input>): FlexibleSchema<Input> {
   if (
     typeof input === 'function' ||
     !('~standard' in input) ||

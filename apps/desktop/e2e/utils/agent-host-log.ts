@@ -43,7 +43,7 @@ export async function readHostProcess(
   return { pid: record.pid, start: record.start };
 }
 
-async function attachAppHost(userDataDir: string): Promise<HostClient> {
+export async function attachAppHost(userDataDir: string): Promise<HostClient> {
   const record = decodeHostRecord(
     JSON.parse(await readFile(await hostRecordPath(userDataDir), 'utf8'))
   );

@@ -25,9 +25,8 @@ import {
  * This spec spawns a real stdio child that streams progress until it is
  * cancelled and records whether it observed the client's
  * `notifications/cancelled`. The tool is driven through the production path
- * (`createMcpRuntimeClient` → Mastra `createTool` → `applyToolGuards`), so the
- * guard's deadline has to survive Mastra's execution-context reconstruction to
- * reach the in-flight request.
+ * (`createMcpRuntimeClient` → host producer → `applyToolGuards`), retaining
+ * the host context's identity and physical cancellation signal.
  */
 const progressServerEntrypoint = fileURLToPath(
   new URL('../../test-fixtures/mcp-stdio-progress-cancellation-server.mjs', import.meta.url)
@@ -146,7 +145,7 @@ describe('MCP tool guard cancellation over a real stdio transport', () => {
         {},
         {
           abortSignal: run.signal,
-          agent: { toolCallId: 'guard-cancellation-call' },
+          toolCallId: 'guard-cancellation-call',
           writer: { custom: async () => undefined },
         }
       )) as GuardedToolError;

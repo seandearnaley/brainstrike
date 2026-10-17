@@ -8,7 +8,7 @@ import {
   NATIVE_TOOL_INPUT_SCHEMAS,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
-import type { MastraTool, NativeToolBuildContext } from './executors.js';
+import type { NativeToolBuildContext, NativeToolDefinition } from './executors.js';
 import { runFindWorkspaceSymbol } from './find-workspace-symbol-tool.js';
 import { runGlobWorkspace } from './glob-workspace-tool.js';
 import { withRepeatedCallGuard } from './tool-call-loop-guards.js';
@@ -25,7 +25,9 @@ import { projectGlobWorkspaceModelOutput } from './workspace-search-model-projec
 type SearchToolId = typeof NATIVE_TOOL_ID.findWorkspaceSymbol | typeof NATIVE_TOOL_ID.globWorkspace;
 
 export const SEARCH_NATIVE_TOOL_EXECUTORS: {
-  readonly [Id in SearchToolId]: (context: NativeToolBuildContext) => MastraTool | undefined;
+  readonly [Id in SearchToolId]: (
+    context: NativeToolBuildContext
+  ) => NativeToolDefinition | undefined;
 } = {
   [NATIVE_TOOL_ID.findWorkspaceSymbol]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.findWorkspaceSymbol],

@@ -164,7 +164,7 @@ describe('read-before-write staleness guard', () => {
         const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         await write(
           { content: 'Completed child effect', path: '/README.md' },
-          { agent: { threadId: 'child-stopped', toolCallId: 'completed-write' } }
+          { threadId: 'child-stopped', toolCallId: 'completed-write' }
         );
         const canonicalPath = realpathSync(path.join(workspaceRootPath, 'README.md'));
         vi.mocked(withFileLock).mockClear();
@@ -173,7 +173,8 @@ describe('read-before-write staleness guard', () => {
         mutation = Promise.resolve(
           requireToolExecute(tools, `brainstrike.${name}`)(input, {
             abortSignal: controller.signal,
-            agent: { threadId: 'child-stopped', toolCallId: 'queued-mutation' },
+            threadId: 'child-stopped',
+            toolCallId: 'queued-mutation',
           })
         );
         // Observe admission to the real path lock before stopping the child.
@@ -192,7 +193,7 @@ describe('read-before-write staleness guard', () => {
         ).rejects.toMatchObject({ code: 'ENOENT' });
         await write(
           { content: 'Sibling still active', path: '/sibling.txt' },
-          { agent: { threadId: 'child-sibling', toolCallId: 'sibling-write' } }
+          { threadId: 'child-sibling', toolCallId: 'sibling-write' }
         );
         expect(await fsPromises.readFile(path.join(workspaceRootPath, 'sibling.txt'), 'utf8')).toBe(
           'Sibling still active'
@@ -220,7 +221,7 @@ describe('read-before-write staleness guard', () => {
         workspaceRoots: roots,
       };
       const tools = buildHostNativeTools(runtime);
-      const execution = { agent: { threadId: 'child-bound', toolCallId: 'bound-write' } };
+      const execution = { threadId: 'child-bound', toolCallId: 'bound-write' };
       const command = { command: process.platform === 'win32' ? 'cd' : 'pwd' };
       const shell = await requireToolExecute<{ cwd: string; rootId: string; exitCode: number }>(
         tools,
@@ -287,7 +288,8 @@ describe('read-before-write staleness guard', () => {
       await expect(
         requireToolExecute(tools, toolId)(input, {
           abortSignal: controller.signal,
-          agent: { threadId: 'child-cedar', toolCallId: 'stopped-write' },
+          threadId: 'child-cedar',
+          toolCallId: 'stopped-write',
         })
       ).rejects.toBe(reason);
       expect(lock).not.toHaveBeenCalled();
@@ -314,9 +316,11 @@ describe('read-before-write staleness guard', () => {
             path: '/cedar.txt',
             threadId: 'forged-child',
           },
-          { agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' } }
+          { threadId: 'child-cedar', toolCallId: 'cedar-write' }
         )
-      ).rejects.toThrow(/Unrecognized keys/);
+      ).rejects.toThrow(
+        /agent: Expected no excess property; threadId: Expected no excess property/
+      );
       await expect(
         fsPromises.stat(path.join(workspaceRootPath, 'cedar.txt'))
       ).rejects.toMatchObject({ code: 'ENOENT' });
@@ -331,16 +335,12 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-      await executeReadTool({
-        context: { path: '/README.md' },
-      });
+      await executeReadTool({ path: '/README.md' });
 
       await externallyEdit(path.join(workspaceRootPath, 'README.md'), '# User edit\n');
 
       await expect(
-        executeWriteTool({
-          context: { content: '# Agent overwrite\n', path: '/README.md' },
-        })
+        executeWriteTool({ content: '# Agent overwrite\n', path: '/README.md' })
       ).rejects.toThrow(/changed on disk since/i);
       // The user's edit survived — nothing was overwritten.
       const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
@@ -356,26 +356,20 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-      const first = await executeReadTool({
-        context: { maxChars: 20, path: '/README.md' },
-      });
+      const first = await executeReadTool({ maxChars: 20, path: '/README.md' });
       expect(first.nextCursor).toEqual(expect.any(String));
 
       await externallyEdit(path.join(workspaceRootPath, 'README.md'), '# User edit\n');
 
       await expect(
         executeReadTool({
-          context: {
-            cursor: first.nextCursor,
-            maxChars: 20,
-          },
+          cursor: first.nextCursor,
+          maxChars: 20,
         })
       ).rejects.toThrow(/continuation handle is stale/i);
 
       await expect(
-        executeWriteTool({
-          context: { content: '# Agent overwrite\n', path: '/README.md' },
-        })
+        executeWriteTool({ content: '# Agent overwrite\n', path: '/README.md' })
       ).rejects.toThrow(/changed on disk since/i);
       expect(await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8')).toBe(
         '# User edit\n'
@@ -394,9 +388,7 @@ describe('read-before-write staleness guard', () => {
         tools,
         'brainstrike.stringReplaceWorkspaceFile'
       );
-      await executeReadTool({
-        context: { path: '/src/lib/math.ts' },
-      });
+      await executeReadTool({ path: '/src/lib/math.ts' });
 
       await externallyEdit(
         path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
@@ -405,11 +397,9 @@ describe('read-before-write staleness guard', () => {
 
       await expect(
         executeReplaceTool({
-          context: {
-            newStr: 'export const add = () => 3;',
-            oldStr: 'export const add = () => 2;',
-            path: '/src/lib/math.ts',
-          },
+          newStr: 'export const add = () => 3;',
+          oldStr: 'export const add = () => 2;',
+          path: '/src/lib/math.ts',
         })
       ).rejects.toThrow(/changed on disk since/i);
       const onDisk = await fsPromises.readFile(
@@ -428,19 +418,13 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-      await executeReadTool({
-        context: { path: '/README.md' },
-      });
+      await executeReadTool({ path: '/README.md' });
 
-      const first = await executeWriteTool({
-        context: { content: '# First\n', path: '/README.md' },
-      });
+      const first = await executeWriteTool({ content: '# First\n', path: '/README.md' });
       expect(first.created).toBe(false);
 
       // A successful write refreshes the known state — no self-staleness.
-      const second = await executeWriteTool({
-        context: { content: '# Second\n', path: '/README.md' },
-      });
+      const second = await executeWriteTool({ content: '# Second\n', path: '/README.md' });
       expect(second.created).toBe(false);
       const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
       expect(onDisk).toBe('# Second\n');
@@ -455,7 +439,8 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const result = await executeWriteTool({
-        context: { content: '# Never read first\n', path: '/README.md' },
+        content: '# Never read first\n',
+        path: '/README.md',
       });
       expect(result.created).toBe(false);
     } finally {
@@ -472,19 +457,15 @@ describe('read-before-write staleness guard', () => {
         tools,
         'brainstrike.stringReplaceWorkspaceFile'
       );
-      await executeWriteTool({
-        context: { content: 'const value = 1;\n', path: '/src/state.ts' },
-      });
+      await executeWriteTool({ content: 'const value = 1;\n', path: '/src/state.ts' });
 
       await externallyEdit(path.join(workspaceRootPath, 'src', 'state.ts'), 'const value = 2;\n');
 
       await expect(
         executeReplaceTool({
-          context: {
-            newStr: 'const value = 3;',
-            oldStr: 'const value = 2;',
-            path: '/src/state.ts',
-          },
+          newStr: 'const value = 3;',
+          oldStr: 'const value = 2;',
+          path: '/src/state.ts',
         })
       ).rejects.toThrow(/changed on disk since/i);
     } finally {
@@ -499,9 +480,7 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
-      await executeReadTool({
-        context: { path: '/src/lib/math.ts' },
-      });
+      await executeReadTool({ path: '/src/lib/math.ts' });
 
       await externallyEdit(
         path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
@@ -509,9 +488,7 @@ describe('read-before-write staleness guard', () => {
       );
 
       await expect(
-        executeRenameTool({
-          context: { fromPath: '/src/lib/math.ts', toPath: '/src/lib/sum.ts' },
-        })
+        executeRenameTool({ fromPath: '/src/lib/math.ts', toPath: '/src/lib/sum.ts' })
       ).rejects.toThrow(/changed on disk since/i);
       // The move did not happen.
       await expect(
@@ -547,7 +524,7 @@ describe('read-before-write staleness guard', () => {
       );
 
       let readSettled = false;
-      const readPromise = executeReadTool({ context: { path: '/README.md' } }).finally(() => {
+      const readPromise = executeReadTool({ path: '/README.md' }).finally(() => {
         readSettled = true;
       });
 
@@ -585,16 +562,12 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
-      await executeReadTool({
-        context: { path: '/src/alias.ts' },
-      });
+      await executeReadTool({ path: '/src/alias.ts' });
 
       await externallyEdit(targetPath, 'export const add = () => 42;\n');
 
       await expect(
-        executeRenameTool({
-          context: { fromPath: '/src/alias.ts', toPath: '/src/alias-moved.ts' },
-        })
+        executeRenameTool({ fromPath: '/src/alias.ts', toPath: '/src/alias-moved.ts' })
       ).rejects.toThrow(/changed on disk since/i);
       // The link did not move.
       await expect(
@@ -623,12 +596,11 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
-      await executeReadTool({
-        context: { path: '/src/alias.ts' },
-      });
+      await executeReadTool({ path: '/src/alias.ts' });
 
       const result = await executeRenameTool({
-        context: { fromPath: '/src/alias.ts', toPath: '/src/alias-moved.ts' },
+        fromPath: '/src/alias.ts',
+        toPath: '/src/alias-moved.ts',
       });
       expect(result.ok).toBe(true);
       const moved = await fsPromises.lstat(path.join(workspaceRootPath, 'src', 'alias-moved.ts'));
@@ -644,24 +616,16 @@ describe('read-before-write staleness guard', () => {
       const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-      await executeReadTool({
-        context: { path: '/README.md' },
-      });
+      await executeReadTool({ path: '/README.md' });
       await externallyEdit(path.join(workspaceRootPath, 'README.md'), '# User edit\n');
 
       await expect(
-        executeWriteTool({
-          context: { content: '# Agent v1\n', path: '/README.md' },
-        })
+        executeWriteTool({ content: '# Agent v1\n', path: '/README.md' })
       ).rejects.toThrow(/changed on disk since/i);
 
       // The actionable error tells the model to re-read; doing so recovers.
-      await executeReadTool({
-        context: { path: '/README.md' },
-      });
-      const result = await executeWriteTool({
-        context: { content: '# Agent v2\n', path: '/README.md' },
-      });
+      await executeReadTool({ path: '/README.md' });
+      const result = await executeWriteTool({ content: '# Agent v2\n', path: '/README.md' });
       expect(result.created).toBe(false);
       const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
       expect(onDisk).toBe('# Agent v2\n');

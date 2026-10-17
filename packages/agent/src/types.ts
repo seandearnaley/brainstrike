@@ -31,7 +31,7 @@ import {
   type OpenAiReasoningEffort,
   type OpenAiReasoningSummary,
 } from '@brainstrike/types';
-import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
+import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
@@ -155,7 +155,6 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    */
   hookRunner?: AgentHookRunner;
   /** Mastra agent tools registry. Agent-only. */
-  mastraTools?: ToolsInput;
   /** MCP server configuration. Agent-only. */
   mcpConfig?: McpConfig;
   /**
@@ -229,7 +228,7 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
   personaProviderApiKeys?: Readonly<Record<string, string>>;
   /**
    * Built-in subagent personas the supervisor may delegate to (server-set,
-   * agent-only, mirrors `mastraTools`). Threaded through on both the initial turn
+   * agent-only). Threaded through on both the initial turn
    * and the approval-resume path so the rebuilt supervisor keeps its `agent-<id>`
    * delegation tools. Skipped for the built-in local provider (agent-side, D10).
    */
