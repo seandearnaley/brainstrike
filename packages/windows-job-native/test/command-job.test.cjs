@@ -359,8 +359,12 @@ process.on('message',async(message)=>{
     guard.child.send({ type: 'START' });
     const child = await guard.wait('member');
     const observer = await fixture.observe([child.identity.pid]);
-    observer.child.stdin.write('deny\n');
+    // Deny PROCESS_TERMINATE on the member and remove SeDebugPrivilege from the
+    // joining guard, so the denial holds for an elevated runner too.
+    observer.child.stdin.write('deny 0x1\n');
     await observer.wait('denied');
+    observer.child.stdin.write(`restrict ${guard.child.pid}\n`);
+    t.diagnostic(JSON.stringify(await observer.wait('restricted')));
     guard.child.send({ type: 'deny-join' });
     const retained = await guard.wait('retained');
     t.diagnostic(
