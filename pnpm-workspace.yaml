@@ -360,6 +360,8 @@ patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
+  # The worker client's leader announcements also stop once it closes: 0.5.10
+  # posts to its closed BroadcastChannel when closed before a leader connects.
   '@electric-sql/pglite@0.5.10': patches/@electric-sql__pglite@0.5.10.patch
   '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
   '@huggingface/transformers@4.3.1': patches/@huggingface__transformers@4.3.1.patch

@@ -55,7 +55,8 @@ function setupCleanupHandlers(workerStorage: WorkerStorage | null): void {
         flushPendingWrites();
       }
     };
-    window.addEventListener('unload', handleBeforeUnload);
+    // No `unload` listener: Chrome deprecated it (it also bars the page from
+    // the back/forward cache), and `pagehide` fires in every case it did.
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handleBeforeUnload);
     document.addEventListener('visibilitychange', handleVisibilityChange);

@@ -173,6 +173,49 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
 
 const DATABASE_OPTIMIZE_DEPS_INCLUDE = ['jszip', 'react-resizable-panels'] as const;
 
+/**
+ * Third-party imports of workspace packages the app configs exclude from
+ * dependency optimization. Vite's scan does not crawl an excluded package, so
+ * without these the dev server first meets them when the browser requests
+ * them: it re-optimizes, fails the in-flight requests with 504 "Outdated
+ * Optimize Dep" and reloads the page, on a cold cache and again the first
+ * time a lazy surface such as Notes opens. `owner > dependency` resolves each
+ * from the package that imports it.
+ */
+const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
+  '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop-auto-scroll/element',
+  '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/attach-closest-edge',
+  '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/extract-closest-edge',
+  '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop/adapter/element-adapter',
+  '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop/utils/combine',
+  '@brainstrike/ui > @codemirror/language',
+  '@brainstrike/ui > @codemirror/language-data',
+  '@brainstrike/ui > @codemirror/merge',
+  '@brainstrike/ui > @codemirror/state',
+  '@brainstrike/ui > @codemirror/view',
+  '@brainstrike/ui > @radix-ui/react-context-menu',
+  '@brainstrike/ui > @radix-ui/react-dropdown-menu',
+  '@brainstrike/ui > @radix-ui/react-label',
+  '@brainstrike/ui > @radix-ui/react-popover',
+  '@brainstrike/ui > @radix-ui/react-progress',
+  '@brainstrike/ui > @radix-ui/react-select',
+  '@brainstrike/ui > @radix-ui/react-slot',
+  '@brainstrike/ui > @radix-ui/react-switch',
+  '@brainstrike/ui > @radix-ui/react-tooltip',
+  '@brainstrike/ui > class-variance-authority',
+  '@brainstrike/ui > clsx',
+  '@brainstrike/ui > mermaid',
+  '@brainstrike/ui > rehype-katex',
+  '@brainstrike/ui > rehype-slug',
+  '@brainstrike/ui > remark-math',
+  '@brainstrike/ui > tailwind-merge',
+  '@brainstrike/ui > yaml',
+  '@brainstrike/utils > @noble/hashes/sha2.js',
+  '@brainstrike/utils > ignore',
+  '@brainstrike/settings-ui > @tanstack/react-table',
+  'zustand/vanilla',
+] as const;
+
 const HEAVY_RUNTIME_OPTIMIZE_DEPS_EXCLUDE = ['@huggingface/transformers'] as const;
 
 const moduleDir =
@@ -196,6 +239,10 @@ export function getCoreAppOptimizeDepsInclude(): readonly string[] {
 
 export function getDatabaseOptimizeDepsInclude(): readonly string[] {
   return DATABASE_OPTIMIZE_DEPS_INCLUDE;
+}
+
+export function getWorkspaceSourceOptimizeDepsInclude(): readonly string[] {
+  return WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE;
 }
 
 export function getHeavyRuntimeOptimizeDepsExclude(): readonly string[] {

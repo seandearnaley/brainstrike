@@ -542,9 +542,9 @@ function validateProviderStatusConsistency({
   providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
   providers: readonly SupportedProvider[] | undefined;
 }): void {
-  if (providers && providers.length === 0) {
-    throw new Error('Enabled assistant status must include an available provider');
-  }
+  // An empty list is a host with no keyed provider. It stays enabled: the
+  // renderer discovers local runtimes (Ollama, LM Studio) itself, and the
+  // panel asks for a provider when nothing at all is available.
   for (const provider of providers ?? []) {
     if (!PROVIDER_DEFAULT_MODELS[provider]) {
       throw new Error(`Assistant status provider ${provider} has no registry default model`);

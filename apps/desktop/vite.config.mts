@@ -13,6 +13,7 @@ import {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
+  getWorkspaceSourceOptimizeDepsInclude,
   isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
@@ -157,6 +158,7 @@ export default defineConfig({
       ...getCoreAppOptimizeDepsInclude(),
       ...getAssistantOptimizeDepsInclude(),
       ...getDatabaseOptimizeDepsInclude(),
+      ...getWorkspaceSourceOptimizeDepsInclude(),
     ],
   },
   plugins: [
