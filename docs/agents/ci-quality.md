@@ -33,6 +33,12 @@ silence a finding. Narrow cause/import/boolean rules follow the scanner's proved
 scope; TypeScript, Effect diagnostics and React Compiler checks remain separate.
 Run `pnpm exec node --test scripts/__tests__/agent-quality-lint.test.mjs` when
 changing these overrides: real new-file fixtures verify inclusion and semantics.
+All agent `src/__tests__` layouts, including nested `.spec.ts`, `.test.ts`, `.mts`
+and `.mjs` files, enforce async assertions, Promise predicates and exhaustive
+switches. The scoped rejection rule rejects literal non-Error failures while
+allowing original unknown errors and abort reasons; preserve their identity.
+Biome accepts explicit `void` disposal and cannot prove resource joins or lazy
+Effect execution. Keep those ownership proofs in focused behavior tests.
 
 ## Finish without an endless campaign
 

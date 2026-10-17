@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,10 @@ const layouts = [
   ['packages/assistant-contract/src/__tests__', '.test.ts'],
   ['packages/effect-kit/src/__tests__', '.mts'],
   ['scripts/__tests__', '.mjs'],
+  ['packages/agent/src/__tests__', '.spec.ts'],
+  ['packages/agent/src/__tests__', '.test.ts'],
+  ['packages/agent/src/__tests__', '.mts'],
+  ['packages/agent/src/__tests__', '.mjs'],
 ];
 
 function lint(t, side) {
@@ -42,19 +46,52 @@ function lint(t, side) {
     path: `${directory}/agent-quality-lint-${token}${suffix}`,
     rule: 'nursery/noFloatingPromises',
   }));
+  const nested = `packages/agent/src/__tests__/agent-quality-lint-${token}`;
+  t.after(() => rmSync(path.join(root, nested), { force: true, recursive: true }));
+  cases.push({
+    bad: assertion,
+    good: joinedAssertion,
+    path: `${nested}/future.spec.ts`,
+    rule: 'nursery/noFloatingPromises',
+  });
+  for (const directory of ['packages/agent-host/src', 'packages/agent/src/__tests__']) {
+    cases.push(
+      {
+        bad: 'export function check() { return [1, 2].filter(async (value) => value > 0); }',
+        good: 'export function check() { return [1, 2].filter((value) => value > 0); }',
+        path: `${directory}/agent-quality-lint-predicate-${token}.ts`,
+        rule: 'nursery/noMisusedPromises',
+      },
+      {
+        bad: "export function check(state: 'ready' | 'waiting') { switch (state) { case 'ready': return true; } }",
+        good: "export function check(state: 'ready' | 'waiting') { switch (state) { case 'ready': return true; case 'waiting': return false; } }",
+        path: `${directory}/agent-quality-lint-switch-${token}.ts`,
+        rule: 'nursery/useExhaustiveSwitchCases',
+      }
+    );
+  }
+  for (const directory of [
+    'packages/effect-kit/src',
+    'packages/assistant-contract/src/native-tools/schemas',
+    'packages/agent/src/tools',
+    'packages/agent-host/src',
+  ]) {
+    cases.push(
+      {
+        bad: "export const check = () => Promise.reject('lost stack');",
+        good: "export const check = () => Promise.reject(new Error('failure'));",
+        path: `${directory}/agent-quality-lint-rejection-${token}.ts`,
+        rule: 'nursery/usePromiseRejectErrors',
+      },
+      {
+        bad: 'export const check = () => new Promise((_resolve, reject) => reject(42));',
+        good: 'export const check = (reason: unknown) => Promise.reject(reason); export const aborted = (signal: AbortSignal) => new Promise((_resolve, reject) => reject(signal.reason));',
+        path: `${directory}/agent-quality-lint-rejection-constructor-${token}.ts`,
+        rule: 'nursery/usePromiseRejectErrors',
+      }
+    );
+  }
   cases.push(
-    {
-      bad: 'export function check() { return [1, 2].filter(async (value) => value > 0); }',
-      good: 'export function check() { return [1, 2].filter((value) => value > 0); }',
-      path: `packages/agent-host/src/agent-quality-lint-predicate-${token}.ts`,
-      rule: 'nursery/noMisusedPromises',
-    },
-    {
-      bad: "export function check(state: 'ready' | 'waiting') { switch (state) { case 'ready': return true; } }",
-      good: "export function check(state: 'ready' | 'waiting') { switch (state) { case 'ready': return true; case 'waiting': return false; } }",
-      path: `packages/agent-host/src/agent-quality-lint-switch-${token}.ts`,
-      rule: 'nursery/useExhaustiveSwitchCases',
-    },
     {
       bad: "export function check(run: () => void) { try { run(); } catch { throw new Error('failed'); } }",
       good: "export function check(run: () => void) { try { run(); } catch (cause) { throw new Error('failed', { cause }); } }",
@@ -87,7 +124,9 @@ function lint(t, side) {
     }
   });
   for (const entry of cases) {
-    writeFileSync(path.join(root, entry.path), `${entry[side]}\n`);
+    const file = path.join(root, entry.path);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, `${entry[side]}\n`);
   }
   const result = spawnSync(process.execPath, [biome, 'lint', ...files, '--reporter=json'], {
     cwd: root,
