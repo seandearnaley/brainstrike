@@ -50,6 +50,7 @@ import {
   serveCassetteRoute,
 } from './model-provider-cassette-route';
 import { recordedOpenRouterMetadata } from './model-provider-metadata';
+import { writeContextOverflow, writeRefusal } from './model-provider-refusal';
 
 export interface ScriptedToolCall {
   readonly arguments: Record<string, unknown>;
@@ -61,6 +62,11 @@ export interface ModelProviderScript {
   readonly beforeFinalText?: Promise<void>;
   /** Hold a streaming tool finish at a deterministic external-provider boundary. */
   readonly beforeToolFinish?: Promise<void>;
+  /**
+   * Refuse the request as a provider refuses one that does not fit: HTTP 400
+   * with OpenAI's `context_length_exceeded` error, before any stream opens.
+   */
+  readonly contextOverflow?: true;
   /**
    * Set when `toolCall` targets a Mastra-deferred tool (present in
    * `deferredToolIds`, not `coreToolIds` — see the `mastra_tool_discovery_surface`
@@ -872,38 +878,6 @@ function wireForRoute(method: string | undefined, route: string): ModelProviderW
   return route === '/responses' ? 'responses' : null;
 }
 
-function refusalMessage(refusal: ModelProviderRefusal): string {
-  const request = `${refusal.method} ${refusal.route}${refusal.knob ? ` via ${refusal.knob}` : ''}`;
-  switch (refusal.reason) {
-    case 'unscripted':
-      return `E2E egress boundary refused an unscripted provider request: ${request}. Script it through the canonical model-provider shim.`;
-    case 'unrecorded-model-metadata':
-      return `E2E egress boundary refused OpenRouter model metadata with no recorded fixture: ${request}.`;
-    case 'unsupported-route':
-      return `E2E egress boundary refused a provider request no scripted wire serves: ${request}.`;
-    case 'unrecorded-exchange':
-      return `E2E egress boundary refused a provider request its cassette never recorded: ${refusal.cassette?.key ?? request}. Unserved: ${refusal.cassette?.unserved.join(' | ') || 'none'}. Re-record the scenario if the host's conversation shape changed.`;
-  }
-}
-
-function writeRefusal(response: ServerResponse, refusal: ModelProviderRefusal): void {
-  const message = refusalMessage(refusal);
-  // 401, as the real providers answer the E2E fixture keys: no SDK retries it
-  // (they retry 408, 409, 429 and 5xx), the runtime's stream-error retry
-  // treats it as a terminal authorization failure, and a credential probe
-  // reads it as invalid. A 403 would read as "authenticated but limited" and
-  // auto-open the provider card; any non-auth 4xx is retried by the runtime.
-  // The body satisfies each SDK's error parser: OpenAI/OpenRouter read
-  // `error.message`; Anthropic reads `{ type: 'error', error: { type, message } }`.
-  response.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
-  response.end(
-    JSON.stringify({
-      error: { code: 'e2e_egress_refused', message, param: null, type: 'e2e_egress_refused' },
-      type: 'error',
-    })
-  );
-}
-
 export async function startModelProviderShim(
   initialScript?: ShimScript
 ): Promise<ModelProviderShim> {
@@ -1014,6 +988,16 @@ export async function startModelProviderShim(
         requests.push(decided);
         const selectedScript =
           typeof activeScript === 'function' ? activeScript(decided) : activeScript;
+        if (selectedScript.contextOverflow) {
+          transcript.push({
+            decision: 'context-overflow',
+            requestIndex: requestOrdinal,
+            roles: messageRoles(items, wire),
+            toolResultCount,
+          });
+          writeContextOverflow(response);
+          return;
+        }
         if (selectedScript.streamError !== undefined && stream === true) {
           transcript.push({
             decision: 'stream-error',
