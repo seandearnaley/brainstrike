@@ -54,6 +54,11 @@ describe('provider cassette pipeline', () => {
   test('records and replays parallel tool calls and two background children on the Responses wire', {
     timeout: 120_000,
   }, async () => {
+    // Each finished child wakes its parent with the turn's ledger (ADR-0010), so
+    // two children finishing together reach it as one wake or two by host timing,
+    // and no cassette can match both (BST-2106). Child two answers well after the
+    // parent's first wake, in the recording and so in its paced replay.
+    const { promise: childTwoReleased, resolve: releaseChildTwo } = Promise.withResolvers<void>();
     const { recorded, replayed } = await roundTrip(
       {
         children: 2,
@@ -70,11 +75,15 @@ describe('provider cassette pipeline', () => {
         }
         if (!request.toolNames.includes('agent-explore')) {
           return {
+            ...(JSON.stringify(request.messages).includes('Explore fixture two.')
+              ? { beforeFinalText: childTwoReleased }
+              : {}),
             finalText: 'Child done.',
             toolCall: { arguments: { pattern: '*.md' }, name: 'brainstrike_globWorkspace' },
           };
         }
         if (JSON.stringify(request.messages).includes('Background invocations of this turn')) {
+          setTimeout(releaseChildTwo, 1500);
           return { finalText: 'Both explorers finished.' };
         }
         return {
