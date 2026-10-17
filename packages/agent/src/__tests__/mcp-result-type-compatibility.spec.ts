@@ -65,11 +65,11 @@ describe('MCP resultType compatibility', () => {
   it('uses the negotiated modern era when transport metadata is absent', async () => {
     let negotiatedEra: 'legacy' | 'modern' | undefined;
     const start = vi.fn(async () => undefined);
-    const transport = {
+    const transport: Transport = {
       close: vi.fn(async () => undefined),
       send: vi.fn(async () => undefined),
       start,
-    } satisfies Transport;
+    };
     const received: unknown[] = [];
     const installed = installMcpResultTypeCompatibility(transport, 'auto', () => negotiatedEra);
     installed.onmessage = (message) => received.push(message);
@@ -98,11 +98,11 @@ describe('MCP resultType compatibility', () => {
   ])(
     'resolves $protocol with negotiated era $negotiatedEra without guessing',
     async ({ expected, negotiatedEra, protocol }) => {
-      const transport = {
+      const transport: Transport = {
         close: vi.fn(async () => undefined),
         send: vi.fn(async () => undefined),
         start: vi.fn(async () => undefined),
-      } satisfies Transport;
+      };
       let received: unknown;
       const installed = installMcpResultTypeCompatibility(transport, protocol, () => negotiatedEra);
       installed.onmessage = (message) => {
@@ -120,11 +120,11 @@ describe('MCP resultType compatibility', () => {
 
   it('preserves an existing onmessage accessor and rejects conflicting reinstall', async () => {
     let assignedHandler: Transport['onmessage'];
-    const transport = {
+    const transport: Transport = {
       close: vi.fn(async () => undefined),
       send: vi.fn(async () => undefined),
       start: vi.fn(async () => undefined),
-    } satisfies Transport;
+    };
     const getHandler = vi.fn(() => assignedHandler);
     const setHandler = vi.fn((handler: Transport['onmessage']) => {
       assignedHandler = handler;

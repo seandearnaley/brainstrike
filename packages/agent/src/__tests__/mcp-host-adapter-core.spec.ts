@@ -7,7 +7,10 @@ describe('MCP host runtime adapter core', () => {
   it('does not let an empty serialized config suppress host authority', async () => {
     const host = {
       close: vi.fn(),
-      invoke: vi.fn(async () => ({
+      control: vi.fn(async () => {
+        throw new Error('Host control is unsupported in this fixture');
+      }),
+      invoke: vi.fn<McpHostPort['invoke']>(async () => ({
         result: {
           tools: [{ inputSchema: { type: 'object' }, name: 'authoritative' }],
         },
@@ -46,6 +49,9 @@ describe('MCP host runtime adapter core', () => {
   it('rejects a competing non-empty serialized config beside host authority', async () => {
     const host = {
       close: vi.fn(),
+      control: vi.fn(async () => {
+        throw new Error('Host control is unsupported in this fixture');
+      }),
       invoke: vi.fn(),
       replaceConfig: vi.fn(),
       snapshot: vi.fn(() => ({ revision: 0, servers: [] })),
@@ -67,7 +73,10 @@ describe('MCP host runtime adapter core', () => {
     const release = vi.fn();
     const host = {
       close: vi.fn(),
-      invoke: vi.fn(async () => ({
+      control: vi.fn(async () => {
+        throw new Error('Host control is unsupported in this fixture');
+      }),
+      invoke: vi.fn<McpHostPort['invoke']>(async () => ({
         result: {
           tools: [
             { inputSchema: { type: 'object' }, name: 'allowed' },
@@ -113,6 +122,9 @@ describe('MCP host runtime adapter core', () => {
     const release = vi.fn();
     const host = {
       close: vi.fn(),
+      control: vi.fn(async () => {
+        throw new Error('Host control is unsupported in this fixture');
+      }),
       invoke: vi.fn(),
       replaceConfig: vi.fn(),
       snapshot: () => ({
@@ -151,18 +163,22 @@ describe('MCP host runtime adapter core', () => {
     const release = vi.fn();
     const host = {
       close: vi.fn(),
-      invoke: vi.fn(async (_operation, options) => {
+      control: vi.fn(async () => {
+        throw new Error('Host control is unsupported in this fixture');
+      }),
+      invoke: vi.fn<McpHostPort['invoke']>(async (_operation, options) => {
         discoverySignal = options?.signal;
         markInvokeStarted?.();
         if (!discoverySignal) {
           throw new Error('expected invoke to receive an AbortSignal');
         }
+        const signal = discoverySignal;
         return await new Promise<never>((_resolve, reject) => {
-          if (discoverySignal?.aborted) {
-            reject(discoverySignal.reason);
+          if (signal.aborted) {
+            reject(signal.reason);
             return;
           }
-          discoverySignal.addEventListener('abort', () => reject(discoverySignal?.reason), {
+          signal.addEventListener('abort', () => reject(signal.reason), {
             once: true,
           });
         });
@@ -221,7 +237,10 @@ describe('MCP host runtime adapter core', () => {
     const release = vi.fn();
     const host = {
       close: vi.fn(),
-      invoke: vi.fn(async (_operation, options) => {
+      control: vi.fn(async () => {
+        throw new Error('Host control is unsupported in this fixture');
+      }),
+      invoke: vi.fn<McpHostPort['invoke']>(async (_operation, options) => {
         discoverySignal = options?.signal;
         if (!discoverySignal) {
           throw new Error('expected invoke to receive an AbortSignal');
