@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { HybridSearchInputSchema } from '../schemas/schemas-search.js';
 
 // Read-only hybrid (vector + BM25 keyword, RRF-fused) workspace retrieval.
@@ -15,7 +15,7 @@ export const hybridSearch = defineNativeTool({
   discovery: { family: 'embedding search', namespace: 'semantics' },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.hybridSearch',
-  inputSchema: providerCompatibleInputSchema(HybridSearchInputSchema),
+  inputSchema: effectToolInputSchema(HybridSearchInputSchema),
   kind: 'desktop',
   returns:
     'Fused ranked chunks with rrfScore, sourceCount, per-arm scores (vectorSimilarity, ftsRank), file paths, and per-arm result counts',

@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { LspInspectInputSchema } from '../schemas/schemas-search.js';
 
 // Semantic code inspection at a cursor (report R2 Phase B): hover type,
@@ -25,7 +25,7 @@ export const lspInspect = defineNativeTool({
   },
   history: { recencyPrunable: true },
   id: 'brainstrike.lspInspect',
-  inputSchema: providerCompatibleInputSchema(LspInspectInputSchema),
+  inputSchema: effectToolInputSchema(LspInspectInputSchema),
   kind: 'desktop',
   returns:
     'Up to four groups: hover (type/docs), diagnostics (the inspected line), definition (declaration locations with a one-line preview), and implementation (usage/implementation locations). An available:false note for unsupported file types or when no server is available.',

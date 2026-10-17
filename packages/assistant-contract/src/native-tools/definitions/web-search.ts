@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { WebSearchInputSchema } from '../schemas/schemas-search.js';
 
 // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
@@ -19,7 +19,7 @@ export const webSearch = defineNativeTool({
   discovery: { family: 'web search/extract', namespace: 'web' },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.webSearch',
-  inputSchema: providerCompatibleInputSchema(WebSearchInputSchema),
+  inputSchema: effectToolInputSchema(WebSearchInputSchema),
   kind: 'desktop',
   returns:
     'A list of results (title, url, snippet) self-bound to the tool output budget, with a truncation flag and continuation hint. When neither a provider-native search nor a Tavily key is available, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',

@@ -1,6 +1,7 @@
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { NATIVE_TOOLS } from '../native-tools/index.js';
 import {
   effectToolInputSchema,
   isEffectToolInputSchema,
@@ -10,6 +11,7 @@ import {
   toToolInputJsonSchema,
   validateToolInputValue,
 } from '../native-tools/schemas/tool-input-schema.js';
+import { encodeToolOutputArtifactCursor } from '../tool-output-artifact.js';
 
 /**
  * The derivation step ADR-0004's 2026-10-15 amendment adopts, one case per hard
@@ -25,7 +27,7 @@ import {
 const TARGETS = ['draft-07', 'draft-2020-12'] as const;
 
 const bounded = (minimum: number, maximum: number) =>
-  Schema.String.check(Schema.isMinLength(minimum), Schema.isMaxLength(maximum));
+  Schema.String.check(Schema.isMinCodePoints(minimum), Schema.isMaxCodePoints(maximum));
 
 /**
  * Shapes where the two producers' JSON Schema is identical, so zod — the
@@ -285,5 +287,151 @@ describe('effectToolInputSchema derivation', () => {
       value: { path: '/src/main.ts' },
     });
     expect(providerInput).toEqual({ name: null, path: '/src/main.ts' });
+  });
+});
+
+const cursor = encodeToolOutputArtifactCursor(
+  {
+    byteLength: 12,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    format: 'text',
+    id: 'parity-artifact',
+  },
+  0
+);
+
+// Extend this table for E02: each row exercises the registered producer, not a
+// schema recreated inside the test. The catalog test separately requires Effect.
+const boundaryCases: ReadonlyArray<
+  readonly [string, Record<string, unknown>, boolean, (readonly PropertyKey[])?]
+> = [
+  [
+    'hybridSearch',
+    {
+      filePaths: ['src/a.ts'],
+      ftsWeight: 0,
+      limit: 100,
+      query: 'context',
+      vectorThreshold: 1,
+      vectorWeight: 2,
+    },
+    true,
+  ],
+  ['hybridSearch', { filePaths: new Array(501).fill('a'), query: 'context' }, false],
+  ['hybridSearch', { filePaths: [''], query: 'context' }, false, ['filePaths', 0]],
+  ['hybridSearch', { limit: 1.5, query: 'context' }, false, ['limit']],
+  ['hybridSearch', { query: 'context', vectorThreshold: -0.1 }, false],
+  ['hybridSearch', { ftsWeight: 2.1, query: 'context' }, false],
+  ['hybridSearch', { query: 'context', root: '' }, false],
+  [
+    'queryEmbeddingSpace',
+    {
+      filePaths: new Array(5000).fill('a'),
+      maxChunks: 100,
+      query: 'context',
+      root: '',
+      tokenBudget: 200_000,
+    },
+    true,
+  ],
+  ['queryEmbeddingSpace', { filePaths: new Array(5001).fill('a'), query: 'context' }, false],
+  ['queryEmbeddingSpace', { query: 'context', tokenBudget: 200_001 }, false],
+  ['grepSearch', { contextLines: 5, isRegex: false, offset: 2000, pattern: 'a(b' }, true],
+  ['grepSearch', { isRegex: true, pattern: 'a(b' }, false, ['pattern']],
+  ['grepSearch', { filePaths: new Array(1001).fill('a'), pattern: 'ab' }, false],
+  ['grepSearch', { contextLines: 6, pattern: 'ab' }, false],
+  ['globWorkspace', { limit: 1000, offset: 100_000, pattern: '*.ts' }, true],
+  ['globWorkspace', { offset: 100_001, pattern: '*.ts' }, false],
+  ['webSearch', { maxResults: 10, query: 'ab' }, true],
+  ['webSearch', { query: 'a' }, false],
+  ['webSearch', { query: '🙂' }, false],
+  ['hybridSearch', { ftsWeight: Number.NaN, query: 'context' }, false],
+  ['hybridSearch', { ftsWeight: Number.POSITIVE_INFINITY, query: 'context' }, false],
+  ['webSearch', { query: 'a'.repeat(401) }, false],
+  ['webSearch', { maxResults: 11, query: 'ab' }, false],
+  ['webExtract', { urls: ['https://example.com'] }, true],
+  ['webExtract', { urls: [] }, false],
+  ['webExtract', { urls: new Array(6).fill('https://example.com') }, false],
+  ['webExtract', { urls: ['short'] }, false, ['urls', 0]],
+  ['lspInspect', { line: 1, match: 'symbol', path: 'src/a.ts' }, true],
+  ['lspInspect', { line: 0, match: 'symbol', path: 'src/a.ts' }, false],
+  ['lspInspect', { line: Number.MAX_SAFE_INTEGER + 1, match: 'symbol', path: 'src/a.ts' }, false],
+  ['readToolOutputArtifact', { cursor, maxBytes: 4 }, true],
+  ['readToolOutputArtifact', { cursor, maxBytes: 8000, pattern: 'a(b' }, true],
+  ['readToolOutputArtifact', { cursor, maxBytes: 3 }, false],
+  ['readToolOutputArtifact', { cursor, maxBytes: 8001 }, false],
+  ['readToolOutputArtifact', { cursor: 'malformed' }, false, ['cursor']],
+  ['readToolOutputArtifact', { cursor, isRegex: true }, false, ['isRegex']],
+  ['readToolOutputArtifact', { caseSensitive: false, cursor }, false, ['caseSensitive']],
+  ['readToolOutputArtifact', { cursor, isRegex: true, pattern: 'a(b' }, false, ['pattern']],
+] as const;
+
+function registeredSchema(name: string) {
+  const tool = NATIVE_TOOLS.find((entry) => entry.id === `brainstrike.${name}`);
+  if (!tool) {
+    throw new Error(`Missing tool: ${name}`);
+  }
+  return tool.inputSchema;
+}
+
+describe('registered search/artifact boundary parity', () => {
+  it.each(boundaryCases.map(([name, input, accepted, path]) => ({ accepted, input, name, path })))(
+    '$name boundary case $#',
+    ({ name, input, accepted, path }) => {
+      const result = validateToolInputValue(registeredSchema(name), input);
+      expect(result.success).toBe(accepted);
+      if (path && !result.success) {
+        expect(result.issues.map((issue) => issue.path)).toContainEqual(path);
+      }
+    }
+  );
+
+  it.each(boundaryCases.filter((entry) => entry[2]).map(([name, input]) => ({ input, name })))(
+    '$name rejects extra fields and normalizes optional provider nulls',
+    ({ name, input }) => {
+      const schema = registeredSchema(name);
+      expect(validateToolInputValue(schema, { ...input, unexpected: true }).success).toBe(false);
+      const json = toToolInputJsonSchema(schema, 'draft-07');
+      const required = json['required'] as string[];
+      const properties = json['properties'] as Record<string, unknown>;
+      const providerInput = {
+        ...input,
+        ...Object.fromEntries(
+          Object.keys(properties)
+            .filter((key) => !(required.includes(key) || key in input))
+            .map((key) => [key, null])
+        ),
+      };
+      expect(validateToolInputValue(schema, providerInput)).toEqual(
+        validateToolInputValue(schema, input)
+      );
+    }
+  );
+
+  it('keeps decoding defaults synchronous and fills absent or provider-null keys', () => {
+    const schema = effectToolInputSchema(
+      Schema.Struct({
+        maxChars: Schema.Int.annotate({ default: 6000 }).pipe(
+          Schema.withDecodingDefaultKey(Effect.succeed(6000))
+        ),
+      })
+    );
+    for (const input of [{}, { maxChars: null }]) {
+      const result = schema['~standard'].validate(input);
+      expect(result).not.toBeInstanceOf(Promise);
+      expect(result).toEqual({ value: { maxChars: 6000 } });
+    }
+    expect(toToolInputJsonSchema(schema, 'draft-07')).toMatchObject({
+      properties: { maxChars: { default: 6000 } },
+    });
+  });
+
+  it('retains the pinned Zod code-point bounds for astral strings', () => {
+    expect(
+      validateToolInputValue(registeredSchema('webSearch'), { query: '🙂'.repeat(400) }).success
+    ).toBe(true);
+    expect(
+      validateToolInputValue(registeredSchema('webSearch'), { query: '🙂'.repeat(401) }).success
+    ).toBe(false);
   });
 });

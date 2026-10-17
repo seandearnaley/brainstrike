@@ -7,6 +7,10 @@
  * @see retrieval-tool.ts for the DI pattern reference
  */
 
+import {
+  type EffectToolInputSchema,
+  effectToolInputSchema,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import type { QueryFileTreeInput } from './schemas';
 import { QueryFileTreeInputSchema } from './schemas';
 import { handleToolError, type ToolContext } from './types';
@@ -196,7 +200,7 @@ interface MastraTool {
   description: string;
   execute: (context: ToolContext<QueryFileTreeInput>) => Promise<QueryFileTreeToolResult>;
   id: string;
-  inputSchema: typeof QueryFileTreeInputSchema;
+  inputSchema: EffectToolInputSchema<QueryFileTreeInput>;
 }
 
 /**
@@ -227,7 +231,7 @@ export function createQueryFileTreeTool(deps: FileTreeToolDependencies): MastraT
       }
     },
     id: QUERY_FILE_TREE_TOOL_ID,
-    inputSchema: QueryFileTreeInputSchema,
+    inputSchema: effectToolInputSchema(QueryFileTreeInputSchema),
   };
 }
 

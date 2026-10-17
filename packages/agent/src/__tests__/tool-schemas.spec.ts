@@ -1,4 +1,5 @@
 import { getToolSchemaDisplay } from '@brainstrike/assistant-contract/tool-metadata';
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   GlobWorkspaceInputSchema,
@@ -99,19 +100,19 @@ describe('tool schemas', () => {
 
   it('preserves omitted and explicit root qualifiers for runtime scope resolution', () => {
     const rootSchemas = [
-      GlobWorkspaceInputSchema.shape.root,
-      GrepSearchInputSchema.shape.root,
-      HybridSearchInputSchema.shape.root,
-      QueryEmbeddingSpaceInputSchema.shape.root,
+      GlobWorkspaceInputSchema.fields.root,
+      GrepSearchInputSchema.fields.root,
+      HybridSearchInputSchema.fields.root,
+      QueryEmbeddingSpaceInputSchema.fields.root,
     ];
 
     // The owning runtime tests exercise thread-wide versus explicit-folder
     // resolution. Parsing must not turn omission into a selected folder.
     for (const schema of rootSchemas) {
-      expect(schema.parse(undefined)).toBeUndefined();
-      expect(schema.parse('bravo-root')).toBe('bravo-root');
-      expect(schema.safeParse(['bravo-root']).success).toBe(false);
-      expect(schema.safeParse(42).success).toBe(false);
+      expect(Schema.decodeSync(Schema.UndefinedOr(schema))(undefined)).toBeUndefined();
+      expect(Schema.decodeSync(schema)('bravo-root')).toBe('bravo-root');
+      expect(Schema.is(schema)(['bravo-root'])).toBe(false);
+      expect(Schema.is(schema)(42)).toBe(false);
     }
   });
 

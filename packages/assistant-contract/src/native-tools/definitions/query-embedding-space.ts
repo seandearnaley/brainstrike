@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { QueryEmbeddingSpaceInputSchema } from '../schemas/schemas-search.js';
 
 export const queryEmbeddingSpace = defineNativeTool({
@@ -26,7 +26,7 @@ export const queryEmbeddingSpace = defineNativeTool({
   },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.queryEmbeddingSpace',
-  inputSchema: providerCompatibleInputSchema(QueryEmbeddingSpaceInputSchema),
+  inputSchema: effectToolInputSchema(QueryEmbeddingSpaceInputSchema),
   kind: 'desktop',
   returns:
     'Packed semantic chunks with source line ranges, offsets, chunk metadata (incl. rootId/rootName), budget, and skipped counts',

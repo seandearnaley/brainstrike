@@ -7,7 +7,7 @@ converted. This is the order for the rest.
 
 Counts are exported `*Schema` constants in non-test source, measured at
 `58689c3fa`. Sizes are a review-cost signal, not a schedule. The catalog is on
-`effect` 4.0.4 GA; every API the derivation uses is tagged `@stability stable`.
+`effect` 4.0.5 GA; every API the derivation uses is tagged `@stability stable`.
 
 ## The rule each PR follows
 
@@ -18,27 +18,15 @@ converted boundary keeps the acceptance check its zod version had.
 
 ## String length bounds
 
-`Schema.isMinLength(n)` emits `minLength: Math.ceil(n / 2)`, not `n`:
-JavaScript counts UTF-16 code units and JSON Schema counts code points, so
-Effect advertises the tightest bound that cannot reject a string the check
-accepts. Sound, but it advertises half the real minimum, and a provider
-enforcing the advertised schema then accepts a value the host rejects — the
-error surfaces one hop later than it should.
+On the current Zod 4.6.7 pin, `.min()` and `.max()` count Unicode code
+points, matching JSON Schema. Convert string bounds with
+`Schema.isMinCodePoints(min)` and `Schema.isMaxCodePoints(max)` to preserve
+that acceptance. Arrays still use `isMinLength` / `isMaxLength`.
 
-So a converted string bound is `Schema.isMinCodePoints(min)` plus
-`Schema.isMaxLength(max)`:
-
-- `isMinCodePoints(n)` emits `minLength: n` exactly.
-- `isMaxLength(n)` emits `maxLength: n` exactly AND keeps zod's code-unit
-  counting; `isMaxCodePoints` would accept a long run of surrogate pairs that
-  the zod version rejected.
-
-Arrays are unaffected — `isMinLength` emits `minItems` exactly for them, and
-`isMinCodePoints` does not typecheck on an array.
-
-`isMinLength(1)` emits `1`, so this is invisible until a bound exceeds 1.
-`schemas-worktrees.ts` is all `min(1)` and needs no change; the gap first
-appeared on `queryDiagnostics`'s `since` / `until` (`min(20)`).
+Earlier conversions used `isMaxLength` to preserve the older Zod UTF-16
+behavior. Those declarations retain their existing contract; do not copy that
+rule into a new conversion without checking the installed source. E01 pins
+astral-string acceptance at both ends of the current string bounds.
 
 ## Order
 
@@ -55,8 +43,8 @@ provider paths follow without edits.
 | ~~`schemas-diagnostics.ts`~~ | 6 | **done.** First file with a string `min` above 1; see "String length bounds" |
 | ~~`schemas-tasks.ts`~~ | 3 of 5 | **inputs done.** The two resume schemas stay zod — see below |
 | ~~`exec-policy-domain.ts`~~ | 1 | **done**, with the file below and the seam's `execPolicySchema` |
-| `schemas-search.ts` | 9 | `.refine` only |
-| `schemas-artifacts.ts` | 4 | `.refine` + `.superRefine` → `Schema.makeFilter`; see `schemas-worktrees.ts` for forwarding a nested union's issues with their paths |
+| ~~`schemas-search.ts`~~ | 9 | **done.** Code-point string bounds, finite weights, safe integer line bounds and regex issue paths |
+| ~~`schemas-artifacts.ts`~~ | 4 | **done**, together with the internal artifact reader sharing its cursor/page grammar; filters retain field paths |
 | ~~`schemas-execution.ts`~~ | 5 | **done.** First converted action unions; see "A union's advertised keyword" and "Annotate before a custom filter" |
 | `schemas-workspace.ts` | 14 | **the risky one.** Largest file (459 lines), a discriminated union, `.refine` and `.superRefine`, and `readWorkspaceFile`'s cursor-vs-path exclusivity. Convert it last and alone. |
 

@@ -2,6 +2,7 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
+import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { decodedWorkspaceTextModelOutputChars as decodedChars } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import { NativeQueryEmbeddingSpaceInputSchema } from '../../assistant-server/native-retrieval-schemas';
@@ -162,7 +163,8 @@ describe('workspace retrieval model projections', () => {
   });
 
   it('offers only supported native refinements when semantic context is clipped', () => {
-    const input = NativeQueryEmbeddingSpaceInputSchema.parse({ limit: 10, query: 'marker' });
+    const input = { limit: 10, query: 'marker' };
+    expect(validateToolInputValue(NativeQueryEmbeddingSpaceInputSchema, input).success).toBe(true);
     const projected = projectQueryEmbeddingSpaceModelOutput(
       { ...semanticResult(), ...input, context: 'native evidence '.repeat(500) },
       2000
@@ -181,7 +183,8 @@ describe('workspace retrieval model projections', () => {
       { tokenBudget: 1000 },
     ]) {
       expect(
-        NativeQueryEmbeddingSpaceInputSchema.safeParse({ ...input, ...refinement }).success
+        validateToolInputValue(NativeQueryEmbeddingSpaceInputSchema, { ...input, ...refinement })
+          .success
       ).toBe(true);
     }
   });

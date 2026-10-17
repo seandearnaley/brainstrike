@@ -21,7 +21,7 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { assertSafeRegexSource } from '@brainstrike/utils';
-import { z } from 'zod';
+import { Schema, SchemaIssue } from 'effect';
 import {
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
@@ -36,77 +36,63 @@ import {
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
 
-const ToolOutputArtifactReferenceSchema = z
-  .object({
-    byteLength: z.number().int().nonnegative(),
-    expiresAt: z.string().min(1).max(64),
-    format: z.enum(['json', 'text']),
-    id: z
-      .string()
-      .min(1)
-      .max(128)
-      .regex(/^[A-Za-z0-9_-]+$/u),
-  })
-  .strict();
+const ToolOutputArtifactReferenceSchema = Schema.Struct({
+  byteLength: Schema.Int.check(
+    Schema.isGreaterThanOrEqualTo(0),
+    Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
+  ),
+  expiresAt: Schema.String.check(Schema.isMinCodePoints(1), Schema.isMaxCodePoints(64)),
+  format: Schema.Literals(['json', 'text']),
+  id: Schema.String.check(
+    Schema.isMinCodePoints(1),
+    Schema.isMaxCodePoints(128),
+    Schema.isPattern(/^[A-Za-z0-9_-]+$/u)
+  ),
+});
 
 export { type ReadToolOutputArtifactCursorInput, ReadToolOutputArtifactCursorInputSchema };
 
-export const ReadToolOutputArtifactInputSchema = z
-  .object({
-    artifactRef: ToolOutputArtifactReferenceSchema.optional(),
-    caseSensitive: z.boolean().optional(),
-    cursor: ArtifactCursorSchema.optional(),
-    isRegex: z.boolean().optional(),
-    maxBytes: ArtifactPageSizeSchema,
-    mode: z.enum(['artifact', 'cursor']),
-    pattern: ArtifactSearchPatternSchema.optional(),
-  })
-  .strict()
-  .superRefine((input, context) => {
+export const ReadToolOutputArtifactInputSchema = Schema.Struct({
+  artifactRef: Schema.optionalKey(ToolOutputArtifactReferenceSchema),
+  caseSensitive: Schema.optionalKey(Schema.Boolean),
+  cursor: Schema.optionalKey(ArtifactCursorSchema),
+  isRegex: Schema.optionalKey(Schema.Boolean),
+  maxBytes: ArtifactPageSizeSchema,
+  mode: Schema.Literals(['artifact', 'cursor']),
+  pattern: Schema.optionalKey(ArtifactSearchPatternSchema),
+}).check(
+  Schema.makeFilter((input) => {
+    const issues: Schema.FilterIssue[] = [];
+    const add = (field: string, message: string) => issues.push({ issue: message, path: [field] });
     if (input.mode === 'artifact') {
       if (!input.artifactRef) {
-        context.addIssue({
-          code: 'custom',
-          message: 'artifactRef is required in artifact mode.',
-          path: ['artifactRef'],
-        });
+        add('artifactRef', 'artifactRef is required in artifact mode.');
       }
       if (input.cursor !== undefined) {
-        context.addIssue({
-          code: 'custom',
-          message: 'cursor must be omitted in artifact mode.',
-          path: ['cursor'],
-        });
+        add('cursor', 'cursor must be omitted in artifact mode.');
       }
       for (const field of ['caseSensitive', 'isRegex', 'pattern'] as const) {
         if (input[field] !== undefined) {
-          context.addIssue({
-            code: 'custom',
-            message: `${field} must be omitted in artifact mode.`,
-            path: [field],
-          });
+          add(field, `${field} must be omitted in artifact mode.`);
         }
       }
-      return;
+      return issues;
     }
     if (!input.cursor) {
-      context.addIssue({
-        code: 'custom',
-        message: 'cursor is required in cursor mode.',
-        path: ['cursor'],
-      });
+      add('cursor', 'cursor is required in cursor mode.');
     }
     if (input.artifactRef !== undefined) {
-      context.addIssue({
-        code: 'custom',
-        message: 'artifactRef must be omitted in cursor mode.',
-        path: ['artifactRef'],
-      });
+      add('artifactRef', 'artifactRef must be omitted in cursor mode.');
     }
-    requireSearchPatternForFlags(input, context);
-  });
+    return [...issues, ...requireSearchPatternForFlags(input)];
+  })
+);
 
-export type ReadToolOutputArtifactInput = z.infer<typeof ReadToolOutputArtifactInputSchema>;
+export type ReadToolOutputArtifactInput = typeof ReadToolOutputArtifactInputSchema.Type;
+const decodeReadInput = Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, {
+  onExcessProperty: 'error',
+});
+const formatReadInputIssues = SchemaIssue.makeFormatterStandardSchemaV1();
 
 export type ScopedToolOutputArtifactRangeResult =
   | {
@@ -840,30 +826,32 @@ function validateFoundRange(args: {
 }
 
 function parseReadInput(unsafeInput: unknown): ReadToolOutputArtifactInput {
-  const parsed = ReadToolOutputArtifactInputSchema.safeParse(unsafeInput);
-  if (parsed.success) {
-    return parsed.data;
+  const parsed = decodeReadInput(unsafeInput);
+  if (parsed._tag === 'Success') {
+    return parsed.success;
   }
   const cursorInput =
     unsafeInput && typeof unsafeInput === 'object'
       ? (unsafeInput as { cursor?: unknown; mode?: unknown })
       : undefined;
   if (cursorInput?.mode === 'cursor' && !isToolOutputArtifactCursor(cursorInput.cursor)) {
-    throw new ToolOutputArtifactReadError('malformed_cursor', parsed.error);
+    throw new ToolOutputArtifactReadError('malformed_cursor', parsed.failure);
   }
   // Fail-fast regex validity (requireSearchPatternForFlags) surfaces here as
-  // a zod issue on the `pattern` path; name the pattern as the problem in
+  // a Schema issue on the `pattern` path; name the pattern as the problem in
   // the thrown message too, not just the generic invalid-input text, so it
   // is never indistinguishable from a bad cursor/other field.
-  const patternIssue = parsed.error.issues.find((issue) => issue.path[0] === 'pattern');
+  const patternIssue = formatReadInputIssues(parsed.failure.issue).issues.find(
+    (issue) => issue.path?.[0] === 'pattern'
+  );
   if (patternIssue) {
     throw new ToolOutputArtifactReadError(
       'invalid_search_pattern',
-      parsed.error,
+      parsed.failure,
       `The tool output artifact search pattern is invalid: ${patternIssue.message}`
     );
   }
-  throw new ToolOutputArtifactReadError('invalid_input', parsed.error);
+  throw new ToolOutputArtifactReadError('invalid_input', parsed.failure);
 }
 
 function resolveReadPosition(input: ReadToolOutputArtifactInput): {
