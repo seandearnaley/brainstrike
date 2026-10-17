@@ -2,7 +2,6 @@ import type {
   CanonicalOperationContext,
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
-import type { BrainstrikePglite } from '@brainstrike/db/pglite-factory';
 import type {
   IndexerSearchRequest,
   IndexerSearchResult,
@@ -31,7 +30,7 @@ export interface NodeNativeTextDependencies {
     context: CanonicalOperationContext,
     work: (borrow: NodeNativeTextBorrow) => Promise<T>
   ): Promise<T>;
-  readonly workspace: NodeWorkspaceServices<BrainstrikePglite>;
+  readonly workspace: NodeWorkspaceServices<unknown>;
 }
 
 export interface NodeNativeTextServices {

@@ -21,8 +21,6 @@ const decodeReport = makeThrowingDecoder(
     first: resultSchema,
     nativePid: Schema.Int,
     nativeStart: Schema.String,
-    pgPid: Schema.Int,
-    pgStart: Schema.String,
     result: resultSchema,
     retained: Schema.Boolean,
   }),
@@ -36,7 +34,6 @@ beforeAll(async () => {
     absWorkingDir: resolve('.'),
     bundle: true,
     entryPoints: {
-      'db-host-entry': 'src/db-host-entry.ts',
       driver: 'src/__tests__/fixtures/desktop-reset-lease-electron.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',
     },
@@ -92,17 +89,13 @@ async function run(mode: string) {
 
 describe('real Electron desktop reset lease adapter', () => {
   it.each(['success', 'storage-failure'])(
-    'joins actual legacy/native utilities and protects profile ancestry through %s',
+    'joins the actual native utility and protects profile ancestry through %s',
     async (mode) => {
       const { profile, report } = await run(mode);
       expect(report.result).toEqual({ success: true });
-      expect(report.events.indexOf('legacy-joined')).toBeLessThan(
-        report.events.indexOf('native-stop')
-      );
       expect(report.events.indexOf('native-stop')).toBeLessThan(report.events.indexOf('guard'));
       expect(report.events.indexOf('profile')).toBeLessThan(report.events.indexOf('storage'));
       expect(report.events.indexOf('storage')).toBeLessThan(report.events.indexOf('renderer'));
-      expect(processStartTime(report.pgPid)).not.toBe(report.pgStart);
       expect(processStartTime(report.nativePid)).not.toBe(report.nativeStart);
       expect(RootLock.inspect(profile)?.owner.released).toBe(true);
       if (mode === 'storage-failure') {

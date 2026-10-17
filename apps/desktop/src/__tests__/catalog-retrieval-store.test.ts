@@ -1,11 +1,6 @@
-import { expect, test, vi } from 'vitest';
+import { expect, test } from 'vitest';
 import { createCatalogRetrievalStore } from '../assistant-server/retrieval-store-catalog';
 
-vi.mock('../db-main', () => ({
-  getDatabase: () => {
-    throw new Error('PGlite is unavailable');
-  },
-}));
 const collection = {
   createdAt: '2026-10-13T20:00:00Z',
   dimensions: 384,

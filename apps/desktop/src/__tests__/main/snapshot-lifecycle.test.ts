@@ -5,7 +5,6 @@ import { startSnapshotStartupMaintenance } from '../../main/snapshot-lifecycle';
 const mocks = vi.hoisted(() => ({
   createRepository: vi.fn(),
   gc: vi.fn(),
-  reap: vi.fn(),
 }));
 
 vi.mock('../../assistant-server/snapshot-repository', () => ({
@@ -13,9 +12,6 @@ vi.mock('../../assistant-server/snapshot-repository', () => ({
 }));
 vi.mock('../../assistant-server/snapshot-startup-gc', () => ({
   runSnapshotStartupGc: mocks.gc,
-}));
-vi.mock('../../assistant-server/thread-run-startup-reaper', () => ({
-  reapOrphanedThreadRuns: mocks.reap,
 }));
 
 const readHostThreadRows = async () => [];
@@ -38,10 +34,6 @@ function setup() {
   };
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   mocks.createRepository.mockReturnValue({});
-  mocks.reap.mockImplementation(async () => {
-    events.push('reap');
-    return { reaped: [], reapedBackgroundTaskIds: [] };
-  });
   mocks.gc.mockImplementation(async () => {
     events.push('gc');
     return {
@@ -74,7 +66,6 @@ describe('snapshot startup lifecycle', () => {
     expect(returned).toBeUndefined();
     expect(mocks.gc).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(events).toEqual(['roots', 'sweep', 'gc']));
-    expect(mocks.reap).not.toHaveBeenCalled();
     expect(workspaceRoots.workspaceRoots).toHaveBeenCalledWith({ operation: 'list' });
     expect(service.sweepOrphans).toHaveBeenCalledWith(snapshotsBaseDir, ['root-1']);
     expect(mocks.gc).toHaveBeenCalledWith({
@@ -89,22 +80,6 @@ describe('snapshot startup lifecycle', () => {
       'Workspace snapshot startup GC completed',
       expect.objectContaining({ failures: 0 })
     );
-  });
-
-  it('does not invoke retired database reaping during host-owned maintenance', async () => {
-    const { workspaceRoots, events, logger, service } = setup();
-    mocks.reap.mockRejectedValue(new Error('retired database owner'));
-    startSnapshotStartupMaintenance({
-      logger,
-      readHostThreadIds,
-      readHostThreadRows,
-      snapshotService: service,
-      snapshotsBaseDir,
-      workspaceRoots: workspaceRoots as never,
-    });
-    await vi.waitFor(() => expect(events).toEqual(['roots', 'sweep', 'gc']));
-    expect(mocks.reap).not.toHaveBeenCalled();
-    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it('reports GC item failures without stopping the summary', async () => {

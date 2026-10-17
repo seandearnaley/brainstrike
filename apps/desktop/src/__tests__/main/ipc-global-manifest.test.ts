@@ -227,36 +227,6 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-const { getDatabaseMock } = vi.hoisted(() => ({ getDatabaseMock: vi.fn() }));
-vi.mock('../../db-main', async () => {
-  const actual = await vi.importActual<typeof import('../../db-main')>('../../db-main');
-  return { ...actual, getDatabase: getDatabaseMock };
-});
-
-const { probeMock } = vi.hoisted(() => ({
-  probeMock: vi.fn(async () => ({
-    hnswIndexBuild: true,
-    maintenanceSettings: { maintenanceWorkMem: null, maxParallelMaintenanceWorkers: null },
-    progressReporting: true,
-  })),
-}));
-vi.mock('../../dimension-index-maintenance-capabilities', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../dimension-index-maintenance-capabilities')
-  >('../../dimension-index-maintenance-capabilities');
-  return { ...actual, probeDimensionIndexRuntimeCapabilities: probeMock };
-});
-
-vi.mock('../../database-maintenance-scheduler', () => ({
-  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
-}));
-vi.mock('../../dimension-index-maintenance-scheduler', () => ({
-  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-  })),
-}));
-
 // ---- contract + manifest discovery ----
 
 const CONTRACT_MODULES = import.meta.glob<Record<string, unknown>>(
@@ -293,14 +263,6 @@ function discoverContracts(): DiscoveredContract[] {
   for (const [file, module] of Object.entries(CONTRACT_MODULES)) {
     for (const [exportName, value] of Object.entries(module)) {
       if (isContract(value)) {
-        // Database query/live/integrity protocols are retired on desktop; the
-        // profile-path contract remains public. Assert their absence separately.
-        if (
-          path.basename(file) === 'database.contract.ts' &&
-          exportName !== 'databasePathContract'
-        ) {
-          continue;
-        }
         discovered.push({ contract: value, exportName, file: path.basename(file) });
       }
     }
@@ -336,7 +298,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       return new Promise<never>(() => undefined);
     });
     mockWindowCount = 0;
-    getDatabaseMock.mockResolvedValue({});
     process.env['CI'] = 'false';
     process.argv = ['/node_modules/electron/dist/electron', '/mock/app'];
 
@@ -387,11 +348,12 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
 
   it('does not register retired SQL, queue or integrity invokes', () => {
     const retired = new Set<string>([
-      DESKTOP_IPC_CHANNELS.db.query,
-      DESKTOP_IPC_CHANNELS.db.exec,
-      DESKTOP_IPC_CHANNELS.db.liveQueryStart,
-      DESKTOP_IPC_CHANNELS.db.liveQueryStop,
-      DESKTOP_IPC_CHANNELS.db.integrityState,
+      // The retired desktop PGlite bridge (BST-2068): its channels left the catalog too.
+      'db:query',
+      'db:exec',
+      'db:live-query:start',
+      'db:live-query:stop',
+      'db:integrity:state',
       // The retired embedding backfill bridge (BST-2023): neither side may return.
       'embedding-host:enqueue-backfill',
       'embedding-host:cancel-backfill',

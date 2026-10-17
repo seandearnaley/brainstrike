@@ -19,6 +19,10 @@ import {
   ModernOnlyOfficialAuthScenarioNameSchema,
   type OfficialAuthScenarioName,
 } from './official-conformance-oauth';
+import {
+  createEphemeralConformanceTaskStore,
+  type EphemeralConformanceTaskStore,
+} from './official-conformance-task-store';
 
 const CONFORMANCE_SERVER_ID = parseConfiguredMcpServerId('official-conformance');
 const OfficialCustomHeaderContextSchema = Schema.Struct({
@@ -379,6 +383,7 @@ function composeProductionRuntime(
   config: ResolvedMcpConfig;
   oauthDependencies: ReturnType<typeof createEphemeralOfficialConformanceOAuthRuntime> | undefined;
   runtime: ProductionConformanceClientRuntime;
+  taskStore: EphemeralConformanceTaskStore;
 } {
   const authScenario = isOfficialAuthScenario(parsed.scenario) ? parsed.scenario : undefined;
   const oauthDependencies = authScenario
@@ -403,14 +408,16 @@ function composeProductionRuntime(
       ],
     })
   );
+  const taskStore = createEphemeralConformanceTaskStore();
   const runtimeDependencies = {
     ...oauthDependencies,
+    openTaskStorage: taskStore.open,
     resolveClientCapabilities: () => clientCapabilitiesForScenario(parsed.scenario),
   } satisfies DesktopMcpHostRuntimeDependencies;
   const runtime =
     dependencies.createRuntime?.(runtimeDependencies) ??
     createDesktopMcpHostRuntime(runtimeDependencies);
-  return { authScenario, config, oauthDependencies, runtime };
+  return { authScenario, config, oauthDependencies, runtime, taskStore };
 }
 
 async function executeProductionScenario(
@@ -467,6 +474,7 @@ async function executeProductionScenario(
 async function collectCleanupFailures(
   runtime: ProductionConformanceClientRuntime,
   oauthDependencies: ReturnType<typeof createEphemeralOfficialConformanceOAuthRuntime> | undefined,
+  taskStore: EphemeralConformanceTaskStore,
   failures: unknown[]
 ): Promise<void> {
   try {
@@ -476,6 +484,14 @@ async function collectCleanupFailures(
     }
   } catch (error) {
     failures.push(error);
+  }
+  // The runtime's task host closes first; its store's root goes after.
+  try {
+    await taskStore.close();
+  } catch (error) {
+    failures.push(
+      new Error('Production MCP conformance Tasks store cleanup failed', { cause: error })
+    );
   }
   if (!oauthDependencies) {
     return;
@@ -497,7 +513,7 @@ export async function runProductionMcpConformanceClient(
     errors: 'all',
     onExcessProperty: 'error',
   })(input);
-  const { authScenario, config, oauthDependencies, runtime } = composeProductionRuntime(
+  const { authScenario, config, oauthDependencies, runtime, taskStore } = composeProductionRuntime(
     parsed,
     dependencies
   );
@@ -507,7 +523,7 @@ export async function runProductionMcpConformanceClient(
   } catch (error) {
     failures.push(error);
   }
-  await collectCleanupFailures(runtime, oauthDependencies, failures);
+  await collectCleanupFailures(runtime, oauthDependencies, taskStore, failures);
   if (failures.length === 1) {
     throw failures[0];
   }

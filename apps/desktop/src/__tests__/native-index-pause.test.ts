@@ -37,11 +37,6 @@ const mocks = vi.hoisted(() => ({
   readyHost: vi.fn(),
   readyPort: vi.fn(),
 }));
-vi.mock('../db-main', () => ({
-  getDatabase: async () => {
-    throw new Error('Retired PG owner is unavailable.');
-  },
-}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));

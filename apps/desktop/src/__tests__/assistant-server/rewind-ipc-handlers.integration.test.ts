@@ -8,13 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import type { HostParams } from '@brainstrike/agent-host/protocol';
 import type { ReadyRewindPreview } from '@brainstrike/app-shell/changes';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(() => {
-    throw new Error('PGlite is unavailable in host rewind tests');
-  }),
-}));
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   cleanHostFixtures,

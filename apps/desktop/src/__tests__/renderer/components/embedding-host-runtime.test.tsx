@@ -11,7 +11,6 @@ import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-hos
 import {
   commandListenerRef,
   createEmbeddingCacheRepositoryMock,
-  dbHandle,
   detectDeviceCapabilitiesMock,
   disposeQueryEmbeddingServiceMock,
   ensureVectorPreferencesHydratedMock,
@@ -116,7 +115,6 @@ describe('EmbeddingHostRuntime', () => {
   it('never constructs a PGlite embedding cache for native readiness', async () => {
     await mountReady();
     expect(createEmbeddingCacheRepositoryMock).not.toHaveBeenCalled();
-    expect(dbHandle.query).not.toHaveBeenCalled();
     expect(readModelCatalogMock).not.toHaveBeenCalled();
   });
 
@@ -673,7 +671,6 @@ describe('EmbeddingHostRuntime', () => {
       'webgpu'
     );
     expect(readModelCatalogMock).toHaveBeenCalledOnce();
-    expect(dbHandle.query).not.toHaveBeenCalled();
     expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledWith({ forceReload: true });
     expect(reportStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -809,7 +806,6 @@ describe('native pinned hidden renderer query', () => {
     if (!listener) {
       throw new Error('Missing query listener');
     }
-    dbHandle.query.mockClear();
     ensureVectorPreferencesHydratedMock.mockClear();
     return listener;
   }
@@ -858,7 +854,6 @@ describe('native pinned hidden renderer query', () => {
       })
     );
     expect(initializeWithModelMock).not.toHaveBeenCalled();
-    expect(dbHandle.query).not.toHaveBeenCalled();
     expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
     listener(request(plan, 'pinned-2'));
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));

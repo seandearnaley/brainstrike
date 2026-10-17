@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { calculateRRFContribution, RRF_K_DEFAULT } from '@brainstrike/db';
+import { calculateRRFContribution, RRF_K_DEFAULT } from '@brainstrike/utils/rrf';
 import { Schema } from 'effect';
 import { aggregateMetrics, evaluateTestCase } from './metrics';
 import type { AggregateMetrics, TestCaseResult } from './types';

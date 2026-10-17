@@ -1,14 +1,11 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import {
-  type McpTaskAuthorityLease,
-  type McpTaskRecord,
-  McpTaskRepository,
-  MigrationRunner,
-  migrations,
-  wasmLoader,
-} from '@brainstrike/db';
+import type {
+  McpTaskAuthorityLease,
+  McpTaskRecord,
+} from '@brainstrike/assistant-contract/mcp-task-store';
+import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
 import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';

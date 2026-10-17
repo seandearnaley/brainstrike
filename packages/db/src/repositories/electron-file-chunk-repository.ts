@@ -1,3 +1,4 @@
+import type { GrepCandidate, GrepCandidateOptions } from '@brainstrike/utils/grep-search';
 import { runAtomicStatements } from '../atomic-transaction.js';
 import type {
   ChunkSearchOptions,
@@ -6,7 +7,6 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../models/file-chunk';
-import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,

@@ -32,7 +32,7 @@ import type {
   ResolvedMcpServer,
 } from '@brainstrike/assistant-contract/mcp-config';
 import { applyMcpExtensionPreferences } from '@brainstrike/assistant-contract/mcp-config';
-import type { McpTaskStorage } from '@brainstrike/db';
+import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';

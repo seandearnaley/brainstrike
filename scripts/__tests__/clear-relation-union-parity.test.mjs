@@ -5,8 +5,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Pins both clear/reset relation unions to their REGISTRY-DERIVED shape
- * (BST-992).
+ * Pins the renderer clear/reset relation union to its REGISTRY-DERIVED shape
+ * (BST-992). The desktop union left with desktop PGlite (BST-2068).
  *
  * HISTORY: this guard originally diffed two hand-maintained literal unions
  * (`OptionalRelationTable` desktop-side, `ClearableRelation` renderer-side)
@@ -38,7 +38,6 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-const DESKTOP_SOURCE = path.join(repoRoot, 'apps/desktop/src/ipc-domains/db-reset-relation.ts');
 const RENDERER_SOURCE = path.join(repoRoot, 'packages/db/src/pglite-direct-transport.ts');
 const REGISTRY_SOURCE = path.join(repoRoot, 'packages/db/src/reset-table-registry.ts');
 
@@ -66,42 +65,16 @@ test('the renderer union is the registry union, not a hand-enumerated list', () 
   );
 });
 
-test('the desktop union is the registry union minus the two bare-DELETE tables', () => {
-  assert.equal(
-    readDeclaration(DESKTOP_SOURCE, 'OptionalRelationTable'),
-    'Exclude<ResetTable, BareDeletedTable>',
-    'OptionalRelationTable must stay derived from the reset-table registry (BST-992). ' +
-      'file_chunks/file_records are the only legitimate exclusions: desktop counts and ' +
-      'bare-DELETEs them (never probed, never legitimately absent). Any other divergence ' +
-      'belongs in the registry, not here.'
-  );
-  // `Exclude` fails open (a renamed registry member silently stops being
-  // excluded), so the excluded names must flow through the constrained
-  // `RegisteredBareDeleted<T extends ResetTable>` alias, which turns that
-  // silent widening into a compile error (review #2155).
-  assert.equal(
-    readDeclaration(DESKTOP_SOURCE, 'BareDeletedTable'),
-    "RegisteredBareDeleted<'file_chunks' | 'file_records'>",
-    'BareDeletedTable must keep naming its two literals through RegisteredBareDeleted so ' +
-      'a registry rename is a type error, not a silently widened probe union.'
-  );
-});
-
-test('both sides import ResetTable from the registry', () => {
+test('the renderer imports ResetTable from the registry', () => {
   assert.match(
     readSource(RENDERER_SOURCE),
     /import type \{ FactoryResetOnlyTable, ResetTable \} from '\.\/reset-table-registry\.js'/u,
     'pglite-direct-transport.ts must import ResetTable from ./reset-table-registry.js ' +
       '(relative — a package must never import its own barrel).'
   );
-  assert.match(
-    readSource(DESKTOP_SOURCE),
-    /import type \{ ResetTable \} from '@brainstrike\/db'/u,
-    "db-reset-relation.ts must type-import ResetTable (via '@brainstrike/db')."
-  );
 });
 
-test('the probe helpers still take the closed union, never string', () => {
+test('the probe helper still takes the closed union, never string', () => {
   // The whole point of the closed union: with to_regclass a stale name is a
   // permanent silent skip, so a `string` parameter would let any caller
   // reintroduce that hazard invisibly.
@@ -109,11 +82,6 @@ test('the probe helpers still take the closed union, never string', () => {
     readSource(RENDERER_SOURCE),
     /table: ClearableRelation/u,
     'clearRelationIfPresent must keep its ClearableRelation parameter.'
-  );
-  assert.match(
-    readSource(DESKTOP_SOURCE),
-    /tableName: OptionalRelationTable/u,
-    'clearOptionalRelation must keep its OptionalRelationTable parameter.'
   );
 });
 

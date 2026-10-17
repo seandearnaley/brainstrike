@@ -9,11 +9,6 @@ const host = vi.hoisted(() => ({
   readTools: vi.fn(async (): Promise<Record<string, { enabled: boolean; id: string }[]>> => ({})),
   ready: false,
 }));
-vi.mock('../../db-main', () => ({
-  getDatabase: async () => {
-    throw new Error('PG forbidden');
-  },
-}));
 vi.mock('../../mcp/main-host-control', () => ({
   getMainMcpHostControl: () => ({ readTools: host.readTools }),
 }));

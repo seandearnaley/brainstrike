@@ -1,11 +1,11 @@
 /** The current native index supplies candidates; the existing grep service owns line matching. */
 import { refusalError } from '@brainstrike/assistant-contract';
-import { GrepSearchService } from '@brainstrike/db';
 import {
   type IndexSearchCapability,
   indexerStatusFailure,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { isWorkspaceSecretFile } from '@brainstrike/utils';
+import { GrepSearchService } from '@brainstrike/utils/grep-search';
 import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 
 function hasNoConfiguredIndex(

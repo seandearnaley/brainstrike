@@ -8,10 +8,6 @@ import {
   type DesktopShutdownStepRun,
 } from '../../main/desktop-graceful-shutdown';
 
-vi.mock('../../db-main', () => {
-  throw new Error('Process observations must not acquire PostgreSQL');
-});
-
 function createObservation() {
   const target = Object.create(WebAssembly) as typeof WebAssembly;
   const counter = installWebAssemblyCounter(target);

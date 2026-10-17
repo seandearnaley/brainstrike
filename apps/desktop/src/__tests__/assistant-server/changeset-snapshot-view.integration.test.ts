@@ -1,13 +1,7 @@
 // @vitest-environment node
 /** Host-owned Changes: real committed snapshots, two Git roots and one plain root. */
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(() => {
-    throw new Error('PGlite is unavailable in host snapshot tests');
-  }),
-}));
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { FAILED_SNAPSHOT_CAPTURE_OID } from '../../assistant-server/snapshot-repository';
 import {

@@ -6,12 +6,12 @@
  * and line range (`chunkId`, `chunkStartLine`, `chunkEndLine`).
  */
 
+import { createGrepSearchService } from '@brainstrike/utils/grep-search';
 import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DrizzleFileChunkRepository } from '../src/repositories/drizzle/file-chunk-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
-import { createGrepSearchService } from '../src/search/grep-search-service.js';
 import { createHybridSearchService } from '../src/search/hybrid-search-service.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 

@@ -28,7 +28,6 @@ import {
 import { mockIpcMain, resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
 
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
-vi.mock('../../db-main', () => ({ getDatabase: vi.fn() }));
 
 /**
  * BST-1641: every channel these registrars own must be sender-authorized

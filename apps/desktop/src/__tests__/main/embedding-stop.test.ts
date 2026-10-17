@@ -1,7 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   applicationDomainCapture,
-  getDatabaseMock,
   installMainBootFixture,
   nativeActualPrepareForPause,
   nativePrepareForPause,
@@ -104,7 +103,6 @@ describe('Main public embedding Stop', () => {
   it.each(['none', 'native', 'host', 'both'] as const)(
     'starts public Stop after saved Pause admission, before its FIFO physical join; failure=%s',
     async (failure) => {
-      getDatabaseMock.mockResolvedValue({});
       const physical = Promise.withResolvers<void>();
       const host =
         Promise.withResolvers<import('../../embedding-host-shared').EmbeddingHostStatus>();
@@ -184,7 +182,6 @@ describe('Main public embedding Stop', () => {
   );
 
   it('returns an unpaused public Stop after its physical host join without waiting for unrelated native work', async () => {
-    getDatabaseMock.mockResolvedValue({});
     const held = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     nativeReconfigureForReset.current = () => {
@@ -218,7 +215,6 @@ describe('Main public embedding Stop', () => {
   });
 
   it('does not start raw Stop when native preparation refuses terminal admission', async () => {
-    getDatabaseMock.mockResolvedValue({});
     const refusal = new Error('Terminal native admission refused');
     nativePrepareForPause.mockRejectedValue(refusal);
     const { EmbeddingHostManager } = await import('../../embedding-host-manager');

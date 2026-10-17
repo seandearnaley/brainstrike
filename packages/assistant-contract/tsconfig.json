@@ -40,6 +40,9 @@
   ],
   "references": [
     {
+      "path": "../effect-kit"
+    },
+    {
       "path": "../logging"
     },
     {

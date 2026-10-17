@@ -2,6 +2,26 @@
  * Search utilities for hybrid search with RRF fusion
  */
 
+export { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
+// Grep pattern utilities
+export {
+  escapeLikeLiteral,
+  extractTrigramLiteral,
+  MIN_TRIGRAM_LITERAL_LENGTH,
+} from '@brainstrike/utils/grep-pattern';
+// Grep Search Service
+export {
+  collectGrepMatchesInContent,
+  createGrepSearchService,
+  GREP_DEFAULT_CANDIDATE_LIMIT,
+  GREP_DEFAULT_CONTEXT_LINES,
+  GREP_DEFAULT_MAX_RESULTS,
+  type GrepMatch,
+  type GrepSearchOptions,
+  type GrepSearchRepository,
+  type GrepSearchResult,
+  GrepSearchService,
+} from '@brainstrike/utils/grep-search';
 // RRF Algorithm
 export {
   // Core RRF functions
@@ -19,27 +39,6 @@ export {
   type RRFContribution,
   type RRFOptions,
 } from '@brainstrike/utils/rrf';
-// Grep pattern utilities
-export {
-  escapeLikeLiteral,
-  extractTrigramLiteral,
-  MIN_TRIGRAM_LITERAL_LENGTH,
-} from './grep-pattern.js';
-// Grep Search Service
-export {
-  collectGrepMatchesInContent,
-  createGrepLineMatcher,
-  createGrepSearchService,
-  GREP_DEFAULT_CANDIDATE_LIMIT,
-  GREP_DEFAULT_CONTEXT_LINES,
-  GREP_DEFAULT_MAX_RESULTS,
-  type GrepMatch,
-  type GrepSearchOptions,
-  type GrepSearchRepository,
-  type GrepSearchResult,
-  GrepSearchService,
-  type LineMatcher,
-} from './grep-search-service.js';
 // Hybrid Search Service
 export {
   createHybridSearchService,

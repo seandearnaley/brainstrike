@@ -188,8 +188,9 @@ export interface DatabaseCorruptionSignal {
 }
 
 /**
- * Where an integrity error was observed. The `db:*` members are exactly the
- * `DESKTOP_IPC_CHANNELS.db` channel strings; the rest name main-process owners.
+ * Where an integrity error was observed. The `db:*` members name the channels
+ * of the retired desktop PGlite bridge (BST-2068), which no longer produces
+ * snapshots; the rest name main-process owners.
  */
 export type DatabaseIntegrityContext =
   | 'assistant:reindex'
