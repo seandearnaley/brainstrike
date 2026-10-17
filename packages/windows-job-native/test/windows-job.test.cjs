@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const windowsJob = require('..');
+const { processObserverSource } = require('./command-job-fixture.cjs');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -226,49 +227,6 @@ function inbox(child, stdout = false) {
   };
 }
 
-const processObserverSource = `
-param([string]$ProcessIds)
-$ErrorActionPreference='Stop'
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class DrainProof {
- [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
- [DllImport("kernel32.dll", SetLastError=true)] public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
- [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GetProcessTimes(IntPtr handle, out long creation, out long exit, out long kernel, out long user);
- [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GetExitCodeProcess(IntPtr handle, out uint code);
- [DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr handle);
- [DllImport("advapi32.dll", SetLastError=true)] public static extern bool SetKernelObjectSecurity(IntPtr handle, uint information, byte[] descriptor);
-}
-'@
-$handles=@();$identities=@()
-try {
- foreach($targetId in $ProcessIds.Split(',')) {
-  $handle=[DrainProof]::OpenProcess(0x141000,$false,[uint32]$targetId)
-  if($handle -eq [IntPtr]::Zero){throw 'Cannot pin owned process'}
-  $handles+=,$handle
-  [long]$creation=0;[long]$exit=0;[long]$kernel=0;[long]$user=0
-  if(![DrainProof]::GetProcessTimes($handle,[ref]$creation,[ref]$exit,[ref]$kernel,[ref]$user)){throw 'Cannot read pinned creation time'}
-  $identities+=@{pid=[int]$targetId;start=$creation.ToString()}
- }
- [Console]::WriteLine((@{event='pinned';identities=$identities} | ConvertTo-Json -Compress -Depth 4))
- while($null -ne ($line=[Console]::ReadLine())) {
-  if($line -eq 'release'){break}
-  if($line -eq 'deny'){
-   $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new('D:(D;;0x1;;;WD)(A;;GA;;;WD)')
-   $bytes=[byte[]]::new($descriptor.BinaryLength);$descriptor.GetBinaryForm($bytes,0)
-   if(![DrainProof]::SetKernelObjectSecurity($handles[0],4,$bytes)){throw 'Cannot set owned member DACL'}
-   [Console]::WriteLine((@{event='denied';identities=$identities} | ConvertTo-Json -Compress -Depth 4))
-   continue
-  }
-  if($line -notin @('check','join')){throw 'Unexpected observer command'}
-  $waits=@(foreach($handle in $handles){[DrainProof]::WaitForSingleObject($handle,$(if($line -eq 'join'){5000}else{0}))})
-  $codes=@(foreach($handle in $handles){[uint32]$code=0;if(![DrainProof]::GetExitCodeProcess($handle,[ref]$code)){throw 'Cannot read pinned exit code'};$code})
-  [Console]::WriteLine((@{event=$line;waits=$waits;codes=$codes;identities=$identities} | ConvertTo-Json -Compress -Depth 4))
- }
-} finally { foreach($handle in $handles){[void][DrainProof]::CloseHandle($handle)} }
-`;
-
 async function drainFixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-windows-job-drain-'));
   const guards = [];
@@ -366,14 +324,16 @@ const job = require(${JSON.stringify(path.resolve(__dirname, '..'))});
   };
 }
 
+// One settlement event per drain, so a test that expects one outcome sees the
+// other outcome and its message instead of timing out on a missing event.
 const drainCommands = `
 process.on('message', async ({ exitCode }) => {
+ const pending = job.drainOtherProcesses(exitCode);
  try {
-  const pending = job.drainOtherProcesses(exitCode);
   const value = await pending;
-  process.send({ event: 'drained', valueIsUndefined: value === undefined, isPromise: pending instanceof Promise, count: job.activeProcessCount() });
+  process.send({ event: 'settled', outcome: 'drained', valueIsUndefined: value === undefined, isPromise: pending instanceof Promise, count: job.activeProcessCount() });
  } catch(error) {
-  process.send({ event: 'rejected', message: error.message, count: job.activeProcessCount() });
+  process.send({ event: 'settled', outcome: 'rejected', message: error.message, count: job.activeProcessCount() });
  }
 });
 `;
@@ -440,10 +400,11 @@ ${drainCommands}
   assert.equal(ready.count, 4);
   const observer = await fixture.observe(ready.pids);
   guard.child.send({ exitCode: 259 });
-  assert.deepEqual(await guard.wait('drained'), {
+  assert.deepEqual(await guard.wait('settled'), {
     count: 1,
-    event: 'drained',
+    event: 'settled',
     isPromise: true,
+    outcome: 'drained',
     valueIsUndefined: true,
   });
   observer.child.stdin.write('check\n');
@@ -474,7 +435,23 @@ ${drainCommands}
   assert.equal(ready.count, 2);
   const observer = await fixture.observe(ready.pids);
   guard.child.send({ exitCode: 91 });
-  assert.equal((await guard.wait('drained')).count, 1);
+  let settled;
+  try {
+    settled = await guard.wait('settled');
+  } catch (error) {
+    // An unsettled drain is a product hang, not a slow runner. Record whether
+    // the pinned orphan was terminated so the failure names the stuck step.
+    observer.child.stdin.write('check\n');
+    const { codes, waits } = await observer.wait('check');
+    throw new Error(`${error.message} Orphan: ${JSON.stringify({ codes, waits })}`, {
+      cause: error,
+    });
+  }
+  const { count, message, outcome } = settled;
+  assert.deepEqual(
+    { count, message, outcome },
+    { count: 1, message: undefined, outcome: 'drained' }
+  );
   observer.child.stdin.write('check\n');
   const checked = await observer.wait('check');
   assert.deepEqual(checked.waits, [0]);
@@ -485,9 +462,11 @@ test('drain rejects denied cleanup while the guard and contained member remain p
   skip: process.platform !== 'win32',
 }, async (t) => {
   const fixture = await drainFixture(t);
-  // This changes only the disposable member's own process DACL. It neither
-  // changes a global policy nor asks for elevation/debug privileges. The
-  // existing kill-on-close Job still owns final fixture cleanup.
+  // This changes only the disposable member's own process DACL and removes
+  // SeDebugPrivilege from the disposable guard's token, which would otherwise
+  // bypass that DACL on an elevated runner. It neither changes a global policy
+  // nor asks for elevation. The existing kill-on-close Job still owns final
+  // fixture cleanup.
   const guard = fixture.guard(`
 const {spawn}=require('node:child_process');
 job.initialize();
@@ -499,12 +478,16 @@ ${drainCommands}
   const ready = await guard.wait('ready');
   assert.equal(ready.count, 2);
   const observer = await fixture.observe(ready.pids);
-  observer.child.stdin.write('deny\n');
+  observer.child.stdin.write('deny 0x1\n');
   await observer.wait('denied');
+  observer.child.stdin.write(`restrict ${guard.child.pid}\n`);
+  t.diagnostic(JSON.stringify(await observer.wait('restricted')));
   guard.child.send({ exitCode: 91 });
-  const rejected = await guard.wait('rejected');
-  assert.match(rejected.message, /OpenProcess failed with Windows error 5/);
-  assert.equal(rejected.count, 2);
+  const { count, message, outcome } = await guard.wait('settled');
+  assert.deepEqual(
+    { count, message, outcome },
+    { count: 2, message: 'OpenProcess failed with Windows error 5.', outcome: 'rejected' }
+  );
   observer.child.stdin.write('check\n');
   assert.deepEqual((await observer.wait('check')).waits, [258]);
   assert.doesNotThrow(() => process.kill(guard.child.pid, 0));
