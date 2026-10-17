@@ -114,6 +114,9 @@ export function createStateIndexOwner(options: {
 }): StateIndexOwner {
   let state: WorkerState = { kind: 'idle' };
   let advancing: Promise<Live> | undefined;
+  /** Set by the first close, for good: nothing is acquired or started after it. */
+  let closed = false;
+  /** The close attempt in flight. A failed attempt is cleared, so the next close retries it. */
   let closing: Promise<void> | undefined;
   /** Replacements since a worker last served a request. */
   let replacements = 0;
@@ -134,7 +137,7 @@ export function createStateIndexOwner(options: {
   };
   const start = async (): Promise<Live> => {
     for (let rebuilt = false; ; rebuilt = true) {
-      if (closing) {
+      if (closed) {
         throw closingError();
       }
       const connection = options.start();
@@ -192,13 +195,13 @@ export function createStateIndexOwner(options: {
     try {
       return await start();
     } catch (cause) {
-      throw closing ? cause : retiredFailure(cause);
+      throw closed ? cause : retiredFailure(cause);
     }
   };
   // The one path out of `idle` and `retired`. A first start's failure is the host startup's to report.
   const advance = (): Promise<Live> => (state.kind === 'retired' ? replace(state) : start());
   const acquire = (): Promise<Live> => {
-    if (closing) {
+    if (closed) {
       return Promise.reject(closingError());
     }
     if (state.kind === 'live') {
@@ -228,6 +231,7 @@ export function createStateIndexOwner(options: {
     }
   };
   const close = (): Promise<void> => {
+    closed = true;
     closing ??= (async () => {
       if (state.kind === 'starting') {
         // Stop a start still pending rather than wait out its startup deadline.
@@ -237,7 +241,11 @@ export function createStateIndexOwner(options: {
       if (state.kind !== 'idle') {
         await join(state.connection);
       }
-    })();
+    })().catch((error: unknown) => {
+      // The worker stays owned and the owner fenced; a later close retries the join.
+      closing = undefined;
+      throw error;
+    });
     return closing;
   };
   const port: HostStateIndexPort = {

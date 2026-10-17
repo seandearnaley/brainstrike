@@ -301,13 +301,21 @@ it('close stops a replacement still starting, and nothing starts after it', asyn
   expect(starts()).toBe(2);
 });
 
-it('close keeps ownership of a retired worker it cannot join, and reports it', async () => {
+it('close keeps ownership of a retired worker it cannot join, reports it, and retries on the next close', async () => {
   const stuck = fake(['hang'], { killable: false });
   const { index, starts } = owner([stuck]);
   await index.open();
   await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
 
   await expect(index.close()).rejects.toBeDefined();
+  await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
+  const killed = stuck.kills;
+
+  // The worker can now be stopped: the next close retries the join and succeeds.
+  stuck.killable = true;
+  await expect(index.close()).resolves.toBeUndefined();
+  expect(stuck.kills).toBeGreaterThan(killed);
+  // Admission stays fenced: closing never reopens the owner.
   await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
   expect(starts()).toBe(1);
 });
