@@ -1026,7 +1026,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const primaryRootPath = primaryRoot?.path;
   const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
-  const { checkout, settled: checkoutSettled } = useThreadCheckoutStatus(
+  const {
+    checkout,
+    failure: checkoutFailure,
+    settled: checkoutSettled,
+  } = useThreadCheckoutStatus(
     primaryRootId && primaryRootPath
       ? {
           adapterRootId: primaryAdapterRootId,
@@ -1047,6 +1051,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   });
   const { branchSwitcher, mode } = useWorkspaceBarMode({
     checkout,
+    checkoutFailure,
     checkoutSettled,
     foldersPending,
     onHandOffToLocal,
