@@ -38,11 +38,17 @@ const testConfigPath = path.join(agentRoot, 'tsconfig.test.json');
  * BST-2095 returns four cancellation regressions to checking after BST-2068's
  * deletion of more legacy specs. The remaining cohort is counted below.
  */
-const MAX_EXCLUDED_LEGACY_FILES = 14;
+const MAX_EXCLUDED_LEGACY_FILES = 9;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);
 const REQUIRED_REGRESSIONS = [
+  'src/__tests__/mcp-client-capabilities.spec.ts',
+  'src/__tests__/mcp-client-extension-registry.spec.ts',
+  'src/__tests__/mcp-explicit-http-client-validation.spec.ts',
+  'src/__tests__/mcp-oauth-config.spec.ts',
+  'src/__tests__/mcp-registered-extension-dispatch.spec.ts',
+
   'src/__tests__/assistant-messages.spec.ts',
   'src/__tests__/data-stream-text-continuity.spec.ts',
   'src/__tests__/token-measurement.spec.ts',

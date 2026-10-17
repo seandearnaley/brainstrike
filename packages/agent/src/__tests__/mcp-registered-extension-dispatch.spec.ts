@@ -309,7 +309,7 @@ describe('registered extension HTTP dispatch', () => {
       expect(() =>
         applyRegisteredExtensionHttpHeaders(
           {
-            body,
+            ...(body === undefined ? {} : { body }),
             headers: { 'mcp-method': TEST_EXTENSION_REQUEST.method },
             method: 'POST',
           },

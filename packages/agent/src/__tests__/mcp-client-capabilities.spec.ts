@@ -302,7 +302,7 @@ describe('MCP client capabilities', () => {
     });
     expect(
       createMcpClientCapabilityRuntime({
-        elicitation: { ...elicitation, applyDefaults: undefined },
+        elicitation: { form: elicitation.form, handle: elicitation.handle, url: elicitation.url },
       }).capabilities
     ).toEqual({ elicitation: { form: {} } });
   });
