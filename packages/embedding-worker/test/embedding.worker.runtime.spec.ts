@@ -1723,6 +1723,30 @@ describe('embedding worker runtime', () => {
     expect(disposeCatchMock).not.toHaveBeenCalled();
   });
 
+  it('refuses WebGPU embedding with no WebGPU at all as the same typed failure, before inference (BST-2058)', async () => {
+    vi.stubGlobal('navigator', {});
+    const runEmbedding = await loadWorker();
+    await expect(
+      runEmbedding({
+        deviceHint: 'webgpu',
+        id: 'guard-no-webgpu',
+        model: 'bge-m3',
+        texts: ['hello'],
+        type: 'embed',
+      })
+    ).rejects.toMatchObject({ code: EMBEDDING_DEVICE_UNAVAILABLE_CODE, name: 'DeviceUnavailable' });
+    // The workerpool owner learns a typed failure only from its error event.
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cause: expect.stringContaining('WebGPU is not available in this environment.'),
+        code: EMBEDDING_DEVICE_UNAVAILABLE_CODE,
+        id: 'guard-no-webgpu',
+        type: 'error',
+      })
+    );
+    expect(pipelineMock).not.toHaveBeenCalled();
+  });
+
   it('rejects WebGPU embedding when the adapter returns an invalid device object', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     await setWebGpuDevice(
