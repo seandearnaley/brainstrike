@@ -70,6 +70,16 @@ describe('useWorktreeMode without a readable repository (BST-2133)', () => {
     await act(async () => {});
   });
 
+  it('shows only a bounded first line of a long, multi-line git failure', async () => {
+    const stderr = `fatal: index file corrupt\n${'detail line\n'.repeat(10_000)}`;
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, statusFailure: stderr }));
+
+    expect(result.current?.disabledReason).toBe(
+      'Git status could not be read: fatal: index file corrupt'
+    );
+    await act(async () => {});
+  });
+
   it('keeps "Not a git repository" for a read that succeeded', async () => {
     const { result } = renderHook(() => useWorktreeMode(ARGS));
 

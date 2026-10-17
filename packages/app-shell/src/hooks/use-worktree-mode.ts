@@ -30,6 +30,7 @@ import type {
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { summarizeGitFailure } from '../git-failure-summary';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
@@ -375,13 +376,14 @@ function missingWorktreeDiagnostic(input: {
 
 /**
  * Why checkout mode is unavailable for a root with no usable repository. A
- * failed status read names the failure; only a successful read can say "not a
- * repository" (BST-2133).
+ * failed status read names the failure, summarized because the chip's title and
+ * accessible name are no place for raw stderr (the status hook logs it in
+ * full); only a successful read can say "not a repository" (BST-2133).
  */
 export function unavailableRepositoryReason(statusFailure: string | null): string {
   return statusFailure === null
     ? 'Not a git repository'
-    : `Git status could not be read: ${statusFailure}`;
+    : `Git status could not be read: ${summarizeGitFailure(statusFailure)}`;
 }
 
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
