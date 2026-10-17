@@ -25,8 +25,14 @@ import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import type { UseGitInventoryResult } from '../changes/use-git-inventory';
-import type { GitRepository, GitStatus, GitWorktreeSummary } from '../git-panel/git-bridge';
+import type {
+  GitRepository,
+  GitResult,
+  GitStatus,
+  GitWorktreeSummary,
+} from '../git-panel/git-bridge';
 import { GitWorkbenchHeader } from '../git-panel/git-workbench-header';
+import type { GitWorkspaceFolder } from '../git-panel/use-git-panel';
 
 const inventoryMock = vi.hoisted(() => ({
   result: {
@@ -140,10 +146,26 @@ function makeStatus(overrides: Partial<GitStatus> = {}): GitStatus {
 
 const NOOP_ASYNC = vi.fn(async () => undefined);
 
+const FOCUSED_FOLDER: GitWorkspaceFolder = {
+  isMain: true,
+  name: 'repo',
+  path: '/abs/repo',
+  rootId: 'root-1',
+};
+
+/** The focused-folder props (BST-1897): one open folder, so the switcher has nothing to probe. */
+const FOLDER_PROPS = {
+  focusedFolder: FOCUSED_FOLDER,
+  focusFolder: vi.fn(),
+  probeFolder: vi.fn(async (): Promise<GitResult<GitStatus>> => ({ error: 'unused', ok: false })),
+  workspaceFolders: [FOCUSED_FOLDER],
+};
+
 function renderHeader(repository: GitRepository, status: GitStatus = makeStatus()) {
   return render(
     <GitWorkbenchHeader
       fetchRemote={NOOP_ASYNC}
+      {...FOLDER_PROPS}
       isLoading={false}
       isSyncing={false}
       refreshStatus={vi.fn()}
@@ -476,6 +498,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     render(
       <GitWorkbenchHeader
         fetchRemote={NOOP_ASYNC}
+        {...FOLDER_PROPS}
         isLoading={false}
         isSyncing={false}
         refreshStatus={refreshStatus}
@@ -498,6 +521,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     render(
       <GitWorkbenchHeader
         fetchRemote={NOOP_ASYNC}
+        {...FOLDER_PROPS}
         isLoading={false}
         isSyncing={false}
         refreshStatus={vi.fn()}
@@ -532,6 +556,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     render(
       <GitWorkbenchHeader
         fetchRemote={NOOP_ASYNC}
+        {...FOLDER_PROPS}
         isLoading={false}
         isSyncing={false}
         refreshStatus={vi.fn()}
@@ -581,6 +606,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     render(
       <GitWorkbenchHeader
         fetchRemote={NOOP_ASYNC}
+        {...FOLDER_PROPS}
         isLoading={false}
         isSyncing={false}
         refreshStatus={vi.fn()}

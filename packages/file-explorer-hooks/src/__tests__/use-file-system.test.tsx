@@ -1034,11 +1034,11 @@ describe('useFileSystem', () => {
 
       const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
-      // folderAccessOrder has /folder/b first → /folder/b should be focused
+      // folderAccessOrder is oldest first: /folder/b was focused last → /folder/b is focused
       // getFolderAccessOrder is passed directly as a param (no module mock manipulation needed)
       const { result } = renderHook(
         () =>
-          useFileSystem(makeFsParams({ getFolderAccessOrder: () => ['/folder/b', '/folder/a'] })),
+          useFileSystem(makeFsParams({ getFolderAccessOrder: () => ['/folder/a', '/folder/b'] })),
         { wrapper }
       );
 
@@ -1050,7 +1050,7 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandles).toEqual(
         expect.arrayContaining([expect.objectContaining(desc2.handle)])
       );
-      // Focused: first in folderAccessOrder = /folder/b = desc2
+      // Focused: newest in folderAccessOrder = /folder/b = desc2
       expect(result.current?.rootDirectoryHandle).toMatchObject(desc2.handle);
       expect(mockSetActiveRoots).toHaveBeenCalledWith([
         { displayName: 'folder-a', path: '/folder/a', rootId: 'rid-a' },

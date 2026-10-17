@@ -12,7 +12,7 @@
  * into `electronAPI.storage`, then reload — the main process restores the root
  * and inserts the DB `roots` row the git bridge resolves against.
  */
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -22,8 +22,9 @@ import {
   freshRepoWithRemote as createFreshRepoWithRemote,
   createTempDirTracker,
   git,
+  initRepo,
 } from './utils/git-fixtures';
-import { seedRoot as seedRootWithLedgers } from './utils/seed-root';
+import { seedRoots, seedRoot as seedRootWithLedgers } from './utils/seed-root';
 
 const tempDirs = createTempDirTracker();
 
@@ -50,6 +51,8 @@ function freshNonGitDir(label: string): string {
 }
 
 const ROOT_ID = 'p4-git-panel-root-00000000-0000-4000-8000-000000000010';
+const PARENT_ROOT_ID = 'bst-1897-parent-root-0000-4000-8000-000000000011';
+const CHILD_ROOT_ID = 'bst-1897-child-root-00000-4000-8000-000000000012';
 
 async function seedRoot(page: Page, rootPath: string): Promise<void> {
   await seedRootWithLedgers(page, rootPath, {
@@ -92,6 +95,25 @@ async function openGitPanel(page: Page): Promise<void> {
     .first()
     .waitFor({ state: 'visible', timeout: 30_000 });
   await expect(page.getByText(/Loading Git/i)).toHaveCount(0, { timeout: 20_000 });
+}
+
+/** Main (`activeRootIds[0]`), root order and the focused root, read from the explorer store. */
+async function readWorkspaceRoots(
+  page: Page
+): Promise<{ readonly activeRootIds: readonly string[]; readonly focused: string | null }> {
+  return await page.evaluate(() => {
+    const store = (
+      window as Window & {
+        __brainstrike_file_explorer_provider_store__?: {
+          getState?: () => { activeRootIds?: string[]; currentFolderId?: string | null };
+        };
+      }
+    ).__brainstrike_file_explorer_provider_store__?.getState?.();
+    if (!store) {
+      throw new Error('file explorer store test hook is unavailable');
+    }
+    return { activeRootIds: store.activeRootIds ?? [], focused: store.currentFolderId ?? null };
+  });
 }
 
 test.afterAll(() => {
@@ -202,6 +224,67 @@ test.describe('Git panel (desktop)', () => {
     await seedRoot(page, freshNonGitDir('not-a-repo'));
     await openGitPanel(page);
     await expect(page.getByTestId('git-panel-not-a-repo')).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('names a restored non-Git parent and switches to its Git child without moving Main', async ({
+    electronHarness,
+    window: page,
+  }) => {
+    // BST-1897: after a restart that focused a non-Git parent, Git said only
+    // "This folder is not a Git repository." It now names the folder and offers
+    // the Git child, switching focus without changing Main or root order.
+    test.setTimeout(180_000);
+    const parent = realpathSync(freshNonGitDir('focus-parent'));
+    const child = path.join(parent, 'app');
+    mkdirSync(child);
+    initRepo(child);
+    const parentName = path.basename(parent);
+    const roots = [PARENT_ROOT_ID, CHILD_ROOT_ID];
+    await seedRoots(
+      page,
+      [
+        { path: parent, rootId: PARENT_ROOT_ID },
+        { path: child, rootId: CHILD_ROOT_ID },
+      ],
+      { reloadReason: 'bst-1897-seed-parent-and-child' }
+    );
+    await openGitPanel(page);
+
+    const notARepo = page.getByTestId('git-panel-not-a-repo');
+    await expect(notARepo).toContainText(`${parentName} is not a Git repository.`);
+    await expect(notARepo.getByTestId('git-panel-focused-folder')).toHaveText(parent);
+    const showChild = notARepo.getByRole('button', { name: 'Show app in Git' });
+    await expect(showChild).toHaveAccessibleDescription('Git repository · main', {
+      timeout: 20_000,
+    });
+    await expect(notARepo).toContainText(`Main stays ${parentName}.`);
+    expect(await readWorkspaceRoots(page)).toEqual({
+      activeRootIds: roots,
+      focused: PARENT_ROOT_ID,
+    });
+
+    await showChild.click();
+    await expect(page.getByTestId('git-panel-clean')).toBeVisible({ timeout: 20_000 });
+    expect(await readWorkspaceRoots(page)).toEqual({
+      activeRootIds: roots,
+      focused: CHILD_ROOT_ID,
+    });
+
+    // A restart restores the child the user chose; Main is still the parent.
+    const restarted = (await electronHarness.restart()).window;
+    await openGitPanel(restarted);
+    await expect(restarted.getByTestId('git-panel-clean')).toBeVisible({ timeout: 20_000 });
+    await restarted.getByRole('button', { name: 'Current repository app' }).click();
+    await expect(restarted.getByTestId('git-workbench-focused-folder')).toContainText(child);
+    const parentItem = restarted.getByRole('menuitem', { name: `Show ${parentName} in Git` });
+    await expect(parentItem).toHaveAccessibleDescription('Not a Git repository', {
+      timeout: 20_000,
+    });
+    await expect(parentItem).toContainText('Main');
+    expect(await readWorkspaceRoots(restarted)).toEqual({
+      activeRootIds: roots,
+      focused: CHILD_ROOT_ID,
+    });
   });
 
   // NOTE: `pull` from the bare remote requires committing into the bare repo from
