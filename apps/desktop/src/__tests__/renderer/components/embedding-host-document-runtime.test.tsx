@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
-import type { EmbeddingResult } from '@brainstrike/embeddings';
+import type { EmbeddingRequestProgress, EmbeddingResult } from '@brainstrike/embeddings';
 import { act, render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import {
@@ -114,6 +114,39 @@ describe('hidden pinned document batch', () => {
     expect(generateQueryEmbeddingMock).not.toHaveBeenCalled();
     expect(initializeWithModelMock).not.toHaveBeenCalled();
     expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining(plan));
+  });
+  it('relays model setup and slice progress to Main as liveness for the batch (BST-2104)', async () => {
+    generateDocumentEmbeddingsMock.mockImplementation(async (...args: unknown[]) => {
+      const options = args[1] as {
+        readonly onProgress: (progress: EmbeddingRequestProgress) => void;
+      };
+      options.onProgress({ stage: 'setup' });
+      options.onProgress({ completed: 1, stage: 'inference' });
+      return results();
+    });
+    await mount();
+    const next = request();
+    await act(async () => documentEmbeddingsListenerRef.current?.(next));
+    await waitFor(() =>
+      expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'result' })
+      )
+    );
+    expect(
+      reportDocumentEmbeddingsResponseMock.mock.calls.map(([report]) => [
+        report.type,
+        report.payload,
+      ])
+    ).toEqual([
+      ['progress', { stage: 'setup' }],
+      ['progress', { completed: 1, stage: 'inference' }],
+      ['result', { embeddings: results().map((result) => result.embedding) }],
+    ]);
+    expect(reportDocumentEmbeddingsResponseMock.mock.calls[0]?.[0]).toMatchObject({
+      channel: 'document-embeddings-progress',
+      requestId: next.requestId,
+      runtimeId: next.runtimeId,
+    });
   });
   it('requests CLS pooling for the granite profile and keeps mean the default elsewhere (BST-1993)', async () => {
     generateDocumentEmbeddingsMock

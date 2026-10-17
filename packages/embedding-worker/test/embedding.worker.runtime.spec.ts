@@ -944,6 +944,52 @@ describe('embedding worker runtime', () => {
     return registeredHandlers.runEmbedding;
   }
 
+  it('reports Transformers.js setup callbacks as coalesced initializing liveness for its request (BST-2104)', async () => {
+    pipelineMock.mockImplementation(
+      async (
+        _task: string,
+        _model: string,
+        options: { progress_callback: (info: object) => void }
+      ) => {
+        options.progress_callback({ file: 'onnx/model.onnx', status: 'initiate' });
+        for (let chunk = 1; chunk <= 100; chunk += 1) {
+          options.progress_callback({
+            file: 'onnx/model.onnx',
+            progress: chunk,
+            status: 'progress',
+          });
+        }
+        options.progress_callback({ file: 'onnx/model.onnx', status: 'done' });
+        options.progress_callback({ model: 'bge-m3', status: 'ready', task: 'feature-extraction' });
+        return Object.assign(async () => new Float32Array([1, 0, 0]), { dispose: vi.fn() });
+      }
+    );
+    const runEmbedding = await loadWorker();
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        id: 'setup-liveness',
+        model: 'bge-m3',
+        texts: ['hello'],
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ id: 'setup-liveness', type: 'result' });
+
+    const initializing = workerEmitMock.mock.calls.filter(
+      ([event]) => event.id === 'setup-liveness' && event.phase === 'initializing'
+    );
+    // The request's start, one coalesced heartbeat for 103 vendor callbacks, and one on ready.
+    expect(initializing).toEqual(
+      Array.from({ length: 3 }, () => [
+        { id: 'setup-liveness', phase: 'initializing', progress: 0, type: 'progress' },
+      ])
+    );
+    const phases = workerEmitMock.mock.calls
+      .map(([event]) => event.phase)
+      .filter((phase) => phase !== undefined);
+    expect(phases.lastIndexOf('initializing')).toBeLessThan(phases.indexOf('embedding'));
+  });
+
   it('isolates request control from sibling worker telemetry', async () => {
     const channels = new Map<string, Set<PeerBroadcastChannel>>();
     class PeerBroadcastChannel {

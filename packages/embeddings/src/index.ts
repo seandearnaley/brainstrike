@@ -114,6 +114,7 @@ export type {
   EmbeddingConfig,
   EmbeddingExecutionOptions,
   EmbeddingProgress,
+  EmbeddingRequestProgress,
   EmbeddingResult,
   EmbeddingService,
   EmbeddingStatus,

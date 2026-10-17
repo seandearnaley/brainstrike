@@ -116,7 +116,10 @@ describe('TransformersBackend queue integration', () => {
     add.mockImplementationOnce(async (request) => {
       const id = (request as QueueAddCall & { id: string }).id;
       for (const listener of listeners) {
+        listener({ id: 'other-task', phase: 'initializing', progress: 0, type: 'progress' });
         listener({ id: 'other-task', phase: 'embedding', progress: 1, type: 'progress' });
+        // Model download and session setup report liveness before the first slice (BST-2104).
+        listener({ id, phase: 'initializing', progress: 0, type: 'progress' });
         listener({ id, phase: 'embedding', progress: 0.5, type: 'progress' });
         listener({ id, phase: 'complete', progress: 1, type: 'progress' });
       }
@@ -151,7 +154,10 @@ describe('TransformersBackend queue integration', () => {
       });
       const onProgress = vi.fn();
       await backend.generateEmbeddings(['first', 'second'], model, { onProgress });
-      expect(onProgress.mock.calls).toEqual([[1]]);
+      expect(onProgress.mock.calls).toEqual([
+        [{ stage: 'setup' }],
+        [{ completed: 1, stage: 'inference' }],
+      ]);
       expect(unsubscribe).toHaveBeenCalledOnce();
       expect(listeners.size).toBe(0);
     } finally {
@@ -608,10 +614,11 @@ describe('TransformersBackend queue integration', () => {
         const sliceSize = DEFAULT_WORKER_SLICE_SIZE[device];
         const call = add.mock.calls[0]![0] as QueueAddCall;
         expect(call.maxBatchSize).toBe(sliceSize);
-        expect(onProgress.mock.calls.map(([completed]) => completed)).toEqual(
-          Array.from({ length: Math.ceil(texts.length / sliceSize) }, (_, slice) =>
-            Math.min(texts.length, (slice + 1) * sliceSize)
-          )
+        expect(onProgress.mock.calls.map(([progress]) => progress)).toEqual(
+          Array.from({ length: Math.ceil(texts.length / sliceSize) }, (_, slice) => ({
+            completed: Math.min(texts.length, (slice + 1) * sliceSize),
+            stage: 'inference',
+          }))
         );
         expect(onProgress.mock.calls.length).toBeGreaterThan(1);
       } finally {

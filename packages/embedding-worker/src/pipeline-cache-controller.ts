@@ -14,6 +14,13 @@ export const MAX_WASM_PIPELINES = 3;
 const PIPELINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const IDLE_SWEEP_INTERVAL_MS = 30_000;
 
+/**
+ * Transformers.js calls back once per downloaded chunk. A waiting request only needs a heartbeat
+ * well inside the embedding host's 60 s liveness window, so each one hears at most one setup
+ * report per second, plus one when the load is ready (BST-2104).
+ */
+export const PIPELINE_SETUP_HEARTBEAT_INTERVAL_MS = 1000;
+
 export interface EmbeddingPipelineResource {
   readonly dispose?: () => unknown;
 }
@@ -29,6 +36,11 @@ export interface EmbeddingPipelineCacheLoadRequest {
   readonly dtype: EmbeddingDType;
   readonly estimatedModelBytes: number | null;
   readonly model: string;
+  /**
+   * Liveness while this request waits on a load: coalesced setup heartbeats, then one on ready.
+   * Silent after the load settles; a ready pipeline (a cache hit) reports nothing.
+   */
+  readonly onSetupProgress?: () => void;
   readonly revision?: string;
 }
 
@@ -50,17 +62,21 @@ interface PipelineCacheEntry<Resource extends EmbeddingPipelineResource> {
   lastUsedAt: number;
   readonly model: string;
   readonly pipeline: Promise<Resource>;
+  /** Every request still waiting on this load; emptied for good when the load settles. */
+  readonly setupHeartbeats: Set<() => void>;
   state: 'pending' | 'ready';
 }
 
 interface EmbeddingPipelineCacheControllerOptions<Resource extends EmbeddingPipelineResource> {
   readonly beforeDispose?: (resource: Resource) => Promise<void>;
   readonly isIdleSweepAllowed?: () => boolean;
+  /** `onSetupProgress` is the vendor's progress callback: call it for every setup event. */
   readonly load: (
     model: string,
     device: EmbeddingDevice,
     dtype: EmbeddingDType,
-    revision?: string
+    revision: string | undefined,
+    onSetupProgress: () => void
   ) => Promise<Resource>;
   readonly now?: () => number;
   readonly onDisposed?: (details: { readonly cacheKey: string }) => void;
@@ -381,6 +397,32 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
     });
   };
 
+  /** A pending load's waiter hears coalesced setup heartbeats, then one on ready, then nothing. */
+  const awaitSetup = (
+    entry: PipelineCacheEntry<Resource>,
+    onSetupProgress: (() => void) | undefined
+  ): Promise<Resource> => {
+    if (!onSetupProgress || entry.state !== 'pending') {
+      return entry.pipeline;
+    }
+    let lastHeartbeatAt: number | null = null;
+    entry.setupHeartbeats.add(() => {
+      const timestamp = readNow();
+      if (
+        lastHeartbeatAt !== null &&
+        timestamp - lastHeartbeatAt < PIPELINE_SETUP_HEARTBEAT_INTERVAL_MS
+      ) {
+        return;
+      }
+      lastHeartbeatAt = timestamp;
+      onSetupProgress();
+    });
+    return entry.pipeline.then((resource) => {
+      onSetupProgress();
+      return resource;
+    });
+  };
+
   const load = async (request: EmbeddingPipelineCacheLoadRequest): Promise<Resource> => {
     assertValidLoadRequest(request);
     assertCacheCanLoad();
@@ -409,7 +451,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
         ...(request.diagnostics?.id ? { id: request.diagnostics.id } : {}),
         ...(request.diagnostics?.sink ? { sink: request.diagnostics.sink } : {}),
       });
-      return existing.pipeline;
+      return awaitSetup(existing, request.onSetupProgress);
     }
 
     const timestamp = readNow();
@@ -428,11 +470,21 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
             .filter(([, device]) => device === 'webgpu')
             .map(([pending]) => pending)
         : [];
+    const setupHeartbeats = new Set<() => void>();
+    const reportSetupProgress = (): void => {
+      for (const heartbeat of setupHeartbeats) {
+        heartbeat();
+      }
+    };
     const pipeline = Promise.all([...priorGpuDisposals, ...victimDisposals]).then(async () => {
       assertCacheCanLoad();
-      return request.revision === undefined
-        ? await options.load(request.model, request.device, request.dtype)
-        : await options.load(request.model, request.device, request.dtype, request.revision);
+      return await options.load(
+        request.model,
+        request.device,
+        request.dtype,
+        request.revision,
+        reportSetupProgress
+      );
     });
     const entry: PipelineCacheEntry<Resource> = {
       cacheKey,
@@ -444,6 +496,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       model: request.model,
       pipeline: pipeline.then(
         (loaded) => {
+          setupHeartbeats.clear();
           entry.lastUsedAt = readNow();
           entry.state = 'ready';
           if (entries.get(cacheKey) === entry) {
@@ -457,16 +510,18 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
           return loaded;
         },
         (error: unknown) => {
+          setupHeartbeats.clear();
           publishLoadFailure(request, error, entry);
           throw error;
         }
       ),
+      setupHeartbeats,
       state: 'pending',
     };
     entries.set(cacheKey, entry);
     startIdleSweep();
     options.onResidencyChanged?.();
-    return entry.pipeline;
+    return awaitSetup(entry, request.onSetupProgress);
   };
 
   const waitForPendingDisposals = async (): Promise<void> => {
