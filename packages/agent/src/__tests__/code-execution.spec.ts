@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertExecRequestSatisfiable,
   type CodeExecutor,
+  type CodeExecutorFactory,
   createNullCodeExecutor,
   ExecAbortedError,
   ExecCapabilityMismatchError,
@@ -76,7 +77,7 @@ describe('parseExecutorKind', () => {
 
   it('throws the contracted error for a circular object', () => {
     const circular: Record<string, unknown> = {};
-    circular.self = circular;
+    circular['self'] = circular;
     expect(() => parseExecutorKind(circular)).toThrowError(/not a supported code-execution mode/);
   });
 });
@@ -302,7 +303,7 @@ describe('resolveCodeExecutor', () => {
       // The factory owns this promise before the resolver attaches to it.
       void rejectedConstruction.catch(() => undefined);
       const failingFactory = vi.fn(() => rejectedConstruction);
-      const otherFactory = vi.fn(stubExecutor);
+      const otherFactory = vi.fn<CodeExecutorFactory>(() => stubExecutor());
       const host =
         requested === 'fence'
           ? { fence: failingFactory, vm: otherFactory }
@@ -322,7 +323,7 @@ describe('resolveCodeExecutor', () => {
   });
 
   it('never invokes the factory for the other kind', async () => {
-    const vm = vi.fn(stubExecutor);
+    const vm = vi.fn<CodeExecutorFactory>(() => stubExecutor());
     await resolveCodeExecutor('fence', { fence: () => stubExecutor(), vm });
     expect(vm).not.toHaveBeenCalled();
   });
