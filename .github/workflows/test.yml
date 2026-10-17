@@ -955,6 +955,17 @@ jobs:
       # same way the static job does, so the in-job builds and the browser
       # suites don't oversubscribe the runner.
       TURBO_CONCURRENCY: "4"
+      # The root devDependency @mermaid-js/mermaid-cli pulls in puppeteer,
+      # whose postinstall downloads two Chrome builds that nothing in this lane
+      # uses (the suites run Playwright's Chromium from the image). As pwuser
+      # this image has no `unzip`, so @puppeteer/browsers 3.2.5 falls back to
+      # its yauzl extractor, and with the resolved optional yauzl@2.10.0 a
+      # large zip entry never finishes: the promise never settles, Node exits 13
+      # on the unsettled top-level await, and `pnpm install` fails (run
+      # 39029250373; reproduced offline with a 60 MB entry). Puppeteer's
+      # documented PUPPETEER_SKIP_DOWNLOAD skips that unused download. The
+      # dependency defect itself is BST-2078.
+      PUPPETEER_SKIP_DOWNLOAD: "true"
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -990,12 +1001,13 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Install dependencies
-        # Same exclusions as Web E2E: this container has no C toolchain
-        # or sudo; the browser-test packages (db, ui, assistant-ui, storage,
-        # embedding-worker) and their
-        # dependency closures are pure TS, so the two desktop-only native
-        # projects are excluded from install.
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
+        # This container has no C toolchain or sudo; the browser-test packages
+        # (db, ui, assistant-ui, storage, embedding-worker, mcp-app-host) and
+        # their dependency closures are pure TS, so desktop and the three
+        # native addon projects are excluded from install. windows-job-native
+        # has compiled on Linux since M3 (#3543) and failed this install with
+        # `not found: make` once it was a shared dependency (BST-2080).
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native' --filter '!@brainstrike/windows-job-native'
 
       - name: Run browser tests
         # Explicit --filter per browser-test package: an UNFILTERED root
@@ -1103,11 +1115,12 @@ jobs:
           node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR" > apps/web/test-results/web-chromium-provisioning.json
 
       - name: Install dependencies
-        # Exclude both desktop-only native projects: this container has no
-        # C toolchain or sudo, and web E2E loads neither node-pty nor secure-fs.
-        # Keeps root + web + every shared package (42/44 projects). Do NOT revert
-        # to a bare full install; node-gyp will fail before Playwright starts.
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
+        # Exclude desktop and the native addon projects: this container has no
+        # C toolchain, this job runs the downloaded web build rather than
+        # building it, and web E2E loads no native surface. windows-job-native
+        # compiles on Linux since M3 (#3543) (BST-2080). Do NOT revert to a bare
+        # full install; node-gyp will fail before Playwright starts.
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native' --filter '!@brainstrike/windows-job-native'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8

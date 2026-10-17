@@ -17,6 +17,14 @@ runs:
     # Windows/macOS callers do not exist today, but the guard is a Linux/apt
     # concept and the script exits non-zero without apt-get rather than
     # pretending to have run. Gating here keeps that honest.
+    #
+    # The script is addressed through the GITHUB_ACTION_PATH environment
+    # variable, not the `github.action_path` context. In a `container:` job
+    # (Web E2E, Performance E2E) the context still holds the HOST path
+    # (/home/runner/work/...), which is not mounted in the container, so the
+    # step died with exit 127 "No such file or directory" (actions/runner#716,
+    # run 39029252932). The runner translates the environment variable to the
+    # container's mount (/__w/...), and on a plain runner both are the same path.
     - if: ${{ runner.os == 'Linux' }}
       shell: bash
-      run: ${{ github.action_path }}/drop-unused-sources.sh
+      run: '"$GITHUB_ACTION_PATH/drop-unused-sources.sh"'

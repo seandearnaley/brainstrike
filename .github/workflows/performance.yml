@@ -67,12 +67,14 @@ jobs:
       - name: Drop unused apt sources
         uses: ./.github/actions/apt-drop-unused-sources
 
+      # build-essential and python3 are node-gyp's toolchain: the web build
+      # graph compiles the native addons. See the matching note in web-e2e.yml.
       - name: Install web test system tools
         shell: bash
         run: |
           set -euo pipefail
           apt-get update
-          apt-get install -y --no-install-recommends unzip lsof procps
+          apt-get install -y --no-install-recommends unzip lsof procps build-essential python3
 
       # `jobs.<id>.env` cannot read the `runner` context, so the directory is
       # exported here for every later step (playwright.config.mts reads it).
@@ -96,10 +98,9 @@ jobs:
             ${{ runner.os }}-node24-turbo-v4-
 
       - name: Install dependencies
-        # Exclude both desktop-only native projects: this container has no
-        # C toolchain or sudo, and web performance loads neither native surface.
-        # See the matching note in test.yml's web-e2e job.
-        run: pnpm install --frozen-lockfile --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
+        # Desktop stays out; the native addons stay in because the web build
+        # compiles them. See the matching note in web-e2e.yml.
+        run: pnpm install --frozen-lockfile --filter '!@brainstrike/desktop'
 
       - name: Build application
         run: |

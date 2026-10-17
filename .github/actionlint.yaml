@@ -1,0 +1,6 @@
+# Runner labels provided by the Ubicloud GitHub App, not GitHub-hosted runners.
+# Declared so actionlint checks every other runs-on label instead of flagging these.
+self-hosted-runner:
+  labels:
+    - ubicloud-standard-2
+    - ubicloud-standard-4
