@@ -64,6 +64,21 @@ export const DEFAULT_SRC_ALIAS_EXCLUSIONS = Object.freeze([
   '@brainstrike/agent',
 ]);
 
+// Export subpaths an excluded package's OWN source imports by its package name.
+// Every lane that runs that source, the package's own or a consumer that
+// aliases its root locally, must resolve them to source, so the registry still
+// emits these exact aliases for a default-excluded package. They are spread into
+// browser lanes too, so each must load without Node-only or Mastra imports. The
+// workspace-src-alias guard counts self-imports, and fails every lane that leaves
+// one unaliased.
+export const EXCLUDED_PACKAGE_SELF_REFERENCES = Object.freeze({
+  // BST-2075: the tool guard's one deadline owner. The build emits it as its own
+  // CJS entry so ESM and CJS consumers share one WeakMap; from source, every
+  // importer resolves to the one src module. Without this alias, a clean
+  // checkout's consumers of agent source fail at import (BST-2128).
+  '@brainstrike/agent': Object.freeze(['./tool-guard-deadline']),
+});
+
 const SRC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.mjs'];
 const CODE_EXT_RE = /\.(d\.ts|d\.mts|d\.cts|mjs|cjs|js|tsx|ts)$/;
 
@@ -132,7 +147,7 @@ function resolveSrcFile(srcDir, stem) {
 }
 
 /** Read a workspace `package.json`, returning its identity or null to skip. */
-function readWorkspacePackage(packagesDir, dirName, exclude) {
+function readWorkspacePackage(packagesDir, dirName) {
   const pkgDir = join(packagesDir, dirName);
   if (!statSync(pkgDir).isDirectory()) {
     return null;
@@ -143,7 +158,7 @@ function readWorkspacePackage(packagesDir, dirName, exclude) {
   }
   const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
   const name = pkg.name;
-  if (typeof name !== 'string' || !name.startsWith('@brainstrike/') || exclude.has(name)) {
+  if (typeof name !== 'string' || !name.startsWith('@brainstrike/')) {
     return null;
   }
   const srcDir = join(pkgDir, 'src');
@@ -189,6 +204,24 @@ function wildcardEntry({ name, srcDir }, key, target) {
   }
   const prefix = keyBody === '*' ? name : `${name}/${keyBody.slice(0, -2)}`;
   return { find: prefix, replacement: nsDir };
+}
+
+/**
+ * The exact aliases an excluded package keeps for its listed self-references.
+ * Each must be a dist-code export with a source file; anything else throws
+ * (NO SILENT FALLBACKS), so a renamed or removed entry fails at config load.
+ */
+function selfReferenceEntries({ exportsMap, name, srcDir }, keys) {
+  return keys.map((key) => {
+    const stem = distTargetToStem(pickTarget(exportsMap[key]));
+    const file = stem ? resolveSrcFile(srcDir, stem) : null;
+    if (!file) {
+      throw new Error(
+        `workspaceSrcAliases: ${name} self-reference '${key}' is not a dist code export with a source file under ${srcDir}`
+      );
+    }
+    return exactEntry(`${name}/${key.replace(/^\.\//, '')}`, file);
+  });
 }
 
 /** Build alias entries for one workspace package: {exact: [], prefix: []}. */
@@ -257,8 +290,13 @@ export function workspaceSrcAliases(packagesDir, options = {}) {
   const prefixEntries = [];
 
   for (const dirName of readdirSync(packagesDir)) {
-    const workspacePkg = readWorkspacePackage(packagesDir, dirName, exclude);
+    const workspacePkg = readWorkspacePackage(packagesDir, dirName);
     if (!workspacePkg) {
+      continue;
+    }
+    if (exclude.has(workspacePkg.name)) {
+      const selfReferences = EXCLUDED_PACKAGE_SELF_REFERENCES[workspacePkg.name] ?? [];
+      exactEntries.push(...selfReferenceEntries(workspacePkg, selfReferences));
       continue;
     }
     const { exact, prefix } = packageAliasEntries(workspacePkg);

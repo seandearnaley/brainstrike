@@ -142,7 +142,9 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
         absolutePath,
         content,
         rootId: 'brainstrike-webgpu-compat',
-        rootPath: fixtureRoot,
+        // The compiler options and WebGPU declarations are in the enclosing
+        // repository. Authorize that root, not only this temporary source folder.
+        rootPath: repoRoot,
       };
 
       const clean = await getEditDiagnostics(args);

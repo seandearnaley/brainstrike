@@ -9,8 +9,16 @@ import { createSpawnInvocation } from './spawn-command.mjs';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_FILE_PATTERN = /(?:^|\/)(?:__tests__\/.*|[^/]+\.(?:test|spec)\.[cm]?[jt]sx?)$/u;
 
-function runTsc(args) {
-  const invocation = createSpawnInvocation('pnpm', ['exec', 'tsc', ...args]);
+export function runTsc(args) {
+  // The installed workspace shim is the same pinned compiler pnpm exec selects.
+  // Avoid launching the package manager for every list-only project inspection.
+  const compiler = path.join(
+    REPO_ROOT,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'tsc.cmd' : 'tsc'
+  );
+  const invocation = createSpawnInvocation(compiler, args);
   return spawnSync(invocation.command, invocation.args, {
     cwd: REPO_ROOT,
     encoding: 'utf8',
@@ -21,6 +29,20 @@ function runTsc(args) {
 
 function commandOutput(result) {
   return `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+}
+
+/** Inspect with the pinned compiler, without emitting or running diagnostics. */
+export function inspectTsconfigProgram(projectPath, runTscCommand = runTsc) {
+  const listed = runTscCommand(['--noEmit', '--listFilesOnly', '--project', projectPath]);
+  if (listed.error || listed.status !== 0) {
+    throw new Error(
+      `Unable to ${listed.error ? 'run tsc' : 'inspect the TypeScript program'} for ${projectPath}:\n${listed.error?.message ?? commandOutput(listed)}`
+    );
+  }
+  return (listed.stdout ?? '')
+    .split(/\r?\n/u)
+    .map((file) => file.trim())
+    .filter(Boolean);
 }
 
 export function verifyTestTsconfigProgram({
@@ -41,26 +63,13 @@ export function verifyTestTsconfigProgram({
   }
 
   const projectPath = path.resolve(cwd, project);
-  const listed = runTscCommand(['--listFilesOnly', '--project', projectPath]);
-  if (listed.error) {
-    return {
-      message: `Unable to run tsc for ${projectPath}: ${listed.error.message}`,
-      ok: false,
-      testFiles: [],
-    };
+  let files;
+  try {
+    files = inspectTsconfigProgram(projectPath, runTscCommand);
+  } catch (error) {
+    return { message: error.message, ok: false, testFiles: [] };
   }
-  if (listed.status !== 0) {
-    return {
-      message: `Unable to inspect the TypeScript program for ${projectPath}:\n${commandOutput(listed)}`,
-      ok: false,
-      testFiles: [],
-    };
-  }
-
-  const testFiles = (listed.stdout ?? '')
-    .split(/\r?\n/u)
-    .map((file) => file.trim())
-    .filter(Boolean)
+  const testFiles = files
     .map((file) => (path.isAbsolute(file) ? file : path.resolve(cwd, file)))
     .filter((file) => {
       const relative = path.relative(cwd, file);

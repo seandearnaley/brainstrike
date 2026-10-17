@@ -50,6 +50,22 @@ no delegation; unavailable plan-mode capabilities refuse explicitly.
 
 Owner: [host hooks](../../packages/host-capabilities/src/hooks/host-run-hooks.ts).
 
+## LSP source policy and freshness
+
+Desktop LSP queries and post-edit diagnostics share a server per root. Each
+operation opens its supplied document, reloads the TypeScript project and closes
+the document in `finally`; operations serialize per root so temporary buffers
+cannot shadow other queries' disk inputs. TypeScript remains the analysis owner.
+
+Semantic output can reveal transitive source literals. Before and after analysis,
+check the server's project source list against canonical root containment,
+credential exclusions and current agent-ignore rules. Only the pinned compiler's
+standard library declarations are trusted outside the root. An excluded or
+unverifiable source withholds the whole semantic result with `reason: read-policy`,
+even if the requested symbol is in an allowed file; an edit still applies.
+Definition previews use the same bounded reader as direct workspace reads.
+Owner: [document session](../../apps/desktop/src/assistant-server/lsp-document-session.ts).
+
 ## Tracing
 
 The host traces its AI SDK calls as OpenTelemetry GenAI spans through the

@@ -16,7 +16,12 @@ describe('electron test utilities', () => {
 
   it('creates ipcMain mock that registers and invokes handlers', async () => {
     const ipcMain = createIpcMainMock();
-    const handler = vi.fn(async (_event, payload: string) => `echo:${payload}`);
+    const handler = vi.fn(async (_event: unknown, payload: unknown) => {
+      if (typeof payload !== 'string') {
+        throw new Error('Expected string IPC fixture payload');
+      }
+      return `echo:${payload}`;
+    });
 
     ipcMain.handle('channel', handler);
     await expect(ipcMain.__invoke('channel', 'input')).resolves.toBe('echo:input');

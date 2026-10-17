@@ -67,12 +67,11 @@ const workerpoolMocks = vi.hoisted(() => {
   let workerInstanceId: string | null = null;
 
   const execSpy = vi.fn<
-    [
+    (
       method: string,
       args: unknown[],
-      options?: { readonly on?: (event: unknown) => void; readonly priority?: number },
-    ],
-    Promise<unknown> & { cancel: () => void }
+      options?: { readonly on?: (event: unknown) => void; readonly priority?: number }
+    ) => CancellablePromise
   >((method, args, options) => {
     if (workerInstanceId === null) {
       throw new Error('Expected the workerpool mock to create a managed worker.');
@@ -108,7 +107,7 @@ const workerpoolMocks = vi.hoisted(() => {
       }) => { script?: string; workerOpts?: WorkerOptions } | undefined;
     };
     const createdWorker = poolOptions.onCreateWorker?.({
-      script: typeof script === 'string' ? script : undefined,
+      ...(typeof script === 'string' ? { script } : {}),
       workerOpts: { type: 'module' },
     });
     const taggedScript = createdWorker?.script;
@@ -182,8 +181,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  (globalThis as Partial<typeof globalThis>).Worker = undefined;
-  (globalThis as { window?: unknown }).window = undefined;
+  vi.unstubAllGlobals();
 });
 
 function setWorkerSupport(): void {
@@ -191,13 +189,8 @@ function setWorkerSupport(): void {
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     terminate(): void {}
   }
-  // @ts-expect-error: injecting browser global
-  globalThis.Worker = FakeWorker;
-  const windowRef = (globalThis as { window?: Record<string, unknown> }).window;
-  if (typeof windowRef !== 'object' || windowRef === null) {
-    (globalThis as { window?: Record<string, unknown> }).window = {};
-  }
-  (globalThis as { window: Record<string, unknown> }).window.Worker = FakeWorker;
+  vi.stubGlobal('Worker', FakeWorker);
+  vi.stubGlobal('window', { Worker: FakeWorker });
 }
 
 describe('createWorkerpoolAdapter', () => {
@@ -659,7 +652,7 @@ describe('createBrowserEmbeddingQueue', () => {
   });
 
   it('throws when Worker is unavailable', () => {
-    (globalThis as Partial<typeof globalThis>).Worker = undefined;
+    vi.stubGlobal('Worker', undefined);
     expect(() =>
       createBrowserEmbeddingQueue({
         worker: { telemetry: TEST_TELEMETRY_SINK, workerUrl: TEST_WORKER_URL },

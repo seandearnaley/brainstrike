@@ -328,78 +328,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      # THE LINUX HALF OF THE FENCE SECURITY SUITES (BST-1071).
-      #
-      # packages/agent has three suites that run against a REAL OS sandbox:
-      # fence-executor (the contract), run-python-tool (end to end) and the
-      # escape-resistance red team. On macOS that is Seatbelt, which needs
-      # nothing installed. On Linux it is @anthropic-ai/sandbox-runtime's
-      # bubblewrap backend, which shells out to three binaries the runner image
-      # does not carry — `bwrap`, `socat` (srt's network bridge) and `rg` (its
-      # mandatory-deny scan).
-      #
-      # Without them `SandboxManager.checkDependenciesAsync()` reports errors
-      # and all three suites SKIP THEMSELVES — quietly, and GREEN. That is what
-      # CI did until this step existed, while `docs/agents/code-execution.md`
-      # and `fence-escape-resistance.README.md` both required an srt bump to be
-      # re-greened on macOS AND Linux. Only the ungated version-pin assertion
-      # ever ran here. `BRAINSTRIKE_FENCE_DEPS_REQUIRED` on the integration
-      # steps below is what stops that from silently coming back: with it set,
-      # a missing dependency FAILS the lane instead of skipping it.
-      #
-      # `kernel.apparmor_restrict_unprivileged_userns=0` is load-bearing, not
-      # tidying. Measured on this runner class (Ubuntu 24.04.4, kernel
-      # 6.14.0-azure, bubblewrap 0.9.0) the binaries install fine and the
-      # dependency check goes green, but bubblewrap still cannot build a
-      # sandbox:
-      #
-      #     bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
-      #     bwrap: setting up uid map: Permission denied
-      #
-      # Ubuntu 23.10+ ships that restriction on, and the image carries no
-      # AppArmor profile granting bwrap `userns create` (only the generic
-      # `unprivileged_userns` and `lxc-usernsexec` profiles). Every fenced run
-      # then dies before executing a line, which took the suites from 27 quiet
-      # skips to 44 hard failures — a red required lane that proves nothing.
-      # Lifting the restriction is Ubuntu's own documented remediation, the
-      # runner is an ephemeral VM that already runs this repo's code with
-      # passwordless sudo, and it changes only whether bwrap can build its
-      # namespace — NOT what the fence then denies inside it, which is the
-      # entire subject of these suites.
-      #
-      # It runs on every shard rather than only the one that currently owns
-      # packages/agent: shard membership is a filter list two screens up, and a
-      # dependency that silently stops being installed when a package moves
-      # shards is the exact failure this step exists to end.
-
-      # BST-1715: an unused third-party apt source (Google Chrome, added by the
-      # runner image) serving an inconsistent index makes the apt-get update
-      # below exit non-zero and kills this step. Drop the source rather than
-      # relaxing apt's exit status.
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install the Linux OS-fence dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          # Fail HERE, with the kernel's own message, rather than 40 assertion
-          # failures deep inside a security suite.
-          bwrap --ro-bind / / --dev /dev --unshare-all --die-with-parent /bin/echo bwrap-ok
-          # The suites need an interpreter to fence, and all three skip
-          # themselves without one. The runner image has always carried it;
-          # asserting it here means a future image that drops it fails as
-          # provisioning rather than as a lane that promised proofs it did not
-          # run (BRAINSTRIKE_FENCE_DEPS_REQUIRED would catch it either way, but
-          # this names the cause in one line).
-          python3 --version
-
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
+
+      # BST-2127: the host Nightly Coverage also runs on
+      # (.github/actions/linux-desktop-test-host): the real OS-fence
+      # dependencies (BST-1071), an X server for desktop's real-app proofs, and
+      # the desktop model cache. Every shard gets it, not only the ones that
+      # own agent or desktop: shard membership is a filter list in Static, and a
+      # dependency that silently stops being installed when a package moves
+      # shards is the failure this step exists to end. It follows Setup
+      # workspace because a desktop package script provisions the model cache.
+      - name: Provision the Linux desktop test host
+        uses: ./.github/actions/linux-desktop-test-host
+        with:
+          model-cache: ${{ matrix.partition == 'desktop' }}
 
       # NO standalone build step (B4). Test lanes resolve workspace imports
       # from SOURCE (the B3 #1651 registry + the app vitest alias maps), so
@@ -482,12 +427,12 @@ jobs:
         env:
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
-          # This lane installed bubblewrap/socat/ripgrep above, so the
-          # real-fence suites must RUN here. Set, a missing dependency is a
+          # The desktop test host above installed bubblewrap/socat/ripgrep, so
+          # the real-fence suites must RUN here. Set, a missing dependency is a
           # lane defect that fails collection instead of a host quirk the
           # suites skip over; see packages/agent/src/__tests__/fixtures/
           # fence-host-gate.ts. Deliberately NOT set in the coverage lanes,
-          # which install nothing and keep the loud-skip behaviour.
+          # which keep the loud-skip behaviour.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
@@ -496,7 +441,9 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
+        # Desktop's real-app proofs launch Electron, which needs an X server
+        # ("Missing X server or $DISPLAY"); the other partitions run as before.
+        run: ${{ matrix.partition == 'desktop' && 'xvfb-run --auto-servernum' || '' }} node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
@@ -541,7 +488,8 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+        # See the pull-request integration step above.
+        run: ${{ matrix.partition == 'desktop' && 'xvfb-run --auto-servernum' || '' }} node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
   # Fan-in job preserving the required-check name "Unit": branch protection
   # points at this single check, not at the per-shard matrix jobs, so shard

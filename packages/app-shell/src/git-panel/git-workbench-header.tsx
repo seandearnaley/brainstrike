@@ -18,16 +18,22 @@ import {
   DIRTY_REASON,
   deriveBranchSwitchDirty,
 } from './branch-switch-model';
-import type { GitRepository, GitStatus, GitWorktreeSummary } from './git-bridge';
+import type { GitRepository, GitResult, GitStatus, GitWorktreeSummary } from './git-bridge';
+import { GitFolderSwitchMenuItems } from './git-folder-switcher';
+import type { GitWorkspaceFolder } from './use-git-panel';
 
 interface GitWorkbenchHeaderProps {
   readonly fetchRemote: (remote: string) => Promise<void>;
+  readonly focusedFolder: GitWorkspaceFolder;
+  readonly focusFolder: (rootId: string) => void;
   readonly isLoading: boolean;
   readonly isSyncing: boolean;
+  readonly probeFolder: (rootId: string) => Promise<GitResult<GitStatus>>;
   readonly refreshStatus: () => void;
   readonly repository: GitRepository;
   readonly status: GitStatus;
   readonly switchBranch: (branch: string) => Promise<void>;
+  readonly workspaceFolders: readonly GitWorkspaceFolder[];
 }
 
 /**
@@ -319,12 +325,16 @@ function HeaderControl({
 
 export function GitWorkbenchHeader({
   fetchRemote,
+  focusedFolder,
+  focusFolder,
   isLoading,
   isSyncing,
+  probeFolder,
   refreshStatus,
   repository,
   status,
   switchBranch,
+  workspaceFolders,
 }: GitWorkbenchHeaderProps): ReactElement {
   const currentRemote = repository.defaultRemote;
   const branchName = status.branch ?? 'Detached HEAD';
@@ -402,7 +412,7 @@ export function GitWorkbenchHeader({
             value={repository.name}
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-80">
+        <DropdownMenuContent align="start" className="w-96">
           <DropdownMenuLabel>Repository</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <div className="px-2 py-1.5">
@@ -411,6 +421,25 @@ export function GitWorkbenchHeader({
               {repository.repositoryRoot}
             </div>
           </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Focused folder</DropdownMenuLabel>
+          <div className="px-2 pb-1.5" data-testid="git-workbench-focused-folder">
+            <div className="truncate font-medium text-sm">{focusedFolder.name}</div>
+            <div
+              className="mt-0.5 truncate text-muted-foreground text-xs"
+              title={focusedFolder.path}
+            >
+              {focusedFolder.path}
+            </div>
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Show another workspace folder</DropdownMenuLabel>
+          <GitFolderSwitchMenuItems
+            focusedRootId={focusedFolder.rootId}
+            folders={workspaceFolders}
+            onSelect={focusFolder}
+            probe={probeFolder}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
 

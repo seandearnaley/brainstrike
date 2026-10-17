@@ -539,6 +539,7 @@ overrides:
   '@vercel/container@19.1.2>smol-toml': 1.9.1
   vercel@64.3.1>undici: 7.30.1
   '@vercel/node@24.0.2>undici': 7.30.1
+  '@tailwindcss/typography@0.5.20>postcss-selector-parser': 7.1.6
   '@vercel/python-analysis@0.15.0>minimatch': 10.2.6
   react: ^19.3.1
   react-dom: ^19.3.1
@@ -3358,6 +3359,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       effect:
         specifier: 'catalog:'
         version: 4.0.5
@@ -15285,8 +15289,8 @@ packages:
       yaml:
         optional: true
 
-  postcss-selector-parser@6.0.10:
-    resolution: {integrity: sha512-IQ7TZdoaqbT+LCpShg46jnZVlhWD2w6iQYAcYXfHARZ7X1t/UGhhceQDs5X0cGqKvYlHNOuv7Oa1xmb0oQuA3w==}
+  postcss-selector-parser@7.1.6:
+    resolution: {integrity: sha512-7qASPzhKF2l2KLboRZux8CCTRMdGiV08vWmyKzPz22qZ7ZjQBOeY7rNzNoCLSUiftJ7HUq0GERHmxw/t0dCdMw==}
     engines: {node: '>=4'}
 
   postcss@8.5.30:
@@ -22504,7 +22508,7 @@ snapshots:
 
   '@tailwindcss/typography@0.5.20(tailwindcss@4.3.3)':
     dependencies:
-      postcss-selector-parser: 6.0.10
+      postcss-selector-parser: 7.1.6
       tailwindcss: 4.3.3
 
   '@tailwindcss/vite@4.3.3(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))':
@@ -27554,7 +27558,7 @@ snapshots:
       tsx: 4.23.15
       yaml: 2.9.1
 
-  postcss-selector-parser@6.0.10:
+  postcss-selector-parser@7.1.6:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
