@@ -39,6 +39,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./web-host-client": {
+      "types": "./dist/web-host-client.d.ts",
+      "default": "./dist/web-host-client.js"
+    },
+    "./web-run-turn": {
+      "types": "./dist/web-run-turn.d.ts",
+      "default": "./dist/web-run-turn.js"
+    },
+    "./test-fixtures/scripted-writer": {
+      "types": "./dist/test-fixtures/scripted-writer.d.ts",
+      "default": "./dist/test-fixtures/scripted-writer.js"
     }
   },
   "files": [

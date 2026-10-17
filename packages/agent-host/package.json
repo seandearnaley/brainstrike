@@ -131,6 +131,10 @@
     "./test-fixtures/owned-process": "./__tests__/fixtures/owned-fixture-process.ts",
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
     "./test-fixtures/process-platform": "./__tests__/fixtures/process-platform.mjs",
+    "./workspace-state": {
+      "types": "./dist/workspace-state.d.ts",
+      "default": "./dist/workspace-state.js"
+    },
     "./thread-view": {
       "types": "./dist/thread-view.d.ts",
       "default": "./dist/thread-view.js"

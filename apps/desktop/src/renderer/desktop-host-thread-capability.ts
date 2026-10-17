@@ -1,23 +1,21 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import type { HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { resolveChangesBridge } from '@brainstrike/app-shell/changes/availability';
-import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type ThreadWorkspaceBinding,
   ThreadWorkspaceBindingSchema,
 } from '@brainstrike/assistant-contract/thread-workspace-binding';
-import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import {
-  ASSISTANT_THREAD_COLOR_IDS,
-  ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
-  type AssistantThreadColorId,
-  type AssistantThreadIconId,
   type AssistantThreadMetadata,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
+import {
+  hostThreadWorkspaceRepository,
+  projectHostThread,
+  projectStartedHostThread,
+} from '@brainstrike/host-conversation';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { createDesktopHostConnection, type DesktopHostConnection } from './desktop-host-connection';
@@ -28,76 +26,6 @@ import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
 const logger = createLogger('DesktopHostThreads');
-
-type CatalogEntry = Pick<
-  HostResults['thread/list']['threads'][number],
-  'binding' | 'color' | 'createdAt' | 'damage' | 'icon' | 'threadId' | 'title' | 'updatedAt'
->;
-
-/** The catalog's committed title, colour and icon (each absent until set). */
-interface HostPresentation {
-  readonly color?: string;
-  readonly icon?: string;
-  readonly title?: string;
-}
-
-const isColor = (value: string): value is AssistantThreadColorId =>
-  (ASSISTANT_THREAD_COLOR_IDS as readonly string[]).includes(value);
-const isIcon = (value: string): value is AssistantThreadIconId =>
-  (ASSISTANT_THREAD_ICON_IDS as readonly string[]).includes(value);
-
-/** Committed colour and icon this renderer can draw; an unknown ID is reported, not drawn. */
-function presentedMetadata(threadId: string, { color, icon }: HostPresentation) {
-  if ((color !== undefined && !isColor(color)) || (icon !== undefined && !isIcon(icon))) {
-    logger.warn('Host thread has a colour or icon this renderer cannot draw', {
-      color,
-      icon,
-      threadId,
-    });
-  }
-  return {
-    ...(color !== undefined && isColor(color) ? { color } : {}),
-    ...(icon !== undefined && isIcon(icon) ? { icon } : {}),
-  };
-}
-
-/**
- * Transient display projection of the owner's catalog entry: identity, binding
- * and timestamps. A damaged thread stays listed, its damage shown as a read failure.
- */
-function projectThread(
-  resourceId: string,
-  { binding, createdAt, damage, threadId, updatedAt, ...presentation }: CatalogEntry
-): AssistantMemoryThread {
-  const metadata = { ...(binding ?? {}), ...presentedMetadata(threadId, presentation) };
-  return {
-    createdAt: new Date(createdAt),
-    id: threadId,
-    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-    ...(damage === undefined ? {} : { readFailure: damage }),
-    resourceId,
-    title: presentation.title ?? DEFAULT_THREAD_TITLE,
-    updatedAt: new Date(updatedAt),
-  };
-}
-
-/** A thread Core has just started: its creation is its only committed fact. */
-function projectStarted(
-  threadId: string,
-  resourceId: string,
-  rows: readonly HostLogRow[]
-): AssistantMemoryThread {
-  const started = rows.find((row) => row.event.type === 'thread.started');
-  if (started?.ts === undefined) {
-    throw new Error('Host thread has no committed creation timestamp');
-  }
-  return projectThread(resourceId, {
-    binding: null,
-    createdAt: started.ts,
-    threadId,
-    updatedAt: started.ts,
-  });
-}
 
 /**
  * The host owns the thread workspace binding keys (and colour and icon, through
@@ -175,7 +103,7 @@ export function createWindowThreadCapability(
     );
     ledger.seed(costs.threads);
     catalogLoaded = true;
-    return catalog.threads.map((entry) => projectThread(resourceId, entry));
+    return catalog.threads.map((entry) => projectHostThread(resourceId, entry));
   };
   const threadClient = async (threadId: string): Promise<HostClient | undefined> => {
     if (threads.has(threadId)) {
@@ -238,7 +166,7 @@ export function createWindowThreadCapability(
       const { threadId } = await host.request('thread/start', { commandId: crypto.randomUUID() });
       const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
       threads.add(threadId);
-      return projectStarted(threadId, resourceId, rows);
+      return projectStartedHostThread(threadId, resourceId, rows);
     },
     deleteThread: async (threadId) => {
       const host = await client();
@@ -470,39 +398,6 @@ export function createWindowThreadCapability(
         });
       }
     },
-    workspaceRepository: () => {
-      const getThreadWorkspace = async (threadId: string) => {
-        const host = await threadClient(threadId);
-        if (!host) {
-          throw new Error('This workspace snapshot is not owned by the attached agent host.');
-        }
-        return (await host.request('thread/workspace/read', { threadId })).snapshot;
-      };
-      return {
-        getThreadWorkspace,
-        getThreadWorkspaces: async (threadIds) => {
-          const snapshots = await Promise.all(
-            threadIds.map(async (id) => [id, await getThreadWorkspace(id)] as const)
-          );
-          return new Map(
-            snapshots.flatMap(([id, snapshot]) => (snapshot ? [[id, snapshot] as const] : []))
-          );
-        },
-        setThreadWorkspace: async (threadId, resourceId, snapshot) => {
-          const host = await threadClient(threadId);
-          if (!host) {
-            throw new Error('This workspace snapshot is not owned by the attached agent host.');
-          }
-          if (resourceId !== WORKSPACE_MEMORY_RESOURCE_ID) {
-            throw new Error('The host thread belongs to the workspace resource');
-          }
-          await host.request('thread/workspace/set', {
-            commandId: crypto.randomUUID(),
-            snapshot: WorkspaceSnapshotSchema.parse(snapshot),
-            threadId,
-          });
-        },
-      };
-    },
+    workspaceRepository: () => hostThreadWorkspaceRepository(threadClient),
   };
 }
