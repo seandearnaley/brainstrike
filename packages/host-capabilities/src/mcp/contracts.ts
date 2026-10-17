@@ -1,9 +1,9 @@
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostMcpRuntime, HostStartupContext } from '@brainstrike/agent-host';
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
+import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import type { ProviderCredentialReader } from '@brainstrike/assistant-service/ports';
 import type { ProviderAuthProjectionOptions } from '@brainstrike/assistant-service/provider-credential-projection';
-import type { McpTaskStorage } from '@brainstrike/db';
 
 /** Explicit selection only: failure never selects a different credential backend. */
 export type AgentHostCredentialStoreOptions =

@@ -10,17 +10,10 @@ import { registerUserCommandsIpcHandlers } from '../../ipc-user-commands';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import { mockIpcMain, resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
 
-const postgres = vi.hoisted(() =>
-  vi.fn(() => {
-    throw new Error('PGlite unavailable');
-  })
-);
-vi.mock('../../db-main', () => ({ getDatabase: postgres }));
 let root: string;
 const disposers: (() => void)[] = [];
 beforeEach(() => {
   resetElectronMainTestHarness();
-  postgres.mockClear();
   root = mkdtempSync(join(tmpdir(), 'bs-root-catalog-ipc-'));
   const home = join(root, 'disposable-home');
   mkdirSync(home);
@@ -85,7 +78,6 @@ it('reviews and trusts canonical hooks without PGlite', async () => {
     sha256: 'a'.repeat(64),
   });
   expect(roots.workspaceRoots).toHaveBeenCalledWith({ operation: 'list' });
-  expect(postgres).not.toHaveBeenCalled();
 });
 it('scans instructions and commands through the required catalog without PGlite', async () => {
   const roots = catalog();
@@ -116,7 +108,6 @@ it('scans instructions and commands through the required catalog without PGlite'
     },
   });
   expect(roots.workspaceRoots).toHaveBeenCalledTimes(3);
-  expect(postgres).not.toHaveBeenCalled();
 });
 it('reports catalog unavailability instead of empty successful discovery', async () => {
   const roots: WorkspaceRootPort = {
@@ -133,5 +124,4 @@ it('reports catalog unavailability instead of empty successful discovery', async
   await expect(invoke('user-commands:list')).resolves.toMatchObject({ ok: false });
   await expect(invoke('skills:scan')).resolves.toMatchObject({ ok: false });
   expect(roots.workspaceRoots).toHaveBeenCalledTimes(3);
-  expect(postgres).not.toHaveBeenCalled();
 });

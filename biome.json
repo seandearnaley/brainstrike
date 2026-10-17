@@ -353,7 +353,7 @@
       "includes": [
         "packages/db/**",
         "packages/token-cache/**",
-        "**/db-main.ts",
+        "packages/assistant-contract/src/mcp-task-row-schema.ts",
         "**/ipc-handlers.ts"
       ],
       "linter": {
@@ -434,7 +434,6 @@
         "apps/desktop/src/__tests__/main/mcp-loader-comprehensive.test.ts",
         "apps/desktop/src/__tests__/renderer-host-lifecycle.test.ts",
         "apps/desktop/src/assistant-server/git-service.ts",
-        "apps/desktop/src/db-main.ts",
         "apps/desktop/src/main.ts",
         "apps/desktop/src/preload.ts",
         "apps/web/e2e/file-explorer.test.ts",
@@ -452,8 +451,6 @@
         "packages/agent/src/__tests__/mcp-tool-loader.spec.ts",
         "packages/agent/src/__tests__/tool-model-output.spec.ts",
         "packages/agent/src/mastra/agent-streaming.ts",
-        "packages/agent/src/pglite-mastra-memory/__tests__/pglite-memory-store.integration.spec.ts",
-        "packages/agent/src/pglite-mastra-memory/memory-store.ts",
         "packages/agent/src/providers/local/__tests__/local-llm-backend.spec.ts",
         "packages/agent/src/providers/local/gemma4-engine.ts",
         "packages/agent/src/stream/data-stream-mapper.ts",

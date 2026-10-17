@@ -1,10 +1,10 @@
-import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it } from 'vitest';
 import {
   type McpTaskAuthorityLease,
   McpTaskMetadataTooLargeError,
-  McpTaskRepository,
-} from '../src/repositories/mcp-task-repository.js';
+} from '@brainstrike/assistant-contract/mcp-task-store';
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, describe, expect, it } from 'vitest';
+import { McpTaskRepository } from '../src/repositories/mcp-task-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 import { createPGliteTestDataDir } from './test-data-dir';

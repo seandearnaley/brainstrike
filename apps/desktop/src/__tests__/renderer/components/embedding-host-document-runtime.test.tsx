@@ -11,7 +11,6 @@ import {
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 import {
   commandListenerRef,
-  dbHandle,
   documentEmbeddingsCancelListenerRef,
   documentEmbeddingsListenerRef,
   generateDocumentEmbeddingsMock,
@@ -113,7 +112,6 @@ describe('hidden pinned document batch', () => {
       signal: expect.any(AbortSignal),
     });
     expect(generateQueryEmbeddingMock).not.toHaveBeenCalled();
-    expect(dbHandle.query).not.toHaveBeenCalled();
     expect(initializeWithModelMock).not.toHaveBeenCalled();
     expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining(plan));
   });

@@ -13,7 +13,6 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createNativeScopedSearchCapability } from '../../native-scoped-search';
 
 const pg = vi.hoisted(() => ({ files: vi.fn(), fts: vi.fn(), query: vi.fn(), vectors: vi.fn() }));
-vi.mock('../../db-main', () => ({ getDatabase: async () => ({ query: pg.query }) }));
 vi.mock('@brainstrike/db', async (original) => ({
   ...(await original<typeof import('@brainstrike/db')>()),
   FileChunkRepository: class {
@@ -28,7 +27,7 @@ vi.mock('@brainstrike/db', async (original) => ({
 import { runHybridSearchWith } from '../../assistant-server/hybrid-search-core';
 import { retrievalToolExecutors } from '../../assistant-server/native-tool-executors-retrieval';
 import { runQueryEmbeddingSpaceWith } from '../../assistant-server/retrieval-core';
-import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { pgliteRetrievalStore } from '../fixtures/pglite-retrieval-store';
 import { catalogOnly } from './_c1-a-helpers';
 import { hostExecutionPorts } from './_host-native-tools';
 
@@ -214,7 +213,9 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       nativeIndexSearch: capability,
     };
     // The host's catalog reads: Main serves them from its PGlite store.
-    const store = catalogOnly(pgliteRetrievalStore());
+    const store = catalogOnly(
+      pgliteRetrievalStore(async () => ({ exec: vi.fn(), query: pg.query }))
+    );
     const semantic = await runQueryEmbeddingSpaceWith(
       { embeddingSetId: 'selected', query: 'native marker' },
       undefined,

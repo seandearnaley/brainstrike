@@ -60,9 +60,6 @@
       "@brainstrike/agent/mcp-client": [
         "../../packages/agent/dist/mcp-client.d.ts"
       ],
-      "@brainstrike/agent/pglite-mastra-memory": [
-        "../../packages/agent/dist/pglite-mastra-memory/index.d.ts"
-      ],
       "@brainstrike/embeddings/provider-core": [
         "../../packages/embeddings/dist/provider-core.d.ts"
       ],
@@ -113,10 +110,6 @@
     "src/host-lease-entry.ts",
     "src/host-lease-manager.ts",
     "src/diagnostics/main-watchdog-worker.ts",
-    "src/db-host-entry.ts",
-    "src/db-host-manager.ts",
-    "src/db-host-protocol.ts",
-    "src/db-main.ts",
     "src/parser-host-entry.ts",
     "src/official-conformance-client-entry.ts",
     "src/official-conformance-client-process.ts",

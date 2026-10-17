@@ -46,7 +46,7 @@ import {
 } from '../../assistant-server/command-session-tools';
 import type { GrepIndexSearch } from '../../assistant-server/grep-search-core';
 import { commandSessionExecutors } from '../../assistant-server/native-tool-executors-sessions';
-import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { pgliteRetrievalStore } from '../fixtures/pglite-retrieval-store';
 import { hit, storeId } from '../native-scoped-search-fixture';
 import {
   buildHostNativeTools,
@@ -115,10 +115,6 @@ const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = 
   getDatabaseMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
-}));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
 }));
 
 vi.mock('electron', () => ({
@@ -191,7 +187,7 @@ function mainRequest(
           { onExcessProperty: 'error' }
         )(input);
         return overWire(
-          await refusalOutcome(() => pgliteRetrievalStore().embeddingSpaces(request))
+          await refusalOutcome(() => pgliteRetrievalStore(getDatabaseMock).embeddingSpaces(request))
         );
       }
       default:

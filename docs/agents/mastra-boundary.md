@@ -9,27 +9,31 @@ removed agent loop or its vendor patch under a new name.
 
 The loop's files are gone as of ADR-0022's retirement step: no PRODUCTION code
 constructs a Mastra `Agent` or a `Mastra` instance, and nothing imports
-`@mastra/core/stream`. A few specs still build one as a harness for the memory,
-background-task storage and tool-shape adapters, which is what `@mastra/core`
-staying means.
+`@mastra/core/stream`. A few specs still build one as a harness for the tool-shape
+adapters, which is what `@mastra/core` staying means.
 
-`patches/@mastra__core@1.71.0.patch` was narrowed to the hunks that still have a
+`patches/@mastra__core@1.71.0.patch` was narrowed to the hunks that still had a
 consumer, which is NOT the same as the hunks the loop did not touch:
 
 - **kept** — `SemanticRecall`'s memoized `xxhash_wasm()` promise (the WASM leak;
   `@mastra/memory` reaches it).
 - **kept** — the `BackgroundTaskManager` cleanup-join rewrite and the background
-  workflow step that calls its `trackTaskWork`. These are a PAIR, and they
-  survive the loop: the contract they create — a cancellation or shutdown joins
-  the workflow delete and REPORTS its failure instead of logging a warning — is
-  the PGlite background-task storage adapter's, pinned by
-  `packages/agent/src/__tests__/background-cleanup.integration.spec.ts`. Removing
-  them turned that spec red, which is the patch's removal condition behaving as
-  intended.
+  workflow step that calls its `trackTaskWork`. These are a PAIR: the contract
+  they create — a cancellation or shutdown joins the workflow delete and REPORTS
+  its failure instead of logging a warning — was the PGlite background-task
+  storage adapter's.
 - **removed** — `createToolCallStep`'s background `outputWriter`, the `Agent`
   sub-agent abort-signal composition, and `createDurableToolCallStep`'s
   `outputWriter`. Each is on the retired loop's own path, with no reachable
   consumer left; a vendor patch nothing reaches is a fork carried for nothing.
+
+BST-2068 deleted `pglite-mastra-memory`, the consumer of both kept hunk groups,
+with the specs that pinned them (`background-cleanup` and
+`semantic-recall-lifecycle`). The host's recall is its own StateStore adapter, and
+no production code constructs a Mastra `Memory` or `BackgroundTaskManager`, so the
+remaining hunks have no reachable consumer. Retiring them belongs with the
+BST-2032 Core/Memory requalification in `pnpm-workspace.yaml`, not with a silent
+edit.
 
 A patch applies to vendor `dist` whatever our callers do, so a hunk losing its
 consumer never fails the install. Reachability has to be argued from what the

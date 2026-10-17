@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import * as clientModule from '@brainstrike/agent/mcp-client';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { MigrationRunner, migrations, pgliteMcpTaskStorage, wasmLoader } from '@brainstrike/db';
 import type { McpTaskElicitationBinding } from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
+import { stateStoreMcpTaskStorage } from '@brainstrike/host-capabilities/mcp/state-store-task-storage';
 import * as taskModule from '@brainstrike/host-capabilities/mcp/task-host';
+import { StateStore } from '@brainstrike/state-store';
 
 // Run in plain Node: Vitest source aliases conceal public-bundle identities.
-const db = await wasmLoader.createPGlite('memory://bst1948-built-contract');
+// The host's own Tasks owner: a StateStore through its one writer.
+const root = await mkdtemp(path.join(tmpdir(), 'bst1948-built-contract-'));
+const store = await StateStore.open(root);
 let host: taskModule.McpDesktopTaskHost | undefined;
 try {
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
   const registry = new clientModule.McpClientExtensionRegistry();
   clientModule.registerMcpTasksWireContracts(registry);
   const serverId = parseConfiguredMcpServerId('task-contract-fixture');
@@ -56,7 +59,7 @@ try {
         presented.reject(error);
       }
     },
-    openStorage: async () => pgliteMcpTaskStorage(db),
+    openStorage: async () => stateStoreMcpTaskStorage(store),
     runtimeId: 'built-contract-fixture',
   });
   const createdAt = '2026-10-03T00:00:00.000Z';
@@ -154,5 +157,6 @@ try {
   process.stdout.write(JSON.stringify({ methods, status: result.task.status }));
 } finally {
   await host?.close();
-  await db.close();
+  await store.close();
+  await rm(root, { force: true, recursive: true });
 }

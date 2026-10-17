@@ -1,9 +1,7 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopDatabaseIntegrity } from '../../database-integrity-state';
 import { registerClipboardIpcHandlers } from '../../ipc-clipboard';
 import { registerContextFilesIpcHandlers } from '../../ipc-context-files';
-import { registerDatabaseIntegrityIpcHandlers } from '../../ipc-domains/database-integrity-ipc';
 import { mcpAppsContract, mcpPathSelectionContract } from '../../ipc-domains/mcp.contract';
 import { registerSkillsIpcHandlers } from '../../ipc-skills';
 import { registerUserCommandsIpcHandlers } from '../../ipc-user-commands';
@@ -17,8 +15,6 @@ import {
   trackTestWindowRole,
 } from '../helpers/desktop-ipc-sender-test-helpers';
 import { mockIpcMain, resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
-
-vi.mock('../../db-main', () => ({ getDatabase: vi.fn() }));
 
 /**
  * BST-1648: every contract-registered leaf domain is sender-authorized BY
@@ -208,55 +204,5 @@ describe('contract-registered MCP invokes are visible-UI-only by construction (B
         );
       }
     }
-  });
-});
-
-describe('db:integrity:state is readable by the visible UI and the embedding host only (BST-1870)', () => {
-  const CHANNEL = 'db:integrity:state';
-  const ROLE_IDS = { chunking: 8_910_003, embedding: 8_910_002, visible: 8_910_001 };
-  const UNTRACKED_ID = 8_910_005;
-  const REJECTION = `Desktop IPC ${CHANNEL} requires sender role embedding-host, visible-ui.`;
-  let dispose: () => void = () => undefined;
-
-  beforeEach(() => {
-    resetElectronMainTestHarness();
-    dispose = registerDatabaseIntegrityIpcHandlers({
-      integrity: createDesktopDatabaseIntegrity({
-        logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        now: () => new Date('2026-09-29T12:00:00.000Z'),
-      }),
-    });
-  });
-
-  afterEach(() => {
-    dispose();
-    for (const id of Object.values(ROLE_IDS)) {
-      clearWindowRoleByWebContentsId(id);
-    }
-  });
-
-  it.each([
-    ['visible-ui', ROLE_IDS.visible],
-    ['embedding-host', ROLE_IDS.embedding],
-  ] as const)('accepts the %s sender and replies with the result envelope', async (role, id) => {
-    await expect(registeredHandler(CHANNEL)(createTrustedInvokeEvent(role, id))).resolves.toEqual({
-      ok: true,
-      value: { revision: 0, state: { kind: 'healthy' } },
-    });
-  });
-
-  it('rejects a chunking-host sender', async () => {
-    const event = createTrustedInvokeEvent('chunking-host', ROLE_IDS.chunking);
-
-    await expect(registeredHandler(CHANNEL)(event)).rejects.toThrow(REJECTION);
-  });
-
-  it('rejects an untracked sender', async () => {
-    const event = {
-      sender: { id: UNTRACKED_ID },
-      senderFrame: createAllowlistedSenderFrame('visible-ui'),
-    } as unknown as IpcMainInvokeEvent;
-
-    await expect(registeredHandler(CHANNEL)(event)).rejects.toThrow(REJECTION);
   });
 });

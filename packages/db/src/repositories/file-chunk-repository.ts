@@ -1,3 +1,4 @@
+import type { GrepCandidate, GrepCandidateOptions } from '@brainstrike/utils/grep-search';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -7,7 +8,6 @@ import type {
   FTSSearchOptions,
   FTSSearchResult,
 } from '../models/file-chunk';
-import type { GrepCandidate, GrepCandidateOptions } from '../models/grep';
 import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,

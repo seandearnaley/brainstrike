@@ -4,7 +4,7 @@
  * Host threads always read the workspace through Main's native index
  * (`hostIndexSearch` / `desktop-read/grep-index`, served by `nativeGrepIndex`)
  * and a catalog-only retrieval store (`hostRetrievalStore`, served by Main's
- * `pgliteRetrievalStore` catalog reads). These fixtures give a suite exactly
+ * StateStore catalog reads). These fixtures give a suite exactly
  * those shapes: a native `IndexSearchCapability` answering the way Main's
  * does, and a store restricted to the catalog reads the host can reach.
  */

@@ -13,7 +13,6 @@
     "@aws-sdk/credential-providers": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
-    "@brainstrike/db": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/mcp-app-host": "workspace:*",
@@ -38,10 +37,10 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/db": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
     "@electric-sql/pglite": "catalog:",
-    "@electric-sql/pglite-pgvector": "catalog:",
     "@modelcontextprotocol/node": "catalog:",
     "@modelcontextprotocol/server": "catalog:",
     "@modelcontextprotocol/server-legacy": "catalog:",
@@ -156,16 +155,6 @@
       "types": "./dist/run-events.d.ts",
       "import": "./dist/run-events.mjs",
       "require": "./dist/run-events.js"
-    },
-    "./pglite-mastra-memory": {
-      "types": "./dist/pglite-mastra-memory/index.d.ts",
-      "import": "./dist/pglite-mastra-memory/index.mjs",
-      "require": "./dist/pglite-mastra-memory/index.js"
-    },
-    "./pglite-mastra-memory/schema": {
-      "types": "./dist/pglite-mastra-memory/schema.d.ts",
-      "import": "./dist/pglite-mastra-memory/schema.mjs",
-      "require": "./dist/pglite-mastra-memory/schema.js"
     }
   },
   "files": [

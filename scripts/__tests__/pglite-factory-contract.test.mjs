@@ -174,19 +174,3 @@ test('guard catches constructors, static creation, and constructor aliases but i
     assert.ok(constructionViolations('example.ts', source).length > 0, source);
   }
 });
-
-test('the desktop host contains no any types or construction suppressions', () => {
-  const file = 'apps/desktop/src/db-main.ts';
-  const source = readFileSync(path.join(repoRoot, file), 'utf8');
-  assert.doesNotMatch(source, /biome-ignore[^\n]*noExplicitAny/u);
-  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
-  function visit(node) {
-    assert.notEqual(
-      node.kind,
-      ts.SyntaxKind.AnyKeyword,
-      'desktop DB host must use concrete types or unknown'
-    );
-    ts.forEachChild(node, visit);
-  }
-  visit(parsed);
-});

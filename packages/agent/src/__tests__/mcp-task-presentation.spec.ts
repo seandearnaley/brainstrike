@@ -1,4 +1,4 @@
-import type { McpTaskRecord } from '@brainstrike/db';
+import type { McpTaskRecord } from '@brainstrike/assistant-contract/mcp-task-store';
 import { describe, expect, it, vi } from 'vitest';
 import {
   MCP_TASK_CONTEXT_MAX_BYTES,

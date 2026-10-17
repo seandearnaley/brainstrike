@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { McpTaskStorage } from '@brainstrike/db';
+import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import type { McpTaskDomainRequest, McpTaskDomainRow, StateStore } from '@brainstrike/state-store';
 
 const TEXT_ENCODER = new TextEncoder();

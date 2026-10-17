@@ -787,15 +787,6 @@ importers:
       '@brainstrike/workspace-search':
         specifier: workspace:*
         version: link:../../packages/workspace-search
-      '@electric-sql/pglite':
-        specifier: 'catalog:'
-        version: 0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217)
-      '@electric-sql/pglite-pg_textsearch':
-        specifier: 'catalog:'
-        version: 0.0.12(@electric-sql/pglite@0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217))
-      '@electric-sql/pglite-pgvector':
-        specifier: 'catalog:'
-        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217))
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.3.0
@@ -881,6 +872,9 @@ importers:
       '@effect/tsgo':
         specifier: 'catalog:'
         version: 0.53.3
+      '@electric-sql/pglite':
+        specifier: 'catalog:'
+        version: 0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217)
       '@electron/osx-sign':
         specifier: 1.3.3
         version: 1.3.3(supports-color@10.2.2)
@@ -1356,9 +1350,6 @@ importers:
       '@brainstrike/assistant-wire':
         specifier: workspace:*
         version: link:../assistant-wire
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
@@ -1426,6 +1417,9 @@ importers:
         specifier: 'catalog:'
         version: 4.6.7
     devDependencies:
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -1435,9 +1429,6 @@ importers:
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217)
-      '@electric-sql/pglite-pgvector':
-        specifier: 'catalog:'
-        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217))
       '@modelcontextprotocol/node':
         specifier: 'catalog:'
         version: 2.1.1(@modelcontextprotocol/server@2.3.1)
@@ -1780,6 +1771,9 @@ importers:
 
   packages/assistant-contract:
     dependencies:
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
@@ -1893,9 +1887,6 @@ importers:
       '@brainstrike/canonical-ingestion':
         specifier: workspace:*
         version: link:../canonical-ingestion
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
@@ -3203,9 +3194,6 @@ importers:
       '@brainstrike/assistant-service':
         specifier: workspace:*
         version: link:../assistant-service
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit

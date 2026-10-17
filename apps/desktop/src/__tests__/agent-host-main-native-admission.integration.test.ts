@@ -21,11 +21,6 @@ vi.mock('node:os', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:os')>()),
   homedir: () => owner.home,
 }));
-vi.mock('../db-main', () => ({
-  getDatabase: async () => {
-    throw new Error('PGlite must not be opened by host admission');
-  },
-}));
 vi.mock('../provider-api-key', () => ({ readProviderCredential: owner.credential }));
 vi.mock('../ipc-mcp', () => ({
   readDesktopMcpHostSnapshot: async (runtime: {
