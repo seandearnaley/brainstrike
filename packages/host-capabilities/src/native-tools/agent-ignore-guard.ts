@@ -301,6 +301,8 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
  */
 export async function assertNotAgentIgnored(args: {
   canonicalRootPath: string;
+  /** Share directory reads within one operation only, never across calls. */
+  guard?: AgentIgnoreGuard;
   /** The path as REQUESTED (workspace-relative; a leading slash is fine). */
   relativePath: string;
   /**
@@ -314,7 +316,7 @@ export async function assertNotAgentIgnored(args: {
    */
   canonicalAbsolutePath?: string | undefined;
 }): Promise<void> {
-  const guard = createAgentIgnoreGuard(args.canonicalRootPath);
+  const guard = args.guard ?? createAgentIgnoreGuard(args.canonicalRootPath);
   const candidates = await agentIgnoreCandidatePaths(args);
   // The credential floor is no ignore file's rule, so its refusal names it
   // rather than sending the user to search their ignore files.

@@ -3,6 +3,7 @@ import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MCP_TASKS_GET_REQUEST_CONTRACT } from '../mcp/tasks-extension';
 import {
   McpTaskLifecycle,
   McpTaskLifecycleStoppedError,
@@ -39,15 +40,32 @@ function detailedCompleted(taskId: string): GetTaskResult {
     status: 'completed',
     taskId,
     ttlMs: null,
-  } as GetTaskResult;
+  };
 }
 
 describe('MCP task lifecycle handles (review of #2915)', () => {
+  it('refuses a raw fixture response that does not satisfy the requested result schema', async () => {
+    const requestExtension = vi.fn<TaskRequestResponder>(async () => ({
+      status: 'completed',
+      taskId: 'task-invalid',
+    }));
+    const client = {
+      requestExtension: validatedTaskRequest(requestExtension),
+    } satisfies McpTaskPollingClient;
+
+    await expect(
+      client.requestExtension(MCP_TASKS_GET_REQUEST_CONTRACT, { taskId: 'task-invalid' })
+    ).rejects.toThrow('Invalid tasks/get fixture response');
+    expect(requestExtension).toHaveBeenCalledTimes(1);
+  });
+
   it('persists a detail-less completed create result and fetches its detail at once', async () => {
     const database = await openDb();
     const repository = new McpTaskRepository(database);
     const requestExtension = vi.fn<TaskRequestResponder>(async () => detailedCompleted('task-1'));
-    const client = { requestExtension } as unknown as McpTaskPollingClient;
+    const client = {
+      requestExtension: validatedTaskRequest(requestExtension),
+    } satisfies McpTaskPollingClient;
     const authority = await repository.openAuthority(AUTHORITY_INPUT);
     const lifecycle = new McpTaskLifecycle({
       authority,
@@ -89,7 +107,7 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
       authority,
       client: {
         requestExtension: validatedTaskRequest(requestExtension),
-      } as unknown as McpTaskPollingClient,
+      } satisfies McpTaskPollingClient,
       onUpdate: () => undefined,
       repository,
     });

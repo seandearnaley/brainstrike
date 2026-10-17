@@ -63,7 +63,12 @@ function isOptionalString(value: unknown): value is string | undefined {
 }
 
 function isUnavailableReason(value: unknown): value is LspUnavailableReason {
-  return value === 'unsupported-language' || value === 'server-unavailable' || value === 'timeout';
+  return (
+    value === 'read-policy' ||
+    value === 'unsupported-language' ||
+    value === 'server-unavailable' ||
+    value === 'timeout'
+  );
 }
 
 function isSymbolMatch(value: unknown): value is SymbolMatchResult {

@@ -1,4 +1,4 @@
-import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import { useFileExplorerStoreSelector, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -25,11 +25,28 @@ interface RootScopedValue<T> {
   readonly value: T;
 }
 
+/** One mounted workspace root, as the Git panel names and switches it (BST-1897). */
+export interface GitWorkspaceFolder {
+  /** True for the assistant's Main root (`activeRootIds[0]`), which focus never changes. */
+  readonly isMain: boolean;
+  readonly name: string;
+  readonly path: string;
+  readonly rootId: string;
+}
+
 export interface UseGitPanelResult {
   /** Durable rootId of the focused workspace root, or null if none is open. */
   readonly activeRootId: string | null;
   readonly commit: (summary: string, description?: string) => Promise<boolean>;
   readonly fetchRemote: (remote: string) => Promise<void>;
+  /** The focused root Git inspects, or null when none is open. */
+  readonly focusedFolder: GitWorkspaceFolder | null;
+  /**
+   * Focus another mounted root through the explorer's own focus action, so Git
+   * follows it. Focus is UI selection only: Main and root order never change.
+   * Selecting the already-focused root does nothing.
+   */
+  readonly focusFolder: (rootId: string) => void;
   /** True while a status fetch is in flight. */
   readonly isLoading: boolean;
   /** True while a push or pull network op is running. */
@@ -49,6 +66,11 @@ export interface UseGitPanelResult {
   ) => Promise<GitResult<StructuredFileDiff>>;
   readonly loadCommitFiles: (commit: string) => Promise<readonly GitCommitFile[] | null>;
   readonly loadHistory: (options?: LoadHistoryOptions) => Promise<GitHistoryPage | null>;
+  /**
+   * Read-only status for another mounted root, so the folder switcher can say
+   * which roots are repositories. Raw result: the caller renders failures.
+   */
+  readonly probeFolder: (rootId: string) => Promise<GitResult<GitStatus>>;
   readonly pull: () => Promise<void>;
   readonly push: (remote?: string) => Promise<void>;
   readonly refresh: () => void;
@@ -66,6 +88,8 @@ export interface UseGitPanelResult {
   readonly unstageAll: () => Promise<void>;
   readonly unstageFile: (path: string) => Promise<void>;
   readonly unstageFiles: (paths: readonly string[]) => Promise<void>;
+  /** Every mounted root in workspace order, the focused one included. */
+  readonly workspaceFolders: readonly GitWorkspaceFolder[];
 }
 
 interface LoadHistoryOptions {
@@ -85,7 +109,9 @@ interface LoadHistoryOptions {
  * the panel renders the desktop-only empty state.
  */
 export function useGitPanel(): UseGitPanelResult {
-  const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
+  const { rootDirectoryHandle, rootDirectoryHandles, rootIdByPath, setFocusedRoot } =
+    useFileSystem();
+  const mainRootId = useFileExplorerStoreSelector((state) => state.activeRootIds[0] ?? null);
   const { toast } = useToast();
   const bridgeRef = useRef<GitBridge | null>(null);
   if (bridgeRef.current === null) {
@@ -102,6 +128,47 @@ export function useGitPanel(): UseGitPanelResult {
     // by every other workspace surface (see FileTreeWrapper).
     return rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path) ?? null;
   }, [rootDirectoryHandle, rootIdByPath]);
+
+  const workspaceFolders = useMemo<readonly GitWorkspaceFolder[]>(() => {
+    const folders: GitWorkspaceFolder[] = [];
+    for (const handle of rootDirectoryHandles) {
+      const rootId = handle.rootId ?? rootIdByPath?.get(handle.path);
+      if (!rootId) {
+        // Every root source stamps a rootId; one without it cannot be addressed
+        // through the git bridge, so it is reported rather than offered.
+        logger.error('workspace root has no rootId; omitted from the Git folder switcher', {
+          path: handle.path,
+        });
+        continue;
+      }
+      folders.push({ isMain: rootId === mainRootId, name: handle.name, path: handle.path, rootId });
+    }
+    return folders;
+  }, [mainRootId, rootDirectoryHandles, rootIdByPath]);
+
+  const focusedFolder = useMemo<GitWorkspaceFolder | null>(() => {
+    if (!(rootDirectoryHandle && activeRootId)) {
+      return null;
+    }
+    return (
+      workspaceFolders.find((folder) => folder.rootId === activeRootId) ?? {
+        isMain: activeRootId === mainRootId,
+        name: rootDirectoryHandle.name,
+        path: rootDirectoryHandle.path,
+        rootId: activeRootId,
+      }
+    );
+  }, [activeRootId, mainRootId, rootDirectoryHandle, workspaceFolders]);
+
+  const focusFolder = useCallback(
+    (rootId: string) => {
+      if (rootId === activeRootId) {
+        return;
+      }
+      setFocusedRoot(rootId);
+    },
+    [activeRootId, setFocusedRoot]
+  );
 
   const [statusState, setStatusState] = useState<RootScopedValue<GitStatus> | null>(null);
   const [repositoryState, setRepositoryState] = useState<RootScopedValue<GitRepository> | null>(
@@ -518,6 +585,22 @@ export function useGitPanel(): UseGitPanelResult {
     [bridge, activeRootId, toast]
   );
 
+  const probeFolder = useCallback(
+    async (rootId: string): Promise<GitResult<GitStatus>> => {
+      if (!bridge) {
+        return { error: 'git-bridge-unavailable: the desktop Git bridge is missing', ok: false };
+      }
+      try {
+        return await bridge.status(rootId);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('git folder probe threw', { error: message, rootId });
+        return { error: message, ok: false };
+      }
+    },
+    [bridge]
+  );
+
   // No toast/log-on-`!ok` here by design — see this method's doc comment on
   // `UseGitPanelResult`. Only a thrown/rejected call (never expected from
   // the bridge's own contract, but not impossible from a broken preload) is
@@ -550,11 +633,14 @@ export function useGitPanel(): UseGitPanelResult {
     activeRootId,
     commit,
     fetchRemote,
+    focusedFolder,
+    focusFolder,
     isLoading,
     isSyncing,
     loadCommitFileDiff,
     loadCommitFiles,
     loadHistory,
+    probeFolder,
     pull,
     push,
     refresh,
@@ -569,5 +655,6 @@ export function useGitPanel(): UseGitPanelResult {
     unstageAll,
     unstageFile,
     unstageFiles,
+    workspaceFolders,
   };
 }

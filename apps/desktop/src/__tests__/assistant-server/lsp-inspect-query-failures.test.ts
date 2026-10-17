@@ -17,6 +17,7 @@
 import { EventEmitter } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { warnSpy, wire } = vi.hoisted(() => {
@@ -30,6 +31,24 @@ const { warnSpy, wire } = vi.hoisted(() => {
     respond: (_method: string): Promise<unknown> => Promise.resolve(null),
   };
   return { warnSpy: vi.fn(), wire: state };
+});
+
+// This suite isolates per-leg query failures. Real project policy and document
+// lifetime are covered by lsp-policy-freshness and lsp-document-session tests.
+vi.mock('../../assistant-server/lsp-document-session', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../assistant-server/lsp-document-session')>();
+  return {
+    ...actual,
+    withLspDocument: async <T>(
+      session: Parameters<typeof actual.withLspDocument>[0],
+      task: (uri: string) => Promise<T>
+    ): Promise<T> => {
+      const uri = pathToFileURL(session.absolutePath).href;
+      await session.connection.sendNotification('textDocument/didOpen', {});
+      return task(uri);
+    },
+  };
 });
 
 vi.mock('electron', () => ({}));

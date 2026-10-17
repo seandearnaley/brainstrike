@@ -72,6 +72,11 @@ export interface FileExplorerData {
    */
   explorerScrollTop: number;
   fileContents: Record<string, string>;
+  /**
+   * RootIds in focus order, OLDEST first: focusing a root moves it to the end,
+   * so the last entry is the most recently focused root. Boot restore refocuses
+   * the newest entry that is still mounted.
+   */
   folderAccessOrder: string[];
   /**
    * Per-root state keyed by RootId UUID (since storage v5); never keyed by path.

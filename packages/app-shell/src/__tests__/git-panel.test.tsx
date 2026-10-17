@@ -37,9 +37,14 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>();
   return {
     FILE_EXPLORER_REFRESH_EVENT: actual.FILE_EXPLORER_REFRESH_EVENT,
+    useFileExplorerStoreSelector: (
+      selector: (state: { readonly activeRootIds: readonly string[] }) => unknown
+    ) => selector({ activeRootIds: mockRoot.handle?.rootId ? [mockRoot.handle.rootId] : [] }),
     useFileSystem: () => ({
       rootDirectoryHandle: mockRoot.handle,
+      rootDirectoryHandles: mockRoot.handle ? [mockRoot.handle] : [],
       rootIdByPath: new Map<string, string>(),
+      setFocusedRoot: vi.fn(),
     }),
   };
 });
