@@ -1,9 +1,10 @@
 import {
   ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
+  type AssistantThreadAppearancePatch,
+  AssistantThreadAppearanceSaveError,
   type AssistantThreadColorId,
   type AssistantThreadIconId,
-  type AssistantThreadMetadata,
 } from '@brainstrike/assistant-data';
 import {
   type AnyContextAction,
@@ -17,6 +18,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  toast,
   useContextMenuTarget,
 } from '@brainstrike/ui';
 import {
@@ -82,9 +84,9 @@ export interface ThreadRowProps {
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
+  readonly onUpdateThreadAppearance: (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly pr: ForgePrCacheEntry | null;
   readonly selected: boolean;
@@ -101,7 +103,7 @@ export function ThreadRow({
   onMoveThreadToGroup,
   onRenameThread,
   onSelectThread,
-  onUpdateThreadMetadata,
+  onUpdateThreadAppearance,
   pr,
   selected,
   status,
@@ -116,7 +118,6 @@ export function ThreadRow({
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
-  const [savingMetadata, setSavingMetadata] = useState(false);
   const [savingRename, setSavingRename] = useState(false);
   const handleCustomizeThreadToggle = useCallback(() => {
     setCustomizing((current) => !current);
@@ -149,7 +150,6 @@ export function ThreadRow({
         editing={editing}
         expanded={expanded}
         metadataError={metadataError}
-        metadataSaving={savingMetadata}
         moveTargets={moveTargets}
         onCancelRename={() => {
           setEditing(false);
@@ -179,7 +179,6 @@ export function ThreadRow({
         onDraftTitleChange={setDraftTitle}
         onExpandedThreadToggle={handleExpandedThreadToggle}
         onMetadataError={setMetadataError}
-        onMetadataSavingChange={setSavingMetadata}
         onMoveThreadToGroup={onMoveThreadToGroup}
         onRenameSavingChange={setSavingRename}
         onRenameThread={onRenameThread}
@@ -190,7 +189,7 @@ export function ThreadRow({
           setDraftTitle('');
         }}
         onSelectThread={onSelectThread}
-        onUpdateThreadMetadata={onUpdateThreadMetadata}
+        onUpdateThreadAppearance={onUpdateThreadAppearance}
         pr={pr}
         renameError={renameError}
         renameSaving={savingRename}
@@ -250,7 +249,6 @@ function ThreadRowItem({
   draftTitle,
   editing,
   expanded,
-  metadataSaving,
   metadataError,
   moveTargets,
   onCancelRename,
@@ -266,10 +264,9 @@ function ThreadRowItem({
   onRenameThreadStart,
   onRenameThreadSubmitted,
   onRenameThreadSubmitError,
-  onMetadataSavingChange,
   onRenameSavingChange,
   onSelectThread,
-  onUpdateThreadMetadata,
+  onUpdateThreadAppearance,
   pr,
   renameError,
   renameSaving,
@@ -286,7 +283,6 @@ function ThreadRowItem({
   readonly draftTitle: string;
   readonly editing: boolean;
   readonly expanded: boolean;
-  readonly metadataSaving: boolean;
   readonly metadataError: string | null;
   readonly moveTargets: readonly ThreadMoveTarget[];
   readonly onCancelRename: () => void;
@@ -302,12 +298,11 @@ function ThreadRowItem({
   readonly onRenameThreadStart: () => void;
   readonly onRenameThreadSubmitted: () => void;
   readonly onRenameThreadSubmitError: (message: string) => void;
-  readonly onMetadataSavingChange: (saving: boolean) => void;
   readonly onRenameSavingChange: (saving: boolean) => void;
   readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
+  readonly onUpdateThreadAppearance: (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly pr: ForgePrCacheEntry | null;
   readonly renameError: string | null;
@@ -508,17 +503,15 @@ function ThreadRowItem({
               deleting={deleting}
               expanded={expanded}
               metadataError={customizing ? metadataError : null}
-              metadataSaving={metadataSaving}
               onConfirmDeleteThread={onConfirmDeleteThread}
               onCustomizeThreadToggle={onCustomizeThreadToggle}
               onDeleteThreadCancel={onDeleteThreadCancel}
               onDeleteThreadStart={onDeleteThreadStart}
               onExpandedThreadToggle={onExpandedThreadToggle}
               onMetadataError={onMetadataError}
-              onMetadataSavingChange={onMetadataSavingChange}
               onRenameThreadStart={onRenameThreadStart}
               onSelectThread={onSelectThread}
-              onUpdateThreadMetadata={onUpdateThreadMetadata}
+              onUpdateThreadAppearance={onUpdateThreadAppearance}
               pendingDelete={confirmingDelete}
               pr={pr}
               selected={selected}
@@ -623,7 +616,6 @@ function ThreadRowDisplay({
   deleting,
   expanded,
   metadataError,
-  metadataSaving,
   onCustomizeThreadToggle,
   onConfirmDeleteThread,
   onDeleteThreadCancel,
@@ -631,9 +623,8 @@ function ThreadRowDisplay({
   onExpandedThreadToggle,
   onMetadataError,
   onRenameThreadStart,
-  onMetadataSavingChange,
   onSelectThread,
-  onUpdateThreadMetadata,
+  onUpdateThreadAppearance,
   pendingDelete,
   pr,
   selected,
@@ -646,7 +637,6 @@ function ThreadRowDisplay({
   readonly deleting: boolean;
   readonly expanded: boolean;
   readonly metadataError: string | null;
-  readonly metadataSaving: boolean;
   readonly onCustomizeThreadToggle: () => void;
   readonly onConfirmDeleteThread: () => void;
   readonly onDeleteThreadCancel: () => void;
@@ -654,11 +644,10 @@ function ThreadRowDisplay({
   readonly onExpandedThreadToggle: () => void;
   readonly onMetadataError: (message: string | null) => void;
   readonly onRenameThreadStart: () => void;
-  readonly onMetadataSavingChange: (saving: boolean) => void;
   readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
+  readonly onUpdateThreadAppearance: (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly pendingDelete: boolean;
   readonly pr: ForgePrCacheEntry | null;
@@ -746,10 +735,8 @@ function ThreadRowDisplay({
               {customizing ? (
                 <ThreadCustomizationPanel
                   metadataError={metadataError}
-                  metadataSaving={metadataSaving}
                   onMetadataError={onMetadataError}
-                  onMetadataSavingChange={onMetadataSavingChange}
-                  onUpdateThreadMetadata={onUpdateThreadMetadata}
+                  onUpdateThreadAppearance={onUpdateThreadAppearance}
                   thread={thread}
                 />
               ) : (
@@ -833,32 +820,36 @@ function ThreadRowDisplay({
 
 function ThreadCustomizationPanel({
   metadataError,
-  metadataSaving,
   onMetadataError,
-  onMetadataSavingChange,
-  onUpdateThreadMetadata,
+  onUpdateThreadAppearance,
   thread,
 }: {
   readonly metadataError: string | null;
-  readonly metadataSaving: boolean;
   readonly onMetadataError: (message: string | null) => void;
-  readonly onMetadataSavingChange: (saving: boolean) => void;
-  readonly onUpdateThreadMetadata: (
+  readonly onUpdateThreadAppearance: (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
-  const saveMetadata = (metadata: AssistantThreadMetadata): void => {
-    onMetadataSavingChange(true);
+  // A pick shows at once and saves after (BST-2116). The swatches stay live, so
+  // a second pick need not wait for the first save. A failed save that put the
+  // shown value back says so here and in a toast, since the panel may be closed.
+  const saveAppearance = (patch: AssistantThreadAppearancePatch): void => {
     onMetadataError(null);
-    onUpdateThreadMetadata(thread.id, metadata)
-      .catch((error: unknown) => {
-        onMetadataError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        onMetadataSavingChange(false);
+    onUpdateThreadAppearance(thread.id, patch).catch((error: unknown) => {
+      if (error instanceof AssistantThreadAppearanceSaveError && !error.rolledBack) {
+        return; // A newer pick of the same key decides what the thread shows.
+      }
+      const reason = error instanceof Error ? error.message : String(error);
+      const what = patch.color === undefined ? 'icon' : 'color';
+      onMetadataError(`The thread ${what} was not saved, so it was changed back: ${reason}`);
+      toast({
+        description: `It was changed back. ${reason}`,
+        title: `Couldn’t save the thread ${what}`,
+        variant: 'destructive',
       });
+    });
   };
   return (
     <div className="grid gap-3" data-testid="thread-customization-panel">
@@ -881,10 +872,9 @@ function ThreadCustomizationPanel({
                   className={
                     selected ? 'bg-accent shadow-inner ring-1 ring-border' : 'text-muted-foreground'
                   }
-                  disabled={metadataSaving}
                   key={iconId}
                   onClick={() => {
-                    saveMetadata({ icon: iconId });
+                    saveAppearance({ icon: iconId });
                   }}
                   size="icon-sm"
                   type="button"
@@ -919,9 +909,8 @@ function ThreadCustomizationPanel({
                         className={
                           selected ? 'bg-accent shadow-inner ring-1 ring-border' : undefined
                         }
-                        disabled={metadataSaving}
                         key={colorId}
-                        onClick={() => saveMetadata({ color: colorId })}
+                        onClick={() => saveAppearance({ color: colorId })}
                         size="icon-sm"
                         type="button"
                         variant="ghost"

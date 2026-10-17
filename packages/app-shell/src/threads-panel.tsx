@@ -4,12 +4,12 @@ import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-regis
 import {
   ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
+  type AssistantThreadAppearancePatch,
   type AssistantThreadCatalogRepository,
   type AssistantThreadColorId,
   type AssistantThreadGroup,
   type AssistantThreadGroupsRepository,
   type AssistantThreadIconId,
-  type AssistantThreadMetadata,
   buildThreadListSections,
   buildThreadMembership,
   getGroupMemberIds,
@@ -631,9 +631,9 @@ interface ThreadRowContextProps {
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
+  readonly onUpdateThreadAppearance: (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   /** False for folder grouping and while a Show-only filter narrows the list. */
   readonly rowsDraggable: boolean;
@@ -836,7 +836,7 @@ function ThreadPanelCell({
         onMoveThreadToGroup={rowsProps.onMoveThreadToGroup}
         onRenameThread={rowsProps.onRenameThread}
         onSelectThread={rowsProps.onSelectThread}
-        onUpdateThreadMetadata={rowsProps.onUpdateThreadMetadata}
+        onUpdateThreadAppearance={rowsProps.onUpdateThreadAppearance}
         pr={lookupThreadForgePr(row.thread, rowsProps.branchLookup, rowsProps.forgePrLookup)}
         selected={rowsProps.selectedThreadId === row.thread.id}
         status={resolveThreadRowStatusState({
@@ -1110,7 +1110,7 @@ function ThreadPanelTree({
   onNewThreadInFolder,
   onRenameThread,
   onSelectThread,
-  onUpdateThreadMetadata,
+  onUpdateThreadAppearance,
   selectedThreadId,
   selection,
   threadFiltersActive,
@@ -1136,9 +1136,9 @@ function ThreadPanelTree({
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
+  readonly onUpdateThreadAppearance: (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
@@ -1215,7 +1215,7 @@ function ThreadPanelTree({
       onMoveThreadToGroup,
       onRenameThread,
       onSelectThread,
-      onUpdateThreadMetadata,
+      onUpdateThreadAppearance,
       rowsDraggable: !(folderMode || threadFiltersActive),
       selectedThreadId,
       unseenThreadIds,
@@ -1233,7 +1233,7 @@ function ThreadPanelTree({
       onMoveThreadToGroup,
       onRenameThread,
       onSelectThread,
-      onUpdateThreadMetadata,
+      onUpdateThreadAppearance,
       selectedThreadId,
       threadFiltersActive,
       unseenThreadIds,
@@ -1406,7 +1406,7 @@ function ThreadsPanelContent({
   onNewThreadInFolder,
   onRenameThread,
   onSelectThread,
-  onUpdateThreadMetadata,
+  onUpdateThreadAppearance,
   repository,
   selectedThreadId,
   selection,
@@ -1438,9 +1438,9 @@ function ThreadsPanelContent({
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
+  readonly onUpdateThreadAppearance: (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly repository: AssistantThreadCatalogRepository | null;
   readonly selectedThreadId: string | undefined;
@@ -1488,7 +1488,7 @@ function ThreadsPanelContent({
       onNewThreadInFolder={onNewThreadInFolder}
       onRenameThread={onRenameThread}
       onSelectThread={onSelectThread}
-      onUpdateThreadMetadata={onUpdateThreadMetadata}
+      onUpdateThreadAppearance={onUpdateThreadAppearance}
       selectedThreadId={selectedThreadId}
       selection={selection}
       threadFiltersActive={threadFiltersActive}
@@ -1685,7 +1685,7 @@ export function ThreadsPanelCore({
   const deleteThreads = useAssistantThreadStore((state) => state.deleteThreads);
   const renameThread = useAssistantThreadStore((state) => state.renameThread);
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
-  const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
+  const updateThreadAppearance = useAssistantThreadStore((state) => state.updateThreadAppearance);
   const updateThreadsMetadata = useAssistantThreadStore((state) => state.updateThreadsMetadata);
   const selectedThreadId = selectedThreadByResourceId[resourceId];
   const threads = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
@@ -1988,14 +1988,14 @@ export function ThreadsPanelCore({
       await threadSearchRepository.deleteThreads([threadId]);
     }
   };
-  const handleUpdateThreadMetadata = async (
+  const handleUpdateThreadAppearance = async (
     threadId: string,
-    metadata: AssistantThreadMetadata
+    patch: AssistantThreadAppearancePatch
   ): Promise<void> => {
     if (!(repository && resourceId)) {
       return;
     }
-    await updateThreadMetadata(repository, resourceId, threadId, metadata);
+    await updateThreadAppearance(repository, resourceId, threadId, patch);
   };
   const handleBulkColor = async (
     threadIds: readonly string[],
@@ -2283,7 +2283,7 @@ export function ThreadsPanelCore({
           onNewThreadInFolder={handleCreateThreadInFolder}
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
-          onUpdateThreadMetadata={handleUpdateThreadMetadata}
+          onUpdateThreadAppearance={handleUpdateThreadAppearance}
           repository={repository}
           selectedThreadId={selectedThreadId}
           selection={selection}

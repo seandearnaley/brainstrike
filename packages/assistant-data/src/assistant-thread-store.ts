@@ -9,6 +9,7 @@ import {
   assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
+import { createUpdateThreadAppearance } from './assistant-thread-appearance';
 import {
   type AssistantThreadLoadState,
   assertThreadCatalogLoadedAfterFailure,
@@ -85,6 +86,8 @@ interface AssistantThreadState {
    * from a run.
    */
   unseenBaselineAt: number;
+  /** Icon or colour, shown at once and put back if its write fails (BST-2116). */
+  updateThreadAppearance: ReturnType<typeof createUpdateThreadAppearance>;
   updateThreadMetadata: (
     repository: AssistantThreadCatalogRepository,
     resourceId: string,
@@ -924,6 +927,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       threadsByResourceId: {},
       unavailableSavedThreadByResourceId: {},
       unseenBaselineAt: Date.now(),
+      updateThreadAppearance: createUpdateThreadAppearance(get, set),
       updateThreadMetadata: async (
         repository: AssistantThreadCatalogRepository,
         resourceId: string,
