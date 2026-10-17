@@ -38,6 +38,7 @@ import {
   createEmbeddingHostRuntimeStoppedError,
   EMBEDDING_HOST_RUNTIME_STOPPED_CODE,
 } from '../embedding-host-shared';
+import { EMBEDDING_HOST_UNRESPONSIVE_CODE } from '../embedding-host-unresponsive';
 
 const DOCUMENT = {
   dimensions: 384,
@@ -237,7 +238,10 @@ describe('document transport physical settlement', () => {
     const error = await outcome;
     expect(error).not.toBeInstanceOf(AggregateError);
     expect(error).toEqual(
-      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') })
+      expect.objectContaining({
+        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
+        message: expect.stringContaining('It sent no progress for 1 min'),
+      })
     );
   });
   it('reports a host Stop as a failure to a caller that did not cancel', async () => {
@@ -272,7 +276,10 @@ describe('document transport physical settlement', () => {
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     expect(await outcome).toEqual(
-      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') })
+      expect.objectContaining({
+        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
+        message: expect.stringContaining('It sent no progress for 1 min'),
+      })
     );
   });
   it('joins retirement after cancellation delivery fails and keeps both causes', async () => {
@@ -364,7 +371,10 @@ describe('document transport physical settlement', () => {
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     const error = await outcome;
     expect((error as AggregateError).errors).toEqual([
-      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') }),
+      expect.objectContaining({
+        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
+        message: expect.stringContaining('It sent no progress for 1 min'),
+      }),
       expect.objectContaining({
         message: 'Embedding host document cancellation could not be sent.',
       }),
@@ -395,7 +405,10 @@ describe('document transport physical settlement', () => {
     expect(settled).not.toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     expect(((await outcome) as AggregateError).errors).toEqual([
-      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') }),
+      expect.objectContaining({
+        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
+        message: expect.stringContaining('It sent no progress for 1 min'),
+      }),
       expect.objectContaining({ message: 'device failed' }),
     ]);
   });

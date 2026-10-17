@@ -102,7 +102,7 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
   );
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { documentEmbeddings: vi.fn(unused) },
+    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT' }),
   });
@@ -136,7 +136,7 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
 it('still asks for a model and collection before VECTOR indexing', async () => {
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { documentEmbeddings: vi.fn(unused) },
+    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'VECTOR' }),
   });
@@ -193,7 +193,7 @@ it('routes explicit workspace scans to the existing admitted trigger and refuses
   );
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { documentEmbeddings: vi.fn(unused) },
+    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT' }),
   });
@@ -224,7 +224,7 @@ it('refuses explicit workspace scans while source admission is paused', async ()
   setCatalogRoot();
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { documentEmbeddings: vi.fn(unused) },
+    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT', paused: true }),
   });

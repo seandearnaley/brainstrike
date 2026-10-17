@@ -27,7 +27,10 @@ import {
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type {
+  IndexRetryCapability,
+  IndexSearchCapability,
+} from '@brainstrike/indexing-contract/indexer-client';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
@@ -173,6 +176,8 @@ export interface RootLayoutContentProps {
    * no Logs tab renders.
    */
   readonly logsPageContent?: ReactNode;
+  /** Retry indexing after the embedding host stopped responding (BST-2104); desktop only. */
+  readonly nativeIndexRetry?: IndexRetryCapability | null;
   readonly nativeIndexSearch?: IndexSearchCapability | null;
   readonly navigationItems: NavigationItem[];
   /**
@@ -575,6 +580,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 });
 
 export function RootLayoutContent({
+  nativeIndexRetry,
   nativeIndexSearch,
   deleteRootData: platformDeleteRootData,
   browserPageContent,
@@ -674,6 +680,7 @@ export function RootLayoutContent({
       <AppLayout
         config={appConfig}
         currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
+        nativeIndexRetry={nativeIndexRetry ?? null}
         nativeIndexSearch={nativeIndexSearch ?? null}
         onNavigationClick={handleNavigationClick}
         onOpenSettings={openSettings}

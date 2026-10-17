@@ -52,6 +52,7 @@ import {
 } from './native-index-lifecycle-owner';
 import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
 import { createNativeIndexFailures } from './native-index-reopen';
+import { createNativeIndexRetry } from './native-index-retry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
@@ -984,6 +985,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     reconfigure: () => reconfigure(),
     reconfigureRoots: () => reconfigure(true),
     resume,
+    retryIndexing: createNativeIndexRetry({ embedding: dependencies.embedding, lifecycle }),
     stopSources,
     withRead,
   };

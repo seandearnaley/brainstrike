@@ -52,12 +52,20 @@ export interface IndexerPublicationProgress {
  * Typed lifecycle refusal; no native objects or failure stacks cross the renderer boundary.
  * `rebuild-required`: the store refused to open its file (damaged, or a layout it does not
  * support), so only an explicit rebuild serves again (BST-1878).
+ * `embedding-host-unresponsive`: the embedding host stopped responding to a document batch, so
+ * only the person's Retry indexing (which restarts it) serves again; never retried automatically
+ * (BST-2104).
  */
 export type NativeIndexRefusalCause =
   | { readonly kind: 'transitioning' }
   | { readonly kind: 'closed'; readonly reason: string }
   | {
-      readonly kind: 'setup-required' | 'settings-invalid' | 'source-failure' | 'rebuild-required';
+      readonly kind:
+        | 'setup-required'
+        | 'settings-invalid'
+        | 'source-failure'
+        | 'rebuild-required'
+        | 'embedding-host-unresponsive';
       readonly message: string;
     };
 
@@ -297,6 +305,15 @@ export type IndexerCoverageBatch =
 /** Desktop notification after canonical roots commit; Main alone resolves grants and IDs. */
 export interface IndexRootRegistrationCapability {
   rootsRegistered(): Promise<void>;
+}
+
+/**
+ * The remedy for the `embedding-host-unresponsive` refusal: restarts the embedding host through
+ * its owner, then re-opens the failed generation so its pending indexing work is admitted again.
+ * Refuses any other state, `rebuild-required` included; never runs automatically.
+ */
+export interface IndexRetryCapability {
+  retryIndexing(): Promise<void>;
 }
 
 export interface IndexSearchCapability {

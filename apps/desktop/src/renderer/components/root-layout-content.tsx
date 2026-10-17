@@ -168,6 +168,7 @@ export default function RootLayoutContent() {
     },
     // Every desktop window has its own log buffer and Electron main's (BST-1791).
     logsPageContent: <LogsPageContent />,
+    nativeIndexRetry: nativeSearch,
     nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,

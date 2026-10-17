@@ -440,7 +440,7 @@ export async function fixture(withWorkspace = false, discovery = false) {
       watches: { subscribe: async () => {} },
     } as unknown as ApplicationIpcDomain,
     catalog: catalogFixture.catalog,
-    embedding: { documentEmbeddings: vi.fn() },
+    embedding: { destroyAndRestart: vi.fn(), documentEmbeddings: vi.fn() },
     modelCatalog: catalogFixture.modelCatalog,
     onError,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),

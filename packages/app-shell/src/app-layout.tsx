@@ -26,6 +26,7 @@ export function AppLayout({
   currentPath,
   onNavigationClick,
   onOpenSettings,
+  nativeIndexRetry,
   nativeIndexSearch,
 }: AppLayoutProps) {
   useDatabaseStatusSync();
@@ -78,7 +79,10 @@ export function AppLayout({
                   <>
                     <GlobalDownloadIndicator />
                     <DiagnosticsStatusItem />
-                    <IndexingStatusItem nativeIndexSearch={nativeIndexSearch ?? null} />
+                    <IndexingStatusItem
+                      nativeIndexRetry={nativeIndexRetry ?? null}
+                      nativeIndexSearch={nativeIndexSearch ?? null}
+                    />
                   </>
                 }
               />

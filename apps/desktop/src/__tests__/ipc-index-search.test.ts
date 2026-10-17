@@ -1,8 +1,9 @@
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
 import type {
   IndexChunkBoundsCapability,
+  IndexRetryCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -27,6 +28,18 @@ vi.mock('@brainstrike/logging', async (original) => ({
   ...(await original<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({ debug: vi.fn(), error: registryError, info: vi.fn(), warn: vi.fn() }),
 }));
+const unusedRetry: IndexRetryCapability = {
+  retryIndexing: async () => {
+    throw new Error('Unexpected Retry indexing in this test');
+  },
+};
+/** The read-only cases register no Retry indexing work of their own. */
+function registerWithoutRetry(
+  cap: Parameters<typeof registerIndexSearchIpcHandlers>[0],
+  registration: Parameters<typeof registerIndexSearchIpcHandlers>[1]
+): () => void {
+  return registerIndexSearchIpcHandlers(cap, registration, unusedRetry);
+}
 const dispose: Array<() => void> = [];
 afterEach(() => {
   for (const fn of dispose.splice(0)) {
@@ -77,7 +90,7 @@ it('preserves invalid observations as data while unrelated failures keep the can
     kind: 'invalidated',
   });
   dispose.push(
-    registerIndexSearchIpcHandlers(cap, {
+    registerWithoutRetry(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -112,7 +125,7 @@ it('preserves invalid observations as data while unrelated failures keep the can
 it('uses the visible-ui authorized manifest and canonical renderer result/error unwrap', async () => {
   const cap = capability();
   dispose.push(
-    registerIndexSearchIpcHandlers(cap, {
+    registerWithoutRetry(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -146,7 +159,7 @@ it('uses the visible-ui authorized manifest and canonical renderer result/error 
 it('rejects hidden, untracked and foreign-frame senders before payload parsing or capability calls', async () => {
   const cap = capability();
   dispose.push(
-    registerIndexSearchIpcHandlers(cap, {
+    registerWithoutRetry(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -197,7 +210,7 @@ it('preserves explicit grep options and refuses incomplete or mixed vector profi
 it('parses every batch selector and preserves visible-ui authority and failure propagation', async () => {
   const cap = capability();
   dispose.push(
-    registerIndexSearchIpcHandlers(cap, {
+    registerWithoutRetry(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -224,7 +237,7 @@ it('parses every batch selector and preserves visible-ui authority and failure p
 it('parses file chunk requests strictly and keeps them visible-ui only', async () => {
   const cap = capability();
   dispose.push(
-    registerIndexSearchIpcHandlers(cap, {
+    registerWithoutRetry(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -343,7 +356,7 @@ it('observes a retained startup failure as stable blocked data without logging a
     },
   });
   dispose.push(
-    registerIndexSearchIpcHandlers(cap, {
+    registerWithoutRetry(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -405,7 +418,7 @@ it.each([
 it('accepts only an authorized no-argument registration notification and joins its acknowledgement', async () => {
   const pending = Promise.withResolvers<void>();
   const rootsRegistered = vi.fn(() => pending.promise);
-  dispose.push(registerIndexSearchIpcHandlers(capability(), { rootsRegistered }));
+  dispose.push(registerWithoutRetry(capability(), { rootsRegistered }));
   const invoke = handler('rootsRegistered');
   await expect(invoke(createTrustedInvokeEvent('embedding-host'))).rejects.toThrow();
   await expect(
@@ -428,7 +441,7 @@ it('accepts only an authorized no-argument registration notification and joins i
 it('preserves the canonical failure envelope for registration failures', async () => {
   const failure = new Error('Root registration activation failed');
   dispose.push(
-    registerIndexSearchIpcHandlers(capability(), {
+    registerWithoutRetry(capability(), {
       rootsRegistered: vi.fn(async () => {
         throw failure;
       }),
@@ -445,7 +458,7 @@ it('carries the lifecycle transition tag across IPC without logging a failed ind
   vi.mocked(cap.search).mockRejectedValue(
     new NativeAuthorityTransitionError('Native index is transitioning.')
   );
-  dispose.push(registerIndexSearchIpcHandlers(cap, { rootsRegistered: async () => {} }));
+  dispose.push(registerWithoutRetry(cap, { rootsRegistered: async () => {} }));
   await expect(
     handler('search')(createTrustedInvokeEvent(), {
       limit: 5,
@@ -458,4 +471,29 @@ it('carries the lifecycle transition tag across IPC without logging a failed ind
     ok: false,
   });
   expect(registryError).not.toHaveBeenCalled();
+});
+
+it('routes Retry indexing to its own capability and keeps its typed refusal (BST-2104)', async () => {
+  const notBlocked = refusalError(
+    'conflict',
+    'native-index.retry-not-needed',
+    'Indexing is not waiting for the embedding model to restart.'
+  );
+  const retryIndexing = vi.fn(async () => {}).mockRejectedValueOnce(notBlocked);
+  dispose.push(
+    registerIndexSearchIpcHandlers(
+      capability(),
+      { rootsRegistered: async () => {} },
+      { retryIndexing }
+    )
+  );
+  await expect(handler('retryIndexing')(createTrustedInvokeEvent())).resolves.toMatchObject({
+    error: notBlocked.failure,
+    ok: false,
+  });
+  await expect(handler('retryIndexing')(createTrustedInvokeEvent())).resolves.toEqual({
+    ok: true,
+    value: undefined,
+  });
+  expect(retryIndexing).toHaveBeenCalledTimes(2);
 });

@@ -1,4 +1,7 @@
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type {
+  IndexRetryCapability,
+  IndexSearchCapability,
+} from '@brainstrike/indexing-contract/indexer-client';
 import type { ComponentType, ReactNode } from 'react';
 
 export interface NavigationItem {
@@ -18,6 +21,8 @@ export interface AppLayoutProps {
   children: ReactNode;
   config: AppShellConfig;
   currentPath: string;
+  /** Retry indexing after the embedding host stopped responding; desktop injects it. */
+  readonly nativeIndexRetry?: IndexRetryCapability | null;
   readonly nativeIndexSearch?: IndexSearchCapability | null;
   onNavigationClick?: (path: string) => void;
   onOpenSettings?: () => void;

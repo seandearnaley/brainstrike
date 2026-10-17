@@ -101,6 +101,7 @@ const NativeIndexRefusalCauseSchema = Schema.Union(
     Schema.Struct({ kind: Schema.Literal('settings-invalid'), message: Schema.String }),
     Schema.Struct({ kind: Schema.Literal('source-failure'), message: Schema.String }),
     Schema.Struct({ kind: Schema.Literal('rebuild-required'), message: Schema.String }),
+    Schema.Struct({ kind: Schema.Literal('embedding-host-unresponsive'), message: Schema.String }),
   ],
   { mode: 'oneOf' }
 );

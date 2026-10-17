@@ -745,7 +745,7 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
   const documentEmbeddings = vi.fn(unused);
   const activation = createActivation({
     application,
-    embedding: { documentEmbeddings },
+    embedding: { destroyAndRestart: vi.fn(), documentEmbeddings },
     onError: vi.fn(),
     storage: {
       getItem: async () =>
