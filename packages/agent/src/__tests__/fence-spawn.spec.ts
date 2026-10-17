@@ -36,20 +36,24 @@ interface FakeChild extends ChildProcessLike {
 }
 
 function createFakeChild(pid: number | undefined = 4242): FakeChild {
-  const events = new EventEmitter();
-  const stdout = new EventEmitter();
-  const stderr = new EventEmitter();
+  const events = new EventEmitter<{
+    close: [number | null, NodeJS.Signals | null];
+    error: [Error];
+    exit: [number | null, NodeJS.Signals | null];
+  }>();
+  const stdout = new EventEmitter<{ data: [Buffer] }>();
+  const stderr = new EventEmitter<{ data: [Buffer] }>();
   return {
     emitClose: (code = null, signal = null) => events.emit('close', code, signal),
     emitError: (error) => events.emit('error', error),
     emitExit: (code, signal = null) => events.emit('exit', code, signal),
     emitStderr: (chunk) => stderr.emit('data', chunk),
     emitStdout: (chunk) => stdout.emit('data', chunk),
-    on: (event: string, listener: (...args: never[]) => void) => events.on(event, listener),
+    on: events.on.bind(events),
     pid,
-    stderr: stderr as unknown as ChildProcessLike['stderr'],
-    stdout: stdout as unknown as ChildProcessLike['stdout'],
-  } as FakeChild;
+    stderr,
+    stdout,
+  };
 }
 
 function harness(pid?: number): {
