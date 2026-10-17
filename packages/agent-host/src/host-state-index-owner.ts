@@ -32,7 +32,9 @@ type WorkerState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'starting'; readonly connection: IndexerConnection }
   | { readonly kind: 'live'; readonly connection: IndexerConnection; readonly port: ConnectedPort }
-  | { readonly kind: 'retired'; readonly connection: IndexerConnection; readonly cause: unknown };
+  | { readonly kind: 'retired'; readonly connection: IndexerConnection; readonly cause: unknown }
+  /** Nothing owned: the last worker was joined, or failed before it existed. Next is a replacement. */
+  | { readonly kind: 'stopped'; readonly cause: unknown };
 
 type Live = Extract<WorkerState, { readonly kind: 'live' }>;
 
@@ -140,7 +142,14 @@ export function createStateIndexOwner(options: {
       if (closed) {
         throw closingError();
       }
-      const connection = options.start();
+      let connection: IndexerConnection;
+      try {
+        connection = options.start();
+      } catch (cause) {
+        // No worker exists to own; the next advance replaces it as it would a retired one.
+        state = { cause, kind: 'stopped' };
+        throw cause;
+      }
       state = { connection, kind: 'starting' };
       try {
         const live: Live = { connection, kind: 'live', port: await connection.ready };
@@ -165,7 +174,9 @@ export function createStateIndexOwner(options: {
       }
     }
   };
-  const replace = async (retired: Extract<WorkerState, { kind: 'retired' }>): Promise<Live> => {
+  const replace = async (
+    previous: Extract<WorkerState, { kind: 'retired' | 'stopped' }>
+  ): Promise<Live> => {
     if (replacements >= STATE_INDEX_REPLACEMENTS) {
       // Final, with a remedy: a refusal, so nothing re-opens it automatically.
       throw new BoundaryFailureError(
@@ -175,31 +186,34 @@ export function createStateIndexOwner(options: {
           message: `The agent host's state index stopped ${STATE_INDEX_REPLACEMENTS + 1} times in a row and was not restarted again.`,
           remedy: 'Restart BrainStrike.',
         }),
-        { cause: retired.cause }
+        { cause: previous.cause }
       );
     }
-    try {
-      await join(retired.connection);
-    } catch (error) {
-      // Still owned, and possibly alive: nothing starts beside it.
-      throw retiredFailure(error);
+    if (previous.kind === 'retired') {
+      try {
+        await join(previous.connection);
+      } catch (error) {
+        // Still owned, and possibly alive: nothing starts beside it.
+        throw retiredFailure(error);
+      }
     }
     replacements += 1;
     logger.warn('Replacing the host state index after its worker retired', {
       attempt: replacements,
       code: 'host_state_index_replaced',
-      error: retired.cause,
+      error: previous.cause,
       limit: STATE_INDEX_REPLACEMENTS,
     });
-    state = { kind: 'idle' };
+    state = { cause: previous.cause, kind: 'stopped' };
     try {
       return await start();
     } catch (cause) {
       throw closed ? cause : retiredFailure(cause);
     }
   };
-  // The one path out of `idle` and `retired`. A first start's failure is the host startup's to report.
-  const advance = (): Promise<Live> => (state.kind === 'retired' ? replace(state) : start());
+  // The one path out of `idle`, `retired` and `stopped`. A first start's failure is the host startup's to report.
+  const advance = (): Promise<Live> =>
+    state.kind === 'retired' || state.kind === 'stopped' ? replace(state) : start();
   const acquire = (): Promise<Live> => {
     if (closed) {
       return Promise.reject(closingError());
@@ -238,7 +252,7 @@ export function createStateIndexOwner(options: {
         await join(state.connection);
       }
       await advancing?.catch(() => undefined);
-      if (state.kind !== 'idle') {
+      if ('connection' in state) {
         await join(state.connection);
       }
     })().catch((error: unknown) => {

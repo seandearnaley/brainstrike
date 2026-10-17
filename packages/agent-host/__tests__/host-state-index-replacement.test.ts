@@ -122,14 +122,20 @@ function transport(worker: FakeWorker): IndexerTransport {
   };
 }
 
+/** A start that throws before any worker exists, as `new Worker` can when no thread is free. */
+const unspawnable = 'unspawnable';
+
 /** An owner whose nth worker is `workers[n]`; later workers repeat the last. */
-function owner(workers: readonly FakeWorker[]) {
+function owner(workers: readonly (FakeWorker | typeof unspawnable)[]) {
   let starts = 0;
   const index = createStateIndexOwner({
     dbPath,
     start: () => {
       const worker = workers[Math.min(starts, workers.length - 1)] ?? fake(['serve']);
       starts += 1;
+      if (worker === unspawnable) {
+        throw new Error('Worker thread could not be created.');
+      }
       return createIndexerConnection(options, deadlines, transport(worker));
     },
   });
@@ -318,4 +324,35 @@ it('close keeps ownership of a retired worker it cannot join, reports it, and re
   // Admission stays fenced: closing never reopens the owner.
   await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
   expect(starts()).toBe(1);
+});
+
+it('a replacement whose worker cannot even be created fails typed and counts toward the bound', async () => {
+  const { index, starts } = owner([fake(['hang']), unspawnable, unspawnable, fake(['serve'])]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toMatchObject(
+    typed('state-index.request-timeout')
+  );
+
+  for (const attempt of [2, 3]) {
+    await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+    expect(starts()).toBe(attempt);
+  }
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(4);
+  await index.close();
+});
+
+it('replacements that cannot be created stop at the bound like any other', async () => {
+  const { index, starts } = owner([fake(['hang']), unspawnable]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+  }
+  expect(starts()).toBe(4);
+  await expect(index.port.stateHealth()).rejects.toMatchObject({
+    failure: { code: 'state-index.retired', kind: 'refusal' },
+  });
+  expect(starts()).toBe(4);
+  await index.close();
 });
