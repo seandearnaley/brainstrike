@@ -1,7 +1,8 @@
-import type { LogRecord } from '@brainstrike/logging';
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertBackgroundRuntimeStatus,
+  type BackgroundRuntimeStatus,
   bindRuntimeLogRecord,
   createBackgroundRuntimeDescriptor,
   createBackgroundRuntimeLifecycleChannels,
@@ -571,7 +572,7 @@ describe('@brainstrike/worker-runtime', () => {
     const record: LogRecord = {
       args: ['hello'],
       bindings: { runtime: 'electron-renderer' },
-      level: 'info',
+      level: LogLevel.INFO,
       message: 'hello',
       scope: 'TestScope',
       timestamp: Date.now(),

@@ -10,6 +10,7 @@
       "**/*.test.{ts,tsx}",
       "packages/{effect-kit,assistant-contract,agent-host}/**/*.{ts,tsx,mts,mjs}",
       "packages/agent/src/__tests__/**/*.{ts,tsx,mts,mjs}",
+      "packages/{worker-runtime,file-tree-worker}/src/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/test-utils/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
@@ -650,6 +651,21 @@
         "packages/queue/test/**",
         "packages/pipeline/src/**",
         "packages/pipeline/__tests__/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/worker-runtime/src/**",
+        "packages/file-tree-worker/src/**"
       ],
       "linter": {
         "rules": {
