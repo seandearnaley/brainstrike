@@ -390,11 +390,15 @@ allowBuilds:
 # Explicit zero overrides pnpm 11's default one-day floor.
 minimumReleaseAge: 0
 patchedDependencies:
-  # BST-2032: retain the qualified Core/Memory pair and lifecycle patches.
-  # Memory 1.38 fails owner cancellation; Core 1.78 with retained Memory fails
-  # the public config contract and requires new background-task lease storage.
-  # Requalify these together instead of weakening cleanup or storage ownership.
-  '@mastra/memory@1.32.1': patches/@mastra__memory@1.32.1.patch
+  # BST-2070: Memory 1.38's run-owner cancellation, joined background work and
+  # committed observation-group attribution, rebased onto its runOMCommit
+  # lifecycle. Unpatched 1.38 fails every public-lifecycle owner case in
+  # packages/agent-host/__tests__/memory-public-lifecycle.test.ts.
+  '@mastra/memory@1.38.0': patches/@mastra__memory@1.38.0.patch
+  # BST-2070: Core 1.78 drops the caller's abort reason in AgentThreadStreamRuntime,
+  # which Memory's internal observer/reflector streams now pass through. The 1.71
+  # SemanticRecall and BackgroundTaskManager hunks are retired: nothing reaches them.
+  '@mastra/core@1.78.0': patches/@mastra__core@1.78.0.patch
   '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
@@ -402,5 +406,4 @@ patchedDependencies:
   # The worker client's leader announcements also stop once it closes: 0.5.10
   # posts to its closed BroadcastChannel when closed before a leader connects.
   '@electric-sql/pglite@0.5.10': patches/@electric-sql__pglite@0.5.10.patch
-  '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
   '@huggingface/transformers@4.3.1': patches/@huggingface__transformers@4.3.1.patch

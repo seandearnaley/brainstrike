@@ -308,6 +308,81 @@ it.each(['status', 'batch'] as const)(
   }
 );
 
+it.each(['status', 'batch'] as const)(
+  'carries an unresponsive embedding host from %s as the blocked reason that offers Retry indexing (BST-2104)',
+  async (source) => {
+    useBackgroundIndexingPreferencesStore.setState({
+      managedCollectionId: 'selected',
+      nativeIndexMode: 'VECTOR',
+    });
+    const reason =
+      'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
+    const cause = { kind: 'embedding-host-unresponsive' as const, message: reason };
+    let unresponsive = true;
+    const capability = {
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(
+        async (): Promise<IndexerCoverageBatch> =>
+          unresponsive
+            ? { cause, kind: 'blocked', reason }
+            : {
+                cause: { kind: 'source-failure', message: 'Workspace walk failed.' },
+                kind: 'blocked',
+                reason: 'Workspace walk failed.',
+              }
+      ),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(
+        async (): Promise<IndexerStatus> =>
+          source === 'status'
+            ? unresponsive
+              ? { cause, kind: 'unavailable', phase: 'blocked', reason }
+              : {
+                  cause: { kind: 'source-failure', message: 'Workspace walk failed.' },
+                  kind: 'unavailable',
+                  phase: 'blocked',
+                  reason: 'Workspace walk failed.',
+                }
+            : {
+                authorizedCollectionIds: ['selected'],
+                authorizedRootIds: ['root'],
+                collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
+                embedding: { indexMode: 'text-only' },
+                kind: 'ready',
+                rootReadiness: [{ rootId: 'root', scanComplete: false }],
+                storeId: 'store',
+              }
+      ),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+        blockedReason: 'embedding-host-unresponsive',
+        lastError: reason,
+        state: 'blocked',
+      })
+    );
+    // A block with any other cause names no remedy.
+    unresponsive = false;
+    await waitFor(
+      () =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          blockedReason: null,
+          lastError: 'Workspace walk failed.',
+          state: 'blocked',
+        }),
+      { timeout: 4000 }
+    );
+    mounted.unmount();
+  }
+);
+
 it.each([
   { files: 2, label: 'one folder', rootIds: ['root'] },
   { files: 0, label: 'no folder left', rootIds: [] },

@@ -42,7 +42,7 @@ export class StateStoreObservationVector
       signal: options.signal,
     };
     // Native pinned Memory's logical name, derived from its public separator.
-    // https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.32.1/packages/memory/src/index.ts
+    // https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.38.0/packages/memory/src/index.ts
     this.observationIndex = `memory${this.indexSeparator}observations${this.indexSeparator}${options.profile.dimensions}`;
   }
 
@@ -129,8 +129,21 @@ export class StateStoreObservationVector
         !row ||
         Object.keys(row).some(
           (key) =>
-            !['group_id', 'range', 'text', 'observed_at', 'thread_id', 'resource_id'].includes(key)
+            ![
+              'group_id',
+              'range',
+              'text',
+              'observed_at',
+              'thread_id',
+              'resource_id',
+              'record_id',
+            ].includes(key)
         ) ||
+        // Memory 1.38 names the generation it observed the group on. It must be
+        // one of the committed records holding this group; the derived index
+        // keeps its own row identity, so recall resolves the generation natively.
+        ('record_id' in row &&
+          !(typeof row['record_id'] === 'string' && plan.recordIds.includes(row['record_id']))) ||
         row['group_id'] !== expected.groupId ||
         row['range'] !== expected.range ||
         row['text'] !== text ||

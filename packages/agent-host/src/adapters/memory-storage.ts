@@ -173,10 +173,27 @@ export class StateStoreMemoryStorage extends MemoryStorage {
     return this.call('updateActiveObservations', args);
   }
 
+  /**
+   * Mastra retries a commit against the head on `applied: false`; the native
+   * calculator's own outcome must reach it, not the base class's assumed success.
+   */
+  override commitActiveObservations(
+    ...args: Parameters<MemoryStorage['commitActiveObservations']>
+  ): ReturnType<MemoryStorage['commitActiveObservations']> {
+    return this.call('commitActiveObservations', args);
+  }
+
   override updateBufferedObservations(
     ...args: Parameters<MemoryStorage['updateBufferedObservations']>
   ): ReturnType<MemoryStorage['updateBufferedObservations']> {
     return this.call('updateBufferedObservations', args);
+  }
+
+  /** The native outcome says whether, and on which generation, the chunk was stored. */
+  override appendBufferedObservations(
+    ...args: Parameters<MemoryStorage['appendBufferedObservations']>
+  ): ReturnType<MemoryStorage['appendBufferedObservations']> {
+    return this.call('appendBufferedObservations', args);
   }
 
   override swapBufferedToActive(

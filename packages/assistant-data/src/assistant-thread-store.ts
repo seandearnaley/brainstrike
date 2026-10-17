@@ -9,6 +9,7 @@ import {
   assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
+import { createUpdateThreadAppearance } from './assistant-thread-appearance';
 import {
   type AssistantThreadLoadState,
   assertThreadCatalogLoadedAfterFailure,
@@ -17,7 +18,10 @@ import {
   restoreThreadCatalog,
   serializeThread,
 } from './assistant-thread-catalog';
-import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge';
+import {
+  mergeAssistantThreadMetadata,
+  mergeRefreshedThreadMetadata,
+} from './assistant-thread-metadata-merge';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
 
@@ -85,6 +89,8 @@ interface AssistantThreadState {
    * from a run.
    */
   unseenBaselineAt: number;
+  /** Icon or colour, shown at once and put back if its write fails (BST-2116). */
+  updateThreadAppearance: ReturnType<typeof createUpdateThreadAppearance>;
   updateThreadMetadata: (
     repository: AssistantThreadCatalogRepository,
     resourceId: string,
@@ -848,20 +854,11 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         }
         refreshState.applied = refreshGeneration;
         set((state) => {
-          const currentThreadById = new Map(
-            (state.threadsByResourceId[resourceId] ?? []).map((thread) => [thread.id, thread])
+          const refreshedThreads = mergeRefreshedThreadMetadata(
+            loaded,
+            state.threadsByResourceId[resourceId] ?? [],
+            metadataSnapshotByThreadId
           );
-          const refreshedThreads = loaded.map((thread) => {
-            const currentThread = currentThreadById.get(thread.id);
-            if (
-              !currentThread ||
-              currentThread.metadata === metadataSnapshotByThreadId.get(thread.id) ||
-              currentThread.metadata === undefined
-            ) {
-              return thread;
-            }
-            return { ...thread, metadata: currentThread.metadata };
-          });
           return {
             threadIdsByResourceId: {
               ...state.threadIdsByResourceId,
@@ -924,6 +921,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       threadsByResourceId: {},
       unavailableSavedThreadByResourceId: {},
       unseenBaselineAt: Date.now(),
+      updateThreadAppearance: createUpdateThreadAppearance(get, set),
       updateThreadMetadata: async (
         repository: AssistantThreadCatalogRepository,
         resourceId: string,

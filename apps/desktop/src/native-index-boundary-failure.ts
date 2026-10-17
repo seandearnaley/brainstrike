@@ -19,6 +19,11 @@ const descriptions: Readonly<
     message: 'The search index is closed.',
     remedy: 'Reopen the workspace to search again.',
   },
+  'embedding-host-unresponsive': {
+    category: 'availability',
+    message: 'The embedding model stopped responding while indexing.',
+    remedy: 'Retry indexing from the Workspace Index status. It restarts the embedding model.',
+  },
   'rebuild-required': {
     category: 'availability',
     message: 'The search index needs a rebuild.',

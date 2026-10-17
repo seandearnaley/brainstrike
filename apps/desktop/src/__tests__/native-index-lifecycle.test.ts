@@ -1,6 +1,7 @@
 import { IndexerError } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it } from 'vitest';
+import { embeddingHostUnresponsiveError } from '../embedding-host-unresponsive';
 import {
   NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE,
   type NativeIndexEvent,
@@ -378,6 +379,81 @@ describe('a store that refused its index file', () => {
     expect(nativeIndexStateError(state)).toMatchObject({
       code: 'native-index-source-failure',
       message: 'The writer stopped.',
+    });
+  });
+});
+
+// BST-2104: a document batch whose host stopped responding. Re-opening on a timer would just hang
+// again, so the refusal names Retry indexing, which restarts the host first.
+describe('an embedding host that stopped responding', () => {
+  const unresponsive = embeddingHostUnresponsiveError({
+    elapsedMs: 60_000,
+    lastProgress: { stage: 'setup' },
+    texts: 4,
+    windowMs: 60_000,
+  });
+  const failedOpen = (error: unknown) =>
+    reduceNativeIndex(ready, {
+      error,
+      generation: 3,
+      kind: 'failure',
+      message: error instanceof Error ? error.message : String(error),
+    }).state;
+  const refusal = { kind: 'embedding-host-unresponsive', message: unresponsive.message } as const;
+
+  it('blocks with its plain cause for observers and readers, keeping the failure as the cause', () => {
+    const state = failedOpen(unresponsive);
+    expect(nativeIndexObservation(state)).toEqual({
+      cause: refusal,
+      generation: 3,
+      kind: 'refused',
+    });
+    expect(nativeIndexStateError(state)).toMatchObject({
+      cause: unresponsive,
+      code: 'native-index-embedding-host-unresponsive',
+      message: unresponsive.message,
+      refusal,
+    });
+  });
+
+  it('stays that refusal when retirement also failed and ingestion wrapped it', () => {
+    const wrapped = new AggregateError(
+      [
+        new AggregateError(
+          [unresponsive, new Error('Embedding host stop timed out.')],
+          'Document embedding interruption required failed host retirement.'
+        ),
+      ],
+      'Canonical inference and retirement failed.'
+    );
+    const state = failedOpen(wrapped);
+    expect(nativeIndexObservation(state)).toEqual({
+      cause: refusal,
+      generation: 3,
+      kind: 'refused',
+    });
+    const error = nativeIndexStateError(state);
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    expect(error).toMatchObject({ cause: wrapped, message: unresponsive.message, refusal });
+  });
+
+  it('re-opens on Retry indexing, and a second hang blocks the next generation the same way', () => {
+    const retried = reduceNativeIndex(failedOpen(unresponsive), { generation: 3, kind: 'reopen' });
+    expect(retried).toEqual({
+      actions: [openAction(4)],
+      state: { from: 3, generation: 4, kind: 'transitioning', settings: VECTOR },
+    });
+    const served = reduceNativeIndex(retried.state, { generation: 4, kind: 'opened' }).state;
+    const again = reduceNativeIndex(served, {
+      error: unresponsive,
+      generation: 4,
+      kind: 'failure',
+      message: unresponsive.message,
+    }).state;
+    expect(nativeIndexObservation(again)).toEqual({
+      cause: refusal,
+      generation: 4,
+      kind: 'refused',
     });
   });
 });

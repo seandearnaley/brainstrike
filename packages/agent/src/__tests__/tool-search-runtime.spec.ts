@@ -105,11 +105,10 @@ function createStepArgs(
 }
 
 /**
- * A `search_tools` result persisted by a pre-BST-1667 auto-load run. Mastra's
- * context store still derives the loaded set from `results[].name`, so threads
- * that loaded tools before the manual-loading switch rehydrate unchanged.
+ * A persisted manual-mode `search_tools` result, as Mastra's search executor
+ * returns it under `autoLoad: false`: hits in `results`, nothing activated.
  */
-function createLegacyPersistedSearchResultMessage(
+function createPersistedSearchResultMessage(
   toolId = DEFERRED_TOOL_ID,
   messageId = 'assistant-search-1'
 ): MastraDBMessage {
@@ -121,7 +120,8 @@ function createLegacyPersistedSearchResultMessage(
           toolInvocation: {
             args: { query: 'workspace context' },
             result: {
-              message: `Found and loaded 1 tool(s): ${toolId}.`,
+              message:
+                'Found 1 tool(s). Use load_tool with an exact toolName or a toolNames array to make them available.',
               results: [
                 {
                   description: 'List workspace context',
@@ -790,28 +790,40 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(Object.keys(onToolsLoaded.mock.calls[0]?.[0] ?? {})).toEqual([DEFERRED_TOOL_ID]);
   });
 
-  it.each([
-    { fixture: createPersistedLoadResultMessage, label: 'load_tool' },
-    { fixture: createLegacyPersistedSearchResultMessage, label: 'legacy auto-load search_tools' },
-  ])(
-    'reconstructs loaded tools from persisted $label results after processor restart',
-    async ({ fixture }) => {
-      const persistedMessages = new MessageList();
-      persistedMessages.add(fixture(), 'memory');
+  it('reconstructs loaded tools from persisted load_tool results after processor restart', async () => {
+    const persistedMessages = new MessageList();
+    persistedMessages.add(createPersistedLoadResultMessage(), 'memory');
 
-      const restartedProcessor = createProcessor();
-      const result = await restartedProcessor.processInputStep(
-        createStepArgs({ messageList: persistedMessages, threadId: 'thread-1' })
-      );
+    const restartedProcessor = createProcessor();
+    const result = await restartedProcessor.processInputStep(
+      createStepArgs({ messageList: persistedMessages, threadId: 'thread-1' })
+    );
 
-      expect(Object.keys(result.tools)).toEqual([
-        'search_tools',
-        'load_tool',
-        DEFERRED_TOOL_ID,
-        'list_available_tools',
-      ]);
-    }
-  );
+    expect(Object.keys(result.tools)).toEqual([
+      'search_tools',
+      'load_tool',
+      DEFERRED_TOOL_ID,
+      'list_available_tools',
+    ]);
+  });
+
+  // Manual loading (BST-1667): a search is discovery only, so its persisted
+  // hits reload nothing after a restart; only `load_tool` activates a tool.
+  it('reconstructs no loaded tools from persisted search_tools hits after processor restart', async () => {
+    const persistedMessages = new MessageList();
+    persistedMessages.add(createPersistedSearchResultMessage(), 'memory');
+
+    const restartedProcessor = createProcessor();
+    const result = await restartedProcessor.processInputStep(
+      createStepArgs({ messageList: persistedMessages, threadId: 'thread-1' })
+    );
+
+    expect(Object.keys(result.tools)).toEqual([
+      'search_tools',
+      'load_tool',
+      'list_available_tools',
+    ]);
+  });
 
   it('rehydrates loaded tools directly for a fresh approval runtime', async () => {
     const processor = new BrainstrikeToolSearchProcessor({

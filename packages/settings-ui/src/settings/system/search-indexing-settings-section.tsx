@@ -14,7 +14,10 @@ import {
   getWorkspaceCollectionSyncMetricRows,
   shouldShowWorkspaceCollectionSyncPauseControl,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import {
+  useWorkspaceCollectionSyncStatusStore,
+  type WorkspaceCollectionSyncBlockedReason,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   type EmbeddingModelDefinition,
   findProviderDefinition,
@@ -107,6 +110,12 @@ function toCollectionOption(collection: {
   };
 }
 
+/** Each typed reason a person must act on, named; the Record keeps the list exhaustive. */
+const BLOCKED_REASON_LABELS: Readonly<Record<WorkspaceCollectionSyncBlockedReason, string>> = {
+  'embedding-host-unresponsive': 'Embedding model stopped',
+  'missing-provider-key': 'Waiting for OpenAI key',
+};
+
 function getStatusBadge(
   status: Pick<
     ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>,
@@ -119,7 +128,7 @@ function getStatusBadge(
         icon: AlertTriangle,
         iconClassName: 'size-3.5',
         label:
-          status.blockedReason === 'missing-provider-key' ? 'Waiting for OpenAI key' : 'Blocked',
+          status.blockedReason === null ? 'Blocked' : BLOCKED_REASON_LABELS[status.blockedReason],
         variant: 'destructive' as const,
       };
     case 'scanning':

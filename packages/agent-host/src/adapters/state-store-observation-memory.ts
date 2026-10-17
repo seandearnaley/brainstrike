@@ -41,7 +41,7 @@ class NativeObservationChunks extends Memory {
 }
 
 /** Trusted producer callback: exact pinned native chunks, without inference/storage.
- * https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.32.1/packages/memory/src/index.ts
+ * https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.38.0/packages/memory/src/index.ts
  */
 export function chunkStateObservationText(text: string): readonly string[] {
   return new NativeObservationChunks().chunks(text);

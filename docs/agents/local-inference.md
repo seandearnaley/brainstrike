@@ -64,6 +64,16 @@ physical background/inference owner. Use the existing QoS and permit primitives,
 not a new scheduler or pacing delay. Log bounded stage/identity information,
 never text, vectors, endpoints or credentials.
 
+## Liveness
+
+A document batch's host deadline is an inactivity window. Model setup (coalesced
+Transformers.js progress) and each completed slice re-arm it; nothing lengthens it or
+adds a second timer. A batch that goes silent fails as the `embedding-host.unresponsive`
+refusal, and the native index blocks as `embedding-host-unresponsive` with the stage
+and elapsed time in plain words (the request id stays in the log). Only the person's
+Retry indexing recovers it: the host's owner restarts it, then the failed generation
+re-opens. Nothing restarts automatically, and a second hang blocks again (BST-2104).
+
 Decision: [ADR-0007](../adr/0007-local-inference-placement.md) — its
 local-chat-placement half is now history; its embedding-placement rules above
 are live. Implementation: `packages/embeddings`, `packages/embedding-worker`,

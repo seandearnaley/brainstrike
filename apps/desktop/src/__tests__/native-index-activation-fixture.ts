@@ -199,7 +199,7 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
     roots: { restoreRoots: async () => [] },
     watches: {},
   } as unknown as ApplicationIpcDomain;
-  const transport = { documentEmbeddings: vi.fn(unused) };
+  const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const onError = vi.fn();
   const activation = createNativeIndexActivation({

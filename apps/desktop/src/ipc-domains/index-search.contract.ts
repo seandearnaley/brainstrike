@@ -5,6 +5,7 @@ import type {
   IndexerGrepRequest,
   IndexerSearchRequest,
   IndexLifecycleCapability,
+  IndexRetryCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
   NativeIndexLifecycleObservation,
@@ -203,6 +204,11 @@ export const indexSearchContract = {
     parseArgs: parseNoArgs,
     roles: ['visible-ui'],
   }),
+  retryIndexing: channel<[], void>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.retryIndexing,
+    parseArgs: parseNoArgs,
+    roles: ['visible-ui'],
+  }),
   rootsRegistered: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.rootsRegistered,
     parseArgs: (raw): [] => {
@@ -228,6 +234,7 @@ export type IndexSearchBridgeDerivation = AssertTrue<
     IndexSearchCapability &
       IndexChunkBoundsCapability &
       IndexRootRegistrationCapability &
+      IndexRetryCapability &
       IndexLifecycleCapability
   >
 >;

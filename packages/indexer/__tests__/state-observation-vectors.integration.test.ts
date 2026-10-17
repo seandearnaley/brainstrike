@@ -553,7 +553,12 @@ it(
   qualification(async (owner) => {
     const f = await fixture(owner);
     const buffered = source('buffered-group', 'one', 'Actual buffered group text.');
-    await f.native.buffered(groupText(buffered.text, buffered.groupId, 'one', 'thread'), date);
+    // A real buffered chunk observes messages after the active cursor; Core 1.78 skips a
+    // chunk the cursor already covers (`isBufferedChunkCoveredByCursor`).
+    await f.native.buffered(
+      groupText(buffered.text, buffered.groupId, 'one', 'thread'),
+      new Date(date.getTime() + 1000)
+    );
     await f.persist();
     const prepared = await f.port.prepareStateObservationVectors({
       observation: { ...buffered, observedAt: '2026-10-08T00:00:00.000Z' },
