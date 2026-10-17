@@ -26,6 +26,7 @@ import {
   McpSettingsEventSchema,
   parseHostParams,
 } from './protocol.js';
+import { wireDecoder, wireResultDecoder } from './wire-decoder.js';
 export interface HostClient extends HostAttachment {
   readonly catalog: HostCatalog;
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
@@ -59,9 +60,7 @@ async function sendTyped(method: string, send: () => Promise<unknown>): Promise<
 function readResult<M extends HostMethod>(method: M, result: unknown): HostResults[M] {
   // Widened once: indexing the result map by a generic method is too deep for tsc.
   const schema: Schema.ConstraintDecoder<unknown> = HOST_RESULT_SCHEMAS[method];
-  const parsed = Schema.decodeUnknownResult(schema, { errors: 'all', onExcessProperty: 'error' })(
-    result
-  );
+  const parsed = wireResultDecoder(schema, { errors: 'all', onExcessProperty: 'error' })(result);
   if (parsed._tag === 'Success') {
     return parsed.success as HostResults[M];
   }
@@ -128,7 +127,7 @@ export async function authenticateHostClient(
     }
   });
   connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
-    const event = Schema.decodeUnknownSync(McpSettingsEventSchema, {
+    const event = wireDecoder(McpSettingsEventSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(input);
@@ -137,7 +136,7 @@ export async function authenticateHostClient(
     }
   });
   connection.onNotification(MCP_PRESENTATION_EVENT, (input: unknown) => {
-    const event = Schema.decodeUnknownSync(McpPresentationEventSchema, {
+    const event = wireDecoder(McpPresentationEventSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(input);

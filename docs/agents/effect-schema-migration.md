@@ -130,6 +130,15 @@ where the zod original was a `.refine()` — `exec-policy-domain.ts`'s
 `DOMAIN_PATTERN` is `makeFilter` for exactly that reason, and because each of
 its four rules keeps its own message.
 
+### Opaque host decoders preserve their own failures
+
+The host wire wraps existing imperative domain decoders without replacing their
+validation or normalized result. Receiving boundaries that compose these values
+use `wireDecoder` / `wireResultDecoder`: `Schema.decodeUnknownExit` distinguishes
+schema refusals from the decoder's thrown failure using flat Cause reasons.
+A domain-thrown `SchemaError` remains a defect. The ordinary Sync/Result adapters
+replace non-schema failures with adapter errors on the current pin.
+
 ### Resume schemas retain their existing acceptance policy
 
 `SubmitPlanResumeSchema` and `AskUserResumeSchema` use ordinary Effect decoders

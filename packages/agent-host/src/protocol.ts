@@ -49,6 +49,7 @@ import {
   RunVerdictSourceSchema,
 } from './run-verdict-wire.js';
 import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
+import { wireDecoder, wireResultDecoder } from './wire-decoder.js';
 import {
   HostEditBaselineSchema,
   HostEditRevertOutcomeSchema,
@@ -554,12 +555,12 @@ export type HostParams<M extends HostMethod> = (typeof HOST_METHOD_SCHEMAS)[M]['
 /** Private input diagnostics must not quote schema paths or unknown secret-bearing keys. */
 export function parseHostParams<M extends HostMethod>(method: M, input: unknown): HostParams<M> {
   if (!(method.startsWith('mcp/') || method.startsWith('auth/'))) {
-    return Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS[method], {
+    return wireDecoder(HOST_METHOD_SCHEMAS[method], {
       errors: 'all',
       onExcessProperty: 'error',
     })(input) as HostParams<M>;
   }
-  const parsed = Schema.decodeUnknownResult(HOST_METHOD_SCHEMAS[method], {
+  const parsed = wireResultDecoder(HOST_METHOD_SCHEMAS[method], {
     errors: 'all',
     onExcessProperty: 'error',
   })(input);

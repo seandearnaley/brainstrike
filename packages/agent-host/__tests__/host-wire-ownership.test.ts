@@ -46,3 +46,9 @@ test('external URL normalization preserves the former URL decoder output', () =>
     })
   ).toEqual({ url: 'https://example.test/path' });
 });
+
+test('the owned MCP settlement decoder keeps its original refusal', () => {
+  expect(() => parseHostParams('mcp/elicitation/settle', {})).toThrow(
+    'Invalid MCP elicitation settlement:'
+  );
+});
