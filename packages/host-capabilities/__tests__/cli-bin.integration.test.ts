@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { accessSync, constants } from 'node:fs';
 import {
   access,
   copyFile,
@@ -91,20 +92,30 @@ function command(
   });
 }
 
+/**
+ * The pnpm that runs this suite, from `npm_execpath`: its JavaScript entry runs
+ * under this Node, and a native distribution (corepack's pnpm 12) runs as its
+ * own executable. Without one the suite was not started by pnpm, and refuses.
+ */
+function runPnpm(args: readonly string[], cwd: string): Promise<CommandResult> {
+  const pnpm = process.env['npm_execpath'];
+  if (!pnpm) {
+    throw new Error('Run CLI executable integration with pnpm run test:integration');
+  }
+  if (/\.(?:c|m)?js$/.test(pnpm)) {
+    return command(process.execPath, [pnpm, ...args], cwd);
+  }
+  // Throws (ENOENT/EACCES) unless npm_execpath names an executable file.
+  accessSync(pnpm, constants.X_OK);
+  return command(pnpm, [...args], cwd);
+}
+
 function installedCommand(
   name: string,
   args: string[],
   cwd = workspaceRoot
 ): Promise<CommandResult> {
-  const pnpm = process.env['npm_execpath'];
-  if (!(pnpm && /\.(?:c|m)?js$/.test(pnpm))) {
-    throw new Error('Run CLI executable integration with pnpm run test:integration');
-  }
-  return command(
-    process.execPath,
-    [pnpm, '--filter', '@brainstrike/desktop', 'exec', name, ...args],
-    cwd
-  );
+  return runPnpm(['--filter', '@brainstrike/desktop', 'exec', name, ...args], cwd);
 }
 
 function windowsBatchArguments(executable: string, args: readonly string[]): string[] {
@@ -256,10 +267,6 @@ test.each(['pnpm_config_enable_global_virtual_store', 'PNPM_CONFIG_ENABLE_GLOBAL
       );
     }
     vi.stubEnv(setting, 'false');
-    const pnpm = process.env['npm_execpath'];
-    if (!(pnpm && /\.(?:c|m)?js$/.test(pnpm))) {
-      throw new Error('Run CLI executable integration with pnpm run test:integration');
-    }
     const cwd = await root();
     const packagedHost = join(cwd, 'host');
     const manifest: {
@@ -295,21 +302,17 @@ test.each(['pnpm_config_enable_global_virtual_store', 'PNPM_CONFIG_ENABLE_GLOBAL
       JSON.stringify({ dependencies: { [manifest.name]: 'workspace:*' }, private: true })
     );
     await writeFile(join(cwd, 'pnpm-workspace.yaml'), 'packages:\n  - host\n');
-    const selectedClosure = await command(
-      process.execPath,
-      [pnpm, 'config', 'get', 'enable-global-virtual-store'],
-      cwd
-    );
+    const selectedClosure = await runPnpm(['config', 'get', 'enable-global-virtual-store'], cwd);
     expect(selectedClosure.code).toBe(0);
     expect(selectedClosure.stdout.trim()).toBe('false');
-    expect(
-      await command(process.execPath, [pnpm, 'install', '--lockfile-only', '--offline'], cwd)
-    ).toMatchObject({ code: 0 });
-    expect(
-      await command(process.execPath, [pnpm, 'install', '--frozen-lockfile', '--offline'], cwd)
-    ).toMatchObject({ code: 0 });
+    expect(await runPnpm(['install', '--lockfile-only', '--offline'], cwd)).toMatchObject({
+      code: 0,
+    });
+    expect(await runPnpm(['install', '--frozen-lockfile', '--offline'], cwd)).toMatchObject({
+      code: 0,
+    });
     for (const name of ['brainstrike', 'brainstrike-host']) {
-      const cold = await command(process.execPath, [pnpm, 'exec', name, '--help'], cwd);
+      const cold = await runPnpm(['exec', name, '--help'], cwd);
       expect(cold.code).toBe(1);
       expect(cold.stdout).toBe('');
       expect(cold.stderr).toContain('Brainstrike CLI is not built.');
@@ -318,14 +321,10 @@ test.each(['pnpm_config_enable_global_virtual_store', 'PNPM_CONFIG_ENABLE_GLOBAL
     const direct = await command(process.execPath, [shim, '--help'], cwd);
     expect(direct.code).toBe(0);
     for (const name of ['brainstrike', 'brainstrike-host']) {
-      const installed = await command(process.execPath, [pnpm, 'exec', name, '--help'], cwd);
+      const installed = await runPnpm(['exec', name, '--help'], cwd);
       expect(installed).toEqual(direct);
       const directError = await command(process.execPath, [shim, 'unknown-command'], cwd);
-      const installedError = await command(
-        process.execPath,
-        [pnpm, 'exec', name, 'unknown-command'],
-        cwd
-      );
+      const installedError = await runPnpm(['exec', name, 'unknown-command'], cwd);
       expect(installedError).toEqual(directError);
       expect(installedError.code).toBe(1);
     }
