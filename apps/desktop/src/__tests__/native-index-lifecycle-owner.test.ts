@@ -371,3 +371,49 @@ it('an explicit profile retirement escalates a prior shutdown fence and releases
   await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
   expect(e.performed).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
 });
+
+it('keeps a synchronous executor defect out of the recoverable source-failure state', async () => {
+  const e = executor();
+  const defect = new TypeError('executor violated its capability contract');
+  e.execute.mockImplementationOnce(() => {
+    throw defect;
+  });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await expect(lifecycle.dispatch({ kind: 'settings-saved', settings: TEXT })).rejects.toBe(defect);
+  await expect(lifecycle.state()).resolves.toMatchObject({ generation: 2, kind: 'transitioning' });
+});
+
+it('keeps a synchronous settings defect distinct from an expected unreadable-settings rejection', async () => {
+  const e = executor();
+  const defect = new ReferenceError('settings reader violated its capability contract');
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await expect(
+    lifecycle.configure(() => {
+      throw defect;
+    })
+  ).rejects.toBe(defect);
+  await expect(lifecycle.state()).resolves.toMatchObject({ kind: 'validating', previous: ready });
+  expect(e.execute).not.toHaveBeenCalled();
+});
+
+it('retains both an unreadable-settings failure and a synchronous cleanup defect', async () => {
+  const e = executor();
+  const settingsFailure = new Error('saved settings could not be read');
+  const cleanupDefect = new TypeError('cleanup violated its capability contract');
+  e.execute.mockImplementationOnce(() => {
+    throw cleanupDefect;
+  });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  const rejected = await lifecycle
+    .configure(() => Promise.reject(settingsFailure))
+    .catch((error: unknown) => error);
+  expect(rejected).toBeInstanceOf(AggregateError);
+  if (!(rejected instanceof AggregateError)) {
+    throw new Error('Expected both independent failures.');
+  }
+  expect(rejected.errors).toEqual([settingsFailure, cleanupDefect]);
+  await expect(lifecycle.state()).resolves.toMatchObject({
+    cause: { error: rejected },
+    kind: 'unconfigured',
+  });
+});

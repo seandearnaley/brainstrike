@@ -10,6 +10,30 @@ export interface TimeoutOptions {
   readonly timeoutMs: number;
 }
 
+/** Compose the same owned deadline before crossing a Promise edge or providing a clock. */
+export function withTimeout<A, E, TimeoutFailure>(
+  task: Effect.Effect<A, E>,
+  options: { readonly onTimeout: () => TimeoutFailure; readonly timeoutMs: number }
+): Effect.Effect<A, E | TimeoutFailure | RangeError> {
+  const invalid = invalidTimeout(options.timeoutMs);
+  if (invalid) {
+    return Effect.fail(invalid);
+  }
+  return task.pipe(
+    Effect.timeoutOrElse({
+      duration: options.timeoutMs,
+      orElse: () => Effect.fail(options.onTimeout()),
+    })
+  );
+}
+
+function invalidTimeout(timeoutMs: number): RangeError | undefined {
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    return;
+  }
+  return new RangeError(`runWithTimeout needs a positive, finite timeoutMs; got ${timeoutMs}.`);
+}
+
 /**
  * Runs `task` with a deadline. Replaces the `Promise.race(work, timer)` idiom,
  * which never cleared its timer and left the losing work running with no way
@@ -30,19 +54,16 @@ export function runWithTimeout<T>(
   options: TimeoutOptions
 ): Promise<T> {
   const { onTimeout, signal, timeoutMs } = options;
-  if (!(Number.isFinite(timeoutMs) && timeoutMs > 0)) {
-    return Promise.reject(
-      new RangeError(`runWithTimeout needs a positive, finite timeoutMs; got ${timeoutMs}.`)
-    );
+  const invalid = invalidTimeout(timeoutMs);
+  if (invalid) {
+    return Promise.reject(invalid);
   }
   // The rejection passes through untyped on purpose: this helper returns it
   // to a Promise caller unchanged, so there is no error channel to type.
   // @effect-diagnostics-next-line unknownInEffectCatch:off
-  const program = Effect.tryPromise({ catch: (error) => error, try: task }).pipe(
-    Effect.timeoutOrElse({
-      duration: timeoutMs,
-      orElse: () => Effect.fail(onTimeout()),
-    })
-  );
+  const program = withTimeout(Effect.tryPromise({ catch: (error) => error, try: task }), {
+    onTimeout,
+    timeoutMs,
+  });
   return runAtPromiseBoundary(program, { signal });
 }

@@ -1,8 +1,7 @@
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
-import { Data, Effect, Semaphore, Stream, SubscriptionRef } from 'effect';
+import { Cause, Data, Effect, Semaphore, Stream, SubscriptionRef } from 'effect';
 import {
   type NativeIndexAction,
-  type NativeIndexCause,
   type NativeIndexEvent,
   type NativeIndexState,
   type NativeIndexTransition,
@@ -10,16 +9,16 @@ import {
 } from './native-index-lifecycle';
 import type { NativeIndexSettings } from './native-index-settings';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
+import {
+  NativeIndexActionFailure,
+  NativeIndexEventRefusedError,
+  NativeIndexObservationAborted,
+  NativeIndexSettingsFailure,
+  type NativeIndexWorkflowFailure,
+  nativeIndexPublicFailure,
+} from './native-index-workflow-errors';
 
-/** An event the current state refuses, with that state's cause. */
-export class NativeIndexEventRefusedError extends Data.TaggedError('NativeIndexEventRefused')<{
-  readonly cause: NativeIndexCause;
-  readonly event: NativeIndexEvent['kind'];
-}> {
-  override get message(): string {
-    return `Native index ${this.event} refused: ${this.cause.kind}.`;
-  }
-}
+export { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 
 /** Performs the reducer's actions. An opened generation reports `opened` back. */
 export interface NativeIndexLifecycleExecutor {
@@ -66,7 +65,37 @@ export async function createNativeIndexLifecycle(
     Effect.all({ permit: Semaphore.make(1), ref: SubscriptionRef.make(initial) })
   );
   const perform = (action: NativeIndexAction) =>
-    Effect.tryPromise({ catch: (error: unknown) => error, try: () => executor.execute(action) });
+    Effect.suspend(() => {
+      // A synchronous contract violation is a defect. Only the capability's
+      // rejected Promise enters the typed operation-failure channel.
+      const pending = executor.execute(action);
+      return Effect.tryPromise({
+        catch: (failure) =>
+          new NativeIndexActionFailure({
+            action: action.kind,
+            cause: failure instanceof NativeSourceRetirementFailure ? failure.error : failure,
+            ...(failure instanceof NativeSourceRetirementFailure
+              ? { recovery: 'sources' as const }
+              : {}),
+          }),
+        try: () => pending,
+      });
+    });
+  const readSettings = (read: () => Promise<NativeIndexSettings>) =>
+    Effect.suspend(() => {
+      const pending = read();
+      return Effect.tryPromise({
+        catch: (cause) =>
+          new NativeIndexSettingsFailure({
+            cause,
+            reason:
+              cause instanceof NativeIndexSetupRequiredError
+                ? 'setup-required'
+                : 'settings-invalid',
+          }),
+        try: () => pending,
+      });
+    });
   const prepare = Effect.fnUntraced(function* (event: NativeIndexEvent) {
     const transition = reduceNativeIndex(yield* SubscriptionRef.get(ref), event);
     if (transition.refused) {
@@ -81,22 +110,20 @@ export async function createNativeIndexLifecycle(
   const execute = Effect.fnUntraced(function* (
     event: NativeIndexEvent,
     transition: NativeIndexTransition
-  ): Effect.fn.Return<NativeIndexState, unknown> {
+  ): Effect.fn.Return<NativeIndexState, NativeIndexWorkflowFailure> {
     for (const action of transition.actions) {
       const followUp = yield* perform(action).pipe(
-        Effect.catch((failure: unknown) => {
-          const error = failure instanceof NativeSourceRetirementFailure ? failure.error : failure;
+        Effect.catchTag('NativeIndexActionFailure', (failure) => {
+          const error = failure.cause;
           return action.kind === 'open' || action.kind === 'apply-sources'
             ? step({
                 error,
                 generation: transition.state.generation,
                 kind: 'failure',
                 message: error instanceof Error ? error.message : String(error),
-                ...(failure instanceof NativeSourceRetirementFailure
-                  ? { recovery: 'sources' as const }
-                  : {}),
-              }).pipe(Effect.andThen(Effect.fail(error)))
-            : Effect.fail(error);
+                ...(failure.recovery ? { recovery: failure.recovery } : {}),
+              }).pipe(Effect.andThen(Effect.fail(failure)))
+            : Effect.fail(failure);
         })
       );
       if (followUp) {
@@ -113,25 +140,23 @@ export async function createNativeIndexLifecycle(
   });
   const step = Effect.fnUntraced(function* (
     event: NativeIndexEvent
-  ): Effect.fn.Return<NativeIndexState, unknown> {
+  ): Effect.fn.Return<NativeIndexState, NativeIndexWorkflowFailure> {
     return yield* execute(event, yield* prepare(event));
   });
   const withSettings = Effect.fnUntraced(function* <A>(
     read: () => Promise<NativeIndexSettings>,
-    use: (settings: NativeIndexSettings) => Effect.Effect<A, unknown>,
+    use: (settings: NativeIndexSettings) => Effect.Effect<A, NativeIndexWorkflowFailure>,
     onInvalid?: () => void
-  ): Effect.fn.Return<A, unknown> {
+  ): Effect.fn.Return<A, NativeIndexWorkflowFailure> {
     yield* step({ kind: 'settings-reading' });
-    const settings = yield* Effect.tryPromise({ catch: (error: unknown) => error, try: read }).pipe(
-      Effect.catch((error: unknown) =>
+    const settings = yield* readSettings(read).pipe(
+      Effect.catchTag('NativeIndexSettingsFailure', (readFailure) =>
         Effect.gen(function* () {
+          const error = readFailure.cause;
           const event = {
             cause: {
               error,
-              kind:
-                error instanceof NativeIndexSetupRequiredError
-                  ? ('setup-required' as const)
-                  : ('settings-invalid' as const),
+              kind: readFailure.reason,
               message: error instanceof Error ? error.message : String(error),
             },
             kind: 'settings-unreadable' as const,
@@ -139,17 +164,34 @@ export async function createNativeIndexLifecycle(
           const transition = yield* prepare(event);
           onInvalid?.();
           yield* execute(event, transition).pipe(
-            Effect.catch((cleanup: unknown) => {
+            Effect.catchCause((cleanup) => {
+              if (Cause.hasInterrupts(cleanup)) {
+                return Effect.failCause(cleanup);
+              }
+              const failures = cleanup.reasons.map((reason) => {
+                if (Cause.isFailReason(reason)) {
+                  return nativeIndexPublicFailure(reason.error);
+                }
+                if (Cause.isDieReason(reason)) {
+                  return reason.defect;
+                }
+                return reason;
+              });
               const failure = new AggregateError(
-                [error, cleanup],
+                [error, ...failures],
                 'Invalid native settings retained cleanup ownership.'
               );
+              const rejected = Cause.hasDies(cleanup)
+                ? Effect.die(failure)
+                : Effect.fail(
+                    new NativeIndexSettingsFailure({ cause: failure, reason: readFailure.reason })
+                  );
               return step({ ...event, cause: { ...event.cause, error: failure } }).pipe(
-                Effect.andThen(Effect.fail(failure))
+                Effect.andThen(rejected)
               );
             })
           );
-          return yield* Effect.fail(error);
+          return yield* Effect.fail(readFailure);
         })
       )
     );
@@ -157,7 +199,7 @@ export async function createNativeIndexLifecycle(
   });
   const dispatch = (event: NativeIndexEvent): Promise<NativeIndexState> =>
     runAtPromiseBoundary(
-      event.kind === 'terminal' || event.kind === 'fence' || event.kind === 'stop-sources'
+      (event.kind === 'terminal' || event.kind === 'fence' || event.kind === 'stop-sources'
         ? prepare(event).pipe(
             Effect.flatMap((transition) => {
               if (transition.actions.length > 0 || event.kind === 'fence') {
@@ -167,6 +209,7 @@ export async function createNativeIndexLifecycle(
             })
           )
         : permit.withPermits(1)(step(event))
+      ).pipe(Effect.mapError(nativeIndexPublicFailure))
     );
   const preparePause = (
     read: () => Promise<NativeIndexSettings>,
@@ -175,7 +218,9 @@ export async function createNativeIndexLifecycle(
     const prepared = Promise.withResolvers<PreparedNativeIndexPause | null>();
     const finished = Promise.withResolvers<void>();
     finished.promise.catch(() => undefined);
-    const use = (settings: NativeIndexSettings): Effect.Effect<NativeIndexState, unknown> => {
+    const use = (
+      settings: NativeIndexSettings
+    ): Effect.Effect<NativeIndexState, NativeIndexWorkflowFailure> => {
       if (saved && !settings.paused) {
         prepared.resolve(null);
         return step({ kind: 'settings-unchanged' });
@@ -199,16 +244,18 @@ export async function createNativeIndexLifecycle(
       );
     };
     const operation = runAtPromiseBoundary(
-      permit.withPermits(1)(
-        saved
-          ? withSettings(read, use, () =>
-              prepared.resolve({
-                complete: () => finished.promise,
-                physical: finished.promise,
-              })
-            )
-          : Effect.promise(read).pipe(Effect.flatMap(use))
-      )
+      permit
+        .withPermits(1)(
+          saved
+            ? withSettings(read, use, () =>
+                prepared.resolve({
+                  complete: () => finished.promise,
+                  physical: finished.promise,
+                })
+              )
+            : Effect.promise(read).pipe(Effect.flatMap(use))
+        )
+        .pipe(Effect.mapError(nativeIndexPublicFailure))
     );
     operation.then(
       () => finished.resolve(),
@@ -222,19 +269,22 @@ export async function createNativeIndexLifecycle(
   return {
     configure: (read, roots = false) =>
       runAtPromiseBoundary(
-        permit.withPermits(1)(
-          withSettings(read, (settings) =>
-            step({ kind: roots ? 'roots-changed' : 'settings-saved', settings })
+        permit
+          .withPermits(1)(
+            withSettings(read, (settings) =>
+              step({ kind: roots ? 'roots-changed' : 'settings-saved', settings })
+            )
           )
-        )
+          .pipe(Effect.mapError(nativeIndexPublicFailure))
       ),
     dispatch,
     observe: (listener, signal) =>
       runAtPromiseBoundary(
         SubscriptionRef.changes(ref).pipe(
           Stream.interruptWhen(
-            Effect.callback<never, unknown>((resume) => {
-              const abort = (): void => resume(Effect.fail(signal.reason));
+            Effect.callback<never, NativeIndexObservationAborted>((resume) => {
+              const abort = (): void =>
+                resume(Effect.fail(new NativeIndexObservationAborted({ cause: signal.reason })));
               if (signal.aborted) {
                 abort();
                 return;
@@ -243,7 +293,8 @@ export async function createNativeIndexLifecycle(
               return Effect.sync(() => signal.removeEventListener('abort', abort));
             })
           ),
-          Stream.runForEach((state) => Effect.sync(() => listener(state)))
+          Stream.runForEach((state) => Effect.sync(() => listener(state))),
+          Effect.mapError(nativeIndexPublicFailure)
         )
       ),
     preparePause: async (settings) => {
@@ -256,9 +307,11 @@ export async function createNativeIndexLifecycle(
     prepareSavedPause: (read) => preparePause(read, true),
     rebuild: (read) =>
       runAtPromiseBoundary(
-        permit.withPermits(1)(
-          withSettings(read, (settings) => step({ kind: 'rebuild-settings', settings }))
-        )
+        permit
+          .withPermits(1)(
+            withSettings(read, (settings) => step({ kind: 'rebuild-settings', settings }))
+          )
+          .pipe(Effect.mapError(nativeIndexPublicFailure))
       ),
     settled: () => runAtPromiseBoundary(permit.withPermits(1)(SubscriptionRef.get(ref))),
     start: (settings) =>
@@ -279,7 +332,8 @@ export async function createNativeIndexLifecycle(
                   )
                 )
               : Effect.succeed(state)
-          )
+          ),
+          Effect.mapError(nativeIndexPublicFailure)
         )
       ),
     state: () => runAtPromiseBoundary(SubscriptionRef.get(ref)),
