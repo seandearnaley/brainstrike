@@ -55,9 +55,24 @@ test('factory reset stops the embedding host after its WebGPU worker failed @des
     await setVectorDevicePreference(page, 'webgpu');
     expect((await ensureEmbeddingHostStarted(page)).state).toBe('running');
 
-    expect((await requestLocalQueryEmbedding(page)).ok).toBe(false);
-    // The caller sees a redacted fault; main logs the worker's own reason.
+    // The caller is refused with the remedy, not a redacted fault (BST-2058); the
+    // hidden host still logs the worker's own reason once.
+    expect(await requestLocalQueryEmbedding(page)).toMatchObject({
+      error: {
+        category: 'configuration',
+        code: 'embedding.webgpu-unavailable',
+        kind: 'refusal',
+        remedy: 'Choose WASM in Settings → Search & Indexing.',
+      },
+      ok: false,
+    });
     await expect.poll(() => output.join('')).toContain(WEBGPU_WORKER_FAILURE);
+    expect(
+      output
+        .join('')
+        .split('\n')
+        .filter((line) => line.includes('Untyped failure') && line.includes('WebGPU'))
+    ).toEqual([]);
     expect(await isDevicePreferenceConfigured(page)).toBe(true);
 
     await new HomePage(page).openSettings();

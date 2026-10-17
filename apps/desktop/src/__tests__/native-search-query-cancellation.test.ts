@@ -42,6 +42,7 @@ vi.mock('../renderer-host-lifecycle', () => ({
   }),
 }));
 
+import { EmbeddingDeviceUnavailableError } from '@brainstrike/indexing-contract';
 import { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   createEmbeddingHostQueryCancellationError,
@@ -368,6 +369,27 @@ describe('actual native search to query IPC physical owner', () => {
       invoke(senderB, DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding, 'same-token')
     ).rejects.toThrow('sender role');
   });
+  it('refuses an unavailable WebGPU device with its remedy instead of an internal fault (BST-2058)', async () => {
+    const result = generateDesktopQueryEmbedding(payload, {
+      signal: new AbortController().signal,
+    });
+    const rejected = expect(result).rejects.toMatchObject({
+      failure: {
+        category: 'configuration',
+        code: 'embedding.webgpu-unavailable',
+        kind: 'refusal',
+        remedy: 'Choose WASM in Settings → Search & Indexing.',
+      },
+    });
+    await flush();
+    terminal(
+      requests()[0] as EmbeddingHostQueryEmbeddingRequest,
+      new EmbeddingDeviceUnavailableError('WebGPU adapter is unavailable.')
+    );
+    await rejected;
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
+
   it('preserves independent hidden errors after cancellation instead of classifying an AbortError name', async () => {
     const controller = new AbortController();
     const result = generateDesktopQueryEmbedding(payload, { signal: controller.signal });
