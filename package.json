@@ -37,7 +37,8 @@
     "vercel": "64.3.1",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "yaml": "catalog:"
+    "yaml": "catalog:",
+    "yauzl": "^3.4.0"
   },
   "engines": {
     "node": ">=24.20.0 <25 || >=26.8.2 <27"
