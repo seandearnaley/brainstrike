@@ -14,9 +14,6 @@
   "exclude": [
     "dist",
     "node_modules",
-    "src/__tests__/mcp-explicit-http-auth.integration.spec.ts",
-    "src/__tests__/mcp-explicit-http-client.integration.spec.ts",
-    "src/__tests__/mcp-modern-http-extension.integration.spec.ts",
     "src/__tests__/run-python-tool.integration.spec.ts"
   ]
 }
