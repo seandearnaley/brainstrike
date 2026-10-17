@@ -7,37 +7,71 @@ the host owns one AI SDK loop per root or child. Mastra owns no transcript,
 permission system, workspace, server or run coordinator. Do not resurrect the
 removed agent loop or its vendor patch under a new name.
 
-The loop's files are gone as of ADR-0022's retirement step: no PRODUCTION code
-constructs a Mastra `Agent` or a `Mastra` instance, and nothing imports
-`@mastra/core/stream`. A few specs still build one as a harness for the tool-shape
-adapters, which is what `@mastra/core` staying means.
-
-`patches/@mastra__core@1.71.0.patch` was narrowed to the hunks that still had a
-consumer, which is NOT the same as the hunks the loop did not touch:
-
-- **kept** — `SemanticRecall`'s memoized `xxhash_wasm()` promise (the WASM leak;
-  `@mastra/memory` reaches it).
-- **kept** — the `BackgroundTaskManager` cleanup-join rewrite and the background
-  workflow step that calls its `trackTaskWork`. These are a PAIR: the contract
-  they create — a cancellation or shutdown joins the workflow delete and REPORTS
-  its failure instead of logging a warning — was the PGlite background-task
-  storage adapter's.
-- **removed** — `createToolCallStep`'s background `outputWriter`, the `Agent`
-  sub-agent abort-signal composition, and `createDurableToolCallStep`'s
-  `outputWriter`. Each is on the retired loop's own path, with no reachable
-  consumer left; a vendor patch nothing reaches is a fork carried for nothing.
-
-BST-2068 deleted `pglite-mastra-memory`, the consumer of both kept hunk groups,
-with the specs that pinned them (`background-cleanup` and
-`semantic-recall-lifecycle`). The host's recall is its own StateStore adapter, and
-no production code constructs a Mastra `Memory` or `BackgroundTaskManager`, so the
-remaining hunks have no reachable consumer. Retiring them belongs with the
-BST-2032 Core/Memory requalification in `pnpm-workspace.yaml`, not with a silent
-edit.
+The loop's files are gone as of ADR-0022's retirement step: no Brainstrike
+production code constructs a Mastra `Agent` or a `Mastra` instance, and nothing
+imports `@mastra/core/stream`. A few specs still build one as a harness for the
+tool-shape adapters, which is what `@mastra/core` staying means. The host does
+construct a public Mastra `Memory` (`HostMemory`), and that `Memory`'s
+observational memory builds its own internal observer and reflector `Agent`s
+(`@mastra/memory`, `ObserverRunner`/`ReflectorRunner.createAgent`). Those are
+the only `Agent` instances in production, and they run inside the memory library.
 
 A patch applies to vendor `dist` whatever our callers do, so a hunk losing its
 consumer never fails the install. Reachability has to be argued from what the
 hunk CHANGES, not from who constructs the class it lives on.
+
+### Vendor patches (Core 1.78.0, Memory 1.38.0; BST-2070)
+
+`patches/@mastra__core@1.78.0.patch` has one hunk.
+`AgentThreadStreamRuntime.prepareRunOptions` forwards the caller's abort reason.
+1.71 skipped threadless runs there; 1.78 prepares every run that has a `runId`.
+So Memory's internal observer and reflector streams saw a generic `AbortError`,
+and the host could not recognize its own Stop. Owner:
+`memory-public-lifecycle.test.ts`, specifically:
+
+- "propagates the Memory constructor owner signal…"
+- "composes a narrower call signal…"
+- "forwards a narrower turn signal to async reflection…"
+
+BST-2070 retired both 1.71 hunk groups by reachability:
+
+- **SemanticRecall's memoized `xxhash_wasm()`.** The change runs only in
+  `new SemanticRecall`. Only `MastraMemory.getInputProcessors` and
+  `getOutputProcessors` construct it, behind `if (semanticRecall)`. Only `Agent`
+  calls those methods. The production `Agent`s are Memory's observer and
+  reflector. They get no memory, or `createTemporaryOmMemoryContext`'s vectorless
+  `Memory` (semantic recall defaults to `false`). `HostMemory` calls Memory's own
+  methods, never its processors.
+- **The `BackgroundTaskManager` cleanup-join and the workflow `trackTaskWork`.**
+  Only `Mastra#ensureBackgroundTaskManager` and `BackgroundTaskWorker.init`
+  construct the manager. Production constructs neither. BST-2068 had already
+  deleted the specs that pinned these hunks, together with `pglite-mastra-memory`.
+
+`patches/@mastra__memory@1.38.0.patch` is the M3 lifecycle patch, rebased by
+meaning onto 1.38's `runOMCommit` commit queue. Flag writes keep that queue. Unpatched
+1.38 fails every case in `memory-public-lifecycle.test.ts` (ESM and CJS). The
+groups it carries, and the owner cases that fail when a group is reverted, are
+in the BST-2070 PR. Lifecycle groups are owned by `memory-public-lifecycle`,
+`memory-adapter` and `memory-buffer-release`. The Core JSON-array group
+identities are owned by `observation-memory.integration.test.ts`. The resource
+owner overlay and committed resource groups are owned by
+`observation-host-lifecycle`, `observation-memory` and `observation-projection`. See
+[the M3 memory contract](../../packages/agent-host/src/adapters/memory-m3-contract.md).
+
+Two Memory 1.38 storage contracts reach the host adapters:
+
+- **Outcome-reporting commits.** OM writes active observations through
+  `commitActiveObservations` and retries against the head on `applied: false`.
+  It appends buffered chunks through `appendBufferedObservations` and drops a
+  chunk the store reports as `persisted: false`. `StateStoreMemoryStorage`
+  forwards both to the native calculator, so the vendor's own outcome comes back
+  unchanged. The base-class defaults would assume success. Both write the
+  existing observation entity rows; there is no new table or column.
+- **The `record_id` metadata on observation vectors.** It must name one of the
+  committed records the indexer's plan holds for that group. The derived index
+  keeps its own row identity and does not store it. A recall hit therefore
+  carries no `record_id`, and Mastra resolves the generation through its own
+  lineage lookup.
 
 `@mastra/memory` is an embedded memory library behind a host adapter, and that is
 the only ownership Mastra has. `@mastra/core` is **not** present merely as its

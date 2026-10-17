@@ -55,11 +55,11 @@ ownership must stay retained whenever close fails.
 
 ## Why the temporary patch
 
-The public 1.32.1 barrier consumes registered job failures and can return after
-100 drain waves while a job remains owned. It also lacks a run-owned signal at
-the required native observation/reflection boundaries. A public-only physical
-enclosure requires a Worker and storage/model/stream RPC, introducing substantial
-machinery solely to contain these hidden native jobs.
+The public barrier, unchanged in Memory 1.38, consumes registered job failures and
+can return after 100 drain waves while a job remains owned. It also lacks a
+run-owned signal at the required native observation/reflection boundaries. A
+public-only physical enclosure requires a Worker and storage/model/stream RPC,
+introducing substantial machinery solely to contain these hidden native jobs.
 
 The reviewed lifecycle patch is the simpler M3 route. It forwards owner/call
 signals into existing native work, retains independent failures, joins sibling
@@ -72,14 +72,20 @@ the host remains the actor/approval/transcript authority. The existing public
 provider wrapper still joins raw promises, original sources and actual usage
 receipts, and retains cancel/receipt failures even when they have abort names.
 
-Owner: the M3 memory leaf worker, integrated by Studio under the parent M3 work.
-Source: reviewed component `9a92dc217a3f45f38c81a1a4991aef2b369e5666`.
-Patch SHA-256: `0b8a5aa601a30da348a27f6b24a3d7394d455a57c72dd0f3133a87a4f8b5df71`.
-Pinned versions remain Memory 1.32.1 and Core 1.71.0. The existing core patch is
-still present; this closure must not be described as patch-free.
+BST-2070 rebased the patch onto Memory 1.38's `runOMCommit` commit queue: flag
+writes keep the queue, and the patch adds ownership, joins and failure
+retention on top of it. Core 1.78 carries one patch hunk: its
+`AgentThreadStreamRuntime` forwards the caller's abort reason to Memory's
+internal observer/reflector streams.
 
-The existing pnpm patch map registers `@mastra/memory@1.32.1`; the lockfile pins
-its patch hash without changing versions. An official frozen offline install
+Owner: the M3 memory leaf worker, integrated by Studio under the parent M3 work.
+Pinned versions: Memory 1.38.0 and Core 1.78.0, both patched; this closure must
+not be described as patch-free.
+Memory patch SHA-256: `93fbaf5da2290dc3b270f44f203f2671cebd54371f58cd84098ea46c04e8c3f4`.
+Core patch SHA-256: `bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53`.
+
+The pnpm patch map registers `@mastra/memory@1.38.0` and `@mastra/core@1.78.0`;
+the lockfile pins each patch hash. An official frozen offline install
 applies that registration with normal scripts. Qualification uses
 `pnpm_config_verify_deps_before_run=error` under the qualified pnpm runtime.
 
