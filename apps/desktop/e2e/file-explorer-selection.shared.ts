@@ -474,17 +474,35 @@ export async function expectFileSelected(args: {
     .poll(
       async () =>
         page.evaluate((targetFileName) => {
+          const querySelectedPaths = (model: {
+            materializedPaths?: Iterable<string> | null;
+            queryDescriptor?: {
+              excludedPaths?: readonly string[];
+              includedPaths?: readonly string[];
+            } | null;
+          }): string[] => {
+            const excluded = new Set(model.queryDescriptor?.excludedPaths ?? []);
+            return [
+              ...[...(model.materializedPaths ?? [])].filter((path) => !excluded.has(path)),
+              ...(model.queryDescriptor?.includedPaths ?? []),
+            ];
+          };
           const state = (
             window as Window & {
               // biome-ignore lint/style/useNamingConvention: Renderer test hook global intentionally uses the app-owned key.
               __brainstrike_file_explorer_provider_store__?: {
                 getState?: () => {
+                  currentFolderId?: string | null;
                   folderStates?: Record<string, { selectedFilePaths?: Iterable<string> }>;
                   selectedFilePaths?: Iterable<string>;
                   // A Select All is a query: its files are the materialized paths.
                   selectionModel?: {
                     materializedPaths?: Iterable<string> | null;
                     mode?: string;
+                    queryDescriptor?: {
+                      excludedPaths?: readonly string[];
+                      includedPaths?: readonly string[];
+                    } | null;
                   };
                 };
               };
@@ -492,13 +510,18 @@ export async function expectFileSelected(args: {
           ).__brainstrike_file_explorer_provider_store__?.getState?.();
           const keys = [
             ...(state?.selectedFilePaths ?? []),
-            // The materialized cache outlives a query, so it counts only while one is active.
+            // The materialized cache outlives a query, so it counts only while one is
+            // active, and as the store resolves it: what the query matched, less the
+            // paths deselected since, plus the paths added beside it (BST-1953).
             ...(state?.selectionModel?.mode === 'query'
-              ? (state.selectionModel.materializedPaths ?? [])
+              ? querySelectedPaths(state.selectionModel)
               : []),
-            ...Object.values(state?.folderStates ?? {}).flatMap((folder) => [
-              ...(folder.selectedFilePaths ?? []),
-            ]),
+            // Only other roots' saved selections count: the focused root's saved copy is
+            // refreshed when focus leaves it or the state is persisted, so it lags the live
+            // selection above (BST-1953), as the sidebar's own count reads it.
+            ...Object.entries(state?.folderStates ?? {}).flatMap(([folderId, folder]) =>
+              folderId === state?.currentFolderId ? [] : [...(folder.selectedFilePaths ?? [])]
+            ),
           ];
           return keys.some((key) => {
             const filePath = key.split('|@|').at(-1) ?? key;
