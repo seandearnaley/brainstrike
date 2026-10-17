@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readWorkspaceGlobs as workspaceGlobs, workspacePackages } from '../workspace-packages.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -162,85 +163,8 @@ function normalize(script) {
  * truth) rather than hardcoded, so a newly-added group cannot silently escape
  * the "every package" coverage this contract promises.
  */
-function readWorkspaceGlobs() {
-  const yaml = readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
-  const globs = [];
-  let inPackages = false;
-  for (const rawLine of yaml.split('\n')) {
-    if (/^packages:\s*$/.test(rawLine)) {
-      inPackages = true;
-      continue;
-    }
-    if (!inPackages) {
-      continue;
-    }
-    const item = rawLine.match(/^\s+-\s+['"]?([^'"]+?)['"]?\s*$/);
-    if (item) {
-      globs.push(item[1]);
-      continue;
-    }
-    if (/^\S/.test(rawLine)) {
-      break; // next top-level key ends the packages block
-    }
-  }
-  return globs;
-}
-
-/**
- * Absolute dirs of every workspace package (a dir with a package.json), each
- * tagged with the pnpm-workspace.yaml glob group that produced it. The group
- * tag lets the vacuous-enumeration test below detect a specific glob group
- * silently yielding zero packages, not just a total wipeout.
- */
-function workspacePackageDirs() {
-  const dirs = new Map(); // absolute dir → originating glob group
-  for (const glob of readWorkspaceGlobs()) {
-    const match = glob.match(/^(.+)\/\*$/);
-    if (!match) {
-      // NO SILENT FALLBACK: an unfamiliar glob shape (including pnpm exclusion
-      // globs like "!apps/legacy" or recursive "apps/**") would under-enumerate
-      // and fake a green. Surface it so the enumerator is taught the new shape.
-      throw new Error(
-        `pnpm-workspace.yaml contains the package glob "${glob}", which this contract does not know how to ` +
-          'enumerate (it only supports single-level "<dir>/*" globs — pnpm exclusion/recursive glob forms are ' +
-          'not handled). Update workspacePackageDirs() in ' +
-          'scripts/__tests__/package-scripts-canonical-form-contract.test.mjs before this glob can hide a package.'
-      );
-    }
-    const groupDir = path.join(repoRoot, match[1]);
-    let entries;
-    try {
-      entries = readdirSync(groupDir);
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        throw err; // NO SILENT FALLBACK: only a genuinely-absent group dir is skippable
-      }
-      continue; // group dir absent → nothing to enumerate
-    }
-    for (const entry of entries) {
-      const dir = path.join(groupDir, entry);
-      try {
-        if (statSync(dir).isDirectory() && statSync(path.join(dir, 'package.json')).isFile()) {
-          dirs.set(dir, glob);
-        }
-      } catch {
-        // not a package dir
-      }
-    }
-  }
-  return [...dirs.entries()].map(([dir, group]) => ({ dir, group }));
-}
-
-const packages = workspacePackageDirs().map(({ dir, group }) => {
-  const manifest = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
-  return {
-    dir,
-    group,
-    name: manifest.name,
-    relDir: path.relative(repoRoot, dir),
-    scripts: manifest.scripts ?? {},
-  };
-});
+const readWorkspaceGlobs = () => workspaceGlobs(repoRoot);
+const packages = workspacePackages(repoRoot);
 const packagesByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
 
 test('root clean routes every package clean script through an uncached Turbo task', () => {
