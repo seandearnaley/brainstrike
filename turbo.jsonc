@@ -165,7 +165,10 @@
       // `build` (tests load the compiled .node addon; the edge must be a
       // dependsOn, never an inline `pnpm build &&` in the script — that raced
       // this task's concurrently-scheduled `build` as two simultaneous
-      // node-gyp rebuilds; see that package's turbo.json). apps/web + apps/desktop needed NO build edges:
+      // node-gyp rebuilds; see that package's turbo.json). Every package whose
+      // Vitest config imports @brainstrike/build-utils (exports only dist)
+      // declares `@brainstrike/build-utils#build` on each test task that loads
+      // it. Beyond that, apps/web + apps/desktop needed NO build edges:
       // the gaps in their hand-maintained vitest alias maps (specifiers that
       // fell through `exports` to dist) were closed in this change instead —
       // web got the missing root aliases, desktop spreads the shared B3
@@ -457,6 +460,18 @@
         "test-results/**"
       ],
       "outputLogs": "new-only"
+    },
+    // --- Script Tests (root) --- //
+    // `pnpm test:scripts` runs this root task. The script tests load real
+    // Vitest configs (apps/desktop, apps/web, embedding-worker, web-writer),
+    // and those import @brainstrike/build-utils, which exports only dist.
+    // Script tests read the whole repository, so a cached green is never sound.
+    "//#test:scripts:run": {
+      "cache": false,
+      "dependsOn": [
+        "@brainstrike/build-utils#build"
+      ],
+      "outputs": []
     },
     // --- Coverage Merge Task --- //
     "coverage:merge": {

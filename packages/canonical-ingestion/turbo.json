@@ -17,6 +17,12 @@
         "@brainstrike/indexer#build"
       ]
     },
+    "test:browser": {
+      // Source-aliased, so no root `build` edge: it would node-gyp state-store's addons in the browser container (BST-2080).
+      "dependsOn": [
+        "topo"
+      ]
+    },
     "test:coverage": {
       "dependsOn": [
         "$TURBO_EXTENDS$",

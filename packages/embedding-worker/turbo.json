@@ -1,0 +1,13 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // vitest.config.mts imports @brainstrike/build-utils, which exports only dist.
+      // `test:browser` inherits `build`, whose `^build` already builds it.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/build-utils#build"]
+    },
+    "test:coverage": {
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/build-utils#build"]
+    }
+  }
+}

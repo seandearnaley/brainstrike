@@ -5,6 +5,8 @@
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
     },
     "test": {
+      // vitest.config.mts imports @brainstrike/build-utils, which exports only dist.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/build-utils#build"],
       // startup-splash.test.ts asserts web/desktop startup-splash parity by
       // reading apps/desktop/index.html — a CROSS-PACKAGE file turbo's default
       // input hash for this package does not cover. Without this, a
@@ -13,10 +15,16 @@
       // the desktop file to the hash.
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/desktop/index.html"]
     },
+    "test:integration": {
+      // vitest.integration.config.mts extends vitest.config.mts (build-utils dist).
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/build-utils#build"]
+    },
     "test:e2e": {
       "passThroughEnv": ["BRAINSTRIKE_WEB_CHROMIUM_DIR"]
     },
     "test:coverage": {
+      // Same config as `test`, so the same build-utils edge.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/build-utils#build"],
       // Same cross-package input as `test`: the coverage lane runs the full
       // suite including startup-splash.test.ts.
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/desktop/index.html"]

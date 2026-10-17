@@ -46,6 +46,30 @@ function turboDryRunFor(tasks) {
 
 let memoizedTurboDryRun;
 
+/** Every task the planned graph runs before `taskId`, direct or transitive. */
+function scheduledBefore(graph, taskId) {
+  const byId = new Map(graph.tasks.map((task) => [task.taskId, task]));
+  const task = byId.get(taskId);
+  assert.ok(task, `${taskId} must exist in the actual Turbo graph`);
+  const scheduled = new Set();
+  const pending = [...task.dependencies];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (!scheduled.has(id)) {
+      scheduled.add(id);
+      pending.push(...(byId.get(id)?.dependencies ?? []));
+    }
+  }
+  return scheduled;
+}
+
+function assertScheduledBefore(graph, taskId, dependencies, reason) {
+  const scheduled = scheduledBefore(graph, taskId);
+  for (const dependency of dependencies) {
+    assert.ok(scheduled.has(dependency), `${taskId} must build ${dependency} first: ${reason}`);
+  }
+}
+
 test('native desktop restart lanes schedule every public fixture dependency build before execution', () => {
   const graph = turboDryRunFor([
     'test:integration',
@@ -56,23 +80,100 @@ test('native desktop restart lanes schedule every public fixture dependency buil
     '@brainstrike/desktop#test:integration',
     '@brainstrike/desktop#test:coverage',
   ]) {
+    assertScheduledBefore(
+      graph,
+      taskId,
+      [
+        '@brainstrike/agent#build',
+        '@brainstrike/assistant-data#build',
+        '@brainstrike/assistant-service#build',
+      ],
+      "the native fixture's public exports"
+    );
+    // BST-2089: Electron launches dist/main.js with dist/renderer, the CLI
+    // proofs spawn host-capabilities' emitted bin, and the MCP proofs start
+    // the built lab. None of them reads source through Vitest's aliases.
+    assertScheduledBefore(
+      graph,
+      taskId,
+      [
+        '@brainstrike/desktop#build',
+        '@brainstrike/host-capabilities#build',
+        '@brainstrike/mcp-test-lab#build',
+      ],
+      'the real-app, CLI and MCP proofs run built artifacts'
+    );
     const task = graph.tasks.find((entry) => entry.taskId === taskId);
-    assert.ok(task, `${taskId} must exist in the actual Turbo graph`);
-    for (const dependency of [
-      '@brainstrike/agent#build',
-      '@brainstrike/assistant-data#build',
-      '@brainstrike/assistant-service#build',
-    ]) {
-      assert.ok(
-        task.dependencies.includes(dependency),
-        `${taskId} must build ${dependency} for the native fixture's public exports`
-      );
-    }
     assert.ok(
       task.dependencies.includes('@brainstrike/desktop#topo'),
       `${taskId} must retain the inherited source dependency cascade`
     );
   }
+});
+
+test('agent integration and coverage build the package exports their proofs import', () => {
+  // BST-2089: provider-runtime and tool-guard-exports load packages/agent/dist.
+  const graph = turboDryRunFor([
+    'test:integration',
+    'test:coverage',
+    '--filter=@brainstrike/agent',
+  ]);
+  for (const taskId of [
+    '@brainstrike/agent#test:integration',
+    '@brainstrike/agent#test:coverage',
+  ]) {
+    assertScheduledBefore(graph, taskId, ['@brainstrike/agent#build'], 'its specs import dist');
+  }
+});
+
+/** Packages with a Vitest config importing @brainstrike/build-utils, whose exports are dist only. */
+async function packagesLoadingBuildUtilsInVitestConfig() {
+  const found = new Set();
+  for await (const config of glob('{apps,packages}/*/vitest*.config.{ts,mts}', { cwd: repoRoot })) {
+    if (
+      /from '@brainstrike\/build-utils'/u.test(readFileSync(path.join(repoRoot, config), 'utf8'))
+    ) {
+      found.add(path.dirname(config));
+    }
+  }
+  return [...found].sort();
+}
+
+test('every test task that loads a build-utils Vitest config builds build-utils first', async () => {
+  // BST-2079: Vite bundles the config and resolves the workspace import through
+  // `exports`, so a clean checkout cannot even load these configs without dist.
+  const packageDirs = await packagesLoadingBuildUtilsInVitestConfig();
+  assert.ok(
+    packageDirs.length >= 4,
+    `expected the build-utils config readers, found ${packageDirs}`
+  );
+  const lanes = ['test', 'test:integration', 'test:coverage', 'test:browser'];
+  const taskIds = [];
+  const filters = [];
+  for (const dir of packageDirs) {
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, dir, 'package.json'), 'utf8'));
+    filters.push(`--filter=${manifest.name}`);
+    for (const lane of lanes.filter((name) => manifest.scripts?.[name])) {
+      taskIds.push(`${manifest.name}#${lane}`);
+    }
+  }
+  const graph = turboDryRunFor([...lanes, ...filters]);
+  for (const taskId of taskIds) {
+    assertScheduledBefore(
+      graph,
+      taskId,
+      ['@brainstrike/build-utils#build'],
+      'its config imports it'
+    );
+  }
+  // The script tests load those same configs (pnpm test:scripts runs this root task).
+  const scripts = turboDryRunFor(['test:scripts:run']);
+  assertScheduledBefore(
+    scripts,
+    '//#test:scripts:run',
+    ['@brainstrike/build-utils#build'],
+    'the script tests load the build-utils Vitest configs'
+  );
 });
 
 function turboDryRun() {

@@ -149,6 +149,35 @@ jobs:
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
 
+      # Coverage runs the suites the Unit lane runs, so it needs the host the
+      # Unit lane provisions (test.yml, "Install the Linux OS-fence
+      # dependencies"): bubblewrap, socat and ripgrep for the real fence and
+      # live-grep proofs, and the lifted AppArmor userns restriction, without
+      # which Chromium aborts ("The SUID sandbox helper binary was found, but is
+      # not configured correctly") and bwrap cannot map uids. Desktop's real-app
+      # proofs also need an X server ("Missing X server or $DISPLAY"), so the
+      # coverage run below goes through xvfb-run. Every shard gets this host:
+      # membership is a filter list, and a package must not lose it by moving.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Install the Linux OS-fence and display dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep xvfb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --dev /dev --unshare-all --die-with-parent /bin/echo bwrap-ok
+
+      # The ordinary vector-search proof copies this dedicated cache into its
+      # disposable profile and never downloads a model itself
+      # (apps/desktop/scripts/run-integration.mjs).
+      - name: Provision the desktop test model cache
+        if: matrix.shard == 'desktop'
+        run: xvfb-run --auto-servernum pnpm --filter @brainstrike/desktop provision:test-model-cache
+
+      # Streamed, not grouped: a shard stopped by its timeout must still show
+      # the results it reached (grouped logs print only when a task ends).
       - name: Run package shard coverage
         timeout-minutes: 30
         env:
@@ -157,11 +186,12 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: coverage
         run: >
+          xvfb-run --auto-servernum
           pnpm turbo run test:coverage
           ${{ matrix.filters }}
           --concurrency=${{ matrix.concurrency }}
           --summarize
-          --log-order=grouped
+          --log-order=stream
           --cache-dir=.turbo
 
       - name: Bundle package shard coverage

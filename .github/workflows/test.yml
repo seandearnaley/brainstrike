@@ -1019,7 +1019,7 @@ jobs:
         # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
         # `pnpm test:scripts` (Static job) if a package gains test:browser
         # without being added here.
-        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/db --filter=@brainstrike/embedding-worker --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui
+        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/canonical-ingestion --filter=@brainstrike/db --filter=@brainstrike/embedding-worker --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui --filter=@brainstrike/web-state-store --filter=@brainstrike/web-writer
 
       - name: Upload browser test artifacts
         if: failure()
