@@ -1,5 +1,5 @@
 {
-  "//": "KaTeX is a stylesheet-only dependency here. Keep its release identical to the markup producer, rehype-katex 7.0.1 (declares ^0.16.0); micromark-extension-math 3.1.0 also declares ^0.16.0. BST-2031 tested CSS 0.19.0 against the real lockfile: scripts/__tests__/katex-css-renderer-parity.test.mjs rejects the 0.19/0.16 split. KaTeX 0.18 renamed internal classes, so updating CSS alone breaks rendering. Retain the matched 0.16.47 pair until its owners admit a patched release; GHSA-238p-pmpm-9mq7 remains a documented low-severity residual (patched floor 0.18.2). Mermaid 12 has its own compatible ^0.18.0 renderer; the Mermaid CLI still separately declares ^0.16.25. These are distinct owner paths, not permission for a global cross-range override. No source imports KaTeX JavaScript directly; the parity guard enforces that premise.",
+  "//": "Keep the KaTeX stylesheet and shared Markdown/Mermaid renderers on 0.19.0 together: 0.18 renamed internal CSS classes. Parent-scoped overrides qualify the older Mermaid/rehype/micromark/CLI ranges; dependency and browser tests protect CSS parity and the trust-bypass fix (GHSA-238p-pmpm-9mq7).",
   "name": "@brainstrike/ui",
   "description": "UI component library with Shadcn UI components",
   "version": "1.0.0",
@@ -40,7 +40,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "katex": "^0.16.47",
+    "katex": "^0.19.0",
     "lucide-react": "catalog:",
     "mermaid": "catalog:",
     "react-markdown": "^10.1.0",
