@@ -3,11 +3,11 @@ import type {
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
 import { describe, expect, it, vi } from 'vitest';
-import { createEmbeddingJobQueuePort } from '../src/index.js';
+import { createEmbeddingJobQueuePort, type DurableEmbeddingJobQueue } from '../src/index.js';
 
 interface RecordedQueue {
   enqueue: ReturnType<typeof vi.fn>;
-  enqueueBatch: ReturnType<typeof vi.fn>;
+  enqueueBatch: ReturnType<typeof vi.fn<DurableEmbeddingJobQueue['enqueueBatch']>>;
 }
 
 function createRecordedQueue(): RecordedQueue {
@@ -19,7 +19,7 @@ function createRecordedQueue(): RecordedQueue {
       queue: (params as { queue: string }).queue,
       state: 'queued',
     })),
-    enqueueBatch: vi.fn(async (params: unknown[]) =>
+    enqueueBatch: vi.fn<DurableEmbeddingJobQueue['enqueueBatch']>(async (params) =>
       params.map((param, index) => ({
         dedupeKey: (param as { dedupeKey: string }).dedupeKey,
         id: `job-${index + 1}`,

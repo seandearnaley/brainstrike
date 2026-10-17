@@ -27,6 +27,10 @@ const layouts = [
   ['packages/agent/src/__tests__', '.test.ts'],
   ['packages/agent/src/__tests__', '.mts'],
   ['packages/agent/src/__tests__', '.mjs'],
+  ['packages/test-utils/src/__tests__', '.test.ts'],
+  ['packages/test-utils/__tests__', '.spec.mts'],
+  ['packages/queue/test', '.spec.ts'],
+  ['packages/pipeline/__tests__', '.test.ts'],
 ];
 
 function lint(t, side) {
@@ -54,7 +58,13 @@ function lint(t, side) {
     path: `${nested}/future.spec.ts`,
     rule: 'nursery/noFloatingPromises',
   });
-  for (const directory of ['packages/agent-host/src', 'packages/agent/src/__tests__']) {
+  for (const directory of [
+    'packages/agent-host/src',
+    'packages/agent/src/__tests__',
+    'packages/test-utils/src',
+    'packages/queue/test',
+    'packages/pipeline/__tests__',
+  ]) {
     cases.push(
       {
         bad: 'export function check() { return [1, 2].filter(async (value) => value > 0); }',
