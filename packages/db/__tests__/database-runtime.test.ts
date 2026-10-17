@@ -505,6 +505,71 @@ describe('createDatabaseRuntime', () => {
       await disposed;
 
       expect(disposedDuringOpen).toBe(true);
+      expect(runtime.getState().initializationStatus).toBe('error');
+    });
+
+    it('a remount before the deferred teardown keeps the runtime, so the database still opens', async () => {
+      // React StrictMode (every dev mount) cleans the provider's effect up and
+      // sets it up again on the same runtime before anything else runs.
+      const { calls, runtime } = createHarness({
+        // Like the direct transport: a client built for a disposed runtime is
+        // closed rather than installed.
+        open: async (context, markConnected) => {
+          if (context.isDisposed()) {
+            return await Promise.resolve(null);
+          }
+          markConnected();
+          return CONNECTED_SNAPSHOT;
+        },
+      });
+      runtime.start();
+      const disposed = runtime.dispose();
+      runtime.start();
+      await disposed;
+      await runtime.initialize();
+
+      expect(runtime.getState()).toMatchObject({
+        initializationStatus: 'ready',
+        vectorEnabled: true,
+      });
+      expect(calls).toEqual(['pglite-direct:open']);
+    });
+
+    it('a remount during an open keeps the client that open builds', async () => {
+      const opened = createDeferred();
+      let disposedDuringOpen: boolean | null = null;
+      const { calls, runtime } = createHarness({
+        open: async (context, markConnected) => {
+          await opened.promise;
+          disposedDuringOpen = context.isDisposed();
+          markConnected();
+          return CONNECTED_SNAPSHOT;
+        },
+      });
+
+      const initializing = runtime.initialize();
+      void runtime.dispose();
+      runtime.start();
+      opened.resolve();
+      await initializing;
+
+      expect(disposedDuringOpen).toBe(false);
+      expect(runtime.getState()).toMatchObject({
+        initializationStatus: 'ready',
+        vectorEnabled: true,
+      });
+      expect(calls).toEqual(['pglite-direct:open']);
+    });
+
+    it('reports a runtime whose teardown ran instead of opening or claiming ready', async () => {
+      const { calls, runtime } = createHarness();
+      await runtime.dispose();
+      runtime.start();
+      await runtime.initialize();
+
+      expect(runtime.getState().initializationStatus).toBe('error');
+      expect(runtime.getState().error?.message).toMatch(/disposed/);
+      expect(calls).not.toContain('pglite-direct:open');
     });
 
     it('skips the close when the drain never reaches idle', async () => {

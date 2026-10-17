@@ -286,6 +286,11 @@ export function createDatabaseRuntime(options: DatabaseRuntimeOptions): Database
   let activeTransport: DatabaseTransport | null = null;
   let disposed = false;
   let disposeSettled: Promise<void> | null = null;
+  /** A dispose whose teardown has not run yet; a remount before it runs cancels it. */
+  let pendingTeardown: {
+    readonly settle: () => void;
+    readonly timer: ReturnType<typeof setTimeout>;
+  } | null = null;
   let initializingPromise: Promise<void> | null = null;
   let resetPendingReload = false;
 
@@ -316,6 +321,16 @@ export function createDatabaseRuntime(options: DatabaseRuntimeOptions): Database
       return;
     }
 
+    if (disposed) {
+      dispatch({
+        error: new Error(
+          'The database runtime was disposed; mount a new DbProvider to open the database.'
+        ),
+        type: 'initialize-failed',
+      });
+      return;
+    }
+
     // Fast exits when already ready. The second clause is the pre-BST-1653
     // `connectionRef.current && !useElectronIPC` guard restated in terms of
     // the transport actually selected: a renderer-owned PGlite is already
@@ -343,9 +358,10 @@ export function createDatabaseRuntime(options: DatabaseRuntimeOptions): Database
           isDisposed: () => disposed,
           scheduler: databaseWork.scheduler,
         });
-        if (connection) {
-          dispatch({ connection, type: 'connection-ready' });
+        if (!connection) {
+          throw new Error('The database runtime was disposed while the database was opening.');
         }
+        dispatch({ connection, type: 'connection-ready' });
         dispatch({ type: 'initialize-succeeded' });
       } catch (err) {
         logDatabaseError('Failed to initialize database', err);
@@ -462,24 +478,42 @@ export function createDatabaseRuntime(options: DatabaseRuntimeOptions): Database
     // instead of leaking its IndexedDB lock.
     disposed = true;
 
-    const closeConnection = activeTransport?.detachConnection() ?? null;
-    if (!closeConnection || isDevEnv()) {
-      // Dev keeps the instance open on purpose: Fast Refresh remounts the
-      // provider and a closed PGlite would take the next mount down with it.
-      disposeSettled = Promise.resolve();
-      return;
-    }
-
-    // `detachConnection` also fires BEFORE `migrate()` has finished, so a
-    // dispose can observe a connection whose init statements are still in
-    // flight — closing under them is the BST-1320 synchronous wedge. Deferred
-    // by one macrotask so the caller's teardown returns immediately.
+    // The teardown waits one macrotask, so the caller's cleanup returns
+    // immediately and a remount on this same runtime can still cancel it:
+    // React StrictMode (every dev mount) and Fast Refresh run the provider's
+    // effect cleanup and its setup again back to back. See `start`.
     disposeSettled = new Promise<void>((resolve) => {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        pendingTeardown = null;
+        const closeConnection = activeTransport?.detachConnection() ?? null;
+        if (!closeConnection || isDevEnv()) {
+          // Dev keeps the instance open on purpose: Fast Refresh remounts the
+          // provider and a closed PGlite would take the next mount down with it.
+          resolve();
+          return;
+        }
+        // `detachConnection` also fires BEFORE `migrate()` has finished, so a
+        // dispose can observe a connection whose init statements are still in
+        // flight — closing under them is the BST-1320 synchronous wedge.
         void closeAfterDrain(closeConnection).finally(resolve);
       }, 0);
+      pendingTeardown = { settle: resolve, timer };
     });
     await disposeSettled;
+  };
+
+  const start = (): void => {
+    if (pendingTeardown) {
+      // A remount before the teardown ran: nothing was detached or closed,
+      // so the mount keeps the runtime, and an open still in flight installs
+      // its client instead of closing it.
+      clearTimeout(pendingTeardown.timer);
+      pendingTeardown.settle();
+      pendingTeardown = null;
+      disposed = false;
+      disposeSettled = null;
+    }
+    dispatch({ type: 'provider-mounted' });
   };
 
   const clearAllData = async (): Promise<ClearAllDataResult> => {
@@ -505,9 +539,7 @@ export function createDatabaseRuntime(options: DatabaseRuntimeOptions): Database
     getState: () => state,
     initialize,
     liveQueryDrainRegistry,
-    start: () => {
-      dispatch({ type: 'provider-mounted' });
-    },
+    start,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {
