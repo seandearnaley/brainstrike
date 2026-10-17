@@ -245,7 +245,7 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     id: 'openai-background-delegation',
     model: 'openai::gpt-6-luna',
     pace: 1,
-    prompt: `In one step, start two background Explorer agents: one that reads notes.md, and one that reads plan.md. When both results arrive, report each in one sentence. ${NO_ROOT}`,
+    prompt: `In one step, start two Explorer agents and let them run in the background: one that reads notes.md, and one that reads plan.md. Leave the _background argument unset and do not wait for them inline. When their results are delivered to you, report each in one sentence. ${NO_ROOT}`,
   },
   {
     credential: 'recorder',
