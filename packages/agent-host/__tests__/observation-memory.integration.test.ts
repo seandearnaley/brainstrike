@@ -543,3 +543,44 @@ test('native buffer activation keeps original groups readable through SQLite reo
     await f.close();
   }
 });
+
+test('a native observation vector may name only a committed record that holds its group', async () => {
+  const f = await observationMemoryHost('thread', { realIndexer: true });
+  try {
+    const port = f.host.indexer;
+    if (!(port && f.vector instanceof StateStoreObservationVector)) {
+      throw new Error('Record attribution requires the same actual borrowed writer');
+    }
+    const observed = await f.engine.observe({
+      messages: (await f.read()).filter((message) => message.threadId === f.threadId),
+      resourceId: f.host.resourceId,
+      threadId: f.threadId,
+    });
+    const [group] = parseObservationGroups(observed.record.activeObservations);
+    if (!group) {
+      throw new Error('Actual native observation group is absent');
+    }
+    const memory = new StateStoreObservationMemory(
+      { ...f.native, options: { observationalMemory: false, semanticRecall: false } },
+      f.vector
+    );
+    const input = {
+      groupId: group.id,
+      observedAt: new Date(),
+      range: group.range,
+      resourceId: f.host.resourceId,
+      text: group.content,
+      threadId: f.threadId,
+    };
+    const writes = vi.spyOn(port, 'upsertStateObservationVectors');
+    // Memory 1.38 writes the generation it observed on as `record_id` metadata.
+    await expect(
+      memory.indexObservation({ ...input, recordId: 'uncommitted-generation' })
+    ).rejects.toThrow(/prepared chunk or attribution/);
+    expect(writes).not.toHaveBeenCalled();
+    await memory.indexObservation({ ...input, recordId: observed.record.id });
+    expect(writes).toHaveBeenCalledTimes(1);
+  } finally {
+    await f.close();
+  }
+});

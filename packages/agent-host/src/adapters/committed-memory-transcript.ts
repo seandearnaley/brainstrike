@@ -188,10 +188,16 @@ export function committedMemoryTranscript(
         throw new Error('Public converter cannot represent the committed SDK segment');
       }
       segment.createdAt = new Date(row.ts);
-      // Optional part stamps produced by conversion are not committed facts.
-      segment.content.parts = segment.content.parts.map(
-        ({ createdAt: _ephemeral, ...part }) => part
-      );
+      // Optional part stamps produced by conversion are not committed facts:
+      // `createdAt`, and since @mastra/core 1.78 a tool part's merge-time
+      // `updatedAt` (message-list/utils/stamp-part.ts).
+      segment.content.parts = segment.content.parts.map(({ createdAt: _ephemeral, ...part }) => {
+        if (part.type !== 'tool-invocation') {
+          return part;
+        }
+        const { updatedAt: _merged, ...invocation } = part;
+        return invocation;
+      });
       previous.push(segment);
       append(segment);
     }

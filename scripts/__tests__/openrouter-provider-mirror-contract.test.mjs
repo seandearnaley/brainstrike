@@ -13,7 +13,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // the Qwen-only content normalization. No declaration cast joins the lineages.
 // Keep BOTH exact lineages explicit: changing either requires rerunning the
 // strict-content wire-equivalence and host usage/file/approval receipts.
-const QUALIFIED = { mastra: '1.71.0', strictContent: '3.1.0', vendored: '2.10.0' };
+const QUALIFIED = { mastra: '1.78.0', strictContent: '3.1.0', vendored: '2.10.0' };
 const VENDORED_PATH_PATTERN = /@openrouter\/ai-sdk-provider\/(\d+\.\d+\.\d+(?:-[\w.]+)?)\//g;
 
 function readMastraVendoredVersions() {

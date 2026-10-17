@@ -30,7 +30,7 @@ let localFailure;
 try { runtime.createProvider('local'); } catch (cause) { localFailure = cause.code; }
 process.stdout.write(JSON.stringify({
   localFailure,
-  localServer: { id: localServer.id, url: localServer.url, explicitTokenRetained: localServer.apiKey === 'owned-test-token' },
+  localServer: { providerId: localServer.providerId, modelId: localServer.modelId, url: localServer.url, explicitTokenRetained: localServer.apiKey === 'owned-test-token' },
   hosted: { modelId: hosted.modelId, specificationVersion: hosted.specificationVersion },
   electron: process.versions.electron ?? null,
 }));`,
@@ -46,7 +46,8 @@ process.stdout.write(JSON.stringify({
       localFailure: 'mastra_agent_unsupported_provider',
       localServer: {
         explicitTokenRetained: true,
-        id: 'lmstudio/qwen3',
+        modelId: 'qwen3',
+        providerId: 'lmstudio',
         url: 'http://127.0.0.1:1234/v1',
       },
     });

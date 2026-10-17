@@ -35,7 +35,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     // OpenAI key to a (potentially remote) Ollama host.
     expect(model).toEqual({
       apiKey: 'ollama',
-      id: 'ollama/qwen3:latest',
+      modelId: 'qwen3:latest',
+      providerId: 'ollama',
       url: 'http://127.0.0.1:11434/v1',
     });
   });
@@ -48,7 +49,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     expect(capturedOpenAiCalls).toHaveLength(0);
     expect(model).toEqual({
       apiKey: 'lmstudio',
-      id: 'lmstudio/qwen2.5',
+      modelId: 'qwen2.5',
+      providerId: 'lmstudio',
       url: 'http://127.0.0.1:1234/v1',
     });
   });
@@ -67,7 +69,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
 
     expect(model).toEqual({
       apiKey: 'tok_abc',
-      id: 'ollama/qwen3:latest',
+      modelId: 'qwen3:latest',
+      providerId: 'ollama',
       url: 'https://gpu.lan:11434/v1',
     });
   });
@@ -83,7 +86,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
 
     expect(model).toEqual({
       apiKey: 'from-arg',
-      id: 'lmstudio/qwen2.5',
+      modelId: 'qwen2.5',
+      providerId: 'lmstudio',
       url: 'http://127.0.0.1:1234/v1',
     });
   });
@@ -99,7 +103,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
 
     expect(model).toEqual({
       apiKey: 'ollama',
-      id: 'ollama/qwen3:latest',
+      modelId: 'qwen3:latest',
+      providerId: 'ollama',
       url: 'http://remote.box:11434/v1',
     });
   });
@@ -119,7 +124,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
       });
       expect(model).toEqual({
         apiKey: 'ollama',
-        id: 'ollama/qwen3:latest',
+        modelId: 'qwen3:latest',
+        providerId: 'ollama',
         url: 'https://gpu.lan:11434/v1',
       });
     } finally {
