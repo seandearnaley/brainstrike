@@ -1,5 +1,6 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { defineNativeTool } from '../define.js';
+import { standardInputSchema } from '../schemas/standard-input-schema.js';
 
 // Agent Skills tool (https://agentskills.io). This is Mastra's OWN canonical
 // tool id (`skill_read`, deliberately NOT `brainstrike.*`-namespaced) created
@@ -28,13 +29,17 @@ export const skillRead = defineNativeTool({
     startLine: 'Starting line number (1-indexed); omit to read from the beginning.',
   },
   id: 'skill_read',
-  // The provider contract `skill-tools.ts` imposes over Mastra's own schema.
-  inputSchema: z.object({
-    endLine: z.number().optional(),
-    path: z.string(),
-    skillName: z.string(),
-    startLine: z.number().optional(),
-  }),
+  // Mastra's prior skill inputs advertised closed objects while stripping extras.
+  // Preserve both policies; execution stays with Mastra.
+  inputSchema: standardInputSchema(
+    Schema.Struct({
+      endLine: Schema.optionalKey(Schema.Finite),
+      path: Schema.String,
+      skillName: Schema.String,
+      startLine: Schema.optionalKey(Schema.Finite),
+    }),
+    { jsonSchemaOnExcessProperty: 'error', onExcessProperty: 'ignore' }
+  ),
   kind: 'skill',
   providerDescription: 'Read a skill reference, script, or asset by relative path.',
   returns:

@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ManageCanvasInputSchema } from '../native-tools/schemas/schemas-workspace';
@@ -21,7 +22,14 @@ const MAX_BYTES = 8_000_000;
 const EMOJI = '\u{1F600}'; // 1 code point, 2 UTF-16 units, 4 UTF-8 bytes
 
 function create(html: string) {
-  return ManageCanvasInputSchema.safeParse({ action: 'create', html, title: 'probe' });
+  return {
+    success:
+      Schema.decodeResult(ManageCanvasInputSchema, { onExcessProperty: 'error' })({
+        action: 'create',
+        html,
+        title: 'probe',
+      })._tag === 'Success',
+  };
 }
 
 describe('canvas HTML byte ceiling', () => {

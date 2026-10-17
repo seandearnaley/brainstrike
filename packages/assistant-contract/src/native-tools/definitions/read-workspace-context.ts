@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ReadWorkspaceContextInputSchema } from '../schemas/schemas-workspace.js';
 
 export const readWorkspaceContext = defineNativeTool({
@@ -18,7 +18,7 @@ export const readWorkspaceContext = defineNativeTool({
   },
   history: { staleReplayable: true },
   id: 'brainstrike.readWorkspaceContext',
-  inputSchema: providerCompatibleInputSchema(ReadWorkspaceContextInputSchema),
+  inputSchema: effectToolInputSchema(ReadWorkspaceContextInputSchema),
   kind: 'desktop',
   returns:
     'Included file contents plus explicit skipped-file, truncation, and approximate token metadata',

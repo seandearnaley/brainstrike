@@ -14,9 +14,11 @@
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 import { searchArtifactZodTwins } from './search-artifact-zod-twins.js';
+import { workspaceZodTwins } from './workspace-zod-twins.js';
 
 export const effectAuthoredSlice = [
   ...searchArtifactZodTwins,
+  ...workspaceZodTwins,
   [
     NATIVE_TOOL_ID.listWorktrees,
     z

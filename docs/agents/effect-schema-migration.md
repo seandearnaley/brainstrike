@@ -32,29 +32,30 @@ astral-string acceptance at both ends of the current string bounds.
 
 ### 1. The remaining native tool schemas — 30 tools, 9 files, 48 constants
 
-`packages/assistant-contract/src/native-tools/schemas/`. The bridge is in, so
-each file is now a local change: convert the declarations, point the
-definitions at `effectToolInputSchema`, and the display, validation and
-provider paths follow without edits.
+`packages/assistant-contract/src/native-tools/schemas/` owns all native tool inputs.
+Every catalog entry now uses one Effect grammar. Strict provider inputs use
+`effectToolInputSchema`; Mastra skill inputs retain their existing open/strip
+policy through `standardInputSchema`. Execution and permissions stay with their
+existing owners.
 
-| file | constants | what makes it work or not |
-| --- | --- | --- |
-| ~~`schemas-browser.ts`~~ | 3 | **done.** zod `.default()` is two facts — see below |
-| ~~`schemas-diagnostics.ts`~~ | 6 | **done.** First file with a string `min` above 1; see "String length bounds" |
-| ~~`schemas-tasks.ts`~~ | 3 of 5 | **inputs done.** The two resume schemas stay zod — see below |
-| ~~`exec-policy-domain.ts`~~ | 1 | **done**, with the file below and the seam's `execPolicySchema` |
-| ~~`schemas-search.ts`~~ | 9 | **done.** Code-point string bounds, finite weights, safe integer line bounds and regex issue paths |
-| ~~`schemas-artifacts.ts`~~ | 4 | **done**, together with the internal artifact reader sharing its cursor/page grammar; filters retain field paths |
-| ~~`schemas-execution.ts`~~ | 5 | **done.** First converted action unions; see "A union's advertised keyword" and "Annotate before a custom filter" |
-| `schemas-workspace.ts` | 14 | **the risky one.** Largest file (459 lines), a discriminated union, `.refine` and `.superRefine`, and `readWorkspaceFile`'s cursor-vs-path exclusivity. Convert it last and alone. |
+| file | status / contract |
+| --- | --- |
+| `schemas-browser.ts` | Done; defaults advertise and fill synchronously |
+| `schemas-diagnostics.ts` | Done |
+| `schemas-tasks.ts` | Inputs and ordinary open/strip resume decoders done |
+| `exec-policy-domain.ts` | Done with the execution/policy composition sites |
+| `schemas-search.ts` | Done; code-point bounds, finite weights and issue paths |
+| `schemas-artifacts.ts` | Done; internal reader shares cursor/page grammar |
+| `schemas-execution.ts` | Done; semantic action-union exclusivity retained |
+| `schemas-workspace.ts` | Done; cursor/path exclusivity, action-branch stripping and UTF-8 canvas ceiling |
 
-Not wrapped by either producer today and needing a decision rather than a
-conversion: `skill`, `skill_read`, `skill_search` declare `z.object` inline and
-Mastra owns their execution (`defineNativeTool`'s `SkillNativeToolDefinition`
-arm still accepts a bare `z.ZodType`); `runPython` registers an unwrapped
-schema deliberately — check why before changing it. `askUser` and `submitPlan`
-registered one too and now carry `effectToolInputSchema` at the declaration
-instead, so their definitions still register the constant unwrapped.
+`skill`, `skill_read`, and `skill_search` now derive from Effect while preserving
+Mastra's stripping acceptance policy and closed provider advertisement. The ordinary
+boundary names those two policies explicitly; resume envelopes advertise open
+objects. `runPython` is wrapped at its declaration so
+its direct parsing and registered schema share provider-null normalization;
+registering it unwrapped in the definition is intentional. Python's network
+suspend/resume decoders stay strict and do not normalize null consent riders.
 
 ### `exec-policy-domain.ts` could not convert on its own (done)
 
@@ -129,26 +130,15 @@ where the zod original was a `.refine()` — `exec-policy-domain.ts`'s
 `DOMAIN_PATTERN` is `makeFilter` for exactly that reason, and because each of
 its four rules keeps its own message.
 
-### The two resume schemas stay zod
+### Resume schemas retain their existing acceptance policy
 
-`SubmitPlanResumeSchema` and `AskUserResumeSchema` are not tool input schemas
-and are deliberately unconverted:
-
-- `effectToolInputSchema` fixes `onExcessProperty: 'error'`, so admitting a
-  resume envelope through it would CLOSE an object zod leaves open to strip. An
-  unknown rider on a person's answer would then strand a suspended run rather
-  than being dropped.
-- A resume envelope is never advertised to a provider — it travels host↔Core as
-  the platform selection's `interaction.resumeSchema` — so the producer's
-  pairing of a provider JSON Schema with a validator buys nothing.
-- The catalog's one-producer guard sweeps `NATIVE_TOOL_INPUT_SCHEMAS`, which
-  they are not in.
-
-Converting them means either a second Effect producer with open-object
-semantics or a ruling that the resume envelope should close. Both are owner
-decisions. `apps/desktop/src/agent-host-platform/desktop-tool-descriptors.ts`
-types `INTERACTIONS[].resumeSchema` as `z.ZodType` and would widen to
-`unknown`, as its `inputSchema` already did.
+`SubmitPlanResumeSchema` and `AskUserResumeSchema` use ordinary Effect decoders
+through `standardInputSchema`. Unknown envelope riders are stripped. AskUser
+keeps its current envelope and bare string/string-array arms; its declared
+`approved` rider must still be `true` when present. These are receiving
+boundaries, outside the strict provider input producer. The SDK requires both
+Standard Schema validation and JSON Schema, plus its required inference phantom;
+that interface does not require a second production Zod grammar.
 
 ### zod `.default()` is two facts, not one
 
@@ -174,11 +164,19 @@ Dropping the fill while keeping the annotation is invisible to a JSON Schema
 equivalence test — the advertised document is identical. The catalog's
 `accepts provider null for optional fields` case is what catches it.
 
-Carry-over work once the last tool converts: delete
-`providerCompatibleInputSchema`, drop the zod arm from
-`toToolInputJsonSchema` / `validateToolInputValue`, collapse
-`NativeToolInputSchema` to the Effect producer, and delete the
-`registers every schema through exactly one producer` guard's zod branch.
+The native Zod producer and Zod branches of `NativeToolInputSchema`,
+`toToolInputJsonSchema`, and `validateToolInputValue` are retired. Preconversion
+Zod twins remain test-only provider/acceptance oracles. External host/MCP/vendor
+schemas still use their owning adapters and the shared neutral
+`normalizeProviderNulls`; this is not repository-wide Zod removal.
+
+An empty object uses `Schema.Record(Schema.String, Schema.Never)`.
+`Schema.Struct({})` means any non-nullish value in Effect 4.0.5, so it would both
+accept primitives and fail to advertise an object for `listWorkspaceContext`.
+The derived provider view includes an explicit empty `properties` map, preserving
+the prior no-argument tool wire shape. An unconstrained nullable read-file root
+uses Effect’s equivalent `anyOf` spelling instead of Zod’s type array; the provider
+fixture pins both spellings and compares all remaining facets unchanged.
 
 Two downstream shapes change with each file and are worth expecting rather
 than discovering:

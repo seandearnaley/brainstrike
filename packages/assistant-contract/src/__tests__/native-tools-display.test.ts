@@ -1,10 +1,11 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { NATIVE_TOOL_IDS } from '../native-tool-catalog';
 import { defineNativeTool, InvalidNativeToolDefinitionError } from '../native-tools/define';
 import { toToolSchemaDisplay } from '../native-tools/display';
 import { NATIVE_TOOLS } from '../native-tools/index';
-import { providerCompatibleInputSchema } from '../native-tools/schemas/provider-compatible-input';
+import { effectToolInputSchema } from '../native-tools/schemas/effect-tool-input';
 import { ReadWorkspaceFileInputSchema } from '../native-tools/schemas/schemas-workspace';
 import { getToolSchemaDisplay, NATIVE_TOOL_SCHEMAS } from '../tool-schemas-display';
 
@@ -16,14 +17,32 @@ const PROBE_DEFAULTS = {
   riskCategory: 'read',
 } as const;
 
-function probe(inputSchema: z.ZodType, display?: Readonly<Record<string, string>>) {
+// Inspector tests inject the oracle's JSON view; runtime validation is tested separately.
+function displayInput(input: z.ZodType | Schema.ConstraintDecoder<unknown>) {
+  if (!(input instanceof z.ZodType)) {
+    return effectToolInputSchema(input);
+  }
+  const schema = effectToolInputSchema(Schema.Unknown);
+  const view = (options: { readonly target: string }) =>
+    z.toJSONSchema(input, {
+      io: 'input',
+      target: options.target === 'draft-07' ? 'draft-07' : 'draft-2020-12',
+      unrepresentable: 'any',
+    });
+  return { '~standard': { ...schema['~standard'], jsonSchema: { input: view, output: view } } };
+}
+
+function probe(
+  inputSchema: z.ZodType | Schema.ConstraintDecoder<unknown>,
+  display?: Readonly<Record<string, string>>
+) {
   return defineNativeTool({
     defaults: PROBE_DEFAULTS,
     description: 'probe',
     discovery: { family: 'diagnostics', namespace: 'database' },
     ...(display ? { display } : {}),
     id: 'brainstrike.displayProbe',
-    inputSchema: providerCompatibleInputSchema(inputSchema),
+    inputSchema: displayInput(inputSchema),
     kind: 'desktop',
     returns: 'probe result',
     surfaces: ['desktop'],

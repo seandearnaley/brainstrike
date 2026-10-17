@@ -1,4 +1,5 @@
 import type { AssistantTaskItem } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   buildContextBudgetNote,
@@ -773,10 +774,10 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
   });
 
   it('composes a definition-declared instruction into the prompt only when that tool is registered', async () => {
-    const { defineNativeTool, providerCompatibleInputSchema } = await import(
-      '@brainstrike/assistant-contract/tool-metadata'
+    const { defineNativeTool } = await import('@brainstrike/assistant-contract/tool-metadata');
+    const { effectToolInputSchema } = await import(
+      '@brainstrike/assistant-contract/native-tool-schemas'
     );
-    const { z } = await import('zod');
     const { composeNativeToolInstructions } = await import('../default-instructions');
     const probe = defineNativeTool({
       defaults: {
@@ -789,7 +790,7 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
       description: 'probe',
       discovery: { family: 'diagnostics', namespace: 'database' },
       id: 'brainstrike.instructionProbe',
-      inputSchema: providerCompatibleInputSchema(z.object({}).strict()),
+      inputSchema: effectToolInputSchema(Schema.Record(Schema.String, Schema.Never)),
       instruction: (names) =>
         `Use ${names.self} after ${names.of('brainstrike.grepSearch') ?? 'a search'}.`,
       kind: 'desktop',

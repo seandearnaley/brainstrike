@@ -5,10 +5,11 @@ import {
   validateToolInputValue,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
+import { Schema } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { providerCompatibleInputSchema } from '../tools/provider-compatible-input';
 import * as toolSchemas from '../tools/schemas';
+import { providerCompatibleInputSchema } from './fixtures/legacy-tool-input';
 
 const PROVIDER_JSON_SCHEMA_OPTIONS = {
   cycles: 'throw',
@@ -82,10 +83,10 @@ describe('native tool input schema catalog', () => {
     const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readWorkspaceFile'];
     const cursor = 'rfh_abcdefghijklmnopqrstuv';
 
-    expect(schema.safeParse({ path: '/src/main.ts' }).success).toBe(true);
-    expect(schema.safeParse({ cursor, maxChars: 6000 }).success).toBe(true);
+    expect(validateToolInputValue(schema, { path: '/src/main.ts' }).success).toBe(true);
+    expect(validateToolInputValue(schema, { cursor, maxChars: 6000 }).success).toBe(true);
     expect(
-      schema.safeParse({
+      validateToolInputValue(schema, {
         cursor,
         endLine: 77,
         maxChars: 6000,
@@ -94,11 +95,11 @@ describe('native tool input schema catalog', () => {
         startLine: null,
       }).success
     ).toBe(true);
-    expect(schema.safeParse({ cursor, path: '/src/main.ts' }).success).toBe(false);
-    expect(schema.safeParse({ cursor, root: 'other-root' }).success).toBe(false);
+    expect(validateToolInputValue(schema, { cursor, path: '/src/main.ts' }).success).toBe(false);
+    expect(validateToolInputValue(schema, { cursor, root: 'other-root' }).success).toBe(false);
 
     expect(
-      toolSchemas.ReadWorkspaceFileInputSchema.safeParse({
+      decodeWorkspace({
         cursor: null,
         endLine: null,
         maxChars: null,
@@ -204,10 +205,13 @@ describe('native tool input schema catalog', () => {
     }
 
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'].safeParse({
-        content: null,
-        path: '/src/new.ts',
-      }).success
+      validateToolInputValue(
+        toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'],
+        {
+          content: null,
+          path: '/src/new.ts',
+        }
+      ).success
     ).toBe(false);
     expect(
       validateToolInputValue(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.grepSearch'], {
@@ -220,11 +224,14 @@ describe('native tool input schema catalog', () => {
       }).success
     ).toBe(false);
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'].safeParse({
-        content: 'export {};',
-        path: '/src/new.ts',
-        unknownProviderField: null,
-      }).success
+      validateToolInputValue(
+        toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'],
+        {
+          content: 'export {};',
+          path: '/src/new.ts',
+          unknownProviderField: null,
+        }
+      ).success
     ).toBe(false);
 
     // submitPlan is Effect-authored, so it is read through the neutral
@@ -272,16 +279,11 @@ describe('native tool input schema catalog', () => {
     ).toBe(false);
   });
 
-  it('registers every schema through exactly one producer', () => {
-    // ADR-0004 (amended 2026-10-15): Effect Schema is the boundary owner and
-    // the remaining zod tool schemas are being converted behind it. A tool must
-    // belong to exactly ONE producer — a schema neither of them made would
-    // reach the provider as an unvalidated shape, so this is the guard that
-    // nothing is registered raw.
-    for (const [toolId, schema] of Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS)) {
-      const effect = isEffectToolInputSchema(schema);
-      const zod = schema instanceof z.ZodPipe;
-      expect([effect, zod].filter(Boolean), toolId).toHaveLength(1);
+  it('registers every schema through the Effect producer', () => {
+    const entries = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [toolId, schema] of entries) {
+      expect(isEffectToolInputSchema(schema), toolId).toBe(true);
       expect(toToolInputJsonSchema(schema), toolId).toMatchObject({ type: 'object' });
     }
   });
@@ -303,29 +305,17 @@ describe('native tool input schema catalog', () => {
     }
   });
 
-  it('wraps every registered zod schema without widening its provider JSON Schema', () => {
-    for (const [toolId, schema] of Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS)) {
-      if (!(schema instanceof z.ZodPipe)) {
-        continue;
-      }
-      const wrappedJsonSchema = z.toJSONSchema(schema, PROVIDER_JSON_SCHEMA_OPTIONS);
-      const authoredJsonSchema = z.toJSONSchema(schema.out, PROVIDER_JSON_SCHEMA_OPTIONS);
-      expect(wrappedJsonSchema, toolId).toEqual(authoredJsonSchema);
-      expect(JSON.stringify(wrappedJsonSchema), toolId).toBe(JSON.stringify(authoredJsonSchema));
-
-      const mastraOptions = { io: 'input', target: 'draft-07' } as const;
-      const wrappedMastraSchema = standardSchemaToJSONSchema(
-        toStandardSchema(schema),
-        mastraOptions
-      );
-      const authoredMastraSchema = standardSchemaToJSONSchema(
-        toStandardSchema(schema.out),
-        mastraOptions
-      );
-      expect(wrappedMastraSchema, toolId).toEqual(authoredMastraSchema);
-      expect(JSON.stringify(wrappedMastraSchema), toolId).toBe(
-        JSON.stringify(authoredMastraSchema)
-      );
+  it('gives Mastra the authored provider schema without widening it', () => {
+    const entries = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [toolId, schema] of entries) {
+      const authored = toToolInputJsonSchema(schema, 'draft-07');
+      const mastra = standardSchemaToJSONSchema(toStandardSchema(schema), {
+        io: 'input',
+        target: 'draft-07',
+      });
+      expect(mastra, toolId).toEqual(authored);
+      expect(JSON.stringify(mastra), toolId).toBe(JSON.stringify(authored));
     }
   });
 
@@ -552,7 +542,7 @@ describe('native tool input schema catalog', () => {
     expect(transformRuns).toBe(1);
   });
 
-  it('defers JSON Schema conversion until first parse and memoizes it per wrapper', async () => {
+  it('keeps the preconversion Zod oracle lazy and memoized', async () => {
     vi.resetModules();
     const actualZod = await vi.importActual<typeof import('zod')>('zod');
     const toJSONSchema = vi.fn(actualZod.z.toJSONSchema);
@@ -566,7 +556,7 @@ describe('native tool input schema catalog', () => {
     try {
       const { z: isolatedZ } = await import('zod');
       const { providerCompatibleInputSchema: isolatedProviderCompatibleInputSchema } = await import(
-        '../tools/provider-compatible-input'
+        './fixtures/legacy-tool-input'
       );
       const schema = isolatedProviderCompatibleInputSchema(
         isolatedZ.object({ note: isolatedZ.string().optional() }).strict()
@@ -590,20 +580,21 @@ describe('native tool input schema catalog', () => {
     const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.manageCanvas'];
 
     expect(
-      schema.safeParse({ action: 'create', html: '<p>Hello</p>', title: 'Draft' }).success
+      validateToolInputValue(schema, { action: 'create', html: '<p>Hello</p>', title: 'Draft' })
+        .success
     ).toBe(true);
     expect(
-      schema.safeParse({
+      validateToolInputValue(schema, {
         action: 'update',
         canvasId: 'canvas-1',
         newString: 'new',
         oldString: 'old',
       }).success
     ).toBe(true);
-    expect(schema.safeParse({ action: 'rewrite', canvasId: 'canvas-1', html: '' }).success).toBe(
-      true
-    );
-    expect(schema.safeParse({ action: 'list' }).success).toBe(true);
+    expect(
+      validateToolInputValue(schema, { action: 'rewrite', canvasId: 'canvas-1', html: '' }).success
+    ).toBe(true);
+    expect(validateToolInputValue(schema, { action: 'list' }).success).toBe(true);
 
     // Cross-action EXTRAS among the six declared keys are tolerated: `action`
     // fully determines semantics, and real models bundle fields (observed live
@@ -611,7 +602,7 @@ describe('native tool input schema catalog', () => {
     // production failure). Rejecting them broke the feature and burned retry
     // tokens.
     expect(
-      schema.safeParse({
+      validateToolInputValue(schema, {
         action: 'create',
         canvasId: 'redundant',
         html: '<h1>Report</h1>',
@@ -621,7 +612,7 @@ describe('native tool input schema catalog', () => {
       }).success
     ).toBe(true);
     expect(
-      schema.safeParse({
+      validateToolInputValue(schema, {
         action: 'list',
         canvasId: 'c',
         html: 'x',
@@ -646,13 +637,15 @@ describe('native tool input schema catalog', () => {
 
     // Missing REQUIRED fields for the chosen action still fail…
     expect(
-      schema.safeParse({ action: 'update', canvasId: 'canvas-1', oldString: 'old' }).success
+      validateToolInputValue(schema, { action: 'update', canvasId: 'canvas-1', oldString: 'old' })
+        .success
     ).toBe(false);
     // …as do unknown actions and genuinely unknown keys (hallucinated API —
     // the strict envelope still catches those).
-    expect(schema.safeParse({ action: 'unknown' }).success).toBe(false);
+    expect(validateToolInputValue(schema, { action: 'unknown' }).success).toBe(false);
     expect(
-      schema.safeParse({ action: 'create', content: 'nope', html: '', title: 'x' }).success
+      validateToolInputValue(schema, { action: 'create', content: 'nope', html: '', title: 'x' })
+        .success
     ).toBe(false);
   });
 
@@ -729,3 +722,11 @@ describe('native tool input schema catalog', () => {
     expect(JSON.stringify(toToolInputJsonSchema(schema))).not.toContain('"pattern"');
   });
 });
+
+function decodeWorkspace(value: unknown) {
+  return {
+    success:
+      Schema.decodeUnknownResult(toolSchemas.ReadWorkspaceFileInputSchema)(value)._tag ===
+      'Success',
+  };
+}

@@ -1983,13 +1983,18 @@ describe('assistant-tools read tools', () => {
       // startLine. Parse exactly what a model would parse.
       const match = projected.value.match(/^([^:\n]+):(\/[^\n]*):(\d+) \(/mu);
       expect(match?.[1]).toBe('beta');
-      const readInput = NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readWorkspaceFile'].parse({
+      const parsedInput = await NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readWorkspaceFile'][
+        '~standard'
+      ].validate({
         path: match?.[2],
         root: match?.[1],
         startLine: Number(match?.[3]),
       });
+      if ('issues' in parsedInput) {
+        throw new Error('Read recipe failed input validation');
+      }
 
-      await expect(executeReadWorkspaceFile(readInput)).resolves.toMatchObject({
+      await expect(executeReadWorkspaceFile(parsedInput.value)).resolves.toMatchObject({
         content: '2: line 2\n3: line 3\n4: line 4',
         path: '/src/main.ts',
         startLine: 2,

@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { StringReplaceWorkspaceFileInputSchema } from '../schemas/schemas-workspace.js';
 
 // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
@@ -15,7 +15,7 @@ export const stringReplaceWorkspaceFile = defineNativeTool({
   description:
     'Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). matchType "exact" confirms verbatim placement; other matchTypes are fuzzy — re-read for precision',
   id: 'brainstrike.stringReplaceWorkspaceFile',
-  inputSchema: providerCompatibleInputSchema(StringReplaceWorkspaceFileInputSchema),
+  inputSchema: effectToolInputSchema(StringReplaceWorkspaceFileInputSchema),
   kind: 'desktop',
   localProvider: 'offered',
   returns:

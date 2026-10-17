@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { RenameWorkspaceFileInputSchema } from '../schemas/schemas-workspace.js';
 
 // Renames/moves a single workspace FILE within one root. riskCategory 'edit' so
@@ -17,7 +17,7 @@ export const renameWorkspaceFile = defineNativeTool({
     'Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
   discovery: { family: 'file delete/rename', namespace: 'workspace' },
   id: 'brainstrike.renameWorkspaceFile',
-  inputSchema: providerCompatibleInputSchema(RenameWorkspaceFileInputSchema),
+  inputSchema: effectToolInputSchema(RenameWorkspaceFileInputSchema),
   kind: 'desktop',
   returns:
     'Rename result: ok: true, the normalized fromPath and toPath, rootName, and indexInvalidated (true when the source path had workspace-index rows that were removed; the destination is re-indexed by the background sync)',

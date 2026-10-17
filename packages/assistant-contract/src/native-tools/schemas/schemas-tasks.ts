@@ -5,12 +5,11 @@
  * 2026-10-15) makes Effect the single boundary owner, and
  * `effectToolInputSchema` derives the provider JSON Schema from them.
  *
- * The two RESUME schemas at the bottom stay in zod on purpose — see the note
- * above `SubmitPlanResumeSchema`.
+ * Resume schemas use ordinary open/strip decoders, outside the strict provider boundary.
  */
 import { Schema } from 'effect';
-import { z } from 'zod';
 import { effectToolInputSchema } from './effect-tool-input.js';
+import { standardInputSchema } from './standard-input-schema.js';
 
 /**
  * A length-bounded string whose ADVERTISED bounds are the ones it enforces.
@@ -130,40 +129,23 @@ export const AskUserInputSchema = effectToolInputSchema(AskUserInputObjectSchema
 
 export type AskUserInput = typeof AskUserInputObjectSchema.Type;
 
-const AskUserAnswerSchema = z.union([z.string(), z.array(z.string())]);
+const AskUserAnswerSchema = Schema.Union([Schema.String, Schema.Array(Schema.String)]);
 
-/**
- * The resume schemas are NOT tool input schemas and are deliberately still zod.
- *
- * `effectToolInputSchema` is the model-facing tool producer: it fixes
- * `onExcessProperty: 'error'`, so admitting a resume envelope through it would
- * CLOSE an object that zod leaves open to strip, and an unknown rider on a
- * person's answer would then strand a suspended run instead of being dropped.
- * A resume envelope is also never advertised to a provider — it travels
- * host↔Core as the platform selection's `interaction.resumeSchema` — so the
- * producer's pairing of a provider JSON Schema with a validator buys nothing
- * here, and the catalog's one-producer guard sweeps
- * `NATIVE_TOOL_INPUT_SCHEMAS`, which these are not in.
- *
- * Converting them means either a second Effect producer with open-object
- * semantics or a ruling that the resume envelope should close. That is an
- * owner decision, like `skill` / `runPython` in
- * `docs/agents/effect-schema-migration.md`, not part of this conversion.
- */
-/** submitPlan's resume: the person's decision, with optional feedback. */
-export const SubmitPlanResumeSchema = z.object({
-  action: z.enum(['approved', 'rejected']),
-  feedback: z.string().optional(),
-});
+// Resume envelopes strip unknown riders, including approval transport metadata.
+// These are ordinary receiving-boundary decoders, never strict provider tool inputs.
+export const SubmitPlanResumeSchema = standardInputSchema(
+  Schema.Struct({
+    action: Schema.Literals(['approved', 'rejected']),
+    feedback: Schema.optionalKey(Schema.String),
+  })
+);
 
-/**
- * askUser's resume: the canonical `{answer}` envelope, an object so the
- * resume transport can attach the 1.56+ `approved: true` rider when askUser is
- * ask-gated, declared rather than left to zod's strip. The bare string or
- * string[] arm is legacy compat for runs suspended before the envelope
- * migration; remove it once no pre-migration snapshots can remain.
- */
-export const AskUserResumeSchema = z.union([
-  z.object({ answer: AskUserAnswerSchema, approved: z.literal(true).optional() }),
-  AskUserAnswerSchema,
-]);
+export const AskUserResumeSchema = standardInputSchema(
+  Schema.Union([
+    Schema.Struct({
+      answer: AskUserAnswerSchema,
+      approved: Schema.optionalKey(Schema.Literal(true)),
+    }),
+    AskUserAnswerSchema,
+  ])
+);

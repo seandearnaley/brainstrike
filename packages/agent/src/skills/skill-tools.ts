@@ -11,11 +11,11 @@
  * adoption blocker recorded in docs/agents/workspace-context.md).
  */
 
+import type { EffectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import { createSkillTools } from '@mastra/core/workspace';
-import type { z } from 'zod';
 import {
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
@@ -62,15 +62,21 @@ type AnyToolExecute = (input: unknown, context: unknown) => Promise<unknown>;
  * + `inputSchema`), so the wire schema and the settings inspector share one
  * source.
  */
-function withProviderContract<TTool extends object>(
+function withProviderContract<
+  TTool extends { readonly inputSchema?: unknown; readonly description?: string },
+>(
   tool: TTool,
-  definition: { readonly inputSchema: z.ZodType; readonly providerDescription: string }
-): TTool {
+  definition: {
+    readonly inputSchema: EffectToolInputSchema<unknown>;
+    readonly providerDescription: string;
+  }
+) {
+  const { inputSchema: _inputSchema, description: _description, ...rest } = tool;
   return {
-    ...tool,
+    ...rest,
     description: definition.providerDescription,
     inputSchema: definition.inputSchema,
-  } as TTool;
+  };
 }
 
 /**
