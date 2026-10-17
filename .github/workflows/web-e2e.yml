@@ -1,16 +1,11 @@
-# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
-# Preserved workflow definition only: do not enable, dispatch, or rerun it.
-# Test locally with pnpm check and report the commands and results.
-# Tell the user: CI is disabled due to cost; validation must run locally.
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
 
 name: Web E2E
 
 on:
   schedule:
     - cron: '37 7 * * *'
-  pull_request:
-    branches: ['**']
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 concurrency:
@@ -33,6 +28,7 @@ env:
 jobs:
   web-full-regression:
     name: Web Full Regression
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-latest
     # Official browser/system-dependency fleet; fixed CfT is provisioned below.
     # Root is Playwright's documented mode for trusted E2E and permits explicit
@@ -46,7 +42,6 @@ jobs:
     env:
       # Browsers are preinstalled in the image; point Playwright at them.
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      BRAINSTRIKE_WEB_CHROMIUM_DIR: ${{ runner.temp }}/web-chromium
       pnpm_config_verify_deps_before_run: error
     steps:
       - name: Checkout
@@ -71,11 +66,15 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends unzip lsof procps
 
+      # `jobs.<id>.env` cannot read the `runner` context, so the directory is
+      # exported here for every later step (playwright.config.mts reads it).
       - name: Provision qualified web Chromium
         shell: bash
         timeout-minutes: 5
         run: |
           set -euo pipefail
+          BRAINSTRIKE_WEB_CHROMIUM_DIR="$RUNNER_TEMP/web-chromium"
+          echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"
           test "$(node --version)" = "v$(cat .nvmrc)"
           mkdir -p apps/web/test-results
           node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR" > apps/web/test-results/web-chromium-provisioning.json
@@ -117,7 +116,7 @@ jobs:
   notify-linear:
     name: Notify Linear
     needs: [web-full-regression]
-    if: ${{ always() && github.event_name == 'schedule' }}
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}

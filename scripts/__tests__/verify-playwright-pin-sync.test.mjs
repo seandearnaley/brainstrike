@@ -210,7 +210,12 @@ test('tolerates multiple identical pins in one file but flags disagreeing duplic
   assert.deepEqual(mismatches, []);
 });
 
-async function writeProvisioningFixture(spec = '1.63.0', driverSpec = spec, omit = '') {
+async function writeProvisioningFixture(
+  spec = '1.63.0',
+  driverSpec = spec,
+  omit = '',
+  edit = (content) => content
+) {
   const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'web-chromium-pin-'));
   await writeFile(
     path.join(repoRoot, 'package.json'),
@@ -230,8 +235,6 @@ async function writeProvisioningFixture(spec = '1.63.0', driverSpec = spec, omit
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:${'a'.repeat(64)}
       options: --user 0
-    env:
-      BRAINSTRIKE_WEB_CHROMIUM_DIR: \${{ runner.temp }}/web-chromium
     steps:
       - uses: actions/setup-node@v6
         with:
@@ -243,10 +246,14 @@ async function writeProvisioningFixture(spec = '1.63.0', driverSpec = spec, omit
       - name: Provision qualified web Chromium
         shell: bash
         run: |
+          BRAINSTRIKE_WEB_CHROMIUM_DIR="$RUNNER_TEMP/web-chromium"
+          echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"
           test "$(node --version)" = "v$(cat .nvmrc)"
           node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR"
+      - name: Run web tests
+        run: pnpm exec playwright test
 `;
-    await writeFile(full, omit ? content.replace(omit, '') : content);
+    await writeFile(full, edit(omit ? content.replace(omit, '') : content));
   }
   return repoRoot;
 }
@@ -270,7 +277,8 @@ test('fixed Chromium jobs reject driver drift and missing provisioning requireme
     'options: --user 0',
     'shell: bash',
     'node-version-file: .nvmrc',
-    'BRAINSTRIKE_WEB_CHROMIUM_DIR',
+    'BRAINSTRIKE_WEB_CHROMIUM_DIR="$RUNNER_TEMP/web-chromium"',
+    'echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"',
     'unzip lsof procps',
     'test "$(node --version)" = "v$(cat .nvmrc)"',
     'node scripts/provision-web-chromium.mjs',
@@ -278,4 +286,36 @@ test('fixed Chromium jobs reject driver drift and missing provisioning requireme
     const repoRoot = await writeProvisioningFixture('1.63.0', '1.63.0', omitted);
     assert.throws(() => checkWebChromiumProvisioning({ repoRoot }), /base|provisioning|bash/);
   }
+});
+
+// BST-2066: `jobs.<id>.env` cannot read the `runner` context (GitHub's
+// context-availability table), so a job-level `${{ runner.temp }}` makes the
+// workflow invalid. The directory is exported from the provisioning step.
+test('fixed Chromium jobs reject the job-level runner.temp export and an export outside provisioning', async () => {
+  const jobLevel = await writeProvisioningFixture('1.63.0', '1.63.0', '', (content) =>
+    content.replace(
+      '    steps:\n',
+      `    env:\n      BRAINSTRIKE_WEB_CHROMIUM_DIR: ${'$'}{{ runner.temp }}/web-chromium\n    steps:\n`
+    )
+  );
+  assert.throws(
+    () => checkWebChromiumProvisioning({ repoRoot: jobLevel }),
+    /job-level env cannot read the runner context/
+  );
+
+  const misplaced = await writeProvisioningFixture('1.63.0', '1.63.0', '', (content) =>
+    content
+      .replace(
+        '          echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"\n',
+        ''
+      )
+      .replace(
+        '        run: pnpm exec playwright test\n',
+        '        run: |\n          echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"\n          pnpm exec playwright test\n'
+      )
+  );
+  assert.throws(
+    () => checkWebChromiumProvisioning({ repoRoot: misplaced }),
+    /Provision qualified web Chromium step must export/
+  );
 });

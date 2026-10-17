@@ -151,14 +151,34 @@ export function checkWebChromiumProvisioning(options = {}) {
     for (const required of [
       'options: --user 0',
       'node-version-file: .nvmrc',
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: Match the literal GitHub Actions expression.
-      'BRAINSTRIKE_WEB_CHROMIUM_DIR: ${{ runner.temp }}/web-chromium',
       'apt-get install -y --no-install-recommends unzip lsof procps',
       'test "$(node --version)" = "v$(cat .nvmrc)"',
       'node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR"',
     ]) {
       if (!content.includes(required)) {
         throw new Error(`Web Chromium job ${file} is missing explicit provisioning: ${required}`);
+      }
+    }
+    // BST-2066: `jobs.<id>.env` cannot read the `runner` context (GitHub's
+    // context-availability table), and a `${{ runner.temp }}` there invalidates
+    // the workflow. The provisioning step exports the directory instead, so
+    // every later step reads it from $GITHUB_ENV.
+    const jobEnv = /^ {4}env:\n((?: {6}.*\n)+)/m.exec(content)?.[1] ?? '';
+    if (/\$\{\{\s*runner\./.test(jobEnv)) {
+      throw new Error(`Web Chromium job ${file}: job-level env cannot read the runner context`);
+    }
+    const provisioning =
+      /^ {6}- name: Provision qualified web Chromium\n([\s\S]*?)(?=^ {6}- |(?![\s\S]))/m.exec(
+        content
+      )?.[1] ?? '';
+    for (const exported of [
+      'BRAINSTRIKE_WEB_CHROMIUM_DIR="$RUNNER_TEMP/web-chromium"',
+      'echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"',
+    ]) {
+      if (!provisioning.includes(exported)) {
+        throw new Error(
+          `Web Chromium job ${file} is missing explicit provisioning: the Provision qualified web Chromium step must export ${exported}`
+        );
       }
     }
   }

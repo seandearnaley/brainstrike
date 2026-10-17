@@ -1,16 +1,11 @@
-# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
-# Preserved workflow definition only: do not enable, dispatch, or rerun it.
-# Test locally with pnpm check and report the commands and results.
-# Tell the user: CI is disabled due to cost; validation must run locally.
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
 
 name: Desktop E2E
 
 on:
   schedule:
     - cron: '53 7 * * *'
-  pull_request:
-    branches: ['**']
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       suite:
@@ -43,7 +38,7 @@ env:
 jobs:
   desktop-full-regression:
     name: Desktop Full Regression (shard ${{ matrix.shard }})
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'full'
+    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
     runs-on: ubuntu-latest
     # Each shard runs half of the regression project under the lane's own 30m
     # --global-timeout; shard 1 also runs the 2m AI Tools nightly lane.
@@ -137,7 +132,7 @@ jobs:
   # when the shards do (a foreground-latency dispatch), and fails on anything else.
   desktop-full-regression-gate:
     name: Desktop Full Regression
-    if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
     needs: [desktop-full-regression]
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -154,7 +149,7 @@ jobs:
 
   desktop-embedding-e2e:
     name: Desktop Embedding E2E
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite != 'foreground-latency')
+    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite != 'foreground-latency'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -237,7 +232,7 @@ jobs:
   # (suite=foreground-latency) only, never on pull requests.
   desktop-foreground-latency:
     name: Desktop Foreground Latency Benchmark
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'foreground-latency')
+    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'foreground-latency'))
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
@@ -306,7 +301,7 @@ jobs:
   notify-linear:
     name: Notify Linear
     needs: [desktop-full-regression-gate, desktop-embedding-e2e, desktop-foreground-latency]
-    if: ${{ always() && github.event_name == 'schedule' }}
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}

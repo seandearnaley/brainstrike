@@ -85,28 +85,25 @@ test('the Tasks and Apps release proofs ride the required PR lane and the exhaus
   assert.ok(runCeiling('pr') < verification.jobs.verify['timeout-minutes'] * 60_000);
 });
 
-test('verification runs on main pushes, schedule, and manual dispatch with bounded artifact retention', () => {
+test('verification runs nightly and on manual dispatch with bounded artifact retention', () => {
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
-  assert.deepEqual(Object.keys(workflow.on).sort(), ['push', 'schedule', 'workflow_dispatch']);
-  // BST-1582: main pushes run only the official conformance jobs; docs-only
-  // merges cannot regress client conformance and skip the workflow entirely.
-  assert.deepEqual(workflow.on.push, {
-    branches: ['main'],
-    'paths-ignore': ['docs/**', '**/*.md'],
-  });
+  // BST-2066: per-push hosted CI is off; main is verified nightly.
+  assert.deepEqual(Object.keys(workflow.on).sort(), ['schedule', 'workflow_dispatch']);
   assert.equal(workflow.on.schedule.length, 1);
   assert.deepEqual(workflow.permissions, { contents: 'read' });
-  // Overlapping main-push runs serialize instead of cancelling: a cancelled run
-  // would silently skip the gate for an intermediate merge commit.
+  // Overlapping runs on main serialize instead of cancelling: a cancelled run
+  // would silently skip that night's gate.
   assert.deepEqual(workflow.concurrency, {
     'cancel-in-progress': false,
     group: `${'$'}{{ github.workflow }}-${'$'}{{ github.ref }}`,
   });
-  // The exhaustive lane stays schedule/manual; the PR-lane representative
-  // profile already covers every merge.
-  assert.equal(workflow.jobs.verify.if, `${'$'}{{ github.event_name != 'push' }}`);
-  for (const jobId of officialJobIds) {
-    assert.equal(workflow.jobs[jobId].if, undefined, `${jobId} must run on main pushes`);
+  // The exhaustive lane and every official job run each night; forks skip.
+  for (const jobId of ['verify', ...officialJobIds]) {
+    assert.equal(
+      workflow.jobs[jobId].if,
+      "github.repository == 'seandearnaley/brainstrike'",
+      `${jobId} must run every night on the canonical repository`
+    );
   }
   assert.equal(workflow.jobs.verify['timeout-minutes'], 10);
 

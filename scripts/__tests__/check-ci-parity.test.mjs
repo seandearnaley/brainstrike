@@ -60,12 +60,6 @@ const workflowPath = path.join(repoRoot, '.github', 'workflows', 'test.yml');
  * nothing about the code, so a local gate has nothing to mirror. Keyed
  * `<job> › <step name>` so the repeated names ("Install dependencies",
  * "Require successful admission") stay distinguishable per job.
- *
- * The `notify-main-failure` / `notify-main-recovery` steps (BST-1301) are
- * reporting, not gating: they run only AFTER Static/Unit/Build have already
- * reached a verdict on a push to `main`, and they invoke `gh` rather than any
- * pnpm/turbo/node gate. `pnpm check` must NOT mirror them — running them
- * locally would file and close GitHub issues.
  */
 const PROVISIONING_STEPS = new Set([
   'admission › Wait for pull request activity to settle',
@@ -104,9 +98,6 @@ const PROVISIONING_STEPS = new Set([
   // Secret Service and URL-opening utilities required by the packaged app on
   // headless Linux. The packaged-lane contract pins the daemon wiring.
   'native-electron › Provision Linux desktop services',
-  'notify-main-failure › Ensure tracking label exists',
-  'notify-main-failure › Open or update tracking issue',
-  'notify-main-recovery › Close the tracking issue once main is green',
 ]);
 
 function workflowSource() {
