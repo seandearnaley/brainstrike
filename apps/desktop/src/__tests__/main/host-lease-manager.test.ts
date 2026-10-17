@@ -124,7 +124,10 @@ describe('desktop host lease ownership', () => {
     expect(child.pid).toBeUndefined();
     expect(child.kill).not.toHaveBeenCalled();
     expect(attachment.close).toHaveBeenCalledTimes(1);
-    await expect(owner.acquire()).rejects.toThrow('closing');
+    const { isHostLeaseClosed } = await import('../../desktop-shutdown-state');
+    await expect(owner.acquire().catch((cause: unknown) => isHostLeaseClosed(cause))).resolves.toBe(
+      true
+    );
   });
   it('detaches an existing CLI owner without spawning or terminating it', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
@@ -140,12 +143,15 @@ describe('desktop host lease ownership', () => {
     'closes startup with the original cancellation cause: %s',
     async (reason) => {
       const { createDesktopHostLease } = await import('../../host-lease-manager');
+      const { isHostLeaseClosed } = await import('../../desktop-shutdown-state');
       const child = new Child();
       const owner = createDesktopHostLease({ fork: () => child, root });
       const acquiring = owner.acquire();
       const rejected =
         reason === undefined
-          ? expect(acquiring).rejects.toThrow('closing')
+          ? expect(acquiring.catch((cause: unknown) => isHostLeaseClosed(cause))).resolves.toBe(
+              true
+            )
           : expect(acquiring).rejects.toBe(reason);
       await vi.waitFor(() => expect(child.listenerCount('message')).toBe(1));
       await owner.close(reason);
@@ -335,6 +341,102 @@ describe('desktop host lease ownership', () => {
     expect(child.pid).toBe(123);
     expect(child.kill).not.toHaveBeenCalled();
     child.exit(0);
+  });
+});
+
+// BST-2118: Main reports the profile's boot acquisition through this reporter.
+describe('agent host startup reporting', () => {
+  const startupLogger = () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn() });
+  it.each([false, true])(
+    'reports a startup its own lease owner closed as a cancellation, never an error (shutdown=%s)',
+    async (shuttingDown) => {
+      const { createDesktopHostLease } = await import('../../host-lease-manager');
+      const { isHostLeaseClosed } = await import('../../desktop-shutdown-state');
+      const { reportAgentHostStartupFailure } = await import('../../native-index-activation-error');
+      const child = new Child();
+      const owner = createDesktopHostLease({ fork: () => child, root });
+      const outcome = owner.acquire().then(
+        () => undefined,
+        (cause: unknown) => cause
+      );
+      await vi.waitFor(() => expect(child.listenerCount('message')).toBe(1));
+      await owner.close();
+      const cancelled = await outcome;
+      expect(isHostLeaseClosed(cancelled)).toBe(true);
+      const logger = startupLogger();
+      reportAgentHostStartupFailure(cancelled, shuttingDown, logger);
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        'Agent host startup cancelled: its lease owner closed'
+      );
+    }
+  );
+  it.each([false, true])(
+    'still reports a startup that failed without a close as an error (shutdown=%s)',
+    async (shuttingDown) => {
+      const { createDesktopHostLease } = await import('../../host-lease-manager');
+      const { reportAgentHostStartupFailure } = await import('../../native-index-activation-error');
+      const child = new Child();
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.exit(1));
+          return child;
+        },
+        root,
+      });
+      const failure = await owner.acquire().then(
+        () => undefined,
+        (cause: unknown) => cause
+      );
+      expect(failure).toEqual(new Error('Host utility exited before ready (1)'));
+      const logger = startupLogger();
+      reportAgentHostStartupFailure(failure, shuttingDown, logger);
+      expect(logger.error).toHaveBeenCalledWith('Agent host startup failed', { error: failure });
+      expect(logger.debug).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+    }
+  );
+  it('answers a client connect waiting on that close with its typed refusal, never an untyped failure', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const { settleIpcResult } = await import('../../platform/desktop-ipc-registry');
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
+    const errors: unknown[] = [];
+    const stop = addLogListener((record) => {
+      if (record.level >= LogLevel.ERROR) {
+        errors.push(record.message);
+      }
+    });
+    const connect = { category: 'availability', code: 'agent-host-connect-failed' } as const;
+    try {
+      const child = new Child();
+      const owner = createDesktopHostLease({ fork: () => child, root });
+      const connecting = settleIpcResult(connect, () => owner.acquire());
+      await vi.waitFor(() => expect(child.listenerCount('message')).toBe(1));
+      await owner.close();
+      expect(await connecting).toMatchObject({
+        error: { code: 'desktop.host-lease-closed', kind: 'refusal' },
+        ok: false,
+      });
+      expect(errors).toEqual([]);
+
+      // A host that exits before ready, with no close, is still an untyped fault.
+      const failed = new Child();
+      const failing = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => failed.exit(1));
+          return failed;
+        },
+        root,
+      });
+      expect(await settleIpcResult(connect, () => failing.acquire())).toMatchObject({
+        error: { kind: 'fault' },
+        ok: false,
+      });
+      expect(errors).toEqual(['Untyped failure crossed a process boundary']);
+    } finally {
+      stop();
+    }
   });
 });
 

@@ -32,13 +32,30 @@ export const RESET_REOPEN_CANCELLED = refusal({
 });
 
 /**
+ * BST-2118: the desktop host lease owner's own close. A startup still in flight,
+ * and every later acquisition from that owner, ends with this refusal.
+ */
+export const HOST_LEASE_CLOSED = refusal({
+  category: 'availability',
+  code: 'desktop.host-lease-closed',
+  message: 'The agent host is closing.',
+});
+
+/** Recognizes that close by its code, never by message text. */
+export function isHostLeaseClosed(error: unknown): boolean {
+  return error instanceof BoundaryFailureError && error.failure.code === HOST_LEASE_CLOSED.code;
+}
+
+/**
  * Work refused because its owner retired: a closed native index, a host
- * connection that closed or was lost, or a reset reopen cancelled by quit.
+ * connection that closed or was lost, a closed host lease owner, or a reset
+ * reopen cancelled by quit.
  */
 export function isRetirementRefusal(error: unknown): boolean {
   return (
     (error instanceof NativeIndexRefusalError && error.refusal.kind === 'closed') ||
     isConnectionLoss(error) ||
+    isHostLeaseClosed(error) ||
     (error instanceof BoundaryFailureError && error.failure.code === RESET_REOPEN_CANCELLED.code)
   );
 }

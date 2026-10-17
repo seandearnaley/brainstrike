@@ -129,8 +129,8 @@ export interface UseBackgroundTokenIndexerOptions {
 }
 
 export interface UseBackgroundTokenIndexerReturn {
-  /** Cancel all pending indexing */
-  cancelIndexing: () => void;
+  /** Settle pending batches with `cancellation`, as `retire` does, and keep the worker. */
+  cancelIndexing: (cancellation: Error) => void;
   /** Queue files for background indexing */
   indexFiles: (files: FileToIndex[]) => Promise<void>;
   /** Whether indexing is in progress */
@@ -205,6 +205,7 @@ export function useBackgroundTokenIndexer({
   const retirementRef = useRef<Error | null>(null);
   // Rejects the startup still waiting for `ready`, so retirement can settle it.
   const rejectReadinessRef = useRef<((reason: Error) => void) | null>(null);
+  const cancellationsRef = useRef(new WeakSet<Error>());
 
   // Track pending files to enable cancellation
   const pendingFilesRef = useRef<Set<string>>(new Set());
@@ -968,9 +969,9 @@ export function useBackgroundTokenIndexer({
         workerRef.current.postMessage(batchMessage);
         await completionPromise;
       } catch (error) {
-        if (retirementRef.current !== null && error === retirementRef.current) {
-          // The owner retired this indexer: its batch settles as that cancellation.
-          logger.debug('indexFiles settled by owner retirement', { fileCount: files.length });
+        if (error instanceof Error && cancellationsRef.current.has(error)) {
+          // The owner retired this indexer or cancelled this batch: it settles as that cancellation.
+          logger.debug('indexFiles settled by owner cancellation', { fileCount: files.length });
           setIsIndexing(false);
           setProgress(null);
           throw error;
@@ -997,18 +998,17 @@ export function useBackgroundTokenIndexer({
     [emitTerminalIndexingError, ensureWorkerReady, rejectAllPendingBatchTrackers]
   );
 
-  /**
-   * Cancel all pending indexing.
-   * Clears pending files but keeps worker alive for reuse.
-   * Any in-flight results will be ignored since they're not in pendingFilesRef.
-   */
-  const cancelIndexing = useCallback(() => {
-    pendingFilesRef.current.clear();
-    rejectAllPendingBatchTrackers(new Error('Background token indexer indexing canceled'));
-    setIsIndexing(false);
-    setProgress(null);
-    // Worker stays alive - no need to terminate and recreate
-  }, [rejectAllPendingBatchTrackers]);
+  // Keeps the worker for reuse; in-flight results are ignored once out of pendingFilesRef.
+  const cancelIndexing = useCallback(
+    (cancellation: Error) => {
+      cancellationsRef.current.add(cancellation);
+      pendingFilesRef.current.clear();
+      rejectAllPendingBatchTrackers(cancellation);
+      setIsIndexing(false);
+      setProgress(null);
+    },
+    [rejectAllPendingBatchTrackers]
+  );
 
   const retire = useCallback(
     (retirement: Error) => {
@@ -1016,6 +1016,7 @@ export function useBackgroundTokenIndexer({
         return;
       }
       retirementRef.current = retirement;
+      cancellationsRef.current.add(retirement);
       pendingFilesRef.current.clear();
       rejectAllPendingBatchTrackers(retirement);
       // A startup still waiting for `ready` settles with the retirement too, and its

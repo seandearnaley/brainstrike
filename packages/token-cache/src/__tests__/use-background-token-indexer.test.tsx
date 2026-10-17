@@ -253,10 +253,11 @@ describe('useBackgroundTokenIndexer', () => {
       ],
       type: 'index-batch',
     });
+    const cancellation = new Error('selection cleared');
     act(() => {
-      result.current.cancelIndexing();
+      result.current.cancelIndexing(cancellation);
     });
-    await expect(indexing).rejects.toThrow('indexing canceled');
+    await expect(indexing).rejects.toBe(cancellation);
   });
 
   it('clears isIndexing when worker returns only skipped results', async () => {
@@ -1540,13 +1541,67 @@ describe('useBackgroundTokenIndexer', () => {
       inFlight: 2,
     });
 
+    const cancellation = new Error('selection cleared');
     act(() => {
-      result.current.cancelIndexing();
+      result.current.cancelIndexing(cancellation);
     });
 
-    await expect(indexPromise).rejects.toThrow('Background token indexer indexing canceled');
+    await expect(indexPromise).rejects.toBe(cancellation);
     expect(result.current.isIndexing).toBe(false);
     expect(result.current.progress).toBeNull();
+  });
+
+  // BST-2118: a user cancel is the caller's own cancellation, not a failure.
+  it('settles a cancelled batch as that cancellation, logging no error, and still fails a real worker failure', async () => {
+    const onFileError = vi.fn();
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({ mode: 'accurate', onFileError, store: null })
+    );
+    const worker = await markWorkerReady();
+    let cancelled!: Promise<void>;
+    act(() => {
+      cancelled = result.current.indexFiles([
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+      ]);
+    });
+    await waitFor(() => expect(worker.postMessage).toHaveBeenCalledTimes(1));
+    const cancellation = new Error('selection cleared');
+    act(() => {
+      result.current.cancelIndexing(cancellation);
+    });
+    await expect(cancelled).rejects.toBe(cancellation);
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockLogger.debug).toHaveBeenCalledWith('indexFiles settled by owner cancellation', {
+      fileCount: 1,
+    });
+
+    // The worker stays alive; a real failure of the next batch still reports as one.
+    let failing!: Promise<void>;
+    act(() => {
+      failing = result.current.indexFiles([
+        { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
+      ]);
+    });
+    void failing.catch(() => {});
+    await waitFor(() => expect(worker.postMessage).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      worker.emitEvent('message', {
+        data: {
+          compositeKey: '__batch__',
+          error: 'batch worker failed',
+          id: '__batch__',
+          type: 'error',
+        },
+      } as MessageEvent);
+    });
+    await expect(failing).rejects.toThrow('batch worker failed');
+    expect(mockLogger.error).toHaveBeenCalled();
+    expect(onFileError).toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining('batch worker failed')
+    );
   });
 
   it('keeps a batch pending until every file result settles', async () => {
