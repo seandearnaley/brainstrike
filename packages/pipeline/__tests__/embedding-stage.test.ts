@@ -220,7 +220,7 @@ describe('createEmbeddingStage', () => {
       await stage.enqueueChunks(input);
 
       const payload = jobQueue.enqueueCalls[0]?.payload as { modelKey: string };
-      expect(payload.modelKey).toBe('openai::text-embedding-3-small');
+      expect(payload['modelKey']).toBe('openai::text-embedding-3-small');
     });
 
     it('uses provided model key over default', async () => {
@@ -237,7 +237,7 @@ describe('createEmbeddingStage', () => {
       await stage.enqueueChunks(input);
 
       const payload = jobQueue.enqueueCalls[0]?.payload as { modelKey: string };
-      expect(payload.modelKey).toBe('openai::custom-model');
+      expect(payload['modelKey']).toBe('openai::custom-model');
     });
 
     it('uses custom queue name when provided', async () => {
@@ -305,13 +305,13 @@ describe('createEmbeddingStage', () => {
       const result = await stage.enqueueChunks(input);
 
       const payload = jobQueue.enqueueCalls[0]?.payload as Record<string, unknown>;
-      expect(payload.chunkId).toBe(result.chunkIds[0]);
-      expect(payload.fileRecordId).toBe(input.fileId);
-      expect(payload.embeddingSetId).toBe(input.embeddingSetId);
-      expect(payload.modelKey).toBe('openai::test-model');
-      expect(payload.expectedDimension).toBe(1536);
-      expect(payload.contentHash).toBe(input.chunks[0]?.contentHash);
-      expect(payload.chunkIndex).toBe(0);
+      expect(payload['chunkId']).toBe(result.chunkIds[0]);
+      expect(payload['fileRecordId']).toBe(input.fileId);
+      expect(payload['embeddingSetId']).toBe(input.embeddingSetId);
+      expect(payload['modelKey']).toBe('openai::test-model');
+      expect(payload['expectedDimension']).toBe(1536);
+      expect(payload['contentHash']).toBe(input.chunks[0]?.contentHash);
+      expect(payload['chunkIndex']).toBe(0);
     });
 
     it('uses job type embed_chunk', async () => {

@@ -16,7 +16,7 @@ import {
   providerCassetteFindings,
   providerRequestKey,
   startProviderCassetteRecorder,
-} from '../provider-cassette';
+} from '../provider-cassette.js';
 
 const servers: Server[] = [];
 const recorders: ProviderCassetteRecorder[] = [];
