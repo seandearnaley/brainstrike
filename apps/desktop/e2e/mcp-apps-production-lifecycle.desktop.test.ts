@@ -1231,7 +1231,12 @@ test(
         sessionPolicy.downloads.filter(
           (download) => !download.url.startsWith('blob:brainstrike-mcp-app://')
         )
-      ).toEqual([{ defaultPrevented: false, url: expect.stringMatching(/^blob:file:\/\/\//u) }]);
+      ).toEqual([
+        {
+          defaultPrevented: false,
+          url: expect.stringMatching(/^blob:brainstrike-app:\/\/bundle\/[0-9a-f-]+$/u),
+        },
+      ]);
 
       const completionBefore = toolServer.snapshot();
       await beginCall(page, 'completion');

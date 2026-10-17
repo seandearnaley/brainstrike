@@ -20,8 +20,7 @@ import {
 const TOKEN = 'a'.repeat(32);
 const SHELL = `brainstrike-mcp-app://${TOKEN}/`;
 const CANVAS_SHELL = 'brainstrike-canvas://shell/';
-const HOST =
-  'file:///Applications/BrainStrike.app/Contents/Resources/app.asar/dist/renderer/index.html';
+const HOST = 'brainstrike-app://bundle/index.html';
 
 /** The main window while ONE MCP App is mounted next to a Canvas sandbox. */
 const MOUNTED_FRAMES: readonly McpAppSessionFrame[] = [
@@ -183,7 +182,7 @@ describe('isMcpAppSandboxDownload', () => {
   });
 
   it('allows host-renderer and ordinary downloads', () => {
-    expect(isMcpAppSandboxDownload(['blob:file:///9f0d-uuid'])).toBe(false);
+    expect(isMcpAppSandboxDownload(['blob:brainstrike-app://bundle/9f0d-uuid'])).toBe(false);
     expect(isMcpAppSandboxDownload(['blob:http://localhost:5173/9f0d-uuid'])).toBe(false);
     expect(isMcpAppSandboxDownload(['https://example.test/report.pdf'])).toBe(false);
     expect(isMcpAppSandboxDownload([])).toBe(false);
@@ -344,7 +343,7 @@ describe('installMcpAppSessionPolicy', () => {
     installMcpAppSessionPolicy(captured.session);
 
     expect(captured.downloads(`blob:${SHELL}uuid`)).toBe(true);
-    expect(captured.downloads('blob:file:///uuid')).toBe(false);
+    expect(captured.downloads('blob:brainstrike-app://bundle/uuid')).toBe(false);
     expect(captured.downloads('https://example.test/report.pdf')).toBe(false);
   });
 

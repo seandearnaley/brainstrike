@@ -154,7 +154,7 @@ catalog:
   effect: 4.0.5
   # Chromium security patches only. Stay on the 44 line: Electron 45 is a
   # separate, reviewed decision, not a security bump.
-  electron: ^44.7.2
+  electron: ^44.8.0
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.7
   fake-indexeddb: ^6.2.5
@@ -169,7 +169,7 @@ catalog:
   mermaid: ^12.2.0
   minimatch: ^10.2.6
   node-addon-api: 8.9.2
-  node-gyp: 13.0.2
+  node-gyp: 13.1.0
   oxc-parser: ^0.154.0
   # BST-1659: optional peer of @vitejs/plugin-react and the ONLY backend its
   # `react({ compiler: <options> })` plugin has — it imports this package and hard-errors

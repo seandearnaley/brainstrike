@@ -39,8 +39,8 @@
  * - `will-download` reports no frame at all — only the session, the item and
  *   the WebContents. A blob minted inside a frame carries that frame's origin
  *   in its URL (`blob:brainstrike-mcp-app://<token>/<uuid>` for the shell;
- *   `blob:file:///<uuid>` for the packaged host renderer), so the download arm
- *   keys on the shell origin appearing in the item's URL chain. The app
+ *   `blob:brainstrike-app://bundle/<uuid>` for the packaged host renderer), so
+ *   the download arm keys on the shell origin in the item's URL chain. The app
  *   document itself cannot start a download at all: its `sandbox` attribute is
  *   exactly `allow-scripts`, and without `allow-downloads` Chromium blocks the
  *   download before `will-download` fires (measured).
