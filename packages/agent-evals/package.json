@@ -1,0 +1,51 @@
+{
+  "name": "@brainstrike/agent-evals",
+  "version": "0.1.0",
+  "description": "Coding-task evals run through the standalone CLI host, scored by hidden verifiers and the committed log",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.20.0 <25 || >=26.8.2 <27"
+  },
+  "dependencies": {
+    "@brainstrike/agent-host": "workspace:*",
+    "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/host-capabilities": "workspace:*",
+    "@brainstrike/host-lease": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
+    "@brainstrike/test-utils": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./scripted-platform": {
+      "types": "./dist/scripted-platform.d.ts",
+      "default": "./dist/scripted-platform.js"
+    }
+  },
+  "files": [
+    "dist",
+    "tasks"
+  ],
+  "scripts": {
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "eval": "pnpm --filter @brainstrike/agent-evals... build && node dist/cli.js eval",
+    "record": "pnpm --filter @brainstrike/agent-evals... build && node dist/cli.js record",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
+  }
+}

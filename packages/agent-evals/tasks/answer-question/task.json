@@ -1,0 +1,10 @@
+{
+  "id": "answer-question",
+  "model": "openai::gpt-6-luna",
+  "prompt": "Which TCP port does this server listen on when the PORT environment variable is not set? Work it out from the code, then write only the port number to answer.txt at the workspace root. Do not change any other file. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Answer a question about the repo without editing it",
+  "verify": {
+    "command": ["node", "--test", ".verify/answer.hidden.test.ts"]
+  }
+}

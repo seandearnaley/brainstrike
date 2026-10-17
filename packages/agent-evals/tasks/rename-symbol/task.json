@@ -1,0 +1,10 @@
+{
+  "id": "rename-symbol",
+  "model": "openai::gpt-6-luna",
+  "prompt": "Rename the function calcArea to rectangleArea everywhere under src/: its definition, every import, every export and every call. Do not change behavior. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Rename a symbol across three files",
+  "verify": {
+    "command": ["node", "--test", ".verify/rename.hidden.test.ts"]
+  }
+}

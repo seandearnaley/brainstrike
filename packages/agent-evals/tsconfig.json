@@ -1,0 +1,40 @@
+{
+  "extends": "../config/tsconfig/node-library.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "incremental": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": ["node"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "apiStabilityLeak": "error",
+          "floatingEffect": "error",
+          "floatingEffectInVitest": "error",
+          "missingEffectContext": "error",
+          "missingEffectError": "error",
+          "missingStarInYieldEffectGen": "error",
+          "promiseInEffectSuccess": "error",
+          "returnEffectInGen": "error",
+          "unsafeEffectTypeAssertion": "error",
+          "experimentalApiUsage": "error",
+          "unstableApiUsage": "error"
+        }
+      }
+    ]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "__tests__", "tasks"],
+  "references": [
+    { "path": "../agent-host" },
+    { "path": "../assistant-contract" },
+    { "path": "../host-capabilities" },
+    { "path": "../host-lease" },
+    { "path": "../state-store" }
+  ]
+}
