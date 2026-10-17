@@ -66,7 +66,8 @@ describe('worker-init', () => {
       expect(result.useWorker).toBe(true);
       expect(WorkerStorage).toHaveBeenCalled();
       expect(window.addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function));
-      expect(window.addEventListener).toHaveBeenCalledWith('unload', expect.any(Function));
+      expect(window.addEventListener).toHaveBeenCalledWith('pagehide', expect.any(Function));
+      expect(window.addEventListener).not.toHaveBeenCalledWith('unload', expect.any(Function));
       expect(document.addEventListener).toHaveBeenCalledWith(
         'visibilitychange',
         expect.any(Function)
@@ -114,7 +115,8 @@ describe('worker-init', () => {
     expect(result.useWorker).toBe(true);
     expect(WorkerStorage).toHaveBeenCalled();
     expect(window.addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function));
-    expect(window.addEventListener).toHaveBeenCalledWith('unload', expect.any(Function));
+    expect(window.addEventListener).toHaveBeenCalledWith('pagehide', expect.any(Function));
+    expect(window.addEventListener).not.toHaveBeenCalledWith('unload', expect.any(Function));
     expect(document.addEventListener).toHaveBeenCalledWith(
       'visibilitychange',
       expect.any(Function)
