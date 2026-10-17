@@ -66,7 +66,7 @@ export interface CommittedAssistantLogRow {
   readonly seq: number;
   readonly threadId: string;
   /** The row's committed time, when the owner supplies it. */
-  readonly ts?: number;
+  readonly ts?: number | undefined;
 }
 
 /** IDs, parents and timestamps come from the owner; the projection never creates durable IDs. */

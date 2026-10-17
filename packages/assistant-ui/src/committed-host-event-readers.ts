@@ -22,7 +22,7 @@ export const HOST_STREAM_DATA_NAME = 'brainstrike.host-stream';
 interface CommittedRowAddress {
   readonly seq: number;
   readonly threadId: string;
-  readonly ts?: number;
+  readonly ts?: number | undefined;
 }
 
 export function record(value: unknown): Readonly<Record<string, unknown>> | undefined {

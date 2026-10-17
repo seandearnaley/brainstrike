@@ -1,28 +1,23 @@
-import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
-import { isConnectionLoss } from '@brainstrike/agent-host/boundary-wire';
+import { MessageNotSentError } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import {
-  HOST_RUN_NOT_ADMITTED_CODE,
   type HostImageAttachment,
   HostImageAttachmentSchema,
-  type HostLogRow,
   type HostParams,
 } from '@brainstrike/agent-host/protocol';
-import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
-import {
-  type AssistantChildAttachment,
-  type AssistantChildInput,
-  BoundaryFailureError,
-  describeBoundaryError,
+import type { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
+import type {
+  AssistantChildAttachment,
+  AssistantChildInput,
 } from '@brainstrike/assistant-contract';
-import {
-  type CommittedAssistantCommands,
-  type CommittedAssistantLogRow,
+import type {
+  CommittedAssistantCommands,
   CommittedAssistantLogStore,
-  type CommittedAssistantRunIdentity,
-  LiveShellOutputs,
 } from '@brainstrike/assistant-ui';
+import {
+  committedConversationIdentity,
+  createCommittedHostThread,
+} from '@brainstrike/host-conversation';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
@@ -36,11 +31,8 @@ const logger = createLogger('CommittedHostConversation');
 /** BST-2004: the lost host's replacement has no record of the send. */
 export const HOST_RESTARTED_NOT_SENT = 'Not sent: the agent host restarted.';
 
-/** A committed run.started the host admitted to deliver child results (a wake). */
-const HostWakeStartSchema = z.object({
-  delivery: z.object({ via: z.literal('wake') }),
-  type: z.literal('run.started'),
-});
+/** The view's message identities for a committed run (`@brainstrike/host-conversation`). */
+export { committedConversationIdentity };
 
 /** A child input's image as the host's user-message attachment; anything else is refused. */
 function childImageAttachment(attachment: AssistantChildAttachment): HostImageAttachment {
@@ -50,45 +42,6 @@ function childImageAttachment(attachment: AssistantChildAttachment): HostImageAt
     name: attachment.filename,
     type: 'image',
   });
-}
-
-/** A composer image as the host's user-message attachment; anything else is refused. */
-function hostImageAttachment(
-  attachment: NonNullable<AppendMessage['attachments']>[number]
-): HostImageAttachment {
-  const image = attachment.content.find((part) => part.type === 'image');
-  if (attachment.type !== 'image' || !image) {
-    throw new Error('The agent host accepts image attachments only');
-  }
-  return HostImageAttachmentSchema.parse({
-    data: image.image,
-    mediaType: attachment.contentType?.toLowerCase(),
-    name: attachment.name,
-    type: 'image',
-  });
-}
-
-/** The desktop's message identities for a committed run, from its host's own identities. */
-export function committedConversationIdentity(
-  rows: readonly HostLogRow[],
-  row: CommittedAssistantLogRow
-): CommittedAssistantRunIdentity {
-  const runId = row.event['runId'];
-  if (typeof runId !== 'string') {
-    throw new Error('Committed conversation has no run identity');
-  }
-  // The message names the host run it answers, for its delegation cards.
-  const identity = {
-    ...committedRunIdentity(rows, runId),
-    metadata: { custom: { hostRunId: runId } },
-  };
-  // BST-1932: a wake answers the host's child delivery, not a person; its
-  // ledger is model input, so the answer follows the run it woke behind.
-  if (HostWakeStartSchema.safeParse(row.event).success) {
-    const { userMessageId: _ledger, ...wake } = identity;
-    return wake;
-  }
-  return identity;
 }
 
 export interface CommittedHostConversation {
@@ -143,25 +96,6 @@ export function hostRunSettings(
   };
 }
 
-/**
- * BST-1990 (D4): the host refused the run before admitting it (its JSON-RPC
- * code says so), so nothing was committed and the user's message may be sent
- * again. The code is read structurally: the client's error class is bundled.
- */
-function isRunNotAdmitted(cause: unknown): cause is Error {
-  return cause instanceof Error && hostErrorCode(cause) === HOST_RUN_NOT_ADMITTED_CODE;
-}
-
-/** A host refusal's JSON-RPC code; undefined for a failure that never reached the host. */
-function hostErrorCode(cause: unknown): number | undefined {
-  const response = cause instanceof BoundaryFailureError ? cause.cause : cause;
-  const code: unknown =
-    typeof response === 'object' && response !== null && 'code' in response
-      ? response.code
-      : undefined;
-  return typeof code === 'number' ? code : undefined;
-}
-
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostConversation(
   options: HostRunSettingsSource & {
@@ -181,104 +115,37 @@ export function createCommittedHostConversation(
     readonly threadId: string;
   }
 ): CommittedHostConversation {
-  const { client, threadId } = options;
-  const source = new CommittedThreadSession(client, threadId);
-  const mcpInput = new CommittedHostMcpInput(client, source, threadId);
-  // A running command's output arrives as uncommitted telemetry; its committed
-  // result owns the output from then on (ADR-0011 amendment).
-  const liveShellOutputs = new LiveShellOutputs();
-  const releaseResults = client.onEvent((row) => {
-    if (row.threadId === threadId && row.event.type === 'effect.finished') {
-      liveShellOutputs.clear(row.event.toolCallId);
-    }
-  });
-  const store = new CommittedAssistantLogStore({
-    identifyRun: (row) => committedConversationIdentity(source.getSnapshot().rows, row),
-    liveShellOutputs,
-    source,
-    threadId,
-  });
-  // A tool's live output and the model's live text and reasoning, from the
-  // session: its subscription's replay over the rows, then each live chunk
-  // once. Each consumer takes only its own chunk types.
-  const releaseTelemetry = source.onTelemetry((telemetry) => {
-    liveShellOutputs.accept(telemetry.chunk);
-    store.acceptTelemetry(telemetry.runId, telemetry.chunk);
-  });
+  const { client, replacement, threadId } = options;
   const runSettings = () => hostRunSettings(options);
-  // A send, a send from a selected branch, and an edit all start a new user
-  // message after the vendor's explicit parent (null: the thread root).
-  const startTurn = async (message: AppendMessage): Promise<void> => {
-    if (message.content.some((part) => part.type !== 'text')) {
-      throw new Error('This host command requires text input');
-    }
-    const attachments = (message.attachments ?? []).map(hostImageAttachment);
-    const prompt = message.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-    const commandId = crypto.randomUUID();
+  const thread = createCommittedHostThread({
+    ...(options.bindThreadRoot ? { beforeStart: options.bindThreadRoot } : {}),
+    client,
+    ...(options.onTitleCommitted ? { onTitleCommitted: options.onTitleCommitted } : {}),
+    runSettings,
     // BST-2004: a send whose host was lost before it answered, or before the
     // send left, is settled from the replacement's committed log. Only that log
     // says whether the turn was admitted; nothing is resent.
-    const settleLost = async (
-      replacement: (lost: HostClient) => Promise<HostClient>
-    ): Promise<void> => {
-      const next = await replacement(client);
-      const { rows } = await next.request('thread/read', { fromSeq: 0, threadId });
-      if (
-        !rows.some(
-          ({ event }) => event.type === 'command.accepted' && event.commandId === commandId
-        )
-      ) {
-        throw new MessageNotSentError(HOST_RESTARTED_NOT_SENT);
-      }
-    };
-    try {
-      await options.bindThreadRoot?.();
-    } catch (cause) {
-      if (options.replacement && isConnectionLoss(cause)) {
-        return await settleLost(options.replacement);
-      }
-      throw cause;
-    }
-    try {
-      await client.request('run/start', {
-        ...(attachments.length > 0 ? { attachments } : {}),
-        commandId,
-        ...runSettings(),
-        parentMessageId: message.parentId,
-        prompt,
-        threadId,
-      });
-    } catch (cause) {
-      if (options.replacement && isConnectionLoss(cause)) {
-        return await settleLost(options.replacement);
-      }
-      // BST-1990 (D4): logged with the host's code (the user reads its text).
-      logger.warn('The agent host refused a run command', {
-        code: hostErrorCode(cause),
-        method: 'run/start',
-        threadId,
-      });
-      // Not sent: the vendor gives the composer its draft back.
-      throw isRunNotAdmitted(cause) ? new MessageNotSentError(describeBoundaryError(cause)) : cause;
-    }
-  };
+    ...(replacement
+      ? {
+          settleLost: async (commandId: string) => {
+            const next = await replacement(client);
+            const { rows } = await next.request('thread/read', { fromSeq: 0, threadId });
+            if (
+              !rows.some(
+                ({ event }) => event.type === 'command.accepted' && event.commandId === commandId
+              )
+            ) {
+              throw new MessageNotSentError(HOST_RESTARTED_NOT_SENT);
+            }
+          },
+        }
+      : {}),
+    threadId,
+  });
+  const { source, store } = thread;
+  const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   const commands: CommittedAssistantCommands = {
-    onCancel: async () => {
-      const runId = store.getCommittedView().activeRunId;
-      if (!runId) {
-        throw new Error('Stop has no committed active root run');
-      }
-      await client.request('run/stop', { commandId: crypto.randomUUID(), runId, threadId });
-    },
-    // Committed messages are immutable; the installed vendor would otherwise
-    // evict a "deleted" message locally through the branch-selection port.
-    onDelete: () => {
-      throw new Error('Committed conversation messages cannot be deleted');
-    },
-    onEdit: (message) => startTurn(message),
-    onNew: (message) => startTurn(message),
+    ...thread.commands,
     // The vendor passes the user message being answered again.
     onReload: async (parentId) => {
       if (parentId === null) {
@@ -309,39 +176,19 @@ export function createCommittedHostConversation(
       // A grant option is committed by the host, which keeps it for the thread's tree.
       await respondToHostApproval(client, interaction, response);
     },
-    // Branch selection is client view state: the vendor already moved its own
-    // head over the committed tree, and nothing is written to the host.
-    setMessages: () => undefined,
   };
-  let titleSeq = -1;
-  const unsubscribeTitles = source.subscribe(() => {
-    const renamed = source
-      .getSnapshot()
-      .rows.findLast((row) => row.event.type === 'thread.updated');
-    if (renamed && renamed.seq > titleSeq) {
-      titleSeq = renamed.seq;
-      options.onTitleCommitted?.();
-    }
-  });
   const approvals = new HostTreeApprovals(client, threadId, source);
-  const disconnect = source.connect();
+  // Every part of the view subscribes before the session's replay.
+  thread.connect();
   return {
     approvals,
     checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
-      releaseTelemetry();
-      releaseResults();
-      unsubscribeTitles();
       approvals.close().catch((error: unknown) => {
         logger.error('Delegated approvals unsubscribe failed', { error, threadId });
       });
       mcpInput.close();
-      // The client outlives this view, so the unsubscribe is not joined here;
-      // its refusal is reported, never swallowed.
-      disconnect().catch((error: unknown) => {
-        logger.error('Committed conversation unsubscribe failed', { error, threadId });
-      });
-      store.dispose();
+      thread.close();
     },
     commands,
     mcpInput,
