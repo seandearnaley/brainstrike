@@ -1,8 +1,8 @@
 # ADR-0004: Adopt Effect v4 at runtime boundaries, staged
 
-- **Status:** Proposed (2026-09-24; accepted when the owner merges this ADR)
+- **Status:** Accepted; staged adoption completed in the 2026-10-17 project
 - **Date:** 2026-09-24
-- **Ticket:** none yet (Linear was not reachable from the authoring session)
+- **Tickets:** BST-2044–BST-2052; current service/RPC choices in [ADR-0024](0024-effect-adoption-service-and-rpc-boundaries.md)
 - **Contract:** `docs/agents/effect-boundary.md`; measurements in
   `docs/archive/agent-contract-history/effect-boundary/adoption-review.md`.
 
@@ -47,8 +47,8 @@ Adopt Effect v4 (`effect`, exact-pinned) one runtime boundary at a time.
    (`effect-boundary/token-cache-retry.md`).
 3. **Phase 2:** Schema at boundaries that only main or a worker reaches: IPC
    handlers in Electron main, PGlite row decoding in repositories, and chunking
-   worker messages. The host run id, minted in the renderer, gets a type-only
-   brand instead.
+   worker messages. Host/run identity stays with its authoritative owner under
+   ADR-0017; a type-only brand does not mint a second identity.
 4. **Phase 3 (narrowed, BST-1819):** desktop main's graceful shutdown runs on
    effect-kit's `runShutdownSequence` from a tested module that owns the step
    order, and every IPC registration's disposer joins the disposer stack. Host
@@ -132,10 +132,12 @@ than left to a provider to catch: OpenAI's strict layer sets
 `additionalProperties: false` itself and Google's layer strips the key, so an
 open derivation looks correct on both and reaches Anthropic open.
 
-**Staging.** Each tool has exactly one producer; `NativeToolInputSchema` is the
-union of the two while the remaining zod schemas are converted, and the catalog
-spec refuses a schema that is neither. `providerCompatibleInputSchema` is the
-zod producer being retired, and both producers share one
-`normalizeProviderNulls`, so a provider `null` means omission of a declared
-optional property whoever authored the schema. The order for the remaining
-boundaries is [the migration plan](../agents/effect-schema-migration.md).
+**Completion (2026-10-17).** Native product inputs now have one Effect producer.
+`providerCompatibleInputSchema` and the native Zod producer/accessor branches are
+retired. Provider-null normalization remains at the declared tool boundary;
+ordinary receiving/resume schemas retain their own policy. Actual SDK validators,
+vendor format patterns and independently scoped web/qualification owners are
+enumerated in [schema ownership](../agents/effect-schema-migration.md).
+[The qualification receipt](../archive/effect-4-adoption-2026-10-17.md) records the
+completed waves; [ADR-0024](0024-effect-adoption-service-and-rpc-boundaries.md)
+records the remaining service/RPC choices.

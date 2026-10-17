@@ -60,11 +60,16 @@ have these owners:
 
 | Category | Files | Reason |
 | --- | --- | --- |
-| Vendor date-time format patterns | 11 | `assistant-contract/{delegated-conversation-stream,mcp-host,mcp-task-presentation}`, `mcp-tasks-extension/schema`, desktop `agent-host-platform/platform-wire`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,prompt-library,view-filter-preset,worktree-forge}-store` |
-| Vendor schema/type seams | 3 | `assistant-contract/sdk-schema` invokes SDK validation; `agent/providers/provider-tool-schema` retains a vendor Zod generic; `agent-host/provider-schema-selection` recognizes genuine third-party Zod schemas |
+| Vendor date-time format patterns | 9 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, desktop `agent-host-platform/platform-wire`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,prompt-library,view-filter-preset,worktree-forge}-store` |
+| SDK schema/type adapters | 5 | `assistant-contract/{sdk-schema,mcp-host}` invokes/infers actual SDK validation; `mcp-tasks-extension/schema` composes SDK sampling/roots/elicitation validators with JSON extension checks; `agent/providers/provider-tool-schema` adapts genuine third-party Zod inputs; `agent-host/provider-schema-selection` selects that vendor branch |
 | Offline retrieval qualification | 6 | desktop `qualification/retrieval/{arms,bootstrap-margin,evidence,native-grep,produce-hidden-host-vectors,produce-product-path-vectors}` owns separate evaluation envelopes |
 | Protocol-lab reference fixtures | 2 | `mcp-test-lab/{reference-server,reference-runner}` uses the SDK/reference schema interface |
 | Independent web owners | 3 | web `src/{entry,server/web-assistant-runtime-schema}` and web-writer `src/web-run-recorder` retain their own web envelopes |
+
+The source census includes TS/JS module imports and excludes generated output and
+tests. Two additional JS servers (`agent/test-fixtures/mcp-stdio-handshake-exit-server.mjs`
+and `mcp-test-lab/fixtures/stdio-reference-server.mjs`) are test fixtures. The
+26 pure desktop IPC contract modules have no Zod import; they retain pure parsers.
 
 The date-time imports supply vendor patterns to Effect-authored grammars, not
 parallel production schemas. Frozen Zod fixtures under tests are parity oracles only.
@@ -79,5 +84,5 @@ are not required to make an import counter zero.
 
 The qualified Effect family stays catalog-pinned; use `effect` / `effect/testing`
 and the package's strict stability diagnostics. See [Effect boundary](effect-boundary.md).
-Service/Layer and RPC engine decisions belong to E09; this migration does not
-replace the host run loop, Mastra memory role, MCP SDK or JSON-RPC transport.
+[Service/Layer and RPC choices](../adr/0024-effect-adoption-service-and-rpc-boundaries.md)
+retain the host run loop, Mastra memory role, MCP SDK and JSON-RPC transport.

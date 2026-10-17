@@ -156,11 +156,13 @@ Use the existing effect-kit helpers and package diagnostics. Do not patch the
 shared TypeScript compiler as part of a library adoption. Versions, import paths
 and diagnostic commands are owned by installed packages and configuration.
 
-Each Effect package therefore type-checks twice: `tsc --noEmit`, then
-`effect-tsgo diagnostics --strict`. Folding the second pass into the first needs
-`effect-tsgo patch`, which rewrites the shared compiler — and the catalog's
-`typescript` is TypeScript 6, which the language service does not support, so
-the fold is unavailable until that compiler moves. The duplicate is a known,
-measured cost (~35s CPU across the 14 checked projects), not an oversight.
+Effect consumers run compiler checks and `effect-tsgo diagnostics --strict` on
+the widest configured project. Preserve a nonempty checked program and the three
+stability severities; the executable scripts own compiler versions and pass count.
+
+When considering another service graph or RPC engine, consult
+[the service/RPC decision](../adr/0024-effect-adoption-service-and-rpc-boundaries.md).
+The [2026-10-17 qualification receipt](../archive/effect-4-adoption-2026-10-17.md)
+is historical evidence, not additional acceptance requirements.
 
 Implementation: `packages/effect-kit` and the owning boundary modules.
