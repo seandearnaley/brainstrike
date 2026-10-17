@@ -19,8 +19,10 @@
  *
  * Three things have to hold together, and each fails differently:
  *
- *   1. The job INSTALLS the three binaries. Drop this and the suites go back
- *      to skipping — except that (2) now turns that into a red lane.
+ *   1. The job INSTALLS the three binaries, through the shared
+ *      `.github/actions/linux-desktop-test-host` action (BST-2127). Drop this
+ *      and the suites go back to skipping — except that (2) now turns that
+ *      into a red lane.
  *   2. The integration steps set `BRAINSTRIKE_FENCE_DEPS_REQUIRED=1`, which
  *      the shared host gate reads to escalate a missing dependency from a skip
  *      into a collection failure. Drop this and (1)'s removal becomes silent
@@ -49,6 +51,14 @@ import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const workflowPath = path.join(repoRoot, '.github', 'workflows', 'test.yml');
+const hostActionPath = path.join(
+  repoRoot,
+  '.github',
+  'actions',
+  'linux-desktop-test-host',
+  'action.yml'
+);
+const HOST_USES = './.github/actions/linux-desktop-test-host';
 const turboPath = path.join(repoRoot, 'turbo.jsonc');
 const agentTests = path.join(repoRoot, 'packages', 'agent', 'src', '__tests__');
 const gatePath = path.join(agentTests, 'fixtures', 'fence-host-gate.ts');
@@ -63,6 +73,10 @@ const REQUIRED_BINARIES = ['bubblewrap', 'socat', 'ripgrep'];
 
 function workflowSource() {
   return readFileSync(workflowPath, 'utf8');
+}
+
+function hostActionSource() {
+  return readFileSync(hostActionPath, 'utf8');
 }
 
 function unitShardSteps(source) {
@@ -85,14 +99,29 @@ function integrationSteps(source) {
   return steps;
 }
 
-function installStep(source) {
-  return unitShardSteps(source).find((step) =>
+/**
+ * The install step every Unit shard runs: unit-shard must call the shared host
+ * action unconditionally, and that action carries the install.
+ */
+function installStep(source, actionSource) {
+  const host = unitShardSteps(source).find((step) => step.uses === HOST_USES);
+  assert.ok(
+    host,
+    `unit-shard must provision its host through ${HOST_USES}; without it no fence dependency is installed`
+  );
+  assert.equal(host.if, undefined, 'every Unit shard must provision the host');
+  const steps = parseYaml(actionSource)?.runs?.steps;
+  assert.ok(Array.isArray(steps), `${HOST_USES} must be a composite action with steps`);
+  return steps.find((step) =>
     REQUIRED_BINARIES.every((binary) => (step.run ?? '').includes(binary))
   );
 }
 
-function assertFenceDependenciesInstalled(source = workflowSource()) {
-  const step = installStep(source);
+function assertFenceDependenciesInstalled(
+  source = workflowSource(),
+  actionSource = hostActionSource()
+) {
+  const step = installStep(source, actionSource);
   assert.ok(
     step,
     `unit-shard must install ${REQUIRED_BINARIES.join(', ')}; without them srt's dependency check fails and every real-fence suite skips itself green`
@@ -104,8 +133,11 @@ function assertFenceDependenciesInstalled(source = workflowSource()) {
   );
 }
 
-function assertUnprivilegedUsernsIsUnlocked(source = workflowSource()) {
-  const step = installStep(source);
+function assertUnprivilegedUsernsIsUnlocked(
+  source = workflowSource(),
+  actionSource = hostActionSource()
+) {
+  const step = installStep(source, actionSource);
   assert.ok(step, 'no fence dependency install step to check');
   assert.match(
     step.run,
@@ -120,8 +152,8 @@ function assertUnprivilegedUsernsIsUnlocked(source = workflowSource()) {
  * future runner image that drops python3 into a provisioning failure that names
  * itself, rather than leaving it to the runtime gate.
  */
-function assertInterpreterIsAsserted(source = workflowSource()) {
-  const step = installStep(source);
+function assertInterpreterIsAsserted(source = workflowSource(), actionSource = hostActionSource()) {
+  const step = installStep(source, actionSource);
   assert.ok(step, 'no fence dependency install step to check');
   assert.match(
     step.run,
@@ -272,21 +304,42 @@ test('turbo forwards the requirement flag into the integration lane', () => {
 });
 
 test('CONTROL: dropping the install step turns the dependency guard red', () => {
-  const mutated = workflowSource().replace(
+  const mutated = hostActionSource().replace(
     /sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep/,
     'sudo apt-get install -y --no-install-recommends jq'
   );
+  assert.notEqual(mutated, hostActionSource(), 'the control mutation did not apply');
+  assert.throws(() => assertFenceDependenciesInstalled(workflowSource(), mutated), /must install/);
+});
+
+test('CONTROL: dropping the shared host step from unit-shard turns the dependency guard red', () => {
+  const mutated = workflowSource().replace(
+    / {6}- name: Provision the Linux desktop test host\n {8}uses: \.\/\.github\/actions\/linux-desktop-test-host\n/,
+    '      - name: Provision the Linux desktop test host\n        uses: ./.github/actions/setup-workspace\n'
+  );
   assert.notEqual(mutated, workflowSource(), 'the control mutation did not apply');
-  assert.throws(() => assertFenceDependenciesInstalled(mutated), /must install/);
+  assert.throws(() => assertFenceDependenciesInstalled(mutated), /must provision its host/);
+});
+
+test('CONTROL: gating the shared host step to some shards turns the dependency guard red', () => {
+  const mutated = workflowSource().replace(
+    / {6}- name: Provision the Linux desktop test host\n/,
+    "      - name: Provision the Linux desktop test host\n        if: matrix.partition == 'agent'\n"
+  );
+  assert.notEqual(mutated, workflowSource(), 'the control mutation did not apply');
+  assert.throws(() => assertFenceDependenciesInstalled(mutated), /every Unit shard/);
 });
 
 test('CONTROL: restoring the userns restriction turns the bubblewrap guard red', () => {
-  const mutated = workflowSource().replace(
+  const mutated = hostActionSource().replace(
     /sudo sysctl -w kernel\.apparmor_restrict_unprivileged_userns=0\n/,
     ''
   );
-  assert.notEqual(mutated, workflowSource(), 'the control mutation did not apply');
-  assert.throws(() => assertUnprivilegedUsernsIsUnlocked(mutated), /user namespace/);
+  assert.notEqual(mutated, hostActionSource(), 'the control mutation did not apply');
+  assert.throws(
+    () => assertUnprivilegedUsernsIsUnlocked(workflowSource(), mutated),
+    /user namespace/
+  );
 });
 
 test('CONTROL: clearing the requirement flag turns the skip guard red', () => {
@@ -306,9 +359,12 @@ test('the Unit lane asserts an interpreter for the fence suites', () => {
 });
 
 test('CONTROL: dropping the interpreter assertion turns that guard red', () => {
-  const mutated = workflowSource().replace(/\n *python3 --version/, '');
-  assert.notEqual(mutated, workflowSource(), 'the control mutation did not apply');
-  assert.throws(() => assertInterpreterIsAsserted(mutated), /need an interpreter/);
+  const mutated = hostActionSource().replace(/\n *python3 --version/, '');
+  assert.notEqual(mutated, hostActionSource(), 'the control mutation did not apply');
+  assert.throws(
+    () => assertInterpreterIsAsserted(workflowSource(), mutated),
+    /need an interpreter/
+  );
 });
 
 test('every suite-wide skip escalates in a promised lane, not just the dependency one', () => {
