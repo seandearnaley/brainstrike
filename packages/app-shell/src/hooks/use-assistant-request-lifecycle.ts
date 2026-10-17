@@ -3,7 +3,10 @@ import { getPermissionToolGateSnapshotInput } from '@brainstrike/app-state/store
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import {
+  type AssistantThreadRepository,
+  hasDurableAssistantUsageCapability,
+} from '@brainstrike/assistant-data';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   type AssistantForegroundActivityLease,
@@ -12,6 +15,7 @@ import {
 import {
   createAssistantThreadRunPromise,
   extractPreparedRunId,
+  resolveHostedMemoryBackendAvailable,
 } from '../assistant-ui-panel-wrapper-runtime';
 
 interface UseAssistantRequestLifecycleArgs {
@@ -23,6 +27,15 @@ interface UseAssistantRequestLifecycleArgs {
    * change mid-run.
    */
   readonly focusedRootId: string | null | undefined;
+  /**
+   * Whether this shell has a durable memory backend, so each request carries a
+   * memory block. Defaults to this shell's capability through
+   * `resolveHostedMemoryBackendAvailable`, the resolver the request data uses.
+   * Without one (web), a turn runs with no memory, as the panel notice says
+   * (owner decision 2026-10-17): the request omits the block, and its run id
+   * stays with the prepared request.
+   */
+  readonly memoryBackendAvailable?: boolean;
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
   /**
@@ -116,6 +129,34 @@ function requireRequestMemoryContext(
     throw new Error('Assistant request preparation requires Mastra memory context.');
   }
   return memoryContext as Record<string, unknown>;
+}
+
+/** The request's memory block, or none for a shell without a memory backend. */
+function readPreparedMemoryContext(
+  requestData: Record<string, unknown>,
+  memoryBackendAvailable: boolean
+): Record<string, unknown> | undefined {
+  // A missing block with a backend present is a wiring bug and still refuses.
+  return memoryBackendAvailable ? requireRequestMemoryContext(requestData) : undefined;
+}
+
+function withRunMemory(
+  memoryContext: Record<string, unknown> | undefined,
+  runId: string | undefined
+): Record<string, unknown> {
+  return memoryContext ? { memory: { ...memoryContext, ...(runId ? { runId } : {}) } } : {};
+}
+
+/** A memory-less request keeps its run id with the prepared object; the wire never carries it. */
+function rememberMemorylessRun(
+  runIds: WeakMap<object, string>,
+  prepared: Record<string, unknown>,
+  memoryContext: Record<string, unknown> | undefined,
+  runId: string | undefined
+): void {
+  if (!memoryContext && runId) {
+    runIds.set(prepared, runId);
+  }
 }
 
 function buildBoundRootRequestData(
@@ -218,6 +259,9 @@ function resolveFreshWorkspaceIndex(captured: unknown): Record<string, unknown> 
 export function useAssistantRequestLifecycle({
   assistantThreadRepository,
   focusedRootId,
+  memoryBackendAvailable = resolveHostedMemoryBackendAvailable({
+    desktopAssistantBackendAvailable: hasDurableAssistantUsageCapability(),
+  }),
   memoryResourceId,
   modelSettings,
   permissionEnforceable,
@@ -238,6 +282,9 @@ export function useAssistantRequestLifecycle({
   // renews only this run's lease, so unrelated active runs cannot keep leaked
   // sibling leases alive indefinitely.
   const activeAssistantForegroundRunIdRef = useRef<string | null>(null);
+  // A memory-less request's run id, by the prepared request object the session
+  // hands back to completion; the wire never carries it.
+  const memorylessRunIdsRef = useRef(new WeakMap<object, string>());
   /**
    * Run-lifecycle-accurate active run id for control actions (steering).
    * Set at request start, cleared ONLY by completePreparedRequest — never by
@@ -327,7 +374,7 @@ export function useAssistantRequestLifecycle({
     ): Promise<Record<string, unknown>> => {
       const preparationSignal = resolveRequestPreparationSignal(abortSignal);
       preparationSignal.throwIfAborted();
-      const memoryContext = requireRequestMemoryContext(requestData);
+      const memoryContext = readPreparedMemoryContext(requestData, memoryBackendAvailable);
       const activeThreadRootBinding = await resolvePreparedThreadRootBinding({
         current: threadRootBindingRef.current,
         ...(persistThreadRootBinding ? { persist: persistThreadRootBinding } : {}),
@@ -400,21 +447,21 @@ export function useAssistantRequestLifecycle({
           ? freshPermissionSnapshot
           : undefined;
 
-      return {
+      const prepared: Record<string, unknown> = {
         ...requestData,
         ...buildBoundRootRequestData(activeThreadRootBinding),
-        memory: {
-          ...memoryContext,
-          ...(runId ? { runId } : {}),
-        },
+        ...withRunMemory(memoryContext, runId),
         permissionPolicyRequest: freshPermissionPolicyRequest,
         planMode: freshPlanModeEnabled ? true : undefined,
         ...(freshWorkspaceIndex ? { workspaceIndex: freshWorkspaceIndex } : {}),
       };
+      rememberMemorylessRun(memorylessRunIdsRef.current, prepared, memoryContext, runId);
+      return prepared;
     },
     [
       assistantThreadRepository,
       activatePreparedRun,
+      memoryBackendAvailable,
       memoryResourceId,
       modelSettings,
       permissionEnforceable,
@@ -437,7 +484,9 @@ export function useAssistantRequestLifecycle({
       error?: string,
       hostOwnsRun = false
     ): Promise<void> => {
-      const runId = extractPreparedRunId(preparedRequestData);
+      const runId =
+        extractPreparedRunId(preparedRequestData) ??
+        (preparedRequestData ? memorylessRunIdsRef.current.get(preparedRequestData) : undefined);
       if (!runId) {
         return;
       }

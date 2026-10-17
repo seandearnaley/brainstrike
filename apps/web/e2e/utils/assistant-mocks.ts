@@ -409,6 +409,22 @@ function extractLatestUserText(body: string, index: number): string {
   if (typeof latestUser.content === 'string') {
     return latestUser.content;
   }
+  // The hosted wire's user content is an array of `{ text }` parts
+  // (`toHostedTextPart` in data-stream-runtime.ts); non-text parts carry no text.
+  if (Array.isArray(latestUser.content)) {
+    const text = latestUser.content
+      .map((part: unknown) =>
+        part !== null &&
+        typeof part === 'object' &&
+        typeof (part as { readonly text?: unknown }).text === 'string'
+          ? (part as { readonly text: string }).text
+          : ''
+      )
+      .join('');
+    if (text) {
+      return text;
+    }
+  }
   const parts = latestUser.parts;
   if (parts) {
     let text = '';

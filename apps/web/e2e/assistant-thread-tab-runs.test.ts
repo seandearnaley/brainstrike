@@ -15,23 +15,12 @@ import { getPanelElements } from './utils/layout-helpers';
  * Every turn on the hosted `/api/assistant` data stream is held open until the
  * test releases it, so each tab gesture lands mid-run.
  *
- * QUARANTINED — web has no sendable composer.
- *
- * These turns are driven through the composer, and on web the composer is
- * disabled for every provider web can offer. `resolveAssistantMemoryDisabledReason`
- * (packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts) disables it
- * whenever a provider is selected and `resolveHostedMemoryBackendAvailable` is
- * false, and that resolves `selectedProvider === 'local' || desktopAssistantBackendAvailable`.
- * Web's `desktopAssistantBackendAvailable` is `hasDurableAssistantUsageCapability()`,
- * which is false without `window.agentHost` — so before the built-in local
- * provider was retired, `local` was the ONLY provider that cleared this gate on
- * web, which is why the original suites seeded it.
- *
- * The transport itself is fine: with that one gate cleared, a turn streams over
- * `/api/assistant` end to end, tool chunks and all. So these are unquarantined
- * by enabling hosted web chat, not by changing the tests. Faking the capability
- * probe would assert a configuration that cannot exist (web + durable agent
- * host), so it is deliberately not done here.
+ * Web has no durable memory backend, so these hosted turns run WITHOUT memory,
+ * as the panel's notice says (owner decision 2026-10-17): the request omits its
+ * memory block and the run id stays with the prepared request
+ * (`use-assistant-request-lifecycle.ts`). They are driven through the real
+ * composer over the real `/api/assistant` transport; only the provider answer
+ * is held by the mock.
  *
  * Desktop covers the close-while-running case in
  * `apps/desktop/e2e/assistant-thread-tab-close-running.desktop.test.ts`.
@@ -92,12 +81,7 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
     await openAssistantWorkspace(page, { hostedAssistantModel: true });
   });
 
-  test.fixme('switching thread tabs mid-run neither aborts the run nor throws', {
-    annotation: {
-      description: 'Blocked: web composer is disabled for hosted providers',
-      type: 'quarantine',
-    },
-  }, async ({ page }) => {
+  test('switching thread tabs mid-run neither aborts the run nor throws', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     const { alphaId, betaId } = await startHeldRunInFirstOfTwoThreads(page);
@@ -133,12 +117,9 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
   // BST-1844, maintainer decision 2026-09-28: closing a tab HIDES a running
   // thread. Its run keeps going in the background exactly as it does on a tab
   // switch; only the Stop button ever aborts a run.
-  test.fixme('closing a running root thread tab hides it and the run completes in the background', {
-    annotation: {
-      description: 'Blocked: web composer is disabled for hosted providers',
-      type: 'quarantine',
-    },
-  }, async ({ page }) => {
+  test('closing a running root thread tab hides it and the run completes in the background', async ({
+    page,
+  }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     const { alphaId, betaId } = await startHeldRunInFirstOfTwoThreads(page);
@@ -177,12 +158,9 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
   // detaches the request through its `AbortSignal` — the mock records that
   // abort exactly as the server would observe it — and the run must still end
   // `cancelled` rather than simply stopping at `running`.
-  test.fixme('Stop cancels the held run: the request is aborted and the run ends cancelled', {
-    annotation: {
-      description: 'Blocked: web composer is disabled for hosted providers',
-      type: 'quarantine',
-    },
-  }, async ({ page }) => {
+  test('Stop cancels the held run: the request is aborted and the run ends cancelled', async ({
+    page,
+  }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     const { alphaId } = await startHeldRunInFirstOfTwoThreads(page);
@@ -198,12 +176,9 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
     expect(pageErrors).toEqual([]);
   });
 
-  test.fixme('reopening a hidden running thread shows the live run, which then finishes in place', {
-    annotation: {
-      description: 'Blocked: web composer is disabled for hosted providers',
-      type: 'quarantine',
-    },
-  }, async ({ page }) => {
+  test('reopening a hidden running thread shows the live run, which then finishes in place', async ({
+    page,
+  }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     const { alphaId } = await startHeldRunInFirstOfTwoThreads(page);
