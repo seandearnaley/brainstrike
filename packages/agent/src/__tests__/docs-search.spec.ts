@@ -1,3 +1,5 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   docSummaryExecute,
@@ -19,20 +21,39 @@ const makeDoc = (overrides: Partial<WebDocEntry>): WebDocEntry => ({
 
 describe('docs-search schemas', () => {
   it('trims queries, applies default limits, and rejects invalid queries', () => {
-    expect(searchDocsInputSchema.parse({ query: '  ipc tools  ' })).toEqual({
+    expect(
+      wireDecoder(searchDocsInputSchema, { errors: 'all' })({ query: '  ipc tools  ' })
+    ).toEqual({
       limit: 5,
       query: 'ipc tools',
     });
-    expect(searchDocsInputSchema.safeParse({ query: '  a  ' }).success).toBe(false);
-    expect(searchDocsInputSchema.safeParse({ query: 'valid\0query' }).success).toBe(false);
-    expect(searchDocsInputSchema.safeParse({ limit: 11, query: 'valid' }).success).toBe(false);
+    expect(
+      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })({ query: '  a  ' })
+        ._tag === 'Success'
+    ).toBe(false);
+    expect(
+      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })({
+        query: 'valid\0query',
+      })._tag === 'Success'
+    ).toBe(false);
+    expect(
+      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })({
+        limit: 11,
+        query: 'valid',
+      })._tag === 'Success'
+    ).toBe(false);
   });
 
   it('validates summary doc ids', () => {
-    expect(docSummaryInputSchema.parse({ docId: 'assistant-ui-integration' })).toEqual({
+    expect(
+      wireDecoder(docSummaryInputSchema, { errors: 'all' })({ docId: 'assistant-ui-integration' })
+    ).toEqual({
       docId: 'assistant-ui-integration',
     });
-    expect(docSummaryInputSchema.safeParse({ docId: '' }).success).toBe(false);
+    expect(
+      Schema.decodeUnknownResult(docSummaryInputSchema, { errors: 'all' })({ docId: '' })._tag ===
+        'Success'
+    ).toBe(false);
   });
 });
 
@@ -164,4 +185,14 @@ describe('docSummaryExecute', () => {
       'Doc not found: missing'
     );
   });
+});
+
+it('counts Unicode code points at the query bounds on the installed validator contract', () => {
+  expect(Schema.decodeUnknownResult(searchDocsInputSchema)({ query: '😀' })._tag).toBe('Failure');
+  expect(Schema.decodeUnknownResult(searchDocsInputSchema)({ query: '😀'.repeat(200) })._tag).toBe(
+    'Success'
+  );
+  expect(Schema.decodeUnknownResult(searchDocsInputSchema)({ query: '😀'.repeat(201) })._tag).toBe(
+    'Failure'
+  );
 });

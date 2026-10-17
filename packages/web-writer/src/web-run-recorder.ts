@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 /**
  * Records one web run as the host's run loop does (BST-1940; ADR-0022, 16 Oct
  * amendments). The turn returns its stream parts and steps; text and reasoning
@@ -77,7 +78,10 @@ class WebRunRecorder {
 
   /** Text and reasoning stream live; every other part commits, as Core's run loop does. */
   async #part(data: Json): Promise<void> {
-    AssistantModelStreamPartSchema.parse(data);
+    Schema.decodeUnknownSync(AssistantModelStreamPartSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(data);
     const part = data as unknown as StreamPart;
     if (isModelStreamTelemetry(part)) {
       this.#partial.observe(part);
@@ -88,7 +92,10 @@ class WebRunRecorder {
   }
 
   async #step(data: Json): Promise<void> {
-    const step = AssistantModelStepDataSchema.parse(data);
+    const step = Schema.decodeUnknownSync(AssistantModelStepDataSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(data);
     await this.ports.commit([{ ...step, runId: this.ports.runId, type: 'model.step' }]);
     // The step's committed messages own its text from here.
     this.#partial.clear();

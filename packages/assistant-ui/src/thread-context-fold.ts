@@ -127,11 +127,14 @@ function unmapped(reason: string): Extracted {
   return { spans: [], unmapped: reason };
 }
 function extractRead(call: MutableCall): Extracted {
-  const read = ReadDeliverySchema.safeParse(call.output);
-  if (!read.success) {
+  const read = Schema.decodeUnknownResult(ReadDeliverySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(call.output);
+  if (!(read._tag === 'Success')) {
     return unmapped('The read result has an unexpected shape.');
   }
-  const result = read.data;
+  const result = read.success;
   if (result.endLine < result.startLine) {
     return NONE;
   }
@@ -153,11 +156,19 @@ function extractRead(call: MutableCall): Extracted {
   };
 }
 function extractGrep(call: MutableCall): Extracted {
-  if (GrepFilesDeliverySchema.safeParse(call.output).success) {
+  if (
+    Schema.decodeUnknownResult(GrepFilesDeliverySchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(call.output)._tag === 'Success'
+  ) {
     return NONE;
   }
-  const grep = GrepContentDeliverySchema.safeParse(call.output);
-  if (!grep.success) {
+  const grep = Schema.decodeUnknownResult(GrepContentDeliverySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(call.output);
+  if (!(grep._tag === 'Success')) {
     return unmapped('The grep result has an unexpected shape.');
   }
   // Until its model step commits, the delivered page is the whole raw page.
@@ -167,7 +178,7 @@ function extractGrep(call: MutableCall): Extracted {
     return unmapped('The delivered grep page header is unreadable.');
   }
   return {
-    spans: grep.data.matches.slice(0, page ? page.kept : undefined).map((match) => ({
+    spans: grep.success.matches.slice(0, page ? page.kept : undefined).map((match) => ({
       deliveredLines: [...match.before, match.lineText, ...match.after],
       endLine: match.line + match.after.length,
       kind: 'grep' as const,
@@ -179,18 +190,21 @@ function extractGrep(call: MutableCall): Extracted {
   };
 }
 function extractSemantic(call: MutableCall): Extracted {
-  const semantic = SemanticDeliverySchema.safeParse(call.output);
-  if (!semantic.success) {
+  const semantic = Schema.decodeUnknownResult(SemanticDeliverySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(call.output);
+  if (!(semantic._tag === 'Success')) {
     // An unavailable answer (no index, no vectors) carries no chunks.
     return record(call.output)?.['chunks'] === undefined
       ? NONE
       : unmapped('The semantic result has an unexpected shape.');
   }
   const partial =
-    !semantic.data.chunkContentIncludedInContext ||
+    !semantic.success.chunkContentIncludedInContext ||
     (call.modelText?.includes(PROJECTION_OMITTED_CONTEXT_CHARS) ?? false);
   return {
-    spans: semantic.data.chunks.flatMap((chunk): ContextSpan[] => {
+    spans: semantic.success.chunks.flatMap((chunk): ContextSpan[] => {
       if (!chunk.filePath) {
         return [];
       }
@@ -210,8 +224,11 @@ function extractSemantic(call: MutableCall): Extracted {
   };
 }
 function extractHybrid(call: MutableCall): Extracted {
-  const hybrid = HybridDeliverySchema.safeParse(call.output);
-  if (!hybrid.success) {
+  const hybrid = Schema.decodeUnknownResult(HybridDeliverySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(call.output);
+  if (!(hybrid._tag === 'Success')) {
     return record(call.output)?.['results'] === undefined
       ? NONE
       : unmapped('The hybrid result has an unexpected shape.');
@@ -223,7 +240,7 @@ function extractHybrid(call: MutableCall): Extracted {
   }
   // Each hit reaches the model as a clipped excerpt of its chunk.
   return {
-    spans: hybrid.data.results.slice(0, shown).flatMap((item): ContextSpan[] =>
+    spans: hybrid.success.results.slice(0, shown).flatMap((item): ContextSpan[] =>
       item.filePath
         ? [
             {
@@ -239,11 +256,14 @@ function extractHybrid(call: MutableCall): Extracted {
   };
 }
 function extractStringReplace(call: MutableCall): Extracted {
-  const edit = StringReplaceDeliverySchema.safeParse(call.output);
-  if (!edit.success) {
+  const edit = Schema.decodeUnknownResult(StringReplaceDeliverySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(call.output);
+  if (!(edit._tag === 'Success')) {
     return unmapped('The edit result has an unexpected shape.');
   }
-  const { editedLines, path, rootId } = edit.data;
+  const { editedLines, path, rootId } = edit.success;
   return {
     spans: [
       {
@@ -256,12 +276,17 @@ function extractStringReplace(call: MutableCall): Extracted {
   };
 }
 function extractWrite(call: MutableCall): Extracted {
-  const write = WriteDeliverySchema.safeParse(call.output);
-  if (!write.success) {
+  const write = Schema.decodeUnknownResult(WriteDeliverySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(call.output);
+  if (!(write._tag === 'Success')) {
     return unmapped('The write result has an unexpected shape.');
   }
   return {
-    spans: [{ kind: 'edit', path: write.data.path, rootId: write.data.rootId, wholeFile: true }],
+    spans: [
+      { kind: 'edit', path: write.success.path, rootId: write.success.rootId, wholeFile: true },
+    ],
   };
 }
 /** Content-bearing tools; every other tool delivers no file lines. */

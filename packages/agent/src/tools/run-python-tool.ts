@@ -11,7 +11,6 @@ import type { RunPythonNetworkSuspendPayload } from '@brainstrike/assistant-cont
 import { createLogger } from '@brainstrike/logging';
 import { createTool } from '@mastra/core/tools';
 import { Schema } from 'effect';
-import { z } from 'zod';
 import {
   type CodeExecutorHostCapabilities,
   type ExecResult,
@@ -23,7 +22,7 @@ import {
   MAX_EXEC_OUTPUT_BYTES,
   resolveCodeExecutor,
 } from '../code-execution';
-import { type FenceReadinessReason, isFenceReadinessError } from '../fence/fence-readiness-error';
+import { isFenceReadinessError } from '../fence/fence-readiness-error';
 import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 // Single source with the approval-context derivation (BST-1070): the timeout
 // the card displays and the timeout this tool enforces must be the same
@@ -77,105 +76,85 @@ const OUTPUT_ENVELOPE_CHARS = 1200;
  */
 const RUN_PYTHON_MAX_OUTPUT_BYTES = Math.min(4 * 1024 * 1024, MAX_EXEC_OUTPUT_BYTES);
 
-export type RunPythonUnavailableReason =
-  | FenceReadinessReason
-  | 'approval_confirmation_unavailable'
-  | 'executor_kind_unavailable'
-  | 'executor_tier_mismatch'
-  | 'interpreter_unavailable'
-  | 'language_unsupported'
-  | 'network_confirmation_unavailable'
-  | 'network_unsupported'
-  | 'no_sandbox_configured'
-  | 'resolve_timed_out'
-  | 'resume_unrecognized';
+const RunPythonUnavailableReasonSchema = Schema.Literals([
+  'sandbox_dependencies_missing',
+  'sandbox_namespace_blocked',
+  'sandbox_unsupported_runtime',
+  'sandbox_readiness_timeout',
+  'sandbox_readiness_failed',
+  'approval_confirmation_unavailable',
+  'executor_kind_unavailable',
+  'executor_tier_mismatch',
+  'interpreter_unavailable',
+  'language_unsupported',
+  'network_confirmation_unavailable',
+  'network_unsupported',
+  'no_sandbox_configured',
+  'resolve_timed_out',
+  'resume_unrecognized',
+]);
+export type RunPythonUnavailableReason = typeof RunPythonUnavailableReasonSchema.Type;
 
-/**
- * The model-facing result. A discriminated union rather than a flat object
- * with nullable fields: `exitCode` exists ONLY on `completed`, so it is
- * impossible to render `0` for a signal-terminated run — the failure mode the
- * seam's `exitCode: number | null` convention exists to prevent.
- * Mirrors the BST-1070 design spec §4.2 (the `policy_changed` arm stays
- * deferred with the fingerprint enforcement — see the design doc's status
- * header).
- */
-export type RunPythonResult = (
-  | {
-      readonly exitCode: number;
-      readonly kind: 'completed';
-      readonly stderr: string;
-      readonly stderrOmittedBytes: number;
-      readonly stdout: string;
-      readonly stdoutOmittedBytes: number;
-    }
-  | {
-      readonly kind: 'timed_out';
-      readonly signal: string | null;
-      readonly stderr: string;
-      readonly stderrOmittedBytes: number;
-      readonly stdout: string;
-      readonly stdoutOmittedBytes: number;
-      readonly timeoutMs: number;
-    }
-  | {
-      readonly kind: 'killed';
-      readonly signal: string | null;
-      readonly stderr: string;
-      readonly stderrOmittedBytes: number;
-      readonly stdout: string;
-      readonly stdoutOmittedBytes: number;
-    }
-  | {
-      readonly kind: 'cancelled';
-      readonly partialStderr: string;
-      readonly partialStdout: string;
-      /**
-       * False when the abort landed while still QUEUED — nothing spawned, so
-       * no side effects. True means killed mid-run, with possible partial
-       * ones. The seam carries this precisely so the two are distinguishable.
-       */
-      readonly processStarted: boolean;
-      readonly stderrOmittedBytes: number;
-      readonly stdoutOmittedBytes: number;
-    }
-  | {
-      /** The exact domains the user declined. The model can rewrite offline. */
-      readonly deniedDomains: readonly string[];
-      readonly kind: 'network_denied';
-    }
-  | {
-      /**
-       * LEGACY (pre-@mastra/core-1.56 history only): the user declined Gate A
-       * back when the tool raised its own approval suspension and reported
-       * the decline itself. Since the 1.56 approval rework Gate A is the
-       * framework's pre-execution gate; a decline never reaches execute() and
-       * produces NO tool result — the approval card's "Declined" state owns
-       * the UX, identical to every other ask-gated tool. This arm stays only
-       * so threads persisted before the rework keep rendering their declined
-       * result panes.
-       */
-      readonly kind: 'declined';
-    }
-  | {
-      readonly detail: string;
-      readonly kind: 'unavailable';
-      readonly reason: RunPythonUnavailableReason;
-    }
-) &
-  RunPythonScratchCleanupNote;
-
-/**
- * Rides every arm. Present ONLY when the per-call scratch dir could not be
- * removed (sandboxed code can `chmod(0)` a nested dir). Silently returning
- * success there would contradict the tool's own guarantee that nothing it
- * writes persists, so the failure is surfaced and logged, never swallowed.
- */
-export interface RunPythonScratchCleanupNote {
-  readonly scratchCleanupFailed?: true;
-  readonly scratchDir?: string;
-}
-
-const RunPythonOutputSchema = z.custom<RunPythonResult>();
+/** A cleanup failure rides every result arm so the remaining scratch directory is visible. */
+const scratchCleanupFields = {
+  scratchCleanupFailed: Schema.optional(Schema.Literal(true)),
+  scratchDir: Schema.optional(Schema.String),
+};
+export type RunPythonScratchCleanupNote = Schema.Struct.Type<typeof scratchCleanupFields>;
+const streamFields = {
+  stderr: Schema.String,
+  stderrOmittedBytes: Schema.Finite,
+  stdout: Schema.String,
+  stdoutOmittedBytes: Schema.Finite,
+};
+/** Model-facing result: signal termination cannot masquerade as a successful exit code. */
+export const RunPythonResultSchema = Schema.Union(
+  [
+    Schema.Struct({
+      ...scratchCleanupFields,
+      ...streamFields,
+      exitCode: Schema.Finite,
+      kind: Schema.Literal('completed'),
+    }),
+    Schema.Struct({
+      ...scratchCleanupFields,
+      ...streamFields,
+      kind: Schema.Literal('timed_out'),
+      signal: Schema.NullOr(Schema.String),
+      timeoutMs: Schema.Finite,
+    }),
+    Schema.Struct({
+      ...scratchCleanupFields,
+      ...streamFields,
+      kind: Schema.Literal('killed'),
+      signal: Schema.NullOr(Schema.String),
+    }),
+    Schema.Struct({
+      ...scratchCleanupFields,
+      kind: Schema.Literal('cancelled'),
+      partialStderr: Schema.String,
+      partialStdout: Schema.String,
+      processStarted: Schema.Boolean,
+      stderrOmittedBytes: Schema.Finite,
+      stdoutOmittedBytes: Schema.Finite,
+    }),
+    Schema.Struct({
+      ...scratchCleanupFields,
+      deniedDomains: Schema.Array(Schema.String),
+      kind: Schema.Literal('network_denied'),
+    }),
+    Schema.Struct({ ...scratchCleanupFields, kind: Schema.Literal('declined') }),
+    Schema.Struct({
+      ...scratchCleanupFields,
+      detail: Schema.String,
+      kind: Schema.Literal('unavailable'),
+      reason: RunPythonUnavailableReasonSchema,
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type RunPythonResult = typeof RunPythonResultSchema.Type;
+const RunPythonOutputSchema = standardInputSchema(RunPythonResultSchema);
 
 interface ProjectedStreams {
   readonly stderr: string;

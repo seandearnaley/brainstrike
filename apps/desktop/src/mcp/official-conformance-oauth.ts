@@ -6,62 +6,67 @@ import {
   OFFICIAL_AUTH_SCENARIOS,
   type OfficialAuthScenarioName,
 } from '@brainstrike/assistant-contract/official-auth-conformance';
+import { wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import type { StoredOAuthClientInformation } from '@modelcontextprotocol/client';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { DesktopMcpHostRuntimeDependencies } from './host-runtime';
 
-const NonEmpty = z.string().min(1);
+const NonEmpty = Schema.String.check(Schema.isMinCodePoints(1));
 const CIMD_CLIENT_METADATA_URL = 'https://conformance-test.local/client-metadata.json';
 export const OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_BASELINE_SCENARIOS;
 export const MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
 export type { OfficialAuthScenarioName };
-export const BaselineOfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_BASELINE_SCENARIOS);
-export const AllOfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_SCENARIOS);
-export const ModernOnlyOfficialAuthScenarioNameSchema = z.enum(
+export const BaselineOfficialAuthScenarioNameSchema = Schema.Literals(
+  OFFICIAL_AUTH_BASELINE_SCENARIOS
+);
+export const AllOfficialAuthScenarioNameSchema = Schema.Literals(OFFICIAL_AUTH_SCENARIOS);
+export const ModernOnlyOfficialAuthScenarioNameSchema = Schema.Literals(
   MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES
 );
-const OfficialConformanceOAuthContextSchema = z.discriminatedUnion('name', [
-  z.strictObject({
-    client_id: NonEmpty,
-    name: z.literal('auth/client-credentials-jwt'),
-    private_key_pem: NonEmpty,
-    signing_algorithm: NonEmpty.optional(),
-  }),
-  z.strictObject({
-    client_id: NonEmpty,
-    client_secret: NonEmpty,
-    name: z.literal('auth/client-credentials-basic'),
-  }),
-  z.strictObject({
-    client_id: NonEmpty,
-    client_secret: NonEmpty,
-    name: z.literal('auth/pre-registration'),
-  }),
-  z.strictObject({
-    client_id: NonEmpty,
-    client_secret: NonEmpty,
-    idp_client_id: NonEmpty,
-    idp_id_token: NonEmpty,
-    idp_issuer: NonEmpty,
-    idp_token_endpoint: NonEmpty,
-    name: z.literal('auth/enterprise-managed-authorization'),
-  }),
-  z.strictObject({
-    client_id: NonEmpty,
-    expired_jwt: NonEmpty,
-    name: z.literal('auth/wif-jwt-bearer'),
-    valid_jwt: NonEmpty,
-    wrong_audience_jwt: NonEmpty,
-  }),
-]);
+const OfficialConformanceOAuthContextSchema = Schema.Union(
+  [
+    Schema.Struct({
+      client_id: NonEmpty,
+      name: Schema.Literal('auth/client-credentials-jwt'),
+      private_key_pem: NonEmpty,
+      signing_algorithm: Schema.optional(NonEmpty),
+    }),
+    Schema.Struct({
+      client_id: NonEmpty,
+      client_secret: NonEmpty,
+      name: Schema.Literal('auth/client-credentials-basic'),
+    }),
+    Schema.Struct({
+      client_id: NonEmpty,
+      client_secret: NonEmpty,
+      name: Schema.Literal('auth/pre-registration'),
+    }),
+    Schema.Struct({
+      client_id: NonEmpty,
+      client_secret: NonEmpty,
+      idp_client_id: NonEmpty,
+      idp_id_token: NonEmpty,
+      idp_issuer: NonEmpty,
+      idp_token_endpoint: NonEmpty,
+      name: Schema.Literal('auth/enterprise-managed-authorization'),
+    }),
+    Schema.Struct({
+      client_id: NonEmpty,
+      expired_jwt: NonEmpty,
+      name: Schema.Literal('auth/wif-jwt-bearer'),
+      valid_jwt: NonEmpty,
+      wrong_audience_jwt: NonEmpty,
+    }),
+  ],
+  { mode: 'oneOf' }
+);
 
-export type OfficialConformanceOAuthContext = z.output<
-  typeof OfficialConformanceOAuthContextSchema
->;
+export type OfficialConformanceOAuthContext =
+  (typeof OfficialConformanceOAuthContextSchema)['Type'];
 
 export function parseOfficialConformanceOAuthContext(
   raw: string | undefined
@@ -78,11 +83,14 @@ export function parseOfficialConformanceOAuthContext(
   } catch {
     throw new Error('Official MCP conformance OAuth context is invalid');
   }
-  const result = OfficialConformanceOAuthContextSchema.safeParse(parsed);
-  if (!result.success) {
+  const result = wireResultDecoder(OfficialConformanceOAuthContextSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(parsed);
+  if (!(result._tag === 'Success')) {
     throw new Error('Official MCP conformance OAuth context is invalid');
   }
-  return result.data;
+  return result.success;
 }
 
 export function parseOfficialAuthScenarioContext(

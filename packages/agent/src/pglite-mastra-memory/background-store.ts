@@ -2,6 +2,7 @@ import {
   MASTRA_BACKGROUND_TASKS_SCHEMA_SQL,
   MASTRA_BACKGROUND_TASKS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { NODE_TIMER_MAX_MS } from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import type {
@@ -12,7 +13,7 @@ import type {
   UpdateBackgroundTask,
 } from '@mastra/core/background-tasks';
 import { BackgroundTasksStorage } from '@mastra/core/storage';
-import { z } from 'zod';
+import { Effect, Schema, SchemaGetter, SchemaIssue } from 'effect';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
 
 export interface BackgroundTaskScope {
@@ -53,8 +54,8 @@ const columns = {
   toolName: 'tool_name',
 } as const satisfies Record<keyof BackgroundTask, string>;
 const jsonFields = new Set<keyof BackgroundTask>(['args', 'result', 'error', 'suspendPayload']);
-const dateColumn = z.enum(['createdAt', 'startedAt', 'suspendedAt', 'completedAt']);
-const status = z.enum([
+const dateColumn = Schema.Literals(['createdAt', 'startedAt', 'suspendedAt', 'completedAt']);
+const status = Schema.Literals([
   'pending',
   'running',
   'suspended',
@@ -63,26 +64,47 @@ const status = z.enum([
   'cancelled',
   'timed_out',
 ]);
-const taskSchema = z.object({
-  agentId: z.string(),
-  args: z.record(z.string(), z.unknown()),
-  completedAt: z.coerce.date().optional(),
-  createdAt: z.coerce.date(),
-  error: z.object({ message: z.string(), stack: z.string().optional() }).optional(),
-  id: z.string(),
-  maxRetries: z.number().int().nonnegative(),
-  resourceId: z.string().optional(),
-  result: z.unknown().optional(),
-  retryCount: z.number().int().nonnegative(),
-  runId: z.string(),
-  startedAt: z.coerce.date().optional(),
+// SQL drivers and Mastra may supply Date, text or primitive epoch values.
+// Construct with JavaScript's date coercion, then validate the resulting Date.
+const TaskDateSchema = Schema.Unknown.pipe(
+  Schema.decodeTo(Schema.Date, {
+    decode: SchemaGetter.transformEffect((value) =>
+      Effect.try({
+        catch: () => new SchemaIssue.InvalidValue({ message: 'Invalid date' }, value),
+        try: () => {
+          const date: unknown = Reflect.construct(Date, [value]);
+          if (!(date instanceof Date)) {
+            throw new TypeError('Date construction failed');
+          }
+          return date;
+        },
+      })
+    ),
+    encode: SchemaGetter.passthrough(),
+  })
+);
+const taskSchema = Schema.Struct({
+  agentId: Schema.String,
+  args: Schema.Record(Schema.String, Schema.Unknown),
+  completedAt: Schema.optional(TaskDateSchema),
+  createdAt: TaskDateSchema,
+  error: Schema.optional(
+    Schema.Struct({ message: Schema.String, stack: Schema.optional(Schema.String) })
+  ),
+  id: Schema.String,
+  maxRetries: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  resourceId: Schema.optional(Schema.String),
+  result: Schema.optional(Schema.Unknown),
+  retryCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  runId: Schema.String,
+  startedAt: Schema.optional(TaskDateSchema),
   status,
-  suspendedAt: z.coerce.date().optional(),
-  suspendPayload: z.unknown().optional(),
-  threadId: z.string().optional(),
-  timeoutMs: z.number().nonnegative(),
-  toolCallId: z.string(),
-  toolName: z.string(),
+  suspendedAt: Schema.optional(TaskDateSchema),
+  suspendPayload: Schema.optional(Schema.Unknown),
+  threadId: Schema.optional(Schema.String),
+  timeoutMs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  toolCallId: Schema.String,
+  toolName: Schema.String,
 });
 const select = `${Object.entries(columns)
   .map(([field, column]) => `"${column}" AS "${field}"`)
@@ -111,8 +133,10 @@ function readTask(row: Record<string, unknown>): BackgroundTask {
         (field === 'suspendPayload' && row['suspendPresent'] === true)
     )
   );
-  const { threadId, resourceId, startedAt, suspendedAt, completedAt, error, ...task } =
-    taskSchema.parse(value);
+  const { threadId, resourceId, startedAt, suspendedAt, completedAt, error, ...task } = wireDecoder(
+    taskSchema,
+    { errors: 'all' }
+  )(value);
   return {
     ...task,
     ...(threadId === undefined ? {} : { threadId }),
@@ -170,19 +194,29 @@ function filterQuery(
   }
   if (filter.status !== undefined) {
     values.push(
-      z.array(status).parse(Array.isArray(filter.status) ? filter.status : [filter.status])
+      wireDecoder(Schema.mutable(Schema.Array(status)), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(Array.isArray(filter.status) ? filter.status : [filter.status])
     );
     predicates.push(`status = ANY($${values.length}::text[])`);
   }
-  const date = dateColumn.parse(filter.dateFilterBy ?? 'createdAt');
+  const date = wireDecoder(dateColumn, { errors: 'all', onExcessProperty: 'error' })(
+    filter.dateFilterBy ?? 'createdAt'
+  );
   if (filter.fromDate) {
     add(date, '>=', filter.fromDate);
   }
   if (filter.toDate) {
     add(date, '<', filter.toDate);
   }
-  const sort = dateColumn.parse(filter.orderBy ?? 'createdAt');
-  const direction = z.enum(['asc', 'desc']).parse(filter.orderDirection ?? 'asc');
+  const sort = wireDecoder(dateColumn, { errors: 'all', onExcessProperty: 'error' })(
+    filter.orderBy ?? 'createdAt'
+  );
+  const direction = wireDecoder(Schema.Literals(['asc', 'desc']), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(filter.orderDirection ?? 'asc');
   return {
     clause: `WHERE ${predicates.length ? predicates.join(' AND ') : 'TRUE'}${scopeCondition(scope, values)}`,
     order: `ORDER BY "${sort}" ${direction} NULLS ${direction === 'asc' ? 'FIRST' : 'LAST'}, id ${direction}`,
@@ -193,12 +227,14 @@ function pagination(filter: TaskFilter, values: PgliteQueryValue[]): string {
   if (filter.perPage === undefined) {
     return '';
   }
-  const size = z.number().int().nonnegative().parse(filter.perPage);
-  const page = z
-    .number()
-    .int()
-    .nonnegative()
-    .parse(filter.page ?? 0);
+  const size = wireDecoder(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(filter.perPage);
+  const page = wireDecoder(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(filter.page ?? 0);
   values.push(size, size * page);
   return `LIMIT $${values.length - 1} OFFSET $${values.length}`;
 }
@@ -239,7 +275,9 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     await this.database.exec(MASTRA_BACKGROUND_TASKS_SCHEMA_SQL);
   }
   override async createTask(task: BackgroundTask): Promise<void> {
-    const valid = this.pinHostTimeout(this.pinHostRetryPolicy(taskSchema.parse(task)));
+    const valid = this.pinHostTimeout(
+      this.pinHostRetryPolicy(wireDecoder(taskSchema, { errors: 'all' })(task))
+    );
     if (
       this.scope &&
       (valid.resourceId !== this.scope.resourceId || valid.threadId !== this.scope.threadId)
@@ -269,7 +307,9 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     const condition = `id = $${values.length}${scopeCondition(this.scope, values)}`;
     let expected = '';
     if (options?.expectedStatus !== undefined) {
-      values.push(status.parse(options.expectedStatus));
+      values.push(
+        wireDecoder(status, { errors: 'all', onExcessProperty: 'error' })(options.expectedStatus)
+      );
       expected = ` AND status = $${values.length}`;
     }
     const statement = keys.length
@@ -317,8 +357,14 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
       values
     );
     const row = result.rows[0];
-    const tasks = z.array(z.record(z.string(), z.unknown())).parse(row?.['tasks']);
-    return { tasks: tasks.map(readTask), total: z.number().int().parse(row?.['total']) };
+    const tasks = wireDecoder(
+      Schema.mutable(Schema.Array(Schema.Record(Schema.String, Schema.Unknown))),
+      { errors: 'all', onExcessProperty: 'error' }
+    )(row?.['tasks']);
+    return {
+      tasks: tasks.map(readTask),
+      total: wireDecoder(Schema.Int, { errors: 'all', onExcessProperty: 'error' })(row?.['total']),
+    };
   }
   override async deleteTask(taskId: string): Promise<void> {
     const values: PgliteQueryValue[] = [taskId];
@@ -350,7 +396,9 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
       `SELECT count(*)::int AS count FROM ${MASTRA_BACKGROUND_TASKS_TABLE} ${clause}`,
       values
     );
-    return z.number().int().parse(rows.rows[0]?.count);
+    return wireDecoder(Schema.Int, { errors: 'all', onExcessProperty: 'error' })(
+      rows.rows[0]?.count
+    );
   }
   /**
    * The host owns the retry policy for background workers: none, ever (a

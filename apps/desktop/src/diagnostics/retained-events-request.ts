@@ -1,27 +1,32 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { DiagnosticEventsQueryFilter } from '@brainstrike/db';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const identifier = z.string().min(1);
-const instant = z.number().int().nonnegative().max(8_640_000_000_000_000);
-const query = z
-  .strictObject({
-    fingerprint: identifier.optional(),
-    limit: z.number().int().min(1).max(200).optional(),
-    runId: identifier.optional(),
-    severity: z.enum(['warn', 'error', 'fatal']).optional(),
-    sinceMs: instant.optional(),
-    threadId: identifier.optional(),
-    untilMs: instant.optional(),
-  })
-  .refine(
-    (value) =>
-      value.sinceMs === undefined || value.untilMs === undefined || value.sinceMs <= value.untilMs,
-    'Diagnostic window is reversed'
-  );
-const count = z.strictObject({ fingerprint: identifier, sinceMs: instant });
+const identifier = Schema.String.check(Schema.isMinCodePoints(1));
+const instant = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(
+  Schema.isLessThanOrEqualTo(8_640_000_000_000_000)
+);
+const query = Schema.Struct({
+  fingerprint: Schema.optional(identifier),
+  limit: Schema.optional(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).check(Schema.isLessThanOrEqualTo(200))
+  ),
+  runId: Schema.optional(identifier),
+  severity: Schema.optional(Schema.Literals(['warn', 'error', 'fatal'])),
+  sinceMs: Schema.optional(instant),
+  threadId: Schema.optional(identifier),
+  untilMs: Schema.optional(instant),
+}).check(
+  Schema.makeFilter((value) =>
+    value.sinceMs === undefined || value.untilMs === undefined || value.sinceMs <= value.untilMs
+      ? undefined
+      : { issue: 'Diagnostic window is reversed', path: [] }
+  )
+);
+const count = Schema.Struct({ fingerprint: identifier, sinceMs: instant });
 
 export function assertRetainedEventsQuery(input: unknown): DiagnosticEventsQueryFilter {
-  const value = query.parse(input);
+  const value = wireDecoder(query, { errors: 'all', onExcessProperty: 'error' })(input);
   return {
     ...(value.fingerprint === undefined ? {} : { fingerprint: value.fingerprint }),
     ...(value.limit === undefined ? {} : { limit: value.limit }),
@@ -36,9 +41,9 @@ export function assertRetainedFingerprintCount(input: unknown): {
   fingerprint: string;
   sinceMs: number;
 } {
-  return count.parse(input);
+  return wireDecoder(count, { errors: 'all', onExcessProperty: 'error' })(input);
 }
 
 export function assertUnseenDiagnosticsWatermark(input: unknown): number {
-  return instant.parse(input);
+  return wireDecoder(instant, { errors: 'all', onExcessProperty: 'error' })(input);
 }

@@ -3,25 +3,30 @@ import {
   type SubmitPlanDecision,
   type SubmitPlanPayload,
 } from '@brainstrike/assistant-contract';
-import { SubmitPlanResumeSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
+import {
+  SubmitPlanResumeSchema,
+  standardInputSchema,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createTool } from '@mastra/core/tools';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { SubmitPlanInputSchema } from './schemas';
 
 export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 
-const SubmitPlanSuspendSchema = z.object({
-  overview: z.string(),
-  risks: z.string().optional(),
-  steps: z.array(z.object({ detail: z.string().optional(), title: z.string() })),
-  title: z.string(),
-  verification: z.string().optional(),
+const SubmitPlanSuspendSchema = Schema.Struct({
+  overview: Schema.String,
+  risks: Schema.optional(Schema.String),
+  steps: Schema.mutable(
+    Schema.Array(Schema.Struct({ detail: Schema.optional(Schema.String), title: Schema.String }))
+  ),
+  title: Schema.String,
+  verification: Schema.optional(Schema.String),
 });
 
-const SubmitPlanOutputSchema = z.object({
-  feedback: z.string().optional(),
-  status: z.enum(['approved', 'rejected']),
+const SubmitPlanOutputSchema = Schema.Struct({
+  feedback: Schema.optional(Schema.String),
+  status: Schema.Literals(['approved', 'rejected']),
 });
 
 /**
@@ -74,8 +79,14 @@ export function createSubmitPlanTool() {
     },
     id: SUBMIT_PLAN_TOOL_ID,
     inputSchema: SubmitPlanInputSchema,
-    outputSchema: SubmitPlanOutputSchema,
+    outputSchema: standardInputSchema(SubmitPlanOutputSchema, {
+      jsonSchemaOnExcessProperty: 'error',
+      onExcessProperty: 'ignore',
+    }),
     resumeSchema: SubmitPlanResumeSchema,
-    suspendSchema: SubmitPlanSuspendSchema,
+    suspendSchema: standardInputSchema(SubmitPlanSuspendSchema, {
+      jsonSchemaOnExcessProperty: 'error',
+      onExcessProperty: 'ignore',
+    }),
   });
 }

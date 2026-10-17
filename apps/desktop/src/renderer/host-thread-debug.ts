@@ -17,8 +17,9 @@ import {
   readThreadDebugHostProbe,
   type ThreadDebugBundleData,
 } from '@brainstrike/app-shell';
+import { wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { DebugBundleBinding } from '@brainstrike/assistant-ui';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 type HostReader = Pick<HostClient, 'request'>;
 type BundleRun = NonNullable<ThreadDebugBundleData['run']>;
@@ -29,7 +30,7 @@ const TRANSCRIPT_MESSAGES = 40;
 const TIMELINE_EVENTS = 500;
 
 /** AI SDK response messages, as a model.step commits them. */
-const StepMessageSchema = z.object({ content: z.json(), role: z.string() });
+const StepMessageSchema = Schema.Struct({ content: Schema.MutableJson, role: Schema.String });
 
 function iso(row: HostLogRow): string {
   return row.ts === undefined ? '(commit time not recorded)' : new Date(row.ts).toISOString();
@@ -144,12 +145,12 @@ function transcript(rows: readonly HostLogRow[]): ThreadDebugBundleData['message
     }
     const { runId, stepNumber } = row.event;
     return row.event.messages.map((message, index) => {
-      const parsed = StepMessageSchema.safeParse(message);
+      const parsed = wireResultDecoder(StepMessageSchema, { errors: 'all' })(message);
       return {
-        content: parsed.success ? parsed.data.content : message,
+        content: parsed._tag === 'Success' ? parsed.success.content : message,
         createdAt: iso(row),
         id: `${runId}/step-${stepNumber}/${index}`,
-        role: parsed.success ? parsed.data.role : '(unrecognized message)',
+        role: parsed._tag === 'Success' ? parsed.success.role : '(unrecognized message)',
       };
     });
   });

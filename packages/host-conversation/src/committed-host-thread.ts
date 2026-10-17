@@ -27,13 +27,12 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
-import { z } from 'zod';
 
 const logger = createLogger('CommittedHostConversation');
 /** A committed run.started the host admitted to deliver child results (a wake). */
-const HostWakeStartSchema = z.object({
-  delivery: z.object({ via: z.literal('wake') }),
-  type: z.literal('run.started'),
+const HostWakeStartSchema = Schema.Struct({
+  delivery: Schema.Struct({ via: Schema.Literal('wake') }),
+  type: Schema.Literal('run.started'),
 });
 /** A composer image as the host's user-message attachment; anything else is refused. */
 function hostImageAttachment(
@@ -69,7 +68,9 @@ export function committedConversationIdentity(
   };
   // BST-1932: a wake answers the host's child delivery, not a person; its
   // ledger is model input, so the answer follows the run it woke behind.
-  if (HostWakeStartSchema.safeParse(row.event).success) {
+  if (
+    Schema.decodeUnknownResult(HostWakeStartSchema, { errors: 'all' })(row.event)._tag === 'Success'
+  ) {
     const { userMessageId: _ledger, ...wake } = identity;
     return wake;
   }

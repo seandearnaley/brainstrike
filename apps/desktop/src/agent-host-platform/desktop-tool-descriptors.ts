@@ -18,8 +18,9 @@ import {
   type EffectToolInputSchema,
   SubmitPlanResumeSchema,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { PlatformSelectionSchema } from './platform-wire';
 
 export type DesktopToolDescriptor = (typeof PlatformSelectionSchema)['Encoded']['tools'][string];
@@ -61,7 +62,7 @@ function admitted(id: string, admission: DesktopToolAdmission): boolean {
   return !WORKTREE_TOOL_IDS.has(id) || admission.worktrees;
 }
 
-const JsonSchemaSchema = z.record(z.string(), z.json());
+const JsonSchemaSchema = Schema.Record(Schema.String, Schema.MutableJson);
 
 /**
  * `unknown`, matching `canonicalToolInputSchema`: a tool's registered input
@@ -69,8 +70,8 @@ const JsonSchemaSchema = z.record(z.string(), z.json());
  * and Mastra's `toStandardSchema` admits either. Naming zod here would be a
  * false type for the converted tools.
  */
-async function jsonSchema(schema: unknown): Promise<z.output<typeof JsonSchemaSchema>> {
-  return JsonSchemaSchema.parse(
+async function jsonSchema(schema: unknown): Promise<(typeof JsonSchemaSchema)['Type']> {
+  return wireDecoder(JsonSchemaSchema, { errors: 'all', onExcessProperty: 'error' })(
     await canonicalToolInputJsonSchema(canonicalToolInputSchema(schema))
   );
 }

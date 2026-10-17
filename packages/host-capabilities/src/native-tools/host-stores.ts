@@ -3,7 +3,8 @@ import { ASSISTANT_TASK_STATUSES, type AssistantTaskItem } from '@brainstrike/ag
 import { buildCurrentTaskListNote } from '@brainstrike/agent/tool-runtime';
 import type { HostToolState } from '@brainstrike/agent-host';
 import { canvasHtmlWithinByteCeiling, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { z } from 'zod';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 import {
   CANVAS_STATE_KEY_PREFIX,
   canvasStateKey,
@@ -24,20 +25,25 @@ import {
  * thread deletion erases them with it; there is no other record.
  */
 const TASK_LIST_KEY = NATIVE_TOOL_ID.manageTaskList;
-const TaskItemsSchema = z.array(
-  z.strictObject({
-    activeForm: z.string(),
-    content: z.string(),
-    id: z.string(),
-    status: z.enum(ASSISTANT_TASK_STATUSES),
-  })
+const TaskItemsSchema = Schema.mutable(
+  Schema.Array(
+    Schema.Struct({
+      activeForm: Schema.String,
+      content: Schema.String,
+      id: Schema.String,
+      status: Schema.Literals(ASSISTANT_TASK_STATUSES),
+    })
+  )
 );
 /** The legacy `<current-task-list>` note over the thread's committed list. */
 export function hostTaskListNote(state: Pick<HostToolState, 'read'>): string | undefined {
   const current = state.read(TASK_LIST_KEY);
   return (
-    buildCurrentTaskListNote(current === undefined ? undefined : TaskItemsSchema.parse(current)) ??
-    undefined
+    buildCurrentTaskListNote(
+      current === undefined
+        ? undefined
+        : wireDecoder(TaskItemsSchema, { errors: 'all', onExcessProperty: 'error' })(current)
+    ) ?? undefined
   );
 }
 
@@ -46,8 +52,12 @@ export function hostTaskListStore(state: HostToolState): TaskListStore {
     replace: async (next) => {
       let stored: AssistantTaskItem[] = [];
       await state.update(TASK_LIST_KEY, (current) => {
-        stored = next(current === undefined ? [] : TaskItemsSchema.parse(current));
-        return TaskItemsSchema.parse(stored);
+        stored = next(
+          current === undefined
+            ? []
+            : wireDecoder(TaskItemsSchema, { errors: 'all', onExcessProperty: 'error' })(current)
+        );
+        return wireDecoder(TaskItemsSchema, { errors: 'all', onExcessProperty: 'error' })(stored);
       });
       return stored;
     },
@@ -63,7 +73,11 @@ export function hostCanvasStore(state: HostToolState): CanvasStore {
     let result: CanvasMutationResult = { error: 'not_found', ok: false };
     await state.update(key(canvasId), (current) => {
       const version = next(
-        current === undefined ? undefined : HostCanvasVersionSchema.parse(current)
+        current === undefined
+          ? undefined
+          : wireDecoder(HostCanvasVersionSchema, { errors: 'all', onExcessProperty: 'error' })(
+              current
+            )
       );
       if ('ok' in version) {
         result = version;
@@ -94,7 +108,9 @@ export function hostCanvasStore(state: HostToolState): CanvasStore {
     list: () => {
       const latest = state
         .entries(CANVAS_STATE_KEY_PREFIX)
-        .map(([, value]) => HostCanvasVersionSchema.parse(value))
+        .map(([, value]) =>
+          wireDecoder(HostCanvasVersionSchema, { errors: 'all', onExcessProperty: 'error' })(value)
+        )
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
       return Promise.resolve({
         canvases: latest.slice(0, CANVAS_LIST_LIMIT).map((canvas) => ({

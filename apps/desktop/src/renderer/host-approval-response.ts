@@ -1,8 +1,9 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import { type CommittedApprovalGrant, committedApprovalGrant } from '@brainstrike/assistant-ui';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 /** A committed approval as the host answers it: its run, and what its grants name. */
 export interface HostApprovalTarget {
@@ -72,7 +73,9 @@ export async function resumeHostInteraction(
     commandId: crypto.randomUUID(),
     ...(grant ? { grant } : {}),
     interactionId: target.interactionId,
-    resumeData: z.json().parse(JSON.parse(response.text)),
+    resumeData: wireDecoder(Schema.MutableJson, { errors: 'all', onExcessProperty: 'error' })(
+      JSON.parse(response.text)
+    ),
     runId: target.runId,
     threadId: target.threadId,
   });

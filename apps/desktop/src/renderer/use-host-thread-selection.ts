@@ -1,7 +1,8 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostRunSelection } from '@brainstrike/agent-host/protocol';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 import { useCallback, useEffect, useState } from 'react';
-import { z } from 'zod';
 
 /** ADR-0019: a host thread's run selection as the composer reads and sets it. */
 export interface HostThreadSelectionBinding {
@@ -17,7 +18,7 @@ type Read =
   | { readonly error: string; readonly threadId: string }
   | { readonly selection: HostRunSelection | null; readonly threadId: string };
 
-const Configuration = z.record(z.string(), z.json());
+const Configuration = Schema.Record(Schema.String, Schema.MutableJson);
 
 /** The host's committed selection, read once and then followed through committed rows. */
 export function useHostThreadSelection(
@@ -57,7 +58,9 @@ export function useHostThreadSelection(
   const set = useCallback(
     async (modelId: string, configuration: Record<string, unknown>): Promise<void> => {
       const committed = {
-        configuration: Configuration.parse(JSON.parse(JSON.stringify(configuration))),
+        configuration: wireDecoder(Configuration, { errors: 'all', onExcessProperty: 'error' })(
+          JSON.parse(JSON.stringify(configuration))
+        ),
         modelId,
       };
       await client.request('thread/selection/set', {

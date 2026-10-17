@@ -1,5 +1,4 @@
-import { z } from 'zod';
-
+import { Schema } from 'effect';
 /**
  * A completed model step, as Hosted Web returns it to a client that records
  * its runs (BST-1940; owner decision, 16 Oct: the proxy returns its step).
@@ -14,17 +13,13 @@ import { z } from 'zod';
  * so a client that keeps its own transcript never stores them.
  */
 export const MODEL_STEP_DATA_NAME = 'brainstrike.model-step';
-
-export const AssistantModelStepDataSchema = z.strictObject({
-  /** The step's response messages, as the AI SDK's `modelMessageSchema` reads them. */
-  messages: z.array(z.json()),
-  model: z.json(),
-  /** Zero-based within its run, as the host numbers its steps. */
-  stepNumber: z.number().int().nonnegative(),
-  usage: z.json(),
+export const AssistantModelStepDataSchema = Schema.Struct({
+  messages: Schema.mutable(Schema.Array(Schema.MutableJson)),
+  model: Schema.MutableJson,
+  stepNumber: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  usage: Schema.MutableJson,
 });
-export type AssistantModelStepData = z.infer<typeof AssistantModelStepDataSchema>;
-
+export type AssistantModelStepData = (typeof AssistantModelStepDataSchema)['Type'];
 /**
  * Each AI SDK `fullStream` part of a recorded turn, as the host's run loop
  * consumes it, so the browser streams and commits the turn as the host does
@@ -34,20 +29,24 @@ export type AssistantModelStepData = z.infer<typeof AssistantModelStepDataSchema
  * provider's response headers stay on the server.
  */
 export const MODEL_STREAM_PART_DATA_NAME = 'brainstrike.stream-part';
-
-export const AssistantModelStreamPartSchema = z.looseObject({ type: z.string().min(1) });
-export type AssistantModelStreamPart = z.infer<typeof AssistantModelStreamPartSchema>;
-
+export const AssistantModelStreamPartSchema = Schema.StructWithRest(
+  Schema.Struct({ type: Schema.String.check(Schema.isMinCodePoints(1)) }),
+  [Schema.Record(Schema.String, Schema.Unknown)]
+);
+export type AssistantModelStreamPart = (typeof AssistantModelStreamPartSchema)['Type'];
 /** The `runConfig.custom` key a client sets to receive its turn's steps and stream parts. */
 export const MODEL_STEP_RECORD_RUN_CONFIG_KEY = 'brainstrike.recordModelSteps';
-
 /**
  * Whether a request asks for its turn's steps: `runConfig.custom[key]`, a
  * boolean when present. Anything else there is invalid, never read as off.
  */
-export function readRecordModelStepsRunConfig(
-  runConfig: unknown
-): { readonly record: boolean } | { readonly invalid: true } {
+export function readRecordModelStepsRunConfig(runConfig: unknown):
+  | {
+      readonly record: boolean;
+    }
+  | {
+      readonly invalid: true;
+    } {
   const custom =
     typeof runConfig === 'object' && runConfig !== null && !Array.isArray(runConfig)
       ? (runConfig as Record<string, unknown>)['custom']

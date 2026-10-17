@@ -13,6 +13,7 @@ import {
   childUserMessageSchema,
 } from '@brainstrike/assistant-contract';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
+import { Schema } from 'effect';
 import { useMemo, useRef } from 'react';
 import { captureChildInputDraft } from './active-conversation-input-draft';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
@@ -41,7 +42,7 @@ function splitChildMessages(
       parts.push(part);
       continue;
     }
-    const input = childUserMessageSchema.parse(part.data);
+    const input = Schema.decodeUnknownSync(childUserMessageSchema, { errors: 'all' })(part.data);
     if (parts.length > 0) {
       result.push({
         content: parts,

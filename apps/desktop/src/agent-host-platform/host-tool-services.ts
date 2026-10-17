@@ -1,3 +1,4 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
 /**
  * Main's side of the agent host's own tools: narrow typed reads of Main-owned
@@ -12,7 +13,6 @@ import type { GrepSearchOptions, GrepSearchResult } from '@brainstrike/db';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { GitResult } from '@brainstrike/types';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import type { z } from 'zod';
 import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
@@ -41,14 +41,14 @@ import {
   threadScoped,
 } from './retrieval-wire';
 
-const ThreadRequestSchema = GrepIndexRequestSchema.pick({ threadId: true });
+const ThreadRequestSchema = Schema.Struct({ threadId: GrepIndexRequestSchema.fields.threadId });
 
 /** Main's worktree/forge side of a host command, until the worktree ledger is a host fact. */
 export interface DesktopShellCorrelation {
   /** Correlates the command and answers with the worktrees the ledger adopted from it. */
   readonly completed: (
-    input: z.output<typeof PlatformShellCompletedSchema>
-  ) => Promise<z.output<typeof PlatformShellCompletedResultSchema>['adopted']>;
+    input: (typeof PlatformShellCompletedSchema)['Type']
+  ) => Promise<(typeof PlatformShellCompletedResultSchema)['Type']['adopted']>;
   /** Every known worktree path before the command, or null without a worktree service. */
   readonly worktreePaths: () => Promise<readonly string[] | null>;
 }
@@ -121,23 +121,32 @@ export function serveHostToolServices(
 ): void {
   connection.onRequest('platform/worktree/paths', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      ThreadRequestSchema.parse(input);
-      return WorktreePathsResultSchema.parse({
+      wireDecoder(ThreadRequestSchema, { errors: 'all', onExcessProperty: 'error' })(input);
+      return wireDecoder(WorktreePathsResultSchema, { errors: 'all', onExcessProperty: 'error' })({
         paths: services?.shell ? await services.shell.worktreePaths() : null,
       });
     })
   );
   connection.onRequest('platform/shell/completed', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const completed = PlatformShellCompletedSchema.parse(input);
-      return PlatformShellCompletedResultSchema.parse({
+      const completed = wireDecoder(PlatformShellCompletedSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
+      return wireDecoder(PlatformShellCompletedResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({
         adopted: services?.shell ? await services.shell.completed(completed) : [],
       });
     })
   );
   connection.onRequest('desktop-read/grep-index', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { options } = GrepIndexRequestSchema.parse(input);
+      const { options } = wireDecoder(GrepIndexRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       return await required(services?.grepIndex, 'grep index')(options);
     })
   );
@@ -166,7 +175,10 @@ function serveWorktreeCalls(
 ): void {
   connection.onRequest('platform/worktree/list', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { threadId } = ThreadRequestSchema.parse(input);
+      const { threadId } = wireDecoder(ThreadRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       return await viaWorktrees(services?.worktrees?.({ runId: undefined, threadId }), (service) =>
         service.list()
       );
@@ -174,7 +186,10 @@ function serveWorktreeCalls(
   );
   connection.onRequest('platform/worktree/create', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { params, runId, threadId } = WorktreeCreateRequestSchema.parse(input);
+      const { params, runId, threadId } = wireDecoder(WorktreeCreateRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
         service.create(params)
       );
@@ -182,7 +197,10 @@ function serveWorktreeCalls(
   );
   connection.onRequest('platform/worktree/archive', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { params, runId, threadId } = WorktreeArchiveRequestSchema.parse(input);
+      const { params, runId, threadId } = wireDecoder(WorktreeArchiveRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
         service.archive(params)
       );
@@ -226,7 +244,10 @@ function serveSelfInspectionReads(
     'desktop-read/diagnostics/events',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { filter } = DiagnosticsReadRequestSchema.parse(input);
+        const { filter } = wireDecoder(DiagnosticsReadRequestSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
         return await required(services?.diagnostics, 'diagnostics store').events(filter);
       })
   );
@@ -234,7 +255,10 @@ function serveSelfInspectionReads(
     'desktop-read/diagnostics/fingerprints',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { filter } = DiagnosticsReadRequestSchema.parse(input);
+        const { filter } = wireDecoder(DiagnosticsReadRequestSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
         return await required(services?.diagnostics, 'diagnostics store').fingerprints(filter);
       })
   );

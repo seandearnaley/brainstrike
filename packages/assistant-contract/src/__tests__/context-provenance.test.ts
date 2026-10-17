@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   formatGrepProjectionPageRange,
@@ -48,11 +49,21 @@ describe('delivery schemas', () => {
       totalLines: 1,
       truncated: false,
     };
-    expect(ReadDeliverySchema.parse(read)).toEqual(read);
     expect(
-      StringReplaceDeliverySchema.safeParse({ path: 'src/a.ts', replaced: true, rootId: 'r' })
-        .success
+      Schema.decodeUnknownSync(ReadDeliverySchema, { errors: 'all', onExcessProperty: 'error' })(
+        read
+      )
+    ).toEqual(read);
+    expect(
+      Schema.decodeUnknownResult(StringReplaceDeliverySchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ path: 'src/a.ts', replaced: true, rootId: 'r' })._tag === 'Success'
     ).toBe(true);
-    expect(ReadDeliverySchema.safeParse({ path: 'src/a.ts' }).success).toBe(false);
+    expect(
+      Schema.decodeUnknownResult(ReadDeliverySchema, { errors: 'all', onExcessProperty: 'error' })({
+        path: 'src/a.ts',
+      })._tag === 'Success'
+    ).toBe(false);
   });
 });

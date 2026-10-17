@@ -1,5 +1,7 @@
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 import { z } from 'zod';
 
 /**
@@ -13,15 +15,15 @@ export function canvasStateKey(canvasId: string): string {
   return `${CANVAS_STATE_KEY_PREFIX}${canvasId}`;
 }
 
-export const HostCanvasVersionSchema = z.strictObject({
-  canvasId: z.string().min(1),
-  createdAt: z.iso.datetime(),
-  createdBy: z.enum(['assistant', 'user']),
-  html: z.string(),
-  title: z.string(),
-  version: z.number().int().positive(),
+export const HostCanvasVersionSchema = Schema.Struct({
+  canvasId: Schema.String.check(Schema.isMinCodePoints(1)),
+  createdAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
+  createdBy: Schema.Literals(['assistant', 'user']),
+  html: Schema.String,
+  title: Schema.String,
+  version: Schema.Int.check(Schema.isGreaterThan(0)),
 });
-export type HostCanvasVersion = z.infer<typeof HostCanvasVersionSchema>;
+export type HostCanvasVersion = (typeof HostCanvasVersionSchema)['Type'];
 
 /** Every committed version of every canvas of a thread, oldest first per canvas. */
 export function foldHostCanvases(
@@ -33,7 +35,10 @@ export function foldHostCanvases(
     if (event.type !== 'tool.state.updated' || !event.key.startsWith(CANVAS_STATE_KEY_PREFIX)) {
       continue;
     }
-    const version = HostCanvasVersionSchema.parse(event.value);
+    const version = wireDecoder(HostCanvasVersionSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(event.value);
     if (canvasStateKey(version.canvasId) !== event.key) {
       throw new Error('A committed canvas version is stored under another canvas key');
     }

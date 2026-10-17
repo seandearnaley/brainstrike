@@ -5,8 +5,8 @@ import {
   respond,
 } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import { createLogger } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
 import type { MainMcpHostControl } from '../mcp/main-host-control';
 
 const logger = createLogger('DesktopNodeMcpHost');
@@ -49,12 +49,26 @@ export function serveMainMcpStores(
     ),
     connection.onRequest(MCP_STORE_METHODS.ready, (input: unknown) =>
       respond(() => {
-        z.strictObject({}).parse(input);
+        wireDecoder(Schema.Record(Schema.String, Schema.Never), {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
         binding.ready();
       })
     ),
     connection.onRequest(MCP_STORE_METHODS.openExternal, (input: unknown) =>
-      respond(() => capabilities.openExternal(z.strictObject({ url: z.url() }).parse(input).url))
+      respond(() =>
+        capabilities.openExternal(
+          wireDecoder(
+            Schema.Struct({
+              url: Schema.Trim.check(
+                Schema.makeFilter((value) => (URL.canParse(value) ? undefined : 'Invalid URL'))
+              ),
+            }),
+            { errors: 'all', onExcessProperty: 'error' }
+          )(input).url
+        )
+      )
     ),
   ];
   return {

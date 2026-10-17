@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   isSharedNativeToolId,
   type NativeToolExecutor,
@@ -116,7 +117,13 @@ function hostShellCorrelation(
           ...(runId ? { runId } : {}),
           threadId,
         })
-          .then((reply) => PlatformShellCompletedResultSchema.parse(reply).adopted)
+          .then(
+            (reply) =>
+              wireDecoder(PlatformShellCompletedResultSchema, {
+                errors: 'all',
+                onExcessProperty: 'error',
+              })(reply).adopted
+          )
           .catch((error: unknown) => {
             logger.error('shell correlation request failed', { error, rootId });
             return [];
@@ -127,9 +134,10 @@ function hostShellCorrelation(
     },
     worktreeTools: {
       list: async () => {
-        const { paths } = WorktreePathsResultSchema.parse(
-          await request('platform/worktree/paths', { threadId })
-        );
+        const { paths } = wireDecoder(WorktreePathsResultSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(await request('platform/worktree/paths', { threadId }));
         return paths
           ? { ok: true, value: paths.map((path) => ({ path })) }
           : { error: 'Worktrees are unavailable in this session.', ok: false };
@@ -141,7 +149,7 @@ function hostShellCorrelation(
 /** grep's indexed half: a typed read of Main's file-chunk index for an admitted thread. */
 function hostGrepIndex(request: MainRequest, threadId: string): GrepIndexSearch {
   return async (options) =>
-    GrepIndexResultSchema.parse(
+    wireDecoder(GrepIndexResultSchema, { errors: 'all', onExcessProperty: 'error' })(
       await request('desktop-read/grep-index', {
         options: {
           ...options,
@@ -161,15 +169,17 @@ function hostWorktreeTools(
   const run = { ...(runId ? { runId } : {}), threadId };
   return {
     archive: async (params) =>
-      WorktreeArchiveResultSchema.parse(
+      wireDecoder(WorktreeArchiveResultSchema, { errors: 'all' })(
         await request('platform/worktree/archive', { ...run, params })
       ),
     create: async (params) =>
-      WorktreeCreateResultSchema.parse(
+      wireDecoder(WorktreeCreateResultSchema, { errors: 'all' })(
         await request('platform/worktree/create', { ...run, params })
       ),
     list: async () =>
-      WorktreeListResultSchema.parse(await request('platform/worktree/list', { threadId })),
+      wireDecoder(WorktreeListResultSchema, { errors: 'all' })(
+        await request('platform/worktree/list', { threadId })
+      ),
   };
 }
 
@@ -177,15 +187,15 @@ function hostWorktreeTools(
 function hostBrowserTools(request: MainRequest, threadId: string): BrowserToolRunner {
   return {
     getPageText: async (input, signal) =>
-      BrowserPageTextResultSchema.parse(
+      wireDecoder(BrowserPageTextResultSchema, { errors: 'all' })(
         await request('platform/browser/page-text', { input, threadId }, signal)
       ),
     navigate: async (input, signal) =>
-      BrowserNavigateResultSchema.parse(
+      wireDecoder(BrowserNavigateResultSchema, { errors: 'all' })(
         await request('platform/browser/navigate', { input, threadId }, signal)
       ),
     readPage: async (input, signal) =>
-      BrowserReadPageResultSchema.parse(
+      wireDecoder(BrowserReadPageResultSchema, { errors: 'all' })(
         await request('platform/browser/read-page', { input, threadId }, signal)
       ),
   };
@@ -196,11 +206,11 @@ function hostBrowserTools(request: MainRequest, threadId: string): BrowserToolRu
 function hostDiagnosticsReader(request: MainRequest, threadId: string): DiagnosticsReader {
   return {
     events: async (filter) =>
-      DiagnosticEventItemsSchema.parse(
+      wireDecoder(DiagnosticEventItemsSchema, { errors: 'all' })(
         await request('desktop-read/diagnostics/events', { filter, threadId })
       ),
     fingerprints: async (filter) =>
-      DiagnosticFingerprintItemsSchema.parse(
+      wireDecoder(DiagnosticFingerprintItemsSchema, { errors: 'all' })(
         await request('desktop-read/diagnostics/fingerprints', { filter, threadId })
       ),
   };

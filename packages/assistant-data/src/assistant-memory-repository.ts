@@ -48,8 +48,8 @@ import {
   readAssistantHistoryRunEvents,
   recordAssistantHistoryParent,
 } from '@brainstrike/db';
-
 import type { DbHandle } from '@brainstrike/db/react';
+import { Schema } from 'effect';
 import type { DelegatedReplayProofInput } from './assistant-delegated-replay-proof';
 
 export {
@@ -2200,7 +2200,10 @@ function readChildInputReceipt(message: AssistantHistoryMessage): Record<string,
     throw new Error('Child input has an invalid delivery receipt.');
   }
   return {
-    [CHILD_INPUT_DELIVERY_METADATA_KEY]: childInputDeliveryStateSchema.parse(receipt['state']),
+    [CHILD_INPUT_DELIVERY_METADATA_KEY]: Schema.decodeUnknownSync(childInputDeliveryStateSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(receipt['state']),
   };
 }
 

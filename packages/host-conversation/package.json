@@ -9,7 +9,6 @@
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "zod": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {

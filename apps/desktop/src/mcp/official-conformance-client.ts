@@ -1,10 +1,11 @@
 import type { McpClientCapabilityOptions } from '@brainstrike/agent/mcp-client';
 import { type McpHostOperation, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { wireDecoder, wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   parseMcpConfig,
   type ResolvedMcpConfig,
 } from '@brainstrike/host-capabilities/mcp/config-file';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import {
   createDesktopMcpHostRuntime,
   type DesktopMcpHostRuntime,
@@ -20,86 +21,96 @@ import {
 } from './official-conformance-oauth';
 
 const CONFORMANCE_SERVER_ID = parseConfiguredMcpServerId('official-conformance');
-const OfficialCustomHeaderContextSchema = z.strictObject({
-  name: z.literal('http-custom-headers'),
-  toolCalls: z.tuple([
-    z.strictObject({
-      arguments: z.record(z.string(), z.json()),
-      name: z.literal('test_custom_headers'),
-    }),
-    z.strictObject({
-      arguments: z.record(z.string(), z.json()),
-      name: z.literal('test_custom_headers_null'),
-    }),
-  ]),
+const OfficialCustomHeaderContextSchema = Schema.Struct({
+  name: Schema.Literal('http-custom-headers'),
+  toolCalls: Schema.mutable(
+    Schema.Tuple([
+      Schema.Struct({
+        arguments: Schema.Record(Schema.String, Schema.MutableJson),
+        name: Schema.Literal('test_custom_headers'),
+      }),
+      Schema.Struct({
+        arguments: Schema.Record(Schema.String, Schema.MutableJson),
+        name: Schema.Literal('test_custom_headers_null'),
+      }),
+    ])
+  ),
 });
-const OfficialMrtrRequestedSchema = z.strictObject({
-  properties: z.strictObject({
-    confirmed: z.strictObject({
-      description: z.string().optional(),
-      type: z.literal('boolean'),
+const OfficialMrtrRequestedSchema = Schema.Struct({
+  properties: Schema.Struct({
+    confirmed: Schema.Struct({
+      description: Schema.optional(Schema.String),
+      type: Schema.Literal('boolean'),
     }),
   }),
-  required: z.tuple([z.literal('confirmed')]).optional(),
-  type: z.literal('object'),
+  required: Schema.optional(Schema.mutable(Schema.Tuple([Schema.Literal('confirmed')]))),
+  type: Schema.Literal('object'),
 });
-const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
-  z.strictObject({
-    protocolVersion: z.literal('2025-11-25'),
-    scenario: z.literal('initialize'),
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
-    scenario: z.literal('tools_call'),
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    protocolVersion: z.literal('2025-11-25'),
-    scenario: z.literal('elicitation-sep1034-client-defaults'),
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    protocolVersion: z.literal('2025-11-25'),
-    scenario: z.literal('sse-retry'),
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
-    scenario: z.literal('json-schema-2020-12-preservation'),
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    protocolVersion: z.literal('2026-07-28'),
-    scenario: z.enum([
-      'request-metadata',
-      'sep-2322-client-request-state',
-      'http-standard-headers',
-      'http-invalid-tool-headers',
-      'json-schema-ref-no-deref',
-    ]),
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    context: z.string().min(1),
-    protocolVersion: z.literal('2026-07-28'),
-    scenario: z.literal('http-custom-headers'),
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    context: z.string().optional(),
-    protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
-    scenario: BaselineOfficialAuthScenarioNameSchema,
-    serverUrl: z.string().min(1),
-  }),
-  z.strictObject({
-    context: z.string().optional(),
-    protocolVersion: z.literal('2026-07-28'),
-    scenario: ModernOnlyOfficialAuthScenarioNameSchema,
-    serverUrl: z.string().min(1),
-  }),
-]);
-type ProductionConformanceInput = z.output<typeof ProductionConformanceInputSchema>;
+// Scenario chooses the union member; validate protocolVersion inside that member
+// so a revision mismatch reports the protocol field instead of another scenario.
+function conformanceProtocolVersion<const Versions extends readonly string[]>(versions: Versions) {
+  return Schema.String.pipe(Schema.refine(Schema.is(Schema.Literals(versions))));
+}
+const ProductionConformanceInputSchema = Schema.Union(
+  [
+    Schema.Struct({
+      protocolVersion: conformanceProtocolVersion(['2025-11-25']),
+      scenario: Schema.Literal('initialize'),
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      protocolVersion: conformanceProtocolVersion(['2025-11-25', '2026-07-28']),
+      scenario: Schema.Literal('tools_call'),
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      protocolVersion: conformanceProtocolVersion(['2025-11-25']),
+      scenario: Schema.Literal('elicitation-sep1034-client-defaults'),
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      protocolVersion: conformanceProtocolVersion(['2025-11-25']),
+      scenario: Schema.Literal('sse-retry'),
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      protocolVersion: conformanceProtocolVersion(['2025-11-25', '2026-07-28']),
+      scenario: Schema.Literal('json-schema-2020-12-preservation'),
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      protocolVersion: conformanceProtocolVersion(['2026-07-28']),
+      scenario: Schema.Literals([
+        'request-metadata',
+        'sep-2322-client-request-state',
+        'http-standard-headers',
+        'http-invalid-tool-headers',
+        'json-schema-ref-no-deref',
+      ]),
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      context: Schema.String.check(Schema.isMinCodePoints(1)),
+      protocolVersion: conformanceProtocolVersion(['2026-07-28']),
+      scenario: Schema.Literal('http-custom-headers'),
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      context: Schema.optional(Schema.String),
+      protocolVersion: conformanceProtocolVersion(['2025-11-25', '2026-07-28']),
+      scenario: BaselineOfficialAuthScenarioNameSchema,
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+    Schema.Struct({
+      context: Schema.optional(Schema.String),
+      protocolVersion: conformanceProtocolVersion(['2026-07-28']),
+      scenario: ModernOnlyOfficialAuthScenarioNameSchema,
+      serverUrl: Schema.String.check(Schema.isMinCodePoints(1)),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+type ProductionConformanceInput = (typeof ProductionConformanceInputSchema)['Type'];
 type McpToolArguments = NonNullable<Extract<McpHostOperation, { type: 'tools/call' }>['arguments']>;
 type ToolScenario = 'elicitation-sep1034-client-defaults' | 'sse-retry' | 'tools_call';
 const AUTH_SCENARIO_TOOL = Object.freeze({ arguments: {}, name: 'test-tool' });
@@ -155,7 +166,10 @@ function clientCapabilitiesForScenario(
           if (
             !(
               'requestedSchema' in request.params &&
-              OfficialMrtrRequestedSchema.safeParse(request.params.requestedSchema).success
+              Schema.decodeUnknownResult(OfficialMrtrRequestedSchema, {
+                errors: 'all',
+                onExcessProperty: 'error',
+              })(request.params.requestedSchema)._tag === 'Success'
             )
           ) {
             throw new Error('Official MCP MRTR elicitation schema is unsupported');
@@ -183,7 +197,12 @@ function clientCapabilitiesForScenario(
 }
 
 function isOfficialAuthScenario(value: string): value is OfficialAuthScenarioName {
-  return AllOfficialAuthScenarioNameSchema.safeParse(value).success;
+  return (
+    Schema.decodeUnknownResult(AllOfficialAuthScenarioNameSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(value)._tag === 'Success'
+  );
 }
 
 function isToolScenario(value: ProductionConformanceInput['scenario']): value is ToolScenario {
@@ -196,7 +215,7 @@ function isToolScenario(value: ProductionConformanceInput['scenario']): value is
 
 export function parseOfficialCustomHeaderContext(
   context: string | undefined
-): z.output<typeof OfficialCustomHeaderContextSchema> {
+): (typeof OfficialCustomHeaderContextSchema)['Type'] {
   if (context === undefined) {
     throw new Error('Official MCP custom-header context is required');
   }
@@ -206,11 +225,14 @@ export function parseOfficialCustomHeaderContext(
   } catch {
     throw new Error('Official MCP custom-header context is invalid');
   }
-  const parsed = OfficialCustomHeaderContextSchema.safeParse(decoded);
-  if (!parsed.success) {
+  const parsed = wireResultDecoder(OfficialCustomHeaderContextSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(decoded);
+  if (!(parsed._tag === 'Success')) {
     throw new Error('Official MCP custom-header context is invalid');
   }
-  return parsed.data;
+  return parsed.success;
 }
 
 async function callScenarioTool(
@@ -301,7 +323,9 @@ async function runModernScenario(
         );
       }
       await callScenarioTool(runtime, listed, 'json_schema_echo', {
-        schema: z.json().parse(focal.inputSchema),
+        schema: wireDecoder(Schema.MutableJson, { errors: 'all', onExcessProperty: 'error' })(
+          focal.inputSchema
+        ),
       });
       return true;
     }
@@ -469,7 +493,10 @@ export async function runProductionMcpConformanceClient(
   input: unknown,
   dependencies: ProductionConformanceClientDependencies = {}
 ): Promise<void> {
-  const parsed = ProductionConformanceInputSchema.parse(input);
+  const parsed = wireDecoder(ProductionConformanceInputSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(input);
   const { authScenario, config, oauthDependencies, runtime } = composeProductionRuntime(
     parsed,
     dependencies

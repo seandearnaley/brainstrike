@@ -1,7 +1,8 @@
 import { HOST_META_TOOL_ID } from '@brainstrike/assistant-contract';
+import { standardInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import type { ToolsInput } from '@mastra/core/agent';
 import { createTool, type Tool } from '@mastra/core/tools';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
 
 export const LIST_AVAILABLE_TOOLS_ID = HOST_META_TOOL_ID.listAvailableTools;
@@ -24,35 +25,39 @@ function summarizeDescription(text: string): {
   return { description, descriptionTruncated: false };
 }
 
-const catalogInputSchema = z.object({
-  offset: z
-    .number()
-    .int()
-    .min(0)
-    .max(Number.MAX_SAFE_INTEGER)
-    .optional()
-    .describe('Start at 0; use nextOffset for subsequent pages with the same prefix.'),
-  prefix: z.string().min(1).max(128).optional().describe('Case-insensitive tool name prefix.'),
+const catalogInputSchema = Schema.Struct({
+  offset: Schema.optional(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(
+      Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
+    )
+  ).annotate({
+    description: 'Start at 0; use nextOffset for subsequent pages with the same prefix.',
+  }),
+  prefix: Schema.optional(
+    Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(128))
+  ).annotate({ description: 'Case-insensitive tool name prefix.' }),
 });
 
-const catalogOutputSchema = z.object({
-  catalogTotal: z.number(),
-  nextOffset: z.number().nullable(),
-  tools: z.array(
-    z.object({
-      description: z.string(),
-      descriptionTruncated: z.boolean(),
-      name: z.string(),
-    })
+const catalogOutputSchema = Schema.Struct({
+  catalogTotal: Schema.Finite,
+  nextOffset: Schema.NullOr(Schema.Finite),
+  tools: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        description: Schema.String,
+        descriptionTruncated: Schema.Boolean,
+        name: Schema.String,
+      })
+    )
   ),
-  total: z.number(),
+  total: Schema.Finite,
 });
 
 /** A per-runtime view of the post-gate catalog, never a second eligibility source. */
 export function createDeferredToolCatalog(
   tools: ToolsInput,
   toolNameMap: ReadonlyMap<string, string>
-): Tool<z.infer<typeof catalogInputSchema>, z.infer<typeof catalogOutputSchema>> {
+): Tool<(typeof catalogInputSchema)['Type'], (typeof catalogOutputSchema)['Type']> {
   const entries = Object.entries(tools)
     .map(([name, tool]) => {
       const originalName = toolNameMap.get(name);
@@ -107,7 +112,13 @@ export function createDeferredToolCatalog(
       };
     },
     id: LIST_AVAILABLE_TOOLS_ID,
-    inputSchema: catalogInputSchema,
-    outputSchema: catalogOutputSchema,
+    inputSchema: standardInputSchema(catalogInputSchema, {
+      jsonSchemaOnExcessProperty: 'error',
+      onExcessProperty: 'ignore',
+    }),
+    outputSchema: standardInputSchema(catalogOutputSchema, {
+      jsonSchemaOnExcessProperty: 'error',
+      onExcessProperty: 'ignore',
+    }),
   });
 }

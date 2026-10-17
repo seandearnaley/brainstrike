@@ -1,8 +1,9 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { ipcMain } from 'electron';
-import { z } from 'zod';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import type { DesktopHookTrust } from './desktop-hook-trust';
 import {
@@ -20,7 +21,7 @@ const UNAUTHENTICATED_SENDER_POLICY = {
 } as const;
 /** Trust writes change what runs on the user's machine: the visible UI only. */
 const VISIBLE_UI_POLICY = { roles: ['visible-ui'] } as const;
-const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+const Sha256Schema = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 
 /**
  * Load the mounted catalog roots (id + path) so a reviewed/attested path can be
@@ -86,7 +87,7 @@ export function registerHooksIpcHandlers(
       await hookTrust.trust({
         path: dbRoot.path,
         rootId: dbRoot.id,
-        sha256: Sha256Schema.parse(sha256),
+        sha256: wireDecoder(Sha256Schema, { errors: 'all', onExcessProperty: 'error' })(sha256),
       });
     }
   );

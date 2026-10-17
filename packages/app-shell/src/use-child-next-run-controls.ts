@@ -13,6 +13,7 @@ import {
   type AssistantProviderSettingsUpdate,
   mergeAssistantProviderSettings,
 } from '@brainstrike/types';
+import { Schema } from 'effect';
 import { useCallback, useMemo, useState } from 'react';
 import {
   buildModelSettings,
@@ -170,7 +171,10 @@ export function useChildNextRunControls({
       // Local endpoint/token options are transport configuration resolved by the
       // authenticated host, never child-authored generation settings or receipts.
       const { ollama: _ollama, lmstudio: _lmstudio, ...providerOptions } = options ?? {};
-      const nextRun = childNextRunSchema.parse({
+      const nextRun = Schema.decodeUnknownSync(childNextRunSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({
         disabledToolIds: disabledTools,
         model: { modelId, provider: selectedProvider },
         modelSettings: metadata.modelSettings ?? {},

@@ -17,7 +17,8 @@
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/web-state-store": "workspace:*",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/agent": "workspace:*",
@@ -34,7 +35,6 @@
     "playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
-    "effect": "catalog:",
     "@effect/tsgo": "catalog:"
   },
   "exports": {

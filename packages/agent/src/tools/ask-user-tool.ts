@@ -4,21 +4,30 @@ import {
   type AskUserResumeData,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
-import { AskUserResumeSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
+import {
+  AskUserResumeSchema,
+  standardInputSchema,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createTool } from '@mastra/core/tools';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { AskUserInputSchema } from './schemas';
 
 export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 
-const AskUserSuspendSchema = z.object({
-  options: z.array(z.object({ description: z.string().optional(), label: z.string() })).optional(),
-  question: z.string(),
-  selectionMode: z.enum(['single_select', 'multi_select']).optional(),
+const AskUserSuspendSchema = Schema.Struct({
+  options: Schema.optional(
+    Schema.mutable(
+      Schema.Array(
+        Schema.Struct({ description: Schema.optional(Schema.String), label: Schema.String })
+      )
+    )
+  ),
+  question: Schema.String,
+  selectionMode: Schema.optional(Schema.Literals(['single_select', 'multi_select'])),
 });
 
-const AskUserOutputSchema = z.object({ answer: z.string() });
+const AskUserOutputSchema = Schema.Struct({ answer: Schema.String });
 
 /**
  * Join a multi-select answer into a compact model-facing string; single-select
@@ -103,8 +112,14 @@ export function createAskUserTool() {
     },
     id: ASK_USER_TOOL_ID,
     inputSchema: AskUserInputSchema,
-    outputSchema: AskUserOutputSchema,
+    outputSchema: standardInputSchema(AskUserOutputSchema, {
+      jsonSchemaOnExcessProperty: 'error',
+      onExcessProperty: 'ignore',
+    }),
     resumeSchema: AskUserResumeSchema,
-    suspendSchema: AskUserSuspendSchema,
+    suspendSchema: standardInputSchema(AskUserSuspendSchema, {
+      jsonSchemaOnExcessProperty: 'error',
+      onExcessProperty: 'ignore',
+    }),
   });
 }

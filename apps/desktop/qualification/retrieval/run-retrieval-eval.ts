@@ -1,3 +1,4 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 /**
  * BST-1939 Phase 0: the in-repo repository retrieval runner.
  *
@@ -67,7 +68,7 @@ const candidates = await Promise.all(
     loadCandidate(directory, candidateManifests[index] ?? '')
   )
 );
-const fixture = repositoryRetrievalFixtureSchema.parse(evidence.fixture);
+const fixture = wireDecoder(repositoryRetrievalFixtureSchema, { errors: 'all' })(evidence.fixture);
 const queryIds = new Map(fixture.queries.map(({ id, query }) => [query, id]));
 const electron: unknown = createRequire(join(here, '../../package.json'))('electron');
 if (typeof electron !== 'string') {

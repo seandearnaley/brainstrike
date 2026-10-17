@@ -20,6 +20,7 @@ import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-work
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
   getGlobalHooksPath,
@@ -36,7 +37,6 @@ import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
-import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import {
@@ -195,7 +195,9 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
         : undefined;
     },
     worktreesAvailable: async (signal) =>
-      z.boolean().parse(await request('platform/admission/worktrees', {}, signal)),
+      wireDecoder(Schema.Boolean, { errors: 'all', onExcessProperty: 'error' })(
+        await request('platform/admission/worktrees', {}, signal)
+      ),
   };
 }
 interface DesktopHostConfiguration
@@ -303,7 +305,9 @@ export async function createDesktopHostConfiguration(
       await request('platform/close', {});
     },
     confirmMainReady: async () => {
-      z.null().parse(await request('platform/ready', {}, startup.signal));
+      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+        await request('platform/ready', {}, startup.signal)
+      );
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     mcp: mcpHost.services.mcp,
@@ -440,10 +444,10 @@ export async function createDesktopHostConfiguration(
       );
     },
     resolveWorkspaceRoot: async ({ rootId, signal }) =>
-      z
-        .string()
-        .min(1)
-        .parse(await request('platform/workspace/root', { rootId }, signal)),
+      wireDecoder(Schema.String.check(Schema.isMinCodePoints(1)), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/workspace/root', { rootId }, signal)),
     // Main's shadow-git owner restores a host thread's rewind and its redo.
     rewindFiles: {
       apply: async (input) =>
@@ -524,9 +528,10 @@ export async function createDesktopHostConfiguration(
         signal.throwIfAborted();
         return;
       }
-      z.strictObject({ accepted: z.literal(true) }).parse(
-        await request('platform/workspace/validate', { binding, threadId }, signal)
-      );
+      wireDecoder(Schema.Struct({ accepted: Schema.Literal(true) }), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/workspace/validate', { binding, threadId }, signal));
     },
   };
 }

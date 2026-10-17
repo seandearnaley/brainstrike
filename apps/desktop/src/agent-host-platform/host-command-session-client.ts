@@ -1,3 +1,4 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 /**
  * Main's view of the live agent host's command sessions, over the platform
  * connection Main serves. Attached when the host connects and dropped when it
@@ -5,7 +6,6 @@
  */
 
 import type { MessageConnection } from 'vscode-jsonrpc';
-import type { z } from 'zod';
 import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import {
   HostCommandSessionDisposeRootResultSchema,
@@ -21,20 +21,20 @@ import {
 export interface HostCommandSessionClient {
   readonly disposeRoot: (rootId: string) => Promise<number>;
   readonly list: (
-    params: z.input<typeof HostCommandSessionListRequestSchema>
-  ) => Promise<z.output<typeof HostCommandSessionListResultSchema>>;
+    params: (typeof HostCommandSessionListRequestSchema)['Encoded']
+  ) => Promise<(typeof HostCommandSessionListResultSchema)['Type']>;
   readonly read: (
-    params: z.input<typeof HostCommandSessionReadRequestSchema>
-  ) => Promise<z.output<typeof HostCommandSessionReadResultSchema>>;
+    params: (typeof HostCommandSessionReadRequestSchema)['Encoded']
+  ) => Promise<(typeof HostCommandSessionReadResultSchema)['Type']>;
   readonly remove: (
-    params: z.input<typeof HostCommandSessionIdentitySchema>
-  ) => Promise<z.output<typeof HostCommandSessionDoneResultSchema>>;
+    params: (typeof HostCommandSessionIdentitySchema)['Encoded']
+  ) => Promise<(typeof HostCommandSessionDoneResultSchema)['Type']>;
   readonly stop: (
-    params: z.input<typeof HostCommandSessionIdentitySchema>
-  ) => Promise<z.output<typeof HostCommandSessionDoneResultSchema>>;
+    params: (typeof HostCommandSessionIdentitySchema)['Encoded']
+  ) => Promise<(typeof HostCommandSessionDoneResultSchema)['Type']>;
   readonly write: (
-    params: z.input<typeof HostCommandSessionWriteRequestSchema>
-  ) => Promise<z.output<typeof HostCommandSessionDoneResultSchema>>;
+    params: (typeof HostCommandSessionWriteRequestSchema)['Encoded']
+  ) => Promise<(typeof HostCommandSessionDoneResultSchema)['Type']>;
 }
 
 let attached: HostCommandSessionClient | undefined;
@@ -47,27 +47,27 @@ export function hostCommandSessions(): HostCommandSessionClient | undefined {
 export function attachHostCommandSessions(connection: MessageConnection): void {
   const client: HostCommandSessionClient = {
     disposeRoot: async (rootId) =>
-      HostCommandSessionDisposeRootResultSchema.parse(
+      wireDecoder(HostCommandSessionDisposeRootResultSchema, { errors: 'all' })(
         await connection.sendRequest('host/command-sessions/dispose-root', { rootId })
       ).disposed,
     list: async (params) =>
-      HostCommandSessionListResultSchema.parse(
+      wireDecoder(HostCommandSessionListResultSchema, { errors: 'all' })(
         await connection.sendRequest('host/command-sessions/list', params)
       ),
     read: async (params) =>
-      HostCommandSessionReadResultSchema.parse(
+      wireDecoder(HostCommandSessionReadResultSchema, { errors: 'all' })(
         await connection.sendRequest('host/command-sessions/read', params)
       ),
     remove: async (params) =>
-      HostCommandSessionDoneResultSchema.parse(
+      wireDecoder(HostCommandSessionDoneResultSchema, { errors: 'all' })(
         await connection.sendRequest('host/command-sessions/remove', params)
       ),
     stop: async (params) =>
-      HostCommandSessionDoneResultSchema.parse(
+      wireDecoder(HostCommandSessionDoneResultSchema, { errors: 'all' })(
         await connection.sendRequest('host/command-sessions/stop', params)
       ),
     write: async (params) =>
-      HostCommandSessionDoneResultSchema.parse(
+      wireDecoder(HostCommandSessionDoneResultSchema, { errors: 'all' })(
         await connection.sendRequest('host/command-sessions/write', params)
       ),
   };
