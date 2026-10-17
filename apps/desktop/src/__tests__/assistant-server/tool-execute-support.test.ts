@@ -8,13 +8,14 @@
  * `capture-on-edit.integration.test.ts`.
  */
 import { createCanonicalToolContext } from '@brainstrike/agent-host';
+import { effectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
   parseToolExecuteInput,
   readToolCallId,
   resolveShellOutputStreamer,
 } from '@brainstrike/host-capabilities/native-tools';
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 
 describe('resolveShellOutputStreamer', () => {
   it('writes a canonical ToolStream slice with its actual receiver', async () => {
@@ -78,16 +79,19 @@ describe('resolveShellOutputStreamer', () => {
   });
 });
 
+// Native tool inputs accept only Effect-authored schemas since the tool Zod
+// bridge was retired (BST-2045); the producer closes the object, so `extra`
+// below is refused as well (BST-2056).
 describe('parseToolExecuteInput', () => {
-  const schema = z.strictObject({ id: z.string(), n: z.number() });
+  const schema = effectToolInputSchema(Schema.Struct({ id: Schema.String, n: Schema.Number }));
 
   it('returns the parsed value for valid input', () => {
     expect(parseToolExecuteInput(schema, { id: 'a', n: 1 })).toEqual({ id: 'a', n: 1 });
   });
 
   it('throws a compact SINGLE-LINE message on invalid input (token-efficient model feedback)', () => {
-    // The raw ZodError message is a multi-line JSON blob; the model reads this
-    // text verbatim on every failed call, so it must be one dense line.
+    // A raw decode error is a multi-line blob; the model reads this text
+    // verbatim on every failed call, so it must be one dense line.
     let caught: Error | null = null;
     try {
       parseToolExecuteInput(schema, { extra: true, id: 5 } as never);
@@ -98,16 +102,16 @@ describe('parseToolExecuteInput', () => {
       throw new Error('expected parseToolExecuteInput to throw');
     }
     expect(caught.message).not.toContain('\n');
+    expect(caught.message).toContain('extra:');
     expect(caught.message).toContain('id:');
     expect(caught.message.length).toBeLessThan(400);
   });
 
   it('caps a pathological many-issue message instead of flooding the context', () => {
-    const wide = z.object(
-      Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`field${i}`, z.string()])) as Record<
-        string,
-        z.ZodString
-      >
+    const wide = effectToolInputSchema(
+      Schema.Struct(
+        Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`field${i}`, Schema.String]))
+      )
     );
     let caught: Error | null = null;
     try {
@@ -115,6 +119,9 @@ describe('parseToolExecuteInput', () => {
     } catch (error) {
       caught = error as Error;
     }
+    // Pin the truncated issue list itself: a schema the producer refuses throws
+    // a short TypeError that would also pass the length check.
+    expect(caught?.message).toMatch(/^invalid tool input — field0: .+…$/);
     expect(caught?.message.length ?? 0).toBeLessThanOrEqual(700);
   });
 });

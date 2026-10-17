@@ -15,8 +15,8 @@ import {
   hostTaskListStore,
   type runManageTaskList,
 } from '@brainstrike/host-capabilities/native-tools';
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { ZodError } from 'zod';
 import { buildHostNativeTools, memoryToolState } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
@@ -153,6 +153,7 @@ async function readCurrentTaskList(stored: unknown): Promise<readonly AssistantT
   return seen;
 }
 
+// The store decodes the stored list with Effect Schema since BST-2048 (#3767).
 describe('hostTaskListStore stored-list validation', () => {
   it('hands [] when no list is stored for the thread (genuine absence)', async () => {
     await expect(readCurrentTaskList(undefined)).resolves.toEqual([]);
@@ -167,18 +168,18 @@ describe('hostTaskListStore stored-list validation', () => {
   });
 
   it('throws on a non-array stored list (corruption, not absence)', async () => {
-    await expect(readCurrentTaskList({ not: 'an array' })).rejects.toThrow(ZodError);
+    await expect(readCurrentTaskList({ not: 'an array' })).rejects.toThrow(Schema.SchemaError);
   });
 
   it('throws when a task item is missing a required field', async () => {
     await expect(
       readCurrentTaskList([{ activeForm: 'Reading', content: 'Read', status: 'pending' }])
-    ).rejects.toThrow(ZodError);
+    ).rejects.toThrow(Schema.SchemaError);
   });
 
   it('throws when a task item has an unknown status value', async () => {
     await expect(
       readCurrentTaskList([{ activeForm: 'Reading', content: 'Read', id: 'a', status: 'archived' }])
-    ).rejects.toThrow(ZodError);
+    ).rejects.toThrow(Schema.SchemaError);
   });
 });
