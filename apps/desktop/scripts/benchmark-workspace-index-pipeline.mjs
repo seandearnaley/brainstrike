@@ -11,203 +11,128 @@ const REPO_ROOT = path.resolve(DESKTOP_APP_ROOT, '../..');
 const INTEGRATED_BENCHMARK_LANE = 'test:e2e:lane:foreground-latency';
 const INTEGRATED_BENCHMARK_SCHEMA = 'brainstrike.foreground-latency-under-index-build.v3';
 
-const FATAL_LOG_PATTERN =
-  /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
+const FULL_RUN_SCHEMA = 'brainstrike.full-workspace-index.v2';
 
-function readNumber(row, key) {
-  const value = row?.[key];
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return 0;
-}
-
-function sumRows(rows, key) {
-  if (!Array.isArray(rows)) {
-    return 0;
-  }
-  return rows.reduce((total, row) => total + readNumber(row, key), 0);
-}
-
-function normalizeSamples(evidence) {
-  const rawSamples = Array.isArray(evidence.samples)
-    ? evidence.samples
-    : Array.isArray(evidence.snapshots)
-      ? evidence.snapshots
-      : [];
-  return rawSamples.map((sample, index) => {
-    if (sample && typeof sample === 'object' && 'snapshot' in sample) {
-      return {
-        elapsedMs: readNumber(sample, 'elapsedMs') || index * 5000,
-        snapshot: sample.snapshot,
-      };
-    }
-    return {
-      elapsedMs: index * 5000,
-      snapshot: sample,
-    };
-  });
-}
-
-function getEmbeddingRuntime(snapshot) {
-  const hostStatus = snapshot?.embeddingHostStatus;
-  if (!(hostStatus && typeof hostStatus === 'object')) {
-    return null;
-  }
-  const status = hostStatus.status;
-  if (!(status && typeof status === 'object')) {
-    return null;
-  }
-  const runtime = status.embeddingRuntime;
-  return runtime && typeof runtime === 'object' ? runtime : null;
-}
-
-function getActualWorkerMetadata(snapshot) {
-  const runtime = getEmbeddingRuntime(snapshot);
-  const metadata = runtime?.actualWorkerMetadata;
-  return metadata && typeof metadata === 'object' ? metadata : null;
-}
-
-function getSnapshotCounts(snapshot) {
-  return {
-    chunkCount: sumRows(snapshot?.chunkStatsByRoot, 'chunk_count'),
-    chunkedFileCount: sumRows(snapshot?.fileRecordsByRoot, 'chunked_file_count'),
-    embeddedChunkCount: sumRows(snapshot?.chunkStatsByRoot, 'embedded_chunk_count'),
-    expectedFileCount: Array.isArray(snapshot?.expectedCounts)
-      ? snapshot.expectedCounts.reduce(
-          (total, root) => total + readNumber(root, 'expectedFileCount'),
-          0
-        )
-      : 0,
-    fileRecordCount: sumRows(snapshot?.fileRecordsByRoot, 'file_count'),
-  };
-}
-
-function hasBlockingQueueWork(snapshot) {
-  return Array.isArray(snapshot?.jobQueue)
-    ? snapshot.jobQueue.some((row) => {
-        const state = String(row?.state ?? '');
-        return state === 'queued' || state === 'running' || state === 'failed';
-      })
-    : false;
-}
-
-function getFatalLogMatches(evidence) {
-  const explicit = evidence.fatalLogMatches ?? evidence.logScan?.fatalMatches;
-  if (Array.isArray(explicit)) {
-    return explicit.map(String).filter((value) => value.length > 0);
-  }
-  const logs = Array.isArray(evidence.logs) ? evidence.logs : [];
-  return logs
-    .map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry)))
-    .filter((entry) => FATAL_LOG_PATTERN.test(entry));
-}
-
-function getHeapUsedMb(snapshot) {
-  const memory = snapshot?.memorySample;
-  if (!(memory && typeof memory === 'object')) {
-    return null;
-  }
-  const bytes = readNumber(memory, 'usedJSHeapSize');
-  return bytes > 0 ? bytes / (1024 * 1024) : null;
+function maxOf(values) {
+  const finite = values.filter((value) => typeof value === 'number' && Number.isFinite(value));
+  return finite.length === 0 ? null : Math.max(...finite);
 }
 
 function roundMetric(value) {
   return typeof value === 'number' && Number.isFinite(value) ? Number(value.toFixed(3)) : null;
 }
 
+/** Every configured root scanned to completion, and every chunk embedded. */
+function isTerminalIndex(index, rootIds) {
+  return (
+    index?.status === 'ready' &&
+    rootIds.length > 0 &&
+    Array.isArray(index.roots) &&
+    index.roots.length === rootIds.length &&
+    rootIds.every((rootId) =>
+      index.roots.some((root) => root.rootId === rootId && root.scanComplete === true)
+    ) &&
+    index.fileCount > 0 &&
+    index.chunkCount > 0 &&
+    index.embeddedChunkCount === index.chunkCount &&
+    index.missingVectors === 0 &&
+    index.vectorCoverageComplete === true
+  );
+}
+
+/**
+ * Validates evidence written by e2e/full-workspace-index.desktop.test.ts, the
+ * native index's own counts, scan receipts and actual embedding worker, and
+ * reports its throughput. An incomplete run, a fatal log line or a run on a
+ * device other than the required one is an error.
+ */
 export function analyzeWorkspaceIndexEvidence(evidence, options = {}) {
-  const samples = normalizeSamples(evidence);
+  if (evidence?.schema !== FULL_RUN_SCHEMA) {
+    throw new Error(
+      `Evidence schema ${JSON.stringify(evidence?.schema)} is not full Workspace Index run evidence (${FULL_RUN_SCHEMA}).`
+    );
+  }
+  if (evidence.status !== 'completed') {
+    throw new Error(
+      `Workspace Index full run ${evidence.status}: ${evidence.error?.message ?? 'no error recorded'}`
+    );
+  }
+  const samples = Array.isArray(evidence.samples) ? evidence.samples : [];
   if (samples.length === 0) {
     throw new Error('Workspace Index evidence contains no samples.');
   }
 
-  const fatalLogMatches = getFatalLogMatches(evidence);
+  const fatalLogMatches = Array.isArray(evidence.fatalLogMatches)
+    ? evidence.fatalLogMatches.map(String).filter((value) => value.length > 0)
+    : [];
   if (fatalLogMatches.length > 0) {
     throw new Error(`Workspace Index evidence contains fatal log patterns: ${fatalLogMatches[0]}`);
   }
 
   const finalSample = samples.at(-1);
-  const finalSnapshot = finalSample?.snapshot;
-  const finalCounts = getSnapshotCounts(finalSnapshot);
-  if (
-    finalCounts.expectedFileCount <= 0 ||
-    finalCounts.fileRecordCount !== finalCounts.expectedFileCount ||
-    finalCounts.chunkedFileCount !== finalCounts.expectedFileCount ||
-    finalCounts.chunkCount <= 0 ||
-    finalCounts.embeddedChunkCount !== finalCounts.chunkCount ||
-    hasBlockingQueueWork(finalSnapshot)
-  ) {
+  const finalIndex = finalSample.index;
+  const rootIds = Array.isArray(evidence.roots) ? evidence.roots.map((root) => root?.rootId) : [];
+  if (!isTerminalIndex(finalIndex, rootIds)) {
     throw new Error(
-      `Workspace Index did not complete: ${JSON.stringify(finalCounts)}, blockingQueue=${hasBlockingQueueWork(
-        finalSnapshot
-      )}`
+      `Workspace Index did not complete its ${rootIds.length} roots: ${JSON.stringify(finalIndex)}`
     );
   }
 
-  const syncState = finalSnapshot?.syncStatus?.state;
-  if (syncState === 'blocked' || syncState === 'error') {
-    throw new Error(`Workspace Index terminal state is ${syncState}.`);
-  }
-
-  const actualMetadata = [...samples]
-    .reverse()
-    .map((sample) => getActualWorkerMetadata(sample.snapshot))
-    .find((metadata) => metadata !== null);
-  if (!actualMetadata) {
+  const worker = evidence.worker;
+  if (!(worker && typeof worker === 'object')) {
     throw new Error('Workspace Index evidence has no actual embedding worker metadata.');
   }
-
   const requiredDevice = options.requireDevice ?? evidence.requiredDevice;
-  if (requiredDevice && actualMetadata.device !== requiredDevice) {
+  if (
+    requiredDevice &&
+    (worker.device !== requiredDevice || finalIndex.actualDevice !== requiredDevice)
+  ) {
     throw new Error(
-      `Workspace Index actual embedding backend mismatch: expected ${requiredDevice}, got ${actualMetadata.device}`
+      `Workspace Index actual embedding backend mismatch: expected ${requiredDevice}, got worker ${worker.device} and query plan ${finalIndex.actualDevice}`
     );
   }
-  if (actualMetadata.fallbackApplied === true) {
+  if (worker.fallbackApplied === true) {
     throw new Error('Workspace Index actual embedding runtime reported fallbackApplied=true.');
   }
 
-  const maxHeapUsedMb = Math.max(
-    0,
-    ...samples
-      .map((sample) => getHeapUsedMb(sample.snapshot))
-      .filter((value) => typeof value === 'number')
-  );
-  if (typeof options.maxRetainedHeapMb === 'number' && maxHeapUsedMb > options.maxRetainedHeapMb) {
+  const maxHeapUsedMb = maxOf(samples.map((sample) => sample.memory?.rendererHeapUsedMb));
+  if (
+    typeof options.maxRetainedHeapMb === 'number' &&
+    maxHeapUsedMb !== null &&
+    maxHeapUsedMb > options.maxRetainedHeapMb
+  ) {
     throw new Error(
       `Workspace Index retained heap exceeded limit: ${roundMetric(maxHeapUsedMb)}MB > ${options.maxRetainedHeapMb}MB`
     );
   }
 
-  const firstProgressIndex = samples.findIndex(
-    (sample) => getSnapshotCounts(sample.snapshot).embeddedChunkCount > 0
-  );
+  const firstProgressIndex = samples.findIndex((sample) => sample.index?.embeddedChunkCount > 0);
   const firstThroughputSample =
     firstProgressIndex > 0 ? samples[firstProgressIndex - 1] : samples[0];
-  const firstCounts = getSnapshotCounts(firstThroughputSample.snapshot);
   const elapsedSeconds = Math.max(
     0.001,
     (finalSample.elapsedMs - firstThroughputSample.elapsedMs) / 1000
   );
   const embeddedDelta = Math.max(
     0,
-    finalCounts.embeddedChunkCount - firstCounts.embeddedChunkCount
+    finalIndex.embeddedChunkCount - (firstThroughputSample.index?.embeddedChunkCount ?? 0)
   );
-  const integratedChunksPerSecond = embeddedDelta / elapsedSeconds;
 
   return {
-    actualWorkerMetadata: actualMetadata,
+    actualWorkerMetadata: worker,
     durationMs: finalSample.elapsedMs - samples[0].elapsedMs,
-    finalCounts,
-    integratedChunksPerSecond: roundMetric(integratedChunksPerSecond),
+    finalCounts: {
+      chunkCount: finalIndex.chunkCount,
+      embeddedChunkCount: finalIndex.embeddedChunkCount,
+      fileCount: finalIndex.fileCount,
+      roots: finalIndex.roots,
+    },
+    integratedChunksPerSecond: roundMetric(embeddedDelta / elapsedSeconds),
+    maxEmbeddingHostWorkingSetMb: maxOf(
+      samples.map((sample) => sample.memory?.embeddingHostWorkingSetMb)
+    ),
     maxHeapUsedMb: roundMetric(maxHeapUsedMb),
+    queryPlanDevice: finalIndex.actualDevice,
     requiredDevice: requiredDevice ?? null,
     sampleCount: samples.length,
   };

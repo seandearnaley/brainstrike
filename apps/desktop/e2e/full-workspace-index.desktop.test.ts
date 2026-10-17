@@ -1,76 +1,72 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
+import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { getMainBufferedLogs, getRendererLogRecords } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import {
+  readBenchDevice,
+  readEmbeddingHost,
+  type SeededRoot,
+  seedPausedWorkspace,
+} from './utils/foreground-latency-bench';
+import { createIndexProgressWatch } from './utils/index-progress-watch';
+import {
+  closeIndexingPopover,
+  configureNativeIndex,
+  type NativeIndexSummary,
+  openResumeControl,
+  readNativeIndexSummary,
+  waitForReadyIndex,
+} from './utils/native-index-build';
 
-interface WorkspaceIndexExpectedCount {
-  expectedFileCount: number;
-  rootPath: string;
-}
-
-interface WorkspaceIndexDebugSnapshot {
-  accessIssues?: Array<{ reason: string; source: string }>;
-  chunkStatsByRoot: Record<string, unknown>[];
-  embeddingHostStatus?: unknown;
-  expectedCounts: WorkspaceIndexExpectedCount[];
-  fileRecordsByRoot: Record<string, unknown>[];
-  jobQueue: Record<string, unknown>[];
-  selectedDevicePreference?: {
-    devicePref?: string;
-    devicePrefConfigured?: boolean;
-  };
-  syncStatus?: {
-    lastError?: string | null;
-    state?: string;
-  };
-}
-
-interface WorkspaceIndexEvidenceSample {
-  capturedAt: string;
-  elapsedMs: number;
-  snapshot: WorkspaceIndexDebugSnapshot;
-}
-
-type WorkspaceIndexFullRunEvidence =
-  | {
-      completedAt: string;
-      durationMs: number;
-      droppedSampleCount: number;
-      fatalLogMatches: string[];
-      requiredDevice: string;
-      roots: string[];
-      samples: WorkspaceIndexEvidenceSample[];
-      status: 'completed';
-      terminalCounts: ReturnType<typeof readTerminalCounts>;
-      terminalWorkerMetadata: Record<string, unknown>;
-    }
-  | {
-      completedAt: string;
-      durationMs: number;
-      droppedSampleCount: number;
-      error: { message: string; name: string; stack?: string };
-      fatalLogMatches: string[];
-      requiredDevice: string;
-      roots: string[];
-      samples: WorkspaceIndexEvidenceSample[];
-      status: 'failed';
-      terminalCounts?: ReturnType<typeof readTerminalCounts>;
-      terminalWorkerMetadata?: Record<string, unknown>;
-    };
+/**
+ * Full Workspace Index run: the opt-in acceptance verifier for large real roots
+ * (docs/workspace-indexing-full-run-verification.md). It opens the configured
+ * folders as the workspace with the full-root policy, chooses BGE Small on the
+ * required device, resumes the native Workspace Index and waits until every
+ * root's scan is complete and every chunk has its vector.
+ *
+ * Everything it reads is the native index's own observation (BST-2038): counts,
+ * scan receipts and the query plan from the renderer's `indexSearch`
+ * capability, and the hidden embedding host's actual worker metadata. The
+ * evidence file it writes is what `scripts/benchmark-workspace-index-pipeline.mjs
+ * --evidence` analyzes.
+ */
 
 const ROOTS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_ROOTS';
 const SINGLE_ROOT_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH';
 const DEVICE_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE';
 const EVIDENCE_PATH_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_EVIDENCE_PATH';
 const MAX_IDLE_MS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_MAX_IDLE_MS';
+const TIMEOUT_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_TIMEOUT_MS';
+const EVIDENCE_SCHEMA = 'brainstrike.full-workspace-index.v2';
 const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
+/** How long the paused index may take to activate before Resume. */
+const READY_TIMEOUT_MS = 300_000;
 const POLL_MS = 5000;
 const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 120_000;
 const MAX_EVIDENCE_SAMPLES = 24;
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
+
+type WorkerMetadata = NonNullable<
+  NonNullable<
+    Awaited<ReturnType<VisibleEmbeddingHostBridge['getStatus']>>['embeddingRuntime']
+  >['actualWorkerMetadata']
+>;
+
+interface FullRunSample {
+  readonly capturedAt: string;
+  readonly elapsedMs: number;
+  readonly index: NativeIndexSummary;
+  readonly memory: {
+    readonly embeddingHostWorkingSetMb: number | null;
+    readonly rendererHeapUsedMb: number | null;
+  };
+  /** The hidden embedding host's actual worker; null until it has loaded a model. */
+  readonly worker: WorkerMetadata | null;
+}
 
 function resolveStableEvidencePath(): string {
   const configured = process.env[EVIDENCE_PATH_ENV]?.trim();
@@ -86,167 +82,82 @@ function parseConfiguredRoots(): string[] {
   }
   return rawRoots
     .split(path.delimiter)
-    .map((rootPath) => path.resolve(rootPath.trim()))
-    .filter((rootPath) => rootPath.length > 0);
+    .map((rootPath) => rootPath.trim())
+    .filter((rootPath) => rootPath.length > 0)
+    .map((rootPath) => path.resolve(rootPath));
 }
 
-function readNumber(row: Record<string, unknown>, key: string): number {
-  const value = row[key];
-  if (typeof value === 'number') {
-    return value;
-  }
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
+async function readWorker(page: Page): Promise<WorkerMetadata | null> {
+  return await page.evaluate(async () => {
+    const host = (window as Window & { embeddingHost?: VisibleEmbeddingHostBridge }).embeddingHost;
+    if (!host) {
+      throw new Error('The embedding host bridge is unavailable.');
     }
-  }
-  return 0;
-}
-
-function sumRows(rows: Record<string, unknown>[], key: string): number {
-  return rows.reduce((total, row) => total + readNumber(row, key), 0);
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function getActualWorkerMetadata(
-  snapshot: WorkspaceIndexDebugSnapshot
-): Record<string, unknown> | null {
-  const hostStatus = readRecord(snapshot.embeddingHostStatus);
-  const status = readRecord(hostStatus?.['status']);
-  const runtime = readRecord(status?.['embeddingRuntime']);
-  return readRecord(runtime?.['actualWorkerMetadata']);
-}
-
-function hasBlockingQueueWork(snapshot: WorkspaceIndexDebugSnapshot): boolean {
-  return snapshot.jobQueue.some((row) => {
-    const state = String(row['state'] ?? '');
-    return state === 'queued' || state === 'running' || state === 'failed';
+    return (await host.getStatus()).embeddingRuntime?.actualWorkerMetadata ?? null;
   });
 }
 
-function assertSnapshotIsHealthy(
-  snapshot: WorkspaceIndexDebugSnapshot,
+async function readRendererHeapUsedMb(page: Page): Promise<number | null> {
+  return await page.evaluate(() => {
+    const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+    return memory ? Math.round(memory.usedJSHeapSize / 1024 / 102.4) / 10 : null;
+  });
+}
+
+/** Every configured root scanned to completion, and every chunk embedded. */
+function isTerminal(index: NativeIndexSummary, rootIds: readonly string[]): boolean {
+  return (
+    index.status === 'ready' &&
+    index.roots.length === rootIds.length &&
+    rootIds.every((rootId) =>
+      index.roots.some((root) => root.rootId === rootId && root.scanComplete)
+    ) &&
+    index.fileCount > 0 &&
+    index.chunkCount > 0 &&
+    index.embeddedChunkCount === index.chunkCount &&
+    index.missingVectors === 0 &&
+    index.vectorCoverageComplete
+  );
+}
+
+function assertSampleIsHealthy(
+  sample: FullRunSample,
+  rootIds: readonly string[],
   requiredDevice: string
 ): void {
-  if (snapshot.accessIssues && snapshot.accessIssues.length > 0) {
+  const { index, worker } = sample;
+  const authorized = [...index.authorizedRootIds].sort().join(', ');
+  const configured = [...rootIds].sort().join(', ');
+  if (index.status === 'ready' && authorized !== configured) {
     throw new Error(
-      `Workspace Index debug access issues: ${JSON.stringify(snapshot.accessIssues)}`
+      `The native index authorizes roots [${authorized}], not the configured [${configured}].`
     );
   }
-  const state = snapshot.syncStatus?.state;
-  if (state === 'blocked' || state === 'error') {
+  if (index.actualDevice && index.actualDevice !== requiredDevice) {
     throw new Error(
-      `Workspace Index entered ${state}: ${snapshot.syncStatus?.lastError ?? 'unknown error'}`
+      `The native query plan runs on ${index.actualDevice}, not the required ${requiredDevice}.`
     );
   }
-  const selectedDevice = snapshot.selectedDevicePreference?.devicePref;
-  if (selectedDevice && selectedDevice !== requiredDevice) {
-    throw new Error(
-      `Workspace Index device mismatch: expected ${requiredDevice}, selected ${selectedDevice}`
-    );
-  }
-  const actualWorkerMetadata = getActualWorkerMetadata(snapshot);
-  if (actualWorkerMetadata) {
-    const actualDevice = actualWorkerMetadata['device'];
-    if (actualDevice !== requiredDevice) {
+  if (worker) {
+    if (worker.device !== requiredDevice) {
       throw new Error(
-        `Workspace Index actual backend mismatch: expected ${requiredDevice}, actual ${String(
-          actualDevice
-        )}`
+        `The embedding host's actual worker runs on ${worker.device}, not the required ${requiredDevice}.`
       );
     }
-    if (actualWorkerMetadata['fallbackApplied'] === true) {
-      throw new Error('Workspace Index actual backend reported fallbackApplied=true');
+    if (worker.fallbackApplied) {
+      throw new Error("The embedding host's actual worker reported fallbackApplied=true.");
     }
   }
 }
 
-function readTerminalCounts(snapshot: WorkspaceIndexDebugSnapshot): {
-  chunkCount: number;
-  chunkedFileCount: number;
-  embeddedChunkCount: number;
-  expectedFileCount: number;
-  fileRecordCount: number;
-} {
-  const expectedFileCount = snapshot.expectedCounts.reduce(
-    (total, root) => total + root.expectedFileCount,
-    0
-  );
-  const fileRecordCount = sumRows(snapshot.fileRecordsByRoot, 'file_count');
-  const chunkedFileCount = sumRows(snapshot.fileRecordsByRoot, 'chunked_file_count');
-  const chunkCount = sumRows(snapshot.chunkStatsByRoot, 'chunk_count');
-  const embeddedChunkCount = sumRows(snapshot.chunkStatsByRoot, 'embedded_chunk_count');
-  return {
-    chunkCount,
-    chunkedFileCount,
-    embeddedChunkCount,
-    expectedFileCount,
-    fileRecordCount,
-  };
-}
-
-function isTerminalSnapshot(snapshot: WorkspaceIndexDebugSnapshot): boolean {
-  const { chunkCount, chunkedFileCount, embeddedChunkCount, expectedFileCount, fileRecordCount } =
-    readTerminalCounts(snapshot);
-  return (
-    expectedFileCount > 0 &&
-    fileRecordCount === expectedFileCount &&
-    chunkedFileCount === expectedFileCount &&
-    chunkCount > 0 &&
-    embeddedChunkCount === chunkCount &&
-    !hasBlockingQueueWork(snapshot)
-  );
-}
-
-function appendBoundedEvidenceSample(
-  samples: WorkspaceIndexEvidenceSample[],
-  sample: WorkspaceIndexEvidenceSample
-): number {
+function appendBoundedSample(samples: FullRunSample[], sample: FullRunSample): number {
   samples.push(sample);
   if (samples.length <= MAX_EVIDENCE_SAMPLES) {
     return 0;
   }
-
   // Keep startup context plus the recent window that explains terminal success or failure.
   samples.splice(1, samples.length - MAX_EVIDENCE_SAMPLES);
   return 1;
-}
-
-async function readWorkspaceIndexSnapshot(page: {
-  evaluate: <T>(pageFunction: () => Promise<T>) => Promise<T>;
-}): Promise<WorkspaceIndexDebugSnapshot> {
-  return await page.evaluate(async () => {
-    const api = (
-      globalThis as typeof globalThis & {
-        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
-          snapshot: () => Promise<WorkspaceIndexDebugSnapshot>;
-        };
-      }
-    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-    if (!api) {
-      throw new Error('window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ is unavailable');
-    }
-    return await api.snapshot();
-  });
-}
-
-async function waitForWorkspaceIndexDebugApi(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () =>
-      typeof (
-        globalThis as typeof globalThis & {
-          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown;
-        }
-      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === 'object',
-    undefined,
-    { timeout: 60_000 }
-  );
 }
 
 test.describe('Full Workspace Index run', () => {
@@ -256,102 +167,55 @@ test.describe('Full Workspace Index run', () => {
   );
 
   test('@desktop-full-workspace-index completes all configured roots', async ({
+    electronApp,
     window: page,
   }, testInfo) => {
-    test.setTimeout(
-      Number(process.env['BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_TIMEOUT_MS']) || DEFAULT_TIMEOUT_MS
-    );
+    test.setTimeout(Number(process.env[TIMEOUT_ENV]) || DEFAULT_TIMEOUT_MS);
     const startedAt = Date.now();
-
     const roots = parseConfiguredRoots();
     expect(roots.length).toBeGreaterThan(0);
-    const firstRoot = roots[0];
-    if (!firstRoot) {
-      throw new Error('Full Workspace Index verifier has no configured roots.');
-    }
-    const requiredDevice = process.env[DEVICE_ENV]?.trim() || 'webgpu';
+    const requiredDevice = readBenchDevice(DEVICE_ENV);
     const noProgressTimeoutMs =
       Number(process.env[MAX_IDLE_MS_ENV]) || DEFAULT_NO_PROGRESS_TIMEOUT_MS;
-    const rootsList = roots.map((rootPath, index) => ({
-      addedAt: 1_800_000_000_000 + index,
+    const seededRoots: SeededRoot[] = roots.map((rootPath, index) => ({
       path: rootPath,
       rootId: `workspace-index-e2e-root-${index + 1}`,
     }));
+    const rootIds = seededRoots.map((root) => root.rootId);
 
-    await page.evaluate(
-      async ({ firstRoot, persistedRoots }) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            electronAPI?: {
-              storage?: {
-                setItem?: (key: string, value: string) => Promise<void>;
-              };
-            };
-          }
-        ).electronAPI?.storage;
-        if (!storage?.setItem) {
-          throw new Error('electronAPI.storage.setItem is unavailable');
-        }
-        await storage.setItem('lastFolderPath', firstRoot);
-        await storage.setItem('rootsList', JSON.stringify(persistedRoots));
-        localStorage.setItem(
-          'background-indexing-preferences.v1',
-          JSON.stringify({
-            state: {
-              enabled: true,
-              indexingPolicyPreset: 'full-root',
-              managedCollectionId: null,
-              mode: 'root-folder-cache',
-              paused: false,
-            },
-            version: 4,
-          })
-        );
-        localStorage.setItem(
-          'vector-preferences.v1',
-          JSON.stringify({
-            state: {
-              devicePref: 'webgpu',
-              devicePrefConfigured: true,
-              reinitEveryN: 200,
-              verboseOrtLogs: false,
-            },
-            version: 3,
-          })
-        );
-      },
-      { firstRoot, persistedRoots: rootsList }
-    );
-
-    const { reloadRenderer } = await loadElectronHelpers();
-    await reloadRenderer(page, 'full-workspace-index-roots-seeded');
-    await waitForWorkspaceIndexDebugApi(page);
-
-    await page.evaluate(async () => {
-      const api = (
-        globalThis as typeof globalThis & {
-          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
-            configure: (options: { policyPreset: 'full-root' }) => void;
-            triggerFullSync: () => void;
-          };
-        }
-      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-      if (!api) {
-        throw new Error('Workspace Index debug API is unavailable after root seeding reload');
-      }
-      api.configure({ policyPreset: 'full-root' });
-      api.triggerFullSync();
-    });
-
-    const samples: WorkspaceIndexEvidenceSample[] = [];
+    const samples: FullRunSample[] = [];
     let droppedSampleCount = 0;
-    const fatalLogMatches: string[] = [];
-    let lastProgressAt = Date.now();
-    let lastProgressValue = -1;
-    let stableTerminalPolls = 0;
+    const fatalLogMatches = new Set<string>();
+    let buildStartedAt: number | null = null;
+    /** The last actual worker seen: the host may retire once the build is idle. */
+    let observedWorker: WorkerMetadata | null = null;
 
-    const writeEvidence = async (evidence: WorkspaceIndexFullRunEvidence): Promise<void> => {
-      const evidenceJson = JSON.stringify(evidence, null, 2);
+    const writeEvidence = async (
+      outcome:
+        | { readonly status: 'completed' }
+        | {
+            readonly error: { message: string; name: string; stack?: string };
+            readonly status: 'failed';
+          }
+    ): Promise<void> => {
+      const evidenceJson = JSON.stringify(
+        {
+          ...outcome,
+          buildStartedAtMs: buildStartedAt === null ? null : buildStartedAt - startedAt,
+          completedAt: new Date().toISOString(),
+          droppedSampleCount,
+          durationMs: Date.now() - startedAt,
+          fatalLogMatches: [...fatalLogMatches],
+          final: samples.at(-1) ?? null,
+          requiredDevice,
+          roots: seededRoots,
+          samples,
+          schema: EVIDENCE_SCHEMA,
+          worker: observedWorker,
+        },
+        null,
+        2
+      );
       await writeFile(
         testInfo.outputPath('full-workspace-index-evidence.json'),
         evidenceJson,
@@ -366,101 +230,99 @@ test.describe('Full Workspace Index run', () => {
       const logs = [...(await getRendererLogRecords(page)), ...(await getMainBufferedLogs(page))]
         .map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry)))
         .filter((entry) => FATAL_LOG_PATTERN.test(entry));
-      fatalLogMatches.push(...logs);
+      for (const entry of logs) {
+        fatalLogMatches.add(entry);
+      }
+    };
+
+    const readSample = async (): Promise<FullRunSample> => {
+      const index = await readNativeIndexSummary(page);
+      const host = await readEmbeddingHost(electronApp.app);
+      return {
+        capturedAt: new Date().toISOString(),
+        elapsedMs: Date.now() - startedAt,
+        index,
+        memory: {
+          embeddingHostWorkingSetMb: host?.workingSetMb ?? null,
+          rendererHeapUsedMb: await readRendererHeapUsedMb(page),
+        },
+        worker: await readWorker(page),
+      };
     };
 
     try {
+      await seedPausedWorkspace(
+        page,
+        seededRoots,
+        requiredDevice,
+        'full-workspace-index-roots-seeded'
+      );
+      await configureNativeIndex(page, requiredDevice);
+      await waitForReadyIndex(page, READY_TIMEOUT_MS);
+      const resume = await openResumeControl(page);
+      buildStartedAt = Date.now();
+      await resume.click();
+      await closeIndexingPopover(page);
+
+      const progress = createIndexProgressWatch({
+        initial: { chunkCount: 0, chunkedFileCount: 0, embeddedChunkCount: 0, fileCount: 0 },
+        stallWindowMs: noProgressTimeoutMs,
+        startedAtMs: buildStartedAt,
+      });
+      let stableTerminalPolls = 0;
       while (Date.now() - startedAt < testInfo.timeout - POLL_MS) {
-        const snapshot = await readWorkspaceIndexSnapshot(page);
-        droppedSampleCount += appendBoundedEvidenceSample(samples, {
-          capturedAt: new Date().toISOString(),
-          elapsedMs: Date.now() - startedAt,
-          snapshot,
-        });
-        assertSnapshotIsHealthy(snapshot, requiredDevice);
+        const sample = await readSample();
+        droppedSampleCount += appendBoundedSample(samples, sample);
+        assertSampleIsHealthy(sample, rootIds, requiredDevice);
+        observedWorker = sample.worker ?? observedWorker;
 
         await collectFatalLogs();
-        if (fatalLogMatches.length > 0) {
+        if (fatalLogMatches.size > 0) {
           throw new Error('Workspace Index fatal log pattern detected during full run');
         }
 
-        const progressValue =
-          sumRows(snapshot.fileRecordsByRoot, 'file_count') +
-          sumRows(snapshot.fileRecordsByRoot, 'chunked_file_count') +
-          sumRows(snapshot.chunkStatsByRoot, 'embedded_chunk_count');
-        if (progressValue > lastProgressValue) {
-          lastProgressValue = progressValue;
-          lastProgressAt = Date.now();
-        } else if (
-          Date.now() - lastProgressAt > noProgressTimeoutMs &&
-          !isTerminalSnapshot(snapshot)
-        ) {
-          throw new Error(`Workspace Index made no progress for ${noProgressTimeoutMs}ms`);
-        }
-
-        if (isTerminalSnapshot(snapshot)) {
+        if (isTerminal(sample.index, rootIds)) {
           stableTerminalPolls += 1;
           if (stableTerminalPolls >= 2) {
             break;
           }
         } else {
           stableTerminalPolls = 0;
+          if (progress.observe(sample.index, Date.now()) === 'stalled') {
+            throw new Error(`Workspace Index made no progress for ${noProgressTimeoutMs}ms`);
+          }
         }
 
         await page.waitForTimeout(POLL_MS);
       }
 
-      const finalSnapshot = samples.at(-1)?.snapshot;
-      if (!(finalSnapshot && isTerminalSnapshot(finalSnapshot))) {
+      const final = samples.at(-1);
+      if (!(final && isTerminal(final.index, rootIds))) {
         throw new Error('Workspace Index did not reach terminal full-run completion');
       }
-      const actualWorkerMetadata = getActualWorkerMetadata(finalSnapshot);
-      if (!actualWorkerMetadata) {
+      if (final.index.actualDevice !== requiredDevice) {
+        throw new Error(
+          `Workspace Index completed with query plan device ${final.index.actualDevice}, not ${requiredDevice}`
+        );
+      }
+      if (!observedWorker) {
         throw new Error('Workspace Index completed without actual embedding worker metadata');
       }
 
-      await writeEvidence({
-        completedAt: new Date().toISOString(),
-        droppedSampleCount,
-        durationMs: Date.now() - startedAt,
-        fatalLogMatches,
-        requiredDevice,
-        roots,
-        samples,
-        status: 'completed',
-        terminalCounts: readTerminalCounts(finalSnapshot),
-        terminalWorkerMetadata: actualWorkerMetadata,
-      });
+      await writeEvidence({ status: 'completed' });
     } catch (error) {
       try {
         await collectFatalLogs();
       } catch {
         // Ignore log collection failures so the original assertion remains the thrown error.
       }
-      const finalSnapshot = samples.at(-1)?.snapshot;
       await writeEvidence({
-        completedAt: new Date().toISOString(),
-        droppedSampleCount,
-        durationMs: Date.now() - startedAt,
         error: {
           message: error instanceof Error ? error.message : String(error),
           name: error instanceof Error ? error.name : 'Error',
           ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
         },
-        fatalLogMatches,
-        requiredDevice,
-        roots,
-        samples,
         status: 'failed',
-        ...(finalSnapshot ? { terminalCounts: readTerminalCounts(finalSnapshot) } : {}),
-        ...(finalSnapshot && getActualWorkerMetadata(finalSnapshot)
-          ? {
-              terminalWorkerMetadata: getActualWorkerMetadata(finalSnapshot) as Record<
-                string,
-                unknown
-              >,
-            }
-          : {}),
       });
       throw error;
     }

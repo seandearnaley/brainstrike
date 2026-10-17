@@ -383,8 +383,7 @@ test.describe('Foreground latency under thread message embedding', () => {
         }
         await seedPausedWorkspace(
           page,
-          probeRoot.rootPath,
-          BENCH_ROOT_ID,
+          [{ path: probeRoot.rootPath, rootId: BENCH_ROOT_ID }],
           device,
           'thread-embedding-benchmark-seeded'
         );

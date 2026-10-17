@@ -19,17 +19,17 @@ pnpm --filter @brainstrike/desktop exec playwright test e2e/full-workspace-index
 
 ## What The Harness Checks
 
-- Seeds desktop `rootsList` with the configured real roots and reloads the app through normal restore paths.
-- Sets Workspace Index policy to `full-root`.
-- Requires `window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__` to be available.
-- Counts expected files through app traversal and app policy, not shell `find`.
-- Fails immediately on blocked/error sync status, debug access issues, selected-device mismatch, actual backend mismatch once worker metadata exists, `fallbackApplied=true`, DB host timeout text, local embedding execution failure text, uncaught/unhandled log text, or a long no-progress window.
-- Requires two stable terminal polls where expected files equal DB `file_records`, all records are chunked, all chunks are embedded, and no queued/running/failed `embed_chunk` jobs remain.
-- Emits `full-workspace-index-evidence.json` in the Playwright output directory with timestamped samples, terminal counts, actual worker metadata, memory samples, and fatal log matches.
+Every check reads the native Workspace Index's own observation: counts, scan receipts and the query plan from the renderer's `indexSearch` capability, and the hidden embedding host's actual worker metadata.
+
+- Seeds desktop `rootsList` with the configured real roots, the `full-root` policy and paused indexing, and reloads the app through normal restore paths.
+- Chooses BGE Small, Text and semantic search and the required device's Local model execution in Search & Indexing, then resumes the index.
+- Fails immediately when the index authorizes a different number of roots than configured, coverage is blocked, the query plan or the actual worker runs on another device, the worker reports `fallbackApplied=true`, a log line matches DB host timeout, local embedding execution failure or uncaught/unhandled text, or no count changes for `BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_MAX_IDLE_MS` (default 120 s).
+- Requires two consecutive terminal polls: every configured root has its complete-scan receipt, files and chunks are indexed, every chunk has its vector (`missingVectors` 0, `vectorCoverageComplete`), and the query plan runs on the required device.
+- Emits `full-workspace-index-evidence.json` (schema `brainstrike.full-workspace-index.v2`) in the Playwright output directory with timestamped samples of native counts per root, the query plan, the actual worker metadata, renderer heap and embedding host working set, plus fatal log matches.
 
 ## Backend Proof Rule
 
-If the target is WebGPU, a run that used WASM is invalid. Set `BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE=webgpu`; the verifier requires terminal `embeddingHost.status.embeddingRuntime.actualWorkerMetadata.device === "webgpu"` and `fallbackApplied === false`.
+If the target is WebGPU, a run that used WASM is invalid. Set `BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE=webgpu` (the default; `wasm` is the other choice); the verifier requires the native query plan's device and the hidden embedding host's `embeddingRuntime.actualWorkerMetadata.device` to equal it, with `fallbackApplied === false`.
 
 Analyze the emitted artifact with:
 

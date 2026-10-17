@@ -76,15 +76,24 @@ export async function showAppWindow(app: ElectronApplication, page: Page): Promi
   }
 }
 
+export interface SeededRoot {
+  readonly path: string;
+  readonly rootId: string;
+}
+
+/** Opens the roots as the workspace (the first is the open folder), indexing paused. */
 export async function seedPausedWorkspace(
   page: Page,
-  rootPath: string,
-  rootId: string,
+  roots: readonly SeededRoot[],
   device: BenchDevice,
   reloadReason: string
 ): Promise<void> {
+  const firstRoot = roots[0];
+  if (!firstRoot) {
+    throw new Error('seedPausedWorkspace needs at least one root.');
+  }
   await page.evaluate(
-    async ({ root, id }) => {
+    async ({ first, seeded }) => {
       const storage = (
         window as Window & {
           electronAPI?: { storage?: { setItem?: (key: string, value: string) => Promise<void> } };
@@ -93,10 +102,12 @@ export async function seedPausedWorkspace(
       if (!storage?.setItem) {
         throw new Error('electronAPI.storage.setItem is unavailable.');
       }
-      await storage.setItem('lastFolderPath', root);
+      await storage.setItem('lastFolderPath', first);
       await storage.setItem(
         'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId: id }])
+        JSON.stringify(
+          seeded.map((root, index) => ({ addedAt: 1_800_000_000_000 + index, ...root }))
+        )
       );
       // Paused, so the idle baseline is taken with the workspace open and nothing indexing.
       await storage.setItem(
@@ -115,7 +126,7 @@ export async function seedPausedWorkspace(
         })
       );
     },
-    { id: rootId, root: rootPath }
+    { first: firstRoot.path, seeded: roots }
   );
   await setVectorDevicePreference(page, device);
   const { reloadRenderer } = await loadElectronHelpers();
