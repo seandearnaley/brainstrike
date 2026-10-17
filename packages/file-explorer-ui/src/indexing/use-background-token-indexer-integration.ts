@@ -21,6 +21,7 @@ import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
+import { useIndexingCancellation } from './background-token-indexer-cancellation';
 import { resolvePlannedTokenIndexingHandles } from './background-token-indexer-dispatch-handles';
 import {
   normalizeSelectionPathForTokenCache,
@@ -39,7 +40,6 @@ import {
   type HandleInfo,
   isMissingFileError,
 } from './background-token-indexer-handles';
-import { useIndexingResetRetirement } from './background-token-indexer-reset-retirement';
 import {
   handleSelectionShrink,
   shouldReconcileShrink,
@@ -582,7 +582,7 @@ export function useBackgroundTokenIndexerIntegration({
   // Stable ref for backgroundIndexer to avoid callback instability
   const backgroundIndexerRef = useRef(backgroundIndexer);
   backgroundIndexerRef.current = backgroundIndexer;
-  const resetRetirement = useIndexingResetRetirement(backgroundIndexerRef);
+  const ownedCancellation = useIndexingCancellation(backgroundIndexerRef);
 
   // Stable ref for electronFileReader
   const electronFileReaderRef = useRef(electronFileReader);
@@ -614,7 +614,7 @@ export function useBackgroundTokenIndexerIntegration({
         });
         return;
       }
-      if (resetRetirement.isRetired()) {
+      if (ownedCancellation.isRetired()) {
         logger.debug('triggerIndexing refused after factory reset retirement', {
           requestedFiles: compositeKeys.length,
         });
@@ -799,7 +799,7 @@ export function useBackgroundTokenIndexerIntegration({
         try {
           await dispatchBatches(webFilesToIndex);
         } catch (error) {
-          if (resetRetirement.settledByReset(error, 'web')) {
+          if (ownedCancellation.settledByOwner(error, 'web')) {
             return;
           }
           logger.error('triggerIndexing web batch dispatch failed', {
@@ -902,7 +902,7 @@ export function useBackgroundTokenIndexerIntegration({
               try {
                 await dispatchBatches(resolvedBatchToIndex);
               } catch (error) {
-                if (resetRetirement.settledByReset(error, 'web-resolver')) {
+                if (ownedCancellation.settledByOwner(error, 'web-resolver')) {
                   return;
                 }
                 logger.error('triggerIndexing web resolver batch dispatch failed', {
@@ -1039,7 +1039,7 @@ export function useBackgroundTokenIndexerIntegration({
           try {
             await dispatchBatches(electronFilesReady);
           } catch (error) {
-            if (resetRetirement.settledByReset(error, 'electron')) {
+            if (ownedCancellation.settledByOwner(error, 'electron')) {
               return;
             }
             logger.error('triggerIndexing electron batch dispatch failed', {
@@ -1077,12 +1077,12 @@ export function useBackgroundTokenIndexerIntegration({
         });
       }
     },
-    [handleFileError, resetRetirement]
+    [handleFileError, ownedCancellation]
   );
   // Reset preparation joins every run after retiring the indexer.
   const triggerIndexing = useCallback(
-    (compositeKeys: string[]) => resetRetirement.track(runIndexing(compositeKeys)),
-    [resetRetirement, runIndexing]
+    (compositeKeys: string[]) => ownedCancellation.track(runIndexing(compositeKeys)),
+    [ownedCancellation, runIndexing]
   );
 
   // Queue newly selected files for indexing when selection changes
@@ -1103,7 +1103,6 @@ export function useBackgroundTokenIndexerIntegration({
   });
 
   useEffect(() => {
-    const indexer = backgroundIndexerRef.current;
     const previousSize = previousSelectionSizeRef.current;
     const previousSelectedFiles = previousSelectedFilesRef.current;
     previousSelectionSizeRef.current = selectedFiles.size;
@@ -1131,7 +1130,7 @@ export function useBackgroundTokenIndexerIntegration({
       // hard-cancels the worker batch only when every in-flight key was
       // deselected.
       handleSelectionShrink({
-        cancelBatch: () => indexer.cancelIndexing(),
+        cancelBatch: ownedCancellation.cancel,
         inFlight: inFlightRef.current,
         onPulse: () => bumpInFlightPulse((value) => value + 1),
         pendingNoHandle: pendingNoHandleRef.current,
@@ -1191,7 +1190,14 @@ export function useBackgroundTokenIndexerIntegration({
     }, debounceMs);
 
     return () => clearTimeout(timeoutId);
-  }, [selectedFiles, triggerIndexing, tokenCacheIsOperational, fileHandleMapSize, indexGetHandle]);
+  }, [
+    selectedFiles,
+    triggerIndexing,
+    tokenCacheIsOperational,
+    fileHandleMapSize,
+    indexGetHandle,
+    ownedCancellation,
+  ]);
 
   useVisibleFileTokenIndexing({
     fileHandleMapRef,
