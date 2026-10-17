@@ -75,8 +75,10 @@
                   ]
                 },
                 "approved": {
-                  "type": "boolean",
-                  "const": true
+                  "enum": [
+                    true
+                  ],
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1261,9 +1263,13 @@
           },
           "root": {
             "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": [
-              "string",
-              "null"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "startLine": {
@@ -1787,8 +1793,10 @@
                   ]
                 },
                 "approved": {
-                  "type": "boolean",
-                  "const": true
+                  "enum": [
+                    true
+                  ],
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -2897,9 +2905,13 @@
           },
           "root": {
             "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": [
-              "string",
-              "null"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "startLine": {
@@ -3281,8 +3293,10 @@
                   ]
                 },
                 "approved": {
-                  "type": "boolean",
-                  "const": true
+                  "enum": [
+                    true
+                  ],
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -4159,9 +4173,13 @@
           },
           "root": {
             "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": [
-              "string",
-              "null"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "startLine": {
