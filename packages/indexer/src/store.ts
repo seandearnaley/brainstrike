@@ -114,7 +114,8 @@ function validateLegacyOrdinaryVectors(db: Database.Database, version: IndexSche
   } catch (error) {
     throw new IndexerError(
       'rebuild-required',
-      `Stored ordinary vector bytes are invalid: ${error instanceof Error ? error.message : String(error)}`
+      `Stored ordinary vector bytes are invalid: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }
@@ -184,7 +185,8 @@ export class IndexWriter {
           }
           throw new IndexerError(
             'rebuild-required',
-            `Existing index metadata is invalid: ${error instanceof Error ? error.message : String(error)}`
+            `Existing index metadata is invalid: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error }
           );
         }
       }

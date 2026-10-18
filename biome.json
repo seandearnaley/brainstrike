@@ -19,6 +19,7 @@
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "packages/indexer/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/src/native-tools/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/__tests__/file-approval-target.test.ts",
       "apps/desktop/src/__tests__/assistant-server/**/*.{ts,tsx,mts,cts,mjs}",
@@ -737,6 +738,24 @@
         "apps/desktop/src/__tests__/assistant-server/agent-ignore-mutation-boundary.integration.test.ts",
         "apps/desktop/src/__tests__/assistant-server/native-tool-error-causes.test.ts",
         "apps/desktop/src/__tests__/assistant-server/agent-quality-lint*/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/indexer/src/**",
+        "packages/indexer/__tests__/**",
+        "apps/desktop/src/__tests__/native-index-lifecycle.test.ts",
+        "apps/desktop/src/__tests__/native-index-retry.test.ts",
+        "apps/desktop/src/__tests__/platform/native-refusal-boundary.test.ts"
       ],
       "linter": {
         "rules": {
