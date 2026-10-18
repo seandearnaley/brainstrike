@@ -122,7 +122,7 @@ class NodeWorkspaceBorrower<TDatabase> implements NodeWorkspaceServices<TDatabas
         rootIds.map(async (rootId) => {
           const root = this.selectedRoot(roots, rootId);
           const captured = this.borrows.get(rootId);
-          if (captured) {
+          if (captured !== undefined) {
             await this.assertPinnedRoot(root, await captured);
           }
           return root;

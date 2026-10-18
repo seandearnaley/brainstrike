@@ -19,6 +19,8 @@
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "packages/assistant-service/src/__tests__/node-workspace-services*/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-lease/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/src/mcp/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/{src/provider-auth,__tests__/provider-auth,__tests__/credentials}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/indexer/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
@@ -804,6 +806,24 @@
         "apps/desktop/src/__tests__/main/mcp-elicitation-presenter.test.ts",
         "apps/desktop/src/__tests__/main/mcp-oauth-loopback-callback.test.ts",
         "apps/desktop/src/__tests__/main/mcp-oauth-client-provider.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-lease/src/**",
+        "packages/host-lease/__tests__/**",
+        "packages/assistant-service/src/node-workspace-services.ts",
+        "packages/assistant-service/src/__tests__/node-workspace-services*.ts",
+        "packages/assistant-service/src/__tests__/node-workspace-services*/**"
       ],
       "linter": {
         "rules": {
