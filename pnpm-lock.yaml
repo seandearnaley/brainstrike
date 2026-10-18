@@ -559,6 +559,7 @@ patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': 280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c
   app-builder-lib@26.17.0: 9c23dfc27c5d05a82f442223d5ead8d74bf9f06bd15cf0edd5f5df2392ca155e
   js-yaml@3.15.2: a6a2881ca0a3277538ef7fbc80ef0fac92ce92b1c44f1a317ef77c96f6f50017
+  streamdown@2.7.0: cd35adce68af2eb5d90a7196b29f417351b47b8c9c669049a57701c58d55ec9b
   vscode-jsonrpc@9.0.3: df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034
 
 importers:
@@ -2089,7 +2090,7 @@ importers:
         version: 4.0.1(supports-color@10.2.2)
       streamdown:
         specifier: 'catalog:'
-        version: 2.7.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)
+        version: 2.7.0(patch_hash=cd35adce68af2eb5d90a7196b29f417351b47b8c9c669049a57701c58d55ec9b)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)
       zustand:
         specifier: 'catalog:'
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.1)(use-sync-external-store@1.6.0(react@19.3.1))
@@ -17233,7 +17234,7 @@ snapshots:
       rehype-sanitize: 6.0.0
       remark-rehype: 11.1.2
       remend: 1.4.0
-      streamdown: 2.7.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)
+      streamdown: 2.7.0(patch_hash=cd35adce68af2eb5d90a7196b29f417351b47b8c9c669049a57701c58d55ec9b)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)
     optionalDependencies:
       '@types/react': 19.3.0
     transitivePeerDependencies:
@@ -28459,7 +28460,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  streamdown@2.7.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2):
+  streamdown@2.7.0(patch_hash=cd35adce68af2eb5d90a7196b29f417351b47b8c9c669049a57701c58d55ec9b)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2):
     dependencies:
       clsx: 2.1.1
       hast-util-to-jsx-runtime: 2.3.6(supports-color@10.2.2)

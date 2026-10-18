@@ -372,3 +372,7 @@ patchedDependencies:
   # CLI-only vendor API migration paired with the argparse 3 override above.
   # Retire both when the legacy YAML owner publishes this migration.
   js-yaml@3.15.2: patches/js-yaml@3.15.2.patch
+  # 2.7's caret hook needlessly commits again when ordinary prose first mounts.
+  # Preserve the recorded-token one-commit budget and the code/table DOM probe.
+  # Retire when upstream initializes already-ready caret state synchronously.
+  streamdown@2.7.0: patches/streamdown@2.7.0.patch
