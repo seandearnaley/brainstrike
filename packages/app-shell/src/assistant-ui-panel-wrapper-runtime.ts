@@ -1260,6 +1260,11 @@ function openRouterLookupReason(
  * the lookup loads the send waits, so provider options are never built from
  * details that have not arrived. A chosen reasoning effort the model does not
  * support is a notice here, never a throw while the composer renders.
+ *
+ * When the details fail to load, the run budgets on the built-in catalog row,
+ * so the same input-budget check runs against it (BST-1810): a persisted
+ * output limit that row cannot fit is named here, never thrown by
+ * `buildAgentLoopSettings` during render.
  */
 export function resolveOpenRouterMetadataDisabledReason(
   providerId: string | null | undefined,
@@ -1272,12 +1277,24 @@ export function resolveOpenRouterMetadataDisabledReason(
     return;
   }
   const lookupReason = openRouterLookupReason(lookup, settings?.reasoningEffort, modelId);
-  if (lookupReason !== undefined || lookup.state !== 'resolved') {
+  if (lookupReason !== undefined || lookup.state === 'loading') {
     return lookupReason;
   }
   const configuredOutput = buildPositiveIntegerSetting(
     modelSettings?.maxOutputTokens ?? settings?.maxOutputTokens
   );
+  if (lookup.state === 'error') {
+    const catalogModel = modelId ? findLlmModelDefinition('openrouter', modelId) : undefined;
+    return catalogModel
+      ? openRouterInputBudgetReason(
+          settings,
+          configuredOutput,
+          catalogModel,
+          catalogModel.contextWindow,
+          'built-in catalog'
+        )
+      : undefined;
+  }
   const metadata = lookup.snapshot.metadata;
   const maximum = metadata.maxOutputTokens;
   const provenance = lookup.snapshot.freshness === 'stale-cache' ? 'cached' : 'live';
@@ -1295,11 +1312,29 @@ export function resolveOpenRouterMetadataDisabledReason(
         : 'OpenRouter Auto reasoning profile is invalid.';
     }
   }
+  return openRouterInputBudgetReason(
+    settings,
+    configuredOutput,
+    profileModel,
+    metadata.contextWindow,
+    provenance
+  );
+}
 
-  // Reserve the same window the run will actually send (BST-1170): an
-  // active-reasoning request on a model with a vendor-documented completion
-  // window reserves that window, not the coding ceiling — otherwise the input
-  // validation promises context the run cannot use.
+/**
+ * Why the window cannot hold the output the run reserves plus the configured
+ * input limit, or undefined. The reservation is the window the run actually
+ * sends (BST-1170): an active-reasoning request on a model with a
+ * vendor-documented completion window reserves that window, not the coding
+ * ceiling — otherwise the input validation promises context the run cannot use.
+ */
+function openRouterInputBudgetReason(
+  settings: AssistantProviderSettings | undefined,
+  configuredOutput: number | undefined,
+  profileModel: OpenRouterAutoProfileModel,
+  contextWindow: number,
+  provenance: string
+): string | undefined {
   const outputReservation =
     configuredOutput ??
     resolveOpenRouterOutputWindow(
@@ -1308,9 +1343,9 @@ export function resolveOpenRouterMetadataDisabledReason(
     );
   let effectiveInputBudget: number;
   try {
-    effectiveInputBudget = deriveEffectiveInputBudget(metadata.contextWindow, outputReservation);
+    effectiveInputBudget = deriveEffectiveInputBudget(contextWindow, outputReservation);
   } catch {
-    return `Configured output limit ${openRouterLimitFormatter.format(outputReservation)} cannot fit within the OpenRouter ${provenance} context window ${openRouterLimitFormatter.format(metadata.contextWindow)} plus its safety margin.`;
+    return `Configured output limit ${openRouterLimitFormatter.format(outputReservation)} cannot fit within the OpenRouter ${provenance} context window ${openRouterLimitFormatter.format(contextWindow)} plus its safety margin.`;
   }
 
   const configuredInput = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);

@@ -5,6 +5,7 @@ import {
   CONTEXT_BUDGET_SAFETY_MARGIN_RATIO,
   deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
+  deriveMaxOutputTokensWithinBudget,
 } from '../context-budget.js';
 
 describe('deriveEffectiveInputBudget', () => {
@@ -91,5 +92,25 @@ describe('deriveAgentLoopInputTokenLimit', () => {
         undefined
       )
     ).toThrow(/cannot fit/);
+  });
+});
+
+describe('deriveMaxOutputTokensWithinBudget (BST-1810)', () => {
+  it.each([
+    // MiniMax M3: 524,288 − margin 26,215 − 1.
+    [524_288, 498_072],
+    // Kimi K3: 1,048,576 − margin 52,429 − 1.
+    [1_048_576, 996_146],
+    // A small window keeps the 1,024 floor margin.
+    [8192, 7167],
+  ])('is the largest output a %i-token window can budget', (contextWindow, maximum) => {
+    expect(deriveMaxOutputTokensWithinBudget(contextWindow)).toBe(maximum);
+    expect(deriveEffectiveInputBudget(contextWindow, maximum)).toBe(1);
+    expect(() => deriveEffectiveInputBudget(contextWindow, maximum + 1)).toThrow(/cannot fit/);
+  });
+
+  it('throws for a window that cannot fit any output', () => {
+    expect(() => deriveMaxOutputTokensWithinBudget(1025)).toThrow(/cannot fit any output/);
+    expect(() => deriveMaxOutputTokensWithinBudget(0)).toThrow(/positive number/);
   });
 });
