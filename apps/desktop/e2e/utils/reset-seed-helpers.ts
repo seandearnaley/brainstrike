@@ -9,7 +9,7 @@ export async function seedNativeResetProbe(
   const { join } = await import('node:path');
   const { expect } = await import('@playwright/test');
   const { ensureMockWorkspaceOpen } = await import('./layout-helpers');
-  const { chooseTextSearch } = await import('./text-search-mode');
+  const { chooseTextSearch, textReadiness } = await import('./text-search-mode');
   if (!workspacePath) {
     throw new Error('Disposable workspace path is required');
   }
@@ -19,28 +19,17 @@ export async function seedNativeResetProbe(
     'utf8'
   );
   await chooseTextSearch(page);
-  await ensureMockWorkspaceOpen(page);
+  // Settle the generation the settings change opens before adding the folder: one still
+  // opening can lease the new folder and publish its chunks, and the folder's own
+  // registration then opens the next generation, which refuses reads (BST-2152).
   await expect
-    .poll(
-      async () =>
-        page.evaluate(async () => {
-          if (!window.sourceFiles) {
-            throw new Error('Canonical source capability missing');
-          }
-          return (
-            (
-              await window.sourceFiles.list().then((result) => {
-                if (!result.ok) {
-                  throw new Error(result.error.message);
-                }
-                return result.value;
-              })
-            ).find((file) => file.fileName === 'reset-indexed-probe.txt')?.chunksCount ?? 0
-          );
-        }),
-      { timeout: 60_000 }
-    )
-    .toBeGreaterThan(0);
+    .poll(() => textReadiness(page), { timeout: 60_000 })
+    .toEqual({ folders: 0, indexMode: 'text-only', kind: 'ready' });
+  await ensureMockWorkspaceOpen(page);
+  // Adding a folder does not wait for the index; the index's status owns readiness.
+  await expect
+    .poll(() => textReadiness(page), { timeout: 60_000 })
+    .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
   return await page.evaluate(async () => {
     const files = window.sourceFiles;
     if (!files) {
