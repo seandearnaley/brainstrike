@@ -1,5 +1,6 @@
 import { Button, Card, CardContent, Input } from '@brainstrike/ui';
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { McpCatalogSection } from './mcp-catalog-section';
 import type { ToolsSettingsOperations } from './types';
 
 interface McpConfigPanelProps {
@@ -370,6 +371,11 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     dispatch({ type: 'HIDE_RELOAD_CONFIRM' });
   }, []);
 
+  const handleCatalogInstalled = useCallback(async () => {
+    await loadDocument();
+    await onConfigChanged();
+  }, [loadDocument, onConfigChanged]);
+
   const editorDescribedBy = useMemo(() => {
     const ids: string[] = [];
     if (statusMessage) {
@@ -393,6 +399,17 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
   return (
     <div className="space-y-4" data-testid="mcp-config-editor-panel">
+      {operations.installMcpCatalogServer && operations.getMcpServerStatus ? (
+        <McpCatalogSection
+          blockedReason={
+            hasUnsavedChanges ? 'Save or reload the config editor before installing.' : undefined
+          }
+          getMcpServerStatus={operations.getMcpServerStatus}
+          installMcpCatalogServer={operations.installMcpCatalogServer}
+          onInstalled={handleCatalogInstalled}
+          subscribeMcpServerStatus={operations.subscribeMcpServerStatus}
+        />
+      ) : null}
       <McpPathCard
         onApplyPath={() => void handleApplyPath()}
         onBrowse={operations.openMcpConfig ? () => void handleBrowse() : undefined}

@@ -11,6 +11,7 @@ import type {
   McpHostSnapshot,
   McpToolPreferencesFault,
 } from '@brainstrike/assistant-contract';
+import type { McpCatalogInstallRequest } from '@brainstrike/assistant-contract/mcp-catalog';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 
 /**
@@ -168,6 +169,10 @@ export interface ToolsSettingsOperations {
   getStats: () => Promise<ToolStats>;
   /** Get all registered tools */
   getTools: () => Promise<ToolDisplayMetadata[]>;
+  /** Install one catalog server into the profile's MCP config (desktop only). */
+  installMcpCatalogServer?: (
+    request: McpCatalogInstallRequest
+  ) => Promise<{ success: true; path: string } | { success: false; path: string; error: string }>;
   /** Open MCP config file selector */
   openMcpConfig?: () => Promise<void>;
   /** Read MCP config file text, optionally auto-creating it from a template */

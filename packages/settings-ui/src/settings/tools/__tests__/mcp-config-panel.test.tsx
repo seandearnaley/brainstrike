@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { McpConfigPanel } from '../mcp-config-panel';
 import type { McpConfigTextDocument, ToolsSettingsOperations } from '../types';
@@ -343,5 +344,41 @@ describe('MCP config document validation', () => {
     expect(screen.getByTestId('mcp-config-status')).toHaveTextContent('MCP config saved.');
     expect(screen.queryByTestId('mcp-config-error')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+});
+
+describe('MCP catalog in the config panel', () => {
+  const emptySnapshot: McpHostSnapshot = { revision: 0, servers: [] };
+
+  it('renders the catalog only when the install capability exists', async () => {
+    const without = operations();
+    without.getMcpServerStatus = vi.fn(async () => emptySnapshot);
+    const { unmount } = render(<McpConfigPanel onConfigChanged={vi.fn()} operations={without} />);
+    await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
+    expect(screen.queryByTestId('mcp-catalog')).not.toBeInTheDocument();
+    unmount();
+  });
+
+  it('blocks installs while the editor is dirty and reloads the editor after an install', async () => {
+    const ops = operations();
+    ops.getMcpServerStatus = vi.fn(async () => emptySnapshot);
+    ops.installMcpCatalogServer = vi.fn(async () => ({ path, success: true as const }));
+    const onConfigChanged = vi.fn(async () => undefined);
+    render(<McpConfigPanel onConfigChanged={onConfigChanged} operations={ops} />);
+    const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
+    const gitlab = within(await screen.findByTestId('mcp-catalog-card-gitlab'));
+
+    fireEvent.change(editor, { target: { value: `${validContent}\n` } });
+    expect(gitlab.getByRole('button', { name: 'Install' })).toBeDisabled();
+
+    fireEvent.change(editor, { target: { value: validContent } });
+    fireEvent.click(gitlab.getByRole('button', { name: 'Install' }));
+
+    await waitFor(() => expect(onConfigChanged).toHaveBeenCalledOnce());
+    expect(ops.installMcpCatalogServer).toHaveBeenCalledWith({
+      access: 'read-write',
+      catalogId: 'gitlab',
+    });
+    expect(ops.readMcpConfigText).toHaveBeenCalledTimes(2);
   });
 });
