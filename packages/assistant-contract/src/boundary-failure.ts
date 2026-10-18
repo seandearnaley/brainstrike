@@ -105,7 +105,7 @@ export function refusal(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
-  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+  return Schema.decodeSync(BoundaryFailureSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({ ...bounded(failure), kind: 'refusal' });
@@ -114,7 +114,7 @@ export function fault(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'correlationId' | 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
-  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+  return Schema.decodeSync(BoundaryFailureSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({ ...bounded(failure), kind: 'fault' });
@@ -129,7 +129,7 @@ const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
 };
 /** The cause a supervisor reports when its child exits without being asked. */
 export function processLost(facts: (typeof ProcessLostFacts)['Type']): BoundaryFailure {
-  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+  return Schema.decodeSync(BoundaryFailureSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({

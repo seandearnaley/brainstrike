@@ -19,9 +19,9 @@ test('only explicitly normalized optionals omit an own undefined value', () => {
     normalized: omitUndefinedOptional(Schema.String),
     ordinary: Schema.optional(Schema.String),
   });
-  expect(Schema.decodeUnknownSync(schema)({ normalized: undefined, ordinary: undefined })).toEqual({
+  expect(Schema.decodeSync(schema)({ normalized: undefined, ordinary: undefined })).toEqual({
     ordinary: undefined,
   });
-  expect(Schema.decodeUnknownSync(schema)({})).toEqual({});
+  expect(Schema.decodeSync(schema)({})).toEqual({});
   expect(() => Schema.decodeUnknownSync(schema)({ normalized: null })).toThrow();
 });

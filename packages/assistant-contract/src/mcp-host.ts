@@ -119,11 +119,11 @@ export type McpHostAuthSnapshot =
     }
   | McpHostBearerAuthSnapshot
   | McpHostOAuthAuthSnapshot;
-export const McpHostErrorSchema: Schema.ConstraintDecoder<McpHostError> = Schema.Struct({
+export const McpHostErrorSchema = Schema.Struct({
   category: McpStableErrorCategorySchema,
   code: Schema.String,
   message: Schema.String,
-});
+}) satisfies Schema.ConstraintDecoder<McpHostError>;
 export const MCP_CORE_SERVER_PROJECTION = Object.freeze({
   completion: Object.freeze({
     operations: Object.freeze(['completion/complete'] as const),
