@@ -10,6 +10,7 @@ import {
   type StateMessageVectorPort,
 } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
+import { getTimeoutMultiplier } from '@brainstrike/test-utils/test-timeouts';
 import {
   type CreateIndexParams,
   type DeleteIndexParams,
@@ -32,6 +33,21 @@ import type { HostPlatform, HostRunContext } from '../../src/ports.js';
 import type { HostEvent } from '../../src/protocol.js';
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 import { scriptedModel } from './scripted-model.js';
+
+/**
+ * Deadlines for a real forked indexer that runs the agent-host state projection.
+ * A test budget, not the product's (production callers allow 60_000 ms). The
+ * projection cold-imports Mastra's Memory, so startup is the slow stage: a fixed
+ * 5 s failed every real-indexer observation case under coverage on a hosted
+ * runner 1.7x slower than usual. 10 s scaled by TEST_TIMEOUT_MULTIPLIER, as
+ * BST-2147 gave the indexer's own state-observation suite.
+ */
+export const REAL_INDEXER_DEADLINES = {
+  closeMs: 5000,
+  exitMs: 5000,
+  requestMs: 5000,
+  startupMs: 10_000 * getTimeoutMultiplier(),
+} as const;
 
 /** Records vendor calls only. It is not an index or production indexer adapter. */
 export class RecordedVectorCalls extends MastraVector {
@@ -134,7 +150,7 @@ export async function memoryVectorHost(options: {
     stateResources: [{ resourceId, rootId: root }],
     stateRoot: root,
   } as const;
-  const indexerDeadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+  const indexerDeadlines = REAL_INDEXER_DEADLINES;
   let indexer = options.realIndexer
     ? await openIndexer(indexerOptions, indexerDeadlines)
     : undefined;

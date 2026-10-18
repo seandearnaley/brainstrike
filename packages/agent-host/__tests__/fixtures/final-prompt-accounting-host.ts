@@ -19,7 +19,7 @@ import type { StateStoreHostMemoryOptions } from '../../src/adapters/state-store
 import { attachAgentHost, type HostClient } from '../../src/client.js';
 import type { HostLogRow } from '../../src/protocol.js';
 import type { AgentHost } from '../../src/runtime.js';
-import { deterministicEmbedding } from './memory-vector-host.js';
+import { deterministicEmbedding, REAL_INDEXER_DEADLINES } from './memory-vector-host.js';
 import { observeFixtureChild, recordFixtureEvent } from './owned-fixture-process.js';
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 
@@ -415,7 +415,7 @@ export async function finalPromptAccountingHost(
             stateResources: [{ resourceId, rootId: root }],
             stateRoot: root,
           },
-          { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+          REAL_INDEXER_DEADLINES
         );
       }
       const platform = await runtime.createProductionHostPlatform({
