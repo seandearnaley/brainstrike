@@ -73,7 +73,6 @@
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
         "@assistant-ui/react-streamdown",
-        "@assistant-ui/styles",
         "@radix-ui/react-accordion",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -145,7 +144,6 @@
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
         "@assistant-ui/react-streamdown",
-        "@assistant-ui/styles",
         "@radix-ui/react-accordion",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",

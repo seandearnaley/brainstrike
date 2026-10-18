@@ -24,7 +24,6 @@ import type {
   HostWorkspaceEdit,
   HostWorkspaceEditTracker,
 } from '@brainstrike/agent-host';
-import { LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import {
   hostCanvasStore,
   hostTaskListStore,
@@ -158,9 +157,7 @@ export function buildHostNativeTools(
       )),
   };
   const budget = options.resolvedToolResultBudget ?? CEILING_SCALED_TOOL_RESULT_BUDGET;
-  const provider = typeof runtimeData.provider === 'string' ? runtimeData.provider : '';
   const context: NativeToolBuildContext = {
-    isLocalProvider: provider.trim().toLowerCase() === 'local',
     ports: hostExecutionPorts(options.ports),
     readFileCursorRegistry: options.readFileCursorRegistry ?? new ReadWorkspaceFileCursorRegistry(),
     resolveActiveDomainCharBudget: () =>
@@ -173,9 +170,6 @@ export function buildHostNativeTools(
   };
   const tools: NativeToolDefinitions = {};
   for (const id of options.ids ?? Object.keys(executors)) {
-    if (context.isLocalProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(id)) {
-      continue;
-    }
     const executor = executors[id];
     if (!executor) {
       throw new Error(`No host executor is registered for native tool ${id}`);

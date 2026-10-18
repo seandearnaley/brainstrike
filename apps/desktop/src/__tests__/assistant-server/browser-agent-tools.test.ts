@@ -13,6 +13,7 @@ function tab(overrides: Partial<BrowserTabState>): BrowserTabState {
     canGoBack: false,
     canGoForward: false,
     isLoading: false,
+    owner: 'agent',
     tabId: 'tab-1',
     title: 'T',
     url: 'https://x/',
@@ -34,6 +35,7 @@ function fakeHost(options?: {
     getNavigationError: vi.fn((): string | null => null),
     listTabs: vi.fn(() => sequence[Math.min(call++, sequence.length - 1)] ?? []),
     navigate: vi.fn(() => true),
+    selectTab: vi.fn(() => true),
   };
   const driver = {
     getPageText: vi.fn(() =>
@@ -46,7 +48,8 @@ function fakeHost(options?: {
       )
     ),
   };
-  return { driver, manager };
+  const prepareAgentBrowsing = vi.fn(() => Promise.resolve());
+  return { driver, manager, prepareAgentBrowsing };
 }
 
 describe('runBrowserNavigate', () => {
@@ -76,8 +79,91 @@ describe('runBrowserNavigate', () => {
       ],
     });
     const result = await runBrowserNavigate({ url: 'https://example.com' }, host, { pollMs: 1 });
-    expect(host.manager.createTab).toHaveBeenCalledWith('https://example.com');
+    expect(host.manager.createTab).toHaveBeenCalledWith('https://example.com', 'agent');
     expect(result).toMatchObject({ ok: true, url: 'https://example.com/' });
+  });
+
+  it('never drives a tab the user opened: it opens its own agent tab (BST-1238)', async () => {
+    const userTab = tab({ owner: 'user', tabId: 'user-1', url: 'http://localhost:3000/' });
+    const host = fakeHost({
+      tabsSequence: [
+        [userTab],
+        [{ ...userTab, active: false }, tab({ isLoading: true, url: 'https://example.com/' })],
+        [{ ...userTab, active: false }, tab({ title: 'Example', url: 'https://example.com/' })],
+      ],
+    });
+    const result = await runBrowserNavigate({ url: 'https://example.com' }, host, { pollMs: 1 });
+    expect(host.manager.navigate).not.toHaveBeenCalled();
+    expect(host.manager.createTab).toHaveBeenCalledWith('https://example.com', 'agent');
+    expect(result).toEqual({ ok: true, title: 'Example', url: 'https://example.com/' });
+  });
+
+  it('reuses its latest agent tab, selecting it over the active user tab', async () => {
+    const userTab = tab({ owner: 'user', tabId: 'user-1', url: 'https://docs.test/' });
+    const agentTab = tab({ active: false, tabId: 'agent-1', url: 'https://before.test/' });
+    const host = fakeHost({
+      tabsSequence: [
+        [userTab, agentTab],
+        [
+          { ...userTab, active: false },
+          { ...agentTab, active: true, isLoading: true },
+        ],
+        [
+          { ...userTab, active: false },
+          { ...agentTab, active: true, title: 'After', url: 'https://after.test/' },
+        ],
+      ],
+    });
+    const result = await runBrowserNavigate({ url: 'https://after.test' }, host, { pollMs: 1 });
+    expect(host.manager.selectTab).toHaveBeenCalledWith('agent-1');
+    expect(host.manager.navigate).toHaveBeenCalledWith('agent-1', 'https://after.test');
+    expect(host.manager.createTab).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, title: 'After', url: 'https://after.test/' });
+  });
+
+  it('routes agent browsing through its proxy before opening or loading any tab', async () => {
+    const order: string[] = [];
+    const host = fakeHost({ tabsSequence: [[], [tab({ title: 'E', url: 'https://e.test/' })]] });
+    host.prepareAgentBrowsing.mockImplementation(() => {
+      order.push('prepare');
+      return Promise.resolve();
+    });
+    host.manager.createTab.mockImplementation(() => {
+      order.push('createTab');
+      return 'tab-1';
+    });
+    await runBrowserNavigate({ url: 'https://e.test' }, host, { pollMs: 1 });
+    expect(order).toEqual(['prepare', 'createTab']);
+  });
+
+  it('fails visibly, opening nothing, when the egress route cannot start', async () => {
+    const host = fakeHost();
+    host.prepareAgentBrowsing.mockRejectedValueOnce(new Error('proxy exited before it was ready'));
+    const result = await runBrowserNavigate({ url: 'https://e.test' }, host, { pollMs: 1 });
+    expect(result).toMatchObject({
+      error: 'browser_unavailable',
+      hint: expect.stringContaining('proxy exited before it was ready'),
+      ok: false,
+    });
+    expect(host.manager.createTab).not.toHaveBeenCalled();
+    expect(host.manager.navigate).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a destination the egress proxy refused as blocked_destination', async () => {
+    const host = fakeHost({
+      tabsSequence: [[tab({})], [tab({ isLoading: true })], [tab({ title: '', url: '' })]],
+    });
+    host.manager.getNavigationError.mockReturnValue(
+      'blocked_destination: agent browsing may not connect to internal.test, a loopback address'
+    );
+    const result = await runBrowserNavigate({ url: 'https://redirects.example' }, host, {
+      pollMs: 1,
+    });
+    expect(result).toEqual({
+      error: 'blocked_destination',
+      hint: 'agent browsing may not connect to internal.test, a loopback address',
+      ok: false,
+    });
   });
 
   it('returns a structured timeout when the load never settles (no silent hang)', async () => {

@@ -40,10 +40,6 @@ export interface BrowserToolRunner {
   ) => Promise<BrowserReadPageResult>;
 }
 
-/**
- * All three are `localProvider: 'unregistered'` in the catalog, so every fold
- * skips them for the built-in local provider.
- */
 export function browserToolExecutors(runner: BrowserToolRunner): {
   readonly [NATIVE_TOOL_ID.browserGetPageText]: NativeToolExecutor;
   readonly [NATIVE_TOOL_ID.browserNavigate]: NativeToolExecutor;

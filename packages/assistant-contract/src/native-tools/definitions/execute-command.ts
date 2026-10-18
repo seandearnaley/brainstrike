@@ -23,7 +23,6 @@ export const executeCommand = defineNativeTool({
   id: 'brainstrike.executeCommand',
   inputSchema: effectToolInputSchema(ExecuteCommandInputSchema),
   kind: 'desktop',
-  localProvider: 'offered',
   returns:
     'exitCode (null when killed by signal), the terminating signal, a budget-bounded tail of stdout and stderr (truncated flag + hint when trimmed), durationMs, timedOut, and the resolved cwd',
   surfaces: ['desktop', 'web'],

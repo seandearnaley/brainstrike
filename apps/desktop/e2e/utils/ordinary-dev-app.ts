@@ -96,6 +96,8 @@ export async function ordinaryDevLaunchConfiguration(
       E2E_CREDENTIAL_ENV_NAMES.has(name.toUpperCase()) ||
       name.startsWith('BRAINSTRIKE_E2E') ||
       name.startsWith('BRAINSTRIKE_AGENT_DEVTOOLS') ||
+      // The runner's, not dev:electron's: create-window.ts reads CI=true as test mode.
+      name === 'CI' ||
       name === 'ELECTRON_IS_E2E_TEST' ||
       name === 'ELECTRON_RUN_AS_NODE'
     ) {
@@ -173,6 +175,11 @@ export async function launchOrdinaryDevApp(
       })
     ) {
       throw new Error('Ordinary dev regression accidentally enabled test mode');
+    }
+    // The ordinary window is shown before its renderer loads. A hidden one is the
+    // test-mode window, which Linux renders at one frame per second (BST-2103).
+    if (!(await (await app.browserWindow(page)).evaluate((win) => win.isVisible()))) {
+      throw new Error('Ordinary dev regression opened the hidden test-mode window');
     }
     return { app, close, page, userData };
   } catch (error) {

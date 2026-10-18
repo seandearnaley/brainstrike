@@ -31,6 +31,7 @@ function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
           canGoBack: false,
           canGoForward: false,
           isLoading: false,
+          owner: 'user',
           tabId: 'tab-1',
           title: 'T',
           url: 'https://x',

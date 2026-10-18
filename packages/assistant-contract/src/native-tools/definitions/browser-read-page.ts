@@ -16,7 +16,6 @@ export const browserReadPage = defineNativeTool({
   id: 'brainstrike.browserReadPage',
   inputSchema: effectToolInputSchema(BrowserReadPageInputSchema),
   kind: 'desktop',
-  localProvider: 'unregistered',
   returns: 'Indented role "name" [ref=eN] tree text with a truncated flag',
   surfaces: ['desktop'],
 });

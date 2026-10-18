@@ -26,7 +26,6 @@ import { AssistantDataRendererRegistration } from './assistant-data-renderer-reg
 import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
 import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import { useThreadPresentationActivityMode } from './use-thread-presentation-activity-mode';
-import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
@@ -1108,7 +1107,7 @@ const AssistantMessage = () => {
   if (compactionSummary) {
     return (
       <MessagePrimitive.Root
-        className="aui-assistant-message-root w-full py-3"
+        className="aui-assistant-message-root fade-in slide-in-from-bottom-1 w-full animate-in py-3 duration-150"
         data-message-id={messageId}
         tabIndex={-1}
       >
@@ -1130,7 +1129,7 @@ const AssistantMessage = () => {
   }
   return (
     <MessagePrimitive.Root
-      className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2"
+      className="aui-assistant-message-root fade-in slide-in-from-bottom-1 relative grid w-full animate-in grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2 duration-150"
       data-message-id={messageId}
       tabIndex={-1}
     >

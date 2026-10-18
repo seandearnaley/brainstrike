@@ -49,7 +49,6 @@ function entry(
     dependencies: { embeddingHostManager, ...(native ? { nativeIndexSearch: capability } : {}) },
     store,
   }))[toolId]({
-    isLocalProvider: false,
     ports: hostExecutionPorts(),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     resolveActiveDomainCharBudget: () => 6000,

@@ -22,6 +22,7 @@ const baseWorkspaceIndex = {
 
 const baseArgs = {
   agentLoopSettings: undefined,
+  assistantServerAvailable: true,
   enabledNativeToolIds: ['filesystem.read_file'],
   hostedMemoryBackendAvailable: true,
   memoryOptions: buildAssistantMemoryOptions(undefined),
@@ -62,6 +63,14 @@ describe('useAssistantThreadRequestData', () => {
       ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       maxChildSteps: 12,
     });
+  });
+
+  it('keeps subagentSettings off the wire without the desktop assistant host (web rejects the field)', () => {
+    const { result } = renderHook(() =>
+      useAssistantThreadRequestData({ ...baseArgs, assistantServerAvailable: false })
+    );
+
+    expect(result.current.requestData).not.toHaveProperty('subagentSettings');
   });
 
   it('builds request data with runtime memory settings when hosted memory is available', () => {

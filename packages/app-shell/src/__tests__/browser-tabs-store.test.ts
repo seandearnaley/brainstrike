@@ -8,6 +8,7 @@ function tab(overrides: Partial<BrowserTab>): BrowserTab {
     canGoBack: false,
     canGoForward: false,
     isLoading: false,
+    owner: 'user',
     tabId: 't',
     title: '',
     url: 'about:blank',

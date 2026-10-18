@@ -1,4 +1,8 @@
-import { OPENAI_REASONING_EFFORT_VALUES, type RuntimeData } from '@brainstrike/agent/hosted-web';
+import {
+  OPENAI_REASONING_EFFORT_VALUES,
+  RUNTIME_WORKSPACE_INDEX_STATUS_STATES,
+  type RuntimeData,
+} from '@brainstrike/agent/hosted-web';
 import { z } from 'zod';
 
 const MAX_COUNT = 100_000_000;
@@ -29,19 +33,9 @@ const queueProgressSchema = z
   })
   .strict();
 
-const workspaceIndexStatusSchema = z.enum([
-  'blocked',
-  'disabled',
-  'idle',
-  'paused',
-  'recovering',
-  'waiting',
-  'scanning',
-  'importing',
-  'chunking',
-  'embedding',
-  'error',
-]);
+// Derived from the shared contract, not re-listed: a hand copy here dropped
+// `unconfigured` (BST-1335) and refused every first-run web Send.
+const workspaceIndexStatusSchema = z.enum(RUNTIME_WORKSPACE_INDEX_STATUS_STATES);
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (!(value && typeof value === 'object' && !Array.isArray(value))) {

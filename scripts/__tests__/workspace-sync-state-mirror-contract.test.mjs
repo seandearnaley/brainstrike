@@ -25,12 +25,16 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // WIDER advertises a state nothing ever produces. Membership equality is the
 // only honest contract.
 const STORE_UNION = {
+  declaration: 'export type WorkspaceCollectionSyncState =',
   file: 'packages/app-state/src/stores/workspace-collection-sync-status-store.ts',
-  typeName: 'WorkspaceCollectionSyncState',
+  terminator: ';',
 };
+// The wire type derives from this list, which the web server's schema also
+// reads, so the list is the declaration to compare.
 const WIRE_UNION = {
+  declaration: 'export const RUNTIME_WORKSPACE_INDEX_STATUS_STATES = [',
   file: 'packages/assistant-contract/src/runtime-data.ts',
-  typeName: 'RuntimeWorkspaceIndexStatusState',
+  terminator: ']',
 };
 
 /**
@@ -40,26 +44,26 @@ const WIRE_UNION = {
 const MIN_UNION_MEMBERS = 8;
 
 /**
- * Reads `export type <typeName> = 'a' | 'b' | …;` and returns its string
- * literal members. Throws rather than returning empty when the declaration
- * cannot be found — a guard that cannot locate its subject must fail loudly,
- * not pass (BST-836).
+ * Reads the string literal members of a declaration (a `'a' | 'b'` union or
+ * an `['a', 'b']` list) up to its terminator. Throws rather than returning
+ * empty when the declaration cannot be found — a guard that cannot locate its
+ * subject must fail loudly, not pass (BST-836).
  */
-function readUnionMembers({ file, typeName }) {
+function readUnionMembers({ declaration, file, terminator }) {
   const source = readFileSync(path.join(repoRoot, file), 'utf8');
-  const declarationIndex = source.indexOf(`export type ${typeName} =`);
+  const declarationIndex = source.indexOf(declaration);
   assert.ok(
     declarationIndex !== -1,
-    `${file} no longer declares \`export type ${typeName} =\`. If it was renamed or moved, ` +
+    `${file} no longer declares \`${declaration}\`. If it was renamed or moved, ` +
       'update this contract — do not delete it.'
   );
-  const terminatorIndex = source.indexOf(';', declarationIndex);
-  assert.ok(terminatorIndex !== -1, `${typeName} in ${file} has no terminating semicolon.`);
+  const terminatorIndex = source.indexOf(terminator, declarationIndex + declaration.length);
+  assert.ok(terminatorIndex !== -1, `\`${declaration}\` in ${file} has no \`${terminator}\`.`);
   const body = source.slice(declarationIndex, terminatorIndex);
   const members = [...body.matchAll(/'([a-z-]+)'/gu)].map((match) => match[1]);
   assert.ok(
     members.length >= MIN_UNION_MEMBERS,
-    `Parsed only ${members.length} member(s) from ${typeName} in ${file} (floor: ` +
+    `Parsed only ${members.length} member(s) from \`${declaration}\` in ${file} (floor: ` +
       `${MIN_UNION_MEMBERS}). The declaration shape probably changed and this contract is ` +
       'no longer reading it — fix the parser rather than lowering the floor.'
   );
@@ -73,7 +77,7 @@ test('the workspace sync wire union mirrors the store union exactly', () => {
   assert.deepEqual(
     wireMembers,
     storeMembers,
-    `${WIRE_UNION.typeName} (${WIRE_UNION.file}) has drifted from ${STORE_UNION.typeName} ` +
+    `\`${WIRE_UNION.declaration}\` (${WIRE_UNION.file}) has drifted from \`${STORE_UNION.declaration}\` ` +
       `(${STORE_UNION.file}).\n` +
       `  only in the store: ${storeMembers.filter((m) => !wireMembers.includes(m)).join(', ') || '—'}\n` +
       `  only on the wire:  ${wireMembers.filter((m) => !storeMembers.includes(m)).join(', ') || '—'}\n` +

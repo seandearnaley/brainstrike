@@ -32,8 +32,12 @@ and voyage). Its registry runtime is `on-device`, which stays distinct from
 
 Prepare provider history through
 [the shared request boundary](../../packages/agent/src/provider-request.ts).
-Keep executed tool provenance and OpenAI call/output identities distinct. Drop
-orphaned reasoning, aborted-step items and foreign-provider executed parts from
+Keep executed tool provenance and OpenAI call/output identities distinct. Native
+OpenAI tool-search history requires its declared `openai.tool_search` provider
+tool at the SDK edge; a function named `tool_search` is a different tool
+([vendor identity contract](https://github.com/vercel/ai/pull/19754)). The host
+retains its existing discovery catalog. Drop orphaned reasoning, aborted-step
+items and foreign-provider executed parts from
 requests without rewriting canonical history. API-key OpenAI uses stored
 responses; subscription OpenAI sets unstored mode before request construction
 and carries reasoning inline. Expired stored items are typed, non-retryable

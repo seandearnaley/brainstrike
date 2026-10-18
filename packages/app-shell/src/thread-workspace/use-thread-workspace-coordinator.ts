@@ -308,6 +308,18 @@ function prepareBootHydrationBaseline(
   return { snapshot: captureWorkspaceSnapshot(facade), threadId: activeThreadId };
 }
 
+function readInheritedChildTabs(
+  threadId: string,
+  baseline: BootHydrationRecord | null,
+  facade: WorkspaceStateFacade
+): readonly string[] {
+  // The boot baseline spans deferred repository startup. Later tab opens are
+  // incoming intents, not child conversations inherited from the outgoing owner.
+  const apps =
+    baseline?.threadId === threadId ? baseline.snapshot.apps.openAppIds : facade.getOpenAppIds();
+  return apps.filter(isChildConversationTabId);
+}
+
 function shouldPreserveLiveBootEdits(
   activeThreadId: string | null,
   hasActivatedThread: boolean,
@@ -656,6 +668,11 @@ export function useThreadWorkspaceCoordinator({
       hydrate(snapshot);
     };
 
+    const inheritedChildTabs = readInheritedChildTabs(
+      activeThreadId,
+      bootHydrationBaselineRef.current,
+      facadeRef.current
+    );
     const cached = cacheRef.current.get(activeThreadId);
     if (cached) {
       hydrateLoadedSnapshot(cached);
@@ -685,11 +702,10 @@ export function useThreadWorkspaceCoordinator({
         // No row: INHERIT the current workspace (new thread). The live stores
         // already show it; only the outgoing thread's child conversations
         // stay behind, because they belong to that thread's tree.
-        const childTabs = facadeRef.current.getOpenAppIds().filter(isChildConversationTabId);
-        if (childTabs.length > 0) {
+        if (inheritedChildTabs.length > 0) {
           hydratingRef.current = true;
           try {
-            facadeRef.current.closeApps(childTabs);
+            facadeRef.current.closeApps(inheritedChildTabs);
           } finally {
             hydratingRef.current = false;
           }

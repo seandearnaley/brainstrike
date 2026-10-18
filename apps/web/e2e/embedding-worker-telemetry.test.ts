@@ -62,6 +62,11 @@ test.describe('Embedding Worker Telemetry @stateful @web-db-startup', () => {
     await expect(indexingPopover.getByText('Pending', { exact: true })).toBeVisible();
     await expect(indexingPopover.getByText('Embedding queue', { exact: true })).toBeVisible();
 
+    // Visibility precedes the entrance zoom's physical settlement.
+    // Measure the fixed-size surface only after its actual animation finishes.
+    await indexingPopover.evaluate(async (content) => {
+      await Promise.all(content.getAnimations().map((animation) => animation.finished));
+    });
     const popoverBox = await requireBoundingBox(indexingPopover);
     expect(Math.abs(popoverBox.width - 512)).toBeLessThanOrEqual(1);
     expect(Math.abs(popoverBox.height - 512)).toBeLessThanOrEqual(1);

@@ -117,6 +117,7 @@ describe('register-factory-reset-session-stores', () => {
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
+      owner: 'user',
       tabId: 'browser-tab-1',
       title: 'Before reset',
       url: 'https://example.com',

@@ -70,19 +70,39 @@ export interface BrowserHostWindow {
 
 export type BrowserPaneViewFactory = (partition: string) => BrowserPaneView;
 
+/**
+ * Who drives a tab (BST-1238). The agent's navigation runs only in `agent`
+ * tabs, on the agent partition, whose every connection the egress proxy
+ * admits; it never drives a tab the user opened. A popup keeps its opener's
+ * owner.
+ */
+export type BrowserTabOwner = 'agent' | 'user';
+
 export interface BrowserTabState {
   readonly active: boolean;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
   /** True while the tab's main frame is loading — agent navigate polls this. */
   readonly isLoading: boolean;
+  readonly owner: BrowserTabOwner;
   readonly tabId: string;
   readonly title: string;
   readonly url: string;
 }
 
 export interface BrowserViewManagerDeps {
+  /** The agent tabs' partition, routed through the egress proxy (BST-1238). */
+  readonly agentPartition: string;
   readonly createView: BrowserPaneViewFactory;
+  /**
+   * Optional: a specific reason for a main-frame load failure, such as the
+   * egress proxy's refusal behind a tunnel error. Null keeps Chromium's.
+   */
+  readonly describeLoadFailure?: (failure: {
+    readonly errorCode: number;
+    readonly owner: BrowserTabOwner;
+    readonly url: string;
+  }) => string | null;
   readonly hostWindow: BrowserHostWindow;
   /** Injected id minter (uuidv7) so tests get deterministic ids. */
   readonly mintTabId: () => string;
@@ -90,13 +110,14 @@ export interface BrowserViewManagerDeps {
   readonly onNavigationError?: (event: { readonly error: string; readonly url: string }) => void;
   /** Notifies the renderer that tab state changed (list/nav/title). */
   readonly onTabsChanged: (tabs: readonly BrowserTabState[]) => void;
-  /** Dedicated non-default session partition (clean profile). */
+  /** The user tabs' dedicated non-default session partition (clean profile). */
   readonly partition: string;
 }
 
 interface TrackedTab {
   /** Last load failure for this tab (cleared when a new load starts). */
   navigationError: string | null;
+  readonly owner: BrowserTabOwner;
   readonly tabId: string;
   readonly view: BrowserPaneView;
 }
@@ -112,10 +133,12 @@ export class BrowserViewManager {
 
   constructor(private readonly deps: BrowserViewManagerDeps) {}
 
-  createTab(url?: string): string {
+  createTab(url?: string, owner: BrowserTabOwner = 'user'): string {
     const tabId = this.deps.mintTabId();
-    const view = this.deps.createView(this.deps.partition);
-    this.wireView(tabId, view);
+    const view = this.deps.createView(
+      owner === 'agent' ? this.deps.agentPartition : this.deps.partition
+    );
+    this.wireView(tabId, view, owner);
     // Attach BEFORE registering: if the host rejects the view, no phantom tab
     // may remain for a later listTabs() resync to paint (2026-08-07 live
     // regression), and the orphaned view's page process must not keep running.
@@ -129,7 +152,7 @@ export class BrowserViewManager {
       }
       throw error;
     }
-    const tab: TrackedTab = { navigationError: null, tabId, view };
+    const tab: TrackedTab = { navigationError: null, owner, tabId, view };
     this.tabs.set(tabId, tab);
     this.load(tab, normalizeUrl(url));
     this.setActiveTab(tabId);
@@ -238,7 +261,9 @@ export class BrowserViewManager {
       return;
     }
     tab.view.webContents.loadURL(url).catch((error: unknown) => {
-      tab.navigationError = String(error);
+      // The first failure of a navigation is its cause (a refusal Main
+      // recorded); the rejection that follows only restates it.
+      tab.navigationError ??= String(error);
       this.deps.onNavigationError?.({ error: String(error), url });
     });
   }
@@ -250,6 +275,22 @@ export class BrowserViewManager {
    */
   getNavigationError(tabId: string): string | null {
     return this.tabs.get(tabId)?.navigationError ?? null;
+  }
+
+  /**
+   * Record a failure Main observed for the tab showing `webContentsId`, such
+   * as the egress proxy refusing its destination. @returns `false` when no
+   * open tab shows that `webContents`.
+   */
+  failNavigation(webContentsId: number, error: string): boolean {
+    for (const tab of this.tabs.values()) {
+      if (tab.view.webContents.id === webContentsId) {
+        tab.navigationError = error;
+        this.deps.onNavigationError?.({ error, url: tab.view.webContents.getURL() });
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Renderer reports the pane's on-screen rect (ResizeObserver → IPC). */
@@ -348,15 +389,40 @@ export class BrowserViewManager {
     view.setVisible(visible);
   }
 
-  private wireView(tabId: string, view: BrowserPaneView): void {
+  private wireView(tabId: string, view: BrowserPaneView, owner: BrowserTabOwner): void {
     view.webContents.setWindowOpenHandler(({ url }) => {
       // Popups become new tabs, never OS windows — but the url here is fully
       // attacker-controlled (a page can `window.open('file:///…')`), so it is
       // scheme-filtered exactly like a navigation. A blocked popup is dropped.
+      // It keeps its opener's owner: an agent page's popup stays behind the
+      // egress proxy (BST-1238).
       if (isNavigableUrl(url)) {
-        this.createTab(url);
+        this.createTab(url, owner);
       }
       return { action: 'deny' };
+    });
+    // A later navigation (a client redirect, a link) can fail after loadURL
+    // has settled. Record it so the agent reads a failure, not a blank page.
+    // ERR_ABORTED (-3) is a superseded load, not a failure.
+    view.webContents.on('did-fail-load', (...args: unknown[]) => {
+      const [, errorCode, errorDescription, validatedURL, isMainFrame] = args;
+      const tab = this.tabs.get(tabId);
+      if (tab && isMainFrame === true && errorCode !== -3) {
+        const url = String(validatedURL);
+        const described =
+          typeof errorCode === 'number'
+            ? (this.deps.describeLoadFailure?.({ errorCode, owner: tab.owner, url }) ?? null)
+            : null;
+        tab.navigationError ??=
+          described ?? `${String(errorDescription)} (${String(errorCode)}) loading ${url}`;
+      }
+    });
+    view.webContents.on('did-start-navigation', (...args: unknown[]) => {
+      const [details] = args as [{ isMainFrame?: boolean; isSameDocument?: boolean } | undefined];
+      const tab = this.tabs.get(tabId);
+      if (tab && details?.isMainFrame === true && details.isSameDocument !== true) {
+        tab.navigationError = null;
+      }
     });
     // Navigation, title, AND load-state transitions re-emit tab state to the
     // renderer — did-stop-loading is what flips the pushed `isLoading` back to
@@ -382,6 +448,7 @@ export class BrowserViewManager {
       canGoBack: tab.view.webContents.canGoBack(),
       canGoForward: tab.view.webContents.canGoForward(),
       isLoading: tab.view.webContents.isLoading(),
+      owner: tab.owner,
       tabId: tab.tabId,
       title: tab.view.webContents.getTitle(),
       url: tab.view.webContents.getURL(),

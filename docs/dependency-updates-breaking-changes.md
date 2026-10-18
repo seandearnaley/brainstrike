@@ -348,7 +348,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ## Assistant UI (`@assistant-ui/react` 0.12.x → 0.14.x, `@assistant-ui/react-markdown` 0.12.x → 0.14.x, `@assistant-ui/react-data-stream` 0.12.11 → 0.12.18, `@assistant-ui/styles` deprecated) — completed
 
-**Status:** `@assistant-ui/react` bumped `~0.12.25` → `~0.14.26`, `@assistant-ui/react-markdown` `^0.12.9` → `^0.14.5`, `@assistant-ui/react-data-stream` `^0.12.11` → `^0.12.18` across `packages/ui`, `apps/web`, `apps/desktop`. `@assistant-ui/styles` stays pinned at `^0.3.7` (see below — there is no newer version and no drop-in replacement package).
+**Status:** `@assistant-ui/react` bumped `~0.12.25` → `~0.14.26`, `@assistant-ui/react-markdown` `^0.12.9` → `^0.14.5`, `@assistant-ui/react-data-stream` `^0.12.11` → `^0.12.18` across `packages/ui`, `apps/web`, `apps/desktop`. The deprecated `@assistant-ui/styles` 0.3.7 was subsequently retired on 18 October 2026; component-owned chat CSS and the shared Tailwind animation import now replace it (see the retirement record below).
 
 **Why it matters:** This is the highest-blast-radius dependency in the repo — `packages/ui`'s `assistant-ui-panel/*` wraps it directly, and `AGENTS.md`'s ASSISTANT RESILIENCE / PERMISSION ENGINE / ASSISTANT THREAD PERSISTENCE sections all layer custom logic on top of its primitives and hooks.
 
@@ -371,7 +371,7 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 **What did NOT change:** `@assistant-ui/react-markdown`'s actual exports (`MarkdownTextPrimitive`, `unstable_memoizeMarkdownComponents`, `SyntaxHighlighterProps`) and its `styles/dot.css` file are byte-identical between 0.12.9 and 0.14.5 — no code changes needed there. `@assistant-ui/react-data-stream` is not imported anywhere in this repo's actual code (only referenced defensively in Vite `optimizeDeps`/`knip.jsonc` config) and its peer dependency is only against `react`, not `@assistant-ui/react`, so it has no version-lockstep constraint with the other three packages.
 
-**`@assistant-ui/styles` (deprecated) — no replacement package exists:** upstream deleted the entire `packages/styles` workspace package from the assistant-ui monorepo in [PR #3234 "chore: remove `styles` package"](https://github.com/assistant-ui/assistant-ui/pull/3234) (merged 2026-02-06), the same day `0.3.7` — the last version ever published — went out. The npm registry now marks it fully deprecated ("Package no longer supported"). There is no newer version and no drop-in successor package; the recommended go-forward path (per the removed docs' "Not using Tailwind" tab deletion) is the Tailwind-based [shadcn/ui component registry](https://www.assistant-ui.com/docs/ui/styled/thread) (`npx assistant-ui@latest add thread` or `npx shadcn@latest add https://r.assistant-ui.com/thread`), which ships components with their own Tailwind classes instead of importing a separate stylesheet. This repo already uses Tailwind and imports `@assistant-ui/styles/index.css` purely for the library's base CSS custom properties (`overrides.css` layers `--bs-*` tokens on top) — migrating off it entirely would mean re-deriving those base tokens from the shadcn registry's CSS, which is a larger follow-up than this dependency bump warrants. `^0.3.7` is kept pinned (it is already the newest — and final — version on npm).
+**`@assistant-ui/styles` retired (18 October 2026):** upstream removed the unsupported package in [PR #3234](https://github.com/assistant-ui/assistant-ui/pull/3234). Brainstrike now styles the [unstyled primitives](https://www.assistant-ui.com/docs/primitives) through its existing Tailwind pipeline and component-owned CSS, following the vendor’s current component model. All three declarations, the catalog entry, obsolete Knip exceptions and test mocks are removed. The shared UI stylesheet directly imports the maintained `tw-animate-css` 1.4.0 dependency for the app’s existing Tailwind animation classes; dialogs no longer inherit those utilities accidentally from the chat package. The shared transcript owns its viewport layout, message spacing and composer geometry; app theme/reset rules come from the consuming app rather than a second vendor stylesheet. Real Chromium checks preserve measured light/dark geometry at 390 and 900 px; the original scroll, virtualization and chat-flow controls remain. No registry scaffold or runtime replacement is needed for our existing custom conversation surface.
 
 **Pointers**
 
@@ -550,59 +550,52 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 ---
 
-## web-tree-sitter (`web-tree-sitter` 0.25.x → 0.26.x) — deferred
+## web-tree-sitter (0.25.10 → 0.27.1) — Python path qualified
 
-**Why it matters:** `packages/chunking-worker/src/parsers/tree-sitter-adapter.ts` and
-`tree-sitter-grammar-loader.ts` use `web-tree-sitter` to parse Python for
-structure-aware chunking (function/class/decorated-definition boundaries),
-falling back to a recursive/line-based chunker when the grammar can't load.
+The runtime is pinned exactly to `0.27.1` for the existing Python grammar
+(BST-2033 follow-up). Python remains the only Tree-sitter language in
+`TreeSitterLanguage`, the rollout list and the canonical `.py`/`.pyi` route.
+The canonical Node and browser chunkers retain strict failure behavior; no
+parser replacement, grammar expansion or fallback is introduced.
 
-**What broke:** The vendored grammar WASM
-(`packages/chunking-worker/grammars/python.wasm`) used to be sourced from
-`tree-sitter-wasms@0.1.13` — abandoned, last published 2025-10-07, still the
-latest release of that package — and used the legacy Emscripten `"dylink"`
-WASM custom-section name. `web-tree-sitter@0.26.10`'s bundled runtime dropped
-the fallback that 0.25.x had for that legacy name and only accepts
-`"dylink.0"`. Verified live: loading the exact vendored `.wasm` bytes via
-`Language.load()` succeeded on 0.25.10 and threw immediately on 0.26.10
-(a bare `Error` with an empty message, from `getDylinkMetadata` → `failIf`).
-All other API surface this repo actually calls
-(`Parser.init/setLanguage/parse`, `Language.load`, `Query`, `query.matches`,
-`Node.type/startIndex/endIndex`, `tree/parser.delete`) is unchanged between
-the two versions.
+**Canonical upgrade path.** The published package renames its JS/runtime WASM
+assets to `web-tree-sitter.js` / `web-tree-sitter.wasm` and exposes separate
+ESM/CJS type declarations. Vite's existing static `new URL(..., import.meta.url)`
+asset handling follows the published filename; no copy shim or alternate loader
+is needed. The called `Parser.init/setLanguage/parse`, `Language.load`, `Query`,
+`matches`, node range and `tree/parser.delete` APIs remain compatible. Parser,
+tree, language and query ownership are unchanged.
 
-Per the existing catch-and-evict code in `tree-sitter-grammar-loader.ts`,
-this failure doesn't crash the app — it falls back to the recursive chunker —
-but it silently defeats the whole point of the tree-sitter-based Python
-chunking feature, so it must not ship unremediated.
+The grammar format repair from BST-1277 remains essential: the unchanged
+`grammars/python.wasm` is the canonical `tree-sitter-python@0.25.0` artifact,
+with `dylink.0` and ABI 15. Its provenance hash, custom section and real runtime
+load are asserted in `tree-sitter-grammar-abi.test.ts`. The former
+`tree-sitter-wasms@0.1.13` bytes used legacy `dylink` and could not load on the
+newer runtime. Do not re-vendor or force-load those bytes to advance a version.
 
-**Grammar side: resolved (BST-1277).** `grammars/python.wasm` is now
-`tree-sitter-python@0.25.0`'s package-root `tree-sitter-python.wasm`
-(`dylink.0`, ABI 15) — the canonical `tree-sitter/tree-sitter-python` repo.
-`@vscode/tree-sitter-wasm@0.3.1` ships a byte-identical copy of the same
-artifact, so the choice was provenance, not content. The bytes are vendored
-rather than taken as a dependency: nothing imports the package, and
-`tree-sitter-python` carries an `install: node-gyp-build` script plus
-five-platform native prebuilds that the vendored-`.wasm` architecture never
-uses. `tree-sitter-wasms` is gone from the tree.
-`src/__tests__/tree-sitter-grammar-abi.test.ts` pins the artifact's sha256,
-asserts the `dylink.0` section name, and asserts ABI >= 15 — the pin is
-enforced now instead of documented.
+**Recovery issue remains upstream.** [tree-sitter#5910](https://github.com/tree-sitter/tree-sitter/issues/5910)
+reproduces with the canonical JSON 0.24.8 WASM on both 0.26.13 and 0.27.1;
+0.25.10/0.26.12 retain its document root. This is not an upstream repair claim.
+That JSON grammar is outside Brainstrike's Tree-sitter route. Qualification
+uses the shipped Python grammar: malformed nested literals preserve surrounding
+definitions and exact UTF-16 source slices, including astral Unicode. The
+installed adapter, canonical chunkers, browser ingestion and built worker are
+covered; a future language expansion needs its own grammar/recovery evidence.
 
-**What remains before unpinning `web-tree-sitter`**
+**CSP and assets.** The built worker loads its actual same-origin runtime WASM
+and Python grammar under the existing production CSP, without JavaScript
+`unsafe-eval`. The Emscripten module still contains optional dynamic-linking
+`eval` sites; the qualified Python path does not require them. The warning filter
+matches only the qualified 0.27.1 module. Future versions, new modules and
+non-EVAL warnings remain visible, protected by negative controls. Security policy
+is unchanged. Unpackaged Electron flows separately exercise parser routing and
+structure-aware Python chunking; they do not establish packaged-app CSP or
+cross-platform acceptance.
 
-- Bump `packages/chunking-worker`'s `web-tree-sitter` range to `^0.26.x` and
-  re-run the chunking-worker suite plus
-  `apps/desktop/e2e/chunking-host-renderer.test.ts` (its chunk-count
-  assertions discriminate tree-sitter output from the recursive fallback, so
-  a silent degrade shows up as a failure rather than a quality regression).
-- Re-check the rest of the 0.26 API surface against the call sites listed
-  above; only the `dylink` fallback removal was investigated in depth.
-
-**Pointers**
-
-- [`Gregoor/tree-sitter-wasms#52`](https://github.com/Gregoor/tree-sitter-wasms/pull/52) (closed, unmerged; documents the `dylink` → `dylink.0` format change)
-- [`tree-sitter/tree-sitter-python`](https://github.com/tree-sitter/tree-sitter-python) — canonical grammar; the npm package ships the prebuilt `dylink.0` WASM at its package root
+Vendor sources: [0.27 release](https://github.com/tree-sitter/tree-sitter/releases/tag/v0.27.0),
+[0.27.1 notes](https://github.com/tree-sitter/tree-sitter/releases/tag/v0.27.1),
+[published artifact](https://registry.npmjs.org/web-tree-sitter/0.27.1),
+[canonical Python grammar](https://github.com/tree-sitter/tree-sitter-python).
 
 ---
 
@@ -612,7 +605,7 @@ Tracked decisions where we intentionally hold a dependency below its latest vers
 
 | Package | Pinned at | Reason | Tracking |
 | --- | --- | --- | --- |
-| `web-tree-sitter` | `^0.25.10` | Blocker cleared on the grammar side by BST-1277: the vendored Python grammar is now `tree-sitter-python@0.25.0` (`dylink.0`, ABI 15), which 0.26.10 loads. What remains is the range bump itself plus a re-check of the rest of the 0.26 API surface. | (covered in web-tree-sitter section above) |
+| `web-tree-sitter` | `0.27.1` | Existing Python route qualified with the unchanged canonical grammar, source-range/recovery, real worker, asset and production CSP controls. Upstream JSON issue 5910 remains outside this route. | (covered in web-tree-sitter section above) |
 
 **Resolved:** `@swc/core` + `@swc/wasm` were pinned at `~1.15.47` / `~1.15.43` (BST-1311) because `vite-plugin-top-level-await@1.6.0` builds SWC AST nodes that swc 1.16.0 rejects. Rather than unpin, the plugin was **removed** 2026-10-17: both apps now emit native top-level await. `@swc/wasm` left the graph; `@swc/core` remains only as tsup's optional peer, unpinned.
 
