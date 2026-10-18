@@ -1,4 +1,5 @@
 import {
+  type AppendMessage,
   type AssistantRuntime,
   AssistantRuntimeProvider,
   type ChatModelAdapter,
@@ -217,17 +218,21 @@ export function Harness({
 export function HostHistoryHarness({
   children,
   initialMessages,
+  onNew,
 }: {
   children?: (content: ReactNode) => ReactNode;
   initialMessages: ThreadMessageLike[];
+  onNew?: (message: AppendMessage) => Promise<void>;
 }) {
   const runtime = useExternalStoreRuntime({
     convertMessage: (message) => message,
     isRunning: false,
     messages: initialMessages,
-    onNew: async () => {
-      throw new Error('Host history projection must not start a model request.');
-    },
+    onNew:
+      onNew ??
+      (async () => {
+        throw new Error('Host history projection must not start a model request.');
+      }),
   });
   return <HarnessView runtime={runtime}>{children}</HarnessView>;
 }

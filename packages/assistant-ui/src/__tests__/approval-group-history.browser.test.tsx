@@ -1,11 +1,44 @@
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
+import type { ThreadMessageLike } from '@assistant-ui/react';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { expect, test, vi } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
-import { Harness, runEventPart } from './assistant-activity-timeline-fixtures';
+import { Harness, HostHistoryHarness, runEventPart } from './assistant-activity-timeline-fixtures';
+
+/** A resumed host leg appends to its history without cancelling earlier pauses. */
+function ApprovalHistoryHarness({
+  initialMessages,
+  run,
+}: {
+  initialMessages: ThreadMessageLike[];
+  run: () => Promise<{ content: ThreadMessageLike['content'] }>;
+}) {
+  const [messages, setMessages] = useState(initialMessages);
+  return (
+    <HostHistoryHarness
+      initialMessages={messages}
+      onNew={async (message) => {
+        const result = await run();
+        setMessages((previous) => [
+          ...previous,
+          message,
+          { ...result, role: 'assistant', status: { reason: 'stop', type: 'complete' } },
+        ]);
+      }}
+    >
+      {(content) => (
+        <AnsweredApprovalsProvider>
+          <AssistantDataRendererRegistration />
+          {content}
+        </AnsweredApprovalsProvider>
+      )}
+    </HostHistoryHarness>
+  );
+}
 
 test.each(['root-host-leg', 'child-host-leg', 'grandchild-host-leg'])(
   'approving a separate card on %s leaves static history and no stale waiting group',
@@ -30,8 +63,7 @@ test.each(['root-host-leg', 'child-host-leg', 'grandchild-host-leg'])(
       ],
     }));
     render(
-      <Harness
-        adapter={{ run }}
+      <ApprovalHistoryHarness
         initialMessages={[
           {
             content: [
@@ -58,14 +90,8 @@ test.each(['root-host-leg', 'child-host-leg', 'grandchild-host-leg'])(
             role: 'assistant',
           },
         ]}
-      >
-        {(content) => (
-          <AnsweredApprovalsProvider>
-            <AssistantDataRendererRegistration />
-            {content}
-          </AnsweredApprovalsProvider>
-        )}
-      </Harness>
+        run={run}
+      />
     );
     expect(screen.queryByTestId('assistant-activity-group')).toBeNull();
     expect(screen.queryAllByText('Waiting for approval')).toHaveLength(0);
