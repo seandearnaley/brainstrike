@@ -170,6 +170,14 @@ export const MCP_HOST_CATALOG_SECTIONS = [
   'tools',
 ] as const;
 export type McpHostCatalogSection = (typeof MCP_HOST_CATALOG_SECTIONS)[number];
+/** The catalog sections a server lists (`subscription` is a status, not a list). */
+export const MCP_HOST_LISTED_CATALOG_SECTIONS = [
+  'prompts',
+  'resources',
+  'resourceTemplates',
+  'tools',
+] as const;
+export type McpHostListedCatalogSection = (typeof MCP_HOST_LISTED_CATALOG_SECTIONS)[number];
 export type McpHostCatalogErrors = {
   readonly [Section in McpHostCatalogSection]?: McpHostError | undefined;
 };
@@ -206,6 +214,14 @@ type SdkEmptyResult = z.output<typeof EmptyResultSchema>;
 export interface McpHostCatalog {
   errors: McpHostCatalogErrors;
   features: McpHostServerFeatures;
+  /**
+   * Sections whose list request is in flight right now, initial or after a
+   * list-changed notification (BST-1632). Absent when every list has settled.
+   * A section that is listing and has no result yet is LOADING, which is
+   * distinct from a settled empty list, a failed one (`errors`), or a server
+   * that advertises no such capability (`features`).
+   */
+  listing?: readonly McpHostListedCatalogSection[] | undefined;
   prompts?: BrowserSafe<SdkListPromptsResult> | undefined;
   resources?: BrowserSafe<SdkListResourcesResult> | undefined;
   resourceTemplates?: BrowserSafe<SdkListResourceTemplatesResult> | undefined;

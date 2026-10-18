@@ -11,7 +11,7 @@ import {
 } from '@modelcontextprotocol/core';
 import { Schema } from 'effect';
 import type { McpHostCatalog, McpHostCloseReport, McpHostOperationResult } from './mcp-host.js';
-import { McpHostErrorSchema } from './mcp-host.js';
+import { MCP_HOST_LISTED_CATALOG_SECTIONS, McpHostErrorSchema } from './mcp-host.js';
 import {
   assertMcpHostStrictJson,
   McpHostCatalogErrorsSchema,
@@ -75,6 +75,9 @@ const McpHostCloseReportSchema = Schema.Struct({
 const McpHostCatalogSchema = Schema.Struct({
   errors: McpHostCatalogErrorsSchema,
   features: McpHostServerFeaturesSchema,
+  listing: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.Literals(MCP_HOST_LISTED_CATALOG_SECTIONS)))
+  ),
   prompts: Schema.optional(sdkSchema(ListPromptsResultSchema)),
   resources: Schema.optional(sdkSchema(ListResourcesResultSchema)),
   resourceTemplates: Schema.optional(sdkSchema(ListResourceTemplatesResultSchema)),
