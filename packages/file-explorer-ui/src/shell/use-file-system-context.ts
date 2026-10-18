@@ -4,7 +4,6 @@
  * This hook provides file system functionality using the context-based store.
  */
 
-import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import {
   useAdapters,
   useFileSystem as useCoreFileSystem,
@@ -21,7 +20,7 @@ import {
   FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
   type FileSystemChange,
 } from '@brainstrike/types';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
 import { hasPersistHydrationApi } from '../utils/persist-hydration';
@@ -31,6 +30,7 @@ import {
 } from './file-explorer-provider';
 import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
 import { useOptionalRootDataDeletion } from './root-data-deletion-context';
+import { useFactoryResetWatchFence } from './use-factory-reset-watch-fence';
 
 const logger = createLogger('FileSystemContext');
 
@@ -404,23 +404,18 @@ export function useFileSystemInstance() {
   // which triggers the sync provider to pick up new / deleted files.
   const { fileSystemAdapter } = useAdapters();
 
-  // Factory reset preparation is terminal for this renderer (ADR-0015). Reset's
-  // live-store clear remounts this subtree, and the roots the remount restores
-  // are being retired: the next restore that reads the cleared root ledger
-  // unmounts them. So an owner mounted after preparation began watches nothing
-  // (BST-2149).
-  const [resetPrepared] = useState(hasFactoryResetPreparationStarted);
+  // Factory reset preparation retires this owner's root watching (BST-2149).
+  const watchAdapter = useFactoryResetWatchFence(fileSystemAdapter);
+
   const watcherRoots = useMemo(
     () =>
-      resetPrepared
-        ? []
-        : coreApi.rootDirectoryHandles.map((handle) => ({
-            handle,
-            // Prefer the stamped handle.rootId — the path→id map collides for
-            // same-named web roots.
-            rootId: handle.rootId ?? coreApi.rootIdByPath.get(handle.path) ?? handle.path,
-          })),
-    [coreApi.rootDirectoryHandles, coreApi.rootIdByPath, resetPrepared]
+      coreApi.rootDirectoryHandles.map((handle) => ({
+        handle,
+        // Prefer the stamped handle.rootId — the path→id map collides for
+        // same-named web roots.
+        rootId: handle.rootId ?? coreApi.rootIdByPath.get(handle.path) ?? handle.path,
+      })),
+    [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]
   );
 
   // Debounce timer for the refresh event dispatch. Held in a ref so the
@@ -645,7 +640,7 @@ export function useFileSystemInstance() {
   );
 
   useFileSystemWatcher({
-    adapter: fileSystemAdapter,
+    adapter: watchAdapter,
     onChanges: handleWatcherChanges,
     onSignal: handleWatcherSignal,
     roots: watcherRoots,
