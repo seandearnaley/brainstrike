@@ -144,7 +144,9 @@ function ipv6Bytes(address: string): Uint8Array | null {
     return null;
   }
   const parse = (part: string | undefined): number[] =>
-    part ? part.split(':').map((group) => Number.parseInt(group, 16)) : [];
+    part === undefined || part === ''
+      ? []
+      : part.split(':').map((group) => Number.parseInt(group, 16));
   const head = parse(halves[0]);
   const rest = [...parse(halves[1]), ...tail];
   const missing = 8 - head.length - rest.length;

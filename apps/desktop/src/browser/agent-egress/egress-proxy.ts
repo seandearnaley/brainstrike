@@ -92,6 +92,15 @@ function credentialMatches(headers: IncomingHttpHeaders, expected: Buffer): bool
   return presented.length === expected.length && timingSafeEqual(presented, expected);
 }
 
+/** An absolute `http:` URL, the only form a plain-http proxy request takes. */
+function absoluteHttpUrl(target: string): URL | null {
+  if (!URL.canParse(target)) {
+    return null;
+  }
+  const url = new URL(target);
+  return url.protocol === 'http:' ? url : null;
+}
+
 class Refused extends Error {
   readonly refusal: EgressRefusal;
   constructor(refusal: EgressRefusal) {
@@ -111,9 +120,10 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
     stream.once('close', () => open.delete(stream));
   };
 
-  const refuse = (refusal: EgressRefusal): never => {
+  /** Report a refusal and return the error that carries it. */
+  const refuse = (refusal: EgressRefusal): Refused => {
     options.onRefusal?.(refusal);
-    throw new Refused(refusal);
+    return new Refused(refusal);
   };
 
   /** Every answer for `host`, refused unless all of them may be reached. */
@@ -124,12 +134,12 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
         ? await resolve(host).catch((): readonly ResolvedAddress[] => [])
         : [{ address: host, family: family === 6 ? (6 as const) : (4 as const) }];
     if (answers.length === 0) {
-      refuse({ host, reason: 'unresolved' });
+      throw refuse({ host, reason: 'unresolved' });
     }
     for (const { address } of answers) {
       const addressClass = refusedAddressClass(address);
-      if (addressClass) {
-        refuse({ address, addressClass, host, reason: 'destination' });
+      if (addressClass !== null) {
+        throw refuse({ address, addressClass, host, reason: 'destination' });
       }
     }
     return answers;
@@ -164,63 +174,62 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
     throw lastFailure;
   };
 
-  const statusFor = (failure: unknown): { status: number; refusal?: string } => {
+  /** The status and refusal header a failed admission answers with. */
+  const failureReply = (failure: unknown): { headers: Record<string, string>; status: number } => {
     if (failure instanceof Refused) {
       const { refusal } = failure;
+      const refused = refusal.reason === 'destination' ? refusal.addressClass : refusal.reason;
       return {
-        refusal: refusal.reason === 'destination' ? refusal.addressClass : refusal.reason,
+        headers: { [EGRESS_REFUSAL_HEADER]: refused },
         status: refusal.reason === 'malformed' ? 400 : 403,
       };
     }
-    return { status: 502 };
+    return { headers: {}, status: 502 };
   };
 
-  const server = createServer();
-
-  server.on('connect', (request: IncomingMessage, client: Duplex, head: Buffer) => {
-    track(client);
-    client.on('error', () => client.destroy());
-    const reply = (status: number, headers: Record<string, string> = {}): void => {
+  const tunnel = async (request: IncomingMessage, client: Duplex, head: Buffer): Promise<void> => {
+    const reply = (status: number, headers: Record<string, string>): void => {
       const lines = Object.entries(headers).map(([name, value]) => `${name}: ${value}\r\n`);
-      client.end(
-        `HTTP/1.1 ${status} ${status === 407 ? 'Proxy Authentication Required' : 'Refused'}\r\n${lines.join('')}Content-Length: 0\r\n\r\n`
-      );
+      const reason = status === 407 ? 'Proxy Authentication Required' : 'Refused';
+      client.end(`HTTP/1.1 ${status} ${reason}\r\n${lines.join('')}Content-Length: 0\r\n\r\n`);
     };
     if (!credentialMatches(request.headers, expected)) {
       reply(407, { 'Proxy-Authenticate': REALM });
       return;
     }
     const target = parseAuthority(request.url ?? '');
-    if (!target) {
-      reply(400, { [EGRESS_REFUSAL_HEADER]: 'malformed' });
-      options.onRefusal?.({ reason: 'malformed', target: request.url ?? '' });
+    if (target === null) {
+      const { headers, status } = failureReply(
+        refuse({ reason: 'malformed', target: request.url ?? '' })
+      );
+      reply(status, headers);
       return;
     }
-    admit(target.host, target.port).then(
-      (upstream) => {
-        if (client.destroyed) {
-          upstream.destroy();
-          return;
-        }
-        upstream.on('error', () => client.destroy());
-        client.on('close', () => upstream.destroy());
-        upstream.on('close', () => client.destroy());
-        client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-        if (head.length > 0) {
-          upstream.write(head);
-        }
-        upstream.pipe(client);
-        client.pipe(upstream);
-      },
-      (failure: unknown) => {
-        const { refusal, status } = statusFor(failure);
-        reply(status, refusal ? { [EGRESS_REFUSAL_HEADER]: refusal } : {});
-      }
-    );
-  });
+    let upstream: Socket;
+    try {
+      upstream = await admit(target.host, target.port);
+    } catch (failure) {
+      const { headers, status } = failureReply(failure);
+      reply(status, headers);
+      return;
+    }
+    if (client.destroyed) {
+      upstream.destroy();
+      return;
+    }
+    upstream.on('error', () => client.destroy());
+    client.on('close', () => upstream.destroy());
+    upstream.on('close', () => client.destroy());
+    client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+    if (head.length > 0) {
+      upstream.write(head);
+    }
+    upstream.pipe(client);
+    client.pipe(upstream);
+  };
 
-  server.on('request', (request: IncomingMessage, response: ServerResponse) => {
-    const fail = (status: number, headers: Record<string, string> = {}): void => {
+  const forward = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    const fail = (status: number, headers: Record<string, string>): void => {
       if (!response.headersSent) {
         response.writeHead(status, { ...headers, 'content-length': '0' });
       }
@@ -230,48 +239,56 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
       fail(407, { 'proxy-authenticate': REALM });
       return;
     }
-    let url: URL;
-    try {
-      url = new URL(request.url ?? '');
-    } catch {
-      url = new URL('invalid:');
-    }
-    if (url.protocol !== 'http:') {
-      options.onRefusal?.({ reason: 'malformed', target: request.url ?? '' });
-      fail(400, { [EGRESS_REFUSAL_HEADER]: 'malformed' });
+    const url = absoluteHttpUrl(request.url ?? '');
+    if (url === null) {
+      const { headers, status } = failureReply(
+        refuse({ reason: 'malformed', target: request.url ?? '' })
+      );
+      fail(status, headers);
       return;
     }
-    const host = url.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
-    const port = url.port === '' ? 80 : Number(url.port);
-    admit(host, port).then(
-      (upstream) => {
-        const headers: IncomingHttpHeaders = Object.fromEntries(
+    let upstream: Socket;
+    try {
+      const port = url.port === '' ? 80 : Number(url.port);
+      upstream = await admit(url.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase(), port);
+    } catch (failure) {
+      const { headers, status } = failureReply(failure);
+      fail(status, headers);
+      return;
+    }
+    response.on('close', () => upstream.destroy());
+    const forwarded = httpRequest(
+      {
+        createConnection: () => upstream,
+        headers: Object.fromEntries(
           Object.entries(request.headers).filter(([name]) => !name.startsWith('proxy-'))
-        );
-        const forwarded = httpRequest(
-          {
-            createConnection: () => upstream,
-            headers,
-            method: request.method,
-            path: `${url.pathname}${url.search}`,
-          },
-          (upstreamResponse) => {
-            response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.rawHeaders);
-            upstreamResponse.pipe(response);
-          }
-        );
-        forwarded.on('error', () => {
-          fail(502);
-          upstream.destroy();
-        });
-        response.on('close', () => upstream.destroy());
-        request.pipe(forwarded);
+        ),
+        method: request.method,
+        path: `${url.pathname}${url.search}`,
       },
-      (failure: unknown) => {
-        const { refusal, status } = statusFor(failure);
-        fail(status, refusal ? { [EGRESS_REFUSAL_HEADER]: refusal } : {});
+      (upstreamResponse) => {
+        response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.rawHeaders);
+        upstreamResponse.pipe(response);
       }
     );
+    forwarded.on('error', () => {
+      fail(502, {});
+      upstream.destroy();
+    });
+    request.pipe(forwarded);
+  };
+
+  const server = createServer();
+  // A failure after admission (a socket torn down mid-setup) ends that one
+  // connection; it never escapes as an unhandled rejection that would take
+  // every agent tab's route down with this process.
+  server.on('connect', (request: IncomingMessage, client: Duplex, head: Buffer) => {
+    track(client);
+    client.on('error', () => client.destroy());
+    tunnel(request, client, head).catch(() => client.destroy());
+  });
+  server.on('request', (request: IncomingMessage, response: ServerResponse) => {
+    forward(request, response).catch(() => response.destroy());
   });
 
   await new Promise<void>((resolveListen, reject) => {

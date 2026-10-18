@@ -104,7 +104,7 @@ async function connectThrough(
   await once(socket, 'connect');
   socket.write(
     `CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n${
-      authorization ? `Proxy-Authorization: ${authorization}\r\n` : ''
+      authorization === null ? '' : `Proxy-Authorization: ${authorization}\r\n`
     }\r\n`
   );
   let buffered = '';
@@ -144,7 +144,7 @@ async function forwardThrough(
   const request = httpRequest({
     headers: {
       host: new URL(url).host,
-      ...(authorization ? { 'proxy-authorization': authorization } : {}),
+      ...(authorization === null ? {} : { 'proxy-authorization': authorization }),
     },
     host: '127.0.0.1',
     path: url,
