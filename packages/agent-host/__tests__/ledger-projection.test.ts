@@ -383,10 +383,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     expect(costedSources('gpt-4.1-mini')).toEqual([
       ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
     ]);
-    // The built-in local observer bills nothing.
-    expect(costedSources('local::gemma-4-e2b-it')).toEqual([
-      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
-    ]);
   });
 });
 describe("a thread's latest root run", () => {

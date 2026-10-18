@@ -462,8 +462,7 @@ export function useDesktopHostPresentation(
     },
     [metadata.lookup, model, providerSettings, selectedProvider, setThreadDraftRuntime, threadId]
   );
-  // Plan mode is never offered for the built-in local provider: its toggle is hidden.
-  const planModeAvailable = selectedProvider !== undefined && selectedProvider !== 'local';
+  const planModeAvailable = selectedProvider !== undefined;
   const planMode = useMemo(
     () =>
       planModeAvailable

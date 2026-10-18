@@ -322,7 +322,7 @@ export interface RuntimeData {
    * keys PRESENT with undefined values" in `use-assistant-request-lifecycle.test.ts`;
    * same shape as `permissionPolicyRequest`, whose declaration in
    * `packages/agent/src/types.ts` carries the full rationale.
-   * Excluded for the built-in local provider. Agent-only enforcement.
+   * Agent-only enforcement.
    */
   planMode?: boolean;
   projectId?: string;

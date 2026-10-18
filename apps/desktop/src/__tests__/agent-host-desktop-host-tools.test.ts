@@ -610,12 +610,13 @@ async function skillWorkspace(): Promise<{
   await writeFile(join(skill, 'scripts', 'hello.sh'), 'printf hello-from-skill\n');
   return { home, root };
 }
-function admitSkills(root: string, home: string, provider: string) {
+function admitSkills(root: string, home: string, masterEnabled = true) {
   return prepareAdmittedSkills({
     fs: createSecureSkillsFs([root, home]),
     homedir: () => home,
     runtimeData: {
-      provider,
+      provider: 'openai',
+      skillsPreference: { disabledSkillKeys: [], masterEnabled },
       workspaceRoots: [{ displayName: 'A', path: root, rootId: 'root-a' }],
     },
   });
@@ -623,7 +624,7 @@ function admitSkills(root: string, home: string, provider: string) {
 test('the desktop host activates, reads and runs the skills Main admitted, reading their files itself', async () => {
   const { home, root } = await skillWorkspace();
   // Main's one scan for this run: its enabled skills are what the host may use.
-  const { skills } = admitSkills(root, home, 'openai');
+  const { skills } = admitSkills(root, home);
   expect(skills?.map((skill) => skill.name)).toEqual(['demo-skill']);
   const request = vi.fn(async (method: string) => {
     if (method !== 'admission/fresh-roots') {
@@ -684,9 +685,9 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     new Set(['admission/fresh-roots'])
   );
 });
-test('a run on the built-in local provider is admitted without workspace skills', async () => {
+test('a run with Skills off is admitted without workspace skills', async () => {
   const { home, root } = await skillWorkspace();
-  expect(admitSkills(root, home, 'local')).toEqual({});
+  expect(admitSkills(root, home, false)).toEqual({});
   // With nothing admitted, the host builds no skill tool even if a descriptor names one.
   const selected = selection(root);
   selected.tools['skill'] = {

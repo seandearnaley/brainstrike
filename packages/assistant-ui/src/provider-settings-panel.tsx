@@ -681,9 +681,8 @@ export const ProviderSettingsPanel = ({
   const isOpenAiFamily = normalizedProvider === 'openai' || normalizedProvider === 'openrouter';
   const isAnthropic = normalizedProvider === 'anthropic';
   const isGoogle = normalizedProvider === 'google';
-  const isLocal = normalizedProvider === 'local';
 
-  if (!(isOpenAiFamily || isAnthropic || isGoogle || isLocal)) {
+  if (!(isOpenAiFamily || isAnthropic || isGoogle)) {
     return null;
   }
 

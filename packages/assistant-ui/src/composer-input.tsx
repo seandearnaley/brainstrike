@@ -9,7 +9,7 @@ import { useBudgetSendGate } from './budget-guardrail-control';
  * Composer plan-mode toggle controls, threaded from the app-shell wrapper down
  * to the composer input row. `onExit` clears the persisted plan-mode toggle on
  * plan approval; absent when plan mode is not wired (e.g. non-desktop
- * transports or the built-in local provider).
+ * transports).
  */
 export interface PlanModeComposerControls {
   enabled: boolean;

@@ -309,7 +309,6 @@ export interface AssistantPersonaAvailabilityIssue {
     | 'credential-unreadable'
     | 'model-not-listed'
     | 'model-unsupported'
-    | 'worker-model-unsupported'
     | 'tool-not-discovered'
     | 'tool-disabled';
   readonly message: string;

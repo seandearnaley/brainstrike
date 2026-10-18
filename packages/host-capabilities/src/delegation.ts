@@ -50,15 +50,14 @@ export const hostPersonaScan: HostPersonaScan = {
 
 export function resolveHostDelegation(
   intent: { readonly subagents?: HostSubagentsIntent | undefined },
-  provider: string,
   roots: readonly RuntimeWorkspaceRoot[],
   /** A plan-mode run only reads and proposes a plan; it never delegates. */
   planMode: boolean,
   personas: HostPersonaScan = hostPersonaScan
 ): HostDelegation | undefined {
   const subagents = intent.subagents;
-  // A26: the master switch off, plan mode, or the built-in local provider leaves no delegation tools.
-  if (!subagents?.delegationEnabled || planMode || provider === 'local') {
+  // A26: the master switch off or plan mode leaves no delegation tools.
+  if (!subagents?.delegationEnabled || planMode) {
     return;
   }
   let scanned: readonly AssistantPersonaDefinition[] = [];
