@@ -23,6 +23,7 @@ import {
   type RediscoveredPauseDisplay,
   readRediscoveredPauseDisplay,
 } from './rediscovered-pause-display';
+import { useIsStoppedApproval } from './stopped-approvals-context';
 import {
   type ApprovalRunOutcome,
   type ApprovalRunOutcomeState,
@@ -125,7 +126,11 @@ export function useApprovalNoticeState(
   const { isRunning, queued, threadKey } = useDecisionQueueState(approval);
   const decisionRoute = useDecisionRoute();
   const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
-  const decisionLocked = rediscovered?.decisionState !== undefined || hostAnswer !== null;
+  // Stopped before any committed answer (BST-2185, case B): the pause is over,
+  // so nothing may be submitted against it.
+  const stopped = useIsStoppedApproval(getToolActionIdentityKey(approval));
+  const decisionLocked =
+    rediscovered?.decisionState !== undefined || hostAnswer !== null || stopped;
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   // Derived, not adjusted in an effect: the optimistic lock belongs to the run
@@ -232,6 +237,7 @@ export function useApprovalNoticeState(
     hostAnswer,
     queued,
     rediscovered,
+    stopped,
   });
   return {
     actionButtonsDisabled:

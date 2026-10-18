@@ -102,16 +102,24 @@ export function useDecisionQueueState(approval: AssistantToolApprovalRequest | n
   return { isRunning, queued, threadKey: queueThreadKey };
 }
 
-/** The header chip: queued, a host answer, a durable decision state, or the run outcome. */
+/** A pause the run ended before any committed answer: the call never ran (BST-2185). */
+export const STOPPED_UNANSWERED_STATUS = 'Stopped: not approved';
+
+/** The header chip: queued, a stopped pause, a host answer, a durable decision state, or the run outcome. */
 export function resolveNoticeStatus(input: {
   readonly actionLockedByRun: boolean;
   readonly displayedAction: AssistantToolApprovalDecision | null;
   readonly hostAnswer: AssistantToolApprovalAnswered | null;
   readonly queued: boolean;
   readonly rediscovered: RediscoveredPauseDisplay | null;
+  /** Stopped with no committed answer (`stoppedApprovalKeys`); exclusive of every answer. */
+  readonly stopped: boolean;
 }): string {
   if (input.queued) {
     return 'Queued';
+  }
+  if (input.stopped) {
+    return STOPPED_UNANSWERED_STATUS;
   }
   if (input.hostAnswer?.reason === 'session-grant') {
     return 'Allowed by session grant';

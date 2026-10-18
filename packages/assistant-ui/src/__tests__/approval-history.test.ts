@@ -6,7 +6,14 @@ import {
   advanceAnsweredApprovalsIndex,
   createMutableApprovalsIndex,
 } from '../answered-approvals-index-model';
-import { approvalCardToolCallIds } from '../approval-history';
+import {
+  type ApprovalCardIndex,
+  approvalCardCalls,
+  approvalCardToolCallIds,
+  cardOwnsPausedCall,
+  isStoppedUnansweredPause,
+  stoppedApprovalKeys,
+} from '../approval-history';
 
 const request = {
   delegation: {
@@ -298,4 +305,73 @@ it('requires a real host-owned original card rather than an unscoped rediscovery
   expect(
     approvalCardToolCallIds([answerPart()], index.cardedSurfaceCalls, index.requests).size
   ).toBe(0);
+});
+
+// BST-2185: a carded pause is classified by its committed answer. The status a
+// vendor runtime rewrites (`incomplete/cancelled`) only says the pause is over.
+const CANCELLED = { reason: 'cancelled', type: 'incomplete' } as const;
+function pausedCall(status: { readonly reason?: string; readonly type: string }) {
+  return { status, toolCallId: request.toolCallId, toolName: request.toolName, type: 'tool-call' };
+}
+const inlineCard = { data: request, name: 'brainstrike.tool-approval', type: 'data' };
+const requestKey = getToolActionIdentityKey(request);
+
+it.each<[string, ApprovalCardIndex]>([
+  [
+    'the host answer',
+    { answers: new Map([[requestKey, { ...request, decision: 'approve', reason: 'user' }]]) },
+  ],
+  ['the user decision', { userDecisions: new Map([[requestKey, 'decline']]) }],
+  ['a durable decision state', { requests: new Map([[requestKey, { decided: true, request }]]) }],
+])('a cancelled pause decided by %s belongs to its card and is not stopped', (_, index) => {
+  const parts = [pausedCall(CANCELLED), inlineCard];
+  const calls = approvalCardCalls(parts, index);
+  expect(cardOwnsPausedCall(pausedCall(CANCELLED), calls)).toBe(true);
+  expect(isStoppedUnansweredPause(pausedCall(CANCELLED), calls)).toBe(false);
+  expect(stoppedApprovalKeys(parts, calls).size).toBe(0);
+});
+
+it('an inline pause stopped before any answer belongs to its card as stopped', () => {
+  const parts = [pausedCall(CANCELLED), inlineCard];
+  const calls = approvalCardCalls(parts);
+  expect(cardOwnsPausedCall(pausedCall(CANCELLED), calls)).toBe(true);
+  expect([...stoppedApprovalKeys(parts, calls)]).toEqual([requestKey]);
+});
+
+it.each([
+  ['running', { type: 'running' }],
+  ['failed', { reason: 'error', type: 'incomplete' }],
+] as const)('an unanswered %s pause keeps its activity chrome', (_, status) => {
+  const parts = [pausedCall(status), inlineCard];
+  const calls = approvalCardCalls(parts);
+  expect(cardOwnsPausedCall(pausedCall(status), calls)).toBe(false);
+  expect(stoppedApprovalKeys(parts, calls).size).toBe(0);
+});
+
+it('a running message still executes a decided call', () => {
+  const parts = [pausedCall({ type: 'running' }), inlineCard];
+  const calls = approvalCardCalls(parts, { userDecisions: new Map([[requestKey, 'approve']]) });
+  expect(cardOwnsPausedCall(pausedCall({ type: 'running' }), calls)).toBe(false);
+});
+
+it.each([
+  ['a resumed leg', [answerPart(), pausedCall(CANCELLED)]],
+  ['a live decision in the pausing leg', [pausedCall(CANCELLED), inlineCard, answerPart()]],
+])('%s that executes a decided call keeps its stopped execution', (_, parts) => {
+  const calls = approvalCardCalls(parts, indexRequest());
+  expect(calls.ids.has(request.toolCallId)).toBe(true);
+  expect(cardOwnsPausedCall(pausedCall(CANCELLED), calls)).toBe(false);
+  expect(stoppedApprovalKeys(parts, calls).size).toBe(0);
+  // The answer in this message is committed even before the thread index holds it.
+  expect(stoppedApprovalKeys(parts, approvalCardCalls(parts)).size).toBe(0);
+});
+
+it('a separate card owns its answered pause, but only an inline card reads as stopped', () => {
+  const index = indexRequest();
+  const parts = [pausedCall(CANCELLED), pause('host-root', request.toolCallId)];
+  const unanswered = approvalCardCalls(parts, index);
+  expect(cardOwnsPausedCall(pausedCall(CANCELLED), unanswered)).toBe(false);
+  expect(stoppedApprovalKeys(parts, unanswered).size).toBe(0);
+  index.answers.set(requestKey, { ...request, decision: 'approve', reason: 'user' });
+  expect(cardOwnsPausedCall(pausedCall(CANCELLED), approvalCardCalls(parts, index))).toBe(true);
 });

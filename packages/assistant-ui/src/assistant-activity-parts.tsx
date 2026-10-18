@@ -22,7 +22,12 @@ import { StepRowHeader } from './activity-step-row';
 import { ActivityTrace, type ActivityTraceProps } from './activity-trace';
 import { deriveActivitySteps, summarizeActivity } from './activity-trace-model';
 import { useAnsweredApprovals } from './answered-approvals-context';
-import { approvalCardToolCallIds } from './approval-history';
+import {
+  type ApprovalCardCalls,
+  approvalCardCalls,
+  cardOwnsPausedCall,
+  stoppedApprovalKeys,
+} from './approval-history';
 import {
   ACTIVITY_GROUP_KEY,
   type ActivityGroupKey,
@@ -37,6 +42,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { ShellOutputProvider } from './shell-output-context';
+import { StoppedApprovalsContext } from './stopped-approvals-context';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
@@ -234,7 +240,7 @@ function ActivityReasoningBlock({
 }
 
 interface ActivityGroupProps {
-  readonly cardedCalls: ReadonlySet<string>;
+  readonly cardCalls: ApprovalCardCalls;
   readonly children: ReactNode;
   readonly indices: readonly number[];
   readonly status: MessagePartStatus | ToolCallMessagePartStatus;
@@ -265,13 +271,15 @@ function toIncompleteReason(
  * the group body renders `children` directly — tool cards and reasoning
  * blocks interleaved in part order.
  */
-function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroupProps): ReactNode {
+function ActivityGroup({ cardCalls, children, indices, status }: ActivityGroupProps): ReactNode {
   const renderers = useToolResultRenderers();
   const messageParts = useAuiState((state) => state.message.parts);
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
   const isMessageRunning = useAuiState(
     (state) => state.message.role === 'assistant' && state.message.status.type === 'running'
   );
+  // A carded call's pause belongs to its card (BST-2185): awaiting, answered,
+  // or stopped unanswered — never a "Stopped · 1 step" group of its own.
   const groupParts = useMemo(
     () =>
       indices
@@ -279,14 +287,9 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
         .filter(
           (part): part is PartState =>
             part !== undefined &&
-            !(
-              part.type === 'tool-call' &&
-              part.result === undefined &&
-              part.status.type === 'requires-action' &&
-              cardedCalls.has(part.toolCallId)
-            )
+            !(part.type === 'tool-call' && cardOwnsPausedCall(part, cardCalls))
         ),
-    [indices, messageParts, cardedCalls]
+    [indices, messageParts, cardCalls]
   );
   const preserveBodyEffects = useMemo(
     () => groupParts.some((part) => toolResultPartPreservesEffectsWhenHidden(renderers, part)),
@@ -447,10 +450,15 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
  */
 export function AssistantActivityParts(): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
-  const { cardedSurfaceCalls, requests } = useAnsweredApprovals();
-  const cardedCalls = useMemo(
-    () => approvalCardToolCallIds(messageParts, cardedSurfaceCalls, requests),
-    [messageParts, cardedSurfaceCalls, requests]
+  const index = useAnsweredApprovals();
+  // Which calls a card owns, and whether each pause has a committed answer
+  // (BST-2185). The vendor local runtime rewrites a paused message that a later
+  // message follows, or that Stop ended, to `incomplete/cancelled`; that status
+  // never says whether the user approved.
+  const cardCalls = useMemo(() => approvalCardCalls(messageParts, index), [messageParts, index]);
+  const stoppedApprovals = useMemo(
+    () => stoppedApprovalKeys(messageParts, cardCalls),
+    [messageParts, cardCalls]
   );
   const trailingGroupHoldsActivity = useAuiState((state) =>
     trailingGroupHasActivity(state.message.parts)
@@ -460,60 +468,60 @@ export function AssistantActivityParts(): ReactNode {
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
   const shellOutputs = useShellOutputs(messageId, messageParts);
   return (
-    <MessagePrimitive.GroupedParts<ActivityGroupKey>
-      groupBy={groupAssistantActivityPart}
-      indicator="no-text"
-    >
-      {({ children, part }) => {
-        switch (part.type) {
-          case ACTIVITY_GROUP_KEY:
-            return (
-              <ActivityGroup cardedCalls={cardedCalls} indices={part.indices} status={part.status}>
-                {children}
-              </ActivityGroup>
-            );
-          case 'text':
-            return <AssistantMessageText />;
-          case 'reasoning':
-            return (
-              <ActivityReasoningSlot>
-                <ActivityReasoningBlock part={part} />
-              </ActivityReasoningSlot>
-            );
-          case 'tool-call':
-            if (
-              part.result === undefined &&
-              part.status.type === 'requires-action' &&
-              cardedCalls.has(part.toolCallId) &&
-              !isSubagentDelegationToolName(part.toolName)
-            ) {
-              // A dedicated approval card owns this UI. Null now invokes the
-              // vendor's registered renderer; false explicitly suppresses it.
-              return false;
-            }
-            return (
-              <ActivityToolSlot toolCallId={part.toolCallId}>
-                <ShellOutputProvider outputs={shellOutputs}>
-                  <ActivityPartLayout>
-                    {part.toolUI ?? <ActivityToolPart {...part} />}
-                  </ActivityPartLayout>
-                </ShellOutputProvider>
-              </ActivityToolSlot>
-            );
-          case 'data':
-            return part.dataRendererUI;
-          case 'indicator':
-            return trailingGroupHoldsActivity ? null : (
-              <AssistantThinkingIndicator
-                className="bs-streaming-thinking"
-                markClassName="size-4"
-              />
-            );
-          default:
-            return null;
-        }
-      }}
-    </MessagePrimitive.GroupedParts>
+    <StoppedApprovalsContext value={stoppedApprovals}>
+      <MessagePrimitive.GroupedParts<ActivityGroupKey>
+        groupBy={groupAssistantActivityPart}
+        indicator="no-text"
+      >
+        {({ children, part }) => {
+          switch (part.type) {
+            case ACTIVITY_GROUP_KEY:
+              return (
+                <ActivityGroup cardCalls={cardCalls} indices={part.indices} status={part.status}>
+                  {children}
+                </ActivityGroup>
+              );
+            case 'text':
+              return <AssistantMessageText />;
+            case 'reasoning':
+              return (
+                <ActivityReasoningSlot>
+                  <ActivityReasoningBlock part={part} />
+                </ActivityReasoningSlot>
+              );
+            case 'tool-call':
+              if (
+                cardOwnsPausedCall(part, cardCalls) &&
+                !isSubagentDelegationToolName(part.toolName)
+              ) {
+                // A dedicated approval card owns this UI. Null now invokes the
+                // vendor's registered renderer; false explicitly suppresses it.
+                return false;
+              }
+              return (
+                <ActivityToolSlot toolCallId={part.toolCallId}>
+                  <ShellOutputProvider outputs={shellOutputs}>
+                    <ActivityPartLayout>
+                      {part.toolUI ?? <ActivityToolPart {...part} />}
+                    </ActivityPartLayout>
+                  </ShellOutputProvider>
+                </ActivityToolSlot>
+              );
+            case 'data':
+              return part.dataRendererUI;
+            case 'indicator':
+              return trailingGroupHoldsActivity ? null : (
+                <AssistantThinkingIndicator
+                  className="bs-streaming-thinking"
+                  markClassName="size-4"
+                />
+              );
+            default:
+              return null;
+          }
+        }}
+      </MessagePrimitive.GroupedParts>
+    </StoppedApprovalsContext>
   );
 }
 
