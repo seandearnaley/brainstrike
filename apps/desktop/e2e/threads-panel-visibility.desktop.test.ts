@@ -9,6 +9,9 @@ test('keeps Threads at the top after Settings ribbon round trips', async ({ wind
   for (let index = 0; index < 14; index++) {
     await panel.getByRole('button', { exact: true, name: 'New thread' }).click();
   }
+  // A click returns before the host's async creation has populated the row.
+  // Join the final creation before capturing the settled layout baseline.
+  await expect(panel.getByTestId('thread-row')).toHaveCount(15);
   const viewport = panel.getByTestId('tree-table-viewport');
   const geometry = () =>
     viewport.evaluate((element) => {

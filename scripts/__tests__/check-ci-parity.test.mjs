@@ -999,7 +999,7 @@ test('packages/db is tested by a green pnpm check', () => {
   assert.doesNotMatch(unit.command, /--filter/);
 });
 
-test('local test batteries do not stack whole-host unit worker pools', () => {
+test('local test batteries do not stack whole-host worker pools', () => {
   const rootPackage = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   for (const mode of [[], ['--fast'], ['--full'], ['--routine']]) {
     const plan = buildPlan(parseFlags(mode));
@@ -1015,6 +1015,11 @@ test('local test batteries do not stack whole-host unit worker pools', () => {
     const [unit] = splitShellCommands(rootPackage.scripts[name]);
     assert.match(unit, /--concurrency=1(?:\s|$)/, `${name} must not stack unit worker pools`);
   }
+  assert.match(
+    rootPackage.scripts['test:browser'],
+    /--concurrency=1(?:\s|$)/,
+    'test:browser must leave browser page admission to its Vitest pool'
+  );
   const [fastUnit] = splitShellCommands(rootPackage.scripts['test:fast']);
   assert.match(fastUnit, /--workspace-concurrency=1(?:\s|$)/);
 });
