@@ -393,7 +393,7 @@ function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {
   if (!(names.browserNavigate && names.browserReadPage && names.browserGetPageText)) {
     return '';
   }
-  return `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in your own tab there (never a tab the user opened) and waits for the load; it reaches only public addresses, so a blocked_destination result is final, not a reason to retry. Then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
+  return `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in your own tab there (never a tab the user opened) and waits for the load; it reaches only public addresses, so a blocked_url or blocked_destination result is final, not a reason to retry. Then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
 }
 
 /** The persona shape the delegation guidance needs. */
