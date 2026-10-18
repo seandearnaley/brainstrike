@@ -65,6 +65,7 @@ describe('WebE2ETestHooks', () => {
   afterEach(() => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
     Reflect.deleteProperty(window, '__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
+    Reflect.deleteProperty(window, '__brainstrikeWebE2ERequireDurableWrites__');
     vi.restoreAllMocks();
   });
 
@@ -237,6 +238,7 @@ describe('WebE2ETestHooks', () => {
 
   it('exposes model state and durable sync helpers for webdriver tests', async () => {
     setWebDriver(true);
+    Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
     const query = vi
       .fn()
       .mockResolvedValueOnce({
@@ -461,8 +463,26 @@ describe('WebE2ETestHooks', () => {
     expect(params).toEqual(['thread-1']);
   });
 
+  it('refuses to sync a relaxed-durability store a reload could still lose (BST-2093)', async () => {
+    setWebDriver(true);
+    const syncToFs = vi.fn();
+    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn(), syncToFs } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+
+    await expect(window.__brainstrikeWebE2ETestHooks__?.syncDatabase()).rejects.toThrow(
+      'syncDatabase cannot flush a relaxed-durability store'
+    );
+    expect(syncToFs).not.toHaveBeenCalled();
+  });
+
   it('fails loudly when webdriver tests require sync but the DB handle cannot provide it', async () => {
     setWebDriver(true);
+    Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
     usePGliteDatabaseMock.mockReturnValue({
       query: vi.fn(),
     } satisfies TestDbHandle);
