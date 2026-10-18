@@ -37,6 +37,7 @@ import {
   parseHostParams,
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
+import { storeRefusal } from './store-refusals.js';
 import {
   coverageHostSearchVectors,
   pendingHostSearchVectors,
@@ -172,7 +173,7 @@ export function bindHostConnection(
           // logged here and travels as the fixed internal fault (BST-2007/2010).
           const notAdmitted = cause instanceof HostRunNotAdmittedError;
           const response = toBoundaryResponseError(
-            notAdmitted ? cause.cause : cause,
+            storeRefusal(notAdmitted ? cause.cause : cause),
             (message, fields) => logger.error(message, { ...fields, method })
           );
           // Admission and its reason are separate facts: keep the host's existing
@@ -236,7 +237,7 @@ export function bindHostConnection(
             }
             return await handler(input);
           } catch (cause) {
-            throw toBoundaryResponseError(cause, (message, fields) =>
+            throw toBoundaryResponseError(storeRefusal(cause), (message, fields) =>
               logger.error(message, { ...fields, method })
             );
           }

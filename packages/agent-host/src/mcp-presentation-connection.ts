@@ -2,6 +2,7 @@ import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrp
 import type { HostMethodHandler } from './auth-connection.js';
 import type { HostClientOrigin, HostMcpPresentationService } from './ports.js';
 import { MCP_PRESENTATION_EVENT } from './protocol-mcp-presentation.js';
+import { storeRefusal } from './store-refusals.js';
 
 const MAX_VISIBLE_ERROR_CHARS = 1000;
 
@@ -29,10 +30,15 @@ export function bindHostMcpPresentationMethods(
     return presentation;
   };
   // A window shows each refusal (a stale task handle, a settled input) as the host wrote it.
+  // A read-only state store's refusal of a task mutation keeps its type (BST-2144).
   const visible = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
       return await work();
     } catch (cause) {
+      const refused = storeRefusal(cause);
+      if (refused !== cause) {
+        throw refused;
+      }
       throw new ResponseError(
         ErrorCodes.InternalError,
         cause instanceof Error
