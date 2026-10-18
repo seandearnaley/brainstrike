@@ -30,6 +30,7 @@ const ROOT_ID = 'native-shutdown-signal-root';
 let rootDir = '';
 
 interface LogRecord {
+  readonly error?: { readonly message?: string };
   readonly level?: number;
   readonly msg?: string;
   readonly reason?: string;
@@ -103,15 +104,23 @@ function signalGroup(leaderPid: number): void {
 }
 
 /**
- * A renderer the group signal killed, as its own owner logs it at error. That classification
- * sits outside the shutdown steps this spec covers; every other level-50 record fails it.
+ * A helper the group signal killed, as an owner outside the shutdown steps this spec covers
+ * logs it at error: a killed renderer, or a renderer read that met the exited SQLite query
+ * process. Those classifications are tracked apart from BST-2135; every other level-50
+ * record fails the spec.
  */
-function isSignalKilledRenderer(record: LogRecord): boolean {
-  return (
-    record.reason === 'killed' &&
-    ((record.scope === 'CreateWindow' && record.msg === 'Renderer process gone') ||
+function isSignalKilledHelper(record: LogRecord): boolean {
+  if (record.reason === 'killed') {
+    return (
+      (record.scope === 'CreateWindow' && record.msg === 'Renderer process gone') ||
       (record.scope === 'EmbeddingHostManager' &&
-        record.msg === 'embedding-host renderer exited (killed, code 15)'))
+        record.msg === 'embedding-host renderer exited (killed, code 15)')
+    );
+  }
+  return (
+    record.scope === 'DesktopIpcRegistry' &&
+    record.msg === 'Untyped failure crossed a process boundary' &&
+    record.error?.message === 'SQLite query process exited.'
   );
 }
 
@@ -194,7 +203,7 @@ for (const delayMs of [0, 300, 1000]) {
     expect(messages).not.toContain('Timed out waiting for graceful shutdown; forcing exit');
     expect(messages).not.toContain('Graceful shutdown completed with cleanup failures');
     expect(
-      after.filter((record) => (record.level ?? 0) >= 50 && !isSignalKilledRenderer(record))
+      after.filter((record) => (record.level ?? 0) >= 50 && !isSignalKilledHelper(record))
     ).toEqual([]);
     const reports = after.flatMap((record) =>
       record.msg === 'Graceful shutdown completed' && record.steps ? [record.steps] : []
