@@ -60,3 +60,8 @@ without merging, so no site consumes the manifest yet. When a download surface
 lands, it reads the published `release-manifest.json` (or a manifest PR step is
 reinstated) and validates it with its own production schema before rendering
 links.
+
+BST-2148: the x64 macOS DMG built on the arm64 runner ships arm64-only native
+addons. The smoke step's `scripts/verify-macos-addon-archs.mjs` fails the job
+on it, so x64 cannot ship until the owner picks an Intel runner leg, a
+cross-arch install and rebuild, or an arm64-only macOS release.

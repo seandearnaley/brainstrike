@@ -260,23 +260,23 @@ jobs:
           for ARCH in arm64 x64; do
             DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
             [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
-            MOUNT=$(hdiutil attach "$DMG" -nobrowse -readonly | awk -F'\t' '/\/Volumes\//{print $NF; exit}')
-            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' | head -1)
+            # The volume is "BrainStrike Desktop <version>": every path below
+            # is quoted or passed as a value, never word-split.
+            ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
+            MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
+            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)
+            [[ -n "$APP" ]] || { echo "::error::${DMG}: no .app at the root of the mounted image"; hdiutil detach "$MOUNT" -force; exit 1; }
             BIN="$APP/Contents/MacOS/$(defaults read "$APP/Contents/Info" CFBundleExecutable)"
-            WANT="${ARCH/x64/x86_64}"
             # The Electron shell binary matches the requested arch by
             # construction (per-arch dist download). The real cross-arch risk
-            # on this arm64 runner is the npmRebuild-compiled native addons in
-            # an x64 DMG, so sweep every unpacked .node file too.
-            FAILED_ADDONS=0
-            for NODE_ADDON in "$BIN" $(find "$APP/Contents/Resources/app.asar.unpacked" -name '*.node' 2>/dev/null); do
-              if ! lipo -archs "$NODE_ADDON" | grep -q "$WANT"; then
-                echo "::error::${DMG}: $(basename "$NODE_ADDON") is not ${ARCH} (archs: $(lipo -archs "$NODE_ADDON"))"
-                FAILED_ADDONS=1
-              fi
-            done
-            if [[ "$FAILED_ADDONS" -ne 0 ]]; then
-              hdiutil detach "$MOUNT"
+            # on this arm64 runner is the native addons in an x64 DMG: every
+            # addon the app can load must carry the DMG's arch.
+            # Capture, then match: `| grep -q` under pipefail can die on SIGPIPE.
+            BIN_ARCHS=$(lipo -archs "$BIN")
+            if [[ " ${BIN_ARCHS} " != *" ${ARCH/x64/x86_64} "* ]] \
+              || ! node ../scripts/verify-macos-addon-archs.mjs "$APP" "$ARCH"; then
+              echo "::error::${DMG}: the app or a native addon is not ${ARCH}"
+              hdiutil detach "$MOUNT" -force
               exit 1
             fi
             if [[ "$ARCH" == "arm64" ]]; then
@@ -285,9 +285,9 @@ jobs:
               # GUI or host work.
               OUT=$("$BIN" --version 2>/dev/null | tail -1 || true)
               echo "${DMG} --version => ${OUT}"
-              [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::${DMG} did not report version ${VERSION}"; hdiutil detach "$MOUNT"; exit 1; }
+              [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::${DMG} did not report version ${VERSION}"; hdiutil detach "$MOUNT" -force; exit 1; }
             fi
-            hdiutil detach "$MOUNT"
+            hdiutil detach "$MOUNT" -force
           done
 
       - name: Record asset metadata
