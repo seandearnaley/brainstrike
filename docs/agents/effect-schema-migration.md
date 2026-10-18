@@ -13,6 +13,14 @@ Author one schema and derive its types. Register provider tool input with
 `validateToolInputValue`. These preserve the existing provider-null normalization.
 Ordinary receiving and resume schemas do not apply that normalization.
 
+Concrete grammars retain their inferred `Encoded` view. Check a required decoded
+view with `satisfies Schema.ConstraintDecoder<Expected>` rather than widening the
+declaration to that constraint, which intentionally erases encoded input. Typed
+producers use `decodeSync` / `decodeResult`; real unknown receivers and malformed
+wire fixtures keep `decodeUnknown*`. Admitted producer cohorts enforce this through
+the existing Effect diagnostics and executable compiler controls. A decoder name
+alone is not proof of input typing.
+
 Mastra registrations use `standardInputSchema`: its Standard Schema inference
 member is required by the installed Mastra types. Runtime stripping and provider
 JSON Schema closure are separate explicit options where the old boundary differs.

@@ -85,9 +85,19 @@ function McpCredentialFaultNotice({ server }: { readonly server: McpServerInfo }
  * loaded its tools and for one that silently contributed none to every run.
  */
 function McpToolsAvailabilityNotice({ server }: { readonly server: McpServerInfo }) {
-  const label = describeMcpToolsAvailability(resolveMcpToolsAvailability(server));
+  const availability = resolveMcpToolsAvailability(server);
+  const label = describeMcpToolsAvailability(availability);
   if (!label) {
     return null;
+  }
+  if (availability !== 'tools-unavailable') {
+    // Loading, a settled empty list and a server with no tools capability are
+    // honest host facts, not failures (BST-1632): stated plainly, never amber.
+    return (
+      <div className="text-muted-foreground text-xs" data-tools-availability={availability}>
+        connected · {label}
+      </div>
+    );
   }
   return (
     // `text-warning`, the repo's semantic warning token (--bs-warning, deep
@@ -95,7 +105,7 @@ function McpToolsAvailabilityNotice({ server }: { readonly server: McpServerInfo
     // Measured live in the settings dialog, `text-yellow-500` is 1.87:1 there
     // and WCAG AA wants 4.5:1 for small text. The token also carries its own
     // dark-mode value, so no shade is being guessed.
-    <div className="text-warning text-xs">
+    <div className="text-warning text-xs" data-tools-availability={availability}>
       connected · {label} — this server enumerated no tools for this run
     </div>
   );

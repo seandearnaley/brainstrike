@@ -63,21 +63,22 @@ describe('MCP config contract', () => {
   it.each(['stdio', 'sse'] as const)(
     'rejects oauth-user on %s at every config entrypoint',
     (transport) => {
-      const server = {
+      const server: unknown = {
         auth: { type: 'oauth-user' },
         name: 'unsupported-oauth',
         transport,
         ...(transport === 'stdio' ? { command: 'node' } : { url: 'https://example.test/sse' }),
       };
+      const config: unknown = { servers: [server] };
       expect(
         Schema.decodeUnknownResult(McpServerSchema, { errors: 'all', onExcessProperty: 'error' })(
           server
         )._tag === 'Success'
       ).toBe(false);
       expect(
-        Schema.decodeUnknownResult(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })({
-          servers: [server],
-        })._tag === 'Success'
+        Schema.decodeUnknownResult(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })(
+          config
+        )._tag === 'Success'
       ).toBe(false);
       expect(() => parseMcpServerValue(server)).toThrow(McpConfigValidationError);
       expect(() => parseMcpConfigValue({ servers: [server] })).toThrow(McpConfigValidationError);

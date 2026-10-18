@@ -189,8 +189,13 @@ function mapMcpOperationError(error: unknown): MappedMcpOperationError {
         return { category: 'protocol', code: 'mcp-invalid-result' };
       case SdkErrorCode.ListPaginationExceeded:
         return { category: 'operation', code: 'mcp-list-pagination-exceeded' };
+      // The SDK client's own check, raised before any request is sent: the
+      // CALLER asked for a capability the server never advertised. That is
+      // this call's fault, not the connection's, so it costs the generation
+      // nothing (BST-1632). A server that answers -32021 is still a protocol
+      // failure above.
       case SdkErrorCode.CapabilityNotSupported:
-        return { category: 'protocol', code: 'mcp-capability-missing' };
+        return { category: 'operation', code: 'mcp-capability-missing' };
       case SdkErrorCode.MethodNotSupportedByProtocolVersion:
         return { category: 'protocol', code: 'mcp-era-mismatch' };
       case SdkErrorCode.RequestTimeout:

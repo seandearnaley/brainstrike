@@ -1216,6 +1216,18 @@ describe('DatabaseDemoPanel', () => {
       expect(within(footer).queryByRole('button', { name: /Help/ })).not.toBeInTheDocument();
     });
 
+    it('opens the collections help on click, not only on hover (BST-524)', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      const toolbar = await screen.findByTestId('database-panel-toolbar');
+      await user.click(within(toolbar).getByRole('button', { name: /Help/ }));
+
+      const help = await screen.findByRole('dialog', { name: 'Collections' });
+      expect(help).toHaveAttribute('data-testid', 'database-panel-help');
+      expect(help).toHaveTextContent('Collections let you search files with different AI models.');
+    });
+
     it('keeps Export and Embeddings actions in the footer (not the toolbar)', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 

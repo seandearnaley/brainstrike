@@ -11,6 +11,7 @@ import {
   ConfiguredMcpServerIdSchema,
   MCP_HOST_CATALOG_SECTIONS,
   MCP_HOST_DIAGNOSTIC_MAX_ENTRIES,
+  MCP_HOST_LISTED_CATALOG_SECTIONS,
   McpHostErrorSchema,
   McpResourceUriSchema,
 } from './mcp-host.js';
@@ -22,7 +23,8 @@ import {
  * held as strict JSON here; the host validated each against the SDK's schema
  * when it listed it (`./mcp-host-runtime`, node-only, BST-1512).
  */
-const McpHostJsonValueSchema: Schema.ConstraintDecoder<McpHostJsonValue> = Schema.MutableJson;
+const McpHostJsonValueSchema =
+  Schema.MutableJson satisfies Schema.ConstraintDecoder<McpHostJsonValue>;
 export const McpHostServerFeaturesSchema = Schema.Struct({
   completion: Schema.Boolean,
   promptListChanged: Schema.Boolean,
@@ -44,8 +46,10 @@ export const McpHostSubscriptionStatusSchema = Schema.Struct({
   mode: Schema.Literals(['legacy-unsolicited', 'modern-listen', 'none']),
   state: Schema.Literals(['closed', 'listening', 'retrying', 'unsupported']),
 });
-export const McpHostCatalogErrorsSchema: Schema.ConstraintDecoder<McpHostCatalogErrors> =
-  Schema.Record(Schema.Literals(MCP_HOST_CATALOG_SECTIONS), Schema.optionalKey(McpHostErrorSchema));
+export const McpHostCatalogErrorsSchema = Schema.Record(
+  Schema.Literals(MCP_HOST_CATALOG_SECTIONS),
+  Schema.optionalKey(McpHostErrorSchema)
+) satisfies Schema.ConstraintDecoder<McpHostCatalogErrors>;
 export const McpNegotiatedStatusSchema = Schema.Struct({
   advertisedCapabilityIds: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   era: Schema.Literals(['legacy', 'modern']),
@@ -130,6 +134,9 @@ export function assertMcpHostStrictJson(
 const McpHostCatalogWireSchema = Schema.Struct({
   errors: McpHostCatalogErrorsSchema,
   features: McpHostServerFeaturesSchema,
+  listing: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.Literals(MCP_HOST_LISTED_CATALOG_SECTIONS)))
+  ),
   prompts: Schema.optional(McpHostJsonValueSchema),
   resources: Schema.optional(McpHostJsonValueSchema),
   resourceTemplates: Schema.optional(McpHostJsonValueSchema),

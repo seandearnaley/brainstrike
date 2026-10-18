@@ -174,7 +174,7 @@ export function messages(
     const event = projectedEvent(row.event);
     return event
       ? [
-          Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+          Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
             event,
             seq: row.seq,
             threadId: row.threadId,

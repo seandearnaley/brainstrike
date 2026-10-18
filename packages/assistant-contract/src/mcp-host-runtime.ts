@@ -11,7 +11,7 @@ import {
 } from '@modelcontextprotocol/core';
 import { Schema } from 'effect';
 import type { McpHostCatalog, McpHostCloseReport, McpHostOperationResult } from './mcp-host.js';
-import { McpHostErrorSchema } from './mcp-host.js';
+import { MCP_HOST_LISTED_CATALOG_SECTIONS, McpHostErrorSchema } from './mcp-host.js';
 import {
   assertMcpHostStrictJson,
   McpHostCatalogErrorsSchema,
@@ -62,7 +62,7 @@ const McpHostOperationResultEnvelopeSchema = Schema.Union(
   { mode: 'oneOf' }
 );
 const McpHostCloseCounterSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
-const McpHostCloseReportSchema: Schema.ConstraintDecoder<McpHostCloseReport> = Schema.Struct({
+const McpHostCloseReportSchema = Schema.Struct({
   callbacksClosed: McpHostCloseCounterSchema,
   childProcessesClosed: McpHostCloseCounterSchema,
   clientsClosed: McpHostCloseCounterSchema,
@@ -71,10 +71,13 @@ const McpHostCloseReportSchema: Schema.ConstraintDecoder<McpHostCloseReport> = S
   probesClosed: McpHostCloseCounterSchema,
   requestsSettled: McpHostCloseCounterSchema,
   subscriptionsClosed: McpHostCloseCounterSchema,
-});
+}) satisfies Schema.ConstraintDecoder<McpHostCloseReport>;
 const McpHostCatalogSchema = Schema.Struct({
   errors: McpHostCatalogErrorsSchema,
   features: McpHostServerFeaturesSchema,
+  listing: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.Literals(MCP_HOST_LISTED_CATALOG_SECTIONS)))
+  ),
   prompts: Schema.optional(sdkSchema(ListPromptsResultSchema)),
   resources: Schema.optional(sdkSchema(ListResourcesResultSchema)),
   resourceTemplates: Schema.optional(sdkSchema(ListResourceTemplatesResultSchema)),

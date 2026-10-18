@@ -46,3 +46,26 @@ installation or hosted execution as an implicit replacement for the chosen mode.
 
 Implementation: `packages/agent` code-execution adapters, desktop runtime assets
 and native process owners.
+
+## Linux sandbox qualification
+
+Sandbox-runtime's seccomp helper needs capability-bearing nested user namespaces
+before it restricts the executed command. A successful bare `bwrap` probe is not
+readiness: run the executor's real readiness probe and escape-resistance suite.
+On Ubuntu with AppArmor namespace restrictions, use the vendor-documented
+application-specific `userns` profile for the qualification binary. Do not enable
+`enableWeakerNestedSandbox`, `allowAllUnixSockets` or
+`allowNestedUserNamespaces` to get a test green.
+
+A qualification host may use a root-owned copy of the distro Bubblewrap binary
+at `/opt/brainstrike-qualification/bin/bwrap`, with an AppArmor `unconfined`
+profile attached to that exact path and granting `userns`. Select it through the
+test process's `PATH`; retain the distro's `/usr/bin/bwrap` profile and the global
+namespace restriction. This is a host administration exception, not a shipped
+application setup or a claim that arbitrary Ubuntu installations are ready.
+Refresh the copy and requalify when the distro binary changes. Removing the
+profile and dedicated binary reverses this setup. Tests still run as an ordinary
+user with disposable home directories and fake credentials.
+
+See the [runtime's platform requirements](https://github.com/anthropics/sandbox-runtime/blob/v0.0.80/README.md#platform-specific-dependencies)
+and the [Ubuntu AppArmor guidance](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/).

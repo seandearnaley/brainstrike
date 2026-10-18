@@ -41,7 +41,7 @@ test('protocol version and secret-bearing request refusal stay fixed', () => {
 
 test('external URL normalization preserves the former URL decoder output', () => {
   expect(
-    Schema.decodeUnknownSync(ClientOpenExternalParamsSchema, { onExcessProperty: 'error' })({
+    Schema.decodeSync(ClientOpenExternalParamsSchema, { onExcessProperty: 'error' })({
       url: ' \thttps://exa\nmple.test/path\r ',
     })
   ).toEqual({ url: 'https://example.test/path' });

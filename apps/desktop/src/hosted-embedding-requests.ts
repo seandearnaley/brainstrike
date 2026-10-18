@@ -62,7 +62,7 @@ export class HostedEmbeddingRequests {
     return vector;
   }
   async retire(): Promise<void> {
-    if (this.retirement) {
+    if (this.retirement !== null) {
       return this.retirement;
     }
     const pending = [...this.requests];

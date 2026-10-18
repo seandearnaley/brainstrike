@@ -4,7 +4,7 @@ import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
-import { fromBoundaryResponseError } from './boundary-wire.js';
+import { fromBoundaryResponseError, watchPeerReset } from './boundary-wire.js';
 import { createHostCatalogClient, type HostCatalog } from './catalog/transport.js';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
@@ -47,12 +47,18 @@ export interface HostClient extends HostAttachment {
 }
 const logger = createLogger('AgentHostClient');
 /** A failed response becomes the host's typed failure (or the internal fault), never raw text. */
-async function sendTyped(method: string, send: () => Promise<unknown>): Promise<unknown> {
+async function sendTyped(
+  connection: MessageConnection,
+  method: string,
+  send: () => Promise<unknown>
+): Promise<unknown> {
   try {
     return await send();
   } catch (cause) {
-    throw fromBoundaryResponseError(cause, (message, fields) =>
-      logger.error(message, { ...fields, method })
+    throw fromBoundaryResponseError(
+      cause,
+      (message, fields) => logger.error(message, { ...fields, method }),
+      connection
     );
   }
 }
@@ -108,6 +114,8 @@ export async function authenticateHostClient(
       throw new AggregateError(failures, 'Host client disposal and transport close failed');
     }
   };
+  // Before any request: a host that closes its end can fail the next write.
+  watchPeerReset(connection);
   connection.onNotification('log/event', (input: unknown) => {
     const row = Schema.decodeUnknownSync(HostLogRowSchema, {
       errors: 'all',
@@ -215,7 +223,7 @@ export async function authenticateHostClient(
       if (!signal) {
         return readResult(
           method,
-          await sendTyped(method, () => connection.sendRequest(method, parsed))
+          await sendTyped(connection, method, () => connection.sendRequest(method, parsed))
         );
       }
       signal.throwIfAborted();
@@ -225,7 +233,9 @@ export async function authenticateHostClient(
       try {
         return readResult(
           method,
-          await sendTyped(method, () => connection.sendRequest(method, parsed, cancellation.token))
+          await sendTyped(connection, method, () =>
+            connection.sendRequest(method, parsed, cancellation.token)
+          )
         );
       } finally {
         signal.removeEventListener('abort', cancel);

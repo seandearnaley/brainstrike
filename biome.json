@@ -31,6 +31,12 @@
       "packages/host-capabilities/__tests__/file-approval-target.test.ts",
       "apps/desktop/src/__tests__/assistant-server/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/isolated/agent-quality-lint*.{mts,mjs}",
+      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}",
       "**/e2e/**/*.{ts,tsx}",
       "!!spikes/m0-a1-qualification/original",
       "!!.muse/worktrees",
@@ -845,6 +851,25 @@
         "packages/web-writer/src/**",
         "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
         "packages/web-state-store/src/__tests__/web-state-extension-order.browser.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*/**/*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}"
       ],
       "linter": {
         "rules": {

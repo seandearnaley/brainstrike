@@ -57,7 +57,7 @@ const insertAfterStart = (...events: Record<string, unknown>[]): HostLogRow[] =>
 };
 /** The recording with its first run's start replaced by `event`'s fields. */
 const startedWith = (event: Record<string, unknown>): HostLogRow[] => {
-  const replaced = Schema.decodeUnknownSync(HostLogRowSchema, {
+  const replaced = Schema.decodeSync(HostLogRowSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({ ...first, event: { ...first.event, ...event } });

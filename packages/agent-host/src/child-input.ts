@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import type { HostRunState } from './core-state.js';
+import { deriveHostInputRunCommandId, type HostRunState } from './core-state.js';
 import type { HostEvent, HostParams } from './protocol.js';
 
 type HostRunOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
@@ -26,11 +25,30 @@ export async function acceptHostChildInput(
     throw new Error('The child is already taking input');
   }
   await accept();
-  const { commandId: _input, runId, ...settings } = params;
+  const { commandId: input, runId, ...settings } = params;
   run.steered = true;
-  run.inputAccepted = true;
-  run.childInput = { ...settings, commandId: randomUUID(), parentMessageId: runId };
+  run.inputCommandId = deriveHostInputRunCommandId(input);
+  run.childInput = { ...settings, commandId: run.inputCommandId, parentMessageId: runId };
   return { accepted: true };
+}
+
+/**
+ * BST-2178: once the input's run/start (or its refusal) is committed, `run`
+ * no longer holds the input; it names the run that command started. Right
+ * after that commit it is the thread's only run whose user message is the
+ * command's (a later regenerate copies the message, never the run).
+ */
+export function settleHostChildInput(
+  run: HostRunState,
+  runs: ReadonlyMap<string, HostRunState>
+): void {
+  run.childInput = undefined;
+  const taken = [...runs.values()].find(
+    (next) => next.threadId === run.threadId && next.branch.userMessageId === run.inputCommandId
+  );
+  if (taken) {
+    run.inputRun = taken.id;
+  }
 }
 
 /**

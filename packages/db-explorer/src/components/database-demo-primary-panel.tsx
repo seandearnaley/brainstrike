@@ -14,7 +14,7 @@ import {
   type useEmbeddingControls,
 } from '@brainstrike/vector-management';
 import { HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
-import type { ComponentProps, ReactElement } from 'react';
+import { type ComponentProps, type ReactElement, useId, useState } from 'react';
 import type { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import type { useExportHandlers } from '../hooks/use-export-handlers';
 import type { useImportSettings } from '../hooks/use-import-settings';
@@ -72,6 +72,8 @@ export function DatabaseDemoPrimaryPanel({
   showClearDialog,
   showSettings,
 }: DatabaseDemoPrimaryPanelProps): ReactElement {
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpTitleId = useId();
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel-surface">
       <div
@@ -113,21 +115,37 @@ export function DatabaseDemoPrimaryPanel({
                 <TooltipContent side="bottom">Refresh database records</TooltipContent>
               </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button className="size-7 p-0" size="sm" variant="ghost">
-                    <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                    <span className="sr-only">Help</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-[300px]" side="bottom">
-                  <p className="text-sm">
+              {/* BST-524: Help opens on click, so its text is reachable by keyboard
+                  and touch rather than only on hover. */}
+              <Popover onOpenChange={setHelpOpen} open={helpOpen}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button className="size-7 p-0" size="sm" variant="ghost">
+                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        <span className="sr-only">Help</span>
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  {!helpOpen && <TooltipContent side="bottom">About collections</TooltipContent>}
+                </Tooltip>
+                <PopoverContent
+                  align="end"
+                  aria-labelledby={helpTitleId}
+                  className="w-[300px] space-y-1"
+                  data-testid="database-panel-help"
+                  side="bottom"
+                >
+                  <h3 className="font-medium text-sm" id={helpTitleId}>
+                    Collections
+                  </h3>
+                  <p className="text-muted-foreground text-sm">
                     Collections let you search files with different AI models. Create separate
                     collections for code, documentation, or general content to get better search
                     results optimized for each use case.
                   </p>
-                </TooltipContent>
-              </Tooltip>
+                </PopoverContent>
+              </Popover>
 
               <div
                 className="mx-1 @[420px]:block hidden h-4 w-px bg-border"

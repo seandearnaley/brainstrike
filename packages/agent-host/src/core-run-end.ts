@@ -1,4 +1,4 @@
-import { takeHostChildInput } from './child-input.js';
+import { settleHostChildInput, takeHostChildInput } from './child-input.js';
 import { type HostChildRuns, reportHostChildWakeFailure } from './core-child-runs.js';
 import { joinHostThreadSettlements, settleHostRunOwner } from './core-run-lifecycle.js';
 import type { HostRunState } from './core-state.js';
@@ -76,7 +76,7 @@ export class HostRunEnds {
           next = await ports.startNextRun(input.params, run.input?.origin, input.refused);
         } finally {
           // The input's run, or its refusal, is committed: the report now waits on that run.
-          run.childInput = undefined;
+          settleHostChildInput(run, ports.runs());
         }
       }
       if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
