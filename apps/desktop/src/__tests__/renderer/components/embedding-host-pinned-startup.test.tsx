@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS } from '@brainstrike/vector-management';
 import {
@@ -8,6 +9,7 @@ import {
 } from '@brainstrike/worker-runtime';
 import { act, render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished } from 'vitest';
+import { readEmbeddingHostDevice } from '../../../agent-host-platform/memory-vector-selection';
 import { configureDesktopRendererTarget } from '../../../desktop-renderer-target';
 import { EmbeddingHostManager } from '../../../embedding-host-manager';
 import {
@@ -311,5 +313,80 @@ describe('pinned native hidden-host startup', () => {
     expect(reportStatusMock.mock.calls.slice(reportsAtStop)).not.toContainEqual([
       expect.objectContaining({ state: 'running' }),
     ]);
+  });
+});
+
+// BST-2193: since #3595 the host chooses no device at startup, so memory recall's
+// first read asks the running host to resolve one from the saved preference.
+describe('memory recall device', () => {
+  installEmbeddingHostRuntimeFixture();
+
+  it('resolves the device recall pins on request, after a startup that chose none', async () => {
+    const manager = connect();
+    storeState.hasHydrated = true;
+    storeState.devicePref = 'wasm';
+    const started = manager.ensureStarted({ waitForRunning: true });
+    await mount();
+    await expect(started).resolves.toMatchObject({ state: 'running' });
+    expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
+
+    await expect(readEmbeddingHostDevice(manager, new AbortController().signal)).resolves.toBe(
+      'wasm'
+    );
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+    expect(initializeMock).not.toHaveBeenCalled();
+  });
+
+  it('applies device resolutions in order, so the latest preference wins', async () => {
+    const manager = connect();
+    const started = manager.ensureStarted({ waitForRunning: true });
+    await mount();
+    await expect(started).resolves.toMatchObject({ state: 'running' });
+    const stale = Promise.withResolvers<typeof storeState>();
+    ensureVectorPreferencesHydratedMock
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(async () => ({ ...storeState, devicePref: 'wasm' }));
+    // A reader's resolution is still reading the old preference when the user changes it.
+    manager.resolveDevice();
+    await waitFor(() => expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledOnce());
+    manager.resolveDevice();
+    await act(async () => {});
+    await act(async () => stale.resolve({ ...storeState, devicePref: 'webgpu' }));
+    await waitFor(() => expect(manager.getStatus().embeddingRuntime?.hostDevice).toBe('wasm'));
+    await act(async () => {});
+    expect(manager.getStatus().embeddingRuntime?.hostDevice).toBe('wasm');
+    expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses with a typed, actionable reason when the host resolves no device', async () => {
+    const manager = connect();
+    storeState.hasHydrated = true;
+    storeState.devicePrefConfigured = false;
+    detectDeviceCapabilitiesMock.mockResolvedValue({
+      detectedAt: 1,
+      recommendationReason: 'WASM recommended (WebGPU unavailable)',
+      recommendedDevice: 'wasm',
+      wasmAvailable: true,
+      webgpuAdapterAvailable: false,
+      webgpuAdapterInfo: null,
+      webgpuApiPresent: true,
+      webgpuUnavailableReason: 'WebGPU adapter is unavailable.',
+      webWorkersAvailable: true,
+    });
+    const read = readEmbeddingHostDevice(manager, new AbortController().signal).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await mount();
+    const refused = await read;
+    expect(refused).toBeInstanceOf(BoundaryFailureError);
+    expect((refused as BoundaryFailureError).failure).toMatchObject({
+      category: 'configuration',
+      code: 'memory.embedder-device-unavailable',
+      kind: 'refusal',
+    });
+    expect((refused as BoundaryFailureError).message).toMatch(
+      /^The on-device memory embedder has no execution device: .*WebGPU adapter is unavailable\. Choose a hosted embedding model in Settings → Assistant Memory/u
+    );
   });
 });

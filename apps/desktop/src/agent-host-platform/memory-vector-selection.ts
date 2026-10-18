@@ -1,3 +1,4 @@
+import { refusalError } from '@brainstrike/assistant-contract';
 import { parseSemanticRecallEmbeddingModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { resolveNativeCanonicalProfile } from '@brainstrike/canonical-ingestion';
 import {
@@ -74,21 +75,29 @@ export async function resolveDesktopMemoryVectors(
   };
 }
 
-/** The device the running embedding host resolved at start; its failure is the reason. */
+/**
+ * The device the running embedding host resolved for unpinned loads. A device it
+ * cannot resolve (no WebGPU and no saved device) is a memory setting this
+ * machine cannot run, refused with the host's reason and the user's remedy.
+ */
 export async function readEmbeddingHostDevice(
-  host: Pick<EmbeddingHostManager, 'ensureStarted'>,
+  host: Pick<EmbeddingHostManager, 'ensureDeviceResolved'>,
   signal: AbortSignal
 ): Promise<'webgpu' | 'wasm'> {
-  const status = await waitForHostStartup(host.ensureStarted({ waitForRunning: true }), signal);
+  const status = await waitForHostStartup(host.ensureDeviceResolved(), signal);
   if (status.state !== 'running') {
     throw new Error(status.lastError ?? 'The embedding host is not running.');
   }
-  const device = status.embeddingRuntime?.hostDevice;
-  if (!device) {
-    throw new Error(
-      status.embeddingRuntime?.hostDeviceError ??
-        'The embedding host has not resolved its execution device.'
+  const runtime = status.embeddingRuntime;
+  if (runtime?.hostDevice) {
+    return runtime.hostDevice;
+  }
+  if (runtime?.hostDeviceError) {
+    throw refusalError(
+      'configuration',
+      'memory.embedder-device-unavailable',
+      `The on-device memory embedder has no execution device: ${runtime.hostDeviceError} Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval.`
     );
   }
-  return device;
+  throw new Error('The embedding host has not resolved its execution device.');
 }

@@ -293,6 +293,66 @@ describe('EmbeddingHostRuntime', () => {
     );
   });
 
+  it('drops a device resolution whose runtime a reset replaced (BST-2193)', async () => {
+    storeState.hasHydrated = true;
+    await mountReady();
+    const commandListener = commandListenerRef.current;
+    if (!commandListener) {
+      throw new Error('Expected embedding host command listener to be registered.');
+    }
+    const hydration = Promise.withResolvers<typeof storeState>();
+    ensureVectorPreferencesHydratedMock.mockImplementationOnce(() => hydration.promise);
+    commandListener(createEmbeddingHostCommand('resolve-device', 'test-runtime'));
+    await waitFor(() => expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledOnce());
+    // The replacement runtime is still opening its queue when the old resolution settles.
+    const reopened = Promise.withResolvers<void>();
+    reopenEmbeddingQueueMock.mockImplementationOnce(() => reopened.promise);
+    commandListener(
+      createEmbeddingHostCommand('reset', 'test-runtime', 'embedding-host:next-runtime')
+    );
+    await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2));
+    const reportsAtReset = reportStatusMock.mock.calls.length;
+    await act(async () => hydration.resolve({ ...storeState, devicePref: 'wasm' }));
+    expect(reportStatusMock.mock.calls.slice(reportsAtReset)).toEqual([]);
+
+    await act(async () => reopened.resolve());
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ runtimeId: 'embedding-host:next-runtime', state: 'running' })
+      )
+    );
+    // Nor did its device reach the replacement's metadata, which Stop reports.
+    commandListener(createEmbeddingHostCommand('stop', 'embedding-host:next-runtime'));
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: 'stopped' })
+      )
+    );
+    expect(reportStatusMock.mock.lastCall?.[0]).not.toHaveProperty('embeddingRuntime.hostDevice');
+  });
+
+  it('drops a device resolution that settles after Stop (BST-2193)', async () => {
+    storeState.hasHydrated = true;
+    await mountReady();
+    const commandListener = commandListenerRef.current;
+    if (!commandListener) {
+      throw new Error('Expected embedding host command listener to be registered.');
+    }
+    const hydration = Promise.withResolvers<typeof storeState>();
+    ensureVectorPreferencesHydratedMock.mockImplementationOnce(() => hydration.promise);
+    commandListener(createEmbeddingHostCommand('resolve-device', 'test-runtime'));
+    await waitFor(() => expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledOnce());
+    commandListener(createEmbeddingHostCommand('stop', 'test-runtime'));
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: 'stopped' })
+      )
+    );
+    const reportsAtStop = reportStatusMock.mock.calls.length;
+    await act(async () => hydration.resolve({ ...storeState, devicePref: 'wasm' }));
+    expect(reportStatusMock.mock.calls.slice(reportsAtStop)).toEqual([]);
+  });
+
   it('re-resolves only the host device on resolve-device; the worker keeps its device', async () => {
     storeState.hasHydrated = true;
     await warmNativeRuntime();
