@@ -58,6 +58,7 @@
  * component rather than committing it. This replaces the `cancelled`-flag
  * guard the old `useEffect`-based load used for the same property.
  */
+import { createLogger } from '@brainstrike/logging';
 import type {
   ChangedFileEntry,
   ChangedFileStatus,
@@ -68,8 +69,11 @@ import { Badge, Button, ScrollArea, useToast } from '@brainstrike/ui';
 import { GitCommitHorizontal, GitMerge, LoaderCircle } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { ChangesetFileDiffCard } from '../changes/ui/changeset-file-diff-card';
+import { summarizeGitFailure } from '../git-failure-summary';
 import type { GitCommitFile, GitHistoryCommit, GitRepository } from './git-bridge';
 import type { UseGitPanelResult } from './use-git-panel';
+
+const logger = createLogger('GitPanel');
 
 interface HistoricalSelection {
   readonly commit: GitHistoryCommit;
@@ -316,7 +320,13 @@ function HistoricalDiffPane({
       }
       const result = await loadCommitFileDiff(commitId, path);
       if (!result.ok) {
-        toast({ description: result.error, title: 'Commit diff failed', variant: 'destructive' });
+        // The toast and the card show a bounded summary; the full text lives here.
+        logger.warn('git commit diff failed', { commit: commitId, error: result.error, path });
+        toast({
+          description: summarizeGitFailure(result.error),
+          title: 'Commit diff failed',
+          variant: 'destructive',
+        });
       }
       return result;
     },

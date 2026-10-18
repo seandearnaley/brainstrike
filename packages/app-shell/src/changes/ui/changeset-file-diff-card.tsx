@@ -36,6 +36,7 @@ import type {
 } from '@brainstrike/types';
 import { Button, DiffView } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
+import { GitFailureDetails } from '../../git-failure-details';
 
 export interface ChangesetFileDiffCardProps {
   /**
@@ -177,7 +178,7 @@ function ErrorBody({
       data-testid="changeset-file-diff-card-error"
       role="alert"
     >
-      <p className="text-destructive">{message}</p>
+      <GitFailureDetails className="" error={message} summaryClassName="text-destructive" />
       <Button className="w-fit" onClick={onRetry} size="xs" type="button" variant="outline">
         Retry
       </Button>

@@ -111,6 +111,7 @@ import {
 } from '../changes/changes-live-refresh-store';
 import { ChangesetFileDiffCard } from '../changes/ui/changeset-file-diff-card';
 import { useChangeset } from '../changes/use-changeset';
+import { summarizeGitFailure } from '../git-failure-summary';
 import { gitStatusPresentation } from '../git-status-presentation';
 import type { GitRepository, GitStatus, GitStatusFile } from './git-bridge';
 import type { UseGitPanelResult } from './use-git-panel';
@@ -584,7 +585,11 @@ export function GitChangesView({
     async (path: string, rootId: string | null): Promise<GitResult<StructuredFileDiff>> => {
       const result = await changeset.fileDiff(path, rootId);
       if (!result.ok) {
-        toast({ description: result.error, title: 'Diff failed', variant: 'destructive' });
+        toast({
+          description: summarizeGitFailure(result.error),
+          title: 'Diff failed',
+          variant: 'destructive',
+        });
       }
       return result;
     },

@@ -138,6 +138,19 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+const { loggerWarnSpy } = vi.hoisted(() => ({ loggerWarnSpy: vi.fn() }));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: loggerWarnSpy,
+  }),
+}));
+
 import { GitPanel } from '../git-panel/git-panel';
 
 // ── Bridge fixtures ───────────────────────────────────────────────────────────
@@ -898,6 +911,11 @@ describe('GitPanel', () => {
     expect(toastSpy).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Diff failed', variant: 'destructive' })
     );
+    // The card and toast show a bounded summary; the full text is logged (BST-2136).
+    expect(loggerWarnSpy).toHaveBeenCalledWith('File diff failed', {
+      error: 'diff boom',
+      path: 'staged.ts',
+    });
   });
 
   it('requires an explicit remote before publishing a branch with no upstream', async () => {
@@ -1435,6 +1453,47 @@ describe('GitPanel', () => {
       'data-filename',
       'src/app.ts'
     );
+  });
+
+  it('summarizes a failed historical diff and logs its full output', async () => {
+    const user = userEvent.setup();
+    const commitId = 'abcdef0123456789abcdef0123456789abcdef01';
+    installBridge({
+      commitFiles: vi.fn(async () => ok([{ path: 'src/app.ts', status: 'M' }])),
+      history: vi.fn(async () =>
+        ok({
+          commits: [makeHistoryCommit(commitId, 'feat(git): add commit browser')],
+          hasMore: false,
+          limit: 100,
+          offset: 0,
+        })
+      ),
+      structuredFileDiff: vi.fn(async () => ({
+        error: 'warning: x\nfatal: bad object abcdef0\nmore detail',
+        ok: false as const,
+      })),
+    });
+    render(<GitPanel />);
+
+    await user.click(await screen.findByRole('tab', { name: 'History' }));
+    await user.click(
+      await screen.findByRole('button', { name: /feat\(git\): add commit browser/ })
+    );
+    await user.click(await screen.findByRole('button', { name: 'src/app.ts' }));
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: 'fatal: bad object abcdef0',
+          title: 'Commit diff failed',
+        })
+      )
+    );
+    expect(loggerWarnSpy).toHaveBeenCalledWith('git commit diff failed', {
+      commit: commitId,
+      error: 'warning: x\nfatal: bad object abcdef0\nmore detail',
+      path: 'src/app.ts',
+    });
   });
 
   it('keeps history-load failures distinct from an empty repository and allows retry', async () => {
