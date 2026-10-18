@@ -629,11 +629,13 @@ export function buildAssistantRequestData(args: {
   skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
-   * Per-child subagent budgets (Settings → Subagents → Subagent budgets).
-   * REQUIRED and sent on every request: the defaults are a real value, and the host
-   * validates whatever arrives (`parseRuntimeSubagentSettings`).
+   * Per-child subagent budgets (Settings → Subagents → Subagent budgets), for
+   * the desktop assistant host only. There it rides every request: the
+   * defaults are a real value, and the host validates whatever arrives
+   * (`parseRuntimeSubagentSettings`). Web has no subagents, and its server
+   * rejects the field, so it stays off web requests.
    */
-  subagentSettings: RuntimeSubagentSettings;
+  subagentSettings?: RuntimeSubagentSettings;
   /**
    * Opt-in workspace instructions preference; only set on the desktop
    * data-stream transport (web has no injection path). A preference, not a
@@ -700,9 +702,11 @@ export function buildAssistantRequestData(args: {
   if (args.modelSettings) {
     data['modelSettings'] = args.modelSettings;
   }
-  // Always sent: the defaults are a real value, and the host validates
-  // whatever arrives (`parseRuntimeSubagentSettings`) rather than assuming.
-  data['subagentSettings'] = args.subagentSettings;
+  // Sent on every desktop host request: the defaults are a real value, and the
+  // host validates whatever arrives (`parseRuntimeSubagentSettings`).
+  if (args.subagentSettings) {
+    data['subagentSettings'] = args.subagentSettings;
+  }
   if (args.providerOptions) {
     data['providerOptions'] = args.providerOptions;
   }
