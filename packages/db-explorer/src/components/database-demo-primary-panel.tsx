@@ -14,7 +14,7 @@ import {
   type useEmbeddingControls,
 } from '@brainstrike/vector-management';
 import { HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
-import { type ComponentProps, type ReactElement, useState } from 'react';
+import { type ComponentProps, type ReactElement, useId, useState } from 'react';
 import type { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import type { useExportHandlers } from '../hooks/use-export-handlers';
 import type { useImportSettings } from '../hooks/use-import-settings';
@@ -73,6 +73,7 @@ export function DatabaseDemoPrimaryPanel({
   showSettings,
 }: DatabaseDemoPrimaryPanelProps): ReactElement {
   const [helpOpen, setHelpOpen] = useState(false);
+  const helpTitleId = useId();
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel-surface">
       <div
@@ -130,11 +131,14 @@ export function DatabaseDemoPrimaryPanel({
                 </Tooltip>
                 <PopoverContent
                   align="end"
+                  aria-labelledby={helpTitleId}
                   className="w-[300px] space-y-1"
                   data-testid="database-panel-help"
                   side="bottom"
                 >
-                  <h3 className="font-medium text-sm">Collections</h3>
+                  <h3 className="font-medium text-sm" id={helpTitleId}>
+                    Collections
+                  </h3>
                   <p className="text-muted-foreground text-sm">
                     Collections let you search files with different AI models. Create separate
                     collections for code, documentation, or general content to get better search

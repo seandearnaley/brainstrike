@@ -73,7 +73,7 @@ test.describe('Agent sidebar database access @stateful @web-db-startup', () => {
     await expect(toolbar).toBeVisible({ timeout: 15_000 });
 
     await toolbar.getByRole('button', { name: 'Help' }).click();
-    const help = page.getByTestId('database-panel-help');
+    const help = page.getByRole('dialog', { name: 'Collections' });
     await expect(help).toBeVisible();
     await expect(help).toContainText('Collections let you search files with different AI models.');
     await page.keyboard.press('Escape');

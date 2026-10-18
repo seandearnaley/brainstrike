@@ -1223,7 +1223,8 @@ describe('DatabaseDemoPanel', () => {
       const toolbar = await screen.findByTestId('database-panel-toolbar');
       await user.click(within(toolbar).getByRole('button', { name: /Help/ }));
 
-      const help = await screen.findByTestId('database-panel-help');
+      const help = await screen.findByRole('dialog', { name: 'Collections' });
+      expect(help).toHaveAttribute('data-testid', 'database-panel-help');
       expect(help).toHaveTextContent('Collections let you search files with different AI models.');
     });
 
