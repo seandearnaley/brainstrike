@@ -176,15 +176,18 @@ function takesHostInputOf(run: HostRunState, accepted: HostRunState): boolean {
   );
 }
 /**
- * BST-1932: a background invocation that took human input reports with the
- * run taking that input, in one wake, so it is still at work for its parent
- * until that run settles. The input stays on the invocation until its run is
- * committed (core-run-end.ts).
+ * BST-1932: child work that took human input (an invocation or a follow-up,
+ * BST-2178) reports with the run taking that input, in one wake, so it is
+ * still at work for its parent until that run, and any input that run took in
+ * turn, settles. The input stays on the run until its run is committed
+ * (core-run-end.ts).
  */
 function hostRunTakingInput(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): boolean {
   return (
     run.childInput !== undefined ||
-    [...runs.values()].some((next) => !next.terminal && takesHostInputOf(next, run))
+    [...runs.values()].some(
+      (next) => takesHostInputOf(next, run) && (!next.terminal || hostRunTakingInput(next, runs))
+    )
   );
 }
 interface Invocation {
@@ -498,9 +501,9 @@ export class HostChildRuns {
   }
   /**
    * The parent thread a settled child run reports to: a background invocation
-   * in any outcome, and so the run taking its human input, which carries its
-   * report; any other follow-up only when it completed (a pause or a stop never
-   * wakes the parent).
+   * in any outcome; a follow-up when it completed, or in any outcome when it
+   * takes the human input of a run that reports, whose report it carries (a
+   * pause or a stop never wakes the parent otherwise).
    */
   deliveryParent(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): string | undefined {
     const origin = run.origin;
@@ -607,14 +610,22 @@ export class HostChildRuns {
         ? [{ ...invocation, outcome }]
         : [];
     });
-    // The run taking an invocation's input is delivered with that invocation, never alone.
+    // A follow-up still taking human input reports with that input's run, and
+    // the run taking a run's input is delivered with that run, never alone.
+    // Follow-ups are in commit order, so the run whose input one takes comes first.
     const reporting = new Set(due.map(({ run }) => run.id));
-    const continuing = followUps.flatMap((followUp) => {
-      const invocation = this.inputOf(followUp.run, runs);
-      return invocation && !(reporting.has(invocation.id) || this.delivered.has(invocation.id))
-        ? []
-        : [followUp];
-    });
+    const continuing: typeof followUps = [];
+    for (const followUp of followUps) {
+      const accepted = this.inputOf(followUp.run, runs);
+      if (
+        hostRunTakingInput(followUp.run, runs) ||
+        (accepted && !(reporting.has(accepted.id) || this.delivered.has(accepted.id)))
+      ) {
+        continue;
+      }
+      reporting.add(followUp.run.id);
+      continuing.push(followUp);
+    }
     if (due.length === 0 && continuing.length === 0) {
       return;
     }
@@ -671,22 +682,25 @@ export class HostChildRuns {
     };
   }
   /**
-   * The background invocation whose accepted human input `run` takes, when
-   * `run` is that input's run; its report carries the invocation's.
+   * The run whose accepted human input `run` takes (its branch parent), when
+   * that run reports to the parent: a background invocation or a reported
+   * follow-up (BST-2178). `run`'s report carries it.
    */
   private inputOf(
     run: HostRunState,
     runs: ReadonlyMap<string, HostRunState>
   ): HostRunState | undefined {
-    const invocation = runs.get(this.invocations.get(run.threadId) ?? '');
-    return invocation?.origin?.background && takesHostInputOf(run, invocation)
-      ? invocation
+    const accepted = runs.get(run.branch.parentMessageId ?? '');
+    return accepted &&
+      takesHostInputOf(run, accepted) &&
+      this.deliveryParent(accepted, runs) !== undefined
+      ? accepted
       : undefined;
   }
   /**
    * What `threadId`'s children report to it: its background invocations, and
    * the follow-ups typed into any of its children not yet delivered: those that
-   * completed, and the run taking an invocation's input in any outcome.
+   * completed, and the run taking a reported run's input in any outcome.
    */
   private reports(
     threadId: string,

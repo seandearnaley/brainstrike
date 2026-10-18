@@ -54,7 +54,12 @@ Opening a child panel neither starts nor cancels its run. Controls name the
 selected child and exact host interaction; root controls are not inherited by
 accident. Human input during active child work ends that run after its current
 step, then starts the child's next run once; failed or stopped work reports why
-it could not consume the input.
+it could not consume the input. The parent sees the input's outcome too: work
+that took human input (a background invocation, or a completed follow-up typed
+into an idle child) reaches the parent once, in the same delivery as the run
+that took the input and any input that run took in turn, however that run
+ended. A restart delivers both at the next user turn; it does not replay the
+input.
 
 A delegation card shows its child's committed run — working, waiting on a person, or
 how it ended, with its tool calls — read from the child's own log, never from the
