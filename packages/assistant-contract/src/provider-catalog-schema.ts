@@ -93,6 +93,7 @@ const LlmModelSchema = Schema.Struct({
   bedrockReasoning: Schema.optional(
     Schema.Literals(['adaptive', 'budget-tokens', 'max-reasoning-effort'])
   ),
+  bedrockReasoningMandatory: Schema.optional(Schema.Literal(true)),
   catalog: Schema.optional(ModelCatalogPresentationSchema),
   contextWindow: Schema.Finite,
   default: Schema.optional(Schema.Boolean),

@@ -205,14 +205,14 @@ describe('MCP host contract', () => {
   });
   it('keeps runtime transport and stable-error vocabularies aligned with their types', () => {
     expectTypeOf(
-      Schema.decodeUnknownSync(McpConfiguredProtocolSchema)('legacy')
+      Schema.decodeSync(McpConfiguredProtocolSchema)('legacy')
     ).toEqualTypeOf<McpConfiguredProtocol>();
     expectTypeOf(
-      Schema.decodeUnknownSync(McpStatusTransportSchema)('stdio')
+      Schema.decodeSync(McpStatusTransportSchema)('stdio')
     ).toEqualTypeOf<McpStatusTransport>();
     for (const category of MCP_STABLE_ERROR_CATEGORIES) {
       expect(
-        Schema.decodeUnknownSync(McpHostErrorSchema, { errors: 'all', onExcessProperty: 'error' })({
+        Schema.decodeSync(McpHostErrorSchema, { errors: 'all', onExcessProperty: 'error' })({
           category,
           code: 'stable_code',
           message: 'Safe',
@@ -223,6 +223,13 @@ describe('MCP host contract', () => {
         message: 'Safe',
       });
     }
+    const malformedWire: unknown = { category: 'configuration', code: 123, message: 'refused' };
+    expect(
+      Schema.decodeUnknownResult(McpHostErrorSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(malformedWire)._tag
+    ).toBe('Failure');
     expect(() =>
       Schema.decodeUnknownSync(McpHostErrorSchema, { errors: 'all', onExcessProperty: 'error' })({
         category: 'sdk-private',

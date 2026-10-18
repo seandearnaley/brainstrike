@@ -1325,6 +1325,53 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
   });
 
+  it('caps the output control at the room the window leaves for input (BST-1810)', () => {
+    // MiniMax M3 publishes a 512,000 maximum output in a 524,288 window, whose
+    // 26,215 safety margin leaves room for at most 498,072 output tokens.
+    const onSettingsChange = vi.fn();
+    const onValidationChange = vi.fn();
+    render(
+      <ProviderSettingsPanel
+        modelName="minimax/minimax-m3"
+        onSettingsChange={onSettingsChange}
+        onValidationChange={onValidationChange}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 4096 }}
+      />
+    );
+
+    expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveAttribute(
+      'max',
+      '498072'
+    );
+    const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
+    expect(input).toHaveAttribute('max', '498072');
+    fireEvent.change(input, { target: { value: '512000' } });
+    fireEvent.blur(input);
+
+    const refusal =
+      "Output limit exceeds the 498,072 maximum from this model's 524,288-token context window.";
+    expect(screen.getByRole('alert')).toHaveTextContent(refusal);
+    expect(onSettingsChange).not.toHaveBeenCalled();
+    expect(onValidationChange).toHaveBeenLastCalledWith(refusal);
+  });
+
+  it('keeps the model maximum when its window has room for it (Kimi K3, BST-1810)', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 4096 }}
+      />
+    );
+
+    expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveAttribute(
+      'max',
+      '943718'
+    );
+  });
+
   it('uses the coding default when OpenRouter does not declare a model output maximum', () => {
     render(
       <ProviderSettingsPanel

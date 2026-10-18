@@ -50,6 +50,22 @@ describe('useAssistantModelChange provider reconciliation', () => {
     expect(setProviderSettings).not.toHaveBeenCalled();
   });
 
+  it('clears a GPT-5.6 effort the Pro model does not offer (BST-1709)', () => {
+    const { result, setModel, setProviderSettings } = renderModelChange(
+      { openai: { maxOutputTokens: 2048, reasoningEffort: 'max' } },
+      'openai::gpt-5.6-sol'
+    );
+
+    act(() => result.current.handleModelChange('openai::gpt-5.5-pro'));
+
+    expect(setProviderSettings).toHaveBeenCalledOnce();
+    const [provider, updates] = setProviderSettings.mock.calls[0] ?? [];
+    expect(provider).toBe('openai');
+    expect(Object.keys(updates ?? {})).toEqual(['reasoningEffort']);
+    expect(updates).toHaveProperty('reasoningEffort', undefined);
+    expect(setModel).toHaveBeenCalledWith('openai::gpt-5.5-pro');
+  });
+
   it('clears an unsupported Bedrock effort on a global model switch', () => {
     const { result, setModel, setProviderSettings } = renderModelChange({
       bedrock: { bedrockEffort: 'max', maxOutputTokens: 2048 },

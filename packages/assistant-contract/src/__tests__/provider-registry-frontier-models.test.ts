@@ -144,6 +144,7 @@ describe('frontier model refresh (2026-07)', () => {
 
       expect(fable).toEqual({
         bedrockReasoning: 'adaptive',
+        bedrockReasoningMandatory: true,
         contextWindow: 1_000_000,
         id: 'anthropic.claude-fable-5-1',
         label: 'Claude Fable 5.1 (Bedrock)',

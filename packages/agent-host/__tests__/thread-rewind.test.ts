@@ -82,7 +82,7 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
       order.push(event.type);
       committed.push(event);
       rewinds.fold(
-        Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+        Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
           event,
           seq,
           threadId: THREAD,
@@ -99,7 +99,7 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
   const add = (state: HostRunState): void => {
     runs.set(state.id, state);
     rewinds.fold(
-      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+      Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: {
           modelId: 'model',
           parentMessageId: state.branch.parentMessageId,
@@ -219,7 +219,7 @@ describe('restore to before a message', () => {
     const h = harness();
     threeTurns(h);
     h.rewinds.fold(
-      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+      Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: {
           commandId: 'cmd-1',
           headId: 'run-1',

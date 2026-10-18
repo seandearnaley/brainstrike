@@ -62,7 +62,7 @@ const McpHostOperationResultEnvelopeSchema = Schema.Union(
   { mode: 'oneOf' }
 );
 const McpHostCloseCounterSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
-const McpHostCloseReportSchema: Schema.ConstraintDecoder<McpHostCloseReport> = Schema.Struct({
+const McpHostCloseReportSchema = Schema.Struct({
   callbacksClosed: McpHostCloseCounterSchema,
   childProcessesClosed: McpHostCloseCounterSchema,
   clientsClosed: McpHostCloseCounterSchema,
@@ -71,7 +71,7 @@ const McpHostCloseReportSchema: Schema.ConstraintDecoder<McpHostCloseReport> = S
   probesClosed: McpHostCloseCounterSchema,
   requestsSettled: McpHostCloseCounterSchema,
   subscriptionsClosed: McpHostCloseCounterSchema,
-});
+}) satisfies Schema.ConstraintDecoder<McpHostCloseReport>;
 const McpHostCatalogSchema = Schema.Struct({
   errors: McpHostCatalogErrorsSchema,
   features: McpHostServerFeaturesSchema,

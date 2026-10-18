@@ -154,6 +154,15 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   bedrockReasoning?: 'adaptive' | 'budget-tokens' | 'max-reasoning-effort';
   /**
+   * Bedrock-only (BST-1807): the route always thinks, as the direct row's
+   * `anthropicReasoning.mandatory` says. Present only beside the `adaptive`
+   * dialect. Its `display` defaults to `omitted`, so the request carries
+   * `{type:'adaptive', display}` at every effort, Auto included, or the
+   * show-reasoning preference (and Opus 5.5's between-tool-call progress
+   * text, which arrives as thinking) is hidden.
+   */
+  bedrockReasoningMandatory?: true;
+  /**
    * Total context window in tokens (input + output). REQUIRED: adding a model
    * without it is a compile error — this drives the thread context meter and
    * the auto-derived agent input token budget. Use the provider's documented

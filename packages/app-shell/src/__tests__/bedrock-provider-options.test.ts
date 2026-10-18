@@ -146,3 +146,52 @@ describe('buildProviderOptions for bedrock', () => {
     ).toBeUndefined();
   });
 });
+
+/**
+ * BST-1807: the always-thinking Claude routes default `display` to `omitted`,
+ * so they carry adaptive thinking at every effort, Auto included, as BST-1804
+ * made the direct rows do. Every other route keeps its shapes above.
+ */
+describe('buildProviderOptions for always-thinking bedrock routes', () => {
+  const ALWAYS_ON_MODELS = [
+    'anthropic.claude-opus-5-5',
+    'anthropic.claude-fable-5',
+    'anthropic.claude-fable-5-1',
+  ];
+
+  it.each(ALWAYS_ON_MODELS)('sends adaptive thinking with its display at Auto on %s', (model) => {
+    expect(buildProviderOptions('bedrock', model, {})).toEqual({
+      bedrock: { reasoningConfig: { display: 'summarized', type: 'adaptive' } },
+    });
+    expect(buildProviderOptions('bedrock', model, { reasoningVisible: false })).toEqual({
+      bedrock: { reasoningConfig: { display: 'omitted', type: 'adaptive' } },
+    });
+  });
+
+  it('adds an offered effort, and leaves out one the route does not offer', () => {
+    expect(
+      buildProviderOptions('bedrock', 'anthropic.claude-opus-5-5', { bedrockEffort: 'high' })
+    ).toEqual({
+      bedrock: {
+        reasoningConfig: { display: 'summarized', maxReasoningEffort: 'high', type: 'adaptive' },
+      },
+    });
+    // `max` exists only on the budget-token ladder: the vendor default applies.
+    expect(
+      buildProviderOptions('bedrock', 'anthropic.claude-opus-5-5', { bedrockEffort: 'max' })
+    ).toEqual({
+      bedrock: { reasoningConfig: { display: 'summarized', type: 'adaptive' } },
+    });
+  });
+
+  it('keeps Auto empty on the adaptive routes that can think or not', () => {
+    for (const model of [
+      'anthropic.claude-opus-5',
+      'anthropic.claude-opus-4-8',
+      'anthropic.claude-sonnet-5',
+      'anthropic.claude-sonnet-4-6',
+    ]) {
+      expect(buildProviderOptions('bedrock', model, {})).toBeUndefined();
+    }
+  });
+});

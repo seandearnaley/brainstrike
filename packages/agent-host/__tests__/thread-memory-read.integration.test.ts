@@ -118,7 +118,7 @@ test('a read evaluates run/start’s request with the pure preconditions and adm
       const configuration = { memorySettings: { semanticRecall: { enabled: true } } };
       const result = await core.readThreadMemory({ configuration, modelId: MODEL, threadId });
       expect(
-        Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/memory/read'], {
+        Schema.decodeSync(HOST_RESULT_SCHEMAS['thread/memory/read'], {
           errors: 'all',
           onExcessProperty: 'error',
         })(result)

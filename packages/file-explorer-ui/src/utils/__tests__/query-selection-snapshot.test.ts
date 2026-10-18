@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createDatabaseWorkScheduler, createScheduledDbHandle } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -46,6 +47,39 @@ describe('query-selection-snapshot', () => {
       createQuerySelectionSnapshot(db, ['/src/index.ts', '/src/utils.ts'])
     ).resolves.toBe('snapshot-1');
     expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
+  // BST-2093: the background token indexer floods the shared scheduler with
+  // foreground `file_token_cache` writes while a large Select All persists its
+  // snapshot. Each statement of a BEGIN/…/COMMIT sequence re-queued behind that
+  // flood (Select All timed out after 30s on hosted Linux), and the foreign
+  // writes ran inside the snapshot's open transaction.
+  it('keeps a concurrent foreground write out of the snapshot write', async () => {
+    const concurrentSql = 'INSERT INTO file_token_cache (folder_id) VALUES ($1)';
+    const executed: Array<'concurrent' | 'snapshot'> = [];
+    let concurrentWrite: Promise<unknown> | null = null;
+    const executor = {
+      query: async <T = unknown>(sql: string) => {
+        executed.push(sql === concurrentSql ? 'concurrent' : 'snapshot');
+        // The concurrent writer submits as soon as the snapshot write starts.
+        concurrentWrite ??= db.query(concurrentSql, ['folder-1']);
+        return {
+          rows: (sql.includes('INSERT INTO selection_snapshots')
+            ? [{ id: 'snapshot-1' }]
+            : []) as T[],
+        };
+      },
+    };
+    const db = createScheduledDbHandle(
+      executor,
+      createDatabaseWorkScheduler(),
+      'foreground'
+    ) as unknown as DbHandle;
+
+    await expect(createQuerySelectionSnapshot(db, ['/src/index.ts'])).resolves.toBe('snapshot-1');
+    await concurrentWrite;
+
+    expect(executed.indexOf('concurrent')).toBeGreaterThan(executed.lastIndexOf('snapshot'));
   });
 
   it('throws when snapshot creation does not return an id', async () => {

@@ -71,7 +71,7 @@ export async function settleDeferredNativeIndexCatalog(
     await refresh();
     return;
   }
-  if (current.queuedCatalogRefresh) {
+  if (current.queuedCatalogRefresh !== undefined) {
     // The queued refresh applies this change too. Observe this read's own join, which source
     // retirement rejects; the scan's own owner reports a failure.
     settled.catch(() => undefined);

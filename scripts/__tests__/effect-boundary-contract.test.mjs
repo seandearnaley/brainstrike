@@ -44,6 +44,15 @@ const REQUIRED_SEVERITIES = {
   unsafeEffectTypeAssertion: 'error',
   unstableApiUsage: 'error',
 };
+// Admit producer cohorts after preserving Encoded inference and classifying wire fixtures.
+// Later waves extend this same rollout rather than creating a separate checker.
+const TYPED_PRODUCER_COHORTS = new Set([
+  'packages/effect-kit',
+  'packages/assistant-contract',
+  'packages/agent-host',
+  'packages/agent',
+  'packages/host-capabilities',
+]);
 // The one package allowed to run effects: it IS the Promise boundary.
 const RUNNER_OWNER_PREFIX = 'packages/effect-kit/src/';
 // Every v4 runner, `...With` variants included: runPromise, runSyncExitWith, ...
@@ -302,6 +311,7 @@ test('effect and every @effect/* package are catalogued at one exact version', (
 
 test('every package that depends on effect runs the Effect diagnostics in type-check', () => {
   const consumers = effectConsumers();
+  const admitted = new Set();
   assert.ok(consumers.length > 0, 'at least one workspace package depends on effect');
   for (const { file, manifest } of consumers) {
     const directory = path.dirname(file);
@@ -334,14 +344,20 @@ test('every package that depends on effect runs the Effect diagnostics in type-c
     );
     // Resolving the plugin is not enough: with no severities, a stable export
     // that exposes an unstable Effect type still type-checks clean.
+    const expected = { ...REQUIRED_SEVERITIES };
+    if (TYPED_PRODUCER_COHORTS.has(directory)) {
+      admitted.add(directory);
+      expected.preferTypedSchemaDecoder = 'error';
+    }
     assert.deepEqual(
       plugin.diagnosticSeverity,
-      REQUIRED_SEVERITIES,
+      expected,
       `${directory}/${project} must set diagnosticSeverity to ` +
-        `${JSON.stringify(REQUIRED_SEVERITIES)}; apiStabilityLeak is off by default ` +
+        `${JSON.stringify(expected)}; apiStabilityLeak is off by default ` +
         'and --strict cannot enable it'
     );
   }
+  assert.deepEqual(admitted, TYPED_PRODUCER_COHORTS, 'every admitted producer cohort is checked');
 });
 
 test('production code imports only effect and effect/testing and runs effects only in effect-kit', () => {

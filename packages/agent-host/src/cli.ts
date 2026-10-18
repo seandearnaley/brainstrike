@@ -357,7 +357,7 @@ function threadSearchParams(values: HostCliArguments['values']): HostParams<'thr
   if (problems.length > 0) {
     throw new Error(problems.join('\n'));
   }
-  return Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['thread/search'], {
+  return Schema.decodeSync(HOST_METHOD_SCHEMAS['thread/search'], {
     errors: 'all',
     onExcessProperty: 'error',
   })({
