@@ -390,7 +390,7 @@ export class McpCoreServerFeatures {
   }
 
   close(): Promise<CloseProof> {
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       return this.closePromise;
     }
     this.closePromise = this.closeOwnedResources();

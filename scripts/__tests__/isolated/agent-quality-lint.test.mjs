@@ -16,6 +16,10 @@ const joinedAssertion =
 // Real new files exercise the repository's inclusion/override rules and scanner.
 // A separate synthetic config or --only would enable rules behind our backs.
 const layouts = [
+  ['packages/host-capabilities/src/mcp/__tests__/nested', '.test.ts'],
+  ['packages/host-capabilities/src/mcp/__tests__', '.spec.ts'],
+  ['packages/host-capabilities/src/mcp/__tests__', '.mts'],
+  ['packages/host-capabilities/src/mcp/__tests__', '.mjs'],
   ['packages/host-capabilities/__tests__/credentials/nested', '.test.ts'],
   ['packages/host-capabilities/__tests__/provider-auth/nested', '.test.ts'],
   ['packages/host-capabilities/__tests__/provider-auth', '.spec.ts'],
@@ -100,6 +104,7 @@ function lint(t, side) {
     rule: 'nursery/noFloatingPromises',
   });
   for (const directory of [
+    'packages/host-capabilities/src/mcp',
     'packages/host-capabilities/src/provider-auth',
     'packages/host-capabilities/__tests__/provider-auth',
     'packages/indexer/src',

@@ -341,7 +341,7 @@ export class McpServerActor {
     return this.snapshot();
   }
   close(): Promise<McpHostCloseReport> {
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       return this.closePromise;
     }
     this.closePromise = Promise.resolve().then(() => this.closeAfterDrain());
@@ -748,7 +748,7 @@ export class McpServerActor {
   }
 
   private closeClient(memoizeFailure = true): Promise<McpHostCloseReport> {
-    if (this.clientClosePromise) {
+    if (this.clientClosePromise !== undefined) {
       return this.clientClosePromise;
     }
     const client = this.client;

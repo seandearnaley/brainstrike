@@ -171,7 +171,7 @@ export class McpHostService implements McpHostPort {
     } catch (cause) {
       return Promise.reject(cause);
     }
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
     if (options?.signal?.aborted) {
@@ -209,7 +209,7 @@ export class McpHostService implements McpHostPort {
     }
   }
   replaceConfig(config: McpHostConfig): Promise<McpHostSnapshot> {
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
     let parsed: McpHostConfig;
@@ -227,7 +227,7 @@ export class McpHostService implements McpHostPort {
     } catch (cause) {
       return Promise.reject(cause);
     }
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
     if (parsedRequest.action === 'cancel' || parsedRequest.action === 'connect') {
@@ -284,7 +284,7 @@ export class McpHostService implements McpHostPort {
     return this.options.publisher.watch(filter, listener);
   }
   close(): Promise<McpHostCloseReport> {
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       return this.closePromise;
     }
     const deferred = Promise.withResolvers<McpHostCloseReport>();
@@ -355,7 +355,7 @@ export class McpHostService implements McpHostPort {
           config: server,
           generation,
           onSnapshotChanged: (snapshot) => {
-            if (this.closePromise) {
+            if (this.closePromise !== undefined) {
               return;
             }
             // Routing is fenced before physical retirement. The publisher
@@ -404,13 +404,13 @@ export class McpHostService implements McpHostPort {
     return actor;
   }
   private assertOpen(): void {
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       throw new McpHostServiceError('mcp-host-closed');
     }
   }
   private startClose(actor: McpHostActor): Promise<McpHostCloseReport> {
     const existing = this.closeWork.get(actor);
-    if (existing) {
+    if (existing !== undefined) {
       return existing;
     }
     let work: Promise<McpHostCloseReport>;
