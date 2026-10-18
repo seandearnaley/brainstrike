@@ -348,7 +348,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ## Assistant UI (`@assistant-ui/react` 0.12.x → 0.14.x, `@assistant-ui/react-markdown` 0.12.x → 0.14.x, `@assistant-ui/react-data-stream` 0.12.11 → 0.12.18, `@assistant-ui/styles` deprecated) — completed
 
-**Status:** `@assistant-ui/react` bumped `~0.12.25` → `~0.14.26`, `@assistant-ui/react-markdown` `^0.12.9` → `^0.14.5`, `@assistant-ui/react-data-stream` `^0.12.11` → `^0.12.18` across `packages/ui`, `apps/web`, `apps/desktop`. `@assistant-ui/styles` stays pinned at `^0.3.7` (see below — there is no newer version and no drop-in replacement package).
+**Status:** `@assistant-ui/react` bumped `~0.12.25` → `~0.14.26`, `@assistant-ui/react-markdown` `^0.12.9` → `^0.14.5`, `@assistant-ui/react-data-stream` `^0.12.11` → `^0.12.18` across `packages/ui`, `apps/web`, `apps/desktop`. The deprecated `@assistant-ui/styles` 0.3.7 was subsequently retired on 18 October 2026; component-owned chat CSS and the shared Tailwind animation import now replace it (see the retirement record below).
 
 **Why it matters:** This is the highest-blast-radius dependency in the repo — `packages/ui`'s `assistant-ui-panel/*` wraps it directly, and `AGENTS.md`'s ASSISTANT RESILIENCE / PERMISSION ENGINE / ASSISTANT THREAD PERSISTENCE sections all layer custom logic on top of its primitives and hooks.
 
