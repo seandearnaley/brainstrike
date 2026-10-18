@@ -16,7 +16,7 @@ export function createAgentHostSpawner(
         ? [
             '--platform-options',
             JSON.stringify(
-              Schema.decodeUnknownSync(HostPlatformLaunchOptionsSchema, {
+              Schema.decodeSync(HostPlatformLaunchOptionsSchema, {
                 errors: 'all',
                 onExcessProperty: 'error',
               })(platformOptions)

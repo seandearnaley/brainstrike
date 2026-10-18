@@ -46,7 +46,11 @@ const REQUIRED_SEVERITIES = {
 };
 // Admit producer cohorts after preserving Encoded inference and classifying wire fixtures.
 // Later waves extend this same rollout rather than creating a separate checker.
-const TYPED_PRODUCER_COHORTS = new Set(['packages/effect-kit', 'packages/assistant-contract']);
+const TYPED_PRODUCER_COHORTS = new Set([
+  'packages/effect-kit',
+  'packages/assistant-contract',
+  'packages/agent-host',
+]);
 // The one package allowed to run effects: it IS the Promise boundary.
 const RUNNER_OWNER_PREFIX = 'packages/effect-kit/src/';
 // Every v4 runner, `...With` variants included: runPromise, runSyncExitWith, ...

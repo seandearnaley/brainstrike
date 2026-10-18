@@ -57,7 +57,7 @@ export function storedHostEvent(
   input: HostEvent,
   referenced: readonly BlobContent[] = []
 ): AppendItem {
-  const event = Schema.decodeUnknownSync(HostEventSchema, {
+  const event = Schema.decodeSync(HostEventSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(input);

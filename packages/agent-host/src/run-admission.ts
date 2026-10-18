@@ -123,12 +123,10 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
       : {}),
     snapshot: immutableData(
-      Schema.decodeUnknownSync(HostRunSnapshotSchema, { errors: 'all', onExcessProperty: 'error' })(
-        {
-          ...selected.snapshot,
-          ...(Object.keys(mcpAuthorities).length > 0 ? { mcpAuthorities } : {}),
-        }
-      )
+      Schema.decodeSync(HostRunSnapshotSchema, { errors: 'all', onExcessProperty: 'error' })({
+        ...selected.snapshot,
+        ...(Object.keys(mcpAuthorities).length > 0 ? { mcpAuthorities } : {}),
+      })
     ),
     tools: Object.freeze(
       Object.fromEntries(
