@@ -14,7 +14,7 @@ const decodeAttached = makeThrowingDecoder(
   Schema.Struct({ event: Schema.Literal('attached'), record: HostRecordSchema }),
   { onExcessProperty: 'error' }
 );
-const fixture = fileURLToPath(new URL('./fixtures/client-process.ts', import.meta.url));
+const fixture = fileURLToPath(new URL('./fixtures/client-process.mjs', import.meta.url));
 const roots: string[] = [];
 const children: ChildProcess[] = [];
 const hosts = new Map<number, HostRecord>();
@@ -28,7 +28,8 @@ async function client(
   lifetime: 'app' | 'cli'
 ): Promise<{ child: ChildProcess; record: HostRecord }> {
   const child = fork(fixture, [root, lifetime], {
-    execArgv: ['--import', 'tsx'],
+    // Plain Node, as the host starter forks dist/process-entry.js.
+    execArgv: [],
     execPath: process.execPath,
     stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
   });
