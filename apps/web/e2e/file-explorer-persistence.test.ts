@@ -253,7 +253,7 @@ async function clickDirectoryToggle(
 
 async function restoreAccessIfNeeded(page: Page, explorer: FileExplorerPage): Promise<void> {
   const restoreBanner = page.getByText('Restore access to your last folder?');
-  const restoreButton = page.getByRole('button', { name: 'Restore Access' });
+  const restoreButton = page.getByRole('button', { name: 'Restore folder access' });
   const start = Date.now();
 
   while (Date.now() - start < 10_000) {
@@ -485,6 +485,55 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await openPreviewFile(page, 'beta.ts');
     await expect(page.getByRole('tab', { name: /beta\.ts/ })).toBeVisible();
     await expect(page.getByText('beta content')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('restores expanded folders once access to the folder is granted again after reload', async ({
+    page,
+    browserName,
+  }) => {
+    if (browserName !== 'chromium') {
+      test.skip(true, 'File System Access API is only available in Chromium');
+    }
+
+    await page.goto('/');
+    await waitForAppLoad(page, { waitForDatabase: false });
+
+    if (!(await supportsOpfs(page))) {
+      test.skip(true, 'OPFS not available in this environment');
+    }
+
+    await resetExplorerState(page);
+    await setupOpfsDirectoryPicker(page, ROOT_NAME, FILE_TREE);
+
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+    await clickExplorerTreeAction(page, 'expand-all');
+    await expect(explorer.fileTree.getByText('beta.ts')).toBeVisible({ timeout: 10_000 });
+
+    // A folder the user picked asks for permission again after a reload; OPFS
+    // never does. Report "prompt" until the restore dialog requests access, so
+    // boot finds no granted root and retires the view (BST-2088).
+    await page.addInitScript(() => {
+      let granted = false;
+      Object.defineProperty(FileSystemHandle.prototype, 'queryPermission', {
+        configurable: true,
+        value: async () => (granted ? 'granted' : 'prompt'),
+      });
+      Object.defineProperty(FileSystemHandle.prototype, 'requestPermission', {
+        configurable: true,
+        value: async () => {
+          granted = true;
+          return 'granted';
+        },
+      });
+    });
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: false });
+
+    await page.getByRole('button', { name: 'Restore folder access' }).click();
+
+    await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.fileTree.getByText('beta.ts')).toBeVisible({ timeout: 10_000 });
   });
 
   test('restores expanded folders without selections and keeps single-click toggles after reload', async ({
