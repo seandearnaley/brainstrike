@@ -50,13 +50,22 @@ export interface FolderStateActions {
 
 /** Build the state update for restoring an existing folder */
 function buildRestoreState(
-  state: Pick<FileExplorerState, 'activeRootIds'>,
+  state: Pick<FileExplorerState, 'activeRootIds' | 'currentFolderId' | 'expandedDirectoryPaths'>,
   folderId: string,
   folderState: FolderState,
   folderStates: Record<string, FolderState>,
   order: string[]
 ): Partial<FileExplorerState> {
+  // The one exception to the rule below: with no root focused and nothing
+  // expanded (an empty boot restore retired the view, or every root was
+  // removed), there is no workspace setting to overwrite. Re-mounting a root
+  // then restores the expansions its retired view saved into this snapshot,
+  // e.g. a web folder whose access is restored after a reload (BST-2088).
+  const seedsExpansions = state.currentFolderId === null && state.expandedDirectoryPaths.size === 0;
   return {
+    ...(seedsExpansions
+      ? { expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths) }
+      : {}),
     currentFolderId: folderId,
     folderAccessOrder: order,
     folderStates,
@@ -128,7 +137,7 @@ function prepareFolderStates(
 /** Handle restoring an existing folder's state */
 function handleRestoreFolder(
   set: SetState<FileExplorerState>,
-  state: Pick<FileExplorerState, 'activeRootIds'>,
+  state: Pick<FileExplorerState, 'activeRootIds' | 'currentFolderId' | 'expandedDirectoryPaths'>,
   folderId: string,
   folderState: FolderState,
   folderStates: Record<string, FolderState>,

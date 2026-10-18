@@ -308,3 +308,44 @@ describe('active roots — persist round-trip', () => {
     });
   });
 });
+
+describe('expansions across focus changes (BST-2088)', () => {
+  it('re-mounting a root after its view was retired restores the expansions that view saved', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().setCurrentFolderId('root-1');
+    store.getState().setExpandedPaths(new Set(['src', 'src/lib']));
+
+    // An empty boot restore (or a web folder awaiting permission) retires the view.
+    store.getState().setCurrentFolderId(null);
+    expect(store.getState().expandedDirectoryPaths.size).toBe(0);
+
+    store.getState().setCurrentFolderId('root-1');
+    expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['src', 'src/lib']));
+  });
+
+  it('switching focus between mounted roots keeps the workspace-global expansions', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().setCurrentFolderId('root-1');
+    store.getState().setExpandedPaths(new Set(['a']));
+    store.getState().setCurrentFolderId('root-2');
+    store.getState().setExpandedPaths(new Set(['a', 'b']));
+
+    // root-1's snapshot holds only 'a'; focusing it must not collapse 'b'.
+    store.getState().setCurrentFolderId('root-1');
+    expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['a', 'b']));
+  });
+
+  it('a retired view that someone expanded since is not overwritten by the snapshot', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().setCurrentFolderId('root-1');
+    store.getState().setExpandedPaths(new Set(['old']));
+    store.getState().setCurrentFolderId(null);
+    store.getState().setExpandedPaths(new Set(['current']));
+
+    store.getState().setCurrentFolderId('root-1');
+    expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['current']));
+  });
+});

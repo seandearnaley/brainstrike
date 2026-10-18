@@ -224,11 +224,16 @@ test('keeps restored expanded explorer windowed during panel resize drag', async
   await page.getByTestId('expand-all-button-small').click();
   await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 60_000 });
   await expect.poll(() => getExpandedDirectoryCount(page), { timeout: 10_000 }).toBeGreaterThan(0);
-  await persistCurrentExplorerStoreSnapshot(page);
+  // Restored explorer state is keyed by the root's durable RootId (BST-1044):
+  // remount the same root, not a fresh one.
+  const { currentFolderId: rootId } = await persistCurrentExplorerStoreSnapshot(page);
+  if (!rootId) {
+    throw new Error('The selected root did not persist a RootId');
+  }
 
   await page.reload();
   await waitForAppLoad(page, { waitForDatabase: false });
-  await restoreInlineFixture(page, ROOT_NAME, tree);
+  await restoreInlineFixture(page, ROOT_NAME, tree, rootId);
   await expect(explorer.fileTree).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => getExpandedDirectoryCount(page), { timeout: 10_000 }).toBeGreaterThan(0);
 
