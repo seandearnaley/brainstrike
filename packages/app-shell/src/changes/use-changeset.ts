@@ -276,7 +276,13 @@ export function useChangeset(
         };
       }
       try {
-        return await bridge.fileDiff(resolvedRootId, stableChangeset, path);
+        const result = await bridge.fileDiff(resolvedRootId, stableChangeset, path);
+        if (!result.ok) {
+          // The diff card shows a bounded summary and output (BST-2136); the
+          // full text lives here.
+          logger.warn('File diff failed', { error: result.error, path });
+        }
+        return result;
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
         logger.error('Failed to load file diff', { error: caught, path });

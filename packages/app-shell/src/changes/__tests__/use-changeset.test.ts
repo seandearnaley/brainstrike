@@ -18,6 +18,19 @@ import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
 
+const { loggerWarnSpy } = vi.hoisted(() => ({ loggerWarnSpy: vi.fn() }));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: loggerWarnSpy,
+  }),
+}));
+
 /** A port no test here calls: the store only holds it. */
 const PORT: RewindPort = {
   apply: () => Promise.reject(new Error('not used')),
@@ -80,6 +93,22 @@ describe('useChangeset', () => {
     expect(diff).toEqual({
       error: 'changeset-unavailable: no active bridge, root, or changeset',
       ok: false,
+    });
+  });
+
+  it('logs a failed file diff in full before handing it back (BST-2136)', async () => {
+    const failure = { error: 'fatal: bad object\nmore detail', ok: false as const };
+    stubBridge({
+      fileDiff: vi.fn(async () => failure),
+      inventory: vi.fn(),
+      resolveView: vi.fn(async () => ({ ok: true as const, value: viewFixture() })),
+    });
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+
+    expect(await result.current.fileDiff('src/file.ts')).toEqual(failure);
+    expect(loggerWarnSpy).toHaveBeenCalledWith('File diff failed', {
+      error: 'fatal: bad object\nmore detail',
+      path: 'src/file.ts',
     });
   });
 

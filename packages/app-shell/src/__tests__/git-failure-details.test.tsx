@@ -23,9 +23,7 @@ describe('GitFailureDetails (BST-2136)', () => {
     render(<GitFailureDetails error={REJECTED_PUSH} />);
 
     expect(
-      screen.getByText("error: failed to push some refs to 'github.com:example/repo.git'", {
-        selector: 'p',
-      })
+      screen.getByText('! [rejected] main -> main (fetch first)', { selector: 'p' })
     ).toBeInTheDocument();
     const details = screen.getByTestId('git-failure-details');
     expect(details).not.toHaveAttribute('open');

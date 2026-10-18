@@ -10,7 +10,7 @@ describe('summarizeGitFailure', () => {
     ).toBe('fatal: .git/index: index file smaller than expected');
   });
 
-  it("leads with git's error line, not the context lines before it", () => {
+  it("leads a rejected push with git's reason, not the generic push error", () => {
     expect(
       summarizeGitFailure(
         [
@@ -20,7 +20,27 @@ describe('summarizeGitFailure', () => {
           'hint: Updates were rejected because the remote contains work',
         ].join('\n')
       )
-    ).toBe("error: failed to push some refs to 'github.com:example/repo.git'");
+    ).toBe('! [rejected] main -> main (fetch first)');
+  });
+
+  it("leads a hook or branch-rule rejection with the remote's own error", () => {
+    expect(
+      summarizeGitFailure(
+        [
+          'remote: error: GH006: Protected branch update failed for refs/heads/main.',
+          'remote: error: Changes must be made through a pull request.',
+          'To github.com:example/repo.git',
+          ' ! [remote rejected] main -> main (protected branch hook declined)',
+          "error: failed to push some refs to 'github.com:example/repo.git'",
+        ].join('\n')
+      )
+    ).toBe('remote: error: GH006: Protected branch update failed for refs/heads/main.');
+  });
+
+  it("prefers git's fatal/error line over context lines", () => {
+    expect(summarizeGitFailure('warning: something\nfatal: bad object HEAD')).toBe(
+      'fatal: bad object HEAD'
+    );
   });
 
   it('bounds a long line and marks the cut', () => {
