@@ -27,20 +27,20 @@ describe('docs-search schemas', () => {
       limit: 5,
       query: 'ipc tools',
     });
+    const shortQuery: unknown = { query: '  a  ' };
+    const nulQuery: unknown = { query: 'valid\0query' };
+    const excessiveLimit: unknown = { limit: 11, query: 'valid' };
     expect(
-      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })({ query: '  a  ' })
-        ._tag === 'Success'
+      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })(shortQuery)._tag ===
+        'Success'
     ).toBe(false);
     expect(
-      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })({
-        query: 'valid\0query',
-      })._tag === 'Success'
+      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })(nulQuery)._tag ===
+        'Success'
     ).toBe(false);
     expect(
-      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })({
-        limit: 11,
-        query: 'valid',
-      })._tag === 'Success'
+      Schema.decodeUnknownResult(searchDocsInputSchema, { errors: 'all' })(excessiveLimit)._tag ===
+        'Success'
     ).toBe(false);
   });
 
@@ -50,8 +50,9 @@ describe('docs-search schemas', () => {
     ).toEqual({
       docId: 'assistant-ui-integration',
     });
+    const emptyId: unknown = { docId: '' };
     expect(
-      Schema.decodeUnknownResult(docSummaryInputSchema, { errors: 'all' })({ docId: '' })._tag ===
+      Schema.decodeUnknownResult(docSummaryInputSchema, { errors: 'all' })(emptyId)._tag ===
         'Success'
     ).toBe(false);
   });
@@ -188,11 +189,11 @@ describe('docSummaryExecute', () => {
 });
 
 it('counts Unicode code points at the query bounds on the installed validator contract', () => {
-  expect(Schema.decodeUnknownResult(searchDocsInputSchema)({ query: '😀' })._tag).toBe('Failure');
-  expect(Schema.decodeUnknownResult(searchDocsInputSchema)({ query: '😀'.repeat(200) })._tag).toBe(
+  const shortQuery: unknown = { query: '😀' };
+  const longQuery: unknown = { query: '😀'.repeat(201) };
+  expect(Schema.decodeUnknownResult(searchDocsInputSchema)(shortQuery)._tag).toBe('Failure');
+  expect(Schema.decodeResult(searchDocsInputSchema)({ query: '😀'.repeat(200) })._tag).toBe(
     'Success'
   );
-  expect(Schema.decodeUnknownResult(searchDocsInputSchema)({ query: '😀'.repeat(201) })._tag).toBe(
-    'Failure'
-  );
+  expect(Schema.decodeUnknownResult(searchDocsInputSchema)(longQuery)._tag).toBe('Failure');
 });

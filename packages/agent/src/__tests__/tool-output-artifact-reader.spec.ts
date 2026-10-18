@@ -82,33 +82,39 @@ describe('tool output artifact reader', () => {
   it('uses a strict discriminant for initial references and continuation cursors', () => {
     const artifactRef = referenceFor('content');
     const cursor = encodeToolOutputArtifactCursor(artifactRef, 1);
+    const missingReference: unknown = {
+      cursor,
+      mode: 'artifact',
+    };
+    const conflictingCursor: unknown = {
+      artifactRef,
+      cursor,
+      mode: 'artifact',
+    };
 
     expect(
-      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
+      Schema.decodeResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
         artifactRef,
         maxBytes: 4,
         mode: 'artifact',
       })._tag
     ).toBe('Success');
     expect(
-      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
+      Schema.decodeResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
         cursor,
         maxBytes: 4,
         mode: 'cursor',
       })._tag
     ).toBe('Success');
     expect(
-      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
-        artifactRef,
-        cursor,
-        mode: 'artifact',
-      })._tag
+      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })(
+        conflictingCursor
+      )._tag
     ).toBe('Failure');
     expect(
-      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
-        cursor,
-        mode: 'artifact',
-      })._tag
+      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })(
+        missingReference
+      )._tag
     ).toBe('Failure');
   });
 
@@ -625,14 +631,15 @@ describe('tool output artifact reader', () => {
     const content = 'irrelevant';
     const artifactRef = referenceFor(content);
 
-    const parsed = Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, {
-      onExcessProperty: 'error',
-    })({
+    const malformedPattern: unknown = {
       cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
       isRegex: true,
       mode: 'cursor',
       pattern: '(unterminated[',
-    });
+    };
+    const parsed = Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, {
+      onExcessProperty: 'error',
+    })(malformedPattern);
     expect(parsed._tag).toBe('Failure');
     if (parsed._tag === 'Success') {
       throw new TypeError('Expected schema parse to fail.');
