@@ -143,6 +143,7 @@ test(
     const readTasks = () => readCommittedMcpTasks(userDataDir);
     let first: PackagedLaunch | undefined;
     let second: PackagedLaunch | undefined;
+    let fixturesClosed = false;
     try {
       first = await launchPackagedApp(executablePath, userDataDir, environment);
       await ensureMockWorkspaceOpen(first.page);
@@ -227,6 +228,19 @@ test(
         server: server.snapshot(),
         tasks: terminal,
       });
+      // The fixtures close cleanly: a relay error or an incomplete MCP lab
+      // cleanup rejects here, and nothing is left listening or open.
+      fixturesClosed = true;
+      const closed = await Promise.allSettled([provider.close(), server.close()]);
+      const failures = closed.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'BST-2130 provider or Tasks reference cleanup failed');
+      }
+      await expect
+        .poll(() => server.snapshot())
+        .toMatchObject({ activeRequests: 0, listening: false, openSockets: 0 });
     } finally {
       if (first) {
         await closePackagedApp(first.app);
@@ -234,7 +248,10 @@ test(
       if (second) {
         await closePackagedApp(second.app);
       }
-      await Promise.allSettled([provider.close(), server.close()]);
+      if (!fixturesClosed) {
+        // A failure above is the result; closing here must not replace it.
+        await Promise.allSettled([provider.close(), server.close()]);
+      }
       await rm(userDataDir, { force: true, recursive: true });
       await rm(workspace, { force: true, recursive: true });
     }
