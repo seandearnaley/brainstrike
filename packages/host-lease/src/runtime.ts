@@ -132,6 +132,7 @@ export async function startHost(
   let clients = 0;
   let activeRuns = 0;
   let attachedOnce = false;
+  let graceElapsed = false;
   const close = (cause?: unknown): Promise<void> => {
     if (!closing) {
       // BST-1977: fence Core before metadata/ACL and transport finalizers.
@@ -178,14 +179,13 @@ export async function startHost(
     }
     return closing;
   };
+  // A CLI host exits when its last client leaves. A host no client ever attached exits once its
+  // startup grace has elapsed, re-checked here when its last run releases (BST-2170): the grace
+  // timer fires once, and a run held at that moment must not keep the host alive forever.
   const finishIfIdle = (): void => {
-    if (
-      options.lifetime === 'cli' &&
-      attachedOnce &&
-      clients === 0 &&
-      activeRuns === 0 &&
-      !closing
-    ) {
+    const lastClientLeft = options.lifetime === 'cli' && attachedOnce;
+    const unattachedPastGrace = !attachedOnce && graceElapsed;
+    if ((lastClientLeft || unattachedPastGrace) && clients === 0 && activeRuns === 0 && !closing) {
       close().catch(() => undefined); // failure stays visible on completion.promise
     }
   };
@@ -382,9 +382,8 @@ export async function startHost(
       await owner.acquire(
         async () =>
           setTimeout(() => {
-            if (!attachedOnce && activeRuns === 0) {
-              close().catch(() => undefined);
-            }
+            graceElapsed = true;
+            finishIfIdle();
           }, options.startupGraceMs ?? 10_000),
         async (timer) => clearTimeout(timer)
       );
