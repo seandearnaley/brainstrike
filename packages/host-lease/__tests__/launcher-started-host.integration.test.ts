@@ -12,6 +12,7 @@ import { afterEach, expect, test } from 'vitest';
 import { attachHost, type HostAttachment } from '../src/client.js';
 import { LiveHostUnavailableError, launchHost, type StartedHost } from '../src/launcher.js';
 import { secureDirectory } from '../src/record-file.js';
+import { HOST_LEASE_CLOSING, HostLeaseRefusalError } from '../src/refusal.js';
 import { type HostRuntime, startHost } from '../src/runtime.js';
 
 const roots: string[] = [];
@@ -116,7 +117,7 @@ test('a host this launch started that left on its own is retired before the laun
       if (attaches === 1) {
         // The idle CLI host exits before its first client gets in.
         await hosts[0]?.close();
-        throw new Error('Host is closing');
+        throw new HostLeaseRefusalError(HOST_LEASE_CLOSING, 'Host is closing');
       }
       return attachHost(target, timeoutMs);
     },
