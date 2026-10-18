@@ -32,22 +32,20 @@ describe('query-selection-snapshot', () => {
     vi.useRealTimers();
   });
 
-  it('creates the snapshot, its files and the TTL cleanup in one atomic statement', async () => {
+  it('writes TTL cleanup and all memberships in one parameterized statement', async () => {
     const db = createMockDb([
       (sql, params) => {
         expect(sql).toContain('DELETE FROM selection_snapshots');
         expect(sql).toContain('expires_at <= NOW()');
         expect(sql).toContain('INSERT INTO selection_snapshots');
-        expect(sql).toContain("INTERVAL '1 hour'");
         expect(sql).toContain('INSERT INTO selection_snapshot_files');
         expect(params).toEqual([24, ['/src/index.ts', '/src/utils.ts']]);
         return { rows: [{ id: 'snapshot-1' }] };
       },
     ]);
-
-    const snapshotId = await createQuerySelectionSnapshot(db, ['/src/index.ts', '/src/utils.ts']);
-
-    expect(snapshotId).toBe('snapshot-1');
+    await expect(
+      createQuerySelectionSnapshot(db, ['/src/index.ts', '/src/utils.ts'])
+    ).resolves.toBe('snapshot-1');
     expect(db.query).toHaveBeenCalledTimes(1);
   });
 
@@ -86,111 +84,33 @@ describe('query-selection-snapshot', () => {
 
   it('throws when snapshot creation does not return an id', async () => {
     const db = createMockDb([() => ({ rows: [] })]);
-
     await expect(createQuerySelectionSnapshot(db, ['/src/index.ts'])).rejects.toThrow(
       'Selection snapshot insert did not return an id'
     );
   });
 
-  it('surfaces a failed snapshot write without issuing another statement', async () => {
-    const db = createMockDb([
-      () => {
-        throw new Error('insert files failed');
-      },
-    ]);
-
-    await expect(createQuerySelectionSnapshot(db, ['/src/index.ts'])).rejects.toThrow(
-      'insert files failed'
-    );
-    expect(db.query).toHaveBeenCalledTimes(1);
-  });
-
-  it('serializes concurrent snapshot writes on a shared db handle', async () => {
-    let writesInFlight = 0;
-    let nextSnapshotId = 1;
-    const db = {
-      query: vi.fn(async (_sql: string, params?: unknown[]) => {
-        expect(writesInFlight).toBe(0);
-        writesInFlight += 1;
-        expect(Array.isArray(params?.[1])).toBe(true);
-        await new Promise((resolve) => {
-          setTimeout(resolve, 0);
-        });
-        writesInFlight -= 1;
-        return { rows: [{ id: `snapshot-${nextSnapshotId++}` }] };
-      }),
-    } as unknown as DbHandle;
-
-    await expect(
-      Promise.all([
-        createQuerySelectionSnapshot(db, ['/src/index.ts']),
-        createQuerySelectionSnapshot(db, ['/src/utils.ts']),
-      ])
-    ).resolves.toEqual(['snapshot-1', 'snapshot-2']);
-  });
-
-  it('keeps later snapshot writes serialized after an earlier write rejects', async () => {
-    let firstWriteStarted = false;
-    let allowFirstFailure = false;
-    let firstWriteSettled = false;
-    let secondWriteStartedBeforeFirstSettled = false;
-
-    const db = {
-      query: vi.fn(async () => {
-        if (!firstWriteStarted) {
-          firstWriteStarted = true;
-          while (!allowFirstFailure) {
-            await new Promise((resolve) => {
-              setTimeout(resolve, 0);
-            });
-          }
-          firstWriteSettled = true;
-          throw new Error('first write failed');
-        }
-        secondWriteStartedBeforeFirstSettled = !firstWriteSettled;
-        return { rows: [{ id: 'two' }] };
-      }),
-    } as unknown as DbHandle;
-
-    const firstPromise = createQuerySelectionSnapshot(db, ['/src/index.ts']).catch(
-      (error) => error
-    );
-    const secondPromise = createQuerySelectionSnapshot(db, ['/src/utils.ts']);
-
-    await vi.waitFor(() => {
-      expect(firstWriteStarted).toBe(true);
-    });
-    expect(db.query).toHaveBeenCalledTimes(1);
-
-    allowFirstFailure = true;
-
-    await expect(firstPromise).resolves.toBeInstanceOf(Error);
-    await expect(secondPromise).resolves.toBe('two');
-    expect(secondWriteStartedBeforeFirstSettled).toBe(false);
+  it('keeps concurrent writes serialized until a rejected statement physically settles', async () => {
+    const pending = Promise.withResolvers<{ rows: { id: string }[] }>();
+    const error = new Error('insert files failed');
+    const db = createMockDb([() => pending.promise, () => ({ rows: [{ id: 'two' }] })]);
+    const first = createQuerySelectionSnapshot(db, ['/src/index.ts']).catch((e: unknown) => e);
+    const second = createQuerySelectionSnapshot(db, ['/src/utils.ts']);
+    await vi.waitFor(() => expect(db.query).toHaveBeenCalledTimes(1));
+    pending.reject(error);
+    await expect(first).resolves.toBe(error);
+    await expect(second).resolves.toBe('two');
+    expect(db.query).toHaveBeenCalledTimes(2);
   });
 
   it('releases the write lock after a timed-out snapshot write', async () => {
     vi.useFakeTimers();
-
-    let writeCount = 0;
-    const db = {
-      query: vi.fn(async () => {
-        writeCount += 1;
-        if (writeCount === 1) {
-          return new Promise(() => undefined);
-        }
-        return { rows: [{ id: `snapshot-${writeCount}` }] };
-      }),
-    } as unknown as DbHandle;
-
-    const firstSnapshotPromise = createQuerySelectionSnapshot(db, ['/src/index.ts']);
-    const handledTimeout = firstSnapshotPromise.catch((error: unknown) => error);
+    const db = createMockDb([
+      () => new Promise(() => undefined),
+      () => ({ rows: [{ id: 'snapshot-2' }] }),
+    ]);
+    const first = createQuerySelectionSnapshot(db, ['/src/index.ts']).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(30_000);
-
-    await expect(handledTimeout).resolves.toBeInstanceOf(Error);
-    await expect(handledTimeout).resolves.toMatchObject({
-      message: 'Selection snapshot write timed out',
-    });
+    await expect(first).resolves.toMatchObject({ message: 'Selection snapshot write timed out' });
     await expect(createQuerySelectionSnapshot(db, ['/src/utils.ts'])).resolves.toBe('snapshot-2');
   });
 

@@ -92,8 +92,30 @@ test.describe('Per-file explorer pane', () => {
     await page.getByRole('button', { name: 'Toggle explorer pane' }).click();
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
 
-    // Wait out the thread-workspace save debounce, then reload.
-    await page.waitForTimeout(900);
+    // A debounce timer firing is not the writer's commit acknowledgement.
+    // Prove the active file's explicit close reached its authoritative snapshot
+    // before reload discards this renderer and its pending asynchronous work.
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const workspace =
+            await window.__brainstrikeWebE2ETestHooks__?.readActiveThreadWorkspace();
+          const file = workspace?.activeFileTab;
+          const snapshot = workspace?.snapshot;
+          if (!(file && snapshot)) {
+            return null;
+          }
+          return {
+            activeFile: file.path.split('/').at(-1),
+            activeSelection:
+              snapshot.fileTabs.activeTabId === file.compositeKey &&
+              snapshot.apps.selection.kind === 'file' &&
+              snapshot.apps.selection.tabId === file.compositeKey,
+            paneOpen: snapshot.editors[file.compositeKey]?.pane?.open,
+          };
+        })
+      )
+      .toEqual({ activeFile: 'app.ts', activeSelection: true, paneOpen: false });
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
 

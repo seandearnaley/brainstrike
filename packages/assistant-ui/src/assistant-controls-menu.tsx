@@ -417,44 +417,49 @@ export const ControlsMenu = ({
           <span>Controls</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        aria-label="Assistant controls"
-        className="max-h-[min(680px,80vh,var(--radix-popover-content-available-height))] w-[min(480px,calc(100vw-24px))] space-y-3 overflow-y-auto rounded-xl p-3"
-        collisionPadding={12}
-        // Pointer-down outside can unmount before a focused field blurs.
-        onEscapeKeyDown={(event) => {
-          event.preventDefault();
-          setOpen(false);
-        }}
-        onInteractOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
-      >
-        <div className="px-1">
-          <h2 className="font-semibold text-sm">Assistant controls</h2>
-          <p className="text-muted-foreground text-xs">
-            Adjust what you see and which tools the assistant can use.
-          </p>
-        </div>
-        <DetailLevelControl />
-        <OutputLimitsSection
-          drafts={drafts}
-          hasOutputControls={hasOutputControls}
-          modelName={modelName}
-          onProviderSettingsChange={onProviderSettingsChange}
-          providerId={selectedProvider}
-          settings={activeSettings}
-        />
-        {toolMenu && (
-          <ToolsControlsSection
-            canToggleTools={Boolean(toolMenuOnToggleTool)}
-            groupedTools={groupedTools}
-            onOpenSettings={handleOpenSettings}
-            onToggleTool={handleToggleTool}
-            toolMenu={toolMenu}
-            toolSummary={toolSummary}
+      {/* A closed draft scope must retire in this commit. Keeping the content
+          mounted for an exit animation leaves its dialog and dismissal handlers
+          alive across Escape or navigation to Settings. */}
+      {open && (
+        <PopoverContent
+          align="end"
+          aria-label="Assistant controls"
+          className="max-h-[min(680px,80vh,var(--radix-popover-content-available-height))] w-[min(480px,calc(100vw-24px))] space-y-3 overflow-y-auto rounded-xl p-3"
+          collisionPadding={12}
+          // Pointer-down outside can unmount before a focused field blurs.
+          onEscapeKeyDown={(event) => {
+            event.preventDefault();
+            setOpen(false);
+          }}
+          onInteractOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
+        >
+          <div className="px-1">
+            <h2 className="font-semibold text-sm">Assistant controls</h2>
+            <p className="text-muted-foreground text-xs">
+              Adjust what you see and which tools the assistant can use.
+            </p>
+          </div>
+          <DetailLevelControl />
+          <OutputLimitsSection
+            drafts={drafts}
+            hasOutputControls={hasOutputControls}
+            modelName={modelName}
+            onProviderSettingsChange={onProviderSettingsChange}
+            providerId={selectedProvider}
+            settings={activeSettings}
           />
-        )}
-      </PopoverContent>
+          {toolMenu && (
+            <ToolsControlsSection
+              canToggleTools={Boolean(toolMenuOnToggleTool)}
+              groupedTools={groupedTools}
+              onOpenSettings={handleOpenSettings}
+              onToggleTool={handleToggleTool}
+              toolMenu={toolMenu}
+              toolSummary={toolSummary}
+            />
+          )}
+        </PopoverContent>
+      )}
     </Popover>
   );
 };

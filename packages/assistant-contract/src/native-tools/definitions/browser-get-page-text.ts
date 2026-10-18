@@ -21,7 +21,6 @@ export const browserGetPageText = defineNativeTool({
   id: 'brainstrike.browserGetPageText',
   inputSchema: effectToolInputSchema(BrowserGetPageTextInputSchema),
   kind: 'desktop',
-  localProvider: 'unregistered',
   returns: 'The page body text with a truncated flag',
   surfaces: ['desktop'],
 });

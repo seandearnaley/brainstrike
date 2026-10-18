@@ -130,8 +130,12 @@ test.describe('Shutdown signals join the profile owner', () => {
     const host = await ownedHost(userDataDir);
     const context = await electron.ensureContext();
     const readOutput = captureOutput(context.app.process());
-    // Owner-authorized abnormal child control. Main is never force-killed; PID/start/profile all match above.
-    signal(host.pid, 'SIGABRT');
+    // Owner-authorized abnormal child control. Main is never force-killed;
+    // PID/start/profile all match above. SIGABRT can spend the entire Linux
+    // exit budget writing a core dump. SIGKILL injects an immediate, uncatchable
+    // loss of this disposable owner; every physical-exit, stale-lock and
+    // committed-state recovery assertion below still has to pass.
+    signal(host.pid, 'SIGKILL');
     await expect
       .poll(() => processStartTime(host.pid), { timeout: CLOSE_TIMEOUT_MS })
       .not.toBe(host.start);

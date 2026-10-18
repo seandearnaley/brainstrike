@@ -1,6 +1,7 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronRight, Circle } from 'lucide-react';
 import type * as React from 'react';
+import { useCallback, useRef } from 'react';
 
 import { POPUP_LAYER_CLASS } from './layers';
 import { cn } from './lib/utils';
@@ -66,26 +67,52 @@ DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayNam
 
 const DropdownMenuContent = ({
   className,
+  onPointerDownOutside,
   sideOffset = 4,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
   ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.Content> | null>;
-}) => (
-  <DropdownMenuPrimitive.Portal>
-    <DropdownMenuPrimitive.Content
-      className={cn(
-        'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=open]:animate-in',
-        POPUP_LAYER_CLASS,
-        className
-      )}
-      data-slot="dropdown-menu-content"
-      ref={ref}
-      sideOffset={sideOffset}
-      {...props}
-    />
-  </DropdownMenuPrimitive.Portal>
-);
+}) => {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const setContentRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node;
+      if (ref) {
+        ref.current = node;
+      }
+    },
+    [ref]
+  );
+  return (
+    <DropdownMenuPrimitive.Portal>
+      <DropdownMenuPrimitive.Content
+        className={cn(
+          'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=open]:animate-in',
+          POPUP_LAYER_CLASS,
+          className
+        )}
+        data-slot="dropdown-menu-content"
+        ref={setContentRef}
+        sideOffset={sideOffset}
+        {...props}
+        onPointerDownOutside={(event) => {
+          onPointerDownOutside?.(event);
+          const content = contentRef.current;
+          const triggerId = content?.getAttribute('aria-labelledby');
+          const trigger = triggerId ? content?.ownerDocument.getElementById(triggerId) : null;
+          const target = event.detail.originalEvent.target;
+          // An exit animation keeps the previous dismissable layer mounted. Its
+          // outside handler must not undo the opening caused by its own trigger.
+          // Radix still owns the trigger toggle and every unrelated dismissal.
+          if (target instanceof Node && trigger?.contains(target)) {
+            event.preventDefault();
+          }
+        }}
+      />
+    </DropdownMenuPrimitive.Portal>
+  );
+};
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
 const DropdownMenuItem = ({

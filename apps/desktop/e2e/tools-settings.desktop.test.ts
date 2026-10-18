@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
+import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
 // A tool in a *different* loading tier, used to prove the tier filter actually
@@ -31,6 +32,26 @@ async function openToolsSettings(
 }
 
 test.describe('AI Tools settings (desktop)', { tag: '@smoke' }, () => {
+  test('Controls retires on Escape, reopens, and navigates to AI Tools settings', async ({
+    window,
+  }) => {
+    const assistant = await ensureAssistantShellVisible(window);
+    const trigger = assistant.getByRole('button', { name: 'Open assistant controls' });
+    const controls = window.getByRole('dialog', { name: 'Assistant controls' });
+
+    await trigger.click();
+    await expect(controls).toBeVisible();
+    await controls.press('Escape');
+    await expect(controls).toHaveCount(0);
+    await trigger.click();
+    await expect(controls).toBeVisible();
+    await controls.getByRole('button', { name: 'Manage tools…' }).click();
+    await expect(window.getByTestId('unified-tools-settings')).toBeVisible();
+    await expect(controls).toHaveCount(0);
+    await window.getByTestId('search-input').fill('readWorkspaceContext');
+    await expect(window.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
+  });
+
   test('supports search, category/tier filters, and native bulk toggles', async ({
     window,
     homePage,

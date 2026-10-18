@@ -1,9 +1,44 @@
+import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
 import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
+
+it('reports a typed closing catalog refusal as retirement only during shutdown', () => {
+  const logger = { error: vi.fn(), info: vi.fn() };
+  const error = new BoundaryFailureError(
+    refusal({
+      category: 'availability',
+      code: 'host.closing',
+      message: 'The agent host is closing.',
+    })
+  );
+  reportNativeIndexActivationError('Saved configuration could not activate', error, true, logger);
+  expect(logger.error).not.toHaveBeenCalled();
+  expect(logger.info).toHaveBeenCalledWith('Native index activation retired during shutdown', {
+    reason: error.message,
+  });
+  logger.info.mockClear();
+  reportNativeIndexActivationError('Saved configuration could not activate', error, false, logger);
+  expect(logger.error).toHaveBeenCalledWith('Saved configuration could not activate', { error });
+  expect(logger.info).not.toHaveBeenCalled();
+});
+
+it('does not hide a host-closing fault as a normal retirement refusal', () => {
+  const logger = { error: vi.fn(), info: vi.fn() };
+  const error = new BoundaryFailureError(
+    fault({
+      category: 'availability',
+      code: 'host.closing',
+      message: 'Host cleanup failed.',
+    })
+  );
+  reportNativeIndexActivationError('Saved configuration could not activate', error, true, logger);
+  expect(logger.error).toHaveBeenCalledWith('Saved configuration could not activate', { error });
+  expect(logger.info).not.toHaveBeenCalled();
+});
 
 it('reports an owned startup cancellation during shutdown as retirement', () => {
   const logger = { error: vi.fn(), info: vi.fn() };

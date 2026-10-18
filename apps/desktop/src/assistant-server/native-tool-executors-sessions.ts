@@ -37,8 +37,6 @@ export function commandSessionExecutors<Context extends NativeToolBuildContext>(
   ) => NativeToolDefinition | undefined;
 } {
   return {
-    // Both are `localProvider: 'unregistered'` in the catalog, so every fold
-    // skips them for the built-in local provider.
     [NATIVE_TOOL_ID.inspectCommandSessions]: (context) => ({
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.inspectCommandSessions],
       execute: (input: ToolExecuteInput<InspectCommandSessionsInput>) => {

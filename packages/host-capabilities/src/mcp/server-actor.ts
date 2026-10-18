@@ -318,7 +318,7 @@ export class McpServerActor {
       attempt.abort(new DOMException('MCP connection disconnected', 'AbortError'));
     }
     const pendingClient = this.clientPromise;
-    if (pendingClient) {
+    if (pendingClient !== undefined) {
       await Promise.allSettled([pendingClient]);
     }
     const report = await this.closeClient(false);
@@ -422,7 +422,7 @@ export class McpServerActor {
     if (this.client) {
       return Promise.resolve(this.client);
     }
-    if (this.clientPromise) {
+    if (this.clientPromise !== undefined) {
       if (interactiveAuthorization && !this.connectAttemptInteractive) {
         // Reuse a successful refresh. Only an explicit Connect may continue a
         // completed background auth failure with a fresh interactive provider.

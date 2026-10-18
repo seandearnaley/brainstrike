@@ -6,6 +6,7 @@ import {
   OpenAIToolSearchHistoryCompat,
 } from '../mastra-processors/openai-tool-search-history-compat';
 
+import { prepareProviderRequest } from '../provider-request';
 import { scriptedAgentModel } from '../test-fixtures/scripted-agent-model';
 
 type Prompt = ProcessLLMRequestArgs['prompt'];
@@ -17,9 +18,10 @@ type PersistedPart = Extract<
   providerMetadata?: { openai: { itemId: string } } | undefined;
 };
 type PersistedPrompt = { role: 'assistant'; content: PersistedPart[] }[];
-type OpenAIPrompt = Parameters<
+type OpenAICallOptions = Parameters<
   ReturnType<ReturnType<typeof createOpenAI>['responses']>['doGenerate']
->[0]['prompt'];
+>[0];
+type OpenAIPrompt = OpenAICallOptions['prompt'];
 
 /** Only the call/result variants in this regression cross the V2 -> V4 seam. */
 function toOpenAIPrompt(prompt: Prompt): OpenAIPrompt {
@@ -121,7 +123,7 @@ function createSymmetricallyHydratedPrompt(): PersistedPrompt {
  * behaviour, not ours, which is what makes the seam's removal condition
  * self-detecting instead of a doc someone has to re-read.
  */
-async function captureRequestBody(prompt: ProcessLLMRequestArgs['prompt']): Promise<unknown> {
+async function captureRequestBody(options: OpenAICallOptions): Promise<unknown> {
   let capturedBody: unknown;
   const provider = createOpenAI({
     apiKey: 'not-used',
@@ -141,11 +143,26 @@ async function captureRequestBody(prompt: ProcessLLMRequestArgs['prompt']): Prom
       );
     },
   });
-  await provider.responses('gpt-5.6-luna').doGenerate({
+  await provider.responses('gpt-5.6-luna').doGenerate(options);
+  return capturedBody;
+}
+
+// vercel/ai#19754 (4.0.50) selects native history by the DECLARED provider
+// identity, not the string `tool_search`. The old fixture omitted this tool,
+// so it accidentally tested the ordinary-function branch after that fix.
+const hostedToolSearch = {
+  args: {},
+  id: 'openai.tool_search',
+  name: 'tool_search',
+  type: 'provider',
+} satisfies NonNullable<OpenAICallOptions['tools']>[number];
+
+function captureHostedRequestBody(prompt: Prompt): Promise<unknown> {
+  return captureRequestBody({
     prompt: toOpenAIPrompt(prompt),
     providerOptions: { openai: { store: true } },
+    tools: [hostedToolSearch],
   });
-  return capturedBody;
 }
 
 function processPrompt(
@@ -194,7 +211,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
   // release regresses it, or drops the fallback again, this goes red here rather
   // than 400ing against OpenAI in production.
   it('upstream: the installed AI SDK preserves a hosted output item ID from provider metadata', async () => {
-    const capturedBody = await captureRequestBody(createPersistedPrompt());
+    const capturedBody = await captureHostedRequestBody(createPersistedPrompt());
 
     expect(capturedBody).toMatchObject({
       input: [
@@ -212,7 +229,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
   // or the SDK stops trusting that field, this assertion fails and the
   // remaining seam can go.
   it('upstream: the installed AI SDK still collides when Mastra hydrates the output ID onto the call', async () => {
-    const capturedBody = await captureRequestBody(createMastraHydratedPrompt());
+    const capturedBody = await captureHostedRequestBody(createMastraHydratedPrompt());
 
     expect(capturedBody).toMatchObject({
       input: [
@@ -226,7 +243,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     const input = createMastraHydratedPrompt();
     const before = structuredClone(input);
     const prompt = processPrompt(new OpenAIToolSearchHistoryCompat(), input);
-    const capturedBody = await captureRequestBody(prompt);
+    const capturedBody = await captureHostedRequestBody(prompt);
 
     expect(input).toEqual(before);
     expect(capturedBody).toMatchObject({
@@ -241,7 +258,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     const input = createPersistedPrompt();
     const before = structuredClone(input);
     const prompt = processPrompt(new OpenAIToolSearchHistoryCompat(), input);
-    const capturedBody = await captureRequestBody(prompt);
+    const capturedBody = await captureHostedRequestBody(prompt);
 
     expect(input).toEqual(before);
     expect(capturedBody).toMatchObject({
@@ -249,6 +266,33 @@ describe('OpenAIToolSearchHistoryCompat', () => {
         { id: TOOL_SEARCH_CALL_ITEM_ID, type: 'item_reference' },
         { id: TOOL_SEARCH_OUTPUT_ITEM_ID, type: 'item_reference' },
       ],
+    });
+  });
+
+  it('preserves declared hosted identity and distinct references through the production request boundary', async () => {
+    const hydrated = createMastraHydratedPrompt();
+    const prompt: OpenAIPrompt = [
+      { content: [{ text: 'Search', type: 'text' }], role: 'user' },
+      ...toOpenAIPrompt(hydrated),
+      { content: [{ text: 'Continue', type: 'text' }], role: 'user' },
+    ];
+    const before = structuredClone(prompt);
+    const model = createOpenAI({ apiKey: 'not-used' }).responses('gpt-5.6-luna');
+    const prepared = await prepareProviderRequest({ prompt, tools: [hostedToolSearch] }, model, {
+      provider: 'openai',
+    });
+    const capturedBody = await captureRequestBody(prepared.params);
+
+    expect(prompt).toEqual(before);
+    expect(prepared.params.tools).toEqual([hostedToolSearch]);
+    expect(capturedBody).toMatchObject({
+      input: [
+        { role: 'user' },
+        { id: TOOL_SEARCH_CALL_ITEM_ID, type: 'item_reference' },
+        { id: TOOL_SEARCH_OUTPUT_ITEM_ID, type: 'item_reference' },
+        { role: 'user' },
+      ],
+      tools: [{ type: 'tool_search' }],
     });
   });
 
@@ -276,7 +320,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
   // Upstream serializes it as two identical `tsc_` references, so the guard has
   // to reject it here rather than let OpenAI 400 on it.
   it('upstream: the installed AI SDK emits duplicate references when the output advertises the call ID', async () => {
-    const capturedBody = await captureRequestBody(createSymmetricallyHydratedPrompt());
+    const capturedBody = await captureHostedRequestBody(createSymmetricallyHydratedPrompt());
 
     expect(capturedBody).toMatchObject({
       input: [
@@ -325,6 +369,87 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
       /missing its provider item ID/
     );
+  });
+
+  it('upstream: replays a regular function named tool_search without a hosted declaration', async () => {
+    const capturedBody = await captureRequestBody({
+      prompt: [
+        {
+          content: [
+            {
+              input: { query: 'workspace' },
+              toolCallId: 'call_regular',
+              toolName: 'tool_search',
+              type: 'tool-call',
+            },
+          ],
+          role: 'assistant',
+        },
+        {
+          content: [
+            {
+              output: { type: 'json', value: { tools: [] } },
+              toolCallId: 'call_regular',
+              toolName: 'tool_search',
+              type: 'tool-result',
+            },
+          ],
+          role: 'tool',
+        },
+      ],
+      providerOptions: { openai: { store: true } },
+      tools: [
+        {
+          inputSchema: {
+            additionalProperties: false,
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+            type: 'object',
+          },
+          name: 'tool_search',
+          type: 'function',
+        },
+      ],
+    });
+
+    expect(capturedBody).toMatchObject({
+      input: [
+        {
+          arguments: '{"query":"workspace"}',
+          call_id: 'call_regular',
+          name: 'tool_search',
+          type: 'function_call',
+        },
+        { call_id: 'call_regular', output: '{"tools":[]}', type: 'function_call_output' },
+      ],
+      tools: [{ name: 'tool_search', type: 'function' }],
+    });
+  });
+
+  it('upstream: keeps stored text references when reasoning precedes text in the same message', async () => {
+    const capturedBody = await captureRequestBody({
+      prompt: [
+        {
+          content: [
+            {
+              providerOptions: { openai: { itemId: 'rs_paired' } },
+              text: 'Thinking',
+              type: 'reasoning',
+            },
+            { providerOptions: { openai: { itemId: 'msg_paired' } }, text: 'Answer', type: 'text' },
+          ],
+          role: 'assistant',
+        },
+      ],
+      providerOptions: { openai: { store: true } },
+    });
+
+    expect(capturedBody).toMatchObject({
+      input: [
+        { id: 'rs_paired', type: 'item_reference' },
+        { id: 'msg_paired', type: 'item_reference' },
+      ],
+    });
   });
 
   it('leaves ordinary tool-search results without provider metadata untouched', () => {

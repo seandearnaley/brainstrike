@@ -304,7 +304,6 @@ async function readDesktopNativeAdmission(
   );
   const descriptors = await desktopToolDescriptors({
     enabledNativeToolIds: intent.enabledNativeToolIds,
-    localProvider: configuration.provider.trim().toLowerCase() === 'local',
     skills: workspaceSkills !== undefined,
     worktrees,
   });

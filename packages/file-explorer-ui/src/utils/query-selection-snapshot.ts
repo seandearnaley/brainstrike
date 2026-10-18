@@ -93,26 +93,23 @@ export async function createQuerySelectionSnapshot(
   }
 
   return withSerializedSnapshotWrite(db, async () => {
-    // ONE statement, so the write is atomic and takes one turn on the shared
-    // database scheduler. A BEGIN/…/COMMIT sequence of separate queries waits
-    // for a turn per statement, and other writers' statements run inside its
-    // open transaction (BST-2093).
-    const snapshotResult = (await db.query(
+    // One statement owns both the database admission and the durable flush.
+    // Separate BEGIN/COMMIT queries allow other writers into this transaction.
+    const snapshotResult = await db.query<QueryResultRow>(
       `WITH expired AS (
          DELETE FROM selection_snapshots
-         WHERE expires_at IS NOT NULL
-           AND expires_at <= NOW()
+         WHERE expires_at IS NOT NULL AND expires_at <= NOW()
        ), snapshot AS (
          INSERT INTO selection_snapshots (expires_at)
          VALUES (NOW() + ($1::int * INTERVAL '1 hour'))
          RETURNING id
-       ), files AS (
+       ), members AS (
          INSERT INTO selection_snapshot_files (snapshot_id, file_path)
          SELECT snapshot.id, UNNEST($2::text[]) FROM snapshot
        )
        SELECT id FROM snapshot`,
       [QUERY_SELECTION_SNAPSHOT_TTL_HOURS, Array.from(filePaths)]
-    )) as { rows: QueryResultRow[] };
+    );
     const snapshotId = snapshotResult.rows[0]?.id;
     if (!snapshotId) {
       logger.error('Selection snapshot insert did not return an id');
