@@ -580,6 +580,7 @@ export function AssistantUiPanelWrapper({
 
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,
+    assistantServerAvailable,
     ...(assistantServerAvailable && threadRootBinding
       ? { boundWorkspaceRootId: threadRootBinding.rootId }
       : {}),

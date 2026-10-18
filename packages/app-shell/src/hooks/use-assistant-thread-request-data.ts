@@ -13,6 +13,8 @@ import {
 
 interface UseAssistantThreadRequestDataArgs {
   readonly agentLoopSettings: RuntimeData['agentLoop'] | undefined;
+  /** The desktop assistant host: the only runtime with subagents. */
+  readonly assistantServerAvailable: boolean;
   readonly boundWorkspaceRootId?: string | undefined;
   readonly enabledNativeToolIds: readonly string[];
   readonly hostedMemoryBackendAvailable: boolean;
@@ -70,6 +72,7 @@ interface UseAssistantThreadRequestDataResult {
 
 export function useAssistantThreadRequestData({
   agentLoopSettings,
+  assistantServerAvailable,
   boundWorkspaceRootId,
   enabledNativeToolIds,
   hostedMemoryBackendAvailable,
@@ -91,8 +94,10 @@ export function useAssistantThreadRequestData({
   workspaceIndex,
   workspaceRootPath,
 }: UseAssistantThreadRequestDataArgs): UseAssistantThreadRequestDataResult {
-  // Per-child subagent budgets ride every request (`runtimeData.subagentSettings`).
-  // Read here, not in the panel wrapper, which holds a shrink-only line budget.
+  // Per-child subagent budgets ride every desktop host request
+  // (`runtimeData.subagentSettings`); web has no subagents and its server
+  // rejects the field. Read here, not in the panel wrapper, which holds a
+  // shrink-only line budget.
   const subagentSettings = useAssistantSubagentPreferencesStore((state) => state.settings);
   const runtimeMemorySettings = useMemo(
     () => ({
@@ -122,13 +127,14 @@ export function useAssistantThreadRequestData({
         selectionData,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
-        subagentSettings,
+        ...(assistantServerAvailable ? { subagentSettings } : {}),
         ...(workspaceInstructionsPreference ? { workspaceInstructionsPreference } : {}),
         workspaceIndex,
         workspaceRootPath,
       }),
     [
       agentLoopSettings,
+      assistantServerAvailable,
       boundWorkspaceRootId,
       enabledNativeToolIds,
       hostedMemoryBackendAvailable,
