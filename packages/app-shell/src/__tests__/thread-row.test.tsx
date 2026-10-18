@@ -172,6 +172,27 @@ function renderRow(props: ThreadRowProps) {
 }
 
 describe('ThreadRow', () => {
+  it.each([
+    { name: 'Review architecture', status: null },
+    { name: 'Review architecture is active', status: 'running' },
+    { name: 'Review architecture needs your approval', status: 'needs-you' },
+    { name: 'Review architecture failed', status: 'failed-unseen' },
+    { name: 'Review architecture has unseen activity', status: 'done-unseen' },
+  ] as const)(
+    'announces the title once with $status status and still opens its thread',
+    async ({ name, status }) => {
+      const props = createProps({ status });
+      renderRow(props);
+      const open = screen.getByRole('button', { name });
+      expect(open).toHaveAccessibleName(name);
+      if (status) {
+        expect(within(open).getByRole('img', { name })).toBeVisible();
+      }
+      await userEvent.setup().click(open);
+      expect(props.onSelectThread).toHaveBeenCalledExactlyOnceWith(THREAD.id);
+    }
+  );
+
   it('marks a thread whose history cannot be read, with the reason on focus', async () => {
     const reason = 'thread thread-row-test is damaged at seq 2: row crc mismatch';
     renderRow(createProps({ thread: { ...THREAD, readFailure: reason } }));

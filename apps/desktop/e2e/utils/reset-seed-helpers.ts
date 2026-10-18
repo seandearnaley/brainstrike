@@ -9,7 +9,7 @@ export async function seedNativeResetProbe(
   const { join } = await import('node:path');
   const { expect } = await import('@playwright/test');
   const { ensureMockWorkspaceOpen } = await import('./layout-helpers');
-  const { chooseTextSearch } = await import('./text-search-mode');
+  const { chooseTextSearch, nativeStatus } = await import('./text-search-mode');
   if (!workspacePath) {
     throw new Error('Disposable workspace path is required');
   }
@@ -22,8 +22,12 @@ export async function seedNativeResetProbe(
   await ensureMockWorkspaceOpen(page);
   await expect
     .poll(
-      async () =>
-        page.evaluate(async () => {
+      async () => {
+        const status = await nativeStatus(page);
+        if (status.kind !== 'ready') {
+          return status;
+        }
+        const chunksCount = await page.evaluate(async () => {
           if (!window.sourceFiles) {
             throw new Error('Canonical source capability missing');
           }
@@ -37,10 +41,16 @@ export async function seedNativeResetProbe(
               })
             ).find((file) => file.fileName === 'reset-indexed-probe.txt')?.chunksCount ?? 0
           );
-        }),
+        });
+        return {
+          indexed: chunksCount > 0,
+          indexMode: status.embedding.indexMode,
+          kind: status.kind,
+        };
+      },
       { timeout: 60_000 }
     )
-    .toBeGreaterThan(0);
+    .toEqual({ indexed: true, indexMode: 'text-only', kind: 'ready' });
   return await page.evaluate(async () => {
     const files = window.sourceFiles;
     if (!files) {

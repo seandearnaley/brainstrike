@@ -43,6 +43,7 @@ import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
+  getThreadRowAccessibleName,
   THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
@@ -666,6 +667,7 @@ function ThreadRowDisplay({
       <div className="flex min-w-0 items-center justify-between gap-1.5">
         <button
           aria-current={selected ? 'true' : undefined}
+          aria-label={getThreadRowAccessibleName(status, thread.title)}
           className="min-w-0 flex-1 text-left"
           onClick={(event) => {
             event.stopPropagation();
