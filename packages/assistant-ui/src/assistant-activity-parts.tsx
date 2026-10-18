@@ -487,7 +487,9 @@ export function AssistantActivityParts(): ReactNode {
               cardedCalls.has(part.toolCallId) &&
               !isSubagentDelegationToolName(part.toolName)
             ) {
-              return null;
+              // A dedicated approval card owns this UI. Null now invokes the
+              // vendor's registered renderer; false explicitly suppresses it.
+              return false;
             }
             return (
               <ActivityToolSlot toolCallId={part.toolCallId}>
