@@ -1,6 +1,7 @@
 #include <napi.h>
 #include "linux-process-observer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -203,6 +204,17 @@ class DrainWorker final : public Napi::AsyncWorker {
   Napi::Promise Promise() const { return deferred_.Promise(); }
 
   void Execute() override {
+    Drain();
+    // Every path, each rejection included, releases the pinned member handles
+    // here, before OnOK or OnError settles the Promise on the JS thread.
+    CloseProcesses();
+  }
+
+  void OnOK() override { deferred_.Resolve(Env().Undefined()); }
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+ private:
+  void Drain() {
     BOOL guard_in_job = FALSE;
     if (!IsProcessInJob(GetCurrentProcess(), job_, &guard_in_job)) {
       Fail("IsProcessInJob", GetLastError());
@@ -272,13 +284,29 @@ class DrainWorker final : public Napi::AsyncWorker {
         return;
       }
     }
-    CloseProcesses();
 
-    // Stop-admission is the caller's precondition, not an optimistic assumption.
-    // Any remaining membership/accounting discrepancy or failed query rejects
+    // Windows decrements ActiveProcesses only "when the terminated process exits
+    // and all references to the process are released", which can trail the exit
+    // signal awaited above, and JobObjectBasicProcessIdList keeps listing such a
+    // member meanwhile (BST-2137).
+    // https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information
+    // Windows can release a joined member at any moment, including between the
+    // reads below, so the proof only assumes that membership shrinks: under the
+    // stop-admission precondition nothing can join. A census before and a census
+    // after the count must each list the guard and otherwise only joined members,
+    // the later one a subset of the earlier one; any other entry is a live or
+    // unknown process. Releases can only lower the count, so it must lie between
+    // the guard plus the members still listed afterwards and the guard plus those
+    // listed before. Stop-admission is the caller's precondition, not an
+    // optimistic assumption: any other entry, discrepancy or failed query rejects
     // cleanup rather than releasing the existing Root authority.
-    members.clear();
-    if (!ReadMembers(&members)) {
+    std::vector<ULONG_PTR> listed;
+    if (!ReadMembers(&listed)) {
+      return;
+    }
+    size_t joined_listed = 0;
+    if (!ListsOnlyGuardAndJoined(listed, &joined_listed)) {
+      SetError(kUnproved);
       return;
     }
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
@@ -287,16 +315,57 @@ class DrainWorker final : public Napi::AsyncWorker {
       Fail("QueryInformationJobObject", GetLastError());
       return;
     }
-    if (members.size() != 1 || members.front() != guard_pid_ || accounting.ActiveProcesses != 1) {
-      SetError("Windows Job Object drain did not prove the guard alone; cleanup remains unproved.");
+    std::vector<ULONG_PTR> relisted;
+    if (!ReadMembers(&relisted)) {
+      return;
+    }
+    size_t joined_relisted = 0;
+    if (!ListsOnlyGuardAndJoined(relisted, &joined_relisted)) {
+      SetError(kUnproved);
+      return;
+    }
+    std::sort(listed.begin(), listed.end());
+    std::sort(relisted.begin(), relisted.end());
+    const size_t active = accounting.ActiveProcesses;
+    if (!std::includes(listed.begin(), listed.end(), relisted.begin(), relisted.end()) ||
+        active < 1 + joined_relisted || active > 1 + joined_listed) {
+      SetError(kUnproved);
     }
   }
 
-  void OnOK() override { deferred_.Resolve(Env().Undefined()); }
-  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+  static constexpr const char* kUnproved =
+      "Windows Job Object drain did not prove the guard alone; cleanup remains unproved.";
 
- private:
   void Fail(const char* operation, DWORD error) { SetError(WindowsError(operation, error)); }
+
+  // A census entry is a joined member only as one of this drain's pinned
+  // processes. Each pinned handle already returned WAIT_OBJECT_0 above, so no
+  // separate signal check is needed, and while the handle stays open its PID
+  // cannot name another process.
+  bool IsJoined(ULONG_PTR pid) const {
+    for (const HANDLE process : processes_) {
+      if (static_cast<ULONG_PTR>(GetProcessId(process)) == pid) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // True when the census lists the guard and otherwise only joined members.
+  bool ListsOnlyGuardAndJoined(const std::vector<ULONG_PTR>& census, size_t* joined) const {
+    bool guard_listed = false;
+    *joined = 0;
+    for (const ULONG_PTR pid : census) {
+      if (pid == guard_pid_) {
+        guard_listed = true;
+      } else if (IsJoined(pid)) {
+        *joined += 1;
+      } else {
+        return false;
+      }
+    }
+    return guard_listed;
+  }
 
   void CloseProcesses() {
     for (const HANDLE process : processes_) {
