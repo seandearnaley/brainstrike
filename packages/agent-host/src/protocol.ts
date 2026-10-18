@@ -47,6 +47,7 @@ import {
   SELECTION_RESULT_SCHEMAS,
   selectionEventSchemas,
 } from './protocol-selection.js';
+import { HostStateHealthSchema } from './protocol-state-health.js';
 import {
   RunVerdictDetailSchema,
   RunVerdictSchema,
@@ -72,6 +73,7 @@ export * from './protocol-permission-policy.js';
 export * from './protocol-rewind.js';
 export * from './protocol-search.js';
 export * from './protocol-selection.js';
+export * from './protocol-state-health.js';
 export * from './run-wire.js';
 export * from './workspace-wire.js';
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
@@ -113,7 +115,7 @@ export * from './workspace-wire.js';
 // thread's policy, and `worktree.created` (a worktree a call's shell command
 // made, which the desktop adopted), and a provider request's tool calls (the
 // breakdown's `toolCallsTokens` and `toolCallsByTool`, and the request's
-// `toolCallWindow`). These additions are optional fields, new
+// `toolCallWindow`), and `state/health/read` (BST-1880). These additions are optional fields, new
 // variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
@@ -514,6 +516,7 @@ export const HOST_METHOD_SCHEMAS = {
     verdict: RunVerdictSchema,
   }),
   /** BST-1932: a thread's direct child threads; they are never in `thread/list`. */
+  'state/health/read': Schema.Record(Schema.String, Schema.Never),
   'thread/children': Schema.Struct(Thread),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': Schema.Struct(Thread),
@@ -1016,6 +1019,7 @@ export const HOST_RESULT_SCHEMAS = {
   'run/steer': Schema.Struct({ outcome: Schema.Literals(['steering', 'already-terminal']) }),
   'run/stop': Schema.Struct({ outcome: Schema.Literals(['stopped', 'already-terminal']) }),
   'run/verdict': Schema.Struct({ accepted: Schema.Literal(true) }),
+  'state/health/read': HostStateHealthSchema,
   'thread/children': Schema.Struct({
     children: Schema.mutable(
       Schema.Array(

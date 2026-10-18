@@ -13,6 +13,10 @@ Preserve canonical IDs and append ordering across reopen/replay. Current schema
 creation and populated same-schema recovery are required; legacy conversion is
 not. Read-only metadata inspection must not stamp versions or perform DDL.
 Corruption refuses or contains reads without deleting/replacing canonical data.
+A state DB that fails `integrity_check` opens read-only, and `health()` names the
+failure. The host serves it as `state/health/read`; desktop's damaged-store notice
+reads it and offers a re-read and a host restart, which reopens the store so it
+checks itself again (BST-1880). Neither changes the damaged file.
 
 The browser writer (`@brainstrike/web-state-store`, ADR-0011's 2026-10-15
 amendment) runs the same `schema.mjs`, `run-log.mjs`, `catalog-domains.mjs`,

@@ -350,6 +350,14 @@ export class HostCore {
     return this.projections.ledger.read();
   }
 
+  /** BST-1880: the state store's damage and the threads hydration could not read, for the damaged-store notice. */
+  readStateHealth(): HostResults['state/health/read'] {
+    return {
+      damagedThreads: this.catalog.damagedThreadCount(),
+      stateDamage: this.store.health().stateDamage,
+    };
+  }
+
   /** BST-1939: a thread's first and latest stored append, child threads included. */
   threadTimes(threadId: string): { readonly createdAt: number; readonly updatedAt: number } {
     const { createdAt, updatedAt } = this.catalog.entry(threadId);

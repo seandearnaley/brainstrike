@@ -42,6 +42,7 @@ import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'r
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
+import { createDesktopStateHealth } from '../desktop-state-health';
 import {
   resolveDesktopMcpContent,
   resolveDesktopMcpElicitationBridge,
@@ -152,6 +153,8 @@ export default function RootLayoutContent() {
     }
     return items;
   }, [gitAvailable, notesAvailable, browserAvailable]);
+  // BST-1880: the damaged-store notice's health read and recovery actions.
+  const stateHealth = useMemo(() => createDesktopStateHealth(), []);
   const sharedProps: RootLayoutContentProps = {
     // Canvas render surface (BST-1173): needs only the DB (summaries/versions)
     // and the brainstrike-canvas: shell protocol, both unconditionally present
@@ -172,6 +175,7 @@ export default function RootLayoutContent() {
     nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
+    stateHealth,
     // Every desktop thread is a committed host conversation, so the context map
     // always has a fold; without the index bridge it draws files by line bands.
     threadContextPageContent: <ThreadContextPageContent chunkBounds={nativeSearch} />,

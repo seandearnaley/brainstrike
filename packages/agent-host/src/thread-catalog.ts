@@ -33,7 +33,10 @@ export class HostThreadDamagedRefusal extends BoundaryFailureError {
 
 /** The Root store Core opens over and commits to. */
 export type HostEventStore = HostHookTrustStore &
-  Pick<StateStore, 'append' | 'holdBlobGc' | 'read' | 'readHydration' | 'root' | 'syncBoundary'> & {
+  Pick<
+    StateStore,
+    'append' | 'health' | 'holdBlobGc' | 'read' | 'readHydration' | 'root' | 'syncBoundary'
+  > & {
     readonly deleteThread?: StateStore['deleteThread'];
   };
 
@@ -119,6 +122,11 @@ export class HostThreadCatalog {
     if (this.damaged.size > 0) {
       this.releaseGc = store.holdBlobGc();
     }
+  }
+
+  /** How many stored threads hydration could not read; each still lists as damaged. */
+  damagedThreadCount(): number {
+    return this.damaged.size;
   }
 
   /** A committed row's append time is the store's latest time for its thread. */

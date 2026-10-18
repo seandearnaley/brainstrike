@@ -81,6 +81,7 @@ import {
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
+import type { StateHealthCapability } from './state-health/state-health-capability';
 import { TabChordHost } from './tab-chords/tab-chord-host';
 import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
@@ -189,6 +190,8 @@ export interface RootLayoutContentProps {
   readonly notesPageContent?: ReactNode;
   readonly preloadDatabaseTabOnMount?: boolean;
   readonly settingsPageContent: ReactNode;
+  /** The canonical state store's health and recovery (BST-1880); desktop supplies it. */
+  readonly stateHealth?: StateHealthCapability | null;
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.terminal` bridge is present; web never constructs it
@@ -582,6 +585,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 export function RootLayoutContent({
   nativeIndexRetry,
   nativeIndexSearch,
+  stateHealth,
   deleteRootData: platformDeleteRootData,
   browserPageContent,
   canvasPanelContent,
@@ -684,6 +688,7 @@ export function RootLayoutContent({
         nativeIndexSearch={nativeIndexSearch ?? null}
         onNavigationClick={handleNavigationClick}
         onOpenSettings={openSettings}
+        stateHealth={stateHealth ?? null}
       >
         {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes

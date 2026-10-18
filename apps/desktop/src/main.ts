@@ -29,6 +29,7 @@ import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-sel
 import { nativeGrepIndex } from './agent-host-platform/native-grep-index';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
+import { restartLaunchedAgentHost } from './agent-host-restart';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { createHostThreadTurns } from './assistant-server/changeset-host-turns';
@@ -65,7 +66,10 @@ import { createWindow, noteNextWindowReload } from './create-window';
 import { joinProfileDirectory } from './database-location';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
-import { resolveDesktopDatabaseLocation } from './desktop-database-location';
+import {
+  resolveDesktopDatabaseLocation,
+  resolveDesktopDatabaseProfileDirectory,
+} from './desktop-database-location';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
 import { createDesktopHookTrust } from './desktop-hook-trust';
@@ -109,6 +113,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
+import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
@@ -869,6 +874,26 @@ const agentHostClientIpc = registerAgentHostClientIpc(async () => {
   return await nativeIndexActivation.acquireProfile();
 }, agentHostPrivateClients.open);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
+// BST-1880: the damaged-store notice's actions. A restart stops the host this
+// app launched, which relaunches for the next client as after a crash, so its
+// state store reopens and checks itself again.
+ipcDisposers.add(
+  'agent-host-recovery',
+  registerAgentHostRecoveryIpcHandlers({
+    restartHost: () =>
+      restartLaunchedAgentHost({
+        acquireProfile: () => nativeIndexActivation.acquireProfile(),
+        exited: agentHostPrivateClients.exited,
+        logger,
+      }),
+    showDataFolder: async () => {
+      const failure = await shell.openPath(resolveDesktopDatabaseProfileDirectory());
+      if (failure) {
+        throw new Error(failure);
+      }
+    },
+  })
+);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
   captureOwner: async () => {

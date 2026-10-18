@@ -260,6 +260,7 @@ export function bindHostConnection(
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('ledger/read', () => core.readLedger());
+  handle('state/health/read', () => core.readStateHealth());
   handle('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
   handle('thread/delete', (params) => core.deleteThread(params));
   handle('thread/update', (params) => core.updateThread(params));

@@ -3,6 +3,7 @@ import type {
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { ComponentType, ReactNode } from 'react';
+import type { StateHealthCapability } from './state-health/state-health-capability';
 
 export interface NavigationItem {
   icon: ComponentType<{ className?: string }>;
@@ -27,6 +28,8 @@ export interface AppLayoutProps {
   onNavigationClick?: (path: string) => void;
   onOpenSettings?: () => void;
   sidebarContent?: ReactNode;
+  /** The canonical state store's health and recovery (BST-1880); desktop supplies it. */
+  readonly stateHealth?: StateHealthCapability | null;
 }
 
 export interface RouteConfig {
