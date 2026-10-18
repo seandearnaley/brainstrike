@@ -10,16 +10,21 @@
       ]
     },
     "test:integration": {
+      // state-observation-vectors starts the state-store writer worker, which
+      // imports agent-host's emitted memory calculator.
       "dependsOn": [
         "topo",
-        "build"
+        "build",
+        "@brainstrike/agent-host#build"
       ],
       "cache": false
     },
     "test:coverage": {
+      // Coverage runs the same integration suites; see test:integration.
       "dependsOn": [
         "$TURBO_EXTENDS$",
-        "build"
+        "build",
+        "@brainstrike/agent-host#build"
       ],
       "cache": false
     }
