@@ -89,6 +89,11 @@ interface CapturedToolsOperations {
     total: number;
   }>;
   getTools: () => Promise<Array<{ id: string; source: string }>>;
+  installMcpCatalogServer?: (request: {
+    access: 'read-only' | 'read-write';
+    catalogId: string;
+    token?: string;
+  }) => Promise<{ error?: string; path: string; success: boolean }>;
   openMcpConfig: () => Promise<void>;
   readMcpConfigText?: () => Promise<{ content: string; path: string }>;
   readMcpResource?: (request: unknown) => Promise<unknown>;
@@ -344,6 +349,7 @@ const MCP_TOOLS = {
 
 function createHostMcpSettings(): FakeHostMcpSettings {
   const responses: Record<string, (params: unknown) => unknown> = {
+    'mcp/config/install': () => ({ path: '/tmp/mcp.json', success: true }),
     'mcp/config/path': () => ({ path: '/tmp/mcp.json' }),
     'mcp/config/path/set': (params) => ({
       path: (params as { path: string | null }).path ?? '/tmp/default.json',
@@ -449,6 +455,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(operations).not.toHaveProperty('getMcpExtensionPreferences');
     expect(operations).not.toHaveProperty('readMcpConfigText');
     expect(operations).not.toHaveProperty('writeMcpConfigText');
+    expect(operations).not.toHaveProperty('installMcpCatalogServer');
     await expect(operations.createSampleConfig()).resolves.toEqual({
       error: 'MCP settings need the desktop agent host',
       path: '',
@@ -548,6 +555,13 @@ describe('desktop SettingsPageContent tool operations', () => {
     });
     expect(settings.request).toHaveBeenCalledWith('mcp/config/write', {
       content: '{"servers":{}}',
+    });
+    await expect(
+      operations.installMcpCatalogServer?.({ access: 'read-only', catalogId: 'linear' })
+    ).resolves.toEqual({ path: '/tmp/mcp.json', success: true });
+    expect(settings.request).toHaveBeenCalledWith('mcp/config/install', {
+      access: 'read-only',
+      catalogId: 'linear',
     });
     await expect(operations.getMcpConfigInfo()).resolves.toEqual({
       exists: true,

@@ -16,6 +16,7 @@ import type {
   McpHostControlRequest,
   McpHostWatchEvent,
 } from '@brainstrike/assistant-contract';
+import type { McpCatalogInstallRequest } from '@brainstrike/assistant-contract/mcp-catalog';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -383,6 +384,8 @@ export default function SettingsPageContent() {
       },
       ...(mcpSettings && {
         getMcpConfigPath: async () => (await mcpSettings.request('mcp/config/path', {})).path,
+        installMcpCatalogServer: async (request: McpCatalogInstallRequest) =>
+          await mcpSettings.request('mcp/config/install', request),
         readMcpConfigText: async () => await mcpSettings.request('mcp/config/read', {}),
         setMcpConfigPath: async (configPath: string | null) => {
           await mcpSettings.request('mcp/config/path/set', { path: configPath });
