@@ -19,6 +19,7 @@
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "packages/host-capabilities/{src/provider-auth,__tests__/provider-auth,__tests__/credentials}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/indexer/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/src/native-tools/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/__tests__/file-approval-target.test.ts",
@@ -756,6 +757,29 @@
         "apps/desktop/src/__tests__/native-index-lifecycle.test.ts",
         "apps/desktop/src/__tests__/native-index-retry.test.ts",
         "apps/desktop/src/__tests__/platform/native-refusal-boundary.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-capabilities/src/credentials.ts",
+        "packages/host-capabilities/src/openrouter-model-metadata.ts",
+        "packages/host-capabilities/src/provider-*.ts",
+        "packages/host-capabilities/src/provider-auth/**",
+        "packages/host-capabilities/__tests__/provider-services.test.ts",
+        "packages/host-capabilities/__tests__/provider-auth/**",
+        "packages/host-capabilities/__tests__/credentials/**",
+        "apps/desktop/src/__tests__/assistant-server/openrouter-model-metadata.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/provider-verification.test.ts",
+        "packages/host-capabilities/src/shared-flight*.ts"
       ],
       "linter": {
         "rules": {
