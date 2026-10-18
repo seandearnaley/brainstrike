@@ -283,15 +283,16 @@ export interface HostRunState {
   input?: HostRunInput;
   /**
    * BST-1932: a committed run/input names this run, so the child's next run
-   * takes its human input and carries its report. A legacy run/steer only
-   * ends the run (`steered`); it hands nothing on.
+   * takes its human input and carries its report: that run's run/start
+   * command ID, derived from the run/input's (`deriveHostInputRunCommandId`).
+   * A legacy run/steer only ends the run (`steered`); it hands nothing on.
    */
-  inputAccepted: boolean;
+  inputCommandId?: string;
   /**
-   * BST-2178: the run that took this run's accepted input, the one its
-   * run/start command started (core-run-end.ts; on replay, the first committed
-   * run/start naming this run as its parent). A regenerate or edit of that
-   * input's message branches from this run too, but is never this run.
+   * BST-2178: the run that took this run's accepted input, the one the
+   * `inputCommandId` run/start started, live (core-run-end.ts) and on replay.
+   * A regenerate or edit of that input's message branches from this run too,
+   * but is never this run.
    */
   inputRun?: string;
   readonly liveInputs: Map<
@@ -456,7 +457,6 @@ export function createHostRunState(
     effects: new Set(),
     grants,
     id,
-    inputAccepted: false,
     liveInputs: new Map(),
     messageIndexes: new Set(),
     messages: [],
@@ -483,10 +483,18 @@ const HostStartParentSchema = Schema.Struct({
   parentMessageId: Schema.optional(Schema.NullOr(Schema.String)),
 });
 /**
- * BST-2178: the first committed run/start naming, as its parent, a run whose
- * input was accepted is that input's run: the host commits it, or its
- * refusal, as soon as the accepted run ends (core-run-end.ts). Every later
- * run/start naming that parent is a person's edit, never the input's run.
+ * BST-2178: the command ID of the run/start that takes a child's human input,
+ * derived from the committed run/input's own command ID (any non-empty string
+ * is a protocol command ID), so a replay names the same run/start the live
+ * host committed. It is unique per run/input, as that command's ID is.
+ */
+export function deriveHostInputRunCommandId(inputCommandId: string): string {
+  return `${inputCommandId}-input`;
+}
+/**
+ * BST-2178: the run/start whose command ID is a run's `inputCommandId` started
+ * the run that took its input (or committed that input's refusal). A person's
+ * edit naming the same parent is another command, never the input's run.
  */
 function foldHostInputRun(
   runs: ReadonlyMap<string, HostRunState>,
@@ -494,7 +502,7 @@ function foldHostInputRun(
 ): void {
   const { parentMessageId } = Schema.decodeUnknownSync(HostStartParentSchema)(event.payload);
   const accepted = parentMessageId ? runs.get(parentMessageId) : undefined;
-  if (!accepted?.inputAccepted || accepted.inputRun) {
+  if (accepted?.inputCommandId !== event.commandId) {
     return;
   }
   accepted.inputRun = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'])(
@@ -539,7 +547,7 @@ export function foldHostAcceptedCommand(
   }
   run.steered = true;
   if (event.method === 'run/input') {
-    run.inputAccepted = true;
+    run.inputCommandId = deriveHostInputRunCommandId(event.commandId);
   }
 }
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */

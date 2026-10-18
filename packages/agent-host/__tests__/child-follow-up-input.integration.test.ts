@@ -525,3 +525,53 @@ test.each([
   await expectNothingOwed(harness, 'Next.', child.alpha.threadId);
   expect(await followUpDeliveries(harness)).toHaveLength(1);
 });
+
+/**
+ * The race an ordering rule gets wrong: a person's run/start naming the
+ * follow-up as its parent is admitted between the follow-up's end and its
+ * input's run/start, which is then refused while the person's run is active.
+ * The input's run is the refusal, live and after a restart.
+ */
+test("after a restart, a run/start naming the follow-up ahead of its input's run/start does not take the input", async () => {
+  const child = await followUpTakingInput('held');
+  const { harness, reads } = child;
+  const [followUp = ''] = await child.alphaRuns();
+  // Beta's stop wake holds the admission queue until the follow-up's end is
+  // committed; the person's run/start queues behind it, ahead of the input's.
+  const ended = Promise.withResolvers<void>();
+  const unsubscribe = harness.core().onCommitted((row) => {
+    if (finished(followUp)(row)) {
+      ended.resolve();
+    }
+  });
+  cleanup.push(async () => unsubscribe());
+  const admitted = child.holdNextWake(ended.promise);
+  await child.stopBeta();
+  await admitted;
+  const edited = child.replace('edit', '', followUp);
+  reads[0]?.release.resolve();
+  const person = await edited;
+  await child.replaced;
+  const alphaRows = async () => harness.core().read(child.alpha.threadId, 0);
+  await expect
+    .poll(async () => finishedRuns(await alphaRows()).map(({ outcome }) => outcome), {
+      timeout: 5000,
+    })
+    .toEqual(['completed', 'completed', 'failed']);
+  const refused = startedRuns(await alphaRows()).find(({ prompt }) => prompt === INPUT)?.runId;
+  // Live, the refusal is the input's run: it reports with the follow-up.
+  const [delivered, ...more] = await settledDeliveries(harness, 1);
+  expect(more).toEqual([]);
+  expect(reported(delivered?.delivery?.entries)).toEqual([
+    { childRunId: followUp, followUp: true, state: 'returned' },
+    { childRunId: refused, followUp: true, state: 'failed' },
+  ]);
+  await harness.core().close();
+  await harness.crash();
+  expect(finishedRuns(await alphaRows()).find(({ runId }) => runId === person)?.outcome).toBe(
+    'interrupted'
+  );
+  // Replayed, the person's interrupted run is an ordinary follow-up: it reports nothing.
+  await expectNothingOwed(harness, 'Next.', child.alpha.threadId);
+  expect(await followUpDeliveries(harness)).toHaveLength(1);
+});

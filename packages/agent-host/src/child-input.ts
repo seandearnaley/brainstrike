@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import type { HostRunState } from './core-state.js';
+import { deriveHostInputRunCommandId, type HostRunState } from './core-state.js';
 import type { HostEvent, HostParams } from './protocol.js';
 
 type HostRunOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
@@ -26,10 +25,10 @@ export async function acceptHostChildInput(
     throw new Error('The child is already taking input');
   }
   await accept();
-  const { commandId: _input, runId, ...settings } = params;
+  const { commandId: input, runId, ...settings } = params;
   run.steered = true;
-  run.inputAccepted = true;
-  run.childInput = { ...settings, commandId: randomUUID(), parentMessageId: runId };
+  run.inputCommandId = deriveHostInputRunCommandId(input);
+  run.childInput = { ...settings, commandId: run.inputCommandId, parentMessageId: runId };
   return { accepted: true };
 }
 
@@ -43,16 +42,12 @@ export function settleHostChildInput(
   run: HostRunState,
   runs: ReadonlyMap<string, HostRunState>
 ): void {
-  const commandId = run.childInput?.commandId;
   run.childInput = undefined;
-  if (commandId === undefined) {
-    return;
-  }
   const taken = [...runs.values()].find(
-    (next) => next.threadId === run.threadId && next.branch.userMessageId === commandId
+    (next) => next.threadId === run.threadId && next.branch.userMessageId === run.inputCommandId
   );
   if (taken) {
-    run.inputRun ??= taken.id;
+    run.inputRun = taken.id;
   }
 }
 
