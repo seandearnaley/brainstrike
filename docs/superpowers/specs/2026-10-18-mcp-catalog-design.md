@@ -1,7 +1,7 @@
 # MCP Catalog — Design
 
 **Date:** 2026-10-18
-**Status:** Approved 2026-10-18 (design); spec awaiting owner review.
+**Status:** Approved 2026-10-18 (design); spec approved by the owner 2026-10-18; implemented on this branch.
 **Scope:** desktop Settings → AI Tools → MCP Config, the host's MCP settings
 authority, and a catalog in `@brainstrike/assistant-contract`.
 **Nature:** a functional placeholder. Each integration gets its own live proof and
