@@ -519,6 +519,10 @@
   color: hsl(var(--foreground));
 }
 
+.aui-user-message-content {
+  padding-block: 0.625rem;
+}
+
 .aui-assistant-message-content,
 .aui-user-message-content {
   font-size: 0.8125rem;
@@ -1681,6 +1685,7 @@
  * assistant message overrides above.
  */
 .aui-user-message-root {
+  padding-bottom: 0.75rem;
   align-content: flex-start;
   padding-inline: 0.5rem;
   margin-bottom: 0.25rem; /* Tighter spacing for user messages */

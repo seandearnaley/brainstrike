@@ -77,7 +77,8 @@ test.each([390, 900].flatMap((width) => [false, true].map((dark) => ({ dark, wid
     const viewport = element('.aui-thread-viewport');
     const composer = element('.aui-composer-root');
     const input = element('.aui-composer-input');
-    const user = element('.aui-user-message-root');
+    const user = element('[data-message-id="style-14"]');
+    const bubble = element('.aui-user-message-content');
     const assistant = element('.aui-assistant-message-root');
     const content = element('.aui-assistant-message-content');
     await waitFor(() => expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight));
@@ -88,6 +89,9 @@ test.each([390, 900].flatMap((width) => [false, true].map((dark) => ({ dark, wid
     const contentStyle = getComputedStyle(content);
     const metrics = {
       assistantPadding: getComputedStyle(assistant).paddingTop,
+      bubbleBackground: getComputedStyle(bubble).backgroundColor,
+      bubblePadding: getComputedStyle(bubble).paddingTop,
+      bubbleRadius: getComputedStyle(bubble).borderRadius,
       composerWidth: composer.getBoundingClientRect().width,
       contentPadding: contentStyle.paddingLeft,
       foreground: rootStyle.color,
@@ -95,6 +99,8 @@ test.each([390, 900].flatMap((width) => [false, true].map((dark) => ({ dark, wid
       inputWidth: input.getBoundingClientRect().width,
       panelWidth: root.getBoundingClientRect().width,
       rootBackground: rootStyle.backgroundColor,
+      userBottomPadding: getComputedStyle(user).paddingBottom,
+      userColumns: getComputedStyle(user).gridTemplateColumns,
       userPadding: getComputedStyle(user).paddingLeft,
       viewportDisplay: viewportStyle.display,
       viewportPadding: viewportStyle.paddingLeft,
@@ -109,6 +115,11 @@ test.each([390, 900].flatMap((width) => [false, true].map((dark) => ({ dark, wid
     expect(metrics.viewportPadding).toBe('16px');
     expect(viewportStyle.paddingTop).toBe('16px');
     expect(metrics.userPadding).toBe('8px');
+    expect(metrics.userBottomPadding).toBe('12px');
+    expect(metrics.bubblePadding).toBe('10px');
+    if (width === 390) {
+      expect(metrics.userColumns.split(' ')[0]).toBe('72px');
+    }
     expect(metrics.contentPadding).toBe('8px');
     expect(metrics.assistantPadding).toBe('12px');
     expect(inputStyle.minHeight).toBe('48px');
