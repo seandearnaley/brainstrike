@@ -152,7 +152,7 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
 
   const readSources = (relativeDirectory: string): Promise<WorkspaceIgnoreSources> => {
     const cached = sourcesByDirectory.get(relativeDirectory);
-    if (cached) {
+    if (cached !== undefined) {
       return cached;
     }
     const pending = (async () => {
@@ -229,7 +229,7 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     relativeDirectory: string
   ): Promise<ReturnType<typeof createWorkspaceIgnoreMatcher>> => {
     const cached = matcherByDirectory.get(relativeDirectory);
-    if (cached) {
+    if (cached !== undefined) {
       return cached;
     }
     const pending = (async () => {

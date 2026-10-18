@@ -118,7 +118,7 @@ const globalExcludesByRoot = new Map<string, Promise<string | undefined>>();
 
 async function readGlobalExcludes(canonicalRootPath: string): Promise<string | undefined> {
   const cached = globalExcludesByRoot.get(canonicalRootPath);
-  if (cached) {
+  if (cached !== undefined) {
     return await cached;
   }
   const pending = (async () => {

@@ -100,7 +100,11 @@ function applyStringReplaceWithLoopGuard(args: {
         // lines" cascade) — the single most actionable fact for widening
         // oldStr, and precisely what the model has the least ability to
         // guess after two prior failures (PR #2323 review).
-        throw new StringReplaceError(error.reason, `${error.message} ${EDIT_FAILURE_HINT_MESSAGE}`);
+        throw new StringReplaceError(
+          error.reason,
+          `${error.message} ${EDIT_FAILURE_HINT_MESSAGE}`,
+          { cause: error }
+        );
       }
     }
     throw error;
@@ -350,7 +354,8 @@ export async function runStringReplaceWorkspaceFile(
     } catch (error: unknown) {
       if (error instanceof WorkspacePathRefusal && error.reason === 'missing') {
         throw new ToolInputError(
-          'stringReplaceWorkspaceFile edits only an existing file. Use writeWorkspaceFile to create the new file.'
+          'stringReplaceWorkspaceFile edits only an existing file. Use writeWorkspaceFile to create the new file.',
+          { cause: error }
         );
       }
       throw error;
@@ -513,7 +518,7 @@ export async function runDeleteWorkspaceFile(
       leafStats = await fsPromises.lstat(mutationPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new ToolInputError(`Path "${input.path}" does not exist.`);
+        throw new ToolInputError(`Path "${input.path}" does not exist.`, { cause: error });
       }
       throw error;
     }
@@ -619,7 +624,7 @@ export async function runRenameWorkspaceFile(
       fromStats = await fsPromises.lstat(fromMutationPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new ToolInputError(`Path "${input.fromPath}" does not exist.`);
+        throw new ToolInputError(`Path "${input.fromPath}" does not exist.`, { cause: error });
       }
       throw error;
     }

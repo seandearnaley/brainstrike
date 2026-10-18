@@ -2,8 +2,11 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ensureContainedDirectory } from '@brainstrike/host-capabilities/native-tools';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  ensureContainedDirectory,
+  writeContainedFileBytes,
+} from '@brainstrike/host-capabilities/native-tools';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('secure-file-write: ensureContainedDirectory', () => {
   let rootDir: string;
@@ -16,7 +19,25 @@ describe('secure-file-write: ensureContainedDirectory', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await fsPromises.rm(rootDir, { force: true, recursive: true });
+  });
+
+  it('retains the exact missing-parent failure behind its existing safe message', async () => {
+    const cause = Object.assign(new Error('PRIVATE removed parent'), { code: 'ENOENT' });
+    vi.spyOn(fsPromises, 'lstat').mockRejectedValueOnce(cause);
+    const pending = writeContainedFileBytes({
+      buffer: Buffer.from('data'),
+      requestedPath: '/notes/a.md',
+      requireParentDirectory: true,
+      resolved: { absolutePath: path.join(rootDir, 'notes/a.md'), canonicalRootPath: rootDir },
+    });
+    await expect(pending).rejects.toMatchObject({
+      cause,
+      message:
+        'Parent directory of "/notes/a.md" no longer exists; it may have been renamed or deleted.',
+    });
+    await expect(pending).rejects.toSatisfy((error: Error) => error.cause === cause);
   });
 
   it('creates an in-root directory whose name starts with ".."', async () => {

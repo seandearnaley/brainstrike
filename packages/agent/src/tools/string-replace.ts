@@ -36,8 +36,8 @@ export type StringReplaceFailureReason = 'ambiguous' | 'not_found' | 'no_op';
 export class StringReplaceError extends Error {
   readonly reason: StringReplaceFailureReason;
 
-  constructor(reason: StringReplaceFailureReason, message: string) {
-    super(message);
+  constructor(reason: StringReplaceFailureReason, message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'StringReplaceError';
     this.reason = reason;
   }
