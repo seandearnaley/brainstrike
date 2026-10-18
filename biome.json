@@ -19,6 +19,7 @@
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "packages/host-capabilities/src/mcp/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/{src/provider-auth,__tests__/provider-auth,__tests__/credentials}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/indexer/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/src/native-tools/**/*.{ts,tsx,mts,cts,mjs}",
@@ -780,6 +781,29 @@
         "apps/desktop/src/__tests__/assistant-server/openrouter-model-metadata.test.ts",
         "apps/desktop/src/__tests__/assistant-server/provider-verification.test.ts",
         "packages/host-capabilities/src/shared-flight*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-capabilities/src/mcp/**",
+        "packages/host-capabilities/__tests__/mcp-host-services-readiness.test.ts",
+        "packages/host-capabilities/__tests__/mcp-settings-authority.test.ts",
+        "packages/host-capabilities/__tests__/mcp-oauth-config.test.ts",
+        "packages/host-capabilities/__tests__/mcp-presentation-service.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-host-service.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-server-actor.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-elicitation-presenter.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-oauth-loopback-callback.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-oauth-client-provider.test.ts"
       ],
       "linter": {
         "rules": {
