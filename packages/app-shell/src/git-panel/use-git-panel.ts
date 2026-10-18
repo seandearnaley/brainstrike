@@ -2,6 +2,7 @@ import { useFileExplorerStoreSelector, useFileSystem } from '@brainstrike/file-e
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { summarizeGitFailure } from '../git-failure-summary';
 import {
   isTransientRootError,
   TRANSIENT_ROOT_RETRY_DELAY_MS,
@@ -251,7 +252,7 @@ export function useGitPanel(): UseGitPanelResult {
           setStatusErrorState({ rootId: activeRootId, value: result.error });
           logger.error('git status failed', { error: result.error });
           toast({
-            description: result.error,
+            description: summarizeGitFailure(result.error),
             title: 'Git status failed',
             variant: 'destructive',
           });
@@ -265,7 +266,11 @@ export function useGitPanel(): UseGitPanelResult {
         setStatusState(null);
         setStatusErrorState({ rootId: activeRootId, value: message });
         logger.error('git status threw', { error: message });
-        toast({ description: message, title: 'Git status failed', variant: 'destructive' });
+        toast({
+          description: summarizeGitFailure(message),
+          title: 'Git status failed',
+          variant: 'destructive',
+        });
       })
       .finally(() => {
         // Keep the loading state up while a transient-root retry is pending so
@@ -305,7 +310,7 @@ export function useGitPanel(): UseGitPanelResult {
         setRepositoryErrorState({ rootId: activeRootId, value: result.error });
         logger.error('git repository metadata failed', { error: result.error });
         toast({
-          description: result.error,
+          description: summarizeGitFailure(result.error),
           title: 'Repository details failed',
           variant: 'destructive',
         });
@@ -319,7 +324,7 @@ export function useGitPanel(): UseGitPanelResult {
         setRepositoryErrorState({ rootId: activeRootId, value: message });
         logger.error('git repository metadata threw', { error: message });
         toast({
-          description: message,
+          description: summarizeGitFailure(message),
           title: 'Repository details failed',
           variant: 'destructive',
         });
@@ -353,7 +358,11 @@ export function useGitPanel(): UseGitPanelResult {
         const result = await run(bridge, activeRootId);
         if (!result.ok) {
           logger.error(`${label} failed`, { error: result.error });
-          toast({ description: result.error, title: `${label} failed`, variant: 'destructive' });
+          toast({
+            description: summarizeGitFailure(result.error),
+            title: `${label} failed`,
+            variant: 'destructive',
+          });
           return false;
         }
         refresh();
@@ -361,7 +370,11 @@ export function useGitPanel(): UseGitPanelResult {
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error(`${label} threw`, { error: message });
-        toast({ description: message, title: `${label} failed`, variant: 'destructive' });
+        toast({
+          description: summarizeGitFailure(message),
+          title: `${label} failed`,
+          variant: 'destructive',
+        });
         return false;
       }
     },
@@ -548,11 +561,19 @@ export function useGitPanel(): UseGitPanelResult {
           return result.value;
         }
         logger.error('git history failed', { error: result.error, ref });
-        toast({ description: result.error, title: 'History failed', variant: 'destructive' });
+        toast({
+          description: summarizeGitFailure(result.error),
+          title: 'History failed',
+          variant: 'destructive',
+        });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('git history threw', { error: message, ref });
-        toast({ description: message, title: 'History failed', variant: 'destructive' });
+        toast({
+          description: summarizeGitFailure(message),
+          title: 'History failed',
+          variant: 'destructive',
+        });
       }
       return null;
     },
@@ -571,14 +592,18 @@ export function useGitPanel(): UseGitPanelResult {
         }
         logger.error('git commit files failed', { commit: commitId, error: result.error });
         toast({
-          description: result.error,
+          description: summarizeGitFailure(result.error),
           title: 'Commit files failed',
           variant: 'destructive',
         });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('git commit files threw', { commit: commitId, error: message });
-        toast({ description: message, title: 'Commit files failed', variant: 'destructive' });
+        toast({
+          description: summarizeGitFailure(message),
+          title: 'Commit files failed',
+          variant: 'destructive',
+        });
       }
       return null;
     },

@@ -1,6 +1,7 @@
 import { Button } from '@brainstrike/ui';
 import { RefreshCw } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
+import { GitFailureDetails } from '../git-failure-details';
 import { GitChangesView } from './git-changes-view';
 import { GitFocusedFolderPath, GitFolderSwitchList } from './git-folder-switcher';
 import { GitHistoryView } from './git-history-view';
@@ -71,7 +72,7 @@ export function GitPanel(): ReactElement {
           Could not load Git status for {focusedFolder.name}.
         </p>
         <GitFocusedFolderPath folder={focusedFolder} />
-        <p className="max-w-md text-muted-foreground text-xs">{panel.statusError}</p>
+        <GitFailureDetails error={panel.statusError} />
         <Button onClick={panel.refresh} size="sm" type="button" variant="outline">
           <RefreshCw aria-hidden="true" />
           Retry
@@ -107,7 +108,7 @@ export function GitPanel(): ReactElement {
           Could not load repository details for {focusedFolder.name}.
         </p>
         <GitFocusedFolderPath folder={focusedFolder} />
-        <p className="max-w-md text-muted-foreground text-xs">{panel.repositoryError}</p>
+        <GitFailureDetails error={panel.repositoryError} />
         <Button onClick={panel.refresh} size="sm" type="button" variant="outline">
           <RefreshCw aria-hidden="true" />
           Retry

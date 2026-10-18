@@ -434,6 +434,25 @@ describe('GitPanel focused folder (BST-1897)', () => {
     expect(setFocusedRoot).toHaveBeenLastCalledWith(otherApp.rootId);
   });
 
+  it('summarizes a multi-line status failure and keeps the full output behind a disclosure', async () => {
+    openWorkspace([PARENT], PARENT.rootId);
+    const stderr = 'fatal: unable to read index\nerror: index uses extension we do not understand';
+    installBridge({ [PARENT.rootId]: async () => ({ error: stderr, ok: false }) });
+    render(<GitPanel />);
+
+    const error = await screen.findByTestId('git-panel-error');
+    expect(within(error).getByText('fatal: unable to read index')).toBeInTheDocument();
+    expect(within(error).getByTestId('git-failure-details').querySelector('pre')).toHaveTextContent(
+      'error: index uses extension we do not understand'
+    );
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: 'fatal: unable to read index',
+        title: 'Git status failed',
+      })
+    );
+  });
+
   it('says so when no other folder is open', async () => {
     openWorkspace([PARENT], PARENT.rootId);
     installBridge({ [PARENT.rootId]: async () => ok(NOT_A_REPO) });

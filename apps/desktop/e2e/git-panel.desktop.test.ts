@@ -219,6 +219,28 @@ test.describe('Git panel (desktop)', () => {
     await expect(page.getByTestId('ahead-badge')).toHaveCount(0, { timeout: 45_000 });
   });
 
+  test('summarizes a multi-line git failure and discloses the full output', async ({
+    window: page,
+  }) => {
+    // BST-2136: a repository written by a newer git (an unknown extension)
+    // makes `git status` exit 128 with a two-line stderr. The error state
+    // leads with git's own line; the rest sits behind "Full git output".
+    test.setTimeout(90_000);
+    const repo = freshRepo('unknown-extension');
+    git(repo, ['config', 'core.repositoryformatversion', '1']);
+    git(repo, ['config', 'extensions.bogusext', 'true']);
+    await seedRoot(page, repo);
+    await openGitPanel(page);
+
+    const error = page.getByTestId('git-panel-error');
+    await expect(error).toContainText('fatal: unknown repository extension found:');
+    const details = error.getByTestId('git-failure-details');
+    await expect(details.locator('pre')).toBeHidden();
+    await details.getByText('Full git output').focus();
+    await page.keyboard.press('Enter');
+    await expect(details.locator('pre')).toContainText('bogusext');
+  });
+
   test('shows the not-a-repo state for a non-git directory', async ({ window: page }) => {
     test.setTimeout(90_000);
     await seedRoot(page, freshNonGitDir('not-a-repo'));
