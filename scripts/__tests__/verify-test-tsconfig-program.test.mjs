@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-import { verifyTestTsconfigProgram } from '../verify-test-tsconfig-program.mjs';
+import { runTsc, verifyTestTsconfigProgram } from '../verify-test-tsconfig-program.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -155,4 +155,58 @@ test('accepts a non-vacuous type-correct test program', async () => {
 
   assert.equal(result.ok, true, result.message);
   assert.equal(result.testFiles.length, 1);
+});
+
+test('checks a changed transitive type freshly without rewriting warm build state', async (t) => {
+  const root = await writeFixture({
+    source:
+      "import type { Manager } from './manager.js'; export const manager: Manager = { listTabs: () => [{ id: 'fixture' }] };\n",
+    tsconfig: {
+      compilerOptions: {
+        incremental: true,
+        module: 'NodeNext',
+        moduleResolution: 'NodeNext',
+        strict: true,
+        tsBuildInfoFile: './warm.tsbuildinfo',
+        types: [],
+      },
+      files: ['src/example.test.ts', 'src/manager.ts', 'src/tabs.ts'],
+    },
+  });
+  t.after(() => rm(root, { force: true, recursive: true }));
+  const tabs = path.join(root, 'src/tabs.ts');
+  const manager =
+    "import type { Tab } from './tabs.js'; export interface Manager { listTabs(): readonly Tab[] }\n";
+  await writeFile(tabs, 'export interface Tab { readonly id: string }\n');
+  await writeFile(path.join(root, 'src/manager.ts'), manager);
+  const project = path.join(root, 'tsconfig.json');
+  const primed = runTsc(['--noEmit', '--project', project]);
+  assert.equal(primed.status, 0, primed.stderr || primed.stdout);
+  const buildInfo = path.join(root, 'warm.tsbuildinfo');
+  const warmState = readFileSync(buildInfo, 'utf8');
+
+  // The importing interface is textually unchanged; only its dependency changes.
+  await writeFile(tabs, 'export interface Tab { readonly id: string; readonly owner: string }\n');
+  const options = { cwd: root, minTestFiles: 1, project: 'tsconfig.json' };
+  const broken = verifyTestTsconfigProgram(options);
+  assert.equal(broken.ok, false, broken.message);
+  assert.match(broken.message, /TS2741/u);
+  assert.match(broken.message, /owner/u);
+  assert.equal(readFileSync(path.join(root, 'src/manager.ts'), 'utf8'), manager);
+  assert.ok(
+    readFileSync(buildInfo, 'utf8') === warmState,
+    'acceptance must not update build state'
+  );
+
+  await writeFile(
+    path.join(root, 'src/example.test.ts'),
+    "import type { Manager } from './manager.js'; export const manager: Manager = { listTabs: () => [{ id: 'fixture', owner: 'user' }] };\n"
+  );
+  const valid = verifyTestTsconfigProgram(options);
+  assert.equal(valid.ok, true, valid.message);
+  assert.equal(valid.testFiles.length, 1);
+  assert.ok(
+    readFileSync(buildInfo, 'utf8') === warmState,
+    'valid acceptance must not update build state'
+  );
 });

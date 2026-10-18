@@ -10,7 +10,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const TEST_FILE_PATTERN = /(?:^|\/)(?:__tests__\/.*|[^/]+\.(?:test|spec)\.[cm]?[jt]sx?)$/u;
 
 export function runTsc(args) {
-  // The installed workspace shim is the same pinned compiler pnpm exec selects.
+  // This verifier owns the root-installed compiler shim; consumer shims can differ.
   // Avoid launching the package manager for every list-only project inspection.
   const compiler = path.join(
     REPO_ROOT,
@@ -95,7 +95,9 @@ export function verifyTestTsconfigProgram({
     };
   }
 
-  const checked = runTscCommand(['--noEmit', '--project', projectPath]);
+  // Acceptance must recheck transitive types, independent of warm build state.
+  // Production builds retain their own incremental settings and cache files.
+  const checked = runTscCommand(['--noEmit', '--incremental', 'false', '--project', projectPath]);
   if (checked.error) {
     return {
       message: `Unable to run tsc for ${projectPath}: ${checked.error.message}`,
