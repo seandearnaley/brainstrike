@@ -1819,6 +1819,27 @@ export function buildProviderOptionsWhenReady(
  * with no registry row there is no ladder to judge against, and that route
  * shows no effort control to lie with.
  */
+/**
+ * Direct-OpenAI counterpart (BST-1709). The rows declare their own ladders,
+ * and those differ: the Pro rows take only medium, high and xhigh, while the
+ * GPT-5.6 rows add none and max. So a provider-wide effort chosen on one model
+ * can be one the next model rejects. Clear it on the switch so the controls
+ * show what the request sends. An undeclared or uncatalogued model is left
+ * alone: there is no ladder to judge against.
+ */
+function reconcileOpenAiSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const effort = settings.reasoningEffort;
+  const ladder = effort ? findLlmModelDefinition('openai', modelName)?.reasoning : undefined;
+  if (!(effort && ladder) || ladder.supportedEfforts.includes(effort)) {
+    return settings;
+  }
+  const { reasoningEffort: _unsupportedReasoningEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
 function reconcileBedrockSettingsForModel(
   modelName: string,
   settings: AssistantProviderSettings
@@ -1896,6 +1917,9 @@ export function reconcileProviderSettingsForModel(
   }
   if (providerId === 'bedrock' && settings) {
     return reconcileBedrockSettingsForModel(modelName, settings);
+  }
+  if (providerId === 'openai' && settings) {
+    return reconcileOpenAiSettingsForModel(modelName, settings);
   }
   if (!(providerId === 'openrouter' && settings)) {
     return settings;
