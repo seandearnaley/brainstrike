@@ -486,11 +486,30 @@ describe('MCP catalog in the config panel', () => {
 
     await waitFor(() => expect(onConfigChanged).toHaveBeenCalledOnce());
     expect(editor).toHaveValue('{ "servers": [] }');
-    expect(screen.getByTestId('mcp-config-reload-confirm')).toBeInTheDocument();
+    expect(screen.getByTestId('mcp-config-reload-confirm')).toHaveTextContent(
+      'GitLab was added to the config on disk. Reload to see it; saving your current edits will remove it.'
+    );
     expect(ops.readMcpConfigText).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard and Reload' }));
     await waitFor(() => expect(editor).toHaveValue(validContent));
     expect(ops.readMcpConfigText).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the generic discard question for the Reload button', async () => {
+    const ops = operations();
+    ops.installMcpCatalogServer = vi.fn(async () => ({ path, success: true as const }));
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
+    const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
+
+    fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+
+    expect(screen.getByTestId('mcp-config-reload-confirm')).toHaveTextContent(
+      'Discard unsaved MCP config changes and reload from disk?'
+    );
+    expect(ops.readMcpConfigText).toHaveBeenCalledOnce();
   });
 });

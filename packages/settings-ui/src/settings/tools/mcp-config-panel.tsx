@@ -15,6 +15,8 @@ const WINDOWS_UNC_PATH = /^\\\\/u;
 const MCP_CONFIG_STATUS_ID = 'mcp-config-status-message';
 const MCP_CONFIG_ERROR_ID = 'mcp-config-error-message';
 type McpConfigStatusTone = 'success' | 'warning';
+/** Why the editor asks before reloading: a Reload click, or an install that changed the file under unsaved edits. */
+type ReloadConfirmReason = { kind: 'reload' } | { kind: 'install'; serverName: string };
 
 function isAbsoluteFilePath(filePath: string): boolean {
   return (
@@ -31,8 +33,8 @@ interface McpPanelState {
   initialized: boolean;
   loading: boolean;
   pathDraft: string;
+  reloadConfirm: ReloadConfirmReason | null;
   savedValue: string;
-  showReloadConfirm: boolean;
   statusMessage: string | null;
   statusTone: McpConfigStatusTone;
 }
@@ -53,7 +55,7 @@ type McpPanelAction =
   | { type: 'SET_STATUS'; message: string | null; tone: McpConfigStatusTone }
   | { type: 'SET_ERROR'; message: string | null }
   | { type: 'CLEAR_MESSAGES' }
-  | { type: 'SHOW_RELOAD_CONFIRM' }
+  | { type: 'SHOW_RELOAD_CONFIRM'; reason: ReloadConfirmReason }
   | { type: 'HIDE_RELOAD_CONFIRM' }
   | { type: 'SAVE_SUCCESS'; value: string };
 
@@ -63,8 +65,8 @@ const initialState: McpPanelState = {
   initialized: false,
   loading: false,
   pathDraft: '',
+  reloadConfirm: null,
   savedValue: '',
-  showReloadConfirm: false,
   statusMessage: null,
   statusTone: 'success',
 };
@@ -80,7 +82,7 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
         ...state,
         errorMessage: null,
         loading: true,
-        showReloadConfirm: false,
+        reloadConfirm: null,
         statusMessage: null,
       };
     case 'DOCUMENT_LOADED':
@@ -91,8 +93,8 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
         initialized: true,
         loading: false,
         pathDraft: action.path,
+        reloadConfirm: null,
         savedValue: action.content,
-        showReloadConfirm: false,
         statusMessage: action.created
           ? 'Created a new MCP config template with commented examples.'
           : null,
@@ -104,11 +106,11 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
         errorMessage: action.error,
         initialized: true,
         loading: false,
-        showReloadConfirm: false,
+        reloadConfirm: null,
         statusMessage: null,
       };
     case 'LOAD_DONE':
-      return { ...state, initialized: true, loading: false, showReloadConfirm: false };
+      return { ...state, initialized: true, loading: false, reloadConfirm: null };
     case 'SET_STATUS':
       return { ...state, statusMessage: action.message, statusTone: action.tone };
     case 'SET_ERROR':
@@ -116,14 +118,14 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
     case 'CLEAR_MESSAGES':
       return { ...state, errorMessage: null, statusMessage: null, statusTone: 'success' };
     case 'SHOW_RELOAD_CONFIRM':
-      return { ...state, showReloadConfirm: true };
+      return { ...state, reloadConfirm: action.reason };
     case 'HIDE_RELOAD_CONFIRM':
-      return { ...state, showReloadConfirm: false };
+      return { ...state, reloadConfirm: null };
     case 'SAVE_SUCCESS':
       return {
         ...state,
+        reloadConfirm: null,
         savedValue: action.value,
-        showReloadConfirm: false,
         statusMessage:
           state.editorValue === action.value
             ? 'MCP config saved.'
@@ -150,7 +152,7 @@ export function McpConfigPanel({
     statusMessage,
     statusTone,
     errorMessage,
-    showReloadConfirm,
+    reloadConfirm,
   } = state;
 
   const editorAvailable = useMemo(
@@ -367,7 +369,7 @@ export function McpConfigPanel({
 
   const handleReload = useCallback(async () => {
     if (hasUnsavedChanges) {
-      dispatch({ type: 'SHOW_RELOAD_CONFIRM' });
+      dispatch({ reason: { kind: 'reload' }, type: 'SHOW_RELOAD_CONFIRM' });
       return;
     }
 
@@ -383,15 +385,19 @@ export function McpConfigPanel({
     dispatch({ type: 'HIDE_RELOAD_CONFIRM' });
   }, []);
 
-  const handleCatalogInstalled = useCallback(async () => {
-    // Edits typed while the install ran are never replaced silently: ask, as Reload does.
-    if (hasUnsavedChangesRef.current) {
-      dispatch({ type: 'SHOW_RELOAD_CONFIRM' });
-    } else {
-      await loadDocument();
-    }
-    await onConfigChanged();
-  }, [loadDocument, onConfigChanged]);
+  const handleCatalogInstalled = useCallback(
+    async (serverName: string) => {
+      // Edits typed while the install ran are never replaced silently, and saving them would
+      // drop the new server: ask, and say so.
+      if (hasUnsavedChangesRef.current) {
+        dispatch({ reason: { kind: 'install', serverName }, type: 'SHOW_RELOAD_CONFIRM' });
+      } else {
+        await loadDocument();
+      }
+      await onConfigChanged();
+    },
+    [loadDocument, onConfigChanged]
+  );
 
   const editorDescribedBy = useMemo(() => {
     const ids: string[] = [];
@@ -450,7 +456,7 @@ export function McpConfigPanel({
           onEditorKeyDown={handleEditorKeyDown}
           onReload={() => void handleReload()}
           onSave={() => void handleSave()}
-          showReloadConfirm={showReloadConfirm}
+          reloadConfirm={reloadConfirm}
           statusMessage={statusMessage}
           statusTone={statusTone}
         />
@@ -550,9 +556,15 @@ interface McpEditorCardProps {
   onEditorKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onReload: () => void;
   onSave: () => void;
-  showReloadConfirm: boolean;
+  reloadConfirm: ReloadConfirmReason | null;
   statusMessage: string | null;
   statusTone: McpConfigStatusTone;
+}
+
+function reloadConfirmText(reason: ReloadConfirmReason): string {
+  return reason.kind === 'install'
+    ? `${reason.serverName} was added to the config on disk. Reload to see it; saving your current edits will remove it.`
+    : 'Discard unsaved MCP config changes and reload from disk?';
 }
 
 function McpEditorCard({
@@ -563,7 +575,7 @@ function McpEditorCard({
   statusTone,
   loading,
   hasUnsavedChanges,
-  showReloadConfirm,
+  reloadConfirm,
   onEditorChange,
   onEditorKeyDown,
   onSave,
@@ -603,12 +615,12 @@ function McpEditorCard({
           spellCheck={false}
           value={editorValue}
         />
-        {showReloadConfirm && (
+        {reloadConfirm && (
           <div
             className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs"
             data-testid="mcp-config-reload-confirm"
           >
-            <span>Discard unsaved MCP config changes and reload from disk?</span>
+            <span>{reloadConfirmText(reloadConfirm)}</span>
             <Button
               data-testid="mcp-config-reload-confirm-discard"
               onClick={onConfirmReload}

@@ -38,7 +38,8 @@ export interface McpCatalogSectionProps {
   /** Configured server ids from the Tools settings' MCP host status, the one status owner. */
   configuredServerIds: ReadonlySet<string>;
   installMcpCatalogServer: InstallCatalogServer;
-  onInstalled: () => Promise<void>;
+  /** Receives the installed entry's display name. */
+  onInstalled: (serverName: string) => Promise<void>;
 }
 
 const ACCESS_LABELS: Record<McpCatalogAccess, string> = {
@@ -58,10 +59,10 @@ export function McpCatalogSection({
   onInstalled,
 }: McpCatalogSectionProps) {
   const install = useCallback(
-    async (request: McpCatalogInstallRequest): Promise<InstallResult> => {
+    async (entry: McpCatalogEntry, request: McpCatalogInstallRequest): Promise<InstallResult> => {
       const result = await installMcpCatalogServer(request);
       if (result.success) {
-        await onInstalled();
+        await onInstalled(entry.name);
       }
       return result;
     },
@@ -102,7 +103,7 @@ interface McpCatalogCardProps {
   blocked: boolean;
   entry: McpCatalogEntry;
   installed: boolean;
-  onInstall: (request: McpCatalogInstallRequest) => Promise<InstallResult>;
+  onInstall: (entry: McpCatalogEntry, request: McpCatalogInstallRequest) => Promise<InstallResult>;
 }
 
 function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCardProps) {
@@ -115,7 +116,7 @@ function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCard
     setError(null);
     setPending(true);
     try {
-      const result = await onInstall({
+      const result = await onInstall(entry, {
         access,
         catalogId: entry.id,
         ...(token === undefined ? {} : { token }),

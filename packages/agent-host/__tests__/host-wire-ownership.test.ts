@@ -37,6 +37,21 @@ test('protocol version and secret-bearing request refusal stay fixed', () => {
   ).not.toThrow('secretRider');
   expect(() => parseHostParams('auth/clear', [])).toThrow('Invalid MCP host request');
   expect(() => parseHostParams('auth/clear', 1)).toThrow('Invalid MCP host request');
+  const badAccess = { access: 'x', catalogId: 'github', token: 'never-print-me' };
+  expect(() => parseHostParams('mcp/config/install', badAccess)).toThrow(
+    'Invalid MCP host request'
+  );
+  expect(() => parseHostParams('mcp/config/install', badAccess)).not.toThrow('never-print-me');
+  const excessKey = {
+    access: 'read-write',
+    catalogId: 'github',
+    secretRider: 'never-print-me',
+    token: 'never-print-me',
+  };
+  expect(() => parseHostParams('mcp/config/install', excessKey)).toThrow(
+    'Invalid MCP host request'
+  );
+  expect(() => parseHostParams('mcp/config/install', excessKey)).not.toThrow('never-print-me');
 });
 
 test('external URL normalization preserves the former URL decoder output', () => {

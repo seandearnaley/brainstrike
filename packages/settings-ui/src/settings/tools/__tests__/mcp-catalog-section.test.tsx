@@ -42,7 +42,7 @@ describe('MCP catalog section', () => {
     fireEvent.mouseDown(await card('linear').findByRole('tab', { name: 'Read-only' }));
     fireEvent.click(card('linear').getByRole('button', { name: 'Install' }));
 
-    await waitFor(() => expect(p.onInstalled).toHaveBeenCalledOnce());
+    await waitFor(() => expect(p.onInstalled).toHaveBeenCalledExactlyOnceWith('Linear'));
     expect(p.installMcpCatalogServer).toHaveBeenCalledWith({
       access: 'read-only',
       catalogId: 'linear',

@@ -1,7 +1,11 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSettingsHarness, type SettingsHarness } from './mcp-settings-authority-harness.js';
+import {
+  createSettingsHarness,
+  type SettingsHarness,
+  stdioServer,
+} from './mcp-settings-authority-harness.js';
 
 const COMMENTED = `{
   // keep this comment
@@ -110,6 +114,41 @@ describe('MCP catalog install', () => {
     expect(result.success ? '' : result.error).toMatch(
       /^Fix the MCP config before installing GitLab: invalid_mcp_config/u
     );
+    expect(await readFile(h.configPath, 'utf8')).toBe(broken);
+  });
+
+  it('refuses a token install for a configured name before storing the token', async () => {
+    const existing = JSON.stringify({ servers: [stdioServer('github')] });
+    const h = await started(existing);
+
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+    ).resolves.toEqual({
+      error: 'An MCP server named "github" is already configured.',
+      path: h.configPath,
+      success: false,
+    });
+    expect(h.bearer.writer.create).not.toHaveBeenCalled();
+    expect(h.bearer.stored.size).toBe(0);
+    expect(await readFile(h.configPath, 'utf8')).toBe(existing);
+  });
+
+  it('refuses a token install while the config does not parse, before storing the token', async () => {
+    const broken = '{ "servers": [ { "name": "x" ';
+    const h = await started(broken);
+
+    const result = await h.authority.installCatalogServer({
+      access: 'read-write',
+      catalogId: 'github',
+      token: TOKEN,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.success ? '' : result.error).toMatch(
+      /^Fix the MCP config before installing GitHub: invalid_mcp_config/u
+    );
+    expect(h.bearer.writer.create).not.toHaveBeenCalled();
+    expect(h.bearer.stored.size).toBe(0);
     expect(await readFile(h.configPath, 'utf8')).toBe(broken);
   });
 
