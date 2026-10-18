@@ -30,12 +30,13 @@ export interface HostRuntime {
 }
 /** M3 composes the existing lease with its store owner and client protocol. */
 export interface HostRuntimeBindings {
+  /** Returns the join of the socket's admitted requests; retirement awaits it before destroying the socket. */
   acceptSocket(
     socket: Socket,
     record: HostRecord,
     attached: () => void,
     lifecycle: HostSocketLifecycle
-  ): void;
+  ): (() => Promise<void>) | undefined;
   acquireRoot(
     retainRun: () => () => void
   ): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
@@ -118,6 +119,7 @@ export async function startHost(
   await secureDirectory(options.root);
   const owner = new ResourceOwner();
   const sockets = new Set<Socket>();
+  const admitted = new WeakMap<Socket, () => Promise<void>>();
   const completion = Promise.withResolvers<void>();
   // Preserve fatal cleanup failures on the public closed Promise without an
   // unhandled-rejection race before the launcher has received the runtime.
@@ -252,7 +254,7 @@ export async function startHost(
             finishIfIdle();
           }
         });
-        bindings.acceptSocket(
+        const answered = bindings.acceptSocket(
           socket,
           record,
           () => {
@@ -277,6 +279,9 @@ export async function startHost(
             },
           }
         );
+        if (answered) {
+          admitted.set(socket, answered);
+        }
         return;
       }
       const reject = (message: string, code?: typeof HOST_LEASE_CLOSING): void => {
@@ -342,8 +347,15 @@ export async function startHost(
           value.close((error?: Error) => (error ? reject(error) : resolve()))
         );
         serverClosing.catch(() => undefined);
+        // BST-2174: new connections are refused from here; a request a socket
+        // already admitted writes its answer before that socket is destroyed.
         await Promise.all(
-          [...sockets].filter((socket) => socket !== stopReply?.socket).map(destroySocket)
+          [...sockets]
+            .filter((socket) => socket !== stopReply?.socket)
+            .map(async (socket) => {
+              await admitted.get(socket)?.();
+              await destroySocket(socket);
+            })
         );
         if (!stopReply) {
           await serverClosing;
