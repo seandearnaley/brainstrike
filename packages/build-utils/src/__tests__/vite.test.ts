@@ -33,7 +33,7 @@ function toVitePath(filePath: string): string {
 
 describe('createCspQualifiedEvalWarningFilter', () => {
   it.each([
-    '../../node_modules/.pnpm/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js',
+    '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/web-tree-sitter.js',
     '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/index.js',
     '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/chunk-HXUXMFL7.js',
   ])('suppresses the CSP-qualified EVAL warning from %s', (id) => {
@@ -61,7 +61,7 @@ describe('createCspQualifiedEvalWarningFilter', () => {
         code: 'EVAL',
         loc: {
           column: 33,
-          file: String.raw`C:\repo\node_modules\.pnpm\web-tree-sitter@0.25.10\node_modules\web-tree-sitter\tree-sitter.js`,
+          file: String.raw`C:\repo\node_modules\.pnpm\web-tree-sitter@0.27.1\node_modules\web-tree-sitter\web-tree-sitter.js`,
           line: 2978,
         },
         message: 'Use of direct eval',
@@ -75,8 +75,18 @@ describe('createCspQualifiedEvalWarningFilter', () => {
   it.each([
     {
       code: 'CIRCULAR_DEPENDENCY',
-      id: '../../node_modules/.pnpm/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js',
+      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/web-tree-sitter.js',
       message: 'A different warning from an allowlisted module',
+    },
+    {
+      code: 'EVAL',
+      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.2/node_modules/web-tree-sitter/web-tree-sitter.js',
+      message: 'An unqualified future tree-sitter version',
+    },
+    {
+      code: 'EVAL',
+      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/unreviewed.js',
+      message: 'An unqualified module in the current version',
     },
     {
       code: 'EVAL',
