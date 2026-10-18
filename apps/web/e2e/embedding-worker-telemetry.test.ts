@@ -1,3 +1,4 @@
+import { waitForPopupAnimations } from '@brainstrike/e2e-test-utils/popup-animations';
 import { expect, type Locator, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { ensureRightPanelVisible } from './utils/layout-helpers';
@@ -62,6 +63,7 @@ test.describe('Embedding Worker Telemetry @stateful @web-db-startup', () => {
     await expect(indexingPopover.getByText('Pending', { exact: true })).toBeVisible();
     await expect(indexingPopover.getByText('Embedding queue', { exact: true })).toBeVisible();
 
+    await waitForPopupAnimations(indexingPopover);
     const popoverBox = await requireBoundingBox(indexingPopover);
     expect(Math.abs(popoverBox.width - 512)).toBeLessThanOrEqual(1);
     expect(Math.abs(popoverBox.height - 512)).toBeLessThanOrEqual(1);
