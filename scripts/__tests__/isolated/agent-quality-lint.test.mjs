@@ -72,6 +72,25 @@ const layouts = [
   ['packages/embedding-worker/bench', '.spec.ts'],
 ];
 
+const lifecycleLayouts = [
+  ...[
+    'embedding-host-manager',
+    'hosted-embedding-requests',
+    'native-index-catalog-observation',
+  ].map((family) => ['apps/desktop/src', family]),
+  ...[
+    'embedding-host-manager',
+    'embedding-host-query-settlement',
+    'embedding-host-unresponsive',
+    'hosted-embedding-requests',
+    'hosted-embeddings',
+    'native-index-catalog-observation',
+    'native-index-scan-admission',
+    'native-index-retry',
+    'platform/native-refusal-boundary',
+  ].map((family) => ['apps/desktop/src/__tests__', family]),
+];
+
 function lint(t, side) {
   const token = randomUUID();
   const declaration = path.join(
@@ -89,6 +108,35 @@ function lint(t, side) {
     path: `${directory}/agent-quality-lint-${token}${suffix}`,
     rule: 'nursery/noFloatingPromises',
   }));
+  for (const [directory, family] of lifecycleLayouts) {
+    const prefix = `${directory}/${family}-agent-quality-lint-${token}`;
+    for (const suffix of ['.test.ts', '/nested/future.spec.ts', '/future.mts', '/future.mjs']) {
+      for (const entry of [
+        {
+          bad: assertion,
+          good: joinedAssertion,
+          name: 'floating',
+          rule: 'nursery/noFloatingPromises',
+        },
+        {
+          bad: 'export function check() { return [1, 2].filter(async (value) => value > 0); }',
+          good: 'export function check() { return [1, 2].filter((value) => value > 0); }',
+          name: 'predicate',
+          rule: 'nursery/noMisusedPromises',
+        },
+        {
+          bad: "export function check() { const state = Math.random() > 0.5 ? 'ready' : 'waiting'; switch (state) { case 'ready': return true; } }",
+          good: "export function check() { const state = Math.random() > 0.5 ? 'ready' : 'waiting'; switch (state) { case 'ready': return true; case 'waiting': return false; } }",
+          name: 'switch',
+          rule: 'nursery/useExhaustiveSwitchCases',
+        },
+      ]) {
+        const fixture = `${prefix}-${entry.name}`;
+        t.after(() => rmSync(path.join(root, fixture), { force: true, recursive: true }));
+        cases.push({ ...entry, path: `${fixture}${suffix}` });
+      }
+    }
+  }
   cases.push({
     bad: assertion,
     good: joinedAssertion,
