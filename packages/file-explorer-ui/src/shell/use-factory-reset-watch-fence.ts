@@ -8,42 +8,6 @@ import { useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('FactoryResetWatchFence');
 
-type WatchDirectory = NonNullable<FileSystemAdapter['watchDirectory']>;
-
-// Keep the self-referencing disposer outside React's memoized render closure.
-function registerRootWatch(
-  activeWatches: Set<() => void>,
-  watchDirectory: WatchDirectory,
-  ...[handle, callback, onSignal]: Parameters<WatchDirectory>
-): () => void {
-  let disposed = false;
-  const stopWatch = watchDirectory(
-    handle,
-    (changes, metadata) => {
-      if (!disposed) {
-        callback(changes, metadata);
-      }
-    },
-    onSignal
-      ? (signal) => {
-          if (!disposed) {
-            onSignal(signal);
-          }
-        }
-      : undefined
-  );
-  const dispose = (): void => {
-    if (disposed) {
-      return;
-    }
-    disposed = true;
-    activeWatches.delete(dispose);
-    stopWatch();
-  };
-  activeWatches.add(dispose);
-  return dispose;
-}
-
 /**
  * The adapter an owner watches roots through, fenced by factory reset
  * (ADR-0015, BST-2149).
@@ -64,7 +28,8 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
   // The owner calls this hook before it watches, so the effect below fences a
   // remounted owner before the owner's own watch effect runs.
   const fencedRef = useRef(false);
-  const activeWatchesRef = useRef(new Set<() => void>());
+  // Keyed by a per-watch token, so a watch's dispose never names itself.
+  const activeWatchesRef = useRef(new Map<object, () => void>());
 
   const watchAdapter = useMemo((): FileSystemAdapter => {
     const watchDirectory = adapter.watchDirectory?.bind(adapter);
@@ -80,13 +45,33 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
         });
         return () => undefined;
       }
-      return registerRootWatch(
-        activeWatchesRef.current,
-        watchDirectory,
+      let disposed = false;
+      const registration = {};
+      const stopWatch = watchDirectory(
         handle,
-        callback,
+        (changes, metadata) => {
+          if (!disposed) {
+            callback(changes, metadata);
+          }
+        },
         onSignal
+          ? (signal) => {
+              if (!disposed) {
+                onSignal(signal);
+              }
+            }
+          : undefined
       );
+      const dispose = (): void => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        activeWatchesRef.current.delete(registration);
+        stopWatch();
+      };
+      activeWatchesRef.current.set(registration, dispose);
+      return dispose;
     };
     return fencedAdapter;
   }, [adapter]);
@@ -99,7 +84,7 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
     }
     return registerFactoryResetPreparation(async () => {
       fencedRef.current = true;
-      for (const dispose of [...activeWatchesRef.current]) {
+      for (const dispose of [...activeWatchesRef.current.values()]) {
         dispose();
       }
     });
