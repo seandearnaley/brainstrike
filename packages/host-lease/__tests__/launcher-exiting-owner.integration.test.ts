@@ -165,9 +165,9 @@ test('the closing text without its code is terminal: no wait and no other owner'
   let started = false;
   const refused = await launchHost(root, {
     lifetime: 'cli',
-    spawn: async () => {
+    spawn: noStart(() => {
       started = true;
-    },
+    }),
   }).catch((cause: unknown) => cause);
 
   expect(refused).toBeInstanceOf(LiveHostUnavailableError);
