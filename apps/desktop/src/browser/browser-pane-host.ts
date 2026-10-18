@@ -133,10 +133,14 @@ function hostOf(url: string): string | null {
   return URL.canParse(url) ? new URL(url).hostname.replace(/^\[(.*)\]$/, '$1') : null;
 }
 
-/** The agent-visible reason the egress proxy refused `host`. */
+/**
+ * The agent-visible reason the egress proxy refused `host`. A host that does
+ * not resolve is a failed load, not a blocked destination: the model may fix
+ * the URL and try again.
+ */
 export function describeEgressRefusal(host: string, refusal: string): string {
   return refusal === 'unresolved'
-    ? `blocked_destination: agent browsing could not resolve ${host}`
+    ? `agent browsing could not resolve ${host}`
     : `blocked_destination: agent browsing may not connect to ${host}, a ${refusal} address`;
 }
 

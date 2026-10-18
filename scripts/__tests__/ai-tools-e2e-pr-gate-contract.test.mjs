@@ -303,11 +303,16 @@ test('REAL REPO: desktop smoke tags remain selected by nightly regression', () =
 
   const nightlyWorkflow = parseYaml(read('.github/workflows/desktop-e2e.yml'));
   const fullRegressionJob = nightlyWorkflow.jobs['desktop-full-regression'];
-  assert.deepEqual(fullRegressionJob.strategy.matrix.shard, [1, 2]);
+  const shards = fullRegressionJob.strategy.matrix.shard;
+  // Every shard index runs once, and Playwright's shard total equals the matrix length.
+  assert.deepEqual(
+    shards,
+    Array.from({ length: shards.length }, (_, index) => index + 1)
+  );
   const matchingSteps = fullRegressionJob.steps.filter((step) =>
     stepRunsExactCommand(
       step,
-      `dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${matrixExpression('shard')}/2`
+      `dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${matrixExpression('shard')}/${shards.length}`
     )
   );
   assert.equal(
