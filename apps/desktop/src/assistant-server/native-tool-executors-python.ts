@@ -6,10 +6,11 @@
  */
 import { createRunPythonTool } from '@brainstrike/agent';
 import type { NativeToolExecutor } from '@brainstrike/host-capabilities/native-tools';
+import { BUNDLED_PYTHON_ENV } from '../python-runtime/resolve-python-binary';
 
 /** Where this process finds the bundled interpreter and the sandbox helper. */
 export interface CodeExecutionHost {
-  /** Resolves (unpacking on first run) the bundled CPython; never a PATH python. */
+  /** Resolves the build-time-unpacked bundled CPython; never a PATH python. */
   readonly resolvePythonExecutable: (signal?: AbortSignal) => Promise<string>;
   /** The packaged Linux seccomp helper; undefined where none applies. */
   readonly resolveSeccompApplyPath: () => string | undefined;
@@ -36,7 +37,7 @@ export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
         // telling the user to fix the interpreter on a machine that
         // could not have run anything anyway, inverting exactly the
         // "which half is missing" distinction the error mapping exists
-        // to preserve. It also skips a pointless first-run unpack.
+        // to preserve.
         if (!isFenceSupported()) {
           throw new FenceUnsupportedPlatformError(process.platform);
         }
@@ -44,7 +45,7 @@ export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
         const linuxSeccompApplyPath = host.resolveSeccompApplyPath();
         const fence = createFenceExecutorFactory({
           ...(linuxSeccompApplyPath === undefined ? {} : { linuxSeccompApplyPath }),
-          interpreters: { python: { command, scriptExtension: 'py' } },
+          interpreters: { python: { command, env: BUNDLED_PYTHON_ENV, scriptExtension: 'py' } },
         });
         // `undefined` on a host with no OS fence (Windows today). Under
         // exactOptionalPropertyTypes an explicit `fence: undefined` is

@@ -167,10 +167,15 @@ describe.skipIf(process.platform === 'win32')(
         resourcesDir: root,
       });
       expect(fetchImpl).not.toHaveBeenCalled();
-      expect((await fs.readdir(path.join(root, 'linux', 'x64'))).sort()).toEqual(
-        [DERIVED_NAME, 'manifest.json'].sort()
-      );
-      expect(await integrity(path.join(root, 'linux', 'x64', DERIVED_NAME))).toEqual(expected);
+      // BST-1627: the verified derived archive is unpacked at build time; its
+      // tree (symlinks intact, _dbm absent) is what packages, never an archive.
+      const tree = path.join(root, 'unpacked', 'linux-x64');
+      expect(
+        (await fs.readFile(path.join(tree, '.brainstrike-python-runtime-ok'), 'utf8')).trim()
+      ).toBe(expected.sha256);
+      expect(await fs.readlink(path.join(tree, 'python/bin/python3'))).toBe('python3.13');
+      await expect(fs.access(path.join(tree, linuxDbmModulePath(TARGET)))).rejects.toThrow();
+      expect((await fs.readdir(tree)).some((name) => name.endsWith('.tar.gz'))).toBe(false);
     });
 
     it('refuses a derived checksum mismatch and removes the incomplete result', async () => {

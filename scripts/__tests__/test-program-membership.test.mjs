@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -200,6 +200,13 @@ test('generated files are excluded while ordinary nested test fixtures remain di
   const f = fixture(t);
   f.write('modules/fixture/dist/ignored.test.ts', 'export {};\n');
   f.write('modules/fixture/node_modules/ignored.test.ts', 'export {};\n');
+  for (const generated of ['release/linux-unpacked', 'resources/python-runtime/unpacked']) {
+    f.write(`modules/fixture/${generated}/python/bin/python3.13`, '');
+    symlinkSync(
+      'python3.13',
+      path.join(f.directory, `modules/fixture/${generated}/python/bin/python3`)
+    );
+  }
   assert.deepEqual(discoverTypeScriptTests(path.join(f.directory, 'modules/fixture')), [
     'src/seed.spec.ts',
   ]);

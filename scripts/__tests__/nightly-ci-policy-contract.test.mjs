@@ -41,6 +41,7 @@ const STAYS_DISABLED = [
   'coverage.yml',
   'local-desktop-e2e.yml',
   'react-doctor.yml',
+  'release.yml',
 ];
 const REUSABLE = ['nightly-linear-alert.yml'];
 

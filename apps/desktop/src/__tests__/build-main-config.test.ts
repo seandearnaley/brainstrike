@@ -91,14 +91,21 @@ describe('main-process bundle config', () => {
     );
   });
 
-  it('packages the bundled Python manifest and only Darwin archives as macOS resources', () => {
+  it('packages the bundled Python manifest plus the per-arch build-time unpack as macOS resources', () => {
     const packageJson = readDesktopPackageConfig();
 
-    expect(packageJson.build?.mac?.extraResources).toContainEqual({
-      filter: ['manifest.json', '*-apple-darwin-install_only.tar.gz'],
-      from: 'resources/python-runtime',
-      to: 'python-runtime',
-    });
+    // BST-1627: the tarballs themselves must NOT ship. Apple's notarization
+    // service scans inside archives and rejects python-build-standalone's
+    // ad-hoc-signed Mach-O files, so the interpreter is unpacked at build
+    // time and copied as loose files that osx-sign signs with our identity.
+    expect(packageJson.build?.mac?.extraResources).toEqual([
+      { filter: ['manifest.json'], from: 'resources/python-runtime', to: 'python-runtime' },
+      {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder macro, expanded by its FileMatcher
+        from: 'resources/python-runtime/unpacked/darwin-${arch}',
+        to: 'python-runtime',
+      },
+    ]);
     expect(
       fs.existsSync(
         path.resolve(import.meta.dirname, '../../resources/python-runtime/manifest.json')

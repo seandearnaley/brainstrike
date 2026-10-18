@@ -113,3 +113,9 @@ as a raw abort-time failure after close. Native abort failures still retain thei
 original identity. Synchronous execFile acquisition failures use the same local
 classification; every error still waits for actual child close where a child
 was acquired.
+
+## Superseded (BST-1627)
+
+The runtime unpack this record describes was retired: the interpreter is now
+unpacked at build time and ships as loose files. See
+[python-build-time-unpack](../code-execution/python-build-time-unpack.md).

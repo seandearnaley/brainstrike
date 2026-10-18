@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { resolveDesktopPythonRuntimeResourcesDir } from '../../python-runtime';
+import {
+  resolveDesktopPythonRuntimeInstallDir,
+  resolveDesktopPythonRuntimeResourcesDir,
+} from '../../python-runtime';
 
 describe('resolveDesktopPythonRuntimeResourcesDir', () => {
   it('resolves development resources from the parent of the emitted main module', () => {
@@ -78,5 +81,34 @@ describe('resolveDesktopPythonRuntimeResourcesDir', () => {
         ''
       )
     ).toBe(path.join('/Applications/Brainstrike.app/Contents/Resources', 'python-runtime'));
+  });
+});
+
+describe('resolveDesktopPythonRuntimeInstallDir (BST-1627)', () => {
+  it('is the packaged resources dir itself: extraResources copies the tree beside the manifest', () => {
+    expect(
+      resolveDesktopPythonRuntimeInstallDir(
+        true,
+        '/Applications/B.app/Resources/python-runtime',
+        'darwin',
+        'arm64'
+      )
+    ).toBe('/Applications/B.app/Resources/python-runtime');
+  });
+
+  it('is the per-target build-time unpack in development, so macOS and Linux trees never collide', () => {
+    const resourcesDir = '/repo/apps/desktop/resources/python-runtime';
+    expect(resolveDesktopPythonRuntimeInstallDir(false, resourcesDir, 'darwin', 'x64')).toBe(
+      path.join(resourcesDir, 'unpacked', 'darwin-x64')
+    );
+    expect(resolveDesktopPythonRuntimeInstallDir(false, resourcesDir, 'linux', 'x64')).toBe(
+      path.join(resourcesDir, 'unpacked', 'linux-x64')
+    );
+  });
+
+  it('derives a path without classifying the platform, so the resolver reports an unsupported one typed', () => {
+    expect(resolveDesktopPythonRuntimeInstallDir(false, '/r', 'win32', 'x64')).toBe(
+      path.join('/r', 'unpacked', 'win32-x64')
+    );
   });
 });

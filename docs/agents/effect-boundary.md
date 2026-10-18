@@ -77,9 +77,6 @@ guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
 - OXC IPC request Scope owns its correlation entry and timer; first terminal
   outcome wins, malformed or mismatched replies remain pending, and local
   cleanup never cancels remote parsing.
-- Python cold-install scopes join hash-stream and tar-child close before
-  staging cleanup; preserve first-caller ownership; committed installs win only
-  over late abort, and cleanup failures remain visible.
 - File-tree bulk operations share one Scope-owned pending entry; detach before
   settlement, preserve synchronous posting and first terminal outcome, and clean
   failed sends before replacement.
@@ -98,7 +95,6 @@ Evidence (archived):
 [embedding-admission-permits](../archive/agent-contract-history/effect-boundary/embedding-admission-permits.md),
 [parser-generation-scope](../archive/agent-contract-history/effect-boundary/parser-generation-scope.md),
 [oxc-request-scopes](../archive/agent-contract-history/effect-boundary/oxc-request-scopes.md),
-[python-resource-scopes](../archive/agent-contract-history/effect-boundary/python-resource-scopes.md),
 [file-tree-operation-scopes](../archive/agent-contract-history/effect-boundary/file-tree-operation-scopes.md),
 [renderer-startup](../archive/agent-contract-history/effect-boundary/renderer-startup.md).
 

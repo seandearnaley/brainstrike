@@ -27,6 +27,8 @@
       "!**/dist",
       "!**/.turbo",
       "!**/build",
+      "!apps/desktop/release",
+      "!apps/desktop/resources/python-runtime",
       "!**/coverage",
       "!**/playwright-report",
       "!**/test-results",

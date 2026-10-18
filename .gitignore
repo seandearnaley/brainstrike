@@ -151,8 +151,12 @@ apps/web/blob-report/
 performance-benchmarks/
 apps/web/performance-metrics/
 
-# Desktop build artifacts and generated icons
-apps/desktop/build/
+# Desktop builder resources: the committed icon set under apps/desktop/build
+# (icns/ico/pngs + SVG masters) is a deliberate input to the release pipeline,
+# not a generated artifact — CI packaging needs it. Only legacy locally
+# generated variants stay ignored.
+apps/desktop/build/icon-light.*
+apps/desktop/build/icons-light/
 icons/.generated/
 
 .codex/
@@ -175,3 +179,10 @@ packages/agent-evals/results/
 # Per-session scratch artifacts (other Claude sessions may hold these)
 .claude-scratch-*
 .claude-scratch/
+
+# Code-signing material must never enter the repo
+*.p12
+*.p8
+*.cer
+*.provisionprofile
+AuthKey_*

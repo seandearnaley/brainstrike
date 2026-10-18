@@ -6,14 +6,43 @@
 // `postinstall` (Electron 42 removed its own postinstall for supply-chain
 // reasons; this repo matches that posture). A hash or size mismatch deletes
 // the download and fails the build loudly; there is no skip flag.
+//
+// BST-1627: each prepared target's verified archive (Linux: its derived
+// no-dbm-v1 archive) is then unpacked HERE, at build time, into
+// resources/python-runtime/unpacked/<platform>-<electron arch>/, the tree
+// build.{mac,linux}.extraResources copies into the package. No tarball ships:
+// Apple's notarization service scans inside archives and rejects
+// python-build-standalone's ad-hoc-signed Mach-O files, whereas loose files in
+// the bundle are re-signed by osx-sign with the Developer ID identity. A
+// sentinel next to python/ records the archive sha256, so the runtime resolver
+// proves the tree matches the manifest without the archive.
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
+import { extract } from 'tar';
 import { derivePythonRuntimeArchive } from './derive-python-runtime.mjs';
+
+/** Mirrors PYTHON_RUNTIME_SENTINEL_FILE_NAME in src/python-runtime/resolve-python-binary.ts. */
+export const PYTHON_RUNTIME_SENTINEL_FILE_NAME = '.brainstrike-python-runtime-ok';
+const UNPACK_DIR_BY_TARGET = new Map([
+  ['aarch64-apple-darwin', 'darwin-arm64'],
+  ['x86_64-apple-darwin', 'darwin-x64'],
+  ['aarch64-unknown-linux-gnu', 'linux-arm64'],
+  ['x86_64-unknown-linux-gnu', 'linux-x64'],
+]);
+
+/** The `<platform>-<electron arch>` directory a manifest target unpacks into. */
+export function unpackDirForTarget(target) {
+  const directory = UNPACK_DIR_BY_TARGET.get(target);
+  if (!directory) {
+    throw new Error(`python-runtime: no unpack directory is mapped for target "${target}".`);
+  }
+  return directory;
+}
 
 const defaultResourcesDir = path.resolve(import.meta.dirname, '../resources/python-runtime');
 // PR #2205 review: the original call had no AbortSignal/timeout at all, so a
@@ -190,24 +219,147 @@ async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log, tar
   );
 }
 
-// electron-builder's documented ${arch} macro selects this generated resource
-// directory. Only the target's verified derived payload enters the package.
-async function stageLinuxResources({ entry, resourcesDir, target }) {
-  const arch = { 'aarch64-unknown-linux-gnu': 'arm64', 'x86_64-unknown-linux-gnu': 'x64' }[target];
-  if (!(arch && entry.derived)) {
+async function readSentinel(installDir) {
+  try {
+    return (
+      await fsPromises.readFile(path.join(installDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME), 'utf8')
+    ).trim();
+  } catch {
     return;
   }
-  const directory = path.join(resourcesDir, 'linux', arch);
-  await fsPromises.rm(directory, { force: true, recursive: true });
-  await fsPromises.mkdir(directory, { recursive: true });
-  await fsPromises.copyFile(
-    path.join(resourcesDir, 'manifest.json'),
-    path.join(directory, 'manifest.json')
-  );
-  await fsPromises.copyFile(
-    path.join(resourcesDir, entry.derived.archiveFileName),
-    path.join(directory, entry.derived.archiveFileName)
-  );
+}
+
+/**
+ * A matching sentinel alone is not proof the tree is intact (PR #2958 review):
+ * the ignored unpacked/ tree can lose files after the sentinel was written, and
+ * a release build must never package that silently. Only a tree whose sentinel
+ * matches AND whose interpreter is executable is reused.
+ */
+async function isUnpackedTreeUsable(installDir, expectedSha256) {
+  if ((await readSentinel(installDir)) !== expectedSha256) {
+    return false;
+  }
+  try {
+    await fsPromises.access(path.join(installDir, 'python', 'bin', 'python3'), fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * python-build-standalone bundles pip, and pip vendors distlib's WINDOWS
+ * launcher stubs (`t32.exe`, `w64-arm.exe`, ...). They are PE executables with
+ * no purpose on macOS or Linux, but @electron/osx-sign walks Contents/ with an
+ * `isBinaryFile` heuristic that flags them, so each one becomes a `codesign`
+ * call with its own round-trip to Apple's timestamp server. That is how
+ * BST-1627's first rebuild died: `t32.exe: The timestamp service is not
+ * available`. Removing them at unpack time leaves only files that are
+ * actually signable or runnable on the target.
+ *
+ * Returns the tree-relative paths removed, so the caller can report them.
+ */
+export async function pruneForeignExecutables(treeDir) {
+  const removed = [];
+  const walk = async (dir) => {
+    for (const item of await fsPromises.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, item.name);
+      if (item.isDirectory()) {
+        await walk(full);
+      } else if (item.isFile() && item.name.toLowerCase().endsWith('.exe')) {
+        await fsPromises.rm(full);
+        removed.push(path.relative(treeDir, full));
+      }
+    }
+  };
+  await walk(treeDir);
+  return removed.sort();
+}
+
+/**
+ * terminfo names entries after terminals, and `xterm.js` (VS Code's terminal
+ * emulator) is a BINARY entry with a JavaScript file name. `turbo boundaries`
+ * parses every such file in a package directory, so a local unpack or pack
+ * aborted the whole boundaries gate on it, unchecked. The `vscode` entry it
+ * aliases stays, and the bundled interpreter never runs on a terminal.
+ *
+ * Returns the tree-relative paths removed.
+ */
+export async function pruneSourceNamedTerminfo(treeDir) {
+  const removed = [];
+  const walk = async (dir) => {
+    let items;
+    try {
+      items = await fsPromises.readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        return;
+      }
+      throw error;
+    }
+    for (const item of items) {
+      const full = path.join(dir, item.name);
+      if (item.isDirectory()) {
+        await walk(full);
+      } else if (/\.[cm]?[jt]sx?$/u.test(item.name)) {
+        await fsPromises.rm(full);
+        removed.push(path.relative(treeDir, full));
+      }
+    }
+  };
+  await walk(path.join(treeDir, 'python', 'share', 'terminfo'));
+  return removed.sort();
+}
+
+/**
+ * Unpacks a target's runtime archive into `<resourcesDir>/unpacked/<dir>/`.
+ * Idempotent: a tree whose sentinel already records the archive's sha256 AND
+ * whose interpreter is executable is left untouched; any other state (no tree,
+ * older archive, partial or damaged unpack) is replaced wholesale. The archive
+ * is re-verified right before extraction: what is unpacked and signed is the
+ * file on disk, not the download that was verified earlier.
+ */
+async function unpackRuntimeTree({ entry, log, resourcesDir, target, upstreamFileName }) {
+  const archive = entry.derived ?? entry;
+  const archiveFileName = entry.derived?.archiveFileName ?? upstreamFileName;
+  const archivePath = path.join(resourcesDir, archiveFileName);
+  const installDir = path.join(resourcesDir, 'unpacked', unpackDirForTarget(target));
+  if (await isUnpackedTreeUsable(installDir, archive.sha256)) {
+    log(`python-runtime: ${installDir} already unpacked from ${archiveFileName}; skipping.`);
+    return;
+  }
+  await verifyArchive({ entry: archive, filePath: archivePath, label: archivePath });
+  const stagingDir = `${installDir}.staging-${process.pid}`;
+  await fsPromises.rm(stagingDir, { force: true, recursive: true });
+  await fsPromises.mkdir(stagingDir, { recursive: true });
+  try {
+    await extract({ cwd: stagingDir, file: archivePath, strict: true });
+    try {
+      await fsPromises.access(path.join(stagingDir, 'python', 'bin', 'python3'), fsConstants.X_OK);
+    } catch {
+      throw new Error(
+        `python-runtime: ${archiveFileName} did not contain an executable at python/bin/python3.`
+      );
+    }
+    const pruned = await pruneForeignExecutables(stagingDir);
+    if (pruned.length > 0) {
+      log(`python-runtime: pruned ${pruned.length} Windows executable(s): ${pruned.join(', ')}`);
+    }
+    const terminfo = await pruneSourceNamedTerminfo(stagingDir);
+    if (terminfo.length > 0) {
+      log(`python-runtime: pruned source-named terminfo entries: ${terminfo.join(', ')}`);
+    }
+    await fsPromises.writeFile(
+      path.join(stagingDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME),
+      `${archive.sha256}\n`,
+      { mode: 0o644 }
+    );
+    await fsPromises.rm(installDir, { force: true, recursive: true });
+    await fsPromises.rename(stagingDir, installDir);
+    log(`python-runtime: unpacked ${archiveFileName} into ${installDir}.`);
+  } finally {
+    await fsPromises.rm(stagingDir, { force: true, recursive: true });
+  }
 }
 
 /**
@@ -256,7 +408,7 @@ export async function fetchPythonRuntime({
     if (await archiveAlreadyVerifies({ destPath, entry })) {
       log(`python-runtime: ${fileName} already present and verified; skipping download.`);
       await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath, target });
-      await stageLinuxResources({ entry, resourcesDir, target });
+      await unpackRuntimeTree({ entry, log, resourcesDir, target, upstreamFileName: fileName });
       continue;
     }
     log(`python-runtime: fetching ${url}`);
@@ -275,7 +427,7 @@ export async function fetchPythonRuntime({
     }
     log(`python-runtime: verified and installed ${fileName} (${entry.bytes} bytes).`);
     await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath, target });
-    await stageLinuxResources({ entry, resourcesDir, target });
+    await unpackRuntimeTree({ entry, log, resourcesDir, target, upstreamFileName: fileName });
   }
 }
 

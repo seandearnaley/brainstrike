@@ -189,7 +189,6 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
-import { warmDesktopPythonRuntime } from './python-runtime';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -1704,9 +1703,6 @@ if (singleInstanceLockAcquired) {
 
       await rebuildApplicationMenu();
 
-      // Unpack the bundled CPython once at boot: the first python3 skill script
-      // the agent host runs then reuses it (the host resolves the same userData path).
-      warmDesktopPythonRuntime();
       if (quitAfterBootMeasurement) {
         // The boot-measurement harness stops at agent-host ready, before any window work.
         await nativeIndexActivation.acquireProfile();

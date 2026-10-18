@@ -495,6 +495,49 @@ dials, so a stale or racing frame can never regain a permission or a download.
   that a permission request from the app frame and a download from the shell
   frame are both denied while the host renderer's are not.
 
+## macOS code signing and notarization (BST-1627)
+
+Release DMGs are signed with the owner's **Developer ID Application**
+identity and notarized through an App Store Connect API key; the packaged
+app carries a stapled notarization ticket so Gatekeeper accepts a quarantined
+download offline. The DMG container itself is deliberately unsigned
+(electron-builder default; Gatekeeper assesses the app inside it).
+
+- **Hardened runtime + entitlements.** `build.mac.hardenedRuntime` is on and
+  `signing/entitlements.mac.plist` is the complete, tracked entitlement set:
+  `allow-jit` and `allow-unsigned-executable-memory` for V8, and
+  `disable-library-validation` because the bundle loads code not signed by our
+  Team ID (the Electron framework, `node-pty` prebuilds,
+  `@brainstrike/secure-fs-native` and `@parcel` addons under
+  `app.asar.unpacked`, and the bundled CPython). The app is NOT App-Sandboxed;
+  no `app-sandbox` / `files.*` keys exist and none may be added "just in case".
+- **Bundled CPython ships as loose, signed files.** Apple's notarization
+  service scans inside archives and rejects python-build-standalone's
+  ad-hoc-signed Mach-O files, so `scripts/fetch-python-runtime.mjs` unpacks the
+  verified tarball at BUILD time into
+  `resources/python-runtime/unpacked/darwin-<arch>/` and `extraResources`
+  copies that tree (never a `.tar.gz`) into `<Resources>/python-runtime`, where
+  osx-sign re-signs its Mach-O files with the Developer ID. The runtime
+  resolver only verifies the tree's sentinel against the manifest sha256;
+  nothing is extracted or written under `userData`, and every launch sets
+  `PYTHONDONTWRITEBYTECODE=1` so no run writes `__pycache__` into the signed
+  bundle.
+- **Credentials never enter the repository or the config.** Signing and
+  notarization are env-driven (`CSC_LINK`/`CSC_KEY_PASSWORD` for the `.p12`,
+  `APPLE_API_KEY`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` for notarytool). The
+  root `.gitignore` refuses `*.p12`, `*.p8`, `*.cer`, `*.provisionprofile`
+  and `AuthKey_*`. In CI the `.p8` is materialised as a mode-0600 file under
+  `RUNNER_TEMP` only for the packaging step and removed afterwards; locally
+  `APPLE_KEYCHAIN_PROFILE` (a `notarytool store-credentials` profile) is used
+  instead so no key file exists on disk.
+- **Evidence gate.** The release workflow fails the macOS job unless the
+  packaged app passes `codesign --verify --deep --strict`, reports a
+  `Developer ID Application` authority, carries the entitlements above, has a
+  stapled ticket (`xcrun stapler validate`), and is assessed by `spctl -a -t
+  exec` as `source=Notarized Developer ID`. When `CSC_LINK` is absent the
+  workflow builds the documented unsigned posture instead and asserts no
+  Developer ID signature is present, so a build is never half-signed.
+
 ## Development vs Production
 
 ### Development Mode

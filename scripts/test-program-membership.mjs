@@ -15,6 +15,10 @@ const GENERATED = new Set([
   'coverage',
   'test-results',
   'playwright-report',
+  // electron-builder output and the build-time CPython unpack (BST-1627):
+  // git-ignored, and both hold the interpreter tree's own symlinks.
+  'release',
+  'unpacked',
 ]);
 const LANGUAGE_SERVICE_PLUGIN = '@effect/language-service';
 

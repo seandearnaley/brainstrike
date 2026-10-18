@@ -226,3 +226,9 @@ empty PATH, resolver restart, factory reset and re-extraction passed. Packaged
 layout verified the physical target seccomp helper and archive pins; removing
 the archive or corrupting its bytes failed closed. Full OS-fence execution is
 a separate host qualification and was not established by this container run.
+
+## Superseded (BST-1627)
+
+The runtime unpack this record describes was retired: the interpreter is now
+unpacked at build time and ships as loose files. See
+[python-build-time-unpack](python-build-time-unpack.md).

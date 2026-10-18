@@ -29,7 +29,7 @@
  * `module.filename` shape, tracked as BST-1460 migration debt):
  * - `resolveMainWatchdogWorkerPath` (diagnostics/main-watchdog-path.ts)
  * - `resolveMainLogTransportPath` (diagnostics/main-log-transport-path.ts)
- * - `resolveDesktopPythonRuntimeResourcesDir` (python-runtime/index.ts) —
+ * - `resolveDesktopPythonRuntimeResourcesDir` (python-runtime/resources-dir.ts) —
  *   takes `path.dirname()` TWICE (dist/ → its parent apps/desktop/) to
  *   reach `resources/python-runtime`, a sibling of `dist/` rather than a
  *   sibling of `main.js` itself, and additionally requires that immediate

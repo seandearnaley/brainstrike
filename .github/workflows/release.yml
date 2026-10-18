@@ -1,0 +1,583 @@
+# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
+# Preserved workflow definition only: do not enable, dispatch, or rerun it.
+# Test locally with pnpm check and report the commands and results.
+# Tell the user: CI is disabled due to cost; validation must run locally.
+# Stays disabled: per-PR hosted CI is off.
+# Release runs are the owner's: only Sean tags, dispatches, signs or publishes.
+
+name: Release
+
+# Desktop release pipeline (manifest-last contract: apps/desktop/RELEASES.md).
+#
+# Trigger with a stable tag `v<major>.<minor>.<patch>` that matches
+# apps/desktop/package.json's version, or workflow_dispatch for a dry run
+# (build + smoke + hash, no publish).
+#
+# Runner placement: Linux packaging runs on Ubicloud per the repo's cost
+# direction. Ubicloud offers Linux (x64/arm64) only, so the macOS and Windows
+# legs stay on GitHub-hosted runners — there is no Ubicloud option for them.
+# The Ubicloud runner contract test (scripts/__tests__/
+# ubicloud-runner-contract.test.mjs) deliberately constrains test.yml only.
+#
+# Publication ordering (deliberate, do not reorder):
+#   1. build + smoke-test + hash on every target OS
+#   2. upload immutable assets to the public releases repo
+#   3. verify every public URL answers
+#   4. generate manifest v2 from the actual upload records
+#   5. publish the manifest LAST, as the release's release-manifest.json
+# The manifest can never name an asset that is not already reachable.
+#
+# macOS code signing + notarization (BST-1627): the build-macos job signs
+# with the Developer ID Application identity in CSC_LINK (base64 .p12) +
+# CSC_KEY_PASSWORD and notarizes through an App Store Connect API key
+# (APPLE_API_KEY = .p8 contents, APPLE_API_KEY_ID, APPLE_API_ISSUER). The
+# .p8 is materialised into a 0600 file under RUNNER_TEMP only for the
+# packaging step because notarytool takes a key PATH. The "Verify signing
+# evidence" step is the gate apps/desktop/RELEASES.md requires: when CSC_LINK is present
+# the job fails unless the packaged app is Developer-ID signed, notarized
+# (spctl source=Notarized Developer ID) and stapled; only when the secret is
+# absent does the build fall back to the documented unsigned posture, with
+# CSC_IDENTITY_AUTO_DISCOVERY=false so it can never be half-signed. The DMG
+# itself is deliberately unsigned (electron-builder default; Gatekeeper
+# assesses the stapled app inside it). Windows Authenticode is a later
+# addition (Azure Trusted Signing) and ships unsigned for now.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  # Default-deny for every step in this file: nothing may pick up a signing
+  # identity by ambient keychain discovery. The `Package DMGs` step overrides
+  # this with the resolved posture, so a new macOS packaging step added later
+  # inherits "never half-signed" rather than auto-discovery (#2960 review).
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  context:
+    name: Release context
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve and assert the authoritative version
+        id: resolve
+        run: |
+          PKG_VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            if [[ "${TAG}" != "v${PKG_VERSION}" ]]; then
+              echo "::error::Tag ${TAG} does not match apps/desktop/package.json version ${PKG_VERSION}. One authoritative version, no exceptions."
+              exit 1
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            TAG="v${PKG_VERSION}"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    name: Build macOS (arm64 + x64)
+    needs: [context]
+    runs-on: macos-latest
+    # Build (~20 min) plus notarization, which now happens INSIDE this job. A
+    # warm Team ID notarizes in minutes, but Apple's in-depth-analysis path can
+    # take far longer, and macOS runners bill at 10x — so this bounds a stalled
+    # `notarytool` wait rather than inheriting the 6-hour default (#2960 review).
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Resolve signing posture
+        id: signing
+        env:
+          HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$HAS_CSC_LINK" == "true" ]]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing posture: Developer ID + notarization (CSC_LINK present)"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CSC_LINK is not configured; building the documented UNSIGNED macOS posture (apps/desktop/RELEASES.md)."
+          fi
+
+      - name: Materialise the notarization key
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          APPLE_API_KEY_CONTENTS: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          for NAME in APPLE_API_KEY_CONTENTS APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [[ -n "${!NAME}" ]] || { echo "::error::CSC_LINK is set but ${NAME/_CONTENTS/} is missing; refusing a signed-but-unnotarized build."; exit 1; }
+          done
+          KEY_FILE="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          umask 077
+          printf '%s\n' "$APPLE_API_KEY_CONTENTS" > "$KEY_FILE"
+          # notarytool wants a PATH, but the secret holds the .p8 CONTENTS, so
+          # APPLE_API_KEY reaches Package DMGs through GITHUB_ENV as a path.
+          # Do NOT "fix" the inconsistency by adding
+          # `APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}` to that step's env —
+          # that passes the contents where a path is expected and fails only
+          # after a full build, with an opaque notarization error (#2960 review).
+          echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
+
+      - name: Package DMGs
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.signed }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm --filter @brainstrike/desktop run dist --mac dmg --arm64 --x64 --publish never
+
+      - name: Remove the notarization key
+        if: always() && steps.signing.outputs.signed == 'true'
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+      - name: Verify signing evidence
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          VERSION: ${{ needs.context.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd apps/desktop/release
+
+          # One unmount path for every exit, including `set -e` deaths inside a
+          # check: four of the five checks used to detach by hand and the
+          # remaining one leaked the volume (#2960 review). -force because a
+          # transient mds/Spotlight hold must not fail a release whose signing
+          # evidence already verified.
+          MOUNT=""
+          cleanup() {
+            if [[ -n "$MOUNT" ]]; then
+              hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true
+              MOUNT=""
+            fi
+          }
+          trap cleanup EXIT
+
+          fail() { echo "::error::$1"; exit 1; }
+
+          for ARCH in arm64 x64; do
+            DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
+            [[ -f "$DMG" ]] || fail "missing ${DMG}"
+
+            # `| awk '…exit'` and `| head -1` both close the pipe early, which
+            # under `set -o pipefail` can kill the job on SIGPIPE with no
+            # diagnostic — an intermittent failure, since it is a race (#2960
+            # review). Capture first, then parse; -print -quit needs no pipe.
+            ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
+            MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
+            [[ -n "$MOUNT" ]] || fail "${DMG}: hdiutil attach reported no /Volumes mount point"
+            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)
+            [[ -n "$APP" ]] || fail "${DMG}: no .app found at the root of the mounted image"
+
+            if [[ "$SIGNED" == "true" ]]; then
+              echo "== ${DMG}: signing evidence"
+              codesign --verify --deep --strict --verbose=2 "$APP"
+              codesign -dvv "$APP" 2>&1 | grep -E '^Authority=Developer ID Application:' \
+                || fail "${DMG}: app is not signed with a Developer ID Application identity"
+
+              # Hardened runtime is the `runtime` CODE-SIGNING FLAG, not an
+              # entitlement. The previous check grepped the entitlements for
+              # `disable-library-validation`, which an app signed WITHOUT
+              # hardened runtime also carries — verified: such a binary reports
+              # flags=0x0(none) and passed the old check (#2960 review).
+              codesign -dvv "$APP" 2>&1 | grep -qE '^CodeDirectory .*flags=0x[0-9a-f]*10000( |\()' \
+                || fail "${DMG}: hardened runtime is not enabled (no 'runtime' flag in the code signature)"
+
+              # Prove entitlements were APPLIED at all: a misconfigured
+              # `entitlementsInherit` signs a runnable-looking app with none,
+              # and Electron then dies on first JIT. `allow-jit` is the right
+              # probe because removing it breaks the app, so it can never be a
+              # deliberate future improvement — unlike the weakening
+              # `disable-library-validation` this step used to REQUIRE (#2960
+              # review). The exact set is pinned by the desktop package's own
+              # tests, not re-pinned here, so the plist stays free to change.
+              # `--entitlements -` already emits XML (`--xml` is redundant on
+              # current codesign); stderr is kept so a failed invocation is
+              # distinguishable from "entitlement absent".
+              ENTITLEMENTS=$(codesign -d --entitlements - "$APP" 2>&1) \
+                || fail "${DMG}: could not read entitlements from the signed app"
+              grep -q 'com\.apple\.security\.cs\.allow-jit' <<<"$ENTITLEMENTS" \
+                || fail "${DMG}: signed app carries no allow-jit entitlement, so entitlements were not applied"
+
+              xcrun stapler validate "$APP" || fail "${DMG}: notarization ticket is not stapled to the app"
+              ASSESS=$(spctl -a -t exec -vv "$APP" 2>&1 || true)
+              echo "$ASSESS"
+              grep -q 'source=Notarized Developer ID' <<<"$ASSESS" \
+                || fail "${DMG}: Gatekeeper does not report a notarized Developer ID app"
+            else
+              echo "== ${DMG}: UNSIGNED posture (no CSC_LINK); asserting no half-signed identity"
+              if codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Developer ID'; then
+                fail "${DMG}: app carries a Developer ID signature although CSC_LINK is absent; posture is inconsistent"
+              fi
+            fi
+            cleanup
+          done
+
+      - name: Smoke-test packaged apps
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          cd apps/desktop/release
+          ls -la ./*.dmg
+          for ARCH in arm64 x64; do
+            DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
+            [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
+            MOUNT=$(hdiutil attach "$DMG" -nobrowse -readonly | awk -F'\t' '/\/Volumes\//{print $NF; exit}')
+            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' | head -1)
+            BIN="$APP/Contents/MacOS/$(defaults read "$APP/Contents/Info" CFBundleExecutable)"
+            WANT="${ARCH/x64/x86_64}"
+            # The Electron shell binary matches the requested arch by
+            # construction (per-arch dist download). The real cross-arch risk
+            # on this arm64 runner is the npmRebuild-compiled native addons in
+            # an x64 DMG, so sweep every unpacked .node file too.
+            FAILED_ADDONS=0
+            for NODE_ADDON in "$BIN" $(find "$APP/Contents/Resources/app.asar.unpacked" -name '*.node' 2>/dev/null); do
+              if ! lipo -archs "$NODE_ADDON" | grep -q "$WANT"; then
+                echo "::error::${DMG}: $(basename "$NODE_ADDON") is not ${ARCH} (archs: $(lipo -archs "$NODE_ADDON"))"
+                FAILED_ADDONS=1
+              fi
+            done
+            if [[ "$FAILED_ADDONS" -ne 0 ]]; then
+              hdiutil detach "$MOUNT"
+              exit 1
+            fi
+            if [[ "$ARCH" == "arm64" ]]; then
+              # main-bootstrap.ts handles --version explicitly (packaged
+              # Electron apps have no default handler) and exits before any
+              # GUI or host work.
+              OUT=$("$BIN" --version 2>/dev/null | tail -1 || true)
+              echo "${DMG} --version => ${OUT}"
+              [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::${DMG} did not report version ${VERSION}"; hdiutil detach "$MOUNT"; exit 1; }
+            fi
+            hdiutil detach "$MOUNT"
+          done
+
+      - name: Record asset metadata
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          mkdir -p release-records
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync, statSync, writeFileSync } = require("node:fs");
+            const version = process.argv[1];
+            const records = ["arm64", "x64"].map((arch) => {
+              const name = `Brainstrike-${version}-macos-${arch}.dmg`;
+              const file = `apps/desktop/release/${name}`;
+              return {
+                name,
+                sizeBytes: statSync(file).size,
+                sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+                platform: "macos",
+                architecture: arch,
+                package: "dmg",
+              };
+            });
+            writeFileSync("release-records/macos.json", JSON.stringify(records, null, 2));
+            console.log(JSON.stringify(records, null, 2));
+          ' "$VERSION"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: |
+            apps/desktop/release/*.dmg
+            release-records/macos.json
+          retention-days: 3
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows (x64)
+    needs: [context]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Package NSIS installer
+        run: pnpm --filter @brainstrike/desktop run dist --win nsis --x64 --publish never
+
+      - name: Smoke-test installer
+        shell: pwsh
+        run: |
+          $Version = "${{ needs.context.outputs.version }}"
+          $Installer = "apps/desktop/release/Brainstrike-$Version-windows-x64.exe"
+          if (-not (Test-Path $Installer)) { Write-Error "missing $Installer"; exit 1 }
+          $proc = Start-Process -FilePath (Resolve-Path $Installer) -ArgumentList "/S" -PassThru
+          if (-not $proc.WaitForExit(300000)) { Write-Error "silent install timed out"; exit 1 }
+          if ($proc.ExitCode -ne 0) { Write-Error "silent install exited $($proc.ExitCode)"; exit 1 }
+          $App = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter "*.exe" |
+            Where-Object { $_.Name -match "BrainStrike|Brainstrike" } | Select-Object -First 1
+          if (-not $App) { Write-Error "installed executable not found under LOCALAPPDATA\Programs"; exit 1 }
+          Write-Host "installed app: $($App.FullName)"
+
+      - name: Record asset metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          mkdir -p release-records
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync, statSync, writeFileSync } = require("node:fs");
+            const version = process.argv[1];
+            const name = `Brainstrike-${version}-windows-x64.exe`;
+            const file = `apps/desktop/release/${name}`;
+            const records = [{
+              name,
+              sizeBytes: statSync(file).size,
+              sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+              platform: "windows",
+              architecture: "x64",
+              package: "nsis",
+            }];
+            writeFileSync("release-records/windows.json", JSON.stringify(records, null, 2));
+            console.log(JSON.stringify(records, null, 2));
+          ' "$VERSION"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: |
+            apps/desktop/release/*.exe
+            release-records/windows.json
+          retention-days: 3
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux (x64)
+    needs: [context]
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Package AppImage
+        run: pnpm --filter @brainstrike/desktop run dist --linux AppImage --x64 --publish never
+
+      - name: Smoke-test AppImage
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          # linux.artifactName pins the x64 literal: electron-builder's
+          # ${arch} macro rewrites x64 -> x86_64 for AppImage names
+          # (builder-util getArtifactArchName), which would break both this
+          # check and the record step.
+          APPIMAGE="apps/desktop/release/Brainstrike-${VERSION}-linux-x64.AppImage"
+          [[ -f "$APPIMAGE" ]] || { echo "::error::missing ${APPIMAGE}"; exit 1; }
+          chmod +x "$APPIMAGE"
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+          OUT=$(xvfb-run -a "$APPIMAGE" --appimage-extract-and-run --no-sandbox --version 2>/dev/null | tail -1 || true)
+          echo "AppImage --version => ${OUT}"
+          [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::AppImage did not report version ${VERSION}"; exit 1; }
+
+      - name: Record asset metadata
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          mkdir -p release-records
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync, statSync, writeFileSync } = require("node:fs");
+            const version = process.argv[1];
+            const name = `Brainstrike-${version}-linux-x64.AppImage`;
+            const file = `apps/desktop/release/${name}`;
+            const records = [{
+              name,
+              sizeBytes: statSync(file).size,
+              sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+              platform: "linux",
+              architecture: "x64",
+              package: "appimage",
+            }];
+            writeFileSync("release-records/linux.json", JSON.stringify(records, null, 2));
+            console.log(JSON.stringify(records, null, 2));
+          ' "$VERSION"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            release-records/linux.json
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    name: Publish release + manifest
+    needs: [context, build-macos, build-windows, build-linux]
+    if: needs.context.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: staging
+
+      - name: Stage assets and checksums
+        id: stage
+        run: |
+          set -euo pipefail
+          mkdir -p assets release-records
+          # -n: a filename collision across build artifacts must surface as a
+          # missing asset in the count below, never a silent overwrite.
+          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) -exec mv -n {} assets/ \;
+          find staging -name '*.json' -path '*release-records*' -exec mv -n {} release-records/ \;
+          ls -la assets release-records
+          ASSET_COUNT=$(find assets -type f | wc -l)
+          [[ "$ASSET_COUNT" -eq 4 ]] || { echo "::error::expected 4 assets (2 DMG, 1 EXE, 1 AppImage), found ${ASSET_COUNT}"; exit 1; }
+          cd assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Cross-check staged digests against build records
+        run: |
+          set -euo pipefail
+          # The manifest digests come from the build runners' records; the
+          # published SHA256SUMS comes from the staged files. They must agree,
+          # or an artifact was corrupted in the upload/download round-trip.
+          node -e '
+            const { readFileSync, readdirSync } = require("node:fs");
+            const sums = new Map(
+              readFileSync("assets/SHA256SUMS", "utf8")
+                .trim()
+                .split("\n")
+                .map((line) => {
+                  const [sha, name] = line.split(/\s+/);
+                  return [name, sha];
+                })
+            );
+            let failures = 0;
+            for (const file of readdirSync("release-records")) {
+              for (const record of JSON.parse(readFileSync(`release-records/${file}`, "utf8"))) {
+                const staged = sums.get(record.name);
+                if (staged !== record.sha256) {
+                  console.error(`::error::${record.name}: record sha256 ${record.sha256} != staged ${staged ?? "(missing)"}`);
+                  failures += 1;
+                }
+              }
+            }
+            if (failures > 0) { process.exit(1); }
+            console.log(`${sums.size - 1} assets cross-checked against build records.`);
+          '
+
+      - name: Create release in the public binaries repo
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.context.outputs.tag }}"
+          VERSION="${{ needs.context.outputs.version }}"
+          # view-or-create + upload --clobber keeps this job resumable: any
+          # downstream step (URL probe, manifest) can fail on its own, and a
+          # re-run must retry rather than die on an existing release. Assets
+          # are immutable in content (cross-checked against build records
+          # above); re-uploading identical bytes is not a mutation.
+          gh release view "$TAG" --repo seandearnaley/brainstrike-releases >/dev/null 2>&1 \
+            || gh release create "$TAG" \
+              --repo seandearnaley/brainstrike-releases \
+              --title "Brainstrike ${VERSION}" \
+              --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${GITHUB_SHA}."
+          gh release upload "$TAG" assets/* --repo seandearnaley/brainstrike-releases --clobber
+
+      - name: Verify every public asset URL
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.context.outputs.tag }}"
+          for FILE in assets/*; do
+            NAME=$(basename "$FILE")
+            URL="https://github.com/seandearnaley/brainstrike-releases/releases/download/${TAG}/${NAME}"
+            CODE=$(curl -sIL -o /dev/null -w '%{http_code}' "$URL")
+            echo "${CODE} ${URL}"
+            [[ "$CODE" == "200" ]] || { echo "::error::${URL} answered ${CODE}"; exit 1; }
+          done
+
+      - name: Generate manifest from upload records
+        run: |
+          node scripts/generate-release-manifest.mjs \
+            --tag "${{ needs.context.outputs.tag }}" \
+            --source-commit "${GITHUB_SHA}" \
+            --records-dir release-records \
+            --out release-manifest.json
+          cat release-manifest.json
+
+      - name: Publish the manifest last
+        # Manifest-last (apps/desktop/RELEASES.md): every asset above is
+        # uploaded and answered 200 before the manifest that names it exists.
+        # No site consumes it yet (the product site, #2186, closed unmerged);
+        # a download surface reads this asset and validates it with its own
+        # production schema before rendering links.
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ needs.context.outputs.tag }}" release-manifest.json \
+            --repo seandearnaley/brainstrike-releases --clobber

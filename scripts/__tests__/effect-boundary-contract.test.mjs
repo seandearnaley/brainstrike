@@ -670,48 +670,21 @@ test('provider OAuth loopback scope owns the listener and one callback wait', ()
   assert.doesNotMatch(source, /interface PendingWait|let pending: PendingWait/u);
 });
 
-test('Python cold installation scopes actual stream, child and staging resources', () => {
+test('Python resolution validates the build-time unpack and never extracts or writes', () => {
   const source = readRepoFile('apps/desktop/src/python-runtime/resolve-python-binary.ts');
-  const hash = source.slice(
-    source.indexOf('async function hashFileSha256'),
-    source.indexOf('async function extractArchive')
+  // BST-1627 retired the runtime unpack and the Effect scopes that owned its
+  // hash stream, tar child and staging directory: nothing is left to scope.
+  assert.doesNotMatch(
+    source,
+    /execFile|createReadStream|createHash|\.writeFile\(|\.rename\(|\.mkdir\(|userDataDir/u
   );
-  const extraction = source.slice(
-    source.indexOf('async function extractArchive'),
-    source.indexOf('async function isUsableInstall')
-  );
-  const staging = source.slice(
-    source.indexOf('async function unpackArchive'),
-    source.indexOf('async function resolvePythonBinaryUncached')
-  );
-  for (const boundary of [hash, extraction, staging]) {
-    assert.match(boundary, /Effect\.acquireRelease\(/u);
-    assert.match(boundary, /Effect\.scoped/u);
-    assert.match(boundary, /runAtPromiseBoundary\(/u);
-  }
-  assert.match(hash, /stream\.once\('close'/u);
-  assert.match(hash, /stream\.destroy\(\)/u);
-  assert.match(hash, /new Promise<Exit\.Exit<void, unknown>>/u);
-  assert.match(hash, /Effect\.flatten\(Effect\.promise\(\(\) => owned\.result\)\)/u);
-  assert.match(hash, /await closed/u);
-  assert.match(hash, /signal\?\.removeEventListener\('abort', onAbort\)/u);
-  assert.match(extraction, /child\.once\('close'/u);
-  assert.match(extraction, /catch: classifyFailure/u);
-  assert.match(extraction, /reject\(classifyFailure\(error\)\)/u);
-  assert.match(extraction, /Effect\.promise\(\(\) => closed\)/u);
-  assert.match(extraction, /child\.removeListener\('error', onError\)/u);
-  assert.match(staging, /Exit\.isFailure\(exit\)/u);
-  assert.match(staging, /cause: error/u);
-  assert.ok(staging.indexOf('Effect.acquireRelease(') < staging.indexOf('await fsPromises.mkdir('));
-  assert.doesNotMatch(source, /promisify|execFileAsync/u);
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /Python cold-install scopes join hash-stream and tar-child close/u
-  );
+  assert.match(source, /PYTHON_RUNTIME_SENTINEL_FILE_NAME/u);
+  assert.match(source, /PYTHONDONTWRITEBYTECODE: '1'/u);
   assert.match(
     readRepoFile('docs/agents/code-execution.md'),
-    /retain the primary error and report secondary cleanup failures/u
+    /The bundled CPython is unpacked at build time and ships as loose files/u
   );
+  assert.doesNotMatch(readRepoFile('docs/agents/effect-boundary.md'), /Python cold-install/u);
 });
 
 test('OXC IPC requests scope correlation and preserve Schema field compatibility', () => {

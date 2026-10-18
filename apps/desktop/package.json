@@ -34,21 +34,31 @@
       "**/node_modules/vscode-languageserver-textdocument/**"
     ],
     "mac": {
+      "artifactName": "Brainstrike-${version}-macos-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "target": "dmg",
       "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "signing/entitlements.mac.plist",
+      "entitlementsInherit": "signing/entitlements.mac.plist",
+      "notarize": true,
       "extraResources": [
         {
           "from": "resources/python-runtime",
           "to": "python-runtime",
           "filter": [
-            "manifest.json",
-            "*-apple-darwin-install_only.tar.gz"
+            "manifest.json"
           ]
+        },
+        {
+          "from": "resources/python-runtime/unpacked/darwin-${arch}",
+          "to": "python-runtime"
         }
       ]
     },
     "win": {
+      "artifactName": "Brainstrike-${version}-windows-${arch}.${ext}",
       "target": "nsis",
       "icon": "build/icon.ico"
     },
@@ -56,17 +66,21 @@
       "asarUnpack": [
         "**/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/${arch}/apply-seccomp"
       ],
+      "artifactName": "Brainstrike-${version}-linux-x64.${ext}",
       "executableName": "brainstrike-desktop",
       "target": "AppImage",
       "icon": "build/icons",
       "extraResources": [
         {
-          "from": "resources/python-runtime/linux/${arch}",
+          "from": "resources/python-runtime",
           "to": "python-runtime",
           "filter": [
-            "manifest.json",
-            "*-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz"
+            "manifest.json"
           ]
+        },
+        {
+          "from": "resources/python-runtime/unpacked/linux-${arch}",
+          "to": "python-runtime"
         },
         {
           "from": "licenses/python-linux-${arch}",

@@ -13,6 +13,13 @@ Missing helper, unsupported policy or failed confinement is a refusal, not a
 system-Python/direct-spawn fallback. Resolve packaged assets from the actual
 runtime layout and preserve their digest/containment checks.
 
+The bundled CPython is unpacked at build time and ships as loose files; no
+archive ships, and nothing is extracted or written at runtime. The resolver
+checks only the tree's sentinel against the manifest pin and the interpreter's
+executable bit, and every launch sets `PYTHONDONTWRITEBYTECODE=1` so no run
+writes into the shipped (on macOS, signed) tree. Evidence:
+[python-build-time-unpack](../archive/agent-contract-history/code-execution/python-build-time-unpack.md).
+
 Workspace identity and permission come from validated host context. Network is
 deny-first; requested domains grant nothing until the per-call decision allows the
 exact validated list. Scratch-write confinement is not a claim that reads are
