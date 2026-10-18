@@ -4,6 +4,7 @@ export {
   type HostSpawner,
   LiveHostUnavailableError,
   launchHost,
+  type StartedHost,
 } from './launcher.js';
 export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.js';
 export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.js';

@@ -6,15 +6,26 @@ import { createNodeHostSpawner, HOST_STARTER_READY_TIMEOUT_MS } from '../src/nod
 
 const recorded = vi.hoisted(() => ({ deadlines: [] as number[] }));
 
-// A starter that is never observed reporting: the readiness wait is recorded
-// and refused at once, so only the deadline it was given is under test.
-vi.mock('@brainstrike/effect-kit', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/effect-kit')>()),
-  runWithTimeout: (_task: unknown, options: { readonly timeoutMs: number }) => {
-    recorded.deadlines.push(options.timeoutMs);
-    return Promise.reject(new Error('Recorded readiness deadline'));
-  },
-}));
+// A starter that is never observed reporting: the readiness wait (the one
+// that carries the starter's signal) is recorded and refused at once, so only
+// the deadline it was given is under test. The cancelled child's exit wait is
+// recorded too and runs for real: the same deadline bounds it (BST-2167).
+vi.mock('@brainstrike/effect-kit', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/effect-kit')>();
+  return {
+    ...original,
+    runWithTimeout: <T>(
+      task: (signal: AbortSignal) => PromiseLike<T>,
+      options: Parameters<typeof original.runWithTimeout>[1]
+    ): Promise<T> => {
+      recorded.deadlines.push(options.timeoutMs);
+      if (options.signal) {
+        return Promise.reject(new Error('Recorded readiness deadline'));
+      }
+      return original.runWithTimeout(task, options);
+    },
+  };
+});
 
 vi.mock('node:child_process', async (importOriginal) => {
   const { EventEmitter } = await import('node:events');
@@ -52,7 +63,8 @@ test('the host starter waits the production readiness deadline unless a caller n
       createNodeHostSpawner({ readyTimeoutMs: 1234 })(start, new AbortController().signal)
     ).rejects.toThrow('Recorded readiness deadline');
     expect(HOST_STARTER_READY_TIMEOUT_MS).toBe(10_000);
-    expect(recorded.deadlines).toEqual([10_000, 1234]);
+    // Each spawn: its readiness wait, then its cancelled child's exit wait.
+    expect(recorded.deadlines).toEqual([10_000, 10_000, 1234, 1234]);
   } finally {
     await rm(root, { force: true, recursive: true });
   }

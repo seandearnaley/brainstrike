@@ -337,6 +337,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             exited: child.exited,
             postClientPort: (port) => child.handle.postMessage({ event: 'client-port' }, [port]),
           });
+          // BST-2167: this lease's Scope stays the child's one owner. An
+          // attached host needs no hand-off; a launch that gives up closes it.
+          return { release: async () => undefined, retire: closeScope };
         },
         ...(options.startupTimeoutMs === undefined
           ? {}

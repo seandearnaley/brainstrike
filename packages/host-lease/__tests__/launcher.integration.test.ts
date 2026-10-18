@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import type { HostAttachment } from '../src/client.js';
-import { LiveHostUnavailableError, launchHost } from '../src/launcher.js';
+import { LiveHostUnavailableError, launchHost, type StartedHost } from '../src/launcher.js';
 import { decodeHostRecord } from '../src/record.js';
 import { readHostRecord, secureDirectory } from '../src/record-file.js';
 import { type HostRuntime, startHost } from '../src/runtime.js';
@@ -17,6 +17,11 @@ async function freshRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'bs-launch-'));
   roots.push(root);
   return root;
+}
+/** An in-process host its launch owns until it settles it; afterEach closes a released one. */
+function owned(host: HostRuntime): StartedHost {
+  hosts.push(host);
+  return { release: async () => undefined, retire: () => host.close() };
 }
 afterEach(async () => {
   // A cleanup failure must not let the next test delete its retained evidence.
@@ -33,10 +38,10 @@ test('CLI-first, app-first, and concurrent launchers attach to exactly one host'
   ] as const) {
     const root = await freshRoot();
     let started = 0;
-    const spawn = async (options: Parameters<typeof startHost>[0]): Promise<void> => {
+    const spawn = async (options: Parameters<typeof startHost>[0]): Promise<StartedHost> => {
       const host = await startHost(options);
-      hosts.push(host);
       started += 1;
+      return owned(host);
     };
     const first = await launchHost(root, { lifetime: order[0], spawn });
     clients.push(first);
@@ -47,10 +52,10 @@ test('CLI-first, app-first, and concurrent launchers attach to exactly one host'
   }
   const root = await freshRoot();
   let started = 0;
-  const spawn = async (options: Parameters<typeof startHost>[0]): Promise<void> => {
+  const spawn = async (options: Parameters<typeof startHost>[0]): Promise<StartedHost> => {
     const host = await startHost(options);
-    hosts.push(host);
     started += 1;
+    return owned(host);
   };
   const attached = await Promise.all(
     Array.from({ length: 8 }, (_, i) =>
@@ -84,6 +89,7 @@ test('a live but unreachable owner is named and neither replaced nor killed', as
       lifetime: 'cli',
       spawn: async () => {
         started = true;
+        throw new Error('This launch must not start a host');
       },
       // BST-2142: a refused attach first waits, within this deadline, for the
       // owner to leave; this one keeps its root, so it is refused at the end.
@@ -110,37 +116,44 @@ test('a live but unreachable owner is named and neither replaced nor killed', as
   }
 });
 
-test('the shared startup deadline bounds an injected starter and supplies its abort signal', async () => {
+test('the startup deadline aborts the starter and joins it before the launch rejects (BST-2167)', async () => {
+  // The guarantee this replaces, a launch bounded even by a starter that
+  // ignores its signal, abandoned that starter's child: the BST-2167 orphan.
   const root = await freshRoot();
-  const gate = Promise.withResolvers<void>();
-  let settled = false;
+  const order: string[] = [];
+  const at = Date.now();
+  let abortedAfterMs: number | undefined;
   let signal: AbortSignal | undefined;
-  const observed = launchHost(root, {
+  const refused = await launchHost(root, {
     lifetime: 'cli',
-    spawn: (_options, suppliedSignal?: AbortSignal) => {
+    spawn: (_options, suppliedSignal) => {
       signal = suppliedSignal;
-      return gate.promise;
+      return new Promise<never>((_resolve, reject) => {
+        suppliedSignal.addEventListener(
+          'abort',
+          () => {
+            abortedAfterMs = Date.now() - at;
+            order.push('starter aborted');
+            // Its cancellation takes a while, and the launch waits for it.
+            setTimeout(() => {
+              order.push('starter settled');
+              reject(suppliedSignal.reason);
+            }, 50);
+          },
+          { once: true }
+        );
+      });
     },
     startupTimeoutMs: 25,
-  }).then(
-    () => {
-      settled = true;
-      return;
-    },
-    (cause: unknown) => {
-      settled = true;
-      return cause;
-    }
-  );
-  try {
-    await new Promise<void>((resolve) => setTimeout(resolve, 75));
-    expect(settled).toBe(true);
-    expect(signal?.aborted).toBe(true);
-    expect(await observed).toBeInstanceOf(Error);
-  } finally {
-    gate.resolve();
-    await observed;
-  }
+  }).catch((cause: unknown) => {
+    order.push('launch rejected');
+    return cause;
+  });
+
+  expect(signal?.aborted).toBe(true);
+  expect(abortedAfterMs).toBeGreaterThanOrEqual(24);
+  expect(refused).toMatchObject({ message: 'Host startup timed out' });
+  expect(order).toEqual(['starter aborted', 'starter settled', 'launch rejected']);
 });
 
 test('waits for an exiting owner to release the root, then starts a host instead of failing', async () => {
@@ -152,8 +165,9 @@ test('waits for an exiting owner to release the root, then starts a host instead
   const launching = launchHost(root, {
     lifetime: 'cli',
     spawn: async (options) => {
-      hosts.push(await startHost(options));
+      const host = await startHost(options);
       started += 1;
+      return owned(host);
     },
   });
   await new Promise<void>((resolve) => setTimeout(resolve, 100));
@@ -176,6 +190,7 @@ test('a root that stays held past the startup deadline is still refused, bounded
         lifetime: 'cli',
         spawn: async () => {
           started = true;
+          throw new Error('This launch must not start a host');
         },
         startupTimeoutMs: 100,
       })
