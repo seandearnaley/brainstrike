@@ -9,6 +9,7 @@
     ]
   },
   "include": [
+    "popup-animations.ts",
     "settings-test-overrides.ts",
     "__tests__/**/*.test.ts"
   ],
