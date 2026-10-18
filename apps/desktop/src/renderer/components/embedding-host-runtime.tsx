@@ -675,11 +675,12 @@ export function EmbeddingHostRuntime(): null {
         },
         // Only the device an unpinned load (memory recall) uses; a pinned plan carries
         // its own, and the worker keeps its device until restart. The host chooses none
-        // at start, so this also resolves the first one (BST-2193).
-        resolveDevice: () =>
+        // at start, so this also resolves the first one (BST-2193). A Stop or reset
+        // since the command retired its runtime, so that runtime's device is dropped.
+        resolveDevice: (runtimeId) =>
           (deviceResolution = deviceResolution.then(async () => {
             const device = await resolveEmbeddingHostDevice(resolveHydratedVectorDevicePreference);
-            if (disposed) {
+            if (disposed || stoppedByCommandRef.current || runtimeIdRef.current !== runtimeId) {
               return;
             }
             embeddingRuntimeRef.current = withEmbeddingHostDevice(
@@ -687,7 +688,7 @@ export function EmbeddingHostRuntime(): null {
               device,
               readSavedVectorDevicePreference
             );
-            reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+            reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeId, 'running', {
               active:
                 activeRef.current ||
                 (queryEmbeddingOwnerRef.current?.activeCountRef.current ?? 0) > 0,
