@@ -85,6 +85,9 @@ test('a live but unreachable owner is named and neither replaced nor killed', as
       spawn: async () => {
         started = true;
       },
+      // BST-2142: a refused attach first waits, within this deadline, for the
+      // owner to leave; this one keeps its root, so it is refused at the end.
+      startupTimeoutMs: 1000,
     }).then((attachment: HostAttachment): HostAttachment => {
       clients.push(attachment);
       return attachment;

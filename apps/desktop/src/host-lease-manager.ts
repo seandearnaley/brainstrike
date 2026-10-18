@@ -8,15 +8,11 @@ import {
   decodeStartupMessage,
   type HostAttachment,
   type HostStartOptions,
+  startupFailure as hostStartupFailure,
   launchHost,
   type StartupMessage,
 } from '@brainstrike/host-lease';
-import {
-  type ClearContentResult,
-  ForeignLockError,
-  RootLock,
-  RootLockedError,
-} from '@brainstrike/state-store';
+import type { ClearContentResult } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import {
@@ -135,14 +131,9 @@ function startupFailure(root: string, message: StartupMessage): Error {
   if (message.event !== 'failed') {
     return new Error('Unexpected host startup result');
   }
-  const lease = RootLock.inspect(root)?.owner;
-  if (message.kind === 'root-locked' && lease && !lease.released) {
-    return new RootLockedError(lease);
-  }
-  if (message.kind === 'foreign-lock' && lease) {
-    return new ForeignLockError(lease);
-  }
-  return new Error(message.message);
+  // One mapping for every starter (BST-2142): a late root-locked report is
+  // the launcher's cue to acquire again, not an owner to name.
+  return hostStartupFailure(root, message);
 }
 async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
