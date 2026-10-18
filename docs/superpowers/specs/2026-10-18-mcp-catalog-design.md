@@ -43,35 +43,35 @@ Primary sources: <https://linear.app/docs/mcp>,
 | D3 | Deployments | **Cloud only:** linear.app, github.com, Atlassian Cloud, gitlab.com. |
 | D4 | Where installs land in dev | **The current profile's config, as today.** Sharing MCP config across dev branch profiles is a separate ownership decision. |
 | D5 | Live proof | **None in this change.** Each integration is proven separately later. |
-| D6 | Catalog source | **Curated data checked into the contract**, validated at load (the BST-1650 provider-catalog pattern). No runtime fetch of the MCP Registry. |
+| D6 | Catalog source | **Curated, typed data checked into the contract**; a unit test decodes every entry through the config grammar. No runtime fetch of the MCP Registry. |
 | D7 | Who writes the config | **`McpSettingsAuthority`, through a typed install method.** The renderer names a catalog entry; it never composes config text for an install. |
 
 ## 4. Architecture
 
 ```
-settings-ui  McpCatalogSection ──(ToolsSettingsOperations.installMcpCatalogServer)
+settings-ui  McpCatalogSection ──(installMcpCatalogServer prop from ToolsSettingsOperations)
                  │
-desktop      page-content.tsx ── mcpSettings.request('mcp/catalog/install', …)
+desktop      page-content.tsx ── mcpSettings.request('mcp/config/install', …)
                  │
 agent-host   protocol-mcp-settings.ts (params/result) · ports.ts · mcp-settings-connection.ts
                  │
 host-capabilities  McpSettingsAuthority.installCatalogServer
                  ├─ catalog lookup ............ @brainstrike/assistant-contract/mcp-catalog
-                 ├─ token storage ............. McpBearerCredentialAuthority.create / delete
+                 ├─ token storage ............. McpBearerCredentialWriter.create / delete
                  └─ JSONC append + reload ..... jsonc-parser modify/applyEdits → configFile.writeText
 ```
 
 ### 4.1 Catalog — `packages/assistant-contract/src/mcp-catalog.ts` (new)
 
-A frozen, schema-validated array exported through a new `./mcp-catalog` entry.
-Each entry:
+A typed constant exported only through a new `./mcp-catalog` subpath (never the
+package root, like `./mcp-config`). Each entry:
 
 - `id`: the configured server name it installs (`linear`, `github`, `atlassian`, `gitlab`);
 - `name`, `description` (one line), `docsUrl`;
 - `auth`: `'oauth'` or `'token'`; a token entry carries `token: { createUrl, label }`
   (GitHub: `https://github.com/settings/personal-access-tokens/new`);
-- `variants`: `read-write` (required) and `read-only` (optional), each with `url`
-  and optional OAuth `scopes`.
+- `urls`: `read-write` (required) and `read-only` (optional). Entries carry no
+  OAuth scopes; each server's own challenge decides them.
 
 Every variant produces a server with `transport: 'streamable-http'`,
 `protocol: 'auto'`, and either `auth: { type: 'oauth-user' }` or a `bearer`
@@ -79,7 +79,7 @@ reference. The catalog content is the table in §2 restricted by D2 and D3.
 
 ### 4.2 Install — `McpSettingsAuthority.installCatalogServer`
 
-Host method `mcp/catalog/install`, params
+Host method `mcp/config/install`, params
 `{ catalogId: string, access: 'read-only' | 'read-write', token?: string }`,
 result in the same success/failure union shape as `mcp/config/write`. It runs on
 `#trackOperation`, like `writeConfigText`.
@@ -101,11 +101,12 @@ result in the same success/failure union shape as `mcp/config/write`. It runs on
 7. If the write fails after step 4, `bearerCredentials.delete(reference)` runs and
    the failure is returned. If that delete also fails, both errors are reported.
 
-`McpBearerCredentialAuthority` (in `bearer-credential.ts`) gains `create(token)`
-and `delete(reference)`, implemented with the same `SecretsService` its reader
-uses (`saveKey` / `deleteKey` on `mcp-credentials:<uuid>`). The bearer module
-stays the single owner of that key namespace. `McpSettingsAuthorityOptions` gains
-the authority as a dependency; `desktop-node-mcp.ts` already builds it.
+`bearer-credential.ts` gains `createSecretsMcpBearerCredentialWriter`, whose
+`create(token)` and `delete(reference)` use the same `SecretsService` as the
+reader (`saveKey` / `deleteKey` on `mcp-credentials:<uuid>`). The bearer module
+stays the single owner of that key namespace, and the reader's three
+composition sites stay unchanged. `McpSettingsAuthorityOptions` gains the writer
+as a required dependency; `desktop-node-mcp.ts` builds it.
 
 Factory reset: the keyring `clearAll` sweeps every account in the secrets
 namespace, which includes `mcp-credentials:<uuid>`. A test proves it (§6).
@@ -129,6 +130,9 @@ behind the `mcpAvailable` capability gate (desktop only).
   and is never held in UI state after it returns.
 - Failures render inline on the card with the host's message. Nothing is retried
   silently.
+- Install is disabled while the config editor below holds unsaved text, so a
+  later Save cannot overwrite an install with stale text. After an install the
+  editor reloads the file.
 - After an OAuth install the server appears in the Tools tab with its existing
   status row and Connect button. No new auth UI.
 
