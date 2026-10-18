@@ -3441,6 +3441,7 @@
       {
         "_note": "Bedrock model id from the vendor model-ID table, pricing/limits from\nmodels.dev (amazon-bedrock provider, the id source for this block),\nboth retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://models.dev/api.json",
         "bedrockReasoning": "adaptive",
+        "bedrockReasoningMandatory": true,
         "catalog": {
           "bestFor": [
             "Long-horizon agentic coding",
@@ -3473,6 +3474,7 @@
       },
       {
         "bedrockReasoning": "adaptive",
+        "bedrockReasoningMandatory": true,
         "catalog": {
           "bestFor": ["Complex reasoning", "Coding", "Agentic workflows"],
           "description": null,
@@ -3501,6 +3503,7 @@
       {
         "_note": "Bedrock id, limits and capabilities read from the AWS model card;\npricing from the AWS Bedrock pricing page; both retrieved 2026-09-22\n(BST-1804):\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html\nhttps://aws.amazon.com/bedrock/pricing/\nIts Programmatic Access table gives the bedrock-runtime Model ID as the\nbare `anthropic.claude-opus-5-5` (geo profiles us./eu./au./jp., global.),\nso there is no -v1:0 suffix; the base id is In-Region unsupported in every\nregion. 1M context, 128K max output, image input and response streaming\ncome from the same card. Reasoning is adaptive thinking, always on (efforts\nlow..max, default medium). Explicit prompt caching is supported (512 min\ntokens per checkpoint, 4 checkpoints, 5min/1hr TTL).\nPRICING is the Global Cross-region Inference rate ($4/$20, 5m cache write\n$5, cache read $0.20), which matches Anthropic first-party, as on the\nsibling Claude rows. Geo and In-region inference bill 10% more: $4.40/$22,\ncache write $5.50, cache read $0.22.",
         "bedrockReasoning": "adaptive",
+        "bedrockReasoningMandatory": true,
         "catalog": {
           "bestFor": ["Coding", "Knowledge work", "Long-running tasks"],
           "description": null,
