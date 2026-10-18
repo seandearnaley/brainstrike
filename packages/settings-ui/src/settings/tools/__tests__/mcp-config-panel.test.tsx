@@ -1,5 +1,4 @@
 import '@testing-library/jest-dom/vitest';
-import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { McpConfigPanel } from '../mcp-config-panel';
@@ -13,6 +12,7 @@ const validationError =
   'invalid_mcp_config: servers.0.auth: auth "oauth-user" is not supported with transport "sse"; use "streamable-http"';
 const validContent = invalidContent.replace('"transport": "sse"', '"transport": "streamable-http"');
 const path = '/tmp/mcp.config.jsonc';
+const NO_SERVERS: ReadonlySet<string> = new Set();
 
 function document(content: string, error?: string): McpConfigTextDocument {
   return { content, created: false, ...(error === undefined ? {} : { error }), exists: true, path };
@@ -39,7 +39,13 @@ describe('MCP config document validation', () => {
     const ops = operations();
     ops.readMcpConfigText = vi.fn().mockResolvedValue(document(invalidContent, validationError));
     const onConfigChanged = vi.fn();
-    render(<McpConfigPanel onConfigChanged={onConfigChanged} operations={ops} />);
+    render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={onConfigChanged}
+        operations={ops}
+      />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     expect(editor).toHaveValue(invalidContent);
     expect(screen.getByTestId('mcp-config-error')).toHaveTextContent(validationError);
@@ -62,7 +68,13 @@ describe('MCP config document validation', () => {
       .fn()
       .mockResolvedValue({ error: validationError, path, success: false });
     const onConfigChanged = vi.fn();
-    render(<McpConfigPanel onConfigChanged={onConfigChanged} operations={ops} />);
+    render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={onConfigChanged}
+        operations={ops}
+      />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.change(editor, { target: { value: invalidContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -83,7 +95,13 @@ describe('MCP config document validation', () => {
         .mockResolvedValueOnce(document(validContent))
         .mockReturnValueOnce(older.promise)
         .mockResolvedValueOnce(document('{ "servers": [] }'));
-      render(<McpConfigPanel onConfigChanged={vi.fn()} operations={ops} />);
+      render(
+        <McpConfigPanel
+          configuredServerIds={NO_SERVERS}
+          onConfigChanged={vi.fn()}
+          operations={ops}
+        />
+      );
       const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
       fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
       fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
@@ -110,7 +128,9 @@ describe('MCP config document validation', () => {
       .fn()
       .mockResolvedValueOnce(document(validContent))
       .mockReturnValueOnce(reload.promise);
-    render(<McpConfigPanel onConfigChanged={vi.fn()} operations={ops} />);
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
     fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
@@ -127,7 +147,9 @@ describe('MCP config document validation', () => {
     const ops = operations();
     ops.readMcpConfigText = vi.fn().mockResolvedValue(document(invalidContent, validationError));
     ops.writeMcpConfigText = vi.fn().mockReturnValue(save.promise);
-    render(<McpConfigPanel onConfigChanged={vi.fn()} operations={ops} />);
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.change(editor, { target: { value: validContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -150,7 +172,13 @@ describe('MCP config document validation', () => {
         .fn()
         .mockReturnValueOnce(save.promise)
         .mockResolvedValue({ path, success: true });
-      render(<McpConfigPanel onConfigChanged={vi.fn()} operations={ops} />);
+      render(
+        <McpConfigPanel
+          configuredServerIds={NO_SERVERS}
+          onConfigChanged={vi.fn()}
+          operations={ops}
+        />
+      );
       const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
       fireEvent.change(editor, { target: { value: invalidContent } });
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -189,7 +217,9 @@ describe('MCP config document validation', () => {
     const save = Promise.withResolvers<{ error: string; path: string; success: false }>();
     const ops = operations();
     ops.writeMcpConfigText = vi.fn().mockReturnValue(save.promise);
-    render(<McpConfigPanel onConfigChanged={vi.fn()} operations={ops} />);
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.change(editor, { target: { value: invalidContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -214,7 +244,9 @@ describe('MCP config document validation', () => {
       .fn()
       .mockResolvedValueOnce(document(validContent))
       .mockReturnValueOnce(reload.promise);
-    render(<McpConfigPanel onConfigChanged={vi.fn()} operations={ops} />);
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
     fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
@@ -244,12 +276,22 @@ describe('MCP config document validation', () => {
         .mockReturnValueOnce(restored.promise);
       const onConfigChanged = vi.fn();
       const { rerender } = render(
-        <McpConfigPanel onConfigChanged={onConfigChanged} operations={ops} />
+        <McpConfigPanel
+          configuredServerIds={NO_SERVERS}
+          onConfigChanged={onConfigChanged}
+          operations={ops}
+        />
       );
       await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
       fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
       const unavailable = operations(false);
-      rerender(<McpConfigPanel onConfigChanged={onConfigChanged} operations={unavailable} />);
+      rerender(
+        <McpConfigPanel
+          configuredServerIds={NO_SERVERS}
+          onConfigChanged={onConfigChanged}
+          operations={unavailable}
+        />
+      );
       expect(screen.getByText('MCP config editing is unavailable in this runtime.')).toBeVisible();
       expect(
         screen.queryByRole('textbox', { name: 'Config Editor (JSONC)' })
@@ -257,7 +299,13 @@ describe('MCP config document validation', () => {
       await act(async () => {
         older.resolve(document(invalidContent, validationError));
       });
-      rerender(<McpConfigPanel onConfigChanged={onConfigChanged} operations={ops} />);
+      rerender(
+        <McpConfigPanel
+          configuredServerIds={NO_SERVERS}
+          onConfigChanged={onConfigChanged}
+          operations={ops}
+        />
+      );
       await act(async () => {
         if (outcome === 'valid') {
           restored.resolve(document(validContent));
@@ -286,7 +334,13 @@ describe('MCP config document validation', () => {
       .mockResolvedValueOnce(document('{ "servers": [] }'));
     ops.writeMcpConfigText = vi.fn().mockReturnValue(save.promise);
     const onConfigChanged = vi.fn();
-    render(<McpConfigPanel onConfigChanged={onConfigChanged} operations={ops} />);
+    render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={onConfigChanged}
+        operations={ops}
+      />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.change(editor, { target: { value: validContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -313,7 +367,9 @@ describe('MCP config document validation', () => {
       .fn()
       .mockReturnValueOnce(older.promise)
       .mockResolvedValueOnce({ path, success: true });
-    render(<McpConfigPanel onConfigChanged={vi.fn()} operations={ops} />);
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.change(editor, { target: { value: invalidContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -331,7 +387,13 @@ describe('MCP config document validation', () => {
   it('does not call a successful write failed when its tools refresh rejects after an edit', async () => {
     const refresh = Promise.withResolvers<void>();
     const ops = operations();
-    render(<McpConfigPanel onConfigChanged={() => refresh.promise} operations={ops} />);
+    render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={() => refresh.promise}
+        operations={ops}
+      />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -348,23 +410,44 @@ describe('MCP config document validation', () => {
 });
 
 describe('MCP catalog in the config panel', () => {
-  const emptySnapshot: McpHostSnapshot = { revision: 0, servers: [] };
-
-  it('renders the catalog only when the install capability exists', async () => {
-    const without = operations();
-    without.getMcpServerStatus = vi.fn(async () => emptySnapshot);
-    const { unmount } = render(<McpConfigPanel onConfigChanged={vi.fn()} operations={without} />);
+  it('renders the catalog when the install capability exists, with the owner-supplied ids', async () => {
+    const { rerender } = render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={vi.fn()}
+        operations={operations()}
+      />
+    );
     await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     expect(screen.queryByTestId('mcp-catalog')).not.toBeInTheDocument();
-    unmount();
+
+    const ops = operations();
+    ops.installMcpCatalogServer = vi.fn(async () => ({ path, success: true as const }));
+    rerender(
+      <McpConfigPanel
+        configuredServerIds={new Set(['linear'])}
+        onConfigChanged={vi.fn()}
+        operations={ops}
+      />
+    );
+
+    expect(await screen.findByTestId('mcp-catalog-installed-linear')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('mcp-catalog-card-gitlab')).getByRole('button', { name: 'Install' })
+    ).toBeEnabled();
   });
 
   it('blocks installs while the editor is dirty and reloads the editor after an install', async () => {
     const ops = operations();
-    ops.getMcpServerStatus = vi.fn(async () => emptySnapshot);
     ops.installMcpCatalogServer = vi.fn(async () => ({ path, success: true as const }));
     const onConfigChanged = vi.fn(async () => undefined);
-    render(<McpConfigPanel onConfigChanged={onConfigChanged} operations={ops} />);
+    render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={onConfigChanged}
+        operations={ops}
+      />
+    );
     const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
     const gitlab = within(await screen.findByTestId('mcp-catalog-card-gitlab'));
 
@@ -379,6 +462,35 @@ describe('MCP catalog in the config panel', () => {
       access: 'read-write',
       catalogId: 'gitlab',
     });
+    expect(ops.readMcpConfigText).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps edits typed while an install is pending and asks before reloading', async () => {
+    const install = Promise.withResolvers<{ path: string; success: true }>();
+    const ops = operations();
+    ops.installMcpCatalogServer = vi.fn(() => install.promise);
+    const onConfigChanged = vi.fn(async () => undefined);
+    render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={onConfigChanged}
+        operations={ops}
+      />
+    );
+    const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
+    const gitlab = within(await screen.findByTestId('mcp-catalog-card-gitlab'));
+
+    fireEvent.click(gitlab.getByRole('button', { name: 'Install' }));
+    fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
+    install.resolve({ path, success: true });
+
+    await waitFor(() => expect(onConfigChanged).toHaveBeenCalledOnce());
+    expect(editor).toHaveValue('{ "servers": [] }');
+    expect(screen.getByTestId('mcp-config-reload-confirm')).toBeInTheDocument();
+    expect(ops.readMcpConfigText).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and Reload' }));
+    await waitFor(() => expect(editor).toHaveValue(validContent));
     expect(ops.readMcpConfigText).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,27 +1,13 @@
 import '@testing-library/jest-dom/vitest';
-import { type McpHostSnapshot, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { McpCatalogSection } from '../mcp-catalog-section';
 
 const PATH = '/tmp/mcp.config.json';
 
-function snapshot(...ids: string[]): McpHostSnapshot {
-  return {
-    revision: ids.length,
-    servers: ids.map((id) => ({
-      configuredProtocol: 'auto',
-      configuredServerId: parseConfiguredMcpServerId(id),
-      generation: 1,
-      state: 'authentication-required',
-      transport: 'streamable-http',
-    })),
-  };
-}
-
 function props(overrides: Partial<Parameters<typeof McpCatalogSection>[0]> = {}) {
   return {
-    getMcpServerStatus: vi.fn(async () => snapshot()),
+    configuredServerIds: new Set<string>(),
     installMcpCatalogServer: vi.fn(async () => ({ path: PATH, success: true as const })),
     onInstalled: vi.fn(async () => undefined),
     ...overrides,
@@ -49,34 +35,41 @@ describe('MCP catalog section', () => {
     expect(card('linear').getByText('OAuth')).toBeInTheDocument();
   });
 
-  it('installs with the chosen access, then shows Installed and reloads the editor', async () => {
-    const getMcpServerStatus = vi.fn(async () => snapshot());
-    getMcpServerStatus.mockResolvedValueOnce(snapshot()).mockResolvedValue(snapshot('linear'));
-    const p = props({ getMcpServerStatus });
+  it('installs with the chosen access, then reloads the editor', async () => {
+    const p = props();
     render(<McpCatalogSection {...p} />);
 
     fireEvent.mouseDown(await card('linear').findByRole('tab', { name: 'Read-only' }));
     fireEvent.click(card('linear').getByRole('button', { name: 'Install' }));
 
-    expect(await screen.findByTestId('mcp-catalog-installed-linear')).toHaveTextContent(
-      'Installed'
-    );
+    await waitFor(() => expect(p.onInstalled).toHaveBeenCalledOnce());
     expect(p.installMcpCatalogServer).toHaveBeenCalledWith({
       access: 'read-only',
       catalogId: 'linear',
     });
-    expect(p.onInstalled).toHaveBeenCalledOnce();
   });
 
   it('marks an already configured server Installed with no Install button', async () => {
-    render(
-      <McpCatalogSection
-        {...props({ getMcpServerStatus: vi.fn(async () => snapshot('gitlab')) })}
-      />
-    );
+    render(<McpCatalogSection {...props({ configuredServerIds: new Set(['gitlab']) })} />);
 
-    expect(await screen.findByTestId('mcp-catalog-installed-gitlab')).toBeInTheDocument();
+    expect(await screen.findByTestId('mcp-catalog-installed-gitlab')).toHaveTextContent(
+      'Installed'
+    );
     expect(card('gitlab').queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
+  });
+
+  it('flips a card to Installed when the status owner pushes a new id set', async () => {
+    const p = props();
+    const { rerender } = render(<McpCatalogSection {...p} />);
+    expect(await card('github').findByRole('button', { name: 'Install' })).toBeEnabled();
+
+    rerender(<McpCatalogSection {...p} configuredServerIds={new Set(['github'])} />);
+
+    expect(await screen.findByTestId('mcp-catalog-installed-github')).toHaveTextContent(
+      'Installed'
+    );
+    expect(card('github').queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
+    expect(card('github').queryByRole('tab')).not.toBeInTheDocument();
   });
 
   it('sends a pasted GitHub token once, trimmed, and closes the dialog', async () => {
@@ -98,6 +91,29 @@ describe('MCP catalog section', () => {
     );
     await waitFor(() =>
       expect(screen.queryByLabelText('Fine-grained personal access token')).not.toBeInTheDocument()
+    );
+    expect(p.installMcpCatalogServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the token from the field before the install settles, and after it fails', async () => {
+    const install = Promise.withResolvers<{ error: string; path: string; success: false }>();
+    const p = props({ installMcpCatalogServer: vi.fn(() => install.promise) });
+    render(<McpCatalogSection {...p} />);
+
+    fireEvent.click(await card('github').findByRole('button', { name: 'Install' }));
+    const field = await screen.findByLabelText('Fine-grained personal access token');
+    fireEvent.change(field, { target: { value: 'github_pat_fixture' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(p.installMcpCatalogServer).toHaveBeenCalledOnce();
+    expect(field).toHaveValue('');
+    await act(async () => {
+      install.resolve({ error: 'The keychain refused the token.', path: PATH, success: false });
+    });
+
+    expect(screen.getByLabelText('Fine-grained personal access token')).toHaveValue('');
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+      'The keychain refused the token.'
     );
   });
 
@@ -149,19 +165,5 @@ describe('MCP catalog section', () => {
     } finally {
       Reflect.deleteProperty(window, 'platform');
     }
-  });
-
-  it('says so when the installed servers cannot be read', async () => {
-    render(
-      <McpCatalogSection
-        {...props({
-          getMcpServerStatus: vi.fn(async () => Promise.reject(new Error('host closed'))),
-        })}
-      />
-    );
-
-    expect(await screen.findByTestId('mcp-catalog-status-error')).toHaveTextContent(
-      'Installed servers could not be read: host closed'
-    );
   });
 });

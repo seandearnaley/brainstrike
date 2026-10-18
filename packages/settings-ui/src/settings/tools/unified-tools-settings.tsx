@@ -31,6 +31,7 @@ import type { McpConnectionStatus } from './tool-group-accordion';
 import { ToolGroupAccordion } from './tool-group-accordion';
 import { ToolRow } from './tool-row';
 import { ToolRowExpanded } from './tool-row-expanded';
+import { ToolsErrorFallback } from './tools-error-fallback';
 import { ToolsFilterBar } from './tools-filter-bar';
 import {
   initialToolsDataState,
@@ -50,24 +51,6 @@ import type {
 
 const EMPTY_LIVE_QUERY = 'SELECT 1 WHERE 1 = 0';
 const INITIAL_TOOLS_READ = Promise.resolve(false);
-
-interface ToolsErrorFallbackProps {
-  onRetry: () => void;
-}
-
-function ToolsErrorFallback({ onRetry }: ToolsErrorFallbackProps) {
-  return (
-    <Card data-testid="tools-error-fallback">
-      <CardContent className="space-y-3 p-4 text-muted-foreground text-sm">
-        <div className="font-medium text-foreground">Something went wrong loading tools.</div>
-        <div>Retry to reload tool metadata and MCP status.</div>
-        <Button onClick={onRetry} size="sm" variant="outline">
-          Retry
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 
 interface UseToolsDataManagerParams {
   dispatch: (action: ToolsDataAction) => void;
@@ -493,6 +476,7 @@ export function UnifiedToolsSettings({
     }
     return statusMap;
   }, [mcpServers]);
+  const configuredServerIds = useMemo(() => new Set(serverStatusMap.keys()), [serverStatusMap]);
 
   const getServerStatus = useCallback(
     (serverName: string): McpConnectionStatus | undefined =>
@@ -641,7 +625,11 @@ export function UnifiedToolsSettings({
             {toolsPanel}
           </TabsContent>
           <TabsContent className="mt-4" value="mcp-config">
-            <McpConfigPanel onConfigChanged={handleMcpConfigUpdated} operations={operations} />
+            <McpConfigPanel
+              configuredServerIds={configuredServerIds}
+              onConfigChanged={handleMcpConfigUpdated}
+              operations={operations}
+            />
           </TabsContent>
         </Tabs>
       ) : (

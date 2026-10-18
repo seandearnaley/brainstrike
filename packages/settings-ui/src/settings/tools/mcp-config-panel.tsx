@@ -4,6 +4,8 @@ import { McpCatalogSection } from './mcp-catalog-section';
 import type { ToolsSettingsOperations } from './types';
 
 interface McpConfigPanelProps {
+  /** Configured MCP server ids from the Tools settings' host status. */
+  configuredServerIds: ReadonlySet<string>;
   onConfigChanged: () => Promise<void>;
   operations: ToolsSettingsOperations;
 }
@@ -133,7 +135,11 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
   }
 }
 
-export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelProps) {
+export function McpConfigPanel({
+  configuredServerIds,
+  operations,
+  onConfigChanged,
+}: McpConfigPanelProps) {
   const [state, dispatch] = useReducer(mcpPanelReducer, initialState);
   const {
     pathDraft,
@@ -163,6 +169,12 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   }, [operations.readMcpConfigText]);
 
   const hasUnsavedChanges = editorValue !== savedValue;
+  // An install settles after the click that captured its callback; it reads the latest dirty state.
+  const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
+
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
 
   const fetchAndApplyDocument = useCallback(async () => {
     const readMcpConfigText = readMcpConfigTextRef.current;
@@ -372,7 +384,12 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   }, []);
 
   const handleCatalogInstalled = useCallback(async () => {
-    await loadDocument();
+    // Edits typed while the install ran are never replaced silently: ask, as Reload does.
+    if (hasUnsavedChangesRef.current) {
+      dispatch({ type: 'SHOW_RELOAD_CONFIRM' });
+    } else {
+      await loadDocument();
+    }
     await onConfigChanged();
   }, [loadDocument, onConfigChanged]);
 
@@ -399,15 +416,14 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
   return (
     <div className="space-y-4" data-testid="mcp-config-editor-panel">
-      {operations.installMcpCatalogServer && operations.getMcpServerStatus ? (
+      {operations.installMcpCatalogServer ? (
         <McpCatalogSection
           blockedReason={
             hasUnsavedChanges ? 'Save or reload the config editor before installing.' : undefined
           }
-          getMcpServerStatus={operations.getMcpServerStatus}
+          configuredServerIds={configuredServerIds}
           installMcpCatalogServer={operations.installMcpCatalogServer}
           onInstalled={handleCatalogInstalled}
-          subscribeMcpServerStatus={operations.subscribeMcpServerStatus}
         />
       ) : null}
       <McpPathCard

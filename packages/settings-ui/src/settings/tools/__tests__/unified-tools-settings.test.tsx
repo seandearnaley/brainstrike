@@ -2322,6 +2322,49 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('feeds the MCP catalog from its own host status, including pushed snapshots', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+      operations.installMcpCatalogServer = vi
+        .fn()
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+      const configured = (id: string): McpHostServerSnapshot => ({
+        configuredProtocol: 'auto',
+        configuredServerId: parseConfiguredMcpServerId(id),
+        generation: 1,
+        state: 'authentication-required',
+        transport: 'streamable-http',
+      });
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue({ revision: 1, servers: [configured('linear')] });
+      let publish: ((snapshot: McpHostSnapshot) => void) | undefined;
+      operations.subscribeMcpServerStatus = vi.fn((listener) => {
+        publish = listener;
+        return vi.fn();
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(await screen.findByTestId('mcp-catalog-installed-linear')).toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-catalog-installed-gitlab')).not.toBeInTheDocument();
+      act(() => {
+        publish?.({ revision: 2, servers: [configured('linear'), configured('gitlab')] });
+      });
+      expect(await screen.findByTestId('mcp-catalog-installed-gitlab')).toBeInTheDocument();
+      // One status owner: the catalog neither reads nor subscribes on its own.
+      expect(operations.getMcpServerStatus).toHaveBeenCalledOnce();
+      expect(operations.subscribeMcpServerStatus).toHaveBeenCalledOnce();
+    });
+
     it('loads MCP config editor content when editor operations are provided', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({

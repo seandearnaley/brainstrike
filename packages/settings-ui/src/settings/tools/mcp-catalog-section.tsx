@@ -1,4 +1,3 @@
-import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import {
   MCP_CATALOG,
   type McpCatalogAccess,
@@ -25,7 +24,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { type FormEvent, useCallback, useEffect, useId, useState } from 'react';
+import { type FormEvent, useCallback, useId, useState } from 'react';
 import { openExternalLink } from '../external-link';
 import type { ToolsSettingsOperations } from './types';
 
@@ -36,10 +35,10 @@ type TokenEntry = Extract<McpCatalogEntry, { auth: 'token' }>;
 export interface McpCatalogSectionProps {
   /** Set while the config editor holds unsaved text that an install would leave stale. */
   blockedReason?: string | undefined;
-  getMcpServerStatus: NonNullable<ToolsSettingsOperations['getMcpServerStatus']>;
+  /** Configured server ids from the Tools settings' MCP host status, the one status owner. */
+  configuredServerIds: ReadonlySet<string>;
   installMcpCatalogServer: InstallCatalogServer;
   onInstalled: () => Promise<void>;
-  subscribeMcpServerStatus?: ToolsSettingsOperations['subscribeMcpServerStatus'];
 }
 
 const ACCESS_LABELS: Record<McpCatalogAccess, string> = {
@@ -51,45 +50,22 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function configuredIds(snapshot: McpHostSnapshot): ReadonlySet<string> {
-  return new Set(snapshot.servers.map(({ configuredServerId }) => configuredServerId));
-}
-
 /** One-click installs of the curated official remote MCP servers (spec 2026-10-18). */
 export function McpCatalogSection({
   blockedReason,
-  getMcpServerStatus,
+  configuredServerIds,
   installMcpCatalogServer,
   onInstalled,
-  subscribeMcpServerStatus,
 }: McpCatalogSectionProps) {
-  const [configured, setConfigured] = useState<ReadonlySet<string>>(() => new Set());
-  const [statusError, setStatusError] = useState<string | null>(null);
-
-  const readStatus = useCallback(async () => {
-    try {
-      setConfigured(configuredIds(await getMcpServerStatus()));
-      setStatusError(null);
-    } catch (error) {
-      setStatusError(errorText(error));
-    }
-  }, [getMcpServerStatus]);
-
-  useEffect(() => {
-    void readStatus();
-    return subscribeMcpServerStatus?.((snapshot) => setConfigured(configuredIds(snapshot)));
-  }, [readStatus, subscribeMcpServerStatus]);
-
   const install = useCallback(
     async (request: McpCatalogInstallRequest): Promise<InstallResult> => {
       const result = await installMcpCatalogServer(request);
       if (result.success) {
-        await readStatus();
         await onInstalled();
       }
       return result;
     },
-    [installMcpCatalogServer, onInstalled, readStatus]
+    [installMcpCatalogServer, onInstalled]
   );
 
   return (
@@ -101,15 +77,6 @@ export function McpCatalogSection({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {statusError ? (
-          <p
-            className="text-destructive text-sm"
-            data-testid="mcp-catalog-status-error"
-            role="alert"
-          >
-            Installed servers could not be read: {statusError}
-          </p>
-        ) : null}
         {blockedReason ? (
           <p className="text-muted-foreground text-sm" data-testid="mcp-catalog-blocked">
             {blockedReason}
@@ -120,7 +87,7 @@ export function McpCatalogSection({
             <McpCatalogCard
               blocked={blockedReason !== undefined}
               entry={entry}
-              installed={configured.has(entry.id)}
+              installed={configuredServerIds.has(entry.id)}
               key={entry.id}
               onInstall={install}
             />
@@ -252,7 +219,7 @@ interface McpCatalogTokenDialogProps {
   pending: boolean;
 }
 
-/** The token goes straight to the install request and is cleared when it returns. */
+/** The token leaves component state before the install request is sent. */
 function McpCatalogTokenDialog({
   entry,
   error,
@@ -275,11 +242,12 @@ function McpCatalogTokenDialog({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (trimmed.length === 0) {
+    const captured = trimmed;
+    if (captured.length === 0) {
       return;
     }
-    const installed = await onSubmit(trimmed);
     setToken('');
+    const installed = await onSubmit(captured);
     if (installed) {
       onOpenChange(false);
     }
