@@ -10,6 +10,7 @@ import {
   type HostRequest,
   PROTOCOL_VERSION,
 } from './record.js';
+import { HOST_LEASE_CONNECTION_CLOSED, HostLeaseRefusalError } from './refusal.js';
 import { ResourceOwner } from './resource-owner.js';
 
 export interface HostAttachment {
@@ -49,7 +50,7 @@ class ReplyQueue {
       this.fail(cause);
     });
     socket.on('close', () => {
-      this.fail(new Error('Host connection closed'));
+      this.fail(new HostLeaseRefusalError(HOST_LEASE_CONNECTION_CLOSED, 'Host connection closed'));
       if (this.closeFailure === undefined) {
         this.completion.resolve();
       } else {
@@ -78,7 +79,9 @@ class ReplyQueue {
     sendFrame(this.socket, request);
     const reply = await pending;
     if (reply.method === 'error') {
-      throw new Error(reply.message);
+      throw reply.code === undefined
+        ? new Error(reply.message)
+        : new HostLeaseRefusalError(reply.code, reply.message);
     }
     return reply;
   }

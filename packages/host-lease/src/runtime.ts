@@ -16,6 +16,7 @@ import {
   tokensEqual,
 } from './record.js';
 import { publishHostRecord, removeOwnHostRecord, secureDirectory } from './record-file.js';
+import { HOST_LEASE_CLOSING, HostLeaseRefusalError } from './refusal.js';
 import { ResourceOwner } from './resource-owner.js';
 
 export type HostLifetime = 'app' | 'cli' | 'persistent';
@@ -189,7 +190,7 @@ export async function startHost(
   const retainRun = (): (() => void) => {
     signal?.throwIfAborted();
     if (closing) {
-      throw new Error('Host is closing');
+      throw new HostLeaseRefusalError(HOST_LEASE_CLOSING, 'Host is closing');
     }
     activeRuns += 1;
     let released = false;
@@ -278,16 +279,18 @@ export async function startHost(
         );
         return;
       }
-      const reject = (message: string): void => {
+      const reject = (message: string, code?: typeof HOST_LEASE_CLOSING): void => {
         if (rejected) {
           return;
         }
         rejected = true;
-        socket.end(`${JSON.stringify({ message, method: 'error' })}\n`);
+        socket.end(
+          `${JSON.stringify({ ...(code === undefined ? {} : { code }), message, method: 'error' })}\n`
+        );
       };
       const request = (frame: HostRequest): void => {
         if (rejected || closing || signal?.aborted) {
-          reject('Host is closing');
+          reject('Host is closing', HOST_LEASE_CLOSING);
           return;
         }
         if (frame.method === 'initialize') {

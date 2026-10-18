@@ -9,6 +9,10 @@ owner is refused, never killed, replaced or guessed stale. A starting or exiting
 owner is waited for under the launch's one deadline: a refused attach, or a race
 whose winner releases, waits for that owner to give up the root and acquires
 again. Only an owner that keeps the root to the deadline is refused (BST-2142).
+A leaving owner is recognized by code, never by message: the closing refusal
+crosses the wire as `host-lease.host-closing`, and a lost handshake connection as
+`host-lease.connection-closed` (BST-2158). Changing a frame's shape bumps
+`PROTOCOL_VERSION`.
 
 Keep discovery and credential records private with owner-only permissions. Validate
 record shape, path, generation and process identity before attachment. Public
