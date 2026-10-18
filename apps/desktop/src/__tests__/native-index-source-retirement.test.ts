@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
   destroy: vi.fn(),
+  fence: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: mocks.acquire,
   closeIndexerRuntime: mocks.close,
   destroyIndexerRuntime: mocks.destroy,
+  fenceIndexerCanonicalSources: mocks.fence,
   getReadyIndexerHost: () => mocks.manager,
   getReadyScopedIndexerPort: mocks.readyPort,
 }));
@@ -480,4 +482,13 @@ it('keeps an independent failure beside the utility exit a retained retirement f
   expect((outcome as AggregateError).errors).toContain(failure);
   expect(onExited).not.toHaveBeenCalled();
   expect(sources.leases.size).toBe(1);
+});
+
+// BST-2140: the shutdown fence must stop the utility's admitted requests in the turn it revokes
+// the native graph, or their failures on that revocation answer as ordinary failures.
+it('fences the utility attachments whenever the lifecycle fences admitted native work', async () => {
+  const { activation } = fixture();
+  activation.fenceTerminal();
+  await vi.waitFor(() => expect(mocks.fence).toHaveBeenCalledOnce());
+  await activation.close();
 });

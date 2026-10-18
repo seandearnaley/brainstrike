@@ -16,11 +16,12 @@ import {
 } from './utils/native-index-build';
 
 /**
- * A SIGTERM to Main's whole process group right after a native scan completes shuts down with
- * no failed step and no forced exit (BST-2135). A tty Ctrl+C or a tree kill signals every
+ * A SIGTERM right after a native scan completes shuts down with no failed step and no forced
+ * exit. To Main's whole process group (BST-2135): a tty Ctrl+C or a tree kill signals every
  * process in the group, so the indexer utility, the embedding host renderer and the visible
- * renderer exit on the signal while Main is still retiring them. The signal arrives twice, as a
- * dev tree delivers it.
+ * renderer exit on the signal while Main is still retiring them. To Main alone (BST-2140): every
+ * helper lives, and the scan Main's shutdown cancels is that cancellation, never a cleanup
+ * failure or a level-50 record. The signal arrives twice, as a dev tree delivers it.
  */
 test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 test.skip(process.platform === 'win32', 'Windows has no catchable POSIX process signals.');
@@ -95,9 +96,12 @@ function capture(mainProcess: ChildProcess): Capture {
   };
 }
 
-function signalGroup(leaderPid: number): void {
+/** Main alone, or Main's whole process group (Playwright launches Main as its leader). */
+type SignalTarget = 'group' | 'main';
+
+function signal(mainPid: number, target: SignalTarget): void {
   try {
-    process.kill(-leaderPid, 'SIGTERM');
+    process.kill(target === 'group' ? -mainPid : mainPid, 'SIGTERM');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
       throw error;
@@ -142,12 +146,12 @@ test.afterAll(() => {
   rmSync(rootDir, { force: true, recursive: true });
 });
 
-/** Indexes the root, then signals Main's process group `delayMs` after the workspace receipt. */
-async function signalGroupAfterScan(
+/** Indexes the root, then signals `target` `delayMs` after the workspace receipt. */
+async function signalAfterScan(
   electron: ElectronHarness,
   page: Page,
   testInfo: TestInfo,
-  delayMs: number
+  { delayMs, target }: { readonly delayMs: number; readonly target: SignalTarget }
 ): Promise<void> {
   test.setTimeout(8 * 60 * 1000);
   await seedPausedWorkspace(page, [{ path: rootDir, rootId: ROOT_ID }], 'wasm', 'shutdown');
@@ -177,13 +181,12 @@ async function signalGroupAfterScan(
       const closed = once(mainProcess, 'close', {
         signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS),
       });
-      // Playwright launches Main as its process group's leader.
-      signalGroup(pid);
+      signal(pid, target);
       await log.waitFor(
         (record) => record.msg?.startsWith('Received shutdown signal') === true,
         5000
       );
-      signalGroup(pid);
+      signal(pid, target);
       await closed;
       ended = { code: mainProcess.exitCode, signal: mainProcess.signalCode };
     });
@@ -203,8 +206,11 @@ async function signalGroupAfterScan(
   expect(messages).toContain('Shutdown already in progress; ignoring signal');
   expect(messages).not.toContain('Timed out waiting for graceful shutdown; forcing exit');
   expect(messages).not.toContain('Graceful shutdown completed with cleanup failures');
+  // Signalled alone, Main's helpers stay alive: every level-50 record fails (BST-2140).
   expect(
-    after.filter((record) => (record.level ?? 0) >= 50 && !isSignalKilledHelper(record))
+    after.filter(
+      (record) => (record.level ?? 0) >= 50 && !(target === 'group' && isSignalKilledHelper(record))
+    )
   ).toEqual([]);
   const reports = after.flatMap((record) =>
     record.msg === 'Graceful shutdown completed' && record.steps ? [record.steps] : []
@@ -223,19 +229,49 @@ test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 0 ms 
   electron,
   window: page,
 }, testInfo) => {
-  await signalGroupAfterScan(electron, page, testInfo, 0);
+  await signalAfterScan(electron, page, testInfo, { delayMs: 0, target: 'group' });
 });
 
 test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 300 ms after the native scan completes fails no shutdown step", async ({
   electron,
   window: page,
 }, testInfo) => {
-  await signalGroupAfterScan(electron, page, testInfo, 300);
+  await signalAfterScan(electron, page, testInfo, { delayMs: 300, target: 'group' });
 });
 
 test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 1000 ms after the native scan completes fails no shutdown step", async ({
   electron,
   window: page,
 }, testInfo) => {
-  await signalGroupAfterScan(electron, page, testInfo, 1000);
+  await signalAfterScan(electron, page, testInfo, { delayMs: 1000, target: 'group' });
+});
+
+// BST-2140: signalled alone, Main's own shutdown cancels the scan still running after the
+// workspace receipt (its collection scan and reverification); by about 500 ms the index is idle.
+test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 0 ms after the native scan completes fails no shutdown step', async ({
+  electron,
+  window: page,
+}, testInfo) => {
+  await signalAfterScan(electron, page, testInfo, { delayMs: 0, target: 'main' });
+});
+
+test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 150 ms after the native scan completes fails no shutdown step', async ({
+  electron,
+  window: page,
+}, testInfo) => {
+  await signalAfterScan(electron, page, testInfo, { delayMs: 150, target: 'main' });
+});
+
+test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 300 ms after the native scan completes fails no shutdown step', async ({
+  electron,
+  window: page,
+}, testInfo) => {
+  await signalAfterScan(electron, page, testInfo, { delayMs: 300, target: 'main' });
+});
+
+test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 500 ms after the native scan completes fails no shutdown step', async ({
+  electron,
+  window: page,
+}, testInfo) => {
+  await signalAfterScan(electron, page, testInfo, { delayMs: 500, target: 'main' });
 });

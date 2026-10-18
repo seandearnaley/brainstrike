@@ -231,6 +231,11 @@ export class IndexerHostManager {
     };
   }
 
+  /** Synchronously stops the canonical attachments' admitted requests; see `fenceAttachments`. */
+  fenceCanonicalSources(): void {
+    this.#canonical?.fenceAttachments();
+  }
+
   retireCanonicalSources(): Promise<void> {
     this.#sourceRetirementOwned = true;
     const admitted = this.#canonical?.retireAttachments();

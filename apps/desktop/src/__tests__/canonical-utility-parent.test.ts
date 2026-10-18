@@ -733,6 +733,25 @@ it('settles admitted work that fails on the revoked authority as its retirement 
   });
 });
 
+// BST-2140: the shutdown fence revokes the graph about 20 ms before retirement starts.
+it('fences admitted work with the revoked authority, so it answers as that cancellation', async () => {
+  const deps = fixture();
+  const work = Promise.withResolvers<never[]>();
+  deps.source.inventory.loadFiles = vi.fn(() => work.promise);
+  const { parent, owner, frames } = await attached(deps);
+  call(parent, owner, 100, 'load-files', scope);
+  await flush();
+  parent.fenceAttachments();
+  work.reject(new NativeAuthorityTransitionError('Native owner terminal retirement requested.'));
+  await flush();
+  const response = frames.find((input) => {
+    const frame = decodeCanonicalFrame(input);
+    return frame.kind === 'result' && frame.id === 100;
+  });
+  expect(response).toMatchObject({ cancelled: true, ok: false });
+  await parent.close();
+});
+
 it('keeps an independent failure of admitted work visible while retirement stops it', async () => {
   const response = await failAfterRetirement(new Error('Native catalog read failed.'));
   expect(response).toMatchObject({ error: { message: 'Native catalog read failed.' }, ok: false });

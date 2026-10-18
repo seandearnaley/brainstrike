@@ -12,6 +12,10 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
+    },
+    "./cancellation": {
+      "types": "./dist/cancellation.d.ts",
+      "default": "./dist/cancellation.js"
     }
   },
   "files": [

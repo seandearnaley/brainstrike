@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { CanonicalOperationContext } from '@brainstrike/canonical-ingestion';
+import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import { Schema } from 'effect';
 import {
   assertDiscoveredSource,
@@ -130,7 +131,21 @@ export class CanonicalUtilityParent {
       let terminal: Promise<typeof receiptSchema.Type> | undefined;
       return {
         join: () => {
-          terminal ??= this.channel.call(owner, 'join-scan', { requestId }, receiptSchema);
+          terminal ??= this.channel
+            .call(owner, 'join-scan', { requestId }, receiptSchema)
+            .catch((error: unknown) => {
+              // A scan the utility reports cancelled after Main retired its attachment ended
+              // on that retirement, as BST-1955's revoked requests do (BST-2140).
+              if (
+                error instanceof CanonicalOperationCancelledError &&
+                this.sessions.get(owner)?.stopping !== false
+              ) {
+                throw new NativeAuthorityTransitionError(
+                  'Canonical attachment retirement cancelled its scan.'
+                );
+              }
+              throw error;
+            });
           return terminal;
         },
       };
@@ -359,6 +374,16 @@ export class CanonicalUtilityParent {
       session.close = undefined;
     });
     return session.close;
+  }
+  /**
+   * Stops every attachment's admitted requests in the same turn as Main revokes their native
+   * authority, so work failing on that revocation answers as cancelled (BST-1955, BST-2140).
+   * The physical close stays `retireAttachments`/`closeOwner`'s.
+   */
+  fenceAttachments(): void {
+    for (const session of this.sessions.values()) {
+      this.stop(session);
+    }
   }
   close(): Promise<void> {
     if (this.remoteExited) {
