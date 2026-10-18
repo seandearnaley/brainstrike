@@ -88,7 +88,7 @@ const HOST_CLEANUP_FAILED = fault({
   code: 'host.cleanup-failed',
   message: 'Host cleanup failed, so the agent host kept its Root.',
 });
-const HOST_CLOSING = fault({
+const HOST_CLOSING = refusal({
   category: 'availability',
   code: 'host.closing',
   message: 'The agent host is closing.',
@@ -233,13 +233,14 @@ export function bindHostConnection(
     // asynchronous resource registration so a second initialize cannot enter.
     initialized = true;
     await options.bindCatalog?.({
-      onRequest: ((method: string, handler: (input: unknown) => Promise<unknown>) =>
-        connection.onRequest(method, async (input: unknown) => {
+      onRequest: ((method: string, handler: (input: unknown) => Promise<unknown>) => {
+        let retired = false;
+        const subscription = connection.onRequest(method, async (input: unknown) => {
           try {
             if (!initialized || disposed) {
               throw new BoundaryFailureError(UNAUTHENTICATED);
             }
-            if (lifecycle?.closing) {
+            if (retired || lifecycle?.closing) {
               throw new BoundaryFailureError(HOST_CLOSING);
             }
             return await handler(input);
@@ -248,7 +249,18 @@ export function bindHostConnection(
               logger.error(message, { ...fields, method })
             );
           }
-        })) as MessageConnection['onRequest'],
+        });
+        // The catalog retires before the transport's admitted replies drain.
+        // Keep its typed refusal on that still-live socket; removing the wire
+        // handler early turns a shutdown read into an untyped MethodNotFound.
+        // The connection remains the physical owner of this registration.
+        disposables.push(subscription);
+        return {
+          dispose: () => {
+            retired = true;
+          },
+        };
+      }) as MessageConnection['onRequest'],
     });
     attached();
     return {

@@ -154,6 +154,13 @@ test('host retirement drains an authenticated admitted catalog write before reti
     await refusesConnections(host.record.endpoint);
     await expect(client.catalog.modelChoices({ operation: 'snapshot' })).rejects.toMatchObject({
       code: 'host.closing',
+      failure: { kind: 'refusal' },
+    });
+    // This endpoint has no pending write of its own. Its retirement must not
+    // turn a late request on the still-draining socket into MethodNotFound.
+    await expect(client.catalog.collections({ operation: 'list' })).rejects.toMatchObject({
+      code: 'host.closing',
+      failure: { kind: 'refusal' },
     });
     expect(closed).toBe(false);
     released.resolve();

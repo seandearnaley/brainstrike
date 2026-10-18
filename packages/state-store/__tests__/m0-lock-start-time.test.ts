@@ -4,7 +4,9 @@
 // against the real spawn time.
 
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { createInterface } from 'node:readline';
 import { expect, test } from 'vitest';
 import { processStartTime } from '../src/lock.js';
 
@@ -74,14 +76,34 @@ test.skipIf(process.platform === 'win32')(
 test.skipIf(process.platform === 'win32')(
   'L-zombie: an exited child not yet reaped by its parent has no start time',
   async () => {
-    // The background `sleep 0` exits at once; the exec'd `sleep 5` never waits for it.
-    const parent = spawn('sh', ['-c', 'sleep 0 & echo $!; exec sleep 5'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+    // A shell can reap `sleep 0` before exec, and the old five-second parent
+    // could expire before a loaded runner observed it. Hold the real fork's
+    // parent until this test releases it, then reap and join both processes.
+    const parent = spawn(
+      'python3',
+      [
+        '-c',
+        [
+          'import os, sys',
+          'child = os.fork()',
+          'if child == 0:',
+          '    os._exit(0)',
+          'print(child, flush=True)',
+          'sys.stdin.read()',
+          'os.waitpid(child, 0)',
+        ].join('\n'),
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    const exited = once(parent, 'close');
+    const lines = createInterface({ input: parent.stdout });
+    let errors = '';
+    parent.stderr.on('data', (chunk: Buffer) => {
+      errors += chunk.toString();
     });
     try {
-      const zombie = Number(
-        await new Promise<string>((res) => parent.stdout.once('data', (data) => res(String(data))))
-      );
+      const zombie = Number((await lines[Symbol.asyncIterator]().next()).value);
+      expect(zombie, errors).toBeGreaterThan(0);
       const state = (): string =>
         createRequire(import.meta.url)('node:child_process')
           .execFileSync('ps', ['-o', 'stat=', '-p', String(zombie)], { encoding: 'utf8' })
@@ -91,7 +113,9 @@ test.skipIf(process.platform === 'win32')(
       expect(processStartTime(zombie)).toBeNull();
       expect(processStartTime(parent.pid as number)).not.toBeNull();
     } finally {
-      parent.kill('SIGKILL');
+      parent.stdin.end();
+      expect((await exited)[0], errors).toBe(0);
+      lines.close();
     }
   },
   60_000
