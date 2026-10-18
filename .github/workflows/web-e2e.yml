@@ -29,7 +29,10 @@ jobs:
   web-full-regression:
     name: Web Full Regression
     if: github.repository == 'seandearnaley/brainstrike'
-    runs-on: ubuntu-latest
+    # A dedicated 4 vCPU runner, as Performance E2E (#3918), Web E2E smoke and
+    # the Unit lanes use. On shared ubuntu-latest, run 39152128986's explorer
+    # specs timed out in their 60 s beforeEach bootstrap; they pass locally.
+    runs-on: ubicloud-standard-4
     # Official browser/system-dependency fleet; fixed CfT is provisioned below.
     # Root is Playwright's documented mode for trusted E2E and permits explicit
     # system-tool installation. No custom image publication is required.
