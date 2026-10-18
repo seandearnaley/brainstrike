@@ -7,7 +7,12 @@ import type {
 
 const fixture = vi.hoisted(() => ({
   callbacks: null as unknown as {
-    onRenderProcessGone: (context: { message: string; reason: string; exitCode: number }) => void;
+    onRenderProcessGone: (context: {
+      message: string;
+      reason: string;
+      exitCode: number;
+      window: unknown;
+    }) => void;
     onWindowClosed: () => void;
   },
   lifecycle: null as unknown as {
@@ -339,6 +344,7 @@ describe('document transport physical settlement', () => {
       exitCode: 1,
       message: 'renderer crashed',
       reason: 'crashed',
+      window,
     });
     const error = await outcome;
     expect((error as AggregateError).errors).toEqual([
@@ -651,6 +657,7 @@ describe('document transport physical settlement', () => {
       exitCode: 1,
       message: 'renderer exited during retirement',
       reason: 'crashed',
+      window,
     });
     expect(settled).not.toHaveBeenCalled();
     window.webContents.emit('render-process-gone');

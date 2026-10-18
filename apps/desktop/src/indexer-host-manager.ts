@@ -12,6 +12,7 @@ import {
   type CanonicalWorkspaceAttachment,
 } from './canonical-utility-parent';
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
+import { IndexerUtilityExitedError } from './indexer-utility-exit';
 
 interface OwnedCollectionScan {
   fault?: { readonly error: unknown };
@@ -119,7 +120,7 @@ export class IndexerHostManager {
       onExit: (listener) => {
         const exit = (): void => {
           this.#closed = true;
-          this.#exitCleanup ??= canonical.exited(new Error('Indexer utility exited.'));
+          this.#exitCleanup ??= canonical.exited(new IndexerUtilityExitedError());
           void this.#exitCleanup.catch(() => {
             this.#exitCleanupFailed = true;
           });

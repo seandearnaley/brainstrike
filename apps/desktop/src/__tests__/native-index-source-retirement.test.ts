@@ -16,11 +16,13 @@ import {
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
+import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import {
   type NativeIndexSources,
   retireNativeIndexSources,
+  settleNativeIndexSources,
 } from '../native-index-source-retirement';
 import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
 
@@ -426,4 +428,56 @@ it('joins capabilities after a synchronous parent retirement fault and retains f
   closeInference.mockResolvedValue(undefined);
   await retireNativeIndexSources(sources, async () => {});
   expect(sources.inference.size).toBe(0);
+});
+
+// BST-2135: a signal to Main's process group ends the indexer utility before shutdown retires it.
+function exitedUtilitySources(leaseRetire: () => Promise<void>) {
+  const attachment = {
+    close: vi.fn(async () => {
+      throw new IndexerUtilityExitedError();
+    }),
+  };
+  const lease = { retire: vi.fn(leaseRetire) } as unknown as CanonicalWorkspaceLease;
+  const sources: NativeIndexSources = {
+    attachments: new Set([attachment]),
+    controller: new AbortController(),
+    inference: new Set(),
+    leases: new Map([['root', lease]]),
+    workspaceTriggers: new Map(),
+  };
+  const retireParent = async (): Promise<void> => {
+    throw new IndexerUtilityExitedError();
+  };
+  return { attachment, lease, retireParent, sources };
+}
+
+it('settles an exited utility as its typed outcome once Main retired its own capabilities', async () => {
+  const exited = exitedUtilitySources(async () => {});
+  await expect(
+    retireNativeIndexSources(exited.sources, exited.retireParent)
+  ).rejects.toBeInstanceOf(IndexerUtilityExitedError);
+  const { attachment, lease, retireParent, sources } = exitedUtilitySources(async () => {});
+  const onExited = vi.fn();
+  await settleNativeIndexSources(sources, retireParent, onExited);
+  expect(onExited).toHaveBeenCalledExactlyOnceWith(expect.any(IndexerUtilityExitedError));
+  expect(lease.retire).toHaveBeenCalledOnce();
+  expect(sources.leases.size).toBe(0);
+  // Nothing retired through the dead utility: its attachment is never recorded as retired.
+  expect(sources.attachments.has(attachment)).toBe(true);
+});
+
+it('keeps an independent failure beside the utility exit a retained retirement failure', async () => {
+  const failure = new Error('independent lease retirement failure');
+  const { retireParent, sources } = exitedUtilitySources(async () => {
+    throw failure;
+  });
+  const onExited = vi.fn();
+  const outcome = await settleNativeIndexSources(sources, retireParent, onExited).catch(
+    (error: unknown) => error
+  );
+  expect(outcome).toBeInstanceOf(AggregateError);
+  expect((outcome as AggregateError).message).toBe('Canonical utility attachments did not retire.');
+  expect((outcome as AggregateError).errors).toContain(failure);
+  expect(onExited).not.toHaveBeenCalled();
+  expect(sources.leases.size).toBe(1);
 });

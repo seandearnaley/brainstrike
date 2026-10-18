@@ -1,5 +1,6 @@
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
+import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
@@ -25,6 +26,31 @@ it('reports a closed index that refuses work during shutdown as retirement', () 
   expect(logger.info).toHaveBeenCalledWith('Native index activation retired during shutdown', {
     reason: error.message,
   });
+});
+
+it('reports an indexer utility the shutdown signal ended as that typed exit, at info', () => {
+  // BST-2135: a signal to Main's process group ends the utility with Main.
+  const logger = { error: vi.fn(), info: vi.fn() };
+  const error = new IndexerUtilityExitedError();
+  reportNativeIndexActivationError('Native indexing source retirement failed', error, true, logger);
+  expect(logger.error).not.toHaveBeenCalled();
+  expect(logger.info).toHaveBeenCalledWith(
+    'Native indexer utility exited before shutdown retired its attachments',
+    { reason: 'Indexer utility exited.' }
+  );
+});
+
+it('keeps an indexer utility exit outside shutdown a visible failure', () => {
+  const logger = { error: vi.fn(), info: vi.fn() };
+  const error = new IndexerUtilityExitedError();
+  reportNativeIndexActivationError(
+    'Native indexing source retirement failed',
+    error,
+    false,
+    logger
+  );
+  expect(logger.error).toHaveBeenCalledWith('Native indexing source retirement failed', { error });
+  expect(logger.info).not.toHaveBeenCalled();
 });
 
 it.each([
