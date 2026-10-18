@@ -165,9 +165,10 @@ test('the closing text without its code is terminal: no wait and no other owner'
   let started = false;
   const refused = await launchHost(root, {
     lifetime: 'cli',
-    spawn: noStart(() => {
+    spawn: async () => {
       started = true;
-    }),
+      throw new Error('A terminal refusal must not start another owner');
+    },
   }).catch((cause: unknown) => cause);
 
   expect(refused).toBeInstanceOf(LiveHostUnavailableError);
