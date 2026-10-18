@@ -11,6 +11,7 @@ import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scri
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { type IndexerPort, openIndexer } from '@brainstrike/indexer';
 import { RootLock, StateStore } from '@brainstrike/state-store';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import tailwindcss from '@tailwindcss/vite';
 import { build } from 'esbuild';
 import { _electron, type ElectronApplication, type Page } from 'playwright';
@@ -22,6 +23,16 @@ import { electronExecutablePath } from './helpers/electron-executable';
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');
 const desktop = join(repository, 'apps/desktop');
+// Every wait below is readiness on the real host and Electron renderer, not a
+// latency the product promises. Connecting, hydrating and rendering the committed
+// view outlasts expect.poll's 1 s default on a 2-vCPU hosted runner (BST-2150).
+// 15 s, scaled by TEST_TIMEOUT_MULTIPLIER (30 s on the nightly).
+const READY = { timeout: getAdjustedTimeout('integration') } as const;
+// The seven readiness waits run in sequence (five polls and two waits for the
+// completed run), plus one more budget for bundling, the indexer, the host, two
+// Electron launches and teardown: 120 s, 240 s nightly. The whole test takes
+// about 5 s locally.
+const TEST_TIMEOUT = 8 * READY.timeout;
 let application: ElectronApplication | undefined;
 let host: AgentHost | undefined;
 let client: HostClient | undefined;
@@ -53,7 +64,9 @@ afterEach(async () => {
   }
 });
 
-test('CLI and Electron share an authenticated Node host, approved file action, real SQLite search and committed view', async () => {
+test('CLI and Electron share an authenticated Node host, approved file action, real SQLite search and committed view', {
+  timeout: TEST_TIMEOUT,
+}, async () => {
   const started = performance.now();
   const checkpoint = (phase: string): void => {
     process.stderr.write(
@@ -237,8 +250,9 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
   page.on('pageerror', (cause) => process.stderr.write(`renderer error: ${cause.message}\n`));
   checkpoint('electron-window');
   await expect
-    .poll(() => page.getByRole('textbox', { name: 'Message input' }).isEnabled())
+    .poll(() => page.getByRole('textbox', { name: 'Message input' }).isEnabled(), READY)
     .toBe(true);
+  checkpoint('composer-enabled');
   const { runId } = z
     .object({ runId: z.string() })
     .parse(
@@ -264,7 +278,7 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
         );
       }
       return committed.some((row) => row.event.type === 'interaction.requested');
-    })
+    }, READY)
     .toBe(true);
   checkpoint('approval-committed');
   const proofDirectory = process.env['BRAINSTRIKE_M3_PROOF_DIRECTORY'];
@@ -279,20 +293,26 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
   }
   // A pending approval renders as its own card, outside any collapsed activity.
   await expect
-    .poll(() => page.getByRole('button', { exact: true, name: 'Approve write_file' }).count())
+    .poll(
+      () => page.getByRole('button', { exact: true, name: 'Approve write_file' }).count(),
+      READY
+    )
     .toBe(1);
+  checkpoint('approval-rendered');
   await expect(access(path)).rejects.toThrow();
   await page.getByRole('button', { exact: true, name: 'Approve write_file' }).click();
-  await page.getByText('Host run completed.', { exact: true }).waitFor();
+  await page.getByText('Host run completed.', { exact: true }).waitFor(READY);
+  checkpoint('run-completed');
   const readRenderedSearch = async (view: Page): Promise<void> => {
     const activity = view
       .getByTestId('assistant-activity-group')
       .filter({ hasText: 'Used search_index' });
     await activity.getByRole('button', { exact: true, name: 'Expand activity' }).click();
     await activity.getByRole('button', { name: /expand details$/i }).click();
-    await expect.poll(() => activity.textContent()).toContain('owned-file');
+    await expect.poll(() => activity.textContent(), READY).toContain('owned-file');
   };
   await readRenderedSearch(page);
+  checkpoint('search-rendered');
   expect(await readFile(path, 'utf8')).toBe('native SQLite assistant retrieval evidence');
   const rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
   expect(rows.filter((row) => row.event.type === 'interaction.requested')).toHaveLength(1);
@@ -306,8 +326,9 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
   await application.close();
   application = await _electron.launch({ args: [main], env: electronEnvironment, executablePath });
   const reopened = await application.firstWindow();
-  await reopened.getByText('Host run completed.', { exact: true }).waitFor();
+  await reopened.getByText('Host run completed.', { exact: true }).waitFor(READY);
   await readRenderedSearch(reopened);
+  checkpoint('reopened-search-rendered');
   expect(model.doStreamCalls).toHaveLength(3);
   const artifact = process.env['BRAINSTRIKE_M3_PROOF_DIRECTORY'];
   if (artifact) {

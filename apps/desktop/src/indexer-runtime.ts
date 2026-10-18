@@ -72,6 +72,10 @@ export function getReadyIndexerHost(): IndexerHostManager {
   }
   return owner.manager;
 }
+/** Fences the current host's canonical attachments, if a host has been created (BST-2140). */
+export function fenceIndexerCanonicalSources(): void {
+  owner?.manager?.fenceCanonicalSources();
+}
 export function getReadyIndexerPort(): IndexerPort {
   getReadyIndexerHost();
   if (!owner?.port) {

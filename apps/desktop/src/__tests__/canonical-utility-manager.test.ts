@@ -6,6 +6,7 @@ import type { CanonicalCollectionDependencies } from '../canonical-utility-paren
 import { CANONICAL_CHANNEL, decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { IndexerHostManager } from '../indexer-host-manager';
 import { IndexerUtilityExitedError } from '../indexer-utility-exit';
+import { NativeAuthorityTransitionError } from '../native-authority-transition';
 
 const engine = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
@@ -16,6 +17,8 @@ let child: EventEmitter & { postMessage: (message: unknown) => void; kill: () =>
 let heldScan: (() => void) | undefined;
 let heldStart: (() => void) | undefined;
 let heldCancel: (() => void) | undefined;
+/** When set, the indexer connection becomes ready only when the test resolves it. */
+let heldReady: Promise<unknown> | undefined;
 let owner = '';
 const file = {
   embeddingSetId: 'set',
@@ -53,7 +56,7 @@ vi.mock('@brainstrike/indexer/transport', async (importOriginal) => {
         get exited() {
           return engine.exited;
         },
-        ready: Promise.resolve(engine),
+        ready: heldReady ?? Promise.resolve(engine),
       };
     },
   };
@@ -113,8 +116,71 @@ afterEach(() => {
   heldScan = undefined;
   heldCancel = undefined;
   heldStart = undefined;
+  heldReady = undefined;
   engine.exited = false;
 });
+
+// BST-2140 (Codex P1): the shutdown fence races an attachment still awaiting the host's start.
+it.each(['workspace', 'collection'] as const)(
+  'refuses a %s attachment the fence overtook in start, with the typed retirement and no session',
+  async (kind) => {
+    const frames: unknown[] = [];
+    child = Object.assign(new EventEmitter(), {
+      kill: () => true,
+      postMessage: (input: unknown): void => {
+        frames.push(input);
+      },
+    });
+    const ready = Promise.withResolvers<unknown>();
+    heldReady = ready.promise;
+    const manager = await IndexerHostManager.create(
+      {
+        dbPath: '/explicit/derived.sqlite',
+        embedding: { indexMode: 'text-only' },
+        fileBindings: [],
+        rootIds: [],
+        scopes: [scope],
+      },
+      { closeMs: 100, exitMs: 100, requestMs: 20, startupMs: 100 },
+      '/explicit/entry.js'
+    );
+    const read = vi.fn(async () => {});
+    const collection = dependencies(read);
+    const acquiring = (
+      kind === 'collection'
+        ? manager.attachCanonicalCollection(collection)
+        : manager.attachCanonicalWorkspace({
+            ...collection,
+            managedCollectionId: 'set',
+            onError: vi.fn(),
+            onReceipt: vi.fn(),
+            onWatchHealth: vi.fn(),
+            source: {
+              indexingPolicyPreset: 'balanced',
+              inventory: collection.source.inventory,
+              lease: {
+                canonicalPath: '/actual/root',
+                generation: 'generation',
+                listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
+                readFile: vi.fn(async () => ({ status: 'not-found' as const })),
+                retire: vi.fn(async () => {}),
+                rootId: 'root',
+                signal: new AbortController().signal,
+                subscribe: vi.fn(async () => ({ close: async () => {} })),
+              },
+            },
+          })
+    ).catch((error: unknown) => error);
+    await flush();
+    manager.fenceCanonicalSources();
+    ready.resolve(engine);
+    expect(await acquiring).toBeInstanceOf(NativeAuthorityTransitionError);
+    // No session: the utility never received an attach, so no callback or scan can start.
+    expect(frames).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
+    await manager.close();
+  }
+);
 
 it('bounds cancellation controls, stops admission on timeout and joins admitted scan and main IO before engine close', async () => {
   vi.useFakeTimers();
