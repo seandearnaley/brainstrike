@@ -201,6 +201,7 @@ async function shellHost(shellInput: (spawnLog: string) => ShellInput) {
       outcome: 'completed',
     });
     return {
+      host: decodeHostRecord(JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))).pid,
       rows: finished,
       spawned: await spawned(),
       toolCallId: requested.toolCallId,
@@ -216,12 +217,13 @@ test('an approved executeCommand runs its command in the launch root and commits
   // The host supervises a native process only while it is alive: an exited one holds nothing (ADR-0017). On Linux,
   // dash runs a bare `echo` and is already a zombie when the host reads its start time (BST-2151), so the command is
   // a probe that prints its pid only once the observer has recorded it. The tool's own timeout bounds a record that
-  // never comes. Double quotes work in both `sh -c` and `cmd.exe /c`; no path here contains one.
+  // never comes. Double quotes work in both `sh -c` and `cmd.exe /c`, and no path here contains one; JSON quoting
+  // would double every Windows backslash.
   const host = await shellHost((spawnLog) => ({
     command: `"${process.execPath}" "${probe}" "${spawnLog}"`,
     timeoutMs: 30_000,
   }));
-  const { rows, spawned, toolCallId, workspace } = await host.decide('approve');
+  const { host: hostPid, rows, spawned, toolCallId, workspace } = await host.decide('approve');
   expect(rows.find((row) => row.event.type === 'effect.started')?.event).toMatchObject({
     toolCallId,
     toolId: SHELL_TOOL,
@@ -248,6 +250,8 @@ test('an approved executeCommand runs its command in the launch root and commits
     const { output } = z.object({ output: z.object({ stdout: z.string() }) }).parse(finished);
     const [, pid, ppid] = output.stdout.trim().split(' ').map(Number);
     expect([pid, ppid]).toContain(spawned[0]?.pid);
+    // When the shell execs, the probe's parent is the host itself, which is never its own native child.
+    expect(spawned[0]?.pid).not.toBe(hostPid);
   }
 });
 
