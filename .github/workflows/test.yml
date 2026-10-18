@@ -441,9 +441,13 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        # Desktop's real-app proofs launch Electron, which needs an X server
-        # ("Missing X server or $DISPLAY"); the other partitions run as before.
-        run: ${{ matrix.partition == 'desktop' && 'xvfb-run --auto-servernum' || '' }} node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
+        # Every partition runs under the host's X server. Integration passes
+        # outside desktop launch Electron too, and Electron fails without one
+        # ("Missing X server or $DISPLAY"; sqlite-query's utility pass in rest,
+        # Test run 39079872105; indexer's scoped-electron proof launches it the
+        # same way). Like the host step, this is unconditional: membership is
+        # a filter list.
+        run: xvfb-run --auto-servernum node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
@@ -489,7 +493,7 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         # See the pull-request integration step above.
-        run: ${{ matrix.partition == 'desktop' && 'xvfb-run --auto-servernum' || '' }} node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+        run: xvfb-run --auto-servernum node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
   # Fan-in job preserving the required-check name "Unit": branch protection
   # points at this single check, not at the per-shard matrix jobs, so shard

@@ -19,6 +19,19 @@
  *   3. the step's command, rendered for that row, runs under
  *      `xvfb-run --auto-servernum`.
  *
+ * And for every row of every integration/coverage lane in a job that runs the
+ * host, whatever it selects:
+ *
+ *   4. the step's command, rendered for that row, runs under
+ *      `xvfb-run --auto-servernum`.
+ *
+ * Desktop is not the only package whose integration launches Electron:
+ * sqlite-query's utility pass and indexer's scoped-electron proof do too, and
+ * Unit (rest) died at the first one with "Missing X server or $DISPLAY" (Test
+ * run 39079872105) while xvfb-run wrapped only desktop rows. Rule 4 does not
+ * census which packages launch Electron, which would go dark when one more
+ * does; like the host step, the X server comes with every lane on the host.
+ *
  * The host action itself must install xvfb and provision the cache under an X
  * server. The fence half of the same action is pinned by
  * linux-fence-lane-contract.test.mjs, and its apt ordering by
@@ -57,6 +70,8 @@ const UNIT_MATRIX = /^\$\{\{\s*fromJSON\(needs\.static\.outputs\.unit-matrix\)\s
 
 /** The floor: 3 desktop Unit rows x 2 integration steps, plus Nightly Coverage's desktop shard. */
 const KNOWN_DESKTOP_LANE_ROWS = 7;
+/** The floor: 9 Unit rows x 2 integration steps, plus Nightly Coverage's 6 package shards. */
+const KNOWN_HOST_LANE_ROWS = 24;
 const KNOWN_DESKTOP_LANE_WORKFLOWS = ['nightly-coverage.yml', 'test.yml'];
 
 function readWorkflow(file) {
@@ -218,6 +233,47 @@ function assertDesktopLanesUseTheHost(sources = runnableWorkflowSources()) {
   }
 }
 
+/** Every (workflow, job, step, row) whose integration/coverage lane runs in a job with the host. */
+function hostLaneRows(sources) {
+  const found = [];
+  for (const [file, source] of sources) {
+    const workflow = parseYaml(source);
+    for (const [jobName, job] of Object.entries(workflow?.jobs ?? {})) {
+      const steps = Array.isArray(job?.steps) ? job.steps : [];
+      if (!steps.some((step) => step?.uses === HOST_USES)) {
+        continue;
+      }
+      steps.forEach((step, index) => {
+        if (!(LANE.test(step?.run ?? '') || DIRECT_DESKTOP_LANE.test(step?.run ?? ''))) {
+          return;
+        }
+        for (const row of matrixRows(workflow, job)) {
+          const command = renderForRow(step.run, row).replace(/\s+/gu, ' ').trim();
+          const label = `${file} › ${jobName} › ${step.name ?? `step ${index}`} [${row.shard ?? 'no matrix'}]`;
+          found.push({ command, label });
+        }
+      });
+    }
+  }
+  return found;
+}
+
+function assertHostLanesRunUnderItsDisplay(sources = runnableWorkflowSources()) {
+  const rows = hostLaneRows(sources);
+  assert.ok(
+    rows.length >= KNOWN_HOST_LANE_ROWS,
+    `expected at least ${KNOWN_HOST_LANE_ROWS} integration rows on the desktop test host, found ${rows.length}; if lanes really were removed, lower the floor deliberately rather than letting this detector go dark`
+  );
+  const bare = rows
+    .filter(({ command }) => !command.startsWith('xvfb-run --auto-servernum '))
+    .map(({ label }) => label);
+  assert.deepEqual(
+    bare,
+    [],
+    `integration on the desktop test host must run under \`xvfb-run --auto-servernum\`; Electron passes outside desktop (sqlite-query, indexer) fail without an X server:\n${bare.join('\n')}`
+  );
+}
+
 function assertHostActionProvidesTheDisplayAndCache(source = hostActionSource()) {
   const action = parseYaml(source);
   assert.equal(action?.runs?.using, 'composite', `${HOST_USES} must be a composite action`);
@@ -263,6 +319,10 @@ test('every runnable lane that runs desktop integration uses the shared host', (
   assertDesktopLanesUseTheHost();
 });
 
+test('every integration lane on the shared host runs under its X server', () => {
+  assertHostLanesRunUnderItsDisplay();
+});
+
 test('the shared host installs the X server and provisions the model cache under it', () => {
   assertHostActionProvidesTheDisplayAndCache();
 });
@@ -277,12 +337,34 @@ test('CONTROL: a Unit lane without the host step turns the guard red', () => {
 });
 
 test('CONTROL: a desktop Unit shard without xvfb-run turns the guard red', () => {
+  const sources = mutate('test.yml', 'run: xvfb-run --auto-servernum node', 'run: node');
+  assert.throws(() => assertDesktopLanesUseTheHost(sources), /must run under `xvfb-run/u);
+});
+
+test('CONTROL: xvfb-run for desktop rows only turns the host-lane guard red at rest', () => {
+  // The shape that sent Unit (rest) to "Missing X server or $DISPLAY".
   const sources = mutate(
     'test.yml',
-    `run: ${'$'}{{ matrix.partition == 'desktop' && 'xvfb-run --auto-servernum' || '' }} node`,
-    'run: node'
+    /run: xvfb-run --auto-servernum node/gu,
+    `run: ${'$'}{{ matrix.partition == 'desktop' && 'xvfb-run --auto-servernum' || '' }} node`
   );
-  assert.throws(() => assertDesktopLanesUseTheHost(sources), /must run under `xvfb-run/u);
+  assertDesktopLanesUseTheHost(sources);
+  assert.throws(
+    () => assertHostLanesRunUnderItsDisplay(sources),
+    /must run under `xvfb-run[\s\S]*test\.yml › unit-shard › Push and manual integration tests \[rest\]/u
+  );
+});
+
+test('CONTROL: Nightly Coverage without xvfb-run turns the host-lane guard red', () => {
+  const sources = mutate('nightly-coverage.yml', /\n {10}xvfb-run --auto-servernum\n/u, '\n');
+  assert.throws(
+    () => assertHostLanesRunUnderItsDisplay(sources),
+    /must run under `xvfb-run[\s\S]*nightly-coverage\.yml › package-coverage › Run package shard coverage \[desktop\]/u
+  );
+});
+
+test('CONTROL: the host-lane detector cannot pass by finding no lanes', () => {
+  assert.throws(() => assertHostLanesRunUnderItsDisplay(new Map()), /detector go dark/u);
 });
 
 test('CONTROL: a model cache provisioned for the wrong partition turns the guard red', () => {
