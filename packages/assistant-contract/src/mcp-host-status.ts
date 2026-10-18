@@ -11,6 +11,7 @@ import {
   ConfiguredMcpServerIdSchema,
   MCP_HOST_CATALOG_SECTIONS,
   MCP_HOST_DIAGNOSTIC_MAX_ENTRIES,
+  MCP_HOST_LISTED_CATALOG_SECTIONS,
   McpHostErrorSchema,
   McpResourceUriSchema,
 } from './mcp-host.js';
@@ -133,6 +134,9 @@ export function assertMcpHostStrictJson(
 const McpHostCatalogWireSchema = Schema.Struct({
   errors: McpHostCatalogErrorsSchema,
   features: McpHostServerFeaturesSchema,
+  listing: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.Literals(MCP_HOST_LISTED_CATALOG_SECTIONS)))
+  ),
   prompts: Schema.optional(McpHostJsonValueSchema),
   resources: Schema.optional(McpHostJsonValueSchema),
   resourceTemplates: Schema.optional(McpHostJsonValueSchema),

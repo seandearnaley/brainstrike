@@ -519,6 +519,36 @@ describe('ToolGroupAccordion', () => {
       expect(indicator).not.toHaveClass('fill-success');
     });
 
+    it('shows the info tone while the host says tools are still listing (BST-1632)', () => {
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="loading">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      const indicator = screen.getByTestId('mcp-status-indicator');
+      expect(indicator).toHaveClass('fill-info');
+      expect(indicator).toHaveAttribute('aria-label', 'Connected, loading tools');
+    });
+
+    it.each([
+      ['empty', 'Connected, no tools'],
+      ['unsupported', 'Connected, offers no tools'],
+    ] as const)(
+      'keeps a settled %s server green, with its state in the name',
+      (availability, name) => {
+        render(
+          <ToolGroupAccordion {...mcpProps} toolsAvailability={availability}>
+            <div />
+          </ToolGroupAccordion>
+        );
+
+        const indicator = screen.getByTestId('mcp-status-indicator');
+        expect(indicator).toHaveClass('fill-success');
+        expect(indicator).toHaveAttribute('aria-label', name);
+      }
+    );
+
     it('carries the meaning in an accessible name, not colour alone', () => {
       // A fill class is invisible to screen readers and to anyone with a
       // colour-vision deficiency, and asserting one in E2E is exactly as

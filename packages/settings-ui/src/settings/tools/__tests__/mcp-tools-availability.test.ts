@@ -63,29 +63,68 @@ describe('resolveMcpToolsAvailability', () => {
     ).toBe('tools-unavailable');
   });
 
-  it('reports available when the tool list loaded', () => {
-    expect(resolveMcpToolsAvailability(connected({ catalog: catalog() }))).toBe('available');
+  it('reports available when the tool list loaded with tools', () => {
+    expect(
+      resolveMcpToolsAvailability(
+        connected({
+          catalog: catalog({
+            tools: { tools: [{ inputSchema: { type: 'object' }, name: 'echo' }] },
+          }),
+        })
+      )
+    ).toBe('available');
   });
 
-  it('does NOT flag a connected server whose catalog has not arrived yet', () => {
-    // The regression this function was rewritten for (PR #2945 review).
-    // `McpServerActor` publishes `connected` as soon as the handshake completes
-    // and fills the catalog in later via `watchCatalog`, so "no catalog" is the
-    // normal state of EVERY healthy server on EVERY launch. Flagging it would
-    // flash yellow on servers that are enumerating fine.
+  it('reports empty for a settled list with zero tools (BST-1632)', () => {
+    // The host lists before it publishes `connected` and marks every later
+    // listing, so a present, empty `tools` is a settled fact, not in-flight.
+    expect(resolveMcpToolsAvailability(connected({ catalog: catalog() }))).toBe('empty');
+  });
+
+  it('reports loading while the host says tools are listing and none have arrived', () => {
+    expect(
+      resolveMcpToolsAvailability(
+        connected({ catalog: catalog({ listing: ['tools'], tools: undefined }) })
+      )
+    ).toBe('loading');
+  });
+
+  it('keeps the previous list available while a list-changed refresh is in flight', () => {
+    expect(
+      resolveMcpToolsAvailability(
+        connected({
+          catalog: catalog({
+            listing: ['tools'],
+            tools: { tools: [{ inputSchema: { type: 'object' }, name: 'echo' }] },
+          }),
+        })
+      )
+    ).toBe('available');
+  });
+
+  it('does NOT read loading from another section listing', () => {
+    expect(
+      resolveMcpToolsAvailability(
+        connected({ catalog: catalog({ listing: ['prompts'], tools: undefined }) })
+      )
+    ).toBe('available');
+  });
+
+  it('claims nothing for a connected server that publishes no catalog', () => {
+    // A client without a catalog proves nothing about its tools; flagging it
+    // would cry wolf.
     expect(resolveMcpToolsAvailability(connected())).toBe('available');
   });
 
-  it('does NOT flag a tools-capable server whose tools section is merely absent', () => {
-    // Same reason: absence is indistinguishable from in-flight. Only an ERROR
-    // proves the query settled.
+  it('claims nothing from absence alone: a tools-capable server with no list and no listing', () => {
     expect(resolveMcpToolsAvailability(connected({ catalog: catalog({ tools: undefined }) }))).toBe(
       'available'
     );
   });
 
-  it('does NOT flag a server that advertises no tools capability', () => {
-    // A prompts-only or resources-only server is healthy.
+  it('reports unsupported for a server that advertises no tools capability', () => {
+    // A prompts-only or resources-only server is healthy: it is said plainly,
+    // never as a failure.
     expect(
       resolveMcpToolsAvailability(
         connected({
@@ -104,7 +143,7 @@ describe('resolveMcpToolsAvailability', () => {
           }),
         })
       )
-    ).toBe('available');
+    ).toBe('unsupported');
   });
 
   it('leaves non-connected states alone', () => {
@@ -126,7 +165,10 @@ describe('describeMcpToolsAvailability', () => {
     expect(describeMcpToolsAvailability('available')).toBeUndefined();
   });
 
-  it('labels the degraded case', () => {
+  it('labels each state that has something to say', () => {
     expect(describeMcpToolsAvailability('tools-unavailable')).toBe('tools unavailable');
+    expect(describeMcpToolsAvailability('loading')).toBe('loading tools');
+    expect(describeMcpToolsAvailability('empty')).toBe('no tools');
+    expect(describeMcpToolsAvailability('unsupported')).toBe('offers no tools');
   });
 });
