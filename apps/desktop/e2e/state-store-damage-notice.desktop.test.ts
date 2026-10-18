@@ -8,7 +8,7 @@ import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, test } from './fixtures/electron-fixture';
-import { readHostProcess, readHostRoot } from './utils/agent-host-log';
+import { readHostProcess, readHostRoot, waitForAppHost } from './utils/agent-host-log';
 import { seedHostThreads } from './utils/seed-threads';
 
 /** The containment proof's damage: one unique-index cell, so the table pages still read. */
@@ -42,17 +42,7 @@ test.describe('Damaged state store notice (desktop) @desktop-db-storage', () => 
   }) => {
     test.setTimeout(240_000);
     const userData = await page.evaluate(() => globalThis.window.electronAPI!.getUserDataPath());
-    // The shell starts the agent host; its record appears once it is serving.
-    await expect
-      .poll(
-        () =>
-          readHostProcess(userData).then(
-            () => true,
-            () => false
-          ),
-        { timeout: 60_000 }
-      )
-      .toBe(true);
+    await waitForAppHost(page);
     await seedHostThreads(userData, [{ folder: null, title: 'Kept through the damage' }]);
     const file = join(await readHostRoot(userData), 'state.db');
     await electron.closeForStateSeeding();
