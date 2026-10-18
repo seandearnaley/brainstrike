@@ -6,7 +6,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
-import { createProductionHostPlatform, HostCore } from '@brainstrike/agent-host';
+import { createProductionHostPlatform, HostCore, type HostPlatform } from '@brainstrike/agent-host';
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import {
   DEFAULT_PERMISSION_POLICIES,
@@ -47,6 +47,51 @@ async function compositionRoot(_memory: boolean) {
       store,
     },
   };
+}
+
+/**
+ * The restart's close signal: every committed `model.step` row's Memory
+ * checkpoint (`commitHostStep`) has settled. A step commits its row, with its
+ * `interaction.requested`, and then runs one checkpoint that commits no row of
+ * its own (Memory reads the committed log), so the log shows the approval before
+ * that checkpoint settles. Under the 8 Oct owner decision (#3543, 6053593106), a
+ * close during the checkpoint rejects with its cancellation; the composition root
+ * that admits the run is where the settled checkpoints can be counted (BST-2156).
+ */
+function observeStepCheckpoints(
+  platform: HostPlatform
+): (rows: Awaited<ReturnType<HostCore['read']>>) => boolean {
+  let settled = 0;
+  const admitRun = platform.admitRun?.bind(platform);
+  if (!admitRun) {
+    throw new Error('The production platform admits no runs');
+  }
+  platform.admitRun = async (request) => {
+    const admission = await admitRun(request);
+    const openRun = admission.openRun?.bind(admission);
+    if (!openRun) {
+      throw new Error('The production admission opens no Memory owner');
+    }
+    return {
+      ...admission,
+      openRun: async (context) => {
+        const owner = await openRun(context);
+        const commit = owner.commitHostStep?.bind(owner);
+        if (!commit) {
+          throw new Error('The production Memory owner has no step checkpoint');
+        }
+        owner.commitHostStep = async () => {
+          try {
+            await commit();
+          } finally {
+            settled += 1;
+          }
+        };
+        return owner;
+      },
+    };
+  };
+  return (rows) => settled === rows.filter(({ event }) => event.type === 'model.step').length;
 }
 
 describe('persisted configured MCP authority', () => {
@@ -162,11 +207,11 @@ describe('persisted configured MCP authority', () => {
       if (change === 'inherited-path') {
         process.env['PATH'] = `${dirname(first.command)}${delimiter}${previousPath ?? ''}`;
       }
-      let core = await HostCore.open(
-        store,
-        await openPlatform(change === 'inherited-path' ? 'authority-probe' : first.command),
-        () => () => undefined
+      const firstPlatform = await openPlatform(
+        change === 'inherited-path' ? 'authority-probe' : first.command
       );
+      const checkpointsSettled = observeStepCheckpoints(firstPlatform);
+      let core = await HostCore.open(store, firstPlatform, () => () => undefined);
       try {
         const { threadId } = await core.startThread({ commandId: randomUUID() });
         const { runId } = await core.startRun({
@@ -176,17 +221,19 @@ describe('persisted configured MCP authority', () => {
           threadId,
         });
         let interactionId: string | undefined;
-        // The approval follows the load step's own model turn.
+        // The approval follows the load step's own model turn. The restart below
+        // closes only once that step's Memory checkpoint has settled too.
         await expect
           .poll(
             async () => {
-              const pending = (await core.read(threadId, 0)).find(
+              const rows = await core.read(threadId, 0);
+              const pending = rows.find(
                 ({ event }) => event.type === 'interaction.requested'
               )?.event;
               if (pending?.type === 'interaction.requested') {
                 interactionId = pending.interactionId;
               }
-              return interactionId !== undefined;
+              return interactionId !== undefined && checkpointsSettled(rows);
             },
             { timeout: 10_000 }
           )
@@ -376,16 +423,14 @@ describe('persisted configured MCP authority', () => {
           startup: { ...startup, store },
         });
       };
-      let core = await HostCore.open(
-        store,
-        await openPlatform(
-          first.url,
-          change === 'credential' || change === 'bearer-unchanged'
-            ? '00000000-0000-4000-8000-000000000001'
-            : undefined
-        ),
-        () => () => undefined
+      const firstPlatform = await openPlatform(
+        first.url,
+        change === 'credential' || change === 'bearer-unchanged'
+          ? '00000000-0000-4000-8000-000000000001'
+          : undefined
       );
+      const checkpointsSettled = observeStepCheckpoints(firstPlatform);
+      let core = await HostCore.open(store, firstPlatform, () => () => undefined);
       const failures: unknown[] = [];
       try {
         const { threadId } = await core.startThread({ commandId: randomUUID() });
@@ -396,17 +441,17 @@ describe('persisted configured MCP authority', () => {
           threadId,
         });
         let interactionId: string | undefined;
-        // The approval follows the load step's own model turn.
+        // The approval follows the load step's own model turn. The restart below
+        // closes only once that step's Memory checkpoint has settled too.
         await expect
           .poll(
             async () => {
-              const event = (await core.read(threadId, 0)).find(
-                ({ event }) => event.type === 'interaction.requested'
-              )?.event;
+              const rows = await core.read(threadId, 0);
+              const event = rows.find(({ event }) => event.type === 'interaction.requested')?.event;
               if (event?.type === 'interaction.requested') {
                 interactionId = event.interactionId;
               }
-              return interactionId !== undefined;
+              return interactionId !== undefined && checkpointsSettled(rows);
             },
             { timeout: 10_000 }
           )
