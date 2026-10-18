@@ -25,7 +25,6 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
-import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
@@ -179,7 +178,6 @@ export default defineConfig({
     ]),
     fullReloadOnCompilerHotspots(),
     wasm(),
-    topLevelAwait(),
     react({
       compiler: ReactCompilerConfig,
       exclude: reactTransformExclude,
@@ -308,6 +306,6 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [preserveWorkerEntryPlugin(), wasm(), topLevelAwait()],
+    plugins: () => [preserveWorkerEntryPlugin(), wasm()],
   },
 });

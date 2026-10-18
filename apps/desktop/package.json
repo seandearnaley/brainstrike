@@ -200,7 +200,6 @@
     "tiktoken": "catalog:",
     "vite": "catalog:",
     "vite-plugin-static-copy": "catalog:",
-    "vite-plugin-top-level-await": "catalog:",
     "vite-plugin-wasm": "catalog:",
     "vitest": "catalog:",
     "wait-on": "^9.5.1",
