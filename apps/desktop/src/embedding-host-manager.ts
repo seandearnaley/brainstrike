@@ -9,6 +9,7 @@ import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import { EmbeddingHostStartup } from './embedding-host-background-startup';
+import { awaitHostDevice, requestHostDeviceResolution } from './embedding-host-device';
 import { documentBatchTimeout } from './embedding-host-document-timeout';
 import {
   documentResponseFailure,
@@ -359,20 +360,15 @@ export class EmbeddingHostManager {
     return this.stopHost();
   }
 
-  /** Re-resolve a running host's unpinned device; its background worker keeps its device until restart. */
+  /** The running host's status carrying memory recall's device (BST-2193). */
+  async ensureDeviceResolved(): Promise<EmbeddingHostStatus> {
+    const started = await this.ensureStarted({ waitForRunning: true });
+    return await awaitHostDevice(started, this.lifecycle, () => this.resolveDevice());
+  }
+
+  /** A preference change re-resolves a running host's unpinned device (`requestHostDeviceResolution`). */
   resolveDevice(): void {
-    const window = this.lifecycle.getHostWindow();
-    const status = this.getStatus();
-    if (this.disposed || this.disposing || !window || window.isDestroyed()) {
-      return;
-    }
-    if (status.state !== 'running') {
-      return;
-    }
-    window.webContents.send(
-      EMBEDDING_HOST_COMMAND_EVENT,
-      createEmbeddingHostCommand('resolve-device', status.runtimeId)
-    );
+    requestHostDeviceResolution(this.lifecycle, !(this.disposed || this.disposing));
   }
 
   private async stopHost(timeoutMs = EMBEDDING_HOST_STOP_TIMEOUT_MS): Promise<EmbeddingHostStatus> {
