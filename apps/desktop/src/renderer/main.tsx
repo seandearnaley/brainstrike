@@ -26,12 +26,11 @@ import {
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
-import { StrictMode, Suspense, useEffect } from 'react';
+import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import { connectDesktopAgentHost } from './agent-host-client';
-import { McpTaskStatusE2eHarness } from './components/mcp-task-status-e2e-harness-lazy';
 import {
   type DesktopBridgeValidationResult,
   isElectronRendererUserAgent,
@@ -81,10 +80,7 @@ const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
 
-const desktopRendererRole = resolveDesktopRendererRole(
-  window.location.search,
-  window.desktopLifecycle?.isTestMode === true
-);
+const desktopRendererRole = resolveDesktopRendererRole(window.location.search);
 const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
 const rendererRuntimeKind =
   desktopRendererRole === 'embedding-host' || desktopRendererRole === 'chunking-host'
@@ -524,16 +520,6 @@ root.render(
       <EmbeddingHostApp />
     ) : isChunkingHostMode() ? (
       <ChunkingHostApp />
-    ) : desktopRendererRole === 'mcp-task-harness' ? (
-      McpTaskStatusE2eHarness === null ? (
-        <div data-testid="mcp-task-harness-unavailable" role="alert">
-          MCP Tasks verifier is not built into this renderer (VITE_MCP_TASK_HARNESS unset).
-        </div>
-      ) : (
-        <Suspense fallback={<div role="status">Loading MCP Tasks verifier…</div>}>
-          <McpTaskStatusE2eHarness />
-        </Suspense>
-      )
     ) : (
       <StrictMode>
         <App />

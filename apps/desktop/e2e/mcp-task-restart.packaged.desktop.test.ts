@@ -1,52 +1,31 @@
+// A real MCP task survives a genuine restart of the packaged app (BST-1565,
+// rebuilt on the current owner by BST-2130). The agent host's task host owns
+// the task in its state store; the first launch starts it against the
+// tasks-reference server and closes with its input still pending. The second
+// launch must show it as restart-required, recover it through the card, and
+// cancel it exactly once, after which nothing keeps polling the server.
 import { constants } from 'node:fs';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, type TestInfo, test } from '@playwright/test';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
-import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-origin';
+import { readCommittedMcpTasks } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { closeElectronApp } from './utils/electron-helpers.mts';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { startPendingInputFixture } from './utils/mcp-pending-input-fixture';
+import {
+  beginPendingInputTask,
+  configurePendingInputServer,
+  PENDING_INPUT_TOOL_NAME,
+} from './utils/mcp-task-flow';
+import { startModelProviderShim } from './utils/model-provider-shim';
 
-type HarnessScenario =
-  | 'live'
-  | 'stale_epoch'
-  | 'lost_principal'
-  | 'capability_removed'
-  | 'unsupported_version';
-
-interface HarnessSnapshot {
-  readonly databaseOpen: boolean;
-  readonly interaction: {
-    readonly activeCancellations: number;
-    readonly activeInputs: number;
-    readonly inputKeys: number;
-    readonly subscriptionActive: boolean;
-  };
-  readonly lifecycle: {
-    readonly activePolls: number;
-    readonly activeTasks: number;
-    readonly queuedPolls: number;
-    readonly timers: number;
-  };
-  readonly listenerCount: number;
-  readonly pendingCancellation: boolean;
-  readonly recovery: 'live' | 'restart_required' | 'terminal';
-  readonly status: 'working' | 'input_required' | 'completed' | 'cancelled' | 'failed';
-}
-
-interface HarnessControl {
-  close(): Promise<HarnessSnapshot>;
-  releaseCancellation(): Promise<void>;
-  setScenario(scenario: HarnessScenario): void;
-  snapshot(): HarnessSnapshot;
-}
-
-declare global {
-  interface Window {
-    __brainstrikeMcpTaskHarness__?: HarnessControl;
-  }
-}
+const PROVIDER_KEY = 'test-key-bst2130';
+const FINAL_TEXT = 'The task observation has returned.';
+const MODEL = 'openrouter::openai/gpt-5.4';
 
 function packagedExecutablePath(): string {
   const releaseRoot = path.resolve(process.cwd(), 'release');
@@ -83,11 +62,17 @@ function electronEnvironment(): Record<string, string> {
   return environment;
 }
 
+interface PackagedLaunch {
+  readonly app: ElectronApplication;
+  readonly page: Page;
+}
+
 async function launchPackagedApp(
   executablePath: string,
-  userDataDir: string
-): Promise<ElectronApplication> {
-  return await electron.launch({
+  userDataDir: string,
+  environment: Readonly<Record<string, string>>
+): Promise<PackagedLaunch> {
+  const app = await electron.launch({
     args: [
       '--test-mode',
       `--user-data-dir=${userDataDir}`,
@@ -101,61 +86,20 @@ async function launchPackagedApp(
       ...electronEnvironment(),
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
+      // Linux renders a never-mapped window at 1 fps (BST-2040).
+      BRAINSTRIKE_E2E_SHOW_INACTIVE: '1',
       BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
-      BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       ELECTRON_IS_E2E_TEST: 'true',
       NODE_OPTIONS: '',
+      ...environment,
     },
     executablePath,
     timeout: 120_000,
   });
-}
-
-async function openHarness(app: ElectronApplication): Promise<Page> {
-  await app.evaluate(async ({ app: electronApp, BrowserWindow }, documentUrl) => {
-    const appPath = electronApp.getAppPath();
-    const window = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        preload: `${appPath}/dist/preload.js`,
-        sandbox: false,
-        webSecurity: true,
-      },
-    });
-    await window.loadURL(`${documentUrl}?mode=mcp-task-harness`);
-  }, APP_RENDERER_DOCUMENT_URL);
-  await expect
-    .poll(() => app.windows().some((candidate) => candidate.url().includes('mcp-task-harness')))
-    .toBe(true);
-  const page = app.windows().find((candidate) => candidate.url().includes('mcp-task-harness'));
-  if (!page) {
-    throw new Error('Packaged MCP Tasks harness window was not created.');
-  }
-  const rendererErrors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') {
-      rendererErrors.push(message.text());
-    }
-  });
-  page.on('pageerror', (error) => rendererErrors.push(error.message));
-  try {
-    await page.waitForFunction(
-      () => window.__brainstrikeMcpTaskHarness__ !== undefined,
-      undefined,
-      {
-        timeout: 30_000,
-      }
-    );
-  } catch (error) {
-    throw new Error(
-      `Packaged MCP Tasks harness did not become ready at ${page.url()}: ${rendererErrors.join(' | ')}`,
-      { cause: error }
-    );
-  }
-  await expect(page.getByTestId('mcp-task-status-card')).toBeVisible();
-  return page;
+  expect(await app.evaluate(({ app: electronApp }) => electronApp.isPackaged)).toBe(true);
+  const page = await app.firstWindow();
+  await page.waitForLoadState('domcontentloaded');
+  return { app, page };
 }
 
 async function closePackagedApp(app: ElectronApplication): Promise<void> {
@@ -167,133 +111,132 @@ async function closePackagedApp(app: ElectronApplication): Promise<void> {
   await closeElectronApp({ app, window });
 }
 
-async function snapshot(page: Page): Promise<HarnessSnapshot> {
-  return await page.evaluate(() => {
-    const harness = window.__brainstrikeMcpTaskHarness__;
-    if (!harness) {
-      throw new Error('MCP Tasks packaged harness is unavailable.');
-    }
-    return harness.snapshot();
+async function attachEvidence(testInfo: TestInfo, name: string, value: unknown): Promise<void> {
+  await testInfo.attach(name, {
+    body: JSON.stringify(value, null, 2),
+    contentType: 'application/json',
   });
 }
 
-async function closeHarness(page: Page): Promise<HarnessSnapshot> {
-  return await page.evaluate(async () => {
-    const harness = window.__brainstrikeMcpTaskHarness__;
-    if (!harness) {
-      throw new Error('MCP Tasks packaged harness is unavailable.');
+test(
+  'a real MCP task is recovered fenced and quiescent across a genuine packaged restart',
+  {
+    tag: ['@destructive', '@packaged'],
+  },
+  async ({}, testInfo) => {
+    test.setTimeout(300_000);
+    const executablePath = packagedExecutablePath();
+    await access(executablePath, constants.X_OK);
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-2130-packaged-user-data-'));
+    const workspace = await mkdtemp(path.join(os.tmpdir(), 'bst-2130-workspace-'));
+    const server = await startPendingInputFixture();
+    const provider = await startModelProviderShim({
+      deferredTool: true,
+      finalText: FINAL_TEXT,
+      toolCall: { arguments: {}, name: PENDING_INPUT_TOOL_NAME },
+    });
+    const environment = {
+      BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
+      BRAINSTRIKE_OPENROUTER_API_KEY: PROVIDER_KEY,
+      OPENROUTER_BASE_URL: provider.baseUrl,
+    };
+    const readTasks = () => readCommittedMcpTasks(userDataDir);
+    let first: PackagedLaunch | undefined;
+    let second: PackagedLaunch | undefined;
+    try {
+      first = await launchPackagedApp(executablePath, userDataDir, environment);
+      await ensureMockWorkspaceOpen(first.page);
+      await configurePendingInputServer(first.page, server.url);
+      await configureAssistantProvider(first.page, {
+        apiKey: PROVIDER_KEY,
+        compositeModelKey: MODEL,
+        provider: 'openrouter',
+      });
+      await enableAssistantCatalogModel(first.page, MODEL);
+      await ensureAssistantShellVisible(first.page);
+      await beginPendingInputTask(first.page, 'Start the task that must survive a restart.');
+      const pending = await readTasks();
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.status).toBe('input_required');
+      const taskId = pending[0]?.taskId;
+      // The tool settles on the live task once its bounded wait (45 s) ends, so
+      // the thread keeps the task's card; the run then completes. Closing before
+      // that would leave the call's effect uncertain and the run interrupted.
+      await expect(first.page.getByText(FINAL_TEXT, { exact: true })).toBeVisible({
+        timeout: 90_000,
+      });
+      expect((await readTasks())[0]).toMatchObject({ status: 'input_required', taskId });
+      // The app closes with the task's input still pending on the server.
+      await closePackagedApp(first.app);
+      first = undefined;
+      const beforeRestart = server.snapshot().requests.length;
+
+      second = await launchPackagedApp(executablePath, userDataDir, environment);
+      const { page } = second;
+      await ensureAssistantShellVisible(page);
+      // The host's state store carried the row across the restart.
+      // The relaunched host publishes its record when it starts; until then there is none to read.
+      await expect
+        .poll(() => readTasks().catch(() => []), { timeout: 60_000 })
+        .toEqual([expect.objectContaining({ status: 'input_required', taskId })]);
+      // The thread kept the task's card. The same server definition reconnects,
+      // so the host rebinds the task's live epoch and resumes it on its own: the
+      // card is live, not restart-required, and the host polls the task again.
+      const card = page.getByTestId('mcp-task-status-card').first();
+      await expect(card.getByTestId('mcp-task-status-summary')).toContainText('Input required', {
+        timeout: 60_000,
+      });
+      await expect(card.getByRole('button', { name: 'Recover task' })).toHaveCount(0);
+      await expect
+        .poll(() =>
+          server
+            .snapshot()
+            .requests.slice(beforeRestart)
+            .some((request) => request.taskId === taskId && request.method !== 'tasks/cancel')
+        )
+        .toBe(true);
+      // The first launch's input request did not survive the restart; nothing answered it.
+      await expect(page.getByText('This server input is no longer available.')).toBeVisible();
+      expect(server.snapshot().requests.filter(({ method }) => method === 'tasks/update')).toEqual(
+        []
+      );
+      expect(server.snapshot().requests.filter(({ method }) => method === 'tasks/cancel')).toEqual(
+        []
+      );
+      await card.getByRole('button', { exact: true, name: 'Cancel task' }).click();
+      await expect.poll(() => server.snapshot().cancellationAcknowledged).toBe(true);
+      server.releaseTerminalObservation();
+      await expect.poll(async () => (await readTasks())[0]?.status).toBe('cancelled');
+      await expect(card.getByTestId('mcp-task-status-summary')).toContainText('Cancelled');
+      await expect(card.getByRole('button', { name: /cancel task|recover task/i })).toHaveCount(0);
+      expect(
+        server
+          .snapshot()
+          .requests.filter(({ method, taskId: id }) => method === 'tasks/cancel' && id === taskId)
+      ).toHaveLength(1);
+      const terminal = await readTasks();
+      await closePackagedApp(second.app);
+      second = undefined;
+      // Quiescent: after the terminal state and close, nothing polls the task.
+      const settled = server.snapshot().requests.length;
+      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+      expect(server.snapshot()).toMatchObject({ activeRequests: 0 });
+      expect(server.snapshot().requests.length).toBe(settled);
+      await attachEvidence(testInfo, 'packaged-restart-observation', {
+        provider: provider.transcript(),
+        server: server.snapshot(),
+        tasks: terminal,
+      });
+    } finally {
+      if (first) {
+        await closePackagedApp(first.app);
+      }
+      if (second) {
+        await closePackagedApp(second.app);
+      }
+      await Promise.allSettled([provider.close(), server.close()]);
+      await rm(userDataDir, { force: true, recursive: true });
+      await rm(workspace, { force: true, recursive: true });
     }
-    return await harness.close();
-  });
-}
-
-async function setScenario(page: Page, scenario: HarnessScenario): Promise<void> {
-  await page.evaluate((nextScenario) => {
-    const harness = window.__brainstrikeMcpTaskHarness__;
-    if (!harness) {
-      throw new Error('MCP Tasks packaged harness is unavailable.');
-    }
-    harness.setScenario(nextScenario);
-  }, scenario);
-}
-
-test('MCP task recovery is fenced and quiescent across a genuine packaged restart', {
-  tag: ['@destructive', '@packaged'],
-}, async () => {
-  test.setTimeout(240_000);
-  const executablePath = packagedExecutablePath();
-  await access(executablePath, constants.X_OK);
-  const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1565-packaged-user-data-'));
-  let firstApp: ElectronApplication | undefined;
-  let secondApp: ElectronApplication | undefined;
-  try {
-    firstApp = await launchPackagedApp(executablePath, userDataDir);
-    expect(await firstApp.evaluate(({ app }) => app.isPackaged)).toBe(true);
-    const firstPage = await openHarness(firstApp);
-    await expect(firstPage.getByTestId('mcp-task-status-summary')).toContainText('Working');
-    await expect(firstPage.getByRole('button', { name: 'Recover task' })).toHaveCount(0);
-    expect(await snapshot(firstPage)).toMatchObject({
-      databaseOpen: true,
-      listenerCount: 1,
-      recovery: 'live',
-      status: 'working',
-    });
-    expect(await closeHarness(firstPage)).toMatchObject({
-      databaseOpen: false,
-      interaction: {
-        activeCancellations: 0,
-        activeInputs: 0,
-        inputKeys: 0,
-        subscriptionActive: false,
-      },
-      lifecycle: { activePolls: 0, activeTasks: 0, queuedPolls: 0, timers: 0 },
-      listenerCount: 0,
-      pendingCancellation: false,
-    });
-    await closePackagedApp(firstApp);
-    firstApp = undefined;
-
-    secondApp = await launchPackagedApp(executablePath, userDataDir);
-    expect(await secondApp.evaluate(({ app }) => app.isPackaged)).toBe(true);
-    const secondPage = await openHarness(secondApp);
-    await expect(secondPage.getByRole('button', { name: 'Recover task' })).toBeVisible();
-    expect(await snapshot(secondPage)).toMatchObject({
-      databaseOpen: true,
-      recovery: 'restart_required',
-      status: 'working',
-    });
-
-    await setScenario(secondPage, 'lost_principal');
-    await secondPage.getByRole('button', { name: 'Recover task' }).click();
-    await expect(secondPage.getByRole('alert')).toContainText(
-      'authorization principal that owns this MCP task is no longer available'
-    );
-    await expect(secondPage.getByRole('alert')).toBeFocused();
-
-    await setScenario(secondPage, 'live');
-    await secondPage.getByRole('button', { name: 'Recover task' }).click();
-    await expect(secondPage.getByText('Packaged task is working')).toBeVisible();
-    await expect(secondPage.getByRole('button', { name: 'Recover task' })).toHaveCount(0);
-    await expect(secondPage.getByTestId('mcp-task-status-summary')).toBeFocused();
-
-    await setScenario(secondPage, 'stale_epoch');
-    await secondPage.getByRole('button', { name: 'Cancel task' }).click();
-    await expect(secondPage.getByRole('alert')).toContainText('replaced server connection');
-    await expect(secondPage.getByTestId('mcp-task-status-summary')).toContainText('Working');
-
-    await setScenario(secondPage, 'live');
-    await secondPage.getByRole('button', { name: 'Cancel task' }).click();
-    await expect(secondPage.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
-    await expect(secondPage.getByTestId('mcp-task-status-summary')).toContainText('Working');
-    expect(await snapshot(secondPage)).toMatchObject({ pendingCancellation: true });
-    await secondPage.evaluate(async () => {
-      await window.__brainstrikeMcpTaskHarness__?.releaseCancellation();
-    });
-    await expect(secondPage.getByTestId('mcp-task-status-summary')).toContainText('Cancelled');
-    await expect(secondPage.getByTestId('mcp-task-status-summary')).toBeFocused();
-    await expect(secondPage.getByRole('button', { name: /cancel/i })).toHaveCount(0);
-
-    expect(await closeHarness(secondPage)).toMatchObject({
-      databaseOpen: false,
-      interaction: {
-        activeCancellations: 0,
-        activeInputs: 0,
-        inputKeys: 0,
-        subscriptionActive: false,
-      },
-      lifecycle: { activePolls: 0, activeTasks: 0, queuedPolls: 0, timers: 0 },
-      listenerCount: 0,
-      pendingCancellation: false,
-      recovery: 'terminal',
-      status: 'cancelled',
-    });
-  } finally {
-    if (firstApp) {
-      await closePackagedApp(firstApp);
-    }
-    if (secondApp) {
-      await closePackagedApp(secondApp);
-    }
-    await rm(userDataDir, { force: true, recursive: true });
   }
-});
+);
