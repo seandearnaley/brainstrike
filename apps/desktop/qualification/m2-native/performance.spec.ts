@@ -57,7 +57,7 @@ interface PhaseSamples {
 async function startMainLag(context: ElectronAppContext): Promise<void> {
   await context.app.evaluate(() => {
     const target = globalThis as typeof globalThis & {
-      m2QualificationHistogram?: import('node:perf_hooks').IntervalHistogram;
+      m2QualificationHistogram?: import('node:perf_hooks').ELDHistogram;
     };
     if (target.m2QualificationHistogram) {
       throw new Error('Previous main lag probe is still owned.');
@@ -74,7 +74,7 @@ async function stopMainLag(
 ): Promise<{ n: number; max: number; p50: number; p95: number }> {
   return await context.app.evaluate(() => {
     const target = globalThis as typeof globalThis & {
-      m2QualificationHistogram?: import('node:perf_hooks').IntervalHistogram;
+      m2QualificationHistogram?: import('node:perf_hooks').ELDHistogram;
     };
     const histogram = target.m2QualificationHistogram;
     if (!histogram) {
