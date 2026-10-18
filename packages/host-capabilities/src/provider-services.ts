@@ -19,6 +19,7 @@ import {
   createProviderVerificationService,
   TAVILY_SECRET_PROVIDER,
 } from './provider-verification.js';
+import { leaveOnAbort } from './shared-flight.js';
 
 export interface HostProviderServicesOptions {
   /**
@@ -69,7 +70,7 @@ export function createHostProviderServices(
   return {
     openRouterModel: async (modelId, signal) => {
       requireOpenRouterModelId(modelId);
-      const credential = await readCredential('openrouter');
+      const credential = await leaveOnAbort(() => readCredential('openrouter'), signal);
       if (!credential) {
         throw new Error('No API key configured for provider "openrouter".');
       }

@@ -1,3 +1,24 @@
+/**
+ * Waits for work another owner holds (the auth engine's shared refresh, a
+ * credential store read). An abort releases only this caller, with its
+ * reason, and never cancels that work: other callers and the owner rely on it.
+ */
+export async function leaveOnAbort<T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return await start();
+  }
+  signal.throwIfAborted();
+  const work = start();
+  const left = Promise.withResolvers<never>();
+  const leave = (): void => left.reject(signal.reason);
+  signal.addEventListener('abort', leave, { once: true });
+  try {
+    return await Promise.race([work, left.promise]);
+  } finally {
+    signal.removeEventListener('abort', leave);
+  }
+}
+
 interface Flight<T> {
   readonly controller: AbortController;
   readonly result: Promise<T>;

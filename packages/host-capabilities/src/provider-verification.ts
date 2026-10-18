@@ -65,7 +65,7 @@ import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-cre
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { TAVILY_SECRET_PROVIDER } from './native-tools/web-search-tool.js';
 import { resolveProviderBaseUrl } from './provider-base-url.js';
-import { createSharedFlights } from './shared-flight.js';
+import { createSharedFlights, leaveOnAbort } from './shared-flight.js';
 
 /** Tavily owns a Settings key slot but is not a chat provider in the registry. */
 export { TAVILY_SECRET_PROVIDER };
@@ -612,9 +612,13 @@ export function createProviderVerificationService(
       if (target.authType === 'oauth_subscription') {
         // The host's sign-in engine holds this credential and answers from its
         // one refresher; Main never reads subscription tokens.
-        return { freshness: 'live', result: await runSubscriptionProbe(providerId) };
+        // The engine owns its one shared refresh: a cancelled caller leaves, the refresh goes on.
+        return {
+          freshness: 'live',
+          result: await leaveOnAbort(() => runSubscriptionProbe(providerId), signal),
+        };
       }
-      const credential = await readCredential(providerId);
+      const credential = await leaveOnAbort(() => readCredential(providerId), signal);
       if (!credential) {
         throw new MissingProviderCredentialError(providerId);
       }

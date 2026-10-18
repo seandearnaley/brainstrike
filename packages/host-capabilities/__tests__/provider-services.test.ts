@@ -207,4 +207,61 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
     await expect(cancelled).rejects.toBe(reason);
     expect(held.signals[0]?.aborted).toBe(true);
   });
+
+  it("leaves the engine's shared subscription refresh running when its desktop caller cancels", async () => {
+    const refreshed = Promise.withResolvers<{ ok: true }>();
+    const refreshes: Promise<{ ok: true }>[] = [];
+    // The auth engine owns this refresh; it takes no caller signal and must not be aborted.
+    const verify = vi.fn((_provider: string) => {
+      refreshes.push(refreshed.promise);
+      return refreshed.promise;
+    });
+    const provider = createHostProviderServices({
+      auth: { secrets: credentialsWith({}).credentials.secrets, verify },
+      env: {},
+      envFileFailures: [],
+    });
+    const leaving = new AbortController();
+    const cancelled = provider.verify('openai-codex', 'desktop-ui', leaving.signal);
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+    const reason = new Error('The desktop caller left');
+    leaving.abort(reason);
+
+    await expect(cancelled).rejects.toBe(reason);
+    expect(verify).toHaveBeenCalledWith('openai-codex');
+    refreshed.resolve({ ok: true });
+    await expect(refreshes[0]).resolves.toEqual({ ok: true });
+    // Nothing was classified or cached for the cancelled caller: the next verify asks again.
+    await expect(provider.verify('openai-codex', 'desktop-ui', open)).resolves.toMatchObject({
+      result: { status: 'verified_limited' },
+    });
+    expect(verify).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases a caller whose credential read is still held, for both provider reads', async () => {
+    const read = Promise.withResolvers<null>();
+    const secrets = {
+      getCredential: vi.fn(async () => await read.promise),
+      getKey: vi.fn(async () => null),
+      listProviders: vi.fn(async () => []),
+    };
+    const held = heldFetch();
+    const provider = createHostProviderServices({
+      auth: { secrets: () => secrets as unknown as SecretsService, verify: vi.fn() },
+      env: {},
+      envFileFailures: [],
+      fetchImpl: held.fetchImpl,
+    });
+    const leaving = new AbortController();
+    const verifying = provider.verify('openai', 'public-socket', leaving.signal);
+    const reading = provider.openRouterModel('openai/gpt-5.4-mini', leaving.signal);
+    await vi.waitFor(() => expect(secrets.getCredential).toHaveBeenCalledTimes(2));
+    const reason = new Error('The caller left during the credential read');
+    leaving.abort(reason);
+
+    await expect(verifying).rejects.toBe(reason);
+    await expect(reading).rejects.toBe(reason);
+    read.resolve(null);
+    expect(held.fetchImpl).not.toHaveBeenCalled();
+  });
 });

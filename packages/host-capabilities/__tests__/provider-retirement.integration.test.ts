@@ -34,7 +34,10 @@ afterEach(async () => {
   }
 });
 
-async function providerHost(stored: Record<string, ProviderCredential>) {
+async function providerHost(
+  stored: Record<string, ProviderCredential>,
+  refresh: (provider: string) => Promise<{ ok: true }> = vi.fn()
+) {
   const entered = Promise.withResolvers<AbortSignal>();
   const fetchImpl = vi.fn(
     (_input: string | URL | Request, init?: RequestInit) =>
@@ -66,7 +69,7 @@ async function providerHost(stored: Record<string, ProviderCredential>) {
     {
       close: async () => undefined,
       providers: createHostProviderServices({
-        auth: { secrets: () => secrets, verify: vi.fn() },
+        auth: { secrets: () => secrets, verify: refresh },
         env: {},
         envFileFailures: [],
         fetchImpl: fetchImpl as typeof fetch,
@@ -111,4 +114,16 @@ test('closing the host cancels an in-flight OpenRouter model read, which answers
   expect(await timedClose(host)).toBeLessThan(PROMPT_CLOSE_MS);
   expect(signal.aborted).toBe(true);
   await expect(read).rejects.toMatchObject({ code: 'host.closing' });
+});
+
+test("a socket's subscription verify never reaches the engine's refresh, so it cannot hold close", async () => {
+  // Held forever: were it reached, close would wait on it, and the abort must never touch it.
+  const refresh = vi.fn((_provider: string) => new Promise<{ ok: true }>(() => undefined));
+  const { client, host } = await providerHost({}, refresh);
+  // Refused by the desktop-only gate before close even begins.
+  await expect(client.request('providers/verify', { provider: 'openai-codex' })).rejects.toThrow();
+
+  expect(await timedClose(host)).toBeLessThan(PROMPT_CLOSE_MS);
+  // Only the desktop's private connection reaches the refresh; host close never retires it.
+  expect(refresh).not.toHaveBeenCalled();
 });
