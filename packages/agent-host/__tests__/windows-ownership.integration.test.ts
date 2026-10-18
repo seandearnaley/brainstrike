@@ -342,6 +342,8 @@ windowsTest(
         spawn: async () => {
           spawned = true;
         },
+        // BST-2142: the refused attach waits this long for the owner to leave.
+        startupTimeoutMs: 1000,
       });
     } catch (error) {
       cause = error;

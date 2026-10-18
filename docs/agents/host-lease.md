@@ -5,7 +5,10 @@
 One lease owns a data root across desktop, CLI and native descendants. Root path,
 PID and OS start identity identify the generation; PID alone is insufficient.
 An OS-backed lock protects ownership across process loss. A live but unreachable
-owner is refused, never killed, replaced or guessed stale.
+owner is refused, never killed, replaced or guessed stale. A starting or exiting
+owner is waited for under the launch's one deadline: a refused attach, or a race
+whose winner releases, waits for that owner to give up the root and acquires
+again. Only an owner that keeps the root to the deadline is refused (BST-2142).
 
 Keep discovery and credential records private with owner-only permissions. Validate
 record shape, path, generation and process identity before attachment. Public

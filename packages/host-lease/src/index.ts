@@ -18,4 +18,5 @@ export {
   type HostStartOptions,
   startHost,
 } from './runtime.js';
+export { RootContentionError, startupFailure } from './startup-failure.js';
 export { decodeStartupMessage, type StartupMessage } from './startup-message.js';

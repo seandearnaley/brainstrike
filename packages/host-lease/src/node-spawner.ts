@@ -1,16 +1,12 @@
 import { type ChildProcess, fork, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import {
-  ForeignLockError,
-  processStartTime,
-  RootLock,
-  RootLockedError,
-} from '@brainstrike/state-store';
+import { processStartTime, RootLock } from '@brainstrike/state-store';
 import type { HostSpawner } from './launcher.js';
 import { ResourceOwner } from './resource-owner.js';
 import { decodeStartOptions } from './runtime.js';
-import { decodeStartupMessage, type StartupMessage } from './startup-message.js';
+import { startupFailure } from './startup-failure.js';
+import { decodeStartupMessage } from './startup-message.js';
 export interface NodeSpawnerOptions {
   /** Trusted shell composition inputs, appended after the validated start options. */
   readonly entryArgs?: readonly string[];
@@ -34,19 +30,6 @@ async function disconnect(child: ChildProcess): Promise<void> {
     });
   }
   child.unref();
-}
-function startupFailure(
-  root: string,
-  message: Extract<StartupMessage, { readonly event: 'failed' }>
-): Error {
-  const lease = RootLock.inspect(root)?.owner;
-  if (message.kind === 'root-locked' && lease && !lease.released) {
-    return new RootLockedError(lease);
-  }
-  if (message.kind === 'foreign-lock' && lease) {
-    return new ForeignLockError(lease);
-  }
-  return new Error(message.message);
 }
 export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpawner {
   const entrypoint =
