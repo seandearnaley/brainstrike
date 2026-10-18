@@ -221,6 +221,10 @@ catalog:
   '@codemirror/language': ^6.13.1
   '@codemirror/view': ^6.43.14
 overrides:
+  # Tailwind scans the direct Streamdown install; its adapter must use the same
+  # catalog release on future resolutions too. Retarget on adapter upgrades;
+  # retain while packages/assistant-ui/styles.css scans that direct dependency.
+  '@assistant-ui/react-streamdown@0.3.20>streamdown': 'catalog:'
   # BST-875: Drizzle's published CLI/API use tsx, never its deprecated loader.
   # 0.31.11 still declares that unused loader. Retire these edges when its
   # published CLI/API no longer need them; keep the executable TS-loading guard.

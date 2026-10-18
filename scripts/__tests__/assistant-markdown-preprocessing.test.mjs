@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { parse } from 'yaml';
 
 async function installedPreprocessors() {
   const owner = createRequire(new URL('../../packages/assistant-ui/package.json', import.meta.url));
@@ -42,4 +44,28 @@ test('prose preprocessing still works and the adapter shares its canonical imple
     assert.equal(typeof canonical[name], 'function', `${name} must remain a real preprocessor`);
     assert.equal(module[name], canonical[name], `${name} must use the vendor's single source`);
   }
+});
+
+test('Tailwind source scanning and the adapter stay on one catalog-governed renderer', async () => {
+  const { entry } = await installedPreprocessors();
+  const adapter = JSON.parse(
+    readFileSync(new URL('../package.json', pathToFileURL(entry)), 'utf8')
+  );
+  const workspace = parse(
+    readFileSync(new URL('../../pnpm-workspace.yaml', import.meta.url), 'utf8')
+  );
+  const owner = createRequire(new URL('../../packages/assistant-ui/package.json', import.meta.url));
+
+  assert.equal(
+    workspace.overrides[`@assistant-ui/react-streamdown@${adapter.version}>streamdown`],
+    'catalog:',
+    'future lock refreshes must keep the adapter constrained to the Tailwind-scanned catalog release'
+  );
+  // Streamdown's JS root is ESM-only; its public CSS export identifies the
+  // same package installation and is also what the application imports.
+  assert.equal(
+    realpathSync(createRequire(entry).resolve('streamdown/styles.css')),
+    realpathSync(owner.resolve('streamdown/styles.css')),
+    'the adapter must render with the same installation whose utility classes Tailwind scans'
+  );
 });

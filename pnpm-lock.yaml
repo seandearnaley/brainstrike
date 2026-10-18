@@ -511,6 +511,7 @@ catalogs:
       version: 5.0.15
 
 overrides:
+  '@assistant-ui/react-streamdown@0.3.20>streamdown': 2.7.0
   drizzle-kit@0.31.11>@esbuild-kit/esm-loader: '-'
   drizzle-kit@0.31.11>tsx: 4.23.12
   '@vercel/backends@19.0.2>tsx': 4.23.12
