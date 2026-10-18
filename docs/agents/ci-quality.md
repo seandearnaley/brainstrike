@@ -15,6 +15,10 @@ paths and owners in `scripts/test-program-debt.json`; admission removes those
 paths. New omissions and stale debt fail the guard. Candidate eval assets keep
 their explicit execution owner rather than becoming ordinary package tests.
 
+Desktop test-program acceptance rechecks without incremental build state through
+the existing verifier. Its root compiler shim owns that verdict; production
+builds retain their incremental caches. A warm build is not test acceptance.
+
 Use judgment about the changed behavior, affected dependencies and failure risk.
 Start with existing focused tests. Add tests for a real regression or meaningful
 new behavior, not for documentation wording, source layout or arbitrary counts.
