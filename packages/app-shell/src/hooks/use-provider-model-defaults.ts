@@ -5,6 +5,7 @@ import {
 import {
   getProviderDisplayName,
   getProviderModelDefaultPolicy,
+  isStateStoreReadOnly,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -74,6 +75,14 @@ export function useProviderModelDefaults(
       attemptedProviders.set(provider, { db, secretsVersion });
 
       void initializeProviderModelDefaults(db, provider, policy).catch((error: unknown) => {
+        // BST-2144: a damaged store opened read-only; the damaged-store notice
+        // already says why nothing saves, so seeding defaults just waits.
+        if (isStateStoreReadOnly(error)) {
+          logger.info('Provider model defaults wait for a writable conversation store', {
+            provider,
+          });
+          return;
+        }
         const description = errorMessage(error);
         logger.error('Failed to initialize provider model defaults', { error, provider });
         toast({

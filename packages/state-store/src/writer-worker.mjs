@@ -213,7 +213,13 @@ function unlinkBlobs(hashes) {
 /** @param {unknown} e */
 function errorReply(e) {
   if (e instanceof ThreadReadOnlyRefusal) {
-    return { error: e.message, errorKind: 'readonly', threadId: e.threadId };
+    // A damaged state DB refuses every thread: the refusal is the store's.
+    return {
+      error: e.message,
+      errorKind: 'readonly',
+      threadId: e.threadId,
+      ...(damage === null ? {} : { storeDamage: damage }),
+    };
   }
   if (e instanceof ThreadDamage) {
     return {
@@ -226,6 +232,12 @@ function errorReply(e) {
   }
   if (e instanceof CheckpointBlockedError) {
     return { error: e.message, errorKind: 'checkpoint-blocked' };
+  }
+  // BST-2144: a damaged state DB opens query_only (or read-only), so SQLite
+  // refuses each write with SQLITE_READONLY. That is the store's own read-only
+  // posture, not a failure: say which store state refused it.
+  if (damage !== null && /** @type {{ code?: unknown }} */ (e)?.code === 'SQLITE_READONLY') {
+    return { damage, error: /** @type {Error} */ (e).message, errorKind: 'store-readonly' };
   }
   const err = /** @type {Error} */ (e);
   return { error: String(err?.stack ?? err), errorKind: 'failed' };

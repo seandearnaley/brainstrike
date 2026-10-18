@@ -111,7 +111,7 @@ export class StateStoreStartupError extends AggregateError {
 type Reply = Readonly<Record<string, unknown>> & {
   readonly id: number;
   readonly error?: string;
-  readonly errorKind?: 'readonly' | 'damaged' | 'checkpoint-blocked' | 'failed';
+  readonly errorKind?: 'readonly' | 'store-readonly' | 'damaged' | 'checkpoint-blocked' | 'failed';
 };
 
 interface Waiter {
