@@ -37,7 +37,7 @@ catalog:
   '@ai-sdk/otel': 1.0.142
   # BST-2029: retain the qualified fence until 0.0.79 passes both OS suites.
   # macOS behavior passed; Linux readiness is blocked by host AppArmor policy.
-  '@anthropic-ai/sandbox-runtime': 0.0.75
+  '@anthropic-ai/sandbox-runtime': 0.0.80
   # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
   # instance/container roles) behind Bedrock's `credentialProvider` seam.
   # Node-only — imported ONLY beside the provider factory, never from the

@@ -70,7 +70,7 @@ import {
  * A bump can silently change any of this, which is why the pin is asserted as a
  * test: bumping srt REQUIRES re-greening this suite, not just the type-check.
  */
-const PINNED_SRT_VERSION = '0.0.75';
+const PINNED_SRT_VERSION = '0.0.80';
 
 /** Per-request output cap; small enough to overflow without minutes of I/O. */
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -749,6 +749,41 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
   // -------------------------------------------------------------------------
 
   describe('process-tree inheritance', () => {
+    it.skipIf(platform !== 'linux')(
+      'DENIES a new user namespace inside the Linux fence',
+      async () => {
+        const code = [
+          'import ctypes, errno',
+          'libc = ctypes.CDLL(None, use_errno=True)',
+          'result = libc.unshare(0x10000000)', // CLONE_NEWUSER
+          'print("NAMESPACE", result, ctypes.get_errno(), errno.EPERM)',
+        ].join('\n');
+        // The same host/AppArmor path must permit this syscall before srt adds
+        // its seccomp filter. A host-level denial is not proof of our fence.
+        const control = execFileSync(
+          'bwrap',
+          [
+            '--ro-bind',
+            '/',
+            '/',
+            '--dev',
+            '/dev',
+            '--unshare-all',
+            pythonPath as string,
+            '-c',
+            code,
+          ],
+          { encoding: 'utf8', timeout: 10_000 }
+        );
+        expect(control).toContain('NAMESPACE 0 0 1');
+
+        const result = await run(code);
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain('NAMESPACE -1 1 1');
+      }
+    );
+
     it('DENIES an os.fork() child a write outside scratchDir, while the same fork writes inside it', async () => {
       const escapeTarget = join(outsideDir, 'fork-escape.txt');
       const controlTarget = join(scratchDir, 'fork-control.txt');
