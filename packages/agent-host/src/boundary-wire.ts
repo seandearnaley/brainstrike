@@ -7,7 +7,13 @@ import {
   refusal,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { ConnectionError, ConnectionErrors, ErrorCodes, ResponseError } from 'vscode-jsonrpc';
+import {
+  ConnectionError,
+  ConnectionErrors,
+  ErrorCodes,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc';
 
 /** The JSON-RPC error code of a refusal; a fault keeps `InternalError`. */
 export const BOUNDARY_REFUSAL_RPC_CODE = -32_001;
@@ -46,6 +52,30 @@ export function isConnectionLoss(cause: unknown): boolean {
     cause instanceof BoundaryFailureError &&
     (cause.failure.code === CONNECTION_CLOSED.code || cause.failure.code === CONNECTION_LOST.code)
   );
+}
+
+/** Node's codes for a socket whose peer closed or reset it under this side's reads or writes. */
+const PEER_RESET_CODES = new Set(['ECONNRESET', 'EPIPE']);
+
+/** A transport failure its peer caused by closing or resetting the connection. */
+export function isPeerReset(cause: unknown): boolean {
+  return cause instanceof Error && PEER_RESET_CODES.has(String(Reflect.get(cause, 'code')));
+}
+
+const peerResetConnections = new WeakSet<object>();
+
+/**
+ * BST-2192: records that the peer reset this connection's transport. A request
+ * vscode-jsonrpc then cannot write rejects with `MessageWriteError`, which keeps
+ * only the error text; the writer reports the error itself on `onError` first.
+ * Call before the first request.
+ */
+export function watchPeerReset(connection: Pick<MessageConnection, 'onError'>): void {
+  connection.onError(([error]) => {
+    if (isPeerReset(error)) {
+      peerResetConnections.add(connection);
+    }
+  });
 }
 
 function typedFailure(cause: unknown): BoundaryFailure | undefined {
@@ -122,7 +152,11 @@ export function toBoundaryResponseError(
  * peer sent, or the internal fault (with what arrived logged) when it sent none.
  * The original response error stays the cause.
  */
-export function fromBoundaryResponseError(cause: unknown, log: BoundaryLog): unknown {
+export function fromBoundaryResponseError(
+  cause: unknown,
+  log: BoundaryLog,
+  connection?: Pick<MessageConnection, 'onError'>
+): unknown {
   if (
     cause instanceof ConnectionError &&
     (cause.code === ConnectionErrors.Closed || cause.code === ConnectionErrors.Disposed)
@@ -134,7 +168,12 @@ export function fromBoundaryResponseError(cause: unknown, log: BoundaryLog): unk
   }
   if (
     cause.code === ErrorCodes.PendingResponseRejected ||
-    cause.code === ErrorCodes.ConnectionInactive
+    cause.code === ErrorCodes.ConnectionInactive ||
+    // A write onto a transport its peer reset never reached the peer. Any other
+    // write failure, such as unencodable params, stays the logged internal fault.
+    (cause.code === ErrorCodes.MessageWriteError &&
+      connection !== undefined &&
+      peerResetConnections.has(connection))
   ) {
     return new BoundaryFailureError(CONNECTION_LOST, { cause });
   }
