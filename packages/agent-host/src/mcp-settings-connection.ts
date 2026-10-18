@@ -3,6 +3,7 @@ import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrp
 import type { HostMethodHandler } from './auth-connection.js';
 import type { HostClientOrigin, HostMcpSettingsService } from './ports.js';
 import { MCP_SETTINGS_EVENT } from './protocol-mcp-settings.js';
+import { storeRefusal } from './store-refusals.js';
 
 const APPLIED = { applied: true } as const;
 const MAX_VISIBLE_ERROR_CHARS = 1000;
@@ -33,11 +34,13 @@ export function bindHostMcpSettingsMethods(
     return settings;
   };
   // Settings shows each refusal (a fault, an invalid path) as the host wrote it.
-  // A typed failure (a lifecycle closed for reset or quit) keeps its type.
+  // A typed failure (a lifecycle closed for reset or quit, a read-only state
+  // store's refusal of an extension write, BST-2144) keeps its type.
   const visible = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
       return await work();
-    } catch (cause) {
+    } catch (thrown) {
+      const cause = storeRefusal(thrown);
       if (cause instanceof BoundaryFailureError) {
         throw cause;
       }
