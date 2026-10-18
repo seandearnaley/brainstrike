@@ -124,7 +124,7 @@ test('producer and wire decoding still validate nested run configuration JSON', 
     Schema.decodeUnknownSync(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })(event)
   ).toEqual(event);
   expect(
-    Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['run/start'], {
+    Schema.decodeSync(HOST_METHOD_SCHEMAS['run/start'], {
       errors: 'all',
       onExcessProperty: 'error',
     })(event.payload)
@@ -132,7 +132,7 @@ test('producer and wire decoding still validate nested run configuration JSON', 
   const { parentMessageId: _parent, prompt: _prompt, ...regenerate } = event.payload;
   const regenerateParams = { ...regenerate, userMessageId: event.commandId };
   expect(
-    Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['run/regenerate'], {
+    Schema.decodeSync(HOST_METHOD_SCHEMAS['run/regenerate'], {
       errors: 'all',
       onExcessProperty: 'error',
     })(regenerateParams)

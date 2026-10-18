@@ -73,7 +73,7 @@ export async function loadHostPlatform(
   const factory = Schema.decodeUnknownSync(Factory, { errors: 'all', onExcessProperty: 'error' })(
     module.createHostPlatform
   );
-  return Schema.decodeUnknownSync(Platform, { errors: 'all', onExcessProperty: 'error' })(
+  return Schema.decodeSync(Platform, { errors: 'all', onExcessProperty: 'error' })(
     await factory(options, context, platformOptions)
   );
 }

@@ -94,7 +94,7 @@ export function createCollectionClient(connection: MessageConnection): Collectio
         await sendCatalogRequest(
           connection,
           METHOD,
-          Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(request)
+          Schema.decodeSync(Request, { errors: 'all', onExcessProperty: 'error' })(request)
         )
       );
       return {

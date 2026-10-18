@@ -36,7 +36,7 @@ export async function writeHostPermissionPolicy(
   await store.setSetting(
     POLICY_KEY,
     JSON.stringify(
-      Schema.decodeUnknownSync(HostPermissionPolicySchema, {
+      Schema.decodeSync(HostPermissionPolicySchema, {
         errors: 'all',
         onExcessProperty: 'error',
       })(policy)

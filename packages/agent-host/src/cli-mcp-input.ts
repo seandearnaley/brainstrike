@@ -37,7 +37,7 @@ export async function settleCliMcpInput(
     throw new Error('--content applies only to --action accept');
   }
   if (action === 'accept') {
-    const stage: HostParams<'mcp/input/stage'> = Schema.decodeUnknownSync(
+    const stage: HostParams<'mcp/input/stage'> = Schema.decodeSync(
       HOST_METHOD_SCHEMAS['mcp/input/stage'],
       { errors: 'all', onExcessProperty: 'error' }
     )({
