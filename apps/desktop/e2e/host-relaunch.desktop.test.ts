@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { setTimeout } from 'node:timers/promises';
 import { RootLock } from '@brainstrike/state-store';
-import type { Page } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -47,17 +48,48 @@ test('relaunching while the previous host still holds the profile reaches a work
   expect(existsSync(path.join(root, 'lock'))).toBe(true);
   // Stands in for the exiting host: a live owner of the Root with no host record.
   const exiting = await RootLock.acquire(root);
+  const acquired = Promise.withResolvers<ElectronApplication>();
+  let settled = false;
+  // Bootstrap waits for profile acquisition before creating its first window.
+  // Observe the real Main launch without waiting on the Root this test holds.
+  const reopening = electron
+    .restart((app) => acquired.resolve(app))
+    .then(
+      (context) => {
+        settled = true;
+        return { context, kind: 'ready' as const };
+      },
+      (error: unknown) => {
+        settled = true;
+        return { error, kind: 'failed' as const };
+      }
+    );
+  let result: Awaited<typeof reopening>;
   try {
-    page = await electron.ensureWindow();
-    await ensureAssistantShellVisible(page);
-    // The window's host connect is pending on the held Root: no failure, no conversation yet.
-    await page.waitForTimeout(3000);
-    await page.screenshot({ path: test.info().outputPath('connect-pending.png') });
-    await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
-    await expect(page.getByRole('region', { exact: true, name: 'Assistant' })).toHaveCount(0);
+    const started = await Promise.race([
+      acquired.promise.then((app) => ({ app, kind: 'acquired' as const })),
+      reopening,
+    ]);
+    if (started.kind === 'failed') {
+      throw started.error;
+    }
+    if (started.kind !== 'acquired') {
+      throw new Error('The relaunch completed before reporting its Main process.');
+    }
+    await setTimeout(3000);
+    // A held Root keeps startup pending, with no conversation or error window.
+    expect(settled).toBe(false);
+    expect(started.app.windows()).toHaveLength(0);
+    expect(started.app.process().exitCode).toBeNull();
   } finally {
     exiting.release();
+    result = await reopening;
   }
+  if (result.kind === 'failed') {
+    throw result.error;
+  }
+  page = result.context.window;
+  await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
   await openHostThread(page);
   await expect(page.getByText('RAN_BEFORE_QUIT', { exact: true }).first()).toBeVisible({
     timeout: 30_000,
