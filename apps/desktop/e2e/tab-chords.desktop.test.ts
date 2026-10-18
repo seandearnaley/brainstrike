@@ -150,6 +150,9 @@ test.describe('Tab keyboard chords (desktop)', () => {
     for (const appId of ['changes', 'canvas']) {
       await page.getByTestId('workspace-add-tab').click();
       await page.getByTestId(`workspace-add-tab-${appId}`).click();
+      // The menu dismisses after the pick (exit animation, then focus returns
+      // to "+"); reopening inside that window is closed by the returning focus.
+      await expect(page.getByRole('menu')).toHaveCount(0);
     }
     const canvasTab = workspace.getByTestId('workspace-app-tab-canvas');
     await canvasTab.click();
