@@ -16,6 +16,15 @@ const joinedAssertion =
 // Real new files exercise the repository's inclusion/override rules and scanner.
 // A separate synthetic config or --only would enable rules behind our backs.
 const layouts = [
+  ['packages/canonical-ingestion/__tests__/nested', '.browser.test.ts'],
+  ['packages/canonical-ingestion/__tests__', '.spec.ts'],
+  ['packages/canonical-ingestion/__tests__', '.mts'],
+  ['packages/canonical-ingestion/__tests__', '.mjs'],
+  ['packages/web-writer/src/__tests__/nested', '.browser.test.ts'],
+  ['packages/web-writer/src/__tests__', '.spec.ts'],
+  ['packages/web-writer/src/__tests__', '.mts'],
+  ['packages/web-writer/src/__tests__', '.mjs'],
+  ['packages/web-state-store/src/__tests__/nested', '-worker.ts'],
   ['packages/host-lease/__tests__/nested', '.integration.test.ts'],
   ['packages/host-lease/__tests__', '.spec.ts'],
   ['packages/host-lease/__tests__', '.mts'],
@@ -109,6 +118,9 @@ function lint(t, side) {
     rule: 'nursery/noFloatingPromises',
   });
   for (const directory of [
+    'packages/canonical-ingestion/src',
+    'packages/canonical-ingestion/__tests__',
+    'packages/web-writer/src',
     'packages/host-lease/src',
     'packages/host-lease/__tests__',
     'packages/assistant-service/src/__tests__/node-workspace-services',

@@ -186,7 +186,7 @@ export function createNativeCanonicalPublication(
     ) {
       throw new Error('Canonical publication file differs from its ticket scope.');
     }
-    if (state.aborted || state.finishing) {
+    if (state.aborted || state.finishing !== undefined) {
       throw new Error('Canonical publication write admission is closed.');
     }
     const assertFileCurrent = (): void => {
@@ -340,7 +340,7 @@ export function createNativeCanonicalPublication(
       }),
     finishScan: async (request) => {
       const state = stateForTicket(request.ticket);
-      if (state.finishing) {
+      if (state.finishing !== undefined) {
         return Promise.reject(new Error('Canonical scan is already finishing.'));
       }
       state.scanComplete = false;

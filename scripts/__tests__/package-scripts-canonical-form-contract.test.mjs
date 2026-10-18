@@ -111,6 +111,10 @@ const CLEAN_ALLOWLIST = new Map([
  */
 const TYPE_CHECK_ALLOWLIST = new Map([
   [
+    '@brainstrike/web-state-store',
+    'separate DOM tests and a noEmit WebWorker test program compile the real held-extension worker and its imports',
+  ],
+  [
     '@brainstrike/app-shell',
     'composite project — type-checks via `tsconfig.typecheck.json` + `tsconfig.test.json`',
   ],

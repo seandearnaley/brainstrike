@@ -46,7 +46,7 @@
     "test:browser": "vitest run --project browser",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && tsc --noEmit --project tsconfig.worker-test.json"
   },
   "sideEffects": false,
   "type": "module",

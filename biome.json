@@ -19,6 +19,9 @@
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
+      "packages/web-writer/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/canonical-ingestion/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/assistant-service/src/__tests__/node-workspace-services*/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-lease/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/src/mcp/**/*.{ts,tsx,mts,cts,mjs}",
@@ -824,6 +827,24 @@
         "packages/assistant-service/src/node-workspace-services.ts",
         "packages/assistant-service/src/__tests__/node-workspace-services*.ts",
         "packages/assistant-service/src/__tests__/node-workspace-services*/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/canonical-ingestion/src/**",
+        "packages/canonical-ingestion/__tests__/**",
+        "packages/web-writer/src/**",
+        "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
+        "packages/web-state-store/src/__tests__/web-state-extension-order.browser.test.ts"
       ],
       "linter": {
         "rules": {
