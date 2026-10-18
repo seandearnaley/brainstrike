@@ -524,11 +524,16 @@ export interface HostTool {
  * OpenRouter model metadata. Keys resolve inside the host and never cross.
  */
 export interface HostProviderService {
-  openRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** `signal` is the request's: its abort cancels this caller's network wait with its reason. */
+  openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
   /** The availability payload Settings and the assistant panel gate on. */
   status(): Promise<Readonly<Record<string, unknown>>>;
   /** A subscription probe needs the desktop origin, like a subscription run. */
-  verify(provider: string, origin: HostClientOrigin): Promise<ProviderVerificationSnapshot>;
+  verify(
+    provider: string,
+    origin: HostClientOrigin,
+    signal: AbortSignal
+  ): Promise<ProviderVerificationSnapshot>;
 }
 
 /**

@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { resolveProviderBaseUrl } from './provider-base-url.js';
+import { createSharedFlights } from './shared-flight.js';
 
 const DEFAULT_SUCCESS_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -44,7 +45,12 @@ interface OpenRouterModelMetadataServiceOptions {
 }
 
 export interface OpenRouterModelMetadataService {
-  get(modelId: string, apiKey: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** `signal` cancels this caller's wait with its reason; the fetch aborts once no caller waits. */
+  get(
+    modelId: string,
+    apiKey: string,
+    signal?: AbortSignal
+  ): Promise<OpenRouterModelMetadataSnapshot>;
 }
 
 function requirePositiveInteger(value: number, field: string): number {
@@ -117,7 +123,7 @@ export function createOpenRouterModelMetadataService(
     'maxCacheEntries'
   );
   const cache = new Map<string, OpenRouterModelMetadata>();
-  const pending = new Map<string, Promise<OpenRouterModelMetadataSnapshot>>();
+  const flights = createSharedFlights<OpenRouterModelMetadataSnapshot>();
 
   const retain = (cacheKey: string, metadata: OpenRouterModelMetadata): void => {
     cache.delete(cacheKey);
@@ -136,7 +142,8 @@ export function createOpenRouterModelMetadataService(
     apiKey: string,
     stale: OpenRouterModelMetadata | undefined,
     cacheKey: string,
-    modelUrl: string
+    modelUrl: string,
+    cancelled: AbortSignal
   ): Promise<OpenRouterModelMetadataSnapshot> => {
     try {
       const metadata = await runWithTimeout(
@@ -155,6 +162,7 @@ export function createOpenRouterModelMetadataService(
         },
         {
           onTimeout: () => new OpenRouterMetadataTimeoutError(requestTimeoutMs),
+          signal: cancelled,
           timeoutMs: requestTimeoutMs,
         }
       ).catch((error: unknown) => {
@@ -171,7 +179,11 @@ export function createOpenRouterModelMetadataService(
   };
 
   return {
-    async get(modelId: string, apiKey: string): Promise<OpenRouterModelMetadataSnapshot> {
+    async get(
+      modelId: string,
+      apiKey: string,
+      signal?: AbortSignal
+    ): Promise<OpenRouterModelMetadataSnapshot> {
       requireOpenRouterModelId(modelId);
       const normalizedApiKey = apiKey.trim();
       if (normalizedApiKey.length === 0) {
@@ -186,21 +198,12 @@ export function createOpenRouterModelMetadataService(
       }
 
       const pendingKey = `${cacheKey}:${createHash('sha256').update(normalizedApiKey).digest('hex')}`;
-      const existing = pending.get(pendingKey);
-      if (existing) {
-        return existing;
-      }
-      const request = refresh(
-        modelId,
-        normalizedApiKey,
-        cached,
-        cacheKey,
-        buildModelUrl(modelId, baseUrl)
-      ).finally(() => {
-        pending.delete(pendingKey);
-      });
-      pending.set(pendingKey, request);
-      return request;
+      const modelUrl = buildModelUrl(modelId, baseUrl);
+      return await flights(
+        pendingKey,
+        (cancelled) => refresh(modelId, normalizedApiKey, cached, cacheKey, modelUrl, cancelled),
+        signal
+      );
     },
   };
 }
