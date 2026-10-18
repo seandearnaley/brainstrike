@@ -75,12 +75,12 @@ describe('assistant-stream tool-call part contract (BST-849)', () => {
     expect(toolPart(streamed)['argsText']).toBe('{"path":"a.ts","content":"');
   });
 
-  it('moves to call on args-text-finish without ever flipping isArgsComplete', async () => {
+  it('marks arguments complete while the tool call waits for its result', async () => {
     const snapshots = await accumulate([start, delta, argsFinish]);
     const part = toolPart(snapshots.at(-1));
     expect(readToolCallArgsState(part)).toBe('call');
-    // The typed flag stays false — which is why the card reads `state`, not it.
-    expect(part['status']).toEqual({ isArgsComplete: false, type: 'running' });
+    // assistant-stream now exposes the same completion through its public flag.
+    expect(part['status']).toEqual({ isArgsComplete: true, type: 'running' });
   });
 
   it('stamps completedAt and state=result once the result lands', async () => {
