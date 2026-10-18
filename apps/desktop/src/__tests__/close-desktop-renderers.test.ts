@@ -72,6 +72,40 @@ describe('closeDesktopRenderers', () => {
     expect(visible.webContents.listenerCount('render-process-gone')).toBe(1);
   });
 
+  it('fails the renderer close with its cause when destroying an exited renderer throws', async () => {
+    const visible = rendererWindow();
+    const failure = new Error('native destroy refused');
+    visible.destroy.mockImplementation(() => {
+      throw failure;
+    });
+    const draining = closeDesktopRenderers([visible], () => false);
+    visible.webContents.emit('render-process-gone');
+    // Bounded: a destroy failure lost in its deferred callback would leave the close pending.
+    const outcome = await Promise.race([
+      draining.then(
+        () => 'resolved',
+        (error: unknown) => error
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('pending'), 1000)),
+    ]);
+    expect(outcome).toBeInstanceOf(AggregateError);
+    expect((outcome as AggregateError).errors).toEqual([failure]);
+    expect(visible.listenerCount('closed')).toBe(0);
+    expect(visible.webContents.listenerCount('render-process-gone')).toBe(0);
+  });
+
+  it('settles as closed when a destroy that throws still destroyed the exited renderer', async () => {
+    const visible = rendererWindow();
+    visible.destroy.mockImplementation(() => {
+      visible.isDestroyed.mockReturnValue(true);
+      throw new Error('Object has been destroyed');
+    });
+    const draining = closeDesktopRenderers([visible], () => false);
+    visible.webContents.emit('render-process-gone');
+    await expect(draining).resolves.toBeUndefined();
+    expect(visible.listenerCount('closed')).toBe(0);
+  });
+
   it('never destroys a live renderer that is still closing', async () => {
     const visible = rendererWindow();
     const draining = closeDesktopRenderers([visible], () => false);

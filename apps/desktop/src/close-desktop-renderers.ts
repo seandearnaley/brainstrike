@@ -17,16 +17,30 @@ function closeRenderer(window: ShutdownRendererWindow): Promise<void> {
     // unload handler any more, and `destroy` guarantees `closed`. Deferred past this event's
     // dispatch: its other listeners still read the window.
     const contents = window.webContents;
-    const gone = () => {
-      setImmediate(() => {
-        if (!window.isDestroyed()) {
-          window.destroy();
-        }
-      });
-    };
     const closed = () => {
       contents.removeListener('render-process-gone', gone);
       resolve();
+    };
+    // A close or destroy that throws settles this renderer: destroyed is closed, else its cause.
+    const fail = (error: unknown) => {
+      window.removeListener('closed', closed);
+      contents.removeListener('render-process-gone', gone);
+      if (window.isDestroyed()) {
+        resolve();
+        return;
+      }
+      reject(error);
+    };
+    const gone = () => {
+      setImmediate(() => {
+        try {
+          if (!window.isDestroyed()) {
+            window.destroy();
+          }
+        } catch (error) {
+          fail(error);
+        }
+      });
     };
     window.once('closed', closed);
     contents.once('render-process-gone', gone);
@@ -35,13 +49,7 @@ function closeRenderer(window: ShutdownRendererWindow): Promise<void> {
       // The existing application deadline owns an unresponsive renderer.
       window.close();
     } catch (error) {
-      window.removeListener('closed', closed);
-      contents.removeListener('render-process-gone', gone);
-      if (window.isDestroyed()) {
-        resolve();
-        return;
-      }
-      reject(error);
+      fail(error);
     }
   });
 }
