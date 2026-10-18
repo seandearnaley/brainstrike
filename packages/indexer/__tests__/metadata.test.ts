@@ -1,6 +1,81 @@
 import { embeddingProfileHash } from '@brainstrike/indexer';
 import { decodeIndexIdentityRow } from '@brainstrike/indexer/metadata';
-import { expect, it } from 'vitest';
+import { openConnection } from '@brainstrike/sqlite-native';
+import { expect, it, vi } from 'vitest';
+import { fault, IndexerError } from '../src/contracts.js';
+import {
+  readIndexIdentity,
+  readIndexSchemaVersion,
+  readScopeEpoch,
+} from '../src/index-metadata.js';
+import { validateScopedStorage } from '../src/scoped-vector-validation.js';
+
+it.each([readIndexIdentity, readIndexSchemaVersion, readScopeEpoch, validateScopedStorage])(
+  '%s retains the exact SQL failure and inner cause without extending the fault payload',
+  (read) => {
+    const db = openConnection(':memory:');
+    const inner = new Error('PRIVATE driver detail');
+    const cause = new Error('Metadata read failed.', { cause: inner });
+    vi.spyOn(db, 'prepare').mockImplementation(() => {
+      throw cause;
+    });
+    try {
+      let failure: unknown;
+      try {
+        read(db);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(IndexerError);
+      if (!(failure instanceof IndexerError)) {
+        throw new Error('Expected IndexerError');
+      }
+      expect(failure.cause).toBe(cause);
+      expect(cause.cause).toBe(inner);
+      expect(failure.code).toBe('rebuild-required');
+      expect(Object.getOwnPropertyDescriptor(failure, 'cause')?.enumerable).toBe(false);
+      expect(fault(failure)).toEqual({ code: 'rebuild-required', message: failure.message });
+      expect(JSON.stringify(fault(failure))).not.toMatch(/PRIVATE|cause|stack/);
+    } finally {
+      db.close();
+    }
+  }
+);
+
+it('retains a profile decoding failure through the real metadata wrapper', () => {
+  const cause = new SyntaxError('Invalid profile JSON.', {
+    cause: new Error('PRIVATE parser detail'),
+  });
+  const parse = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
+    throw cause;
+  });
+  try {
+    let failure: unknown;
+    try {
+      decodeIndexIdentityRow({
+        ...row,
+        indexMode: 'vector-configured',
+        profileHash: 'b'.repeat(64),
+        profileJson: '{',
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(IndexerError);
+    if (!(failure instanceof IndexerError)) {
+      throw new Error('Expected IndexerError');
+    }
+    expect(failure.cause).toBe(cause);
+    expect(fault(failure)).toEqual({
+      code: 'rebuild-required',
+      message:
+        'Existing index metadata is invalid: Invalid profile JSON.; explicitly rebuild in a new index file.',
+    });
+    expect(JSON.stringify(fault(failure))).not.toContain('PRIVATE');
+  } finally {
+    parse.mockRestore();
+  }
+});
 
 const profile = {
   dimensions: 384,

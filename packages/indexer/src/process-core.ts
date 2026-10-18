@@ -363,7 +363,7 @@ export async function runIndexerProcess(
     };
     send({ kind: 'ready', value: nativeInfo });
   } catch (error) {
-    if (closing && closePromise) {
+    if (closing && closePromise !== undefined) {
       // The early Close response owns the outcome; do not emit a contradictory
       // startup-error when that same close caused the writer-ready rejection.
       await closePromise.catch(() => undefined);

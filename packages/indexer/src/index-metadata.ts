@@ -70,7 +70,8 @@ export function decodeIndexIdentityRow(input: unknown): IndexerIdentity {
   } catch (error) {
     throw new IndexerError(
       'rebuild-required',
-      `Existing index metadata is invalid: ${error instanceof Error ? error.message : String(error)}; explicitly rebuild in a new index file.`
+      `Existing index metadata is invalid: ${error instanceof Error ? error.message : String(error)}; explicitly rebuild in a new index file.`,
+      { cause: error }
     );
   }
 }
@@ -83,7 +84,8 @@ export function readIndexSchemaVersion(db: Database.Database): IndexSchemaVersio
   } catch (error) {
     throw new IndexerError(
       'rebuild-required',
-      `Unsupported derived schema: ${error instanceof Error ? error.message : String(error)}`
+      `Unsupported derived schema: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }
@@ -102,7 +104,8 @@ export function readIndexIdentity(db: Database.Database): IndexerIdentity {
     }
     throw new IndexerError(
       'rebuild-required',
-      `Existing index metadata cannot be read: ${error instanceof Error ? error.message : String(error)}`
+      `Existing index metadata cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }
@@ -114,7 +117,8 @@ export function readScopeEpoch(db: Database.Database): string {
   } catch (error) {
     throw new IndexerError(
       'rebuild-required',
-      `Stored scope authority is invalid: ${error instanceof Error ? error.message : String(error)}`
+      `Stored scope authority is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

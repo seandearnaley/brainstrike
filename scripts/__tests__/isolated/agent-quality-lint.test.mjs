@@ -16,6 +16,10 @@ const joinedAssertion =
 // Real new files exercise the repository's inclusion/override rules and scanner.
 // A separate synthetic config or --only would enable rules behind our backs.
 const layouts = [
+  ['packages/indexer/__tests__/nested', '.test.ts'],
+  ['packages/indexer/__tests__', '.spec.ts'],
+  ['packages/indexer/__tests__', '.mts'],
+  ['packages/indexer/__tests__', '.mjs'],
   ['packages/host-capabilities/src/native-tools/__tests__', '.test.ts'],
   ['packages/host-capabilities/src/native-tools/__tests__/nested', '.spec.ts'],
   ['packages/host-capabilities/src/native-tools/__tests__', '.mts'],
@@ -71,6 +75,8 @@ function lint(t, side) {
     rule: 'nursery/noFloatingPromises',
   });
   for (const directory of [
+    'packages/indexer/src',
+    'packages/indexer/__tests__',
     'packages/host-capabilities/src/native-tools',
     'apps/desktop/src/__tests__/assistant-server/agent-quality-lint-layout',
     'packages/agent-host/src',

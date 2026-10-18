@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { openConnection } from '@brainstrike/sqlite-native';
 import { describe, expect, it, vi } from 'vitest';
 import { vectorBlob } from '../src/chunks.js';
-import { validateStoredVectorBytes } from '../src/scoped-vector-validation.js';
+import { IndexerError } from '../src/contracts.js';
+import {
+  validateScopedStorage,
+  validateStoredVectorBytes,
+} from '../src/scoped-vector-validation.js';
 
 interface StoredVector {
   readonly dimensions: number;
@@ -58,6 +63,37 @@ const cases = [
 ] as const;
 
 describe('stored Float32 vector validation', () => {
+  it('retains the vector decoder failure when validating actual corrupt stored bytes', () => {
+    const db = openConnection(':memory:');
+    db.exec(`
+      CREATE TABLE file_records(id TEXT, root_id TEXT, scoped INTEGER);
+      CREATE TABLE file_chunks(file_record_id TEXT, root_id TEXT, has_vector INTEGER, embedding_hash TEXT);
+      CREATE TABLE scoped_vectors(dimensions INTEGER, emb BLOB);
+      INSERT INTO scoped_vectors VALUES(1, X'0000807F');
+    `);
+    try {
+      let failure: unknown;
+      try {
+        validateScopedStorage(db);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(IndexerError);
+      if (!(failure instanceof IndexerError)) {
+        throw new Error('Expected IndexerError');
+      }
+      expect(failure.cause).toBeInstanceOf(TypeError);
+      expect(failure.cause).toMatchObject({
+        message: 'Embedding must remain finite and nonzero as float32.',
+      });
+      expect(failure.message).toBe(
+        'Scoped profile/vector storage is invalid: Embedding must remain finite and nonzero as float32.'
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   it.each(cases)('preserves historical acceptance and errors for $name', ({ bits, valid }) => {
     const row = fromBits(bits);
     const before = new Uint8Array(row.emb);
