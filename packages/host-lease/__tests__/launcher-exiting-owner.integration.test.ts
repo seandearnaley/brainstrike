@@ -105,7 +105,8 @@ test('an owner that refuses attach because it is closing is waited out, then a n
 test('a live owner that keeps the root is refused at the deadline, with its attach failure as cause', async () => {
   const root = await freshRoot();
   const stuck = await liveOwner(root);
-  const refusal = new Error('write EPIPE');
+  // Transport loss is the evidence of a leaving owner, so this one is waited for.
+  const refusal = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
   let started = false;
   const at = Date.now();
   const refused = await launchHost(root, {
@@ -121,6 +122,68 @@ test('a live owner that keeps the root is refused at the deadline, with its atta
   expect(refused).toMatchObject({ cause: refusal, pid: stuck.record.pid });
   expect(Date.now() - at).toBeLessThan(5000);
   expect(started).toBe(false);
+});
+
+test('an authentication failure stays terminal: no wait, no other owner, even when the owner then exits', async () => {
+  const root = await freshRoot();
+  const owner = await liveOwner(root);
+  let started = false;
+  const refused = await launchHost(root, {
+    attach: () => {
+      setTimeout(() => void exit(root, owner.lock), 20);
+      return Promise.reject(new Error('Host token authentication failed'));
+    },
+    lifetime: 'cli',
+    spawn: async () => {
+      started = true;
+    },
+  }).catch((cause: unknown) => cause);
+
+  expect(refused).toBeInstanceOf(LiveHostUnavailableError);
+  expect(refused).toMatchObject({ cause: { message: 'Host token authentication failed' } });
+  expect(started).toBe(false);
+});
+
+test('an attach never outlasts the launch deadline', async () => {
+  const root = await freshRoot();
+  await liveOwner(root);
+  const offered: number[] = [];
+  await launchHost(root, {
+    attach: (_record, timeoutMs) => {
+      offered.push(timeoutMs);
+      return Promise.reject(new Error('Host token authentication failed'));
+    },
+    attachTimeoutMs: 1500,
+    lifetime: 'cli',
+    spawn: async () => undefined,
+    startupTimeoutMs: 300,
+  }).catch(() => undefined);
+
+  expect(offered).toHaveLength(1);
+  expect(offered[0]).toBeLessThanOrEqual(300);
+});
+
+test('a host this launch started that closes during its attach sends the launch back to acquisition', async () => {
+  const root = await freshRoot();
+  const started = { count: 0 };
+  let attaches = 0;
+  const attachment = await launchHost(root, {
+    attach: async (target, timeoutMs) => {
+      attaches += 1;
+      if (attaches === 1) {
+        // The idle CLI host exits before its first client gets in.
+        await hosts.splice(0, 1)[0]?.close();
+        throw new Error('Host is closing');
+      }
+      return attachHost(target, timeoutMs);
+    },
+    lifetime: 'cli',
+    spawn: realHost(started),
+  });
+  clients.push(attachment);
+
+  expect(started.count).toBe(2);
+  expect(attaches).toBe(2);
 });
 
 test('a losing starter whose winner releases before publishing acquires again instead of throwing', async () => {

@@ -116,23 +116,6 @@ async function publishedRecord(
     }
   );
 }
-function ownRecord(record: HostRecord | null, lease: LockOwner): HostRecord {
-  if (!record) {
-    throw new Error(`Host pid ${lease.pid} released or changed its root lease during startup`);
-  }
-  return record;
-}
-async function attach(
-  record: HostRecord,
-  timeoutMs: number,
-  attachClient: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>
-): Promise<HostAttachment> {
-  try {
-    return await attachClient(record, timeoutMs);
-  } catch (cause) {
-    throw new LiveHostUnavailableError(record.pid, cause);
-  }
-}
 /**
  * Whether the owner `record` names stops holding the root before `deadline`:
  * its lease released, expired with its process, or taken by another owner.
@@ -151,11 +134,51 @@ async function ownerLeaves(root: string, record: HostRecord, deadline: number): 
     }
   }
 }
+/** Transport codes of an owner whose sockets are closing or already gone. */
+const LEAVING_TRANSPORT_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOENT', 'EPIPE']);
+/** The host's own closing refusal and the clients' lost-connection reports. */
+const LEAVING_MESSAGES = new Set([
+  'Host connection closed',
+  'Host is closing',
+  'Host socket closed before connect',
+]);
+/** The agent host's typed closing and connection-loss failures, matched by code. */
+const LEAVING_FAILURE_CODES = new Set([
+  'host.closing',
+  'host.connection-closed',
+  'host.connection-lost',
+]);
 /**
- * Attach to an existing owner. BST-2142: an owner that refuses because it is
- * closing (`Host is closing`, or sockets already gone) is still reachable and
- * is leaving; wait for it to give up the root, then acquire again (null). An
- * owner that keeps the root to the deadline is live and unreachable: refused,
+ * Whether an attach failure shows the owner may be leaving: it refused as
+ * closing, or its transport was lost. An authentication, version, protocol or
+ * record failure, or a handshake timeout, shows nothing of the kind: it stays
+ * terminal, and never starts another owner (docs/agents/host-lease.md).
+ */
+function ownerMayBeLeaving(cause: unknown, depth = 0): boolean {
+  if (depth > 4 || typeof cause !== 'object' || cause === null) {
+    return false;
+  }
+  if (cause instanceof AggregateError) {
+    return cause.errors.some((inner) => ownerMayBeLeaving(inner, depth + 1));
+  }
+  const code = Reflect.get(cause, 'code');
+  const failure = Reflect.get(cause, 'failure');
+  const failureCode =
+    typeof failure === 'object' && failure !== null ? Reflect.get(failure, 'code') : undefined;
+  if (
+    (typeof code === 'string' && LEAVING_TRANSPORT_CODES.has(code)) ||
+    (typeof failureCode === 'string' && LEAVING_FAILURE_CODES.has(failureCode)) ||
+    (cause instanceof Error && LEAVING_MESSAGES.has(cause.message))
+  ) {
+    return true;
+  }
+  return ownerMayBeLeaving(Reflect.get(cause, 'cause'), depth + 1);
+}
+/**
+ * Attach to an owner. BST-2142: an owner that refuses because it is closing,
+ * or whose transport is lost, is leaving; wait for it to give up the root,
+ * then acquire again (null). An owner that keeps the root to the deadline is
+ * live and unreachable, and any other attach failure is terminal: refused,
  * with the attach failure as the cause.
  */
 async function attachOrAwaitExit(
@@ -166,9 +189,10 @@ async function attachOrAwaitExit(
   attachClient: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>
 ): Promise<HostAttachment | null> {
   try {
-    return await attachClient(record, timeoutMs);
+    // The attach shares the launch's one deadline, never outlasting it.
+    return await attachClient(record, Math.max(1, Math.min(timeoutMs, deadline - Date.now())));
   } catch (cause) {
-    if (await ownerLeaves(root, record, deadline)) {
+    if (ownerMayBeLeaving(cause) && (await ownerLeaves(root, record, deadline))) {
       return null;
     }
     throw new LiveHostUnavailableError(record.pid, cause);
@@ -286,11 +310,11 @@ async function startAndAttach(launch: Launch): Promise<Step> {
   if (!acquired) {
     throw new Error('Host starter returned without a live root lease');
   }
-  return attach(
-    ownRecord(await publishedRecord(launch.root, acquired, remaining(launch)), acquired),
-    launch.attachTimeoutMs,
-    launch.attachClient
-  );
+  // The host this launch started may itself be leaving by now (an idle CLI
+  // host with no client yet): the same exit-aware attach as any other owner,
+  // and one that released before publishing sends the launch back to the start.
+  const record = await publishedRecord(launch.root, acquired, remaining(launch));
+  return record ? attachOwner(launch, record) : AGAIN;
 }
 
 export async function launchHost(
