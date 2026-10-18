@@ -17,7 +17,7 @@ import {
   type TabStripItem,
 } from '@brainstrike/ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
-import { ArrowLeft, ArrowRight, Globe, Plus, RotateCw } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bot, Globe, Plus, RotateCw } from 'lucide-react';
 import {
   type FormEvent,
   type ReactElement,
@@ -68,18 +68,21 @@ const logger = createLogger('BrowserPane');
 const BROWSER_TAB_PANEL_DOM_ID = 'browser-tab-panel';
 
 function toTabStripItem(tab: BrowserTab): TabStripItem {
+  const agent = tab.owner === 'agent';
   return {
     closable: true,
     closeTestId: `browser-tab-close-${tab.tabId}`,
+    dataAttributes: { 'data-tab-owner': tab.owner },
     // A constant icon keeps the label still: the loading status replaces it in place.
-    icon: Globe,
+    // The agent's tabs browse on their own partition behind the egress proxy (BST-1238).
+    icon: agent ? Bot : Globe,
     id: tab.tabId,
     label: browserTabLabel(tab),
     panelDomId: BROWSER_TAB_PANEL_DOM_ID,
     status: tab.isLoading ? 'loading' : undefined,
     tabDomId: `browser-tab-${tab.tabId}`,
     testId: `browser-tab-${tab.tabId}`,
-    tooltip: tab.url || undefined,
+    tooltip: agent ? `Agent tab${tab.url ? ` · ${tab.url}` : ''}` : tab.url || undefined,
   };
 }
 

@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const MAIN_PROCESS_ENTRY_POINTS = {
+  'agent-egress-entry': 'src/agent-egress-entry.ts',
   'agent-host-entry': 'src/agent-host-entry.ts',
   'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
   'desktop-database-location': 'src/desktop-database-location.ts',

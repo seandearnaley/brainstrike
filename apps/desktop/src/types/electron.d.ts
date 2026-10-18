@@ -77,6 +77,7 @@ declare global {
           active: boolean;
           canGoBack: boolean;
           canGoForward: boolean;
+          owner: 'agent' | 'user';
           tabId: string;
           title: string;
           url: string;
@@ -89,6 +90,7 @@ declare global {
             active: boolean;
             canGoBack: boolean;
             canGoForward: boolean;
+            owner: 'agent' | 'user';
             tabId: string;
             title: string;
             url: string;

@@ -14,8 +14,14 @@ import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/logging';
 import { type BrowserWindow, type WebContents, WebContentsView } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { type AgentBrowsingRoute, createAgentBrowsingRoute } from './agent-browsing-route';
 import type { BrowserDriver, CdpSession, CdpSessionResolver } from './browser-driver';
-import { BROWSER_PANE_PARTITION, getBrowserPaneSession } from './browser-session';
+import {
+  AGENT_BROWSER_PARTITION,
+  BROWSER_PANE_PARTITION,
+  getBrowserPaneSession,
+  type RefusedAgentResponse,
+} from './browser-session';
 import {
   type BrowserHostWindow,
   type BrowserPaneView,
@@ -60,6 +66,10 @@ function createPaneView(partition: string): BuiltPaneView {
     },
   });
   const { webContents } = view;
+  if (partition === AGENT_BROWSER_PARTITION) {
+    // WebRTC would otherwise reach LAN addresses over UDP, around the proxy.
+    webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
+  }
   const paneWebContents: PaneWebContents = {
     canGoBack: () => webContents.navigationHistory.canGoBack(),
     canGoForward: () => webContents.navigationHistory.canGoForward(),
@@ -93,6 +103,8 @@ export interface BrowserPaneHost {
   /** Agent-facing CDP driver for the active tab (BST-1176). */
   readonly driver: BrowserDriver;
   readonly manager: BrowserViewManager;
+  /** Start the egress proxy and route agent tabs through it; call before opening one. */
+  prepareAgentBrowsing(): Promise<void>;
 }
 
 /**
@@ -114,11 +126,47 @@ export function disposeActiveBrowserPaneViews(): void {
   }
 }
 
+/** Chromium's net error for a proxy that refused a CONNECT. */
+const ERR_TUNNEL_CONNECTION_FAILED = -111;
+
+function hostOf(url: string): string | null {
+  return URL.canParse(url) ? new URL(url).hostname.replace(/^\[(.*)\]$/, '$1') : null;
+}
+
+/** The agent-visible reason the egress proxy refused `host`. */
+export function describeEgressRefusal(host: string, refusal: string): string {
+  return refusal === 'unresolved'
+    ? `blocked_destination: agent browsing could not resolve ${host}`
+    : `blocked_destination: agent browsing may not connect to ${host}, a ${refusal} address`;
+}
+
+/** A refused plain-http main-frame response fails its tab's navigation visibly. */
+function recordRefusedResponse(response: RefusedAgentResponse): void {
+  const host = hostOf(response.url);
+  if (!response.isMainFrame || host === null) {
+    return;
+  }
+  for (const manager of activeManagers) {
+    manager.failNavigation(response.webContentsId, describeEgressRefusal(host, response.refusal));
+  }
+}
+
+let defaultAgentRoute: AgentBrowsingRoute | undefined;
+
+/** One egress proxy serves every window's agent tabs. */
+function sharedAgentRoute(): AgentBrowsingRoute {
+  defaultAgentRoute ??= createAgentBrowsingRoute();
+  return defaultAgentRoute;
+}
+
 /**
  * Construct the pane host bound to `hostWindow`. Call inside `app.whenReady()`
  * once the visible window exists.
  */
-export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHost {
+export function createBrowserPaneHost(
+  hostWindow: BrowserWindow,
+  agentRoute: AgentBrowsingRoute = sharedAgentRoute()
+): BrowserPaneHost {
   // Harden the pane session partition (idempotent) before any view uses it.
   getBrowserPaneSession();
 
@@ -174,7 +222,24 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
   };
 
   const manager = new BrowserViewManager({
+    agentPartition: AGENT_BROWSER_PARTITION,
     createView,
+    // A refused https or WebSocket connection reaches the tab only as a tunnel
+    // error; the proxy's refusal log names the refused address class.
+    describeLoadFailure: ({ errorCode, owner, url }) => {
+      const host = hostOf(url);
+      if (owner !== 'agent' || errorCode !== ERR_TUNNEL_CONNECTION_FAILED || host === null) {
+        return null;
+      }
+      const refusal = agentRoute.refusalFor(host);
+      if (refusal === undefined) {
+        return null;
+      }
+      return describeEgressRefusal(
+        host,
+        refusal.reason === 'destination' ? refusal.addressClass : refusal.reason
+      );
+    },
     hostWindow: host,
     // Ephemeral session ids — never persisted, so a plain uuid suffices.
     mintTabId: () => randomUUID(),
@@ -243,5 +308,6 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     },
     driver,
     manager,
+    prepareAgentBrowsing: () => agentRoute.prepare(recordRefusedResponse),
   };
 }
