@@ -19,6 +19,7 @@ import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
+import { webE2ERequiresDurableWrites } from './web-e2e-durable-writes';
 import { WebE2ETestHooks } from './web-e2e-test-hooks';
 // Import global CSS
 import './app/globals.css';
@@ -216,13 +217,7 @@ if (import.meta.hot) {
 
 root.render(
   <React.StrictMode>
-    <DbProvider
-      dbPath={webDbPath}
-      requireDurableWrites={
-        window.navigator.webdriver === true &&
-        Reflect.get(window, '__brainstrikeWebE2ERequireDurableWrites__') === true
-      }
-    >
+    <DbProvider dbPath={webDbPath} requireDurableWrites={webE2ERequiresDurableWrites()}>
       <DiagnosticSinkBridge source="web-renderer" />
       <WebE2ETestHooks dbPath={webDbPath} />
       <DbSchemaVerifier>
