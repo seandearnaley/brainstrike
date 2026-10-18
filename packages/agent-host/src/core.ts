@@ -178,7 +178,7 @@ export class HostCore {
     foldRows: (rows) => this.foldRows(rows),
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
-    runs: () => this.runs.values(),
+    runs: () => this.runs,
     startNextRun: (params, origin, refused) => this.startNextRun(params, origin, refused),
     wake: (threadId) =>
       this.admit(threadId, async () => {
