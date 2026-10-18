@@ -2,8 +2,9 @@ name: Linux desktop test host
 description: >-
   BST-2127. The one Linux host provisioning for every lane that runs the Unit
   suites or their coverage (test.yml `unit-shard`, nightly-coverage.yml
-  `package-coverage`): the real OS-fence dependencies, an X server for
-  desktop's real-app proofs and, when asked, the desktop test model cache.
+  `package-coverage`): the real OS-fence dependencies, an X server for the
+  integration passes that launch Electron and, when asked, the desktop test
+  model cache.
   Callers MUST check out and run `setup-workspace` first: the model cache is
   provisioned by a desktop package script under the installed Electron.
 # ONE host, two lanes. Nightly Coverage gained xvfb and the model cache in #3813
@@ -45,8 +46,10 @@ runs:
     # remediation on an ephemeral VM; it changes only whether bwrap can build
     # its namespace, not what the fence denies inside it.
     #
-    # xvfb: desktop's real-app proofs launch Electron, which needs an X server.
-    # Callers wrap those commands in `xvfb-run --auto-servernum`.
+    # xvfb: integration passes launch Electron, which needs an X server:
+    # desktop's real-app proofs, sqlite-query's utility pass and indexer's
+    # scoped-electron proof. Callers run every integration and coverage lane
+    # in `xvfb-run --auto-servernum`, whatever it selects.
     - name: Install the Linux OS-fence and display dependencies
       shell: bash
       run: |

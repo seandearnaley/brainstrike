@@ -63,15 +63,14 @@ test('does not classify an ordinary assertion failure or generic worker exit as 
   }
 });
 
-// BST-2127: desktop's integration proofs need an X server, so the integration
-// steps may start the classifier under this one display wrapper.
-const DESKTOP_DISPLAY_WRAPPER = `${'$'}{{ matrix.partition == 'desktop' && 'xvfb-run --auto-servernum' || '' }} `;
+// BST-2127/BST-2106: integration passes launch Electron, which needs an X
+// server, so the integration steps start the classifier under this one display
+// wrapper (linux-desktop-test-host-contract.test.mjs requires it).
+const DISPLAY_WRAPPER = 'xvfb-run --auto-servernum ';
 
 test('all required unit and integration steps run through the fatal classifier', () => {
   const commands = integrationStepCommands(workflow).map((command) =>
-    command.startsWith(DESKTOP_DISPLAY_WRAPPER)
-      ? command.slice(DESKTOP_DISPLAY_WRAPPER.length)
-      : command
+    command.startsWith(DISPLAY_WRAPPER) ? command.slice(DISPLAY_WRAPPER.length) : command
   );
   for (const match of workflow.matchAll(
     /- name: (?:Pull request affected|Push and manual) unit tests[\s\S]*?\n\s+run: ([^\n]+)/gu
