@@ -15,16 +15,20 @@ export interface NodeSpawnerOptions {
   /** Detached clients must not keep a short-lived CLI's output pipes open. */
   readonly output?: 'inherit' | 'ignore';
   /**
-   * Narrows the startup-report deadline for lifecycle tests; production keeps
-   * `HOST_STARTER_READY_TIMEOUT_MS`.
+   * Narrows the startup-report deadline, and with it a cancelled host's exit
+   * bound, for lifecycle tests; production keeps
+   * `HOST_STARTER_READY_TIMEOUT_MS` and `HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`.
    */
   readonly readyTimeoutMs?: number;
 }
+/** How long a starter has to report ready (or a failure) before it is cancelled. */
+export const HOST_STARTER_READY_TIMEOUT_MS = 30_000;
 /**
- * How long a starter has to report ready (or a failure) before it is
- * cancelled, and, once cancelled, how long it has to exit before it is killed.
+ * Once cancelled or retired, how long a host has to exit before it is killed.
+ * Its own bound (BST-2176): a longer readiness deadline never lengthens a
+ * failed launch's cleanup.
  */
-export const HOST_STARTER_READY_TIMEOUT_MS = 10_000;
+export const HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS = 10_000;
 async function closeChannel(child: ChildProcess): Promise<void> {
   if (child.connected) {
     await new Promise<void>((resolve) => {
@@ -114,13 +118,25 @@ async function stopAndJoin(
 }
 /** What a starter knows about the child it owns when it lets go of it. */
 interface StarterState {
+  /** How long a cancelled or retired host has to exit before it is killed. */
+  readonly exitTimeoutMs: number;
   failedWithRetainedOwner: boolean;
   readonly groupLeader: boolean;
   ready: boolean;
   released: boolean;
   readonly root: string;
-  /** The readiness deadline, which also bounds a cancelled host's exit. */
-  readonly timeoutMs: number;
+}
+/**
+ * BST-2176: the PID and OS start time a ready child's root lease names. Read
+ * before this starter has observed its exit, so the child is unreaped and the
+ * pid is still its own; a zombie has no start time.
+ */
+function readyIdentity(child: ChildProcess): StartedHost['identity'] {
+  const start = child.pid === undefined ? null : processStartTime(child.pid);
+  if (child.pid === undefined || start === null) {
+    throw new Error(`Host starter pid ${child.pid} exited as it reported ready`);
+  }
+  return { pid: child.pid, start };
 }
 /** The launch attached: hand the host the lifetime it was started with. */
 async function handOff(child: ChildProcess, lifetime: HostLifetime): Promise<void> {
@@ -156,7 +172,7 @@ async function retire(child: ChildProcess, state: StarterState): Promise<void> {
     return;
   }
   const ask = ownsRoot && child.connected ? 'cancel-startup' : 'SIGTERM';
-  await stopAndJoin(child, ask, state.groupLeader, state.timeoutMs);
+  await stopAndJoin(child, ask, state.groupLeader, state.exitTimeoutMs);
   // A ready host that closed cleanly exits 0; anything else is a failed close.
   if (state.ready && child.exitCode !== 0) {
     throw new Error(
@@ -171,18 +187,20 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
   if (!(Number.isSafeInteger(readyTimeoutMs) && readyTimeoutMs > 0)) {
     throw new RangeError('Host starter readiness deadline must be a positive safe integer');
   }
+  // A narrowed readiness deadline narrows the exit bound too, never widens it.
+  const exitTimeoutMs = Math.min(readyTimeoutMs, HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS);
   return async (input, signal): Promise<StartedHost> => {
     signal.throwIfAborted();
     const startOptions = decodeStartOptions(input);
     const owner = new ResourceOwner();
     const state: StarterState = {
+      exitTimeoutMs,
       failedWithRetainedOwner: false,
       // POSIX `detached` makes the child its own process group's leader.
       groupLeader: process.platform !== 'win32' && startOptions.lifetime === 'persistent',
       ready: false,
       released: false,
       root: startOptions.root,
-      timeoutMs: readyTimeoutMs,
     };
     const child = await owner.acquire(
       async (): Promise<ChildProcess> => {
@@ -215,10 +233,11 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
       },
       (child) => (state.released ? handOff(child, startOptions.lifetime) : retire(child, state))
     );
+    let identity: StartedHost['identity'];
     try {
-      await runWithTimeout(
+      identity = await runWithTimeout(
         (signal) =>
-          new Promise<void>((resolve, reject) => {
+          new Promise<StartedHost['identity']>((resolve, reject) => {
             const cleanup = (): void => {
               child.off('message', message);
               child.off('exit', exited);
@@ -240,9 +259,10 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
               try {
                 const decoded = decodeStartupMessage(inputMessage);
                 if (decoded.event === 'ready') {
+                  const identity = readyIdentity(child);
                   state.ready = true;
                   cleanup();
-                  resolve();
+                  resolve(identity);
                   return;
                 }
                 state.failedWithRetainedOwner = decoded.ownership === 'retained';
@@ -274,6 +294,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
     }
     // BST-2167: the launch, not this starter, decides the ready host's fate.
     return {
+      identity,
       release: () => {
         state.released = true;
         return owner.close();

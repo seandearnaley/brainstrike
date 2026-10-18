@@ -30,8 +30,28 @@ attachment releases it to its lifetime; a failed attach, a startup deadline, or
 a host that left on its own retires it before the launch rejects or acquires
 again. The deadline aborts the starter and waits for it to settle. The Node
 starter retires with `cancel-startup`, then SIGKILL (the group of a detached
-host) if the host has not exited within its readiness deadline, and a forced
+host) if the host has not exited within its cancel-exit bound, and a forced
 kill is an error, never a clean retirement.
+
+Three bounds govern a launch (BST-2176):
+
+- **Startup, 30 s** (`startupTimeoutMs`): acquisition. It covers waiting for a
+  starting or leaving owner, attaching to an existing owner or a race's winner,
+  and starting a host until its starter reports ready. The Node starter's
+  readiness deadline, `HOST_STARTER_READY_TIMEOUT_MS`, is also 30 s.
+- **Self-started attach, 1.5 s** (`attachTimeoutMs`): fixed when the starter
+  reports ready. It bounds that host's record read, handshake and any wait for
+  it to leave, and is never clipped by what the startup deadline has left. Only
+  the host its starter named gets it: the starter reads that host's PID and OS
+  start time at ready, and an owner that replaced it is attached like any other
+  once the launch has retired its own host. Any other attach gets the same
+  budget, clipped to the startup deadline. A
+  self-started launch settles within startup plus attach, plus joining the exit
+  of a host it retires.
+- **Cancel exit, 10 s** (`HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`): how long a
+  cancelled or retired Node host has to exit before SIGKILL. A longer readiness
+  deadline never lengthens it; the starter's `readyTimeoutMs` test seam narrows
+  both.
 
 An app-owned host closes when its parent process identity disappears. An ordinary
 CLI host closes after its last client and active run lease leave; explicit persistent

@@ -25,7 +25,7 @@ export interface HostRunEndPorts {
   readonly foldRows: (rows: readonly HostLogRow[]) => void;
   readonly presentations: Pick<HostThreadPresentationState, 'finishing' | 'settle'>;
   readonly read: (threadId: string) => Promise<HostLogRow[]>;
-  readonly runs: () => Iterable<HostRunState>;
+  readonly runs: () => ReadonlyMap<string, HostRunState>;
   readonly startNextRun: (
     params: HostParams<'run/start'>,
     origin: HostClientOrigin | undefined,
@@ -47,7 +47,7 @@ export class HostRunEnds {
   finish(run: HostRunState, outcome: Outcome, detail?: string, wakes = true): Promise<void> {
     const ports = this.ports;
     // While its admission is live: a completed run asks for a title, a failed one withdraws it.
-    ports.presentations.finishing(run, outcome, ports.runs());
+    ports.presentations.finishing(run, outcome, ports.runs().values());
     return finishHostRunWithProviderBilling(
       run,
       outcome,
@@ -65,12 +65,20 @@ export class HostRunEnds {
         })
     ).then(async () => {
       ports.presentations.settle(run);
-      const parent = ports.children.deliveryParent(run) ?? (run.origin ? undefined : run.threadId);
+      const parent =
+        ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
       // BST-1932: a child's human input runs next; only that run reports to the parent.
       const open = wakes && !(ports.closing() || ports.deletions.has(run.threadId));
       const input = takeHostChildInput(run, outcome, open);
-      const next =
-        input && (await ports.startNextRun(input.params, run.input?.origin, input.refused));
+      let next = false;
+      if (input) {
+        try {
+          next = await ports.startNextRun(input.params, run.input?.origin, input.refused);
+        } finally {
+          // The input's run, or its refusal, is committed: the report now waits on that run.
+          run.childInput = undefined;
+        }
+      }
       if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
         this.wake(parent);
       }
@@ -79,7 +87,7 @@ export class HostRunEnds {
 
   /** Await before admitting the thread's next run or rewind, outside Core's shared queue. */
   settled(threadId: string): Promise<void> {
-    return joinHostThreadSettlements(this.ports.runs(), threadId);
+    return joinHostThreadSettlements(this.ports.runs().values(), threadId);
   }
 
   /** B10/B14 (ADR-0010): an idle, unparked parent wakes once per batch of settled children. */

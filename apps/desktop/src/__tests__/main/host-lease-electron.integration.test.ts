@@ -136,7 +136,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     driver,
     root,
     platformModule ? agentEntrypoint : entrypoint,
-    String(startupTimeoutMs ?? 10_000),
+    String(startupTimeoutMs ?? 30_000),
     `--user-data-dir=${userData}`,
   ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {

@@ -54,17 +54,24 @@ export function describeHostChildLedger(entries: readonly HostChildLedgerEntry[]
   return lines.join('\n');
 }
 
+const CONTINUATION_STATUS = {
+  cancelled: 'cancelled',
+  failed: 'failed',
+  returned: 'completed',
+} as const satisfies Record<HostChildDeliveryEntry['state'], string>;
+
 /**
- * A completed follow-up typed into an idle child reaches its parent as the
- * shipped continuation notification (packages/agent/src/mastra/child-continuation.ts,
- * removed with BST-1935): the final completed leg's text only.
+ * A completed follow-up typed into an idle child, or the run that took a
+ * child's human input however it ended, reaches its parent as the shipped
+ * continuation notification (packages/agent/src/mastra/child-continuation.ts,
+ * removed with BST-1935): its final leg's text and how it ended.
  */
 export function describeHostChildContinuation(entry: HostChildDeliveryEntry): string {
   const contents = JSON.stringify({
     childThreadId: entry.childThreadId,
     continuationId: entry.childRunId,
     result: entry.outcome,
-    status: 'completed',
+    status: CONTINUATION_STATUS[entry.state],
   });
   return `<child_continuation_result>${contents}</child_continuation_result>`;
 }
