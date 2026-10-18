@@ -347,9 +347,10 @@ jobs:
       - name: Restore coverage shards
         run: |
           archive_count=$(find .coverage-artifacts -type f -name "nightly-coverage-*.tar" | wc -l | tr -d ' ')
-          # Six package matrix shards plus the natively merged DB archive.
-          if [ "$archive_count" -ne 7 ]; then
-            echo "::error::Expected 7 coverage shard archives; found ${archive_count}."
+          # Seven package matrix shards plus the natively merged DB archive
+          # (scripts/__tests__/coverage-contract.test.mjs ties this to the matrix).
+          if [ "$archive_count" -ne 8 ]; then
+            echo "::error::Expected 8 coverage shard archives; found ${archive_count}."
             exit 1
           fi
           while IFS= read -r -d '' archive; do
