@@ -16,6 +16,11 @@ const joinedAssertion =
 // Real new files exercise the repository's inclusion/override rules and scanner.
 // A separate synthetic config or --only would enable rules behind our backs.
 const layouts = [
+  ['packages/host-capabilities/src/native-tools/__tests__', '.test.ts'],
+  ['packages/host-capabilities/src/native-tools/__tests__/nested', '.spec.ts'],
+  ['packages/host-capabilities/src/native-tools/__tests__', '.mts'],
+  ['packages/host-capabilities/src/native-tools/__tests__', '.mjs'],
+  ['apps/desktop/src/__tests__/assistant-server/agent-quality-lint-layout', '.test.ts'],
   ['packages/effect-kit/src/__tests__', '.test.ts'],
   ['packages/effect-kit/src/__tests__', '.spec.ts'],
   ['packages/agent-host/__tests__', '.test.ts'],
@@ -66,6 +71,8 @@ function lint(t, side) {
     rule: 'nursery/noFloatingPromises',
   });
   for (const directory of [
+    'packages/host-capabilities/src/native-tools',
+    'apps/desktop/src/__tests__/assistant-server/agent-quality-lint-layout',
     'packages/agent-host/src',
     'packages/agent/src/__tests__',
     'packages/test-utils/src',
@@ -93,7 +100,11 @@ function lint(t, side) {
       }
     );
   }
-  for (const directory of ['packages/token-cache/src', 'packages/embedding-worker/test']) {
+  for (const directory of [
+    'packages/token-cache/src',
+    'packages/embedding-worker/test',
+    'packages/host-capabilities/src/native-tools',
+  ]) {
     cases.push({
       bad: 'export function check(pending: Promise<void> | null) { if (pending) { return pending; } return null; }',
       good: 'export function check(pending: Promise<void> | null) { if (pending !== null) { return pending; } return null; }',

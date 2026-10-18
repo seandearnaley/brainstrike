@@ -198,7 +198,7 @@ export async function resolveWorkspaceLeafMutationPath(
     canonicalParent = await fsPromises.realpath(path.dirname(requestedAbsolutePath));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new ToolInputError(`Path "${workspacePath}" does not exist.`);
+      throw new ToolInputError(`Path "${workspacePath}" does not exist.`, { cause: error });
     }
     throw error;
   }

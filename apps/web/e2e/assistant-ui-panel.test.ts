@@ -81,8 +81,22 @@ async function restoreAssistantFixtureRoot(page: Page): Promise<void> {
   );
 }
 
+// The specs below spell this tag as a literal: e2e-lane-coverage reads Playwright
+// tags statically, and an identifier there is undecidable for lane selection.
+const DURABLE_WRITES_TAG = '@durable-writes';
+// Run activity reaches the rows later while every write waits for IndexedDB.
+const DURABLE_RUN_ACTIVITY_TIMEOUT_MS = 15_000;
+
 test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assistant-state', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    // A spec that reloads and reads persisted state opts in: strict durable
+    // writes make syncDatabase flush before that reload (BST-2093). Strict
+    // writes are slower, so the other specs keep the app's relaxed store.
+    if (testInfo.tags.includes(DURABLE_WRITES_TAG)) {
+      await page.addInitScript(() => {
+        Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
+      });
+    }
     // No `__assistantAvailabilityOverride` here, deliberately: it REPLACES the
     // whole availability status, so forcing `{ state: 'enabled' }` would drop
     // the provider and model `/api/assistant/status` reports and leave the
@@ -160,9 +174,9 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByText('Memory database unavailable')).toHaveCount(0);
   });
 
-  test('customizes thread identity and keeps diagnostics out of the primary row', async ({
-    page,
-  }) => {
+  test('customizes thread identity and keeps diagnostics out of the primary row', {
+    tag: '@durable-writes',
+  }, async ({ page }) => {
     await expect(page.getByTestId('threads-panel')).toBeVisible();
     const threadRow = page.getByTestId('thread-row').first();
     await expect(threadRow).toBeVisible();
@@ -257,9 +271,9 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(reloadedThreadTab.getByTestId('thread-color-rose')).toBeVisible();
   });
 
-  test('tracks concurrent thread activity from durable runs and clears every terminal spinner', async ({
-    page,
-  }) => {
+  test('tracks concurrent thread activity from durable runs and clears every terminal spinner', {
+    tag: '@durable-writes',
+  }, async ({ page }) => {
     const elements = getPanelElements(page);
     if (await elements.showRightPanelShim.isVisible()) {
       await elements.showRightPanelShim.click();
@@ -315,8 +329,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
     );
 
-    await expect(rowSpinners).toHaveCount(2);
-    await expect(tabSpinners).toHaveCount(2);
+    await expect(rowSpinners).toHaveCount(2, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
+    await expect(tabSpinners).toHaveCount(2, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
     await expect(
       page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
     ).toHaveCount(2);
@@ -330,8 +344,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
       await hooks.completeAssistantThreadRun(runId, 'completed');
     }, firstRunId);
-    await expect(rowSpinners).toHaveCount(1);
-    await expect(tabSpinners).toHaveCount(1);
+    await expect(rowSpinners).toHaveCount(1, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
+    await expect(tabSpinners).toHaveCount(1, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
 
     await page.evaluate(async (runId) => {
       const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -341,8 +355,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
       await hooks.completeAssistantThreadRun(runId, 'failed');
     }, secondRunId);
-    await expect(rowSpinners).toHaveCount(0);
-    await expect(tabSpinners).toHaveCount(0);
+    await expect(rowSpinners).toHaveCount(0, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
+    await expect(tabSpinners).toHaveCount(0, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
     await expect(
       page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
     ).toHaveCount(2);
@@ -363,7 +377,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
         threadId: firstThread.id,
       }
     );
-    await expect(rowSpinners).toHaveCount(1);
+    await expect(rowSpinners).toHaveCount(1, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
     await page.evaluate(async (runId) => {
       const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
         .__brainstrikeWebE2ETestHooks__;
@@ -372,7 +386,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
       await hooks.completeAssistantThreadRun(runId, 'cancelled');
     }, cancellationRunId);
-    await expect(rowSpinners).toHaveCount(0);
+    await expect(rowSpinners).toHaveCount(0, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
 
     const orphanedRunId = `e2e-orphaned-run-${crypto.randomUUID()}`;
     await page.evaluate(
@@ -392,7 +406,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
         threadId: firstThread.id,
       }
     );
-    await expect(rowSpinners).toHaveCount(1);
+    await expect(rowSpinners).toHaveCount(1, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
 
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: true });
@@ -400,7 +414,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible({
       timeout: 15_000,
     });
-    await expect(rowSpinners).toHaveCount(0);
+    await expect(rowSpinners).toHaveCount(0, { timeout: DURABLE_RUN_ACTIVITY_TIMEOUT_MS });
   });
 
   test('keeps thread identity aligned when switching into rename mode', async ({ page }) => {

@@ -54,7 +54,9 @@ import {
 import {
   captureArchiveSnapshot,
   captureMissingArchiveSnapshot,
+  findNestedRepositories,
   inspectWorktreeSafety,
+  nestedRepositoriesArchiveBlocker,
   type WorktreeSafetyReport as SafetyReport,
 } from './worktree-archive';
 import {
@@ -411,6 +413,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       }
       return runningBlocker;
     }
+    // Nested repositories are not in the snapshot, so `force` cannot make
+    // archiving them safe either (BST-1625).
+    if (safety.nestedRepositories.length > 0) {
+      return nestedRepositoriesArchiveBlocker(safety.nestedRepositories);
+    }
     if (!(force || safety.blockers.length === 0)) {
       return safety.blockers.find((blocker) => blocker.length > 0) ?? null;
     }
@@ -458,6 +465,25 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
   }
 
+  /**
+   * Checked before the snapshot: `git add -A` fails outright on a nested
+   * repository with no commit, which would surface as a raw Git error
+   * instead of this refusal (BST-1625).
+   */
+  async function refuseNestedRepositories(row: ManagedWorktreeRow): Promise<GitResult<null>> {
+    const nested = await findNestedRepositories({
+      invoke: invokeIn(row.path),
+      worktreePath: row.path,
+    });
+    if (!nested.ok) {
+      return nested;
+    }
+    if (nested.value.length > 0) {
+      return { error: nestedRepositoriesArchiveBlocker(nested.value), ok: false };
+    }
+    return { ok: true, value: null };
+  }
+
   async function archiveUnserialized(
     params: WorktreeArchiveParams
   ): Promise<GitResult<WorktreeArchiveResult>> {
@@ -467,6 +493,10 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     if (!(await worktreePathExists(row.path))) {
       return await archiveMissingWorktree(row);
+    }
+    const nestedRefusal = await refuseNestedRepositories(row);
+    if (!nestedRefusal.ok) {
+      return nestedRefusal;
     }
     const snapshot = await captureArchiveSnapshot({ cwd: row.path, run: deps.run, worktree: row });
     if (!snapshot.ok) {

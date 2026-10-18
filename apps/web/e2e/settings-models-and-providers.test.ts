@@ -47,6 +47,11 @@ async function waitForPersistedModelState(
 
 test.describe('Model Catalog settings (web) @web-settings-state', () => {
   test.beforeEach(async ({ page }) => {
+    // The toggle spec reloads and reads persisted state: strict durable writes
+    // make syncDatabase flush before that reload (BST-2093).
+    await page.addInitScript(() => {
+      Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
+    });
     await page.goto('/');
     await resetAppState(page);
     await page.reload();

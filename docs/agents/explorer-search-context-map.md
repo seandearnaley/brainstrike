@@ -48,8 +48,10 @@ Use one shared ignore matcher. Git/global/search ignore layers are bypassable
 only by the explicit includeIgnored option. `.llmignore` and `.brainstrikeignore`
 are hard read boundaries and cannot be undone by deeper git negation or that
 option. Apply them to directory components and the leaf on walks, grep and shared
-file readers; refusal is not empty content. Mutation permissions remain their
-separate contract—hard read ignores are not a claimed write sandbox.
+file readers; refusal is not empty content. The same boundary binds mutations:
+write, edit and delete refuse an agent-ignored or credential target, and rename
+refuses either end (out would make the file readable, in could clobber or hide
+one). Approval for mutations remains a separate contract on top.
 
 Beneath every layer, the shared matcher holds a credential floor
 (`isWorkspaceSecretFile`): `.env` and `.env.*` (not `.env.example`, `.env.sample`

@@ -32,6 +32,19 @@ describe('isGuardedToolError', () => {
 });
 
 describe('ToolInputError', () => {
+  it('retains a private local cause without changing the safe error contract', () => {
+    const cause = new Error('PRIVATE filesystem detail');
+    const error = new ToolInputError('Specify the root.', { cause });
+    expect(error.cause).toBe(cause);
+    expect(Object.getOwnPropertyDescriptor(error, 'cause')?.enumerable).toBe(false);
+    expect(JSON.stringify(error)).not.toContain('PRIVATE');
+    expect(error).toMatchObject({
+      code: 'tool_input_invalid',
+      message: 'Specify the root.',
+      name: 'ToolInputError',
+    });
+  });
+
   it('brands trusted model-correctable validation failures', () => {
     const error = new ToolInputError('Specify the root.');
 
