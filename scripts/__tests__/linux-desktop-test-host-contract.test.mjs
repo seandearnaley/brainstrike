@@ -70,8 +70,8 @@ const UNIT_MATRIX = /^\$\{\{\s*fromJSON\(needs\.static\.outputs\.unit-matrix\)\s
 
 /** The floor: 3 desktop Unit rows x 2 integration steps, plus Nightly Coverage's desktop shard. */
 const KNOWN_DESKTOP_LANE_ROWS = 7;
-/** The floor: 9 Unit rows x 2 integration steps, plus Nightly Coverage's 6 package shards. */
-const KNOWN_HOST_LANE_ROWS = 24;
+/** The floor: 9 Unit rows x 2 integration steps, plus Nightly Coverage's 7 package shards. */
+const KNOWN_HOST_LANE_ROWS = 25;
 const KNOWN_DESKTOP_LANE_WORKFLOWS = ['nightly-coverage.yml', 'test.yml'];
 
 function readWorkflow(file) {

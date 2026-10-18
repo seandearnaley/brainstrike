@@ -108,6 +108,13 @@ jobs:
           - shard: agent
             concurrency: 1
             filters: '--filter=@brainstrike/agent'
+          # agent-host's real-process suites took 16 min of main's 24m42s
+          # "remaining" shard (run 39114976389); on a runner 1.7x slower
+          # (run 39118983854) that shard passed its 30 min step bound with
+          # tests still running.
+          - shard: agent-host
+            concurrency: 1
+            filters: '--filter=@brainstrike/agent-host'
           - shard: app-shell
             concurrency: 2
             filters: '--filter=@brainstrike/assistant-data --filter=@brainstrike/app-shell --filter=@brainstrike/web'
@@ -130,6 +137,7 @@ jobs:
             filters: >-
               --filter=!@brainstrike/db
               --filter=!@brainstrike/agent
+              --filter=!@brainstrike/agent-host
               --filter=!@brainstrike/app-shell
               --filter=!@brainstrike/assistant-data
               --filter=!@brainstrike/web
