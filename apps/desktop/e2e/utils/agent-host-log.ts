@@ -5,7 +5,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client';
 import type { HostChildStatus, HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { foldHostRuns, type HostRunView } from '@brainstrike/agent-host/thread-view';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { decodeHostRecord } from '@brainstrike/host-lease';
+import type { Page } from '@playwright/test';
 
 /** One committed MCP input fact, reduced to the fields a spec asserts on. */
 export interface McpInputFact {
@@ -18,6 +20,69 @@ export interface AgentHostLogSummary {
   readonly mcpInputs: readonly McpInputFact[];
   readonly threads: number;
   readonly typeCounts: Readonly<Record<string, number>>;
+}
+
+/**
+ * Resolves once the app's agent host is ready, through the visible frame's own attach path
+ * (`agent:host-connect`). Main answers it only after acquiring the profile host, which
+ * waits for the host's `ready` report, and the host publishes host.json before that.
+ * Call it after a launch or restart before any reader below: the record does not exist
+ * until then. Do not poll a reader instead: in Playwright 1.64, a throwing `expect.poll`
+ * callback ends the poll rather than retrying. The probe client this opens is closed, and
+ * Main's relay for it retired, before this returns.
+ */
+export async function waitForAppHost(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const bridge = (
+      window as Window & {
+        agentHost?: { connect(requestId: string): Promise<BoundaryResult<void>> };
+      }
+    ).agentHost;
+    if (!bridge) {
+      throw new Error('Agent host client capability is unavailable');
+    }
+    const requestId = crypto.randomUUID();
+    const connected = Promise.withResolvers<MessagePort>();
+    const disconnected = Promise.withResolvers<void>();
+    const receive = (event: MessageEvent<unknown>): void => {
+      const data = event.data;
+      if (
+        event.source !== window ||
+        !data ||
+        typeof data !== 'object' ||
+        !('type' in data && 'payload' in data && data.payload) ||
+        typeof data.payload !== 'object' ||
+        !('requestId' in data.payload) ||
+        data.payload.requestId !== requestId
+      ) {
+        return;
+      }
+      if (data.type === 'agent-host/disconnected') {
+        disconnected.resolve();
+        connected.reject(new Error('Agent host client disconnected before attach'));
+      } else if (data.type === 'agent-host/connected') {
+        const port = event.ports[0];
+        if (port) {
+          connected.resolve(port);
+        } else {
+          connected.reject(new Error('Agent host attach transferred no port'));
+        }
+      }
+    };
+    // Observed when awaited below; this only keeps an early refusal from going unhandled.
+    connected.promise.catch(() => undefined);
+    window.addEventListener('message', receive);
+    try {
+      const result = await bridge.connect(requestId);
+      if (!result.ok) {
+        throw new Error(`Agent host attach refused: ${result.error.message}`);
+      }
+      (await connected.promise).close();
+      await disconnected.promise;
+    } finally {
+      window.removeEventListener('message', receive);
+    }
+  });
 }
 
 /**
