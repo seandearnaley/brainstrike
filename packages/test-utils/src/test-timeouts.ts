@@ -101,3 +101,21 @@ export const ASYNC_UTIL_TIMEOUT = 1000;
  * via `test.provide` — see `createBrowserProject` in @brainstrike/config.
  */
 export const getAsyncUtilTimeout = (): number => ASYNC_UTIL_TIMEOUT * getTimeoutMultiplier();
+
+/**
+ * Base default for Vitest's `expect.poll()` in lanes that poll real processes
+ * and the real Electron renderer, in milliseconds. Set through the config's
+ * `test.expect.poll.timeout`; a call's own `{ timeout }` still wins.
+ *
+ * Like ASYNC_UTIL_TIMEOUT it is a poll ceiling inside a test, paid in full
+ * only when the condition never holds. Vitest's 1 s default is too short for
+ * readiness on a loaded runner: a host thread, a renderer label or a process
+ * exit can take seconds (BST-2150, BST-2181). It stays at a third of the
+ * desktop base test timeout (uiComponent), so the poll's own error is the one
+ * reported, and at 10 s on the nightly (x2) it stays under the fixed 20 s test
+ * timeouts that some real-process suites set.
+ */
+export const EXPECT_POLL_TIMEOUT = 5000;
+
+/** The multiplier-scaled `expect.poll()` default: 5 s local, 10 s CI/nightly. */
+export const getExpectPollTimeout = (): number => EXPECT_POLL_TIMEOUT * getTimeoutMultiplier();

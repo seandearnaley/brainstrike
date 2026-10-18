@@ -1,8 +1,15 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { ErrorCodes, ResponseError } from 'vscode-jsonrpc';
-import type { HostMethodHandler } from './auth-connection.js';
 import type { HostClientOrigin, HostProviderService } from './ports.js';
+import type { HostMethod, HostParams } from './protocol.js';
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
+
+/** These reads take the request's signal: retirement cancels their network wait. */
+type HostSignalMethodHandler = <M extends HostMethod>(
+  method: M,
+  request: (params: HostParams<M>, signal: AbortSignal) => unknown
+) => void;
 
 /**
  * Provider availability, credential verification and OpenRouter model metadata
@@ -10,7 +17,7 @@ const MAX_VISIBLE_ERROR_CHARS = 300;
  * sends a provider or model id, the host reads its own credential store.
  */
 export function bindHostProviderMethods(
-  handle: HostMethodHandler,
+  handle: HostSignalMethodHandler,
   providers: HostProviderService | undefined,
   origin: HostClientOrigin
 ): void {
@@ -20,11 +27,15 @@ export function bindHostProviderMethods(
     }
     return providers;
   };
-  // The client shows the failure text as it is, so it crosses unprefixed.
+  // The client shows the failure text as it is, so it crosses unprefixed. A
+  // typed failure (the request's own `host.closing` cancellation) keeps its type.
   const visible = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
       return await work();
     } catch (cause) {
+      if (cause instanceof BoundaryFailureError) {
+        throw cause;
+      }
       throw new ResponseError(
         ErrorCodes.InternalError,
         cause instanceof Error
@@ -34,8 +45,10 @@ export function bindHostProviderMethods(
     }
   };
   handle('host/status', () => visible(() => service().status()));
-  handle('providers/verify', ({ provider }) => visible(() => service().verify(provider, origin)));
-  handle('providers/openrouter-model', ({ model }) =>
-    visible(() => service().openRouterModel(model))
+  handle('providers/verify', ({ provider }, signal) =>
+    visible(() => service().verify(provider, origin, signal))
+  );
+  handle('providers/openrouter-model', ({ model }, signal) =>
+    visible(() => service().openRouterModel(model, signal))
   );
 }
