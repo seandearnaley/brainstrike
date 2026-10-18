@@ -295,8 +295,13 @@ test.each(['before the input run starts', 'while the input run runs'] as const)(
   }
 );
 
-/** A child whose input's run fails at its provider, or stays open until it is aborted. */
-function endingInputModel(input: 'fails' | 'fails-once' | 'blocks') {
+const EDITED = 'HUMAN_INPUT_9: check the year instead.';
+
+/**
+ * A child whose input's run fails at its provider, or stays open until it is
+ * aborted; or completes, while a regenerate of it, or an edit, stays open.
+ */
+function endingInputModel(input: 'fails' | 'fails-once' | 'blocks' | 'replacement-blocks') {
   const entered = Promise.withResolvers<void>();
   let inputCalls = 0;
   const model = new MockLanguageModelV4({
@@ -310,9 +315,15 @@ function endingInputModel(input: 'fails' | 'fails-once' | 'blocks') {
           ? stream(text('Parent continues.'))
           : stream(toolCall('agent-explore', { prompt: TASK }, 'input-1'));
       }
+      if (user.includes(EDITED)) {
+        return blocked(call);
+      }
       if (user.includes(INPUT)) {
         entered.resolve();
         inputCalls += 1;
+        if (input === 'replacement-blocks') {
+          return inputCalls === 1 ? stream(text('Child read the input.')) : blocked(call);
+        }
         if (input === 'blocks') {
           return blocked(call);
         }
@@ -449,7 +460,8 @@ test("stopping the input's run wakes the parent once, with the run whose input i
   await expectNoRedelivery();
 });
 
-test("a retried input's run reports on its own once the run whose input it took was delivered", async () => {
+// A retry is the person's own run, not the input's run (BST-2178): completed, it reports alone.
+test("a retry of the failed input's run, after both runs were delivered, reports on its own", async () => {
   const { inputEntered, model } = endingInputModel('fails-once');
   const { childThreadId, childRuns, deliveries, harness, release } = await steeredChild(model);
   release();
@@ -476,6 +488,43 @@ test("a retried input's run reports on its own once the run whose input it took 
   ]);
   expect(JSON.stringify(retry?.delivery)).toContain('Child read the input.');
 });
+
+/**
+ * BST-2178: a regenerate or edit of the input's message branches from the
+ * invocation, but it is the person's new run, not the input's run: stopped, it
+ * reports nothing.
+ */
+test.each(['regenerate', 'edit'] as const)(
+  "a stopped %s of the input's message, after both runs were delivered, wakes nothing",
+  async (how) => {
+    const { model } = endingInputModel('replacement-blocks');
+    const { childThreadId, childRuns, deliveries, expectNoRedelivery, harness, release, steered } =
+      await steeredChild(model);
+    release();
+    const { ids, outcomes } = await childRuns();
+    expect(outcomes).toEqual(['completed', 'completed']);
+    await deliveries(1);
+    const command = { commandId: randomUUID(), modelId: 'scripted', threadId: childThreadId };
+    const { runId: replacement } =
+      how === 'edit'
+        ? await harness.core().startRun({ ...command, parentMessageId: steered, prompt: EDITED })
+        : await harness.core().regenerateRun({
+            ...command,
+            userMessageId: committedRunIdentity(
+              await harness.core().read(childThreadId, 0),
+              ids[1] ?? ''
+            ).userMessageId,
+          });
+    await expect(
+      harness.core().stop({ commandId: randomUUID(), runId: replacement, threadId: childThreadId })
+    ).resolves.toEqual({ outcome: 'stopped' });
+    await rowsUntil(harness, childThreadId, finished(replacement), 5000);
+    // A wake for the stopped replacement would be admitted first (this turn is
+    // then refused, the parent being busy) or deliver it with this turn.
+    await expectNoRedelivery();
+    expect(await deliveries(1)).toHaveLength(1);
+  }
+);
 
 test("a host closed while the input's run runs delivers both runs once, at the next user turn after restart", async () => {
   const { inputEntered, model } = endingInputModel('blocks');
@@ -585,11 +634,15 @@ async function steerWithoutInput(parentTurn: 'released' | 'until-aborted') {
   expect(ended.find(finished(steered))?.event).toMatchObject({ outcome: 'completed' });
   // The parent's turn is still open, so the steered child's report has not been delivered.
   expect((await harness.core().read(harness.threadId, 0)).some(finished(rootRunId))).toBe(false);
-  /** A follow-up branched from the steered run, parked on its question. */
-  const parkFollowUp = async () => {
+  /**
+   * A follow-up branched from the steered run, parked on its question: typed
+   * at the tip, or naming the steered run as its parent, as an edit does.
+   */
+  const parkFollowUp = async (named = false) => {
     const { runId } = await harness.core().startRun({
       commandId: randomUUID(),
       modelId: 'scripted',
+      ...(named ? { parentMessageId: steered } : {}),
       prompt: FOLLOW_UP,
       threadId: childThreadId,
     });
@@ -635,6 +688,87 @@ test('after a restart, a replayed run/steer does not hold the report while a fol
   expect(turn?.delivery?.via).toBe('next-turn');
   expect(reported(turn?.delivery?.entries)).toEqual([
     { childRunId: steered, followUp: undefined, state: 'returned' },
+  ]);
+});
+
+test('after a restart, a follow-up naming a run/steer-ended child as its parent is not reported with it', async () => {
+  const { harness, parkFollowUp, steered } = await steerWithoutInput('until-aborted');
+  // Replayed, the follow-up's run/start names the steered run; a run/steer handed it no input.
+  await parkFollowUp(true);
+  await harness.core().close();
+  await harness.crash();
+  const next = await harness.start('Next.');
+  const rows = await rowsUntil(harness, harness.threadId, finished(next), 5000);
+  const turn = startedRuns(rows).find(({ runId }) => runId === next);
+  expect(turn?.delivery?.via).toBe('next-turn');
+  expect(reported(turn?.delivery?.entries)).toEqual([
+    { childRunId: steered, followUp: undefined, state: 'returned' },
+  ]);
+});
+
+/** BST-2178: an inline child returned its result to its tool call, so it never reports. */
+test("an inline child's input run, once completed, reports on its own as a follow-up", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const user = userTexts(call).join('\n');
+      if (toolNames(call).includes('agent-explore')) {
+        if (user.includes('child_continuation_result')) {
+          return stream(text('Parent read the child.'));
+        }
+        return call.prompt.some((message) => message.role === 'tool')
+          ? stream(text('Parent continues.'))
+          : stream(
+              toolCall(
+                'agent-explore',
+                { _background: { disposition: 'foreground' }, prompt: TASK },
+                'inline-1'
+              )
+            );
+      }
+      return user.includes(INPUT)
+        ? stream(text('Child read the input.'))
+        : stream(toolCall('read_file', { path: 'notes.md' }, 'read-1'));
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {
+    readFile: async () => {
+      entered.resolve();
+      await release.promise;
+      return { content: 'notes' };
+    },
+  });
+  cleanup.push(async () => release.resolve());
+  await harness.start('Delegate.');
+  await entered.promise;
+  const [childThreadId = ''] = await childThreads(harness);
+  const invocation = startedRuns(await harness.core().read(childThreadId, 0))[0]?.runId ?? '';
+  await expect(
+    harness.core().input({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: INPUT,
+      runId: invocation,
+      threadId: childThreadId,
+    })
+  ).resolves.toEqual({ accepted: true });
+  release.resolve();
+  const child = await rowsUntil(
+    harness,
+    childThreadId,
+    (row) => row.event.type === 'run.finished' && row.event.runId !== invocation,
+    5000
+  );
+  const inputRun = startedRuns(child).at(-1)?.runId;
+  const carrying = async () =>
+    startedRuns(await harness.core().read(harness.threadId, 0)).filter(({ delivery }) =>
+      delivery?.entries.some((entry) => entry.childThreadId === childThreadId)
+    );
+  await expect.poll(async () => (await carrying()).length, { timeout: 5000 }).toBe(1);
+  const [delivered] = await carrying();
+  expect(reported(delivered?.delivery?.entries)).toEqual([
+    { childRunId: inputRun, followUp: true, state: 'returned' },
   ]);
 });
 
