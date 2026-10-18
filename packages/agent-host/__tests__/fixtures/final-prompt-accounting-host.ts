@@ -19,8 +19,9 @@ import type { StateStoreHostMemoryOptions } from '../../src/adapters/state-store
 import { attachAgentHost, type HostClient } from '../../src/client.js';
 import type { HostLogRow } from '../../src/protocol.js';
 import type { AgentHost } from '../../src/runtime.js';
-import { deterministicEmbedding, REAL_INDEXER_DEADLINES } from './memory-vector-host.js';
+import { deterministicEmbedding } from './memory-vector-host.js';
 import { observeFixtureChild, recordFixtureEvent } from './owned-fixture-process.js';
+import { REAL_INDEXER_DEADLINES } from './real-indexer-deadlines.js';
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 
 export const WORKING_FACT = '# Project facts\n- Working memory contribution: coding in Paris.';

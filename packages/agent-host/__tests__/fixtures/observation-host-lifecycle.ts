@@ -21,11 +21,8 @@ import type { StateStoreHostMemory } from '../../src/adapters/state-store-host-m
 import { attachAgentHost, type HostClient } from '../../src/client.js';
 import type { HostPlatform, HostRunContext } from '../../src/ports.js';
 import type { AgentHost } from '../../src/runtime.js';
-import {
-  deterministicEmbedding,
-  failureReceipt,
-  REAL_INDEXER_DEADLINES,
-} from './memory-vector-host.js';
+import { deterministicEmbedding, failureReceipt } from './memory-vector-host.js';
+import { REAL_INDEXER_DEADLINES } from './real-indexer-deadlines.js';
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 import { scriptedModel } from './scripted-model.js';
 

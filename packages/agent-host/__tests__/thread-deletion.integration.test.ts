@@ -14,6 +14,7 @@ import { attachAgentHost, type HostClient } from '../src/client.js';
 import { storedHostEvent } from '../src/event-storage.js';
 import { HostLogRowSchema } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 
 test('authenticated Root deletion removes only its recorded thread and preserves its neighbor across reopen', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-protocol-thread-delete-')));
@@ -27,7 +28,7 @@ test('authenticated Root deletion removes only its recorded thread and preserves
     },
     stateRoot: root,
   } as const;
-  const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+  const deadlines = REAL_INDEXER_DEADLINES;
   let native: Awaited<ReturnType<typeof openIndexer>> | undefined;
   let host: AgentHost | undefined;
   let client: HostClient | undefined;
