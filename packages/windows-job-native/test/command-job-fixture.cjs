@@ -119,6 +119,8 @@ function inbox(child, stdout = false) {
 // later census includes the joins and exits recorded in between, each member
 // described when it joined. The observer closes its Job handle before replying,
 // so the guard's handle stays the last one and kill-on-close still ends the Job.
+// `held <guardPid>` counts the guard's handles to each pinned process object,
+// so a test can prove a resolved drain released the members it pinned.
 const processObserverSource = `
 param([string]$ProcessIds)
 $ErrorActionPreference='Stop'
@@ -196,6 +198,7 @@ public static class JobCensus {
  [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
  [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int information, IntPtr buffer, int length, out int returned);
+ [DllImport("kernel32.dll")] static extern uint GetCurrentProcessId();
  [StructLayout(LayoutKind.Sequential)] struct PortAssociation { public IntPtr Key; public IntPtr Port; }
  static readonly IntPtr self = new IntPtr(-1);
  static readonly object gate = new object();
@@ -219,19 +222,55 @@ public static class JobCensus {
   }
   throw new InvalidOperationException("ProcessHandleInformation did not fit in eight attempts.");
  }
+ static int TypeOf(IntPtr own) {
+  long count;
+  IntPtr table = Handles(self, out count);
+  try {
+   for (long i = 0; i < count; i++) {
+    if (Marshal.ReadIntPtr(table, Entry(i)) == own) return Marshal.ReadInt32(table, Entry(i) + 28);
+   }
+  } finally { Marshal.FreeHGlobal(table); }
+  throw new InvalidOperationException("The observer's own handle is missing from its handle table.");
+ }
  static int JobType() {
   IntPtr own = CreateJobObject(IntPtr.Zero, null);
   if (own == IntPtr.Zero) throw new Win32Exception();
+  try { return TypeOf(own); } finally { CloseHandle(own); }
+ }
+ static int ProcessType() {
+  IntPtr own = OpenProcess(0x1000, false, GetCurrentProcessId());
+  if (own == IntPtr.Zero) throw new Win32Exception();
+  try { return TypeOf(own); } finally { CloseHandle(own); }
+ }
+ // How many handles the guard holds to each target process object. A handle
+ // the guard closes between the snapshot and the duplicate is not held.
+ public static int[] GuardHandlesTo(uint guardPid, IntPtr[] targets) {
+  if (IntPtr.Size != 8) throw new InvalidOperationException("The Job census reads 64-bit layouts.");
+  int processType = ProcessType();
+  IntPtr guard = OpenProcess(0x1440, false, guardPid);
+  if (guard == IntPtr.Zero) throw new Win32Exception();
   try {
    long count;
-   IntPtr table = Handles(self, out count);
+   IntPtr table = Handles(guard, out count);
    try {
+    int[] held = new int[targets.Length];
     for (long i = 0; i < count; i++) {
-     if (Marshal.ReadIntPtr(table, Entry(i)) == own) return Marshal.ReadInt32(table, Entry(i) + 28);
+     if (Marshal.ReadInt32(table, Entry(i) + 28) != processType) continue;
+     IntPtr candidate;
+     if (!DuplicateHandle(guard, Marshal.ReadIntPtr(table, Entry(i)), self, out candidate, 0, false, 2)) {
+      int error = Marshal.GetLastWin32Error();
+      if (error == 6) continue;
+      throw new Win32Exception(error);
+     }
+     try {
+      for (int t = 0; t < targets.Length; t++) {
+       if (CompareObjectHandles(candidate, targets[t])) held[t] += 1;
+      }
+     } finally { CloseHandle(candidate); }
     }
+    return held;
    } finally { Marshal.FreeHGlobal(table); }
-  } finally { CloseHandle(own); }
-  throw new InvalidOperationException("The observer's own Job handle is missing from its handle table.");
+  } finally { CloseHandle(guard); }
  }
  static int LimitFlags(IntPtr job) {
   IntPtr limits = Marshal.AllocHGlobal(64);
@@ -453,6 +492,11 @@ try {
   }
   if($line -match '^census ([0-9]+)$'){
    [Console]::WriteLine((@{event='census';census=[JobCensus]::Census([uint32]$Matches[1])} | ConvertTo-Json -Compress -Depth 8))
+   continue
+  }
+  if($line -match '^held ([0-9]+)$'){
+   $held=[JobCensus]::GuardHandlesTo([uint32]$Matches[1],[IntPtr[]]$handles)
+   [Console]::WriteLine((@{event='held';held=@($held);identities=$identities} | ConvertTo-Json -Compress -Depth 4))
    continue
   }
   if($line -notin @('check','join')){throw 'Unexpected observer command'}
