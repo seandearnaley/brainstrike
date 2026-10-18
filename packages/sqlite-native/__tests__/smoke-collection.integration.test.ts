@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { describe, expect, it } from 'vitest';
 
 interface Facts {
@@ -16,7 +17,14 @@ interface Smoke {
 const requireFrom = createRequire(import.meta.url);
 const { collectFacts, provenanceFailures } = requireFrom('../test/smoke-lib.cjs') as Smoke;
 
-describe('native smoke observes the running library', () => {
+// A host budget, not a product latency contract (BST-2155). The round trip
+// writes to a file database in os.tmpdir(), and each durable commit waits for a
+// flush whose latency varies by VM; on Windows the mapped-module probe also
+// starts PowerShell (about 0.4 s). Usually about 0.6 s on hosted Windows; one
+// run took 6.7 s. 15 s, doubled under CI.
+const HOST_BUDGET = { timeout: getAdjustedTimeout('integration') } as const;
+
+describe('native smoke observes the running library', HOST_BUDGET, () => {
   it('proves the actual prebuild, mapped extension and vector round trip, and rejects corrupted observations', () => {
     const facts = collectFacts(requireFrom);
     expect(facts.nearestId).toBe(1);

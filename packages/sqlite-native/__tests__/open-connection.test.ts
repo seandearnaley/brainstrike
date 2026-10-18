@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openConnection, sqliteVecExtensionPath } from '../src/index.js';
 import { unpackedExtensionPath } from '../src/open-connection.js';
@@ -71,7 +72,15 @@ describe('sqliteVecExtensionPath', () => {
   });
 });
 
-describe('openConnection against the real prebuilds', () => {
+// A host-disk budget, not a product latency contract (BST-2155). These cases
+// write to a file database in os.tmpdir(), and each write statement waits for
+// SQLite's durable commit to flush to that volume. On hosted Windows (C:) that
+// flush latency varies by VM: the vec0 round trip takes about 70 ms on a quick
+// runner and has taken 5.1 s, right after a 7 ms load of both natives.
+// 15 s, doubled under CI.
+const HOST_DISK_BUDGET = { timeout: getAdjustedTimeout('integration') } as const;
+
+describe('openConnection against the real prebuilds', HOST_DISK_BUDGET, () => {
   it('loads better-sqlite3 and sqlite-vec and reports the vec0 version', () => {
     const db = openConnection(join(root, 'version.db'));
     try {
