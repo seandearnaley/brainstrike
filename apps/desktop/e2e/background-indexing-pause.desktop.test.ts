@@ -1,3 +1,4 @@
+import { waitForPopupAnimations } from '@brainstrike/e2e-test-utils/popup-animations';
 import type { Locator, Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 
@@ -152,6 +153,7 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(indexingPopover).toBeVisible({ timeout: 15_000 });
     await expect(indexingPopover.getByText('Files', { exact: true })).toBeVisible();
     await expect(indexingPopover.getByText('Chunks', { exact: true })).toBeVisible();
+    await waitForPopupAnimations(indexingPopover);
     const popoverBeforeDiagnostics = await requireBoundingBox(indexingPopover);
 
     // An explicitly selected empty native collection is ready and pausable.

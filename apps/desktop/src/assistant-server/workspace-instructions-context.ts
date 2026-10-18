@@ -63,11 +63,6 @@ function fenceContent(body: string): string {
   return `${fence}\n${body}\n${fence}`;
 }
 
-function isLocalProvider(runtimeData: RuntimeData | undefined): boolean {
-  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
-  return provider.toLowerCase() === 'local';
-}
-
 /**
  * Normalized view of the renderer-supplied workspace-instructions preference. A
  * preference — not a security boundary — so a malformed field is NOT a hard 400;
@@ -277,9 +272,6 @@ export async function buildWorkspaceInstructionsContextMessage(
 ): Promise<AgentMessage | null> {
   const preference = readWorkspaceInstructionsPreference(runtimeData);
   if (!preference.masterEnabled) {
-    return null;
-  }
-  if (isLocalProvider(runtimeData)) {
     return null;
   }
 

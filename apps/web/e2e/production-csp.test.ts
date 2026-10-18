@@ -39,7 +39,13 @@ async function installProductionCsp(page: Page, baseUrl: string): Promise<void> 
       await route.continue();
       return;
     }
-    const response = await route.fetch();
+    // route.fetch re-requests from Node over Playwright's keep-alive pool, which
+    // never expires idle sockets itself; the preview server closes them after
+    // 6s idle. A pooled socket handed out as the server closes it fails with
+    // ECONNRESET before any response byte (BST-2093). `maxRetries` is
+    // Playwright's option for that case: it retries ECONNRESET only, after a
+    // 250ms backoff, and still throws if the retry fails.
+    const response = await route.fetch({ maxRetries: 1 });
     await route.fulfill({
       headers: {
         ...response.headers(),

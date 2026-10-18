@@ -417,7 +417,7 @@ export function AssistantUiPanelWrapper({
     planModeEnabledPref,
     setPlanModeEnabled,
     togglePlanMode,
-  } = useAssistantExecutionControls(selectedProvider);
+  } = useAssistantExecutionControls();
   const {
     delegatedPanelBinding,
     ensureResourceThreads,
