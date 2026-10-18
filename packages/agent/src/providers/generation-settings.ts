@@ -1,12 +1,10 @@
 /** Canonical generation settings shared by the legacy loop and the SDK host. */
 import {
-  getLlmModelDefinition,
   listProviderLlmModels,
   resolveOpenRouterCodingMaxOutputTokens,
   resolveOpenRouterOutputWindow,
   resolveOpenRouterReasoningActive,
 } from '@brainstrike/assistant-contract';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { getDefaultModel } from './provider-factory';
 
@@ -40,19 +38,6 @@ export function buildModelSettingsOption(runtimeData: RuntimeData | undefined): 
   if (runtimeData?.provider === 'openrouter') {
     modelSettings = {
       maxOutputTokens: resolveOpenRouterBackstopMaxOutputTokens(runtimeData),
-      ...modelSettings,
-    };
-  } else if (runtimeData?.provider === 'local') {
-    const modelId = runtimeData.model?.trim() || getDefaultModel('local');
-    const definition = getLlmModelDefinition('local', modelId);
-    if (definition.maxOutputTokens === undefined) {
-      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-        context: { model: modelId, provider: 'local' },
-        detail: `Local model ${modelId} has no maxOutputTokens registry budget`,
-      });
-    }
-    modelSettings = {
-      maxOutputTokens: definition.maxOutputTokens,
       ...modelSettings,
     };
   }

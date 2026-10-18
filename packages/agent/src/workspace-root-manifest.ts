@@ -160,7 +160,7 @@ export function injectWorkspaceRootManifestContext(
   messages: AgentMessage[],
   runtime: RuntimeData | undefined
 ): AgentMessage[] {
-  if (!runtime || runtime.provider === 'local') {
+  if (!runtime) {
     return messages;
   }
   let insertionIndex = 0;

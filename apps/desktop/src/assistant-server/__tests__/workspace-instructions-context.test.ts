@@ -107,16 +107,6 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     expect(text).toContain('Truncated');
   });
 
-  it('skips injection entirely for the built-in local provider', async () => {
-    const reader = makeReader({ '/abs/repo-a': { 'AGENTS.md': 'conventions' } });
-    const message = await buildWorkspaceInstructionsContextMessage(
-      runtime({ provider: 'local' }),
-      reader
-    );
-    expect(message).toBeNull();
-    expect(reader).not.toHaveBeenCalled();
-  });
-
   it('warns and defaults ON when masterEnabled is a malformed non-boolean (no silent revert)', async () => {
     const reader = makeReader({ '/abs/repo-a': { 'AGENTS.md': 'conventions' } });
     const records: LogRecord[] = [];

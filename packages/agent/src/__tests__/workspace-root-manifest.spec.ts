@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '../types';
 import {
   buildWorkspaceRootManifestContextMessage,
-  injectWorkspaceRootManifestContext,
   MAX_WORKSPACE_ROOT_MANIFEST_CHARS,
   MAX_WORKSPACE_ROOT_MANIFEST_ROOTS,
 } from '../workspace-root-manifest';
@@ -106,22 +105,6 @@ describe('workspace root manifest', () => {
       ],
       state: 'available',
     });
-  });
-
-  it('does not spend the compact local-model context budget on the hosted manifest', () => {
-    const messages = [
-      {
-        id: 'user-local',
-        parts: [{ text: 'Hello', type: 'text' as const }],
-        role: 'user' as const,
-      },
-    ];
-    expect(
-      injectWorkspaceRootManifestContext(messages, {
-        provider: 'local',
-        workspaceRoots: [ROOT_A, ROOT_B],
-      })
-    ).toBe(messages);
   });
 
   it('keeps Main and Focused roots visible before bounded remaining roots', () => {

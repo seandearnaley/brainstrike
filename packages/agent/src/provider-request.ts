@@ -408,12 +408,7 @@ export async function prepareProviderRequest(
       ? dropAbortedOpenAIItems(params.prompt, context.abortedItemIds)
       : params.prompt;
   prompt = healInterruptedToolCalls(prompt, context.interruptedToolCallIds ?? new Set());
-  if (
-    context.history &&
-    context.provider !== 'local' &&
-    context.provider !== 'ollama' &&
-    context.provider !== 'lmstudio'
-  ) {
+  if (context.history && context.provider !== 'ollama' && context.provider !== 'lmstudio') {
     prompt = new ProjectionSafeToolCallFilter({
       toolNameMap: context.toolNameMap ?? new Map(),
     }).preparePrompt(

@@ -52,9 +52,8 @@ interface UseAssistantRequestLifecycleArgs {
     binding: Omit<AssistantThreadRootBinding, 'persisted'>
   ) => Promise<void>;
   /**
-   * Whether plan mode is offered at all for the current transport/provider
-   * (mirrors the caller's `planModeAvailable` gate — never offered for the
-   * built-in local provider). Combined at request-composition time with a
+   * Whether plan mode is offered at all for the current transport (mirrors the
+   * caller's `planModeAvailable` gate). Combined at request-composition time with a
    * FRESH read of the persisted toggle (see `prepareRequestData` below) so the
    * gate itself never goes stale mid-request.
    */

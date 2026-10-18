@@ -46,8 +46,3 @@ test('a hosted run is told its workspace roots, main root and focused root, as l
   expect(expected).toContain('root-focused');
   expect(await hostSystem(runtime)).toContain(expected);
 });
-
-test('a local run gets no root manifest, as legacy', async () => {
-  const runtime: RuntimeData = { model: 'local-model', provider: 'local', workspaceRoots };
-  expect(await hostSystem(runtime)).not.toContain(manifest({ ...runtime, provider: 'openai' }));
-});

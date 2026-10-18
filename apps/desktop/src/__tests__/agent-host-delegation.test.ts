@@ -29,7 +29,7 @@ const subagents = {
 describe('resolveDesktopHostDelegation', () => {
   test('built-in and scanned user personas under the user’s settings', () => {
     const scanned: unknown[] = [];
-    const delegation = resolveDesktopHostDelegation({ subagents }, 'openrouter', roots, false, {
+    const delegation = resolveDesktopHostDelegation({ subagents }, roots, false, {
       scan: (input) => {
         scanned.push(input);
         return { personas: [reviewer] };
@@ -45,12 +45,11 @@ describe('resolveDesktopHostDelegation', () => {
     ]);
   });
 
-  test('a disabled persona is omitted; the master switch and the local provider omit all (A26)', () => {
+  test('a disabled persona is omitted; the master switch omits all (A26)', () => {
     const scan = () => ({ personas: [] });
     expect(
       resolveDesktopHostDelegation(
         { subagents: { ...subagents, disabledPersonaIds: ['explore'] } },
-        'openrouter',
         roots,
         false,
         { scan }
@@ -59,28 +58,24 @@ describe('resolveDesktopHostDelegation', () => {
     expect(
       resolveDesktopHostDelegation(
         { subagents: { ...subagents, delegationEnabled: false } },
-        'openrouter',
         roots,
         false,
         { scan }
       )
     ).toBeUndefined();
-    expect(
-      resolveDesktopHostDelegation({ subagents }, 'local', roots, false, { scan })
-    ).toBeUndefined();
-    expect(resolveDesktopHostDelegation({}, 'openrouter', roots, false, { scan })).toBeUndefined();
+    expect(resolveDesktopHostDelegation({}, roots, false, { scan })).toBeUndefined();
   });
 
   test('plan mode omits every persona (A26)', () => {
     expect(
-      resolveDesktopHostDelegation({ subagents }, 'openrouter', roots, true, {
+      resolveDesktopHostDelegation({ subagents }, roots, true, {
         scan: () => ({ personas: [reviewer] }),
       })
     ).toBeUndefined();
   });
 
   test('a persona file scan failure keeps the built-ins (A27)', () => {
-    const delegation = resolveDesktopHostDelegation({ subagents }, 'openrouter', roots, false, {
+    const delegation = resolveDesktopHostDelegation({ subagents }, roots, false, {
       scan: () => {
         throw new Error('unreadable agents directory');
       },

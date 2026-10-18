@@ -1194,21 +1194,6 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
   });
 
-  it('renders only generic runtime limits for the local provider (thinking toggle lives in the model menu)', () => {
-    render(
-      <ProviderSettingsPanel
-        onSettingsChange={vi.fn()}
-        providerId="local"
-        settings={{ localThinkingEnabled: true }}
-      />
-    );
-
-    expect(screen.getByText('Agent context')).toBeInTheDocument();
-    expect(screen.getByText('Output tokens per step')).toBeInTheDocument();
-    expect(screen.queryByText('Gemma thinking')).not.toBeInTheDocument();
-    expect(screen.queryByText('Enable thinking')).not.toBeInTheDocument();
-  });
-
   it('renders google provider settings and updates include-thoughts', () => {
     const onSettingsChange = vi.fn();
 
