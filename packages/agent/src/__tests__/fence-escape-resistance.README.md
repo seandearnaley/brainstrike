@@ -367,7 +367,10 @@ dropping the file.
   assertion, the candidate passed all 46 macOS behavior cases and all 47 Linux
   behavior cases; only the old version assertion failed. The additional Linux
   case calls `unshare(CLONE_NEWUSER)` through the real executor: baseline allowed
-  it, candidate returns `EPERM`. That Linux-specific case is intentionally not
+  it, candidate returns `EPERM`. The same syscall must first succeed under
+  bare Bubblewrap on the selected host path; host policy cannot count as a
+  fence denial. An omitted-fence mutation fails the denial assertion.
+  That Linux-specific case is intentionally not
   executed on macOS; no network/host prerequisite cases were skipped.
 
   M2, M3, M4, M12 and M13 were each removed temporarily on **both platforms**;

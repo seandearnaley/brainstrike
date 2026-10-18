@@ -752,14 +752,32 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
     it.skipIf(platform !== 'linux')(
       'DENIES a new user namespace inside the Linux fence',
       async () => {
-        const result = await run(
+        const code = [
+          'import ctypes, errno',
+          'libc = ctypes.CDLL(None, use_errno=True)',
+          'result = libc.unshare(0x10000000)', // CLONE_NEWUSER
+          'print("NAMESPACE", result, ctypes.get_errno(), errno.EPERM)',
+        ].join('\n');
+        // The same host/AppArmor path must permit this syscall before srt adds
+        // its seccomp filter. A host-level denial is not proof of our fence.
+        const control = execFileSync(
+          'bwrap',
           [
-            'import ctypes, errno',
-            'libc = ctypes.CDLL(None, use_errno=True)',
-            'result = libc.unshare(0x10000000)', // CLONE_NEWUSER
-            'print("NAMESPACE", result, ctypes.get_errno(), errno.EPERM)',
-          ].join('\n')
+            '--ro-bind',
+            '/',
+            '/',
+            '--dev',
+            '/dev',
+            '--unshare-all',
+            pythonPath as string,
+            '-c',
+            code,
+          ],
+          { encoding: 'utf8', timeout: 10_000 }
         );
+        expect(control).toContain('NAMESPACE 0 0 1');
+
+        const result = await run(code);
 
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toContain('NAMESPACE -1 1 1');
