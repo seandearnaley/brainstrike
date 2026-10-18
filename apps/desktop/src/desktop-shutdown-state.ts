@@ -56,6 +56,9 @@ export function isRetirementRefusal(error: unknown): boolean {
     (error instanceof NativeIndexRefusalError && error.refusal.kind === 'closed') ||
     isConnectionLoss(error) ||
     isHostLeaseClosed(error) ||
+    (error instanceof BoundaryFailureError &&
+      error.failure.kind === 'refusal' &&
+      error.failure.code === 'host.closing') ||
     (error instanceof BoundaryFailureError && error.failure.code === RESET_REOPEN_CANCELLED.code)
   );
 }

@@ -101,6 +101,12 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
     const listbox = page.locator(SELECT_LISTBOX);
     await expect(listbox).toBeVisible({ timeout: 15_000 });
     await waitForFloatingLayerStack(page, SELECT_LISTBOX);
+    // Layer registration admits input while the entrance zoom is still running.
+    // Join that physical animation before measuring the final content bounds;
+    // a wrongly measured anchor stays wrong after this animation finishes.
+    await listbox.evaluate(async (content) => {
+      await Promise.all(content.getAnimations().map((animation) => animation.finished));
+    });
 
     const geometry = await page.evaluate((selector) => {
       const content = document.querySelector(selector);
