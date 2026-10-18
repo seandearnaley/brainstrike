@@ -365,7 +365,10 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
       await materializeHostProviderModel(client.responses('gpt-6-sol')).doGenerate(prepared.params);
       recorded[store ? 'stored_split' : 'stateless_split'] = body;
       expect.soft(JSON.stringify(body)).toContain(store ? 'rs_split' : 'offline-encrypted-split');
-      expect.soft(JSON.stringify(body)).toContain(store ? 'msg_split' : 'recorded split answer');
+      // OpenAI 4.0.93 (vercel/ai#23123) references reasoning-model text only
+      // when reasoning precedes it in the SAME assistant row. Split rows keep
+      // their answer inline, avoiding a stored message with missing reasoning.
+      expect.soft(JSON.stringify(body)).toContain('recorded split answer');
     }
     const anthropic = createAnthropic({
       apiKey: 'offline-fixture',
@@ -523,7 +526,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] === '1') {
       await writeFile(
         fixture,
-        `${JSON.stringify({ payloads: recorded, sdk: '7.0.142', source: 'pinned runtime parsing/serialization; mocked HTTP; no real account' }, null, 2)}\n`
+        `${JSON.stringify({ openai: '4.0.96', payloads: recorded, sdk: '7.0.142', source: 'pinned runtime parsing/serialization; mocked HTTP; no real account' }, null, 2)}\n`
       );
     }
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] !== '1') {

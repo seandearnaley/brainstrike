@@ -42,7 +42,9 @@ export function extractUpstreamEfforts(declarationSource) {
     declarationStart,
     declarationEnd === -1 ? undefined : declarationEnd + '}>;'.length
   );
-  const effortDeclaration = /\n {4}reasoningEffort\?: (?<body>[^;]+);/u.exec(block);
+  // tsdown (OpenAI 4.0.82+) emits two-space fields; tsup emitted four.
+  // Read the field inside the bounded chat declaration independently of indent.
+  const effortDeclaration = /\n[ \t]+reasoningEffort\?: (?<body>[^;]+);/u.exec(block);
   if (!effortDeclaration) {
     return [];
   }
@@ -190,6 +192,24 @@ declare const openaiLanguageModelResponsesOptions: _ai_sdk_provider_utils.LazySc
 }>;`),
     ['low', 'medium']
   );
+});
+
+test('extraction: reads tsdown chat declarations without borrowing a later field', () => {
+  const declaration = (
+    field
+  ) => `declare const openaiLanguageModelChatOptions: import("@ai-sdk/provider-utils").LazySchema<{
+  ${field}
+}>;
+interface LaterOptions {
+  reasoningEffort?: "high" | "low" | undefined;
+}`;
+  assert.deepEqual(
+    extractUpstreamEfforts(declaration('reasoningEffort?: "medium" | "low" | undefined;')),
+    ['low', 'medium']
+  );
+  for (const field of ['', 'reasoningEffort?: "low" | string | undefined;']) {
+    assert.deepEqual(extractUpstreamEfforts(declaration(field)), []);
+  }
 });
 
 test('money control: a declaration wider than the provider fails visibly', () => {
