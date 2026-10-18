@@ -17,8 +17,8 @@
           "id": "rs_split"
         },
         {
-          "type": "item_reference",
-          "id": "msg_split"
+          "role": "assistant",
+          "content": "recorded split answer"
         },
         {
           "role": "user",
@@ -57,13 +57,7 @@
         },
         {
           "role": "assistant",
-          "content": [
-            {
-              "type": "output_text",
-              "text": "recorded split answer"
-            }
-          ],
-          "id": "msg_split"
+          "content": "recorded split answer"
         },
         {
           "role": "user",
@@ -123,12 +117,7 @@
         },
         {
           "role": "assistant",
-          "content": [
-            {
-              "type": "output_text",
-              "text": "Earlier answer"
-            }
-          ]
+          "content": "Earlier answer"
         },
         {
           "role": "user",
@@ -194,6 +183,7 @@
       ]
     }
   },
-  "sdk": "7.0.126",
-  "source": "pinned runtime parsing/serialization; mocked HTTP; no real account"
+  "sdk": "7.0.142",
+  "source": "pinned runtime parsing/serialization; mocked HTTP; no real account",
+  "openai": "4.0.96"
 }
