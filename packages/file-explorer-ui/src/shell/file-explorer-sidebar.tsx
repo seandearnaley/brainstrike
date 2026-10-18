@@ -881,10 +881,6 @@ const FileExplorerSidebar = memo(
     isLoadingForSelectAll = false,
     isDisplayTreeFiltered,
   }: FileExplorerSidebarProps) => {
-    // React 19: useDeferredValue keeps showing the old tree while new one renders
-    // This prevents "flash" during rapid tree updates (like expand-all)
-    const deferredTree = useDeferredValue(quickFilteredTree);
-
     // Forest mode single scroll owner: every section's TreeTable virtualizes
     // against this column (shared-scroller mode). Unconditional hook — forest
     // mode is a render-time branch below.
@@ -984,7 +980,15 @@ const FileExplorerSidebar = memo(
     }
 
     // SINGLE-ROOT LAYOUT (original, golden-path regression safety)
-    const hasContent = deferredTree && deferredTree.length > 0;
+    //
+    // The tree renders from `quickFilteredTree` directly, NOT through
+    // useDeferredValue (BST-2088). The panel already defers the expensive
+    // INPUTS (quick-filter text, workspace filter lists). Deferring the tree
+    // itself split a recursive folder click across two commits: the urgent
+    // one carried the new selection and the cleared loader against the
+    // previous tree, so a fully selected folder painted indeterminate with its
+    // children hidden until the deferred render landed.
+    const hasContent = quickFilteredTree && quickFilteredTree.length > 0;
     // Storage v5: resolve RootId for single-root mode folderId. getRootFolderId
     // already prefers the stamped handle.rootId, then the path→id map, then the
     // path — so it is the single canonical resolver here.
@@ -1040,14 +1044,9 @@ const FileExplorerSidebar = memo(
             {hasContent ? (
               <OptimizedFileTree
                 cancelChildLoading={cancelChildLoading}
-                fileTree={deferredTree}
+                fileTree={quickFilteredTree}
                 folderId={singleRootFolderId}
-                // The flag describes quickFilteredTree; while useDeferredValue
-                // still shows the PREVIOUS tree, fall back to the conservative
-                // legacy build (undefined) instead of mislabeling it.
-                isDisplayTreeFiltered={
-                  deferredTree === quickFilteredTree ? isDisplayTreeFiltered : undefined
-                }
+                isDisplayTreeFiltered={isDisplayTreeFiltered}
                 isLoadingForSelection={isLoadingForSelection}
                 loadingFiles={loadingFiles}
                 loadingPathForSelection={loadingPathForSelection}
@@ -1071,7 +1070,7 @@ const FileExplorerSidebar = memo(
             ) : (
               <EmptyStateComponent
                 isLoading={isLoading}
-                quickFilteredTree={deferredTree}
+                quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
               />
             )}

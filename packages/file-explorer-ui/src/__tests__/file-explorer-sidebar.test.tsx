@@ -8,7 +8,7 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import { type ReactElement, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
@@ -223,6 +223,69 @@ describe('FileExplorerSidebar', () => {
     });
 
     expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
+  });
+
+  // BST-2088: a recursive folder click lands its selection and the scanned
+  // subtree in the same tick. The single-root tree used to render through
+  // useDeferredValue, so the urgent commit showed the NEW selection against
+  // the PREVIOUS (unloaded) tree and painted the fully selected folder
+  // indeterminate until the deferred render caught up — past the Performance
+  // E2E's two-frame interaction window on slow runners.
+  it('paints a scanned, fully selected folder checked in the commit that applies the selection', () => {
+    const unloadedFolder = createDirectoryNode({
+      children: [],
+      loadState: 'unloaded',
+      name: 'folder',
+      path: 'folder',
+    });
+    const scannedFolder = createDirectoryNode({
+      children: [createFileNode({ depth: 1, name: 'nested.js', path: 'folder/nested.js' })],
+      name: 'folder',
+      path: 'folder',
+    });
+    const rootIdByPath = new Map([['/test-directory', 'test-folder']]);
+    const harness: {
+      setTree: ((tree: IFileNode[]) => void) | null;
+      store: ReturnType<typeof useFileExplorerStoreContext> | null;
+    } = { setTree: null, store: null };
+    function Harness() {
+      const [tree, setTree] = useState<IFileNode[]>([unloadedFolder]);
+      harness.setTree = setTree;
+      harness.store = useFileExplorerStoreContext();
+      return (
+        <FileExplorerSidebar
+          {...defaultProps}
+          quickFilteredTree={tree}
+          rootIdByPath={rootIdByPath}
+        />
+      );
+    }
+
+    act(() => {
+      renderWithProviders(<Harness />);
+    });
+    expect(screen.getByLabelText('Select folder')).toHaveAttribute('data-state', 'unchecked');
+
+    // Every data-state the folder checkbox is given, in every commit
+    // (LightweightCheckbox writes it from a layout effect).
+    const paintedStates: string[] = [];
+    const setAttribute = Element.prototype.setAttribute;
+    const setAttributeSpy = vi
+      .spyOn(Element.prototype, 'setAttribute')
+      .mockImplementation(function recordFolderState(this: Element, name, value) {
+        if (name === 'data-state' && this.getAttribute('aria-label') === 'Select folder') {
+          paintedStates.push(value);
+        }
+        setAttribute.call(this, name, value);
+      });
+    act(() => {
+      harness.store?.getState().addSelectedFile('test-folder', 'folder/nested.js');
+      harness.setTree?.([scannedFolder]);
+    });
+    setAttributeSpy.mockRestore();
+
+    expect(paintedStates).toEqual(['checked']);
+    expect(screen.getByLabelText('Select folder')).toHaveAttribute('data-state', 'checked');
   });
 
   // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)
