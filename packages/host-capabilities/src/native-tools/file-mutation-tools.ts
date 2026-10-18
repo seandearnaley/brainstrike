@@ -29,6 +29,7 @@ import {
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
+import { assertNotAgentIgnored } from './agent-ignore-guard.js';
 import { looksLikeReadWorkspaceFileGutterOutput } from './gutter-prefix-guard.js';
 import type { EditDiagnosticsResult, FileMutationPorts } from './ports.js';
 import {
@@ -144,6 +145,25 @@ async function collectEditDiagnostics(args: {
 /** Stop prevents a queued mutation from starting. Once a filesystem mutation
  * starts, its normal checkpoint/index settlement must finish before releasing
  * the lock; cancellation must not erase or leave completed work unattributed. */
+/**
+ * The read paths' hard boundary binds on every mutation too (BST-1433): a file
+ * the agent may not read (agent-ignored, or a credential file) it may not
+ * overwrite, edit, delete or move either. Checked against the requested path
+ * and its canonical target, so an in-root alias cannot launder either one.
+ */
+async function assertAgentMayChange(resolved: {
+  readonly absolutePath: string;
+  readonly canonicalRootPath: string;
+  readonly workspacePath: string;
+}): Promise<void> {
+  await assertNotAgentIgnored({
+    access: 'change',
+    canonicalAbsolutePath: resolved.absolutePath,
+    canonicalRootPath: resolved.canonicalRootPath,
+    relativePath: resolved.workspacePath,
+  });
+}
+
 function assertFileMutationActive(
   runtimeData: RuntimeData | undefined,
   signal: AbortSignal | undefined
@@ -198,6 +218,7 @@ export async function runWriteWorkspaceFile(
 
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  await assertAgentMayChange(resolved);
 
   // Serialize same-file writes against concurrent edits (Mastra runs tool calls
   // within a step concurrently). Key by the canonical absolute path so two edits
@@ -304,6 +325,7 @@ export async function runStringReplaceWorkspaceFile(
   // path. resolveWorkspaceWritePath clamps ".." and contains symlinked
   // ancestors; the read below uses the same containment as the read tools.
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  await assertAgentMayChange(resolved);
 
   // The whole read-modify-write-AND-reindex cycle runs under the per-file lock so
   // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
@@ -470,6 +492,7 @@ export async function runDeleteWorkspaceFile(
   // index invalidation run inside the per-file lock so a concurrent edit to the
   // same path cannot interleave.
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  await assertAgentMayChange(resolved);
   // Act on the LINK itself, not its resolved target: deleting a symlink must
   // remove the pointer and leave the target intact (resolved.absolutePath is the
   // TARGET for a live in-root symlink).
@@ -563,6 +586,10 @@ export async function runRenameWorkspaceFile(
       'Cross-root moves are not supported. Both paths must be in the same open folder.'
     );
   }
+  // Both directions: moving a protected file out would make it readable under
+  // its new name, and moving a file in could clobber or hide a protected one.
+  await assertAgentMayChange(fromResolved);
+  await assertAgentMayChange(toResolved);
   // Act on the LINK itself for the source: renaming a symlink must move the
   // pointer and leave its target intact (fromResolved.absolutePath is the TARGET
   // for a live in-root symlink). A live symlink whose target escapes the root is

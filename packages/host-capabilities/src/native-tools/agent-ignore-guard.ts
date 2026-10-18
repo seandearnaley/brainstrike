@@ -291,7 +291,8 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
  */
 
 /**
- * The single refusal for a direct read of an agent-ignored file.
+ * The single refusal for a direct read (or, with `access: 'change'`, a write,
+ * edit, delete or move) of an agent-ignored or credential file.
  *
  * THROWS rather than returning empty content. A read that silently yields
  * nothing teaches the model the file is empty, and it will confidently report
@@ -300,6 +301,12 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
  * names the file that caused it so the user can find and edit the rule.
  */
 export async function assertNotAgentIgnored(args: {
+  /**
+   * What the caller is about to do. A file the agent may not read it may not
+   * change either: a blind overwrite, delete or move is the path a read guard
+   * alone leaves open (BST-1433). Defaults to `read`.
+   */
+  access?: 'change' | 'read';
   canonicalRootPath: string;
   /** Share directory reads within one operation only, never across calls. */
   guard?: AgentIgnoreGuard;
@@ -320,9 +327,10 @@ export async function assertNotAgentIgnored(args: {
   const candidates = await agentIgnoreCandidatePaths(args);
   // The credential floor is no ignore file's rule, so its refusal names it
   // rather than sending the user to search their ignore files.
+  const changing = args.access === 'change';
   if (candidates.some((candidate) => isWorkspaceSecretFile(candidate))) {
     throw new ToolInputError(
-      `Path "${args.relativePath}" is a credential file (an environment file or private key), which agent tools never read.`
+      `Path "${args.relativePath}" is a credential file (an environment file or private key), which agent tools never ${changing ? 'read or change' : 'read'}.`
     );
   }
   // Resolved together: the request and the canonical target are independent
@@ -331,7 +339,7 @@ export async function assertNotAgentIgnored(args: {
   const verdicts = await Promise.all(candidates.map((candidate) => guard.ignoresFile(candidate)));
   if (verdicts.some((ignored) => ignored)) {
     throw new ToolInputError(
-      `Path "${args.relativePath}" is excluded by an agent ignore file (.llmignore/.brainstrikeignore) and cannot be read.`
+      `Path "${args.relativePath}" is excluded by an agent ignore file (.llmignore/.brainstrikeignore) and cannot be ${changing ? 'changed' : 'read'}.`
     );
   }
 }
