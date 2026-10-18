@@ -192,6 +192,31 @@ async function closeChild(child: OwnedChild): Promise<void> {
     throw new Error(`Owned host utility exited with code ${code}`);
   }
 }
+/** The peer closed with Main's bytes unread: the reset an exited host's socket reports. */
+const PEER_RESET_CODES = new Set(['ECONNRESET', 'EPIPE']);
+function isPeerResetOnly(cause: unknown): boolean {
+  if (cause instanceof AggregateError) {
+    return cause.errors.length > 0 && cause.errors.every(isPeerResetOnly);
+  }
+  return cause instanceof Error && PEER_RESET_CODES.has(String(Reflect.get(cause, 'code')));
+}
+/**
+ * BST-2143: a host lost while Main's requests were in flight resets this
+ * connection as it exits. That reset is the loss already reported, like its
+ * exit code; failing the release would refuse every later admission.
+ */
+async function closeAttachment(
+  attachment: HostAttachment,
+  child: OwnedChild | undefined
+): Promise<void> {
+  try {
+    await attachment.close();
+  } catch (cause) {
+    if (!(child?.lost && isPeerResetOnly(cause))) {
+      throw cause;
+    }
+  }
+}
 function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {
   return runAtPromiseBoundary(Scope.addFinalizer(scope, Effect.promise(release)));
 }
@@ -326,7 +351,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           ? {}
           : { startupTimeoutMs: options.startupTimeoutMs }),
       });
-      await addFinalizer(scope, () => attachment.close());
+      await addFinalizer(scope, () => closeAttachment(attachment, ownedChild));
       if (retired) {
         throw abort.signal.reason;
       }

@@ -196,6 +196,58 @@ describe('desktop host lease ownership', () => {
       expect(child.posts).not.toContainEqual({ method: 'close' });
     }
   });
+  it('retires a lost host whose connection it reset as it exited, and keeps every other close failure (BST-2143)', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const reset = (): Error => Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    const lostOwner = (close: () => Promise<void>) => {
+      const child = new Child();
+      attachment = { ...attachment, close: vi.fn(close) };
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready' }));
+          return child;
+        },
+        onLost: vi.fn(),
+        root,
+      });
+      return { child, owner };
+    };
+
+    // Main's unread catalog request makes the dying host's kernel reset the
+    // socket: that reset is the loss already reported, not a failed release.
+    const peerReset = lostOwner(async () => {
+      throw new AggregateError([reset(), reset()], 'Host client receive and disposal failed');
+    });
+    await peerReset.owner.acquire();
+    peerReset.child.exit(0);
+    await peerReset.owner.close();
+
+    const other = new Error('socket cleanup failed');
+    const failedCleanup = lostOwner(async () => {
+      throw new AggregateError([reset(), other], 'Host client receive and disposal failed');
+    });
+    await failedCleanup.owner.acquire();
+    failedCleanup.child.exit(0);
+    await expect(failedCleanup.owner.close()).rejects.toThrow('receive and disposal failed');
+
+    // A host closed on request was never lost: its reset stays a close failure.
+    const asked = new Child();
+    attachment = {
+      ...attachment,
+      close: vi.fn(async () => {
+        throw reset();
+      }),
+    };
+    const owner = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => asked.emit('message', { event: 'ready' }));
+        return asked;
+      },
+      root,
+    });
+    await owner.acquire();
+    await expect(owner.close()).rejects.toThrow('ECONNRESET');
+  });
   it('never reports a loss for a close it asked for, or for a child that exits before ready (BST-2004)', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const asked = new Child();

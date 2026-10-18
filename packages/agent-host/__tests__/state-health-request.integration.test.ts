@@ -73,17 +73,19 @@ async function readHealth(root: string) {
   );
   const client = await attachAgentHost(host.record);
   try {
-    return await client.request('state/health/read', {});
+    const health = await client.request('state/health/read', {});
+    const { threads } = await client.request('thread/list', {});
+    return { damagedListed: threads.filter((thread) => thread.damage).length, health };
   } finally {
     await client.close();
     await host.close();
   }
 }
 
-test('a healthy state store reports no damage and no unreadable records', async () => {
+test('a healthy state store reports no damage and no damaged threads', async () => {
   expect(await readHealth(await seededRoot())).toEqual({
-    stateDamage: null,
-    unreadableRecords: 0,
+    damagedListed: 0,
+    health: { damagedThreads: 0, stateDamage: null },
   });
 });
 
@@ -92,6 +94,8 @@ test('a damaged state DB reports its integrity failure, and reports it again aft
   await corruptRunEventIndex(root);
 
   const first = await readHealth(root);
-  expect(first.stateDamage).toMatch(/missing from index/);
+  expect(first.health.stateDamage).toMatch(/missing from index/);
+  // The count is the catalog's own: every thread `thread/list` marks damaged.
+  expect(first.health.damagedThreads).toBe(first.damagedListed);
   expect(await readHealth(root)).toEqual(first);
 });

@@ -6,10 +6,10 @@ import type { HostAttachment } from '@brainstrike/host-lease';
 /**
  * Restarts the agent host this app launched (BST-1880). It asks the host to
  * stop over its own socket, where `host/stop` has the host's lifecycle; the
- * host releases its Root and exits, and the next client relaunches it, the
- * recovery a lost host already takes (BST-2004): Main joins the release and
- * resumes native indexing before admitting the new host. A host started from
- * the CLI is never stopped from here.
+ * host releases its Root and exits. The relaunch is the recovery a lost host
+ * already takes (BST-2004): the profile acquisition joins the release, resumes
+ * native indexing and admits the new host. A host started from the CLI is
+ * never stopped from here.
  */
 export async function restartLaunchedAgentHost(options: {
   readonly acquireProfile: () => Promise<HostAttachment>;
@@ -35,11 +35,13 @@ export async function restartLaunchedAgentHost(options: {
   } finally {
     await client.close().catch(() => undefined);
   }
-  // The host closes its clients before its process exits. Resolve only once Main
-  // has seen the exit, so a client that reconnects now admits the next host
-  // rather than reaching the stopping one.
+  // The host closes its clients before its process exits. Wait for Main to see
+  // the exit, then relaunch here: the profile acquisition runs the lost-host
+  // recovery and admits the next host, so a client reconnecting afterwards
+  // reaches it, and a failed relaunch is this call's own visible failure.
   await runWithTimeout(() => exited, {
     onTimeout: () => new Error('The agent host stopped but did not exit.'),
     timeoutMs: options.exitTimeoutMs ?? 10_000,
   });
+  await options.acquireProfile();
 }

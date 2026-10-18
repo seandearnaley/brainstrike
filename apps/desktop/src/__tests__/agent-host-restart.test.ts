@@ -36,13 +36,14 @@ describe('restartLaunchedAgentHost', () => {
     attachAgentHost.mockResolvedValueOnce(client);
     const exit = Promise.withResolvers<number>();
     let resolved = false;
+    const acquireProfile = vi.fn(async () => ({
+      close: vi.fn(),
+      closed: new Promise<void>(() => undefined),
+      record,
+    }));
 
     const restart = restartLaunchedAgentHost({
-      acquireProfile: async () => ({
-        close: vi.fn(),
-        closed: new Promise(() => undefined),
-        record,
-      }),
+      acquireProfile,
       exited: () => exit.promise,
       logger,
     }).then(() => {
@@ -59,6 +60,8 @@ describe('restartLaunchedAgentHost', () => {
     exit.resolve(0);
     await restart;
     expect(resolved).toBe(true);
+    // Relaunched here, after the exit: the stop's own acquisition, then the relaunch.
+    expect(acquireProfile).toHaveBeenCalledTimes(2);
   });
 
   it('says so when the stopped host never exits', async () => {

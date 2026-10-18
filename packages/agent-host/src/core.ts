@@ -350,10 +350,12 @@ export class HostCore {
     return this.projections.ledger.read();
   }
 
-  /** BST-1880: the state store's damage and unreadable record count, for the app's damaged-store notice. */
+  /** BST-1880: the state store's damage and the threads hydration could not read, for the damaged-store notice. */
   readStateHealth(): HostResults['state/health/read'] {
-    const health = this.store.health();
-    return { stateDamage: health.stateDamage, unreadableRecords: health.visibleErrors.length };
+    return {
+      damagedThreads: this.catalog.damagedThreadCount(),
+      stateDamage: this.store.health().stateDamage,
+    };
   }
 
   /** BST-1939: a thread's first and latest stored append, child threads included. */

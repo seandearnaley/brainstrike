@@ -124,6 +124,11 @@ export class HostThreadCatalog {
     }
   }
 
+  /** How many stored threads hydration could not read; each still lists as damaged. */
+  damagedThreadCount(): number {
+    return this.damaged.size;
+  }
+
   /** A committed row's append time is the store's latest time for its thread. */
   noteCommitted(rows: readonly HostLogRow[]): void {
     for (const { threadId, ts } of rows) {

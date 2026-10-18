@@ -8,6 +8,8 @@ type Action = 'check' | 'restart' | 'folder';
 type View =
   | { readonly kind: 'checking' }
   | { readonly kind: 'healthy' }
+  /** The running host cannot report its store's health: nothing to show, nothing claimed. */
+  | { readonly kind: 'unsupported' }
   | { readonly health: StateStoreHealth; readonly kind: 'damaged' }
   | { readonly kind: 'unreadable'; readonly message: string };
 
@@ -52,7 +54,11 @@ function healthStore(capability: StateHealthCapability): HealthStore {
   const refresh = async (): Promise<void> => {
     try {
       const health = await capability.read();
-      publish(health.stateDamage === null ? { kind: 'healthy' } : { health, kind: 'damaged' });
+      if (health === null) {
+        publish({ kind: 'unsupported' });
+      } else {
+        publish(health.stateDamage === null ? { kind: 'healthy' } : { health, kind: 'damaged' });
+      }
     } catch (cause) {
       publish({ kind: 'unreadable', message: messageOf(cause) });
     }
@@ -120,7 +126,12 @@ export function StateStoreDamageNotice({
     })();
   };
 
-  if (!capability || view.kind === 'checking' || view.kind === 'healthy') {
+  if (
+    !capability ||
+    view.kind === 'checking' ||
+    view.kind === 'healthy' ||
+    view.kind === 'unsupported'
+  ) {
     return null;
   }
   return (
@@ -143,11 +154,11 @@ export function StateStoreDamageNotice({
             <details>
               <summary className="cursor-pointer">Details</summary>
               <p className="break-words font-mono text-xs">{view.health.stateDamage}</p>
-              {view.health.unreadableRecords > 0 ? (
+              {view.health.damagedThreads > 0 ? (
                 <p className="text-xs">
-                  {view.health.unreadableRecords === 1
-                    ? '1 record could not be read.'
-                    : `${view.health.unreadableRecords} records could not be read.`}
+                  {view.health.damagedThreads === 1
+                    ? '1 conversation could not be read.'
+                    : `${view.health.damagedThreads} conversations could not be read.`}
                 </p>
               ) : null}
             </details>

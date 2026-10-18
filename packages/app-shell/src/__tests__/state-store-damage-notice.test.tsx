@@ -10,12 +10,12 @@ import { StateStoreDamageNotice } from '../state-health/state-store-damage-notic
 // BST-1880: a damaged state store says so, with both ways to look again.
 
 const DAMAGED: StateStoreHealth = {
+  damagedThreads: 2,
   stateDamage: 'row 7 missing from index sqlite_autoindex_run_events_1',
-  unreadableRecords: 2,
 };
-const HEALTHY: StateStoreHealth = { stateDamage: null, unreadableRecords: 0 };
+const HEALTHY: StateStoreHealth = { damagedThreads: 0, stateDamage: null };
 
-function capability(reads: readonly (StateStoreHealth | Error)[]): StateHealthCapability {
+function capability(reads: readonly (StateStoreHealth | Error | null)[]): StateHealthCapability {
   const read = vi.fn<StateHealthCapability['read']>();
   for (const next of reads) {
     if (next instanceof Error) {
@@ -53,7 +53,7 @@ describe('StateStoreDamageNotice', () => {
     );
     expect(notice).toHaveTextContent('Nothing was deleted or replaced.');
     expect(notice).toHaveTextContent(DAMAGED.stateDamage as string);
-    expect(notice).toHaveTextContent('2 records could not be read.');
+    expect(notice).toHaveTextContent('2 conversations could not be read.');
   });
 
   it('checks again by re-reading, and says when it is still damaged', async () => {
@@ -109,6 +109,15 @@ describe('StateStoreDamageNotice', () => {
     await user.click(await screen.findByRole('button', { name: 'Show data folder' }));
 
     expect(store.showDataFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders nothing for a host that cannot report its health, and claims nothing', async () => {
+    const older = capability([null]);
+    render(<StateStoreDamageNotice capability={older} />);
+    await waitFor(() => {
+      expect(older.read).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByTestId('state-store-damage-notice')).toBeNull();
   });
 
   it('says it could not check, rather than claiming health, when the read fails', async () => {
