@@ -369,6 +369,26 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
     host.dispose();
   });
 
+  it('reports a host that does not resolve as a failed load, not a blocked destination', async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { refusals, route } = fakeRoute();
+    refusals.set('typo.invalid', { host: 'typo.invalid', reason: 'unresolved' });
+    const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
+    const tabId = host.manager.createTab('https://typo.invalid/', 'agent');
+    createdViews[0]?.webContents.emit(
+      'did-fail-load',
+      {},
+      -111,
+      'ERR_TUNNEL',
+      'https://typo.invalid/',
+      true
+    );
+    expect(host.manager.getNavigationError(tabId)).toBe(
+      'agent browsing could not resolve typo.invalid'
+    );
+    host.dispose();
+  });
+
   it("names an agent tab's tunnel failure from the proxy's refusal, and leaves other failures alone", async () => {
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { refusals, route } = fakeRoute();
