@@ -61,13 +61,18 @@ interface Harness {
 }
 
 async function startProxy(
-  answers: (host: string, call: number) => readonly ResolvedAddress[],
-  landingPort: number
+  answers: (
+    host: string,
+    call: number
+  ) => readonly ResolvedAddress[] | Promise<readonly ResolvedAddress[]>,
+  landingPort: number,
+  connectTimeoutMs?: number
 ): Promise<Harness> {
   const dialed: string[] = [];
   const resolved: string[] = [];
   const refusals: EgressRefusal[] = [];
   const proxy = await startEgressProxy({
+    ...(connectTimeoutMs === undefined ? {} : { connectTimeoutMs }),
     credential: CREDENTIAL,
     dial: (address, port) => {
       dialed.push(`${address}:${port}`);
@@ -304,4 +309,46 @@ test('closing the proxy ends its open tunnels', async () => {
   const ended = once(reply.socket, 'close');
   await proxy.close();
   await ended;
+});
+
+test('closing the proxy while a host is still resolving never dials it afterwards', async () => {
+  const asked = Promise.withResolvers<void>();
+  const answer = Promise.withResolvers<readonly ResolvedAddress[]>();
+  const { proxy, dialed } = await startProxy(
+    () => {
+      asked.resolve();
+      return answer.promise;
+    },
+    await echoServer()
+  );
+  const socket = connect({ host: '127.0.0.1', port: proxy.port });
+  cleanups.push(() => {
+    socket.destroy();
+  });
+  socket.on('error', () => undefined);
+  await once(socket, 'connect');
+  const ended = once(socket, 'close');
+  socket.write(
+    `CONNECT slow.test:443 HTTP/1.1\r\nHost: slow.test:443\r\nProxy-Authorization: ${AUTHORIZATION}\r\n\r\n`
+  );
+  await asked.promise;
+  await proxy.close();
+  // The resolver answers only after close; nothing may connect on its answer.
+  answer.resolve(publicAnswer());
+  await ended;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(dialed).toEqual([]);
+});
+
+test('a resolver that never answers fails the admission at its deadline', async () => {
+  const { proxy, dialed } = await startProxy(
+    () => new Promise<readonly ResolvedAddress[]>(() => undefined),
+    await echoServer(),
+    100
+  );
+  const startedAt = Date.now();
+  const reply = await connectThrough(proxy.port, 'stalled.test:443');
+  expect(reply.status).toBe(502);
+  expect(Date.now() - startedAt).toBeLessThan(5000);
+  expect(dialed).toEqual([]);
 });

@@ -42,7 +42,7 @@ export type EgressRefusal =
   | { readonly reason: 'malformed'; readonly target: string };
 
 export interface EgressProxyOptions {
-  /** How long resolution plus the TCP connect may take. Default 15 s. */
+  /** One deadline for resolution and every connect attempt. Default 15 s. */
   readonly connectTimeoutMs?: number;
   /** The `user:password` Chromium must present as Basic proxy credentials. */
   readonly credential: string;
@@ -92,6 +92,28 @@ function credentialMatches(headers: IncomingHttpHeaders, expected: Buffer): bool
   return presented.length === expected.length && timingSafeEqual(presented, expected);
 }
 
+/** `work`, or a rejection with the deadline's reason once it fires first. */
+function bounded<T>(work: Promise<T>, deadline: AbortSignal): Promise<T> {
+  return new Promise<T>((resolveWork, reject) => {
+    const abort = (): void => reject(deadline.reason);
+    if (deadline.aborted) {
+      abort();
+      return;
+    }
+    deadline.addEventListener('abort', abort, { once: true });
+    work.then(
+      (value) => {
+        deadline.removeEventListener('abort', abort);
+        resolveWork(value);
+      },
+      (failure: unknown) => {
+        deadline.removeEventListener('abort', abort);
+        reject(failure);
+      }
+    );
+  });
+}
+
 /** An absolute `http:` URL, the only form a plain-http proxy request takes. */
 function absoluteHttpUrl(target: string): URL | null {
   if (!URL.canParse(target)) {
@@ -119,6 +141,10 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
     open.add(stream);
     stream.once('close', () => open.delete(stream));
   };
+  // Closing aborts every admission still resolving or dialing, and close()
+  // joins them, so nothing dials out after the proxy reports itself closed.
+  const lifetime = new AbortController();
+  const pending = new Set<Promise<void>>();
 
   /** Report a refusal and return the error that carries it. */
   const refuse = (refusal: EgressRefusal): Refused => {
@@ -127,11 +153,21 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
   };
 
   /** Every answer for `host`, refused unless all of them may be reached. */
-  const checkedAnswers = async (host: string): Promise<readonly ResolvedAddress[]> => {
+  const checkedAnswers = async (
+    host: string,
+    deadline: AbortSignal
+  ): Promise<readonly ResolvedAddress[]> => {
     const family = isIP(host);
     const answers =
       family === 0
-        ? await resolve(host).catch((): readonly ResolvedAddress[] => [])
+        ? await bounded(resolve(host), deadline).catch((failure: unknown) => {
+            // A resolver that answers nothing refuses the host; a deadline
+            // that fires first is a failed admission, not a refusal.
+            if (deadline.aborted) {
+              throw failure;
+            }
+            return [];
+          })
         : [{ address: host, family: family === 6 ? (6 as const) : (4 as const) }];
     if (answers.length === 0) {
       throw refuse({ host, reason: 'unresolved' });
@@ -145,28 +181,37 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
     return answers;
   };
 
-  const dialChecked = (address: string, port: number): Promise<Socket> =>
+  const dialChecked = (address: string, port: number, deadline: AbortSignal): Promise<Socket> =>
     new Promise<Socket>((resolveSocket, reject) => {
+      deadline.throwIfAborted();
       const socket = dial(address, port);
       track(socket);
-      socket.setTimeout(connectTimeoutMs, () =>
-        socket.destroy(new Error('Agent browsing connect timed out'))
-      );
+      const abort = (): void => {
+        socket.destroy(new Error('Agent browsing admission ended', { cause: deadline.reason }));
+      };
+      deadline.addEventListener('abort', abort, { once: true });
       socket.once('connect', () => {
-        socket.setTimeout(0);
+        deadline.removeEventListener('abort', abort);
         socket.removeListener('error', reject);
         resolveSocket(socket);
       });
-      socket.once('error', reject);
+      socket.once('error', (error) => {
+        deadline.removeEventListener('abort', abort);
+        reject(error);
+      });
     });
 
-  /** Resolve once, check every answer, and connect to the first checked address that accepts. */
+  /**
+   * Resolve once, check every answer, and connect to the first checked address
+   * that accepts, all within one deadline that closing the proxy also ends.
+   */
   const admit = async (host: string, port: number): Promise<Socket> => {
-    const answers = await checkedAnswers(host);
+    const deadline = AbortSignal.any([lifetime.signal, AbortSignal.timeout(connectTimeoutMs)]);
+    const answers = await checkedAnswers(host, deadline);
     let lastFailure: unknown;
     for (const { address } of answers) {
       try {
-        return await dialChecked(address, port);
+        return await dialChecked(address, port, deadline);
       } catch (failure) {
         lastFailure = failure;
       }
@@ -213,8 +258,9 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
       reply(status, headers);
       return;
     }
-    if (client.destroyed) {
+    if (client.destroyed || lifetime.signal.aborted) {
       upstream.destroy();
+      client.destroy();
       return;
     }
     upstream.on('error', () => client.destroy());
@@ -256,6 +302,11 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
       fail(status, headers);
       return;
     }
+    if (lifetime.signal.aborted) {
+      upstream.destroy();
+      response.destroy();
+      return;
+    }
     response.on('close', () => upstream.destroy());
     const forwarded = httpRequest(
       {
@@ -282,13 +333,21 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
   // A failure after admission (a socket torn down mid-setup) ends that one
   // connection; it never escapes as an unhandled rejection that would take
   // every agent tab's route down with this process.
+  const join = (work: Promise<void>, onFailure: () => void): void => {
+    const settled = work.then(() => undefined, onFailure);
+    pending.add(settled);
+    settled.then(
+      () => pending.delete(settled),
+      () => pending.delete(settled)
+    );
+  };
   server.on('connect', (request: IncomingMessage, client: Duplex, head: Buffer) => {
     track(client);
     client.on('error', () => client.destroy());
-    tunnel(request, client, head).catch(() => client.destroy());
+    join(tunnel(request, client, head), () => client.destroy());
   });
   server.on('request', (request: IncomingMessage, response: ServerResponse) => {
-    forward(request, response).catch(() => response.destroy());
+    join(forward(request, response), () => response.destroy());
   });
 
   await new Promise<void>((resolveListen, reject) => {
@@ -306,11 +365,16 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
 
   return {
     close: async (): Promise<void> => {
+      lifetime.abort(new Error('The agent browsing proxy closed'));
       const closed = new Promise<void>((resolveClose) => server.close(() => resolveClose()));
       for (const stream of open) {
         stream.destroy();
       }
       server.closeAllConnections();
+      await Promise.all(pending);
+      for (const stream of open) {
+        stream.destroy();
+      }
       await closed;
     },
     port: address.port,
