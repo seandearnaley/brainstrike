@@ -30,6 +30,7 @@ import {
 } from './file-explorer-provider';
 import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
 import { useOptionalRootDataDeletion } from './root-data-deletion-context';
+import { useFactoryResetWatchFence } from './use-factory-reset-watch-fence';
 
 const logger = createLogger('FileSystemContext');
 
@@ -403,6 +404,9 @@ export function useFileSystemInstance() {
   // which triggers the sync provider to pick up new / deleted files.
   const { fileSystemAdapter } = useAdapters();
 
+  // Factory reset preparation retires this owner's root watching (BST-2149).
+  const watchAdapter = useFactoryResetWatchFence(fileSystemAdapter);
+
   const watcherRoots = useMemo(
     () =>
       coreApi.rootDirectoryHandles.map((handle) => ({
@@ -636,7 +640,7 @@ export function useFileSystemInstance() {
   );
 
   useFileSystemWatcher({
-    adapter: fileSystemAdapter,
+    adapter: watchAdapter,
     onChanges: handleWatcherChanges,
     onSignal: handleWatcherSignal,
     roots: watcherRoots,
