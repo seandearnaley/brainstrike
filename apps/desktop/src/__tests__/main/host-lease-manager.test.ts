@@ -8,6 +8,15 @@ vi.mock('@brainstrike/host-lease', async (original) => ({
   ...(await original<typeof import('@brainstrike/host-lease')>()),
   launchHost: launch,
 }));
+// The fake utility's pid 123 names no real process: the start time its ready
+// identity reads is the one its host record carries (BST-2176).
+vi.mock('@brainstrike/state-store', async (original) => {
+  const actual = await original<typeof import('@brainstrike/state-store')>();
+  return {
+    ...actual,
+    processStartTime: (pid: number) => (pid === 123 ? 'child' : actual.processStartTime(pid)),
+  };
+});
 
 class Child extends EventEmitter {
   pid: number | undefined = 123;

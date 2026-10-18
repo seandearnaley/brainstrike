@@ -41,6 +41,7 @@ interface Settled {
 function counted(host: HostRuntime, settled: Settled, retire?: () => Promise<void>): StartedHost {
   hosts.push(host);
   return {
+    identity: { pid: host.record.pid, start: host.record.start },
     release: async () => {
       settled.released += 1;
     },

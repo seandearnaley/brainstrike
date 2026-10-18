@@ -12,7 +12,7 @@ import {
   launchHost,
   type StartupMessage,
 } from '@brainstrike/host-lease';
-import type { ClearContentResult } from '@brainstrike/state-store';
+import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import {
@@ -166,6 +166,18 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
       failed(new Error(`Host utility exited before ready (${code})`))
     );
   });
+}
+/**
+ * BST-2176: the PID and OS start time the ready utility's root lease names,
+ * read before this owner has observed its exit. A zombie has no start time.
+ */
+function readyIdentity(child: OwnedChild): { pid: number; start: string } {
+  const pid = child.handle.pid;
+  const start = child.exitCode === undefined && pid !== undefined ? processStartTime(pid) : null;
+  if (pid === undefined || start === null) {
+    throw new Error(`Host utility pid ${pid} exited as it reported ready`);
+  }
+  return { pid, start };
 }
 /** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
 async function closeChild(child: OwnedChild): Promise<void> {
@@ -332,6 +344,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           }
           options.onChildStarted?.();
           await ready;
+          const identity = readyIdentity(child);
           child.ready = true;
           options.onChildReady?.({
             exited: child.exited,
@@ -339,7 +352,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           });
           // BST-2167: this lease's Scope stays the child's one owner. An
           // attached host needs no hand-off; a launch that gives up closes it.
-          return { release: async () => undefined, retire: closeScope };
+          return { identity, release: async () => undefined, retire: closeScope };
         },
         ...(options.startupTimeoutMs === undefined
           ? {}
