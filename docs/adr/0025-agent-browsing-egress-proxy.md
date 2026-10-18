@@ -41,7 +41,9 @@ nothing about where it redirects.
    connect attempt.
 4. **Refusals are visible and typed.** A refused navigation fails as
    `blocked_destination` and names the host and address class; the agent never
-   reads a blank page in its place.
+   reads a blank page in its place. A host that does not resolve is not a
+   policy refusal: it fails as `load_failed`, naming the host, so the model may
+   correct the URL.
 5. **Reset clears the agent partition** with the app and pane sessions.
 
 ## Consequences
