@@ -29,6 +29,7 @@ const scripted = pathToFileURL(
 const nativeChildren = pathToFileURL(
   require.resolve('@brainstrike/state-store/native-children')
 ).href;
+const probe = fileURLToPath(new URL('./fixtures/supervision-probe.mjs', import.meta.url));
 const SHELL_TOOL = 'brainstrike_executeCommand';
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -209,14 +210,15 @@ async function shellHost(shellInput: (spawnLog: string) => ShellInput) {
   return { decide };
 }
 
-test('an approved executeCommand runs echo in the launch root and commits its output', {
+test('an approved executeCommand runs its command in the launch root and commits its output', {
   timeout: 180_000,
 }, async () => {
   // The host supervises a native process only while it is alive: an exited one holds nothing (ADR-0017). On Linux,
-  // dash runs a bare `echo` and is already a zombie when the host reads its start time (BST-2151), so this shell
-  // echoes its pid only once the observer has recorded it. The tool's own timeout bounds a record that never comes.
+  // dash runs a bare `echo` and is already a zombie when the host reads its start time (BST-2151), so the command is
+  // a probe that prints its pid only once the observer has recorded it. The tool's own timeout bounds a record that
+  // never comes. Double quotes work in both `sh -c` and `cmd.exe /c`; no path here contains one.
   const host = await shellHost((spawnLog) => ({
-    command: `until [ -s '${spawnLog}' ]; do sleep 0.01; done; echo standalone-shell-ok $$`,
+    command: `"${process.execPath}" "${probe}" "${spawnLog}"`,
     timeoutMs: 30_000,
   }));
   const { rows, spawned, toolCallId, workspace } = await host.decide('approve');
@@ -233,13 +235,20 @@ test('an approved executeCommand runs echo in the launch root and commits its ou
       exitCode: 0,
       rootId: workspace,
       signal: null,
-      stdout: expect.stringMatching(/^standalone-shell-ok \d+\n$/u),
+      stdout: expect.stringMatching(/^standalone-shell-ok \d+ \d+\r?\n$/u),
       timedOut: false,
     },
   });
-  // The shell itself is a native process the host started under its Root.
-  const { output } = z.object({ output: z.object({ stdout: z.string() }) }).parse(finished);
-  expect(spawned).toContainEqual({ pid: Number(output.stdout.split(' ')[1]) });
+  // The log was empty at the approval and the probe exits only once it is not, so this one record is this call's.
+  expect(spawned).toHaveLength(1);
+  if (process.platform !== 'win32') {
+    // POSIX `sh -c` usually execs its last command, so the probe keeps the recorded pid; a shell that forks instead
+    // is the probe's parent. On win32 the recorded process is the gated node wrapper (execute-command-tool.ts:438),
+    // the probe's grandparent through cmd.exe (windows-command-wrapper.ts:33); Node has no grandparent API.
+    const { output } = z.object({ output: z.object({ stdout: z.string() }) }).parse(finished);
+    const [, pid, ppid] = output.stdout.trim().split(' ').map(Number);
+    expect([pid, ppid]).toContain(spawned[0]?.pid);
+  }
 });
 
 test('a denied executeCommand never spawns its process', { timeout: 180_000 }, async () => {
