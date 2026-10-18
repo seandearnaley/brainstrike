@@ -21,7 +21,11 @@ async function freshRoot(): Promise<string> {
 /** An in-process host its launch owns until it settles it; afterEach closes a released one. */
 function owned(host: HostRuntime): StartedHost {
   hosts.push(host);
-  return { release: async () => undefined, retire: () => host.close() };
+  return {
+    identity: { pid: host.record.pid, start: host.record.start },
+    release: async () => undefined,
+    retire: () => host.close(),
+  };
 }
 afterEach(async () => {
   // A cleanup failure must not let the next test delete its retained evidence.

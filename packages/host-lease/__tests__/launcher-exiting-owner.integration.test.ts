@@ -90,7 +90,11 @@ const realHost =
     const host = await startHost(options);
     hosts.push(host);
     started.count += 1;
-    return { release: async () => undefined, retire: () => host.close() };
+    return {
+      identity: { pid: host.record.pid, start: host.record.start },
+      release: async () => undefined,
+      retire: () => host.close(),
+    };
   };
 const noStart = (onStart: () => void) => async (): Promise<never> => {
   onStart();

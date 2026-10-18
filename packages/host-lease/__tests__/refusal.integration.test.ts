@@ -116,7 +116,11 @@ test('a reused PID with a different start identity is stale even though that PID
     spawn: async (options) => {
       const host = await startHost(options);
       hosts.push(host);
-      return { release: async () => undefined, retire: () => host.close() };
+      return {
+        identity: { pid: host.record.pid, start: host.record.start },
+        release: async () => undefined,
+        retire: () => host.close(),
+      };
     },
   });
   clients.push(client);

@@ -317,12 +317,26 @@ test.each([
         threadId,
       });
       const active = client;
+      // The step's closing `finish` chunk commits after its edit decision is
+      // requested, so the baseline waits for both: a refused respond must then
+      // leave the committed log unchanged.
       await expect
-        .poll(async () =>
-          (await active.request('thread/read', { fromSeq: 0, threadId })).rows.some(
-            ({ event }) => event.type === 'interaction.requested'
-          )
-        )
+        .poll(async () => {
+          const events = (await active.request('thread/read', { fromSeq: 0, threadId })).rows.map(
+            ({ event }) => event
+          );
+          return (
+            events.some((event) => event.type === 'interaction.requested') &&
+            events.some(
+              (event) =>
+                event.type === 'stream.chunk' &&
+                event.runId === runId &&
+                typeof event.chunk === 'object' &&
+                event.chunk !== null &&
+                Reflect.get(event.chunk, 'type') === 'finish'
+            )
+          );
+        })
         .toBe(true);
       const before = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
       const pending = before
