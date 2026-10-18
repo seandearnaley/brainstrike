@@ -280,6 +280,12 @@ export interface HostRunState {
    * approved: the admitting configuration, and the live client's origin.
    */
   input?: HostRunInput;
+  /**
+   * BST-1932: a committed run/input names this run, so the child's next run
+   * takes its human input and carries its report. A legacy run/steer only
+   * ends the run (`steered`); it hands nothing on.
+   */
+  inputAccepted: boolean;
   readonly liveInputs: Map<
     string,
     {
@@ -442,6 +448,7 @@ export function createHostRunState(
     effects: new Set(),
     grants,
     id,
+    inputAccepted: false,
     liveInputs: new Map(),
     messageIndexes: new Set(),
     messages: [],
@@ -493,8 +500,11 @@ export function foldHostAcceptedCommand(
   }
   if (event.method === 'run/stop') {
     run.stopped = true;
-  } else {
-    run.steered = true;
+    return;
+  }
+  run.steered = true;
+  if (event.method === 'run/input') {
+    run.inputAccepted = true;
   }
 }
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */
