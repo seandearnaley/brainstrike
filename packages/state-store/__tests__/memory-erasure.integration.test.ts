@@ -151,7 +151,10 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
       ownerThreadId: threadId,
       resourceId,
     });
-    await expect.poll(() => existsSync(entered)).toBe(true);
+    // The writer's first native call cold-imports the held module and, through
+    // it, Mastra's calculator: 3.1 s under coverage on a hosted-like 2-vCPU
+    // throttle, past poll's 1 s default. A test budget, not a product bound.
+    await expect.poll(() => existsSync(entered), { timeout: 30_000 }).toBe(true);
     let deleted = false;
     const deletion = store.deleteThread(threadId).then(() => {
       deleted = true;

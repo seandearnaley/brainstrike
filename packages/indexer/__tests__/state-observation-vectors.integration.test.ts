@@ -11,7 +11,7 @@ import {
 } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { StateStore } from '@brainstrike/state-store';
-import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
+import { getAdjustedTimeout, getTimeoutMultiplier } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, it, type TestContext, vi } from 'vitest';
 import { decoder, stateObservationMetadataSchema } from '../src/contracts.js';
@@ -24,7 +24,15 @@ import {
 } from './fixtures/state-observation-native.mjs';
 import { observationChunks } from './fixtures/state-observation-schema.mjs';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+// A test budget, not the product's (production callers allow 60_000 ms).
+// The projection cold-imports Mastra's Memory in the forked indexer: startups
+// measured 2.4-6.2 s under coverage on a hosted-like 2-vCPU throttle.
+const deadlines = {
+  closeMs: 5000,
+  exitMs: 5000,
+  requestMs: 5000,
+  startupMs: 10_000 * getTimeoutMultiplier(),
+};
 // The production writer's native memory calculator, which also carries Mastra OM's token counter.
 const memoryCalculatorModule = fileURLToPath(
   new URL('../../agent-host/dist/adapters/memory-storage-calculator.js', import.meta.url)
