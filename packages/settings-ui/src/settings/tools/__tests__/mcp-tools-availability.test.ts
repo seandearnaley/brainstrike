@@ -89,6 +89,22 @@ describe('resolveMcpToolsAvailability', () => {
     ).toBe('loading');
   });
 
+  it('reports loading, not the old failure, while a retry after a failed list is in flight', () => {
+    // A failure removes the list; a list-changed notification retries it. The
+    // failure is the last result, but the retry is what is happening now.
+    expect(
+      resolveMcpToolsAvailability(
+        connected({
+          catalog: catalog({
+            errors: { tools: { category: 'protocol', code: 'boom', message: 'Connection closed' } },
+            listing: ['tools'],
+            tools: undefined,
+          }),
+        })
+      )
+    ).toBe('loading');
+  });
+
   it('keeps the previous list available while a list-changed refresh is in flight', () => {
     expect(
       resolveMcpToolsAvailability(

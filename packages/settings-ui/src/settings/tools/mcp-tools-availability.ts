@@ -13,7 +13,7 @@ import type { McpServerInfo } from './types';
  *   prompts-only or resources-only server does. That server is healthy.
  * - `empty`: the list settled with zero tools.
  * - `loading`: the host reports `tools` listing (`catalog.listing`) and no
- *   list has arrived yet.
+ *   list has arrived yet, including a retry after a failure.
  * - `available`: tools listed, or nothing provable.
  *
  * The host lists every advertised section before it publishes `connected`
@@ -37,6 +37,12 @@ export function resolveMcpToolsAvailability(server: McpServerInfo): McpToolsAvai
     return 'available';
   }
   const { catalog } = server;
+  // A listing in flight with no list yet is loading, even over a previous
+  // failure: a list-changed retry is under way, and the failure stays the
+  // host's last result until that retry settles.
+  if (catalog.listing?.includes('tools') && !catalog.tools) {
+    return 'loading';
+  }
   if (catalog.errors.tools) {
     return 'tools-unavailable';
   }
@@ -46,7 +52,7 @@ export function resolveMcpToolsAvailability(server: McpServerInfo): McpToolsAvai
   if (catalog.tools) {
     return catalog.tools.tools.length === 0 ? 'empty' : 'available';
   }
-  return catalog.listing?.includes('tools') ? 'loading' : 'available';
+  return 'available';
 }
 
 /**
