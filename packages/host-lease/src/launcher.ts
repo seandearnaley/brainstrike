@@ -13,10 +13,22 @@ import {
 import { attachHost, type HostAttachment } from './client.js';
 import type { HostRecord } from './record.js';
 import { readHostRecord } from './record-file.js';
+import { HOST_LEASE_CLOSING, HOST_LEASE_CONNECTION_CLOSED } from './refusal.js';
 import type { HostLifetime, HostStartOptions } from './runtime.js';
 import { RootContentionError } from './startup-failure.js';
 import { windowsPrivateAcl } from './windows-acl.js';
-export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<void>;
+/**
+ * A host a starter started, still owned by the launch that asked for it
+ * (BST-2167). The launch settles it exactly once: `release` once it attached,
+ * `retire` when it gives up, so a launch never abandons a host it started.
+ */
+export interface StartedHost {
+  /** The launch attached: the host keeps the lifetime it was started with. */
+  release(): Promise<void>;
+  /** The launch gave up on it: cancel the host and join its exit. */
+  retire(): Promise<void>;
+}
+export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<StartedHost>;
 export interface HostLaunchOptions {
   /** The new host uses canonical JSON-RPC; old-path callers retain their handshake. */
   readonly attach?: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>;
@@ -134,13 +146,18 @@ async function ownerLeaves(root: string, record: HostRecord, deadline: number): 
     }
   }
 }
-/** Transport codes of an owner whose sockets are closing or already gone. */
-const LEAVING_TRANSPORT_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOENT', 'EPIPE']);
-/** The host's own closing refusal and the clients' lost-connection reports. */
-const LEAVING_MESSAGES = new Set([
-  'Host connection closed',
-  'Host is closing',
-  'Host socket closed before connect',
+/**
+ * Codes of an owner whose sockets are closing or already gone: the transport's,
+ * and the host lease's typed closing and lost-connection refusals. Classified
+ * by code, never by message (BST-2158).
+ */
+const LEAVING_CODES = new Set<string>([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOENT',
+  'EPIPE',
+  HOST_LEASE_CLOSING,
+  HOST_LEASE_CONNECTION_CLOSED,
 ]);
 /** The agent host's typed closing and connection-loss failures, matched by code. */
 const LEAVING_FAILURE_CODES = new Set([
@@ -166,9 +183,8 @@ function ownerMayBeLeaving(cause: unknown, depth = 0): boolean {
   const failureCode =
     typeof failure === 'object' && failure !== null ? Reflect.get(failure, 'code') : undefined;
   if (
-    (typeof code === 'string' && LEAVING_TRANSPORT_CODES.has(code)) ||
-    (typeof failureCode === 'string' && LEAVING_FAILURE_CODES.has(failureCode)) ||
-    (cause instanceof Error && LEAVING_MESSAGES.has(cause.message))
+    (typeof code === 'string' && LEAVING_CODES.has(code)) ||
+    (typeof failureCode === 'string' && LEAVING_FAILURE_CODES.has(failureCode))
   ) {
     return true;
   }
@@ -296,16 +312,43 @@ async function attachWinner(launch: Launch, cause: unknown): Promise<Step> {
   const record = await publishedRecord(launch.root, winner, remaining(launch));
   return record ? attachOwner(launch, record) : AGAIN;
 }
-async function startAndAttach(launch: Launch): Promise<Step> {
-  const startOptions = startOptionsFor(launch.root, launch.options.lifetime);
+/** Retire a host the launch gave up on; a failed retirement joins the launch's own failure. */
+async function retireAfter(started: StartedHost, cause: unknown): Promise<never> {
   try {
-    await runWithTimeout((signal) => launch.options.spawn(startOptions, signal), {
-      onTimeout: () => new Error('Host startup timed out'),
-      timeoutMs: remaining(launch),
-    });
-  } catch (cause) {
-    return attachWinner(launch, cause);
+    await started.retire();
+  } catch (retireCause) {
+    throw new AggregateError(
+      [cause, retireCause],
+      'Host launch failed and the host it started did not retire',
+      { cause }
+    );
   }
+  throw cause;
+}
+/**
+ * Start a host under the launch's one deadline. At the deadline the starter's
+ * signal aborts and the launch waits for that starter to settle, so its
+ * cancellation, and the exit of any child it started, is joined before the
+ * launch rejects. A host reported started after the deadline is retired.
+ */
+async function startWithin(launch: Launch, options: HostStartOptions): Promise<StartedHost> {
+  const deadline = new AbortController();
+  const timer = setTimeout(
+    () => deadline.abort(new Error('Host startup timed out')),
+    remaining(launch)
+  );
+  let started: StartedHost;
+  try {
+    started = await launch.options.spawn(options, deadline.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (deadline.signal.aborted) {
+    return retireAfter(started, deadline.signal.reason);
+  }
+  return started;
+}
+async function attachStarted(launch: Launch): Promise<Step> {
   const acquired = await liveLease(launch.root);
   if (!acquired) {
     throw new Error('Host starter returned without a live root lease');
@@ -315,6 +358,37 @@ async function startAndAttach(launch: Launch): Promise<Step> {
   // and one that released before publishing sends the launch back to the start.
   const record = await publishedRecord(launch.root, acquired, remaining(launch));
   return record ? attachOwner(launch, record) : AGAIN;
+}
+/**
+ * BST-2167: the launch owns the host it started until it settles it. An
+ * attachment releases that host to its lifetime; giving up, or a host that
+ * left on its own, retires it, so no started host outlives a failed launch.
+ */
+async function startAndAttach(launch: Launch): Promise<Step> {
+  const startOptions = startOptionsFor(launch.root, launch.options.lifetime);
+  let started: StartedHost;
+  try {
+    started = await startWithin(launch, startOptions);
+  } catch (cause) {
+    return attachWinner(launch, cause);
+  }
+  let step: Step;
+  try {
+    step = await attachStarted(launch);
+  } catch (cause) {
+    return retireAfter(started, cause);
+  }
+  if (step === AGAIN) {
+    await started.retire();
+    return AGAIN;
+  }
+  try {
+    await started.release();
+  } catch (cause) {
+    await step.close();
+    throw cause;
+  }
+  return step;
 }
 
 export async function launchHost(

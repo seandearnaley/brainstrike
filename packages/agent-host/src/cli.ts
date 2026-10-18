@@ -487,8 +487,13 @@ Run signals stop and join its execution; attach signals detach.
             'Starting a host requires --platform <module>; this entry composes no default platform'
           );
         }
-        await createAgentHostSpawner(platformModule, launchSelection(values))(options, signal);
+        const started = await createAgentHostSpawner(platformModule, launchSelection(values))(
+          options,
+          signal
+        );
         spawned = true;
+        // BST-2167: the launch settles the host it started (release or retire).
+        return started;
       },
     }
   );

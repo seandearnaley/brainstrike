@@ -1,9 +1,7 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   buildToolDiscoveryNote,
   createSanitizedToolNameMap,
@@ -17,57 +15,41 @@ import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import {
+  type ProcessResult,
+  REAL_PROCESS_WAIT,
+  retireRootOwner,
+  runBin,
+} from './fixtures/real-bin.js';
 
-const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const roots: string[] = [];
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
-interface CliResult {
-  readonly code: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
 interface OfflineHttp {
   readonly credential?: 'env' | 'file' | 'keyring';
   readonly mode: 'complete' | 'hold';
   readonly receipt: string;
 }
-function command(root: string, args: readonly string[], http?: OfflineHttp): Promise<CliResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      process.execPath,
-      [bin, '--data-root', root, ...args],
-      {
-        cwd: tmpdir(),
-        env: {
-          LC_ALL: 'C',
-          PATH: process.env['PATH'],
-          SystemRoot: process.env['SystemRoot'],
-          TZ: 'UTC',
-          ...(http
-            ? {
-                BRAINSTRIKE_M3_STANDALONE_CREDENTIAL: http.credential ?? 'env',
-                BRAINSTRIKE_M3_STANDALONE_HTTP: http.mode,
-                BRAINSTRIKE_M3_STANDALONE_RECEIPT: http.receipt,
-                ...(http.credential === undefined || http.credential === 'env'
-                  ? { BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture' }
-                  : {}),
-                NODE_OPTIONS: `--import=${httpFixture}`,
-              }
+function command(
+  root: string,
+  args: readonly string[],
+  http?: OfflineHttp
+): Promise<ProcessResult> {
+  return runBin(root, args, {
+    LC_ALL: 'C',
+    PATH: process.env['PATH'],
+    SystemRoot: process.env['SystemRoot'],
+    TZ: 'UTC',
+    ...(http
+      ? {
+          BRAINSTRIKE_M3_STANDALONE_CREDENTIAL: http.credential ?? 'env',
+          BRAINSTRIKE_M3_STANDALONE_HTTP: http.mode,
+          BRAINSTRIKE_M3_STANDALONE_RECEIPT: http.receipt,
+          ...(http.credential === undefined || http.credential === 'env'
+            ? { BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture' }
             : {}),
-        },
-        timeout: 10_000,
-        windowsHide: true,
-      },
-      (cause, stdout, stderr) => {
-        if (!cause) {
-          resolve({ code: 0, stderr, stdout });
-        } else if (typeof cause.code === 'number') {
-          resolve({ code: cause.code, stderr, stdout });
-        } else {
-          reject(cause);
+          NODE_OPTIONS: `--import=${httpFixture}`,
         }
-      }
-    );
+      : {}),
   });
 }
 async function root(): Promise<string> {
@@ -79,19 +61,14 @@ async function record(dataRoot: string): Promise<HostRecord> {
   return decodeHostRecord(JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8')));
 }
 async function expectIdleHostJoined(dataRoot: string): Promise<void> {
-  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
+  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released, REAL_PROCESS_WAIT).toBe(true);
   const owner = RootLock.inspect(dataRoot)?.owner;
   expect(owner).toBeDefined();
-  await expect.poll(() => processStartTime(owner?.pid ?? 0)).toBeNull();
+  await expect.poll(() => processStartTime(owner?.pid ?? 0), REAL_PROCESS_WAIT).toBeNull();
 }
 afterEach(async () => {
   for (const dataRoot of roots.splice(0)) {
-    const owner = RootLock.inspect(dataRoot)?.owner;
-    if (owner && !owner.released) {
-      const stopped = await command(dataRoot, ['host', 'stop']);
-      expect(stopped, JSON.stringify(stopped)).toMatchObject({ code: 0 });
-      await expect.poll(() => processStartTime(owner.pid)).toBeNull();
-    }
+    await retireRootOwner(dataRoot, () => command(dataRoot, ['host', 'stop']));
     await removeFixtureRoot(dataRoot);
   }
 });
@@ -99,10 +76,10 @@ test('real bin lists a cold durable Root without a supplied platform and joins i
   const dataRoot = await root();
   const result = await command(dataRoot, ['threads', 'list']);
   expect(result).toEqual({ code: 0, stderr: '', stdout: '{"threads":[]}\n' });
-  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
+  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released, REAL_PROCESS_WAIT).toBe(true);
   const owner = RootLock.inspect(dataRoot)?.owner;
   expect(owner).toBeDefined();
-  await expect.poll(() => processStartTime(owner?.pid ?? 0)).toBeNull();
+  await expect.poll(() => processStartTime(owner?.pid ?? 0), REAL_PROCESS_WAIT).toBeNull();
   await expect(access(join(dataRoot, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   const store = await StateStore.open(dataRoot);
   await store.close();
@@ -182,7 +159,7 @@ test('real bin attaches before platform selection, preserves threads and release
     stdout: '{"outcome":"stopped","rootReleased":true}\n',
   });
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
-  await expect.poll(() => processStartTime(first.pid)).toBeNull();
+  await expect.poll(() => processStartTime(first.pid), REAL_PROCESS_WAIT).toBeNull();
   await expect(access(join(dataRoot, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   const reopened = await command(dataRoot, ['threads', 'list']);
   expect(reopened.code).toBe(0);
@@ -197,7 +174,7 @@ test('real bin attaches before platform selection, preserves threads and release
       { binding: null, createdAt: expect.any(Number), threadId, updatedAt: expect.any(Number) },
     ],
   });
-  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
+  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released, REAL_PROCESS_WAIT).toBe(true);
 });
 test.each(['status', 'stop'] as const)(
   'cold host %s never starts the default platform',
@@ -340,7 +317,7 @@ test('real bin runs the explicit canonical model through production HTTP, commit
     JSON.stringify(buildToolDiscoveryNote(createSanitizedToolNameMap(available))).slice(1, -1)
   );
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
-  await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+  await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
   const completed = await receipts(http.receipt);
   expect(completed.some((item) => item['phase'] === 'forbidden-capability')).toBe(false);
   for (const item of completed.filter((item) => item['phase'] === 'process-start')) {
@@ -363,9 +340,9 @@ test('real bin runs the explicit canonical model through production HTTP, commit
       onExcessProperty: 'error',
     })(JSON.parse(reopened.stdout)).rows
   ).toEqual(rows);
-  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
+  await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released, REAL_PROCESS_WAIT).toBe(true);
   const replayOwner = RootLock.inspect(dataRoot)?.owner;
-  await expect.poll(() => processStartTime(replayOwner?.pid ?? 0)).toBeNull();
+  await expect.poll(() => processStartTime(replayOwner?.pid ?? 0), REAL_PROCESS_WAIT).toBeNull();
   expect(
     (await receipts(http.receipt)).filter((item) => item['phase'] === 'provider-request')
   ).toHaveLength(1);
@@ -419,7 +396,7 @@ test('real bin normalizes an explicitly selected private file through the existi
   expect(result.stdout).toContain('Offline standalone production reply');
   expect(await readFile(credentialFile, 'utf8')).toBe(content);
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
-  await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+  await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
   const completed = await receipts(http.receipt);
   expect(completed.filter((item) => item['phase'] === 'provider-request')).toHaveLength(1);
   expect(completed.some((item) => item['phase'] === 'forbidden-capability')).toBe(false);
@@ -451,7 +428,7 @@ test('concurrent real bins retain the winning credential authority after a cold 
     })(JSON.parse(winner?.stdout ?? 'null')).pid
   ).toBe(owner.pid);
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
-  await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+  await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
   expect((await receipts(http.receipt)).some((item) => item['phase'] === 'provider-request')).toBe(
     false
   );
@@ -507,7 +484,7 @@ test('real bin carries the explicit keyring service through its owned Node crede
   expect(beforeStop.filter((item) => item['phase'] === 'provider-request')).toHaveLength(1);
   expect(beforeStop.some((item) => item['phase'] === 'forbidden-capability')).toBe(false);
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
-  await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+  await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
   expect(await receipts(http.receipt)).toContainEqual(
     expect.objectContaining({
       code: 0,
@@ -574,7 +551,7 @@ test('real bin refuses unsafe credential files and conflicting captured capabili
     false
   );
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
-  await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+  await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
 });
 test.each([
   ['unknown-provider::model', 'explicit canonical provider::model'],
@@ -656,8 +633,10 @@ test('real bin stop aborts and joins a held production HTTP source before host a
     onExcessProperty: 'error',
   })(JSON.parse(running.stdout));
   await expect
-    .poll(async () =>
-      (await receipts(http.receipt)).some((item) => item['phase'] === 'provider-request')
+    .poll(
+      async () =>
+        (await receipts(http.receipt)).some((item) => item['phase'] === 'provider-request'),
+      REAL_PROCESS_WAIT
     )
     .toBe(true);
   const stopped = await command(
@@ -688,6 +667,6 @@ test('real bin stop aborts and joins a held production HTTP source before host a
     })
   );
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
-  await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+  await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
 });

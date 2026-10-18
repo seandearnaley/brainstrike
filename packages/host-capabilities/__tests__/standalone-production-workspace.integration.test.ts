@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { type AgentHost, attachAgentHost, startAgentHost } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRunInputSchema,
@@ -20,8 +18,8 @@ import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import { REAL_PROCESS_WAIT, runBin } from './fixtures/real-bin.js';
 
-const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const offline = new URL('./fixtures/standalone-production-workspace-http.mjs', import.meta.url)
   .href;
 const roots: string[] = [];
@@ -39,39 +37,15 @@ async function receipts(root: string) {
     .map((line) => ReceiptSchema.parse(JSON.parse(line)));
 }
 function command(root: string, args: readonly string[]) {
-  return new Promise<{
-    code: number;
-    stderr: string;
-    stdout: string;
-  }>((resolve, reject) => {
-    execFile(
-      process.execPath,
-      [bin, '--data-root', root, ...args],
-      {
-        cwd: tmpdir(),
-        env: {
-          BRAINSTRIKE_M3_WORKSPACE_RECEIPT: join(root, 'workspace-boundary.jsonl'),
-          LC_ALL: 'C',
-          NODE_OPTIONS: `--import=${offline}`,
-          PATH: process.env['PATH'],
-          SystemRoot: process.env['SystemRoot'],
-          TEMP: process.env['TEMP'],
-          TMP: process.env['TMP'],
-          TZ: 'UTC',
-        },
-        timeout: 10_000,
-        windowsHide: true,
-      },
-      (cause, stdout, stderr) => {
-        if (!cause) {
-          resolve({ code: 0, stderr, stdout });
-        } else if (typeof cause.code === 'number') {
-          resolve({ code: cause.code, stderr, stdout });
-        } else {
-          reject(cause);
-        }
-      }
-    );
+  return runBin(root, args, {
+    BRAINSTRIKE_M3_WORKSPACE_RECEIPT: join(root, 'workspace-boundary.jsonl'),
+    LC_ALL: 'C',
+    NODE_OPTIONS: `--import=${offline}`,
+    PATH: process.env['PATH'],
+    SystemRoot: process.env['SystemRoot'],
+    TEMP: process.env['TEMP'],
+    TMP: process.env['TMP'],
+    TZ: 'UTC',
   });
 }
 afterEach(async () => {
@@ -81,9 +55,9 @@ afterEach(async () => {
   for (const root of roots.splice(0)) {
     const owner = RootLock.inspect(root)?.owner;
     if (owner) {
-      await expect.poll(() => RootLock.inspect(root)?.owner.released).toBe(true);
+      await expect.poll(() => RootLock.inspect(root)?.owner.released, REAL_PROCESS_WAIT).toBe(true);
       if (owner.pid !== process.pid) {
-        await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+        await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
       }
     }
     await removeFixtureRoot(root);
@@ -162,7 +136,7 @@ test('cold production bin refuses workspace admission before credentials or HTTP
   expect(result.code).toBe(1);
   expect(result.stderr).toContain(STANDALONE_WORKSPACE_CAPABILITY_ERROR);
   expect(result.stderr).toContain('Attach to the desktop host');
-  await expect.poll(() => RootLock.inspect(root)?.owner.released).toBe(true);
+  await expect.poll(() => RootLock.inspect(root)?.owner.released, REAL_PROCESS_WAIT).toBe(true);
   const rows = await receipts(root);
   expect(rows.filter((row) => row.isMainThread)).toHaveLength(2);
   expect(

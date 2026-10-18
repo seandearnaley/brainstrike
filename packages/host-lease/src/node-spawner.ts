@@ -2,9 +2,9 @@ import { type ChildProcess, fork, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
-import type { HostSpawner } from './launcher.js';
+import type { HostSpawner, StartedHost } from './launcher.js';
 import { ResourceOwner } from './resource-owner.js';
-import { decodeStartOptions } from './runtime.js';
+import { decodeStartOptions, type HostLifetime } from './runtime.js';
 import { startupFailure } from './startup-failure.js';
 import { decodeStartupMessage } from './startup-message.js';
 export interface NodeSpawnerOptions {
@@ -20,16 +20,149 @@ export interface NodeSpawnerOptions {
    */
   readonly readyTimeoutMs?: number;
 }
-/** How long a starter has to report ready (or a failure) before it is cancelled. */
+/**
+ * How long a starter has to report ready (or a failure) before it is
+ * cancelled, and, once cancelled, how long it has to exit before it is killed.
+ */
 export const HOST_STARTER_READY_TIMEOUT_MS = 10_000;
-async function disconnect(child: ChildProcess): Promise<void> {
+async function closeChannel(child: ChildProcess): Promise<void> {
   if (child.connected) {
     await new Promise<void>((resolve) => {
       child.once('disconnect', resolve);
       child.disconnect();
     });
   }
+}
+/** The child's exit; registered before it is asked to stop, so it cannot be missed. */
+function exitOf(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => child.once('exit', () => resolve()));
+}
+/**
+ * The bounded last resort: SIGKILL the host's whole process group when it
+ * leads one (a POSIX detached host), otherwise only the host. On Windows
+ * `kill` is TerminateProcess, and the host's kill-on-close Job ends its
+ * descendants (ADR-0017).
+ */
+function terminate(child: ChildProcess, groupLeader: boolean): void {
+  if (groupLeader && process.platform !== 'win32' && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+      return;
+    } catch (cause) {
+      // ESRCH: the group is gone; EPERM: Darwin's answer while only zombies
+      // remain. Either way the leader's own exit below is still joined.
+      const code = cause instanceof Error ? Reflect.get(cause, 'code') : undefined;
+      if (code !== 'ESRCH' && code !== 'EPERM') {
+        throw cause;
+      }
+    }
+  }
+  child.kill('SIGKILL');
+}
+/**
+ * Stop a host this starter still owns and join its exit (BST-2167). Asking is
+ * the graceful path: `cancel-startup` over the IPC lane to a host that holds
+ * its root, else SIGTERM; either way the host closes itself. A host still
+ * running `timeoutMs` later is SIGKILLed, then joined, and the stop rejects
+ * naming its pid: a forced kill never passes as a clean retirement.
+ */
+async function stopAndJoin(
+  child: ChildProcess,
+  ask: 'cancel-startup' | 'SIGTERM',
+  groupLeader: boolean,
+  timeoutMs: number
+): Promise<void> {
+  const exit = exitOf(child);
+  const errored = Promise.withResolvers<never>();
+  errored.promise.catch(() => undefined); // observed by the races below
+  child.on('error', errored.reject);
+  try {
+    if (ask === 'cancel-startup') {
+      await new Promise<void>((resolve, reject) => {
+        child.send({ event: 'cancel-startup' }, (cause: Error | null) =>
+          cause ? reject(cause) : resolve()
+        );
+      });
+    } else {
+      child.kill('SIGTERM');
+    }
+    // A host waits for its parent to let go of the IPC channel before it exits.
+    await closeChannel(child);
+    const outlived = new Error(
+      `Host pid ${child.pid} was still running ${timeoutMs} ms after ${ask}; it was killed`
+    );
+    try {
+      await runWithTimeout(() => Promise.race([exit, errored.promise]), {
+        onTimeout: () => outlived,
+        timeoutMs,
+      });
+      return;
+    } catch (cause) {
+      if (cause !== outlived) {
+        throw cause;
+      }
+    }
+    terminate(child, groupLeader);
+    await Promise.race([exit, errored.promise]);
+    throw outlived;
+  } finally {
+    child.off('error', errored.reject);
+  }
+}
+/** What a starter knows about the child it owns when it lets go of it. */
+interface StarterState {
+  failedWithRetainedOwner: boolean;
+  readonly groupLeader: boolean;
+  ready: boolean;
+  released: boolean;
+  readonly root: string;
+  /** The readiness deadline, which also bounds a cancelled host's exit. */
+  readonly timeoutMs: number;
+}
+/** The launch attached: hand the host the lifetime it was started with. */
+async function handOff(child: ChildProcess, lifetime: HostLifetime): Promise<void> {
+  if (lifetime === 'app') {
+    // ADR-0017: an app host lives exactly as long as this channel, which closes when this
+    // process dies. Unref'd, it never keeps the launcher alive.
+    child.channel?.unref();
+    child.unref();
+    return;
+  }
+  await closeChannel(child);
   child.unref();
+}
+/** A host that never became ready, or one its launch gave up on (BST-2167). */
+async function retire(child: ChildProcess, state: StarterState): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    await closeChannel(child);
+    child.unref();
+    return;
+  }
+  const lease = RootLock.inspect(state.root)?.owner;
+  const ownsRoot =
+    lease !== undefined &&
+    !lease.released &&
+    lease.pid === child.pid &&
+    processStartTime(lease.pid) === lease.start;
+  if (ownsRoot && state.failedWithRetainedOwner) {
+    // BST-1977 startup repro: SIGTERM killed an owner whose descendant could
+    // not join. A host that reported its failed join retains the actual
+    // process and root; its report is the visible failure.
+    await closeChannel(child);
+    child.unref();
+    return;
+  }
+  const ask = ownsRoot && child.connected ? 'cancel-startup' : 'SIGTERM';
+  await stopAndJoin(child, ask, state.groupLeader, state.timeoutMs);
+  // A ready host that closed cleanly exits 0; anything else is a failed close.
+  if (state.ready && child.exitCode !== 0) {
+    throw new Error(
+      `Host pid ${child.pid} did not close cleanly after ${ask} (${child.exitCode ?? child.signalCode})`
+    );
+  }
 }
 export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpawner {
   const entrypoint =
@@ -38,12 +171,19 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
   if (!(Number.isSafeInteger(readyTimeoutMs) && readyTimeoutMs > 0)) {
     throw new RangeError('Host starter readiness deadline must be a positive safe integer');
   }
-  return async (input, signal): Promise<void> => {
+  return async (input, signal): Promise<StartedHost> => {
     signal.throwIfAborted();
     const startOptions = decodeStartOptions(input);
     const owner = new ResourceOwner();
-    let ready = false;
-    let failedWithRetainedOwner = false;
+    const state: StarterState = {
+      failedWithRetainedOwner: false,
+      // POSIX `detached` makes the child its own process group's leader.
+      groupLeader: process.platform !== 'win32' && startOptions.lifetime === 'persistent',
+      ready: false,
+      released: false,
+      root: startOptions.root,
+      timeoutMs: readyTimeoutMs,
+    };
     const child = await owner.acquire(
       async (): Promise<ChildProcess> => {
         if (process.platform === 'win32') {
@@ -73,43 +213,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
           stdio: ['ignore', options.output ?? 'inherit', options.output ?? 'inherit', 'ipc'],
         });
       },
-      async (child) => {
-        if (!ready && child.exitCode === null && child.signalCode === null) {
-          const lease = RootLock.inspect(startOptions.root)?.owner;
-          if (
-            lease &&
-            !lease.released &&
-            lease.pid === child.pid &&
-            processStartTime(lease.pid) === lease.start
-          ) {
-            // BST-1977 startup repro: SIGTERM killed an owner whose descendant
-            // could not join. Cancellation travels over the existing IPC lane;
-            // an unreported/failed join retains the actual process and root.
-            if (!failedWithRetainedOwner && child.connected) {
-              await new Promise<void>((resolve, reject) => {
-                child.send({ event: 'cancel-startup' }, (cause: Error | null) =>
-                  cause ? reject(cause) : resolve()
-                );
-              });
-            }
-            await disconnect(child);
-            return;
-          }
-          await new Promise<void>((resolve, reject) => {
-            child.once('exit', () => resolve());
-            child.once('error', reject);
-            child.kill('SIGTERM');
-          });
-        }
-        if (ready && startOptions.lifetime === 'app') {
-          // ADR-0017: an app host lives exactly as long as this channel, which closes when this
-          // process dies. Unref'd, it never keeps the launcher alive.
-          child.channel?.unref();
-          child.unref();
-          return;
-        }
-        await disconnect(child);
-      }
+      (child) => (state.released ? handOff(child, startOptions.lifetime) : retire(child, state))
     );
     try {
       await runWithTimeout(
@@ -136,12 +240,12 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
               try {
                 const decoded = decodeStartupMessage(inputMessage);
                 if (decoded.event === 'ready') {
-                  ready = true;
+                  state.ready = true;
                   cleanup();
                   resolve();
                   return;
                 }
-                failedWithRetainedOwner = decoded.ownership === 'retained';
+                state.failedWithRetainedOwner = decoded.ownership === 'retained';
                 failed(startupFailure(startOptions.root, decoded));
               } catch (cause) {
                 failed(cause);
@@ -158,8 +262,23 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
           timeoutMs: readyTimeoutMs,
         }
       );
-    } finally {
-      await owner.close();
+    } catch (cause) {
+      try {
+        await owner.close();
+      } catch (cleanupCause) {
+        throw new AggregateError([cause, cleanupCause], 'Host startup and cancellation failed', {
+          cause,
+        });
+      }
+      throw cause;
     }
+    // BST-2167: the launch, not this starter, decides the ready host's fate.
+    return {
+      release: () => {
+        state.released = true;
+        return owner.close();
+      },
+      retire: () => owner.close(),
+    };
   };
 }

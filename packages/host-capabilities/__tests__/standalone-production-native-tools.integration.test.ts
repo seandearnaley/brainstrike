@@ -1,17 +1,13 @@
-import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
-import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import { retireRootOwner, runBin } from './fixtures/real-bin.js';
 
-const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -21,40 +17,16 @@ afterEach(async () => {
 });
 const EDIT = { content: 'written by the standalone host\n', path: 'notes.txt' };
 function command(dataRoot: string, args: readonly string[]) {
-  return new Promise<{
-    code: number;
-    stderr: string;
-    stdout: string;
-  }>((resolve, reject) => {
-    execFile(
-      process.execPath,
-      [bin, '--data-root', dataRoot, ...args],
-      {
-        cwd: tmpdir(),
-        env: {
-          BRAINSTRIKE_M3_STANDALONE_EDIT: JSON.stringify(EDIT),
-          BRAINSTRIKE_M3_STANDALONE_HTTP: 'edit',
-          BRAINSTRIKE_M3_STANDALONE_RECEIPT: join(dataRoot, 'offline-receipt.jsonl'),
-          BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
-          LC_ALL: 'C',
-          NODE_OPTIONS: `--import=${httpFixture}`,
-          PATH: process.env['PATH'],
-          SystemRoot: process.env['SystemRoot'],
-          TZ: 'UTC',
-        },
-        timeout: 20_000,
-        windowsHide: true,
-      },
-      (cause, stdout, stderr) => {
-        if (!cause) {
-          resolve({ code: 0, stderr, stdout });
-        } else if (typeof cause.code === 'number') {
-          resolve({ code: cause.code, stderr, stdout });
-        } else {
-          reject(cause);
-        }
-      }
-    );
+  return runBin(dataRoot, args, {
+    BRAINSTRIKE_M3_STANDALONE_EDIT: JSON.stringify(EDIT),
+    BRAINSTRIKE_M3_STANDALONE_HTTP: 'edit',
+    BRAINSTRIKE_M3_STANDALONE_RECEIPT: join(dataRoot, 'offline-receipt.jsonl'),
+    BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
+    LC_ALL: 'C',
+    NODE_OPTIONS: `--import=${httpFixture}`,
+    PATH: process.env['PATH'],
+    SystemRoot: process.env['SystemRoot'],
+    TZ: 'UTC',
   });
 }
 async function rows(dataRoot: string, threadId: string) {
@@ -72,16 +44,7 @@ test('the standalone CLI host runs the shared file tool over its --workspace lau
     await rm(workspace, { force: true, recursive: true });
     await removeFixtureRoot(dataRoot);
   });
-  cleanup.push(async () => {
-    const selected = RootLock.inspect(dataRoot)?.owner;
-    if (selected && !selected.released) {
-      const pid = decodeHostRecord(
-        JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))
-      ).pid;
-      expect(await command(dataRoot, ['host', 'stop'])).toMatchObject({ code: 0 });
-      await expect.poll(() => processStartTime(pid)).toBeNull();
-    }
-  });
+  cleanup.push(() => retireRootOwner(dataRoot, () => command(dataRoot, ['host', 'stop'])));
   await writeFile(join(workspace, 'notes.txt'), 'original notes\n');
   expect(await command(dataRoot, ['host', 'start', '--workspace', workspace])).toMatchObject({
     code: 0,

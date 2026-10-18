@@ -1,8 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
+import { HOST_LEASE_CLOSING } from './refusal.js';
 
-export const PROTOCOL_VERSION = 1;
+// 2: the error frame carries an optional typed refusal `code` (BST-2158), which
+// a version-1 client's strict decoder rejects.
+export const PROTOCOL_VERSION = 2;
 export const HOST_VERSION = '0.1.0';
 export const HOST_RECORD_FILE = 'host.json';
 const PositiveInt = Schema.Int.check(
@@ -55,7 +58,11 @@ export const ReplySchema = Schema.Union([
     start: Nonempty,
   }),
   Schema.Struct({ method: Schema.Literal('attached') }),
-  Schema.Struct({ message: Nonempty, method: Schema.Literal('error') }),
+  Schema.Struct({
+    code: Schema.optional(Schema.Literal(HOST_LEASE_CLOSING)),
+    message: Nonempty,
+    method: Schema.Literal('error'),
+  }),
 ]);
 export type HostReply = typeof ReplySchema.Type;
 export const decodeReply = makeThrowingDecoder(ReplySchema, { onExcessProperty: 'error' });

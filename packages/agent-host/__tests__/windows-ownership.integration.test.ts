@@ -341,6 +341,7 @@ windowsTest(
         lifetime: 'cli',
         spawn: async () => {
           spawned = true;
+          throw new Error('This launch must not start a host');
         },
         // BST-2142: the refused attach waits this long for the owner to leave.
         startupTimeoutMs: 1000,

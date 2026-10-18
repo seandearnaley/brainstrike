@@ -9,6 +9,10 @@ owner is refused, never killed, replaced or guessed stale. A starting or exiting
 owner is waited for under the launch's one deadline: a refused attach, or a race
 whose winner releases, waits for that owner to give up the root and acquires
 again. Only an owner that keeps the root to the deadline is refused (BST-2142).
+A leaving owner is recognized by code, never by message: the closing refusal
+crosses the wire as `host-lease.host-closing`, and a lost handshake connection as
+`host-lease.connection-closed` (BST-2158). Changing a frame's shape bumps
+`PROTOCOL_VERSION`.
 
 Keep discovery and credential records private with owner-only permissions. Validate
 record shape, path, generation and process identity before attachment. Public
@@ -20,6 +24,14 @@ credentials or capabilities. Authentication failure does not start another owner
 Register startup/exit listeners before awaited acquisition. A desktop manager owns
 only hosts it forks; closing an attachment to a CLI/external host cannot signal
 that owner. Electron stays in the adapter, not the shared lease package.
+
+A launch owns the host its starter started until it settles it (BST-2167): an
+attachment releases it to its lifetime; a failed attach, a startup deadline, or
+a host that left on its own retires it before the launch rejects or acquires
+again. The deadline aborts the starter and waits for it to settle. The Node
+starter retires with `cancel-startup`, then SIGKILL (the group of a detached
+host) if the host has not exited within its readiness deadline, and a forced
+kill is an error, never a clean retirement.
 
 An app-owned host closes when its parent process identity disappears. An ordinary
 CLI host closes after its last client and active run lease leave; explicit persistent
