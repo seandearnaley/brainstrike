@@ -138,7 +138,8 @@ catalog:
   # runtime's. `Database.Options` and `loadExtension(path)` type-check against
   # better-sqlite3 13.0.3 (packages/sqlite-native `tsc` and its type-check).
   '@types/better-sqlite3': 9.6.0
-  '@types/node': ^24.13.3
+  # BST-2028: maintain the Node 24 application API line; Node 26 is the toolchain.
+  '@types/node': ^24.19.2
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
   '@typescript/native': 'npm:typescript@7.0.2'
