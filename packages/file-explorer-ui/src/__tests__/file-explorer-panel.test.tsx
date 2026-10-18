@@ -1,4 +1,4 @@
-import type { PendingRestoreState } from '@brainstrike/file-explorer-hooks';
+import { type PendingRestoreState, useAdapters } from '@brainstrike/file-explorer-hooks';
 import { type DirectoryHandle, MockFileSystemAdapter } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { FileExplorerState } from '@brainstrike/types';
@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
 import type { FileRowMetadataStore } from '../indexing/file-row-metadata-store';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
+import { useExplorerColumns } from '../shell/explorer-columns-context';
 import { FileExplorerPanel } from '../shell/file-explorer-panel';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import {
@@ -436,6 +437,74 @@ describe('FileExplorerPanel', () => {
       onTokenResolved('root-id|@|src/a.ts', 42);
       expect(invalidateSpy).toHaveBeenCalledWith(['root-id|@|src/a.ts']);
     } finally {
+      FileExplorerSidebarMock?.mockImplementation(() => <div data-testid="sidebar">Sidebar</div>);
+    }
+  });
+
+  /**
+   * BST-2184: a Workspace panel drag changes the tree area's width on every
+   * pointer move. The width must reach the column consumers without
+   * re-rendering the whole panel (toolbar, filters, every control) per pixel.
+   */
+  it('delivers a tree-area width change to the column consumers without re-rendering the panel', async () => {
+    const observers: { callback: ResizeObserverCallback; targets: Element[] }[] = [];
+    class RecordingResizeObserver {
+      private readonly record: { callback: ResizeObserverCallback; targets: Element[] };
+      constructor(callback: ResizeObserverCallback) {
+        this.record = { callback, targets: [] };
+        observers.push(this.record);
+      }
+      observe(target: Element) {
+        this.record.targets.push(target);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver);
+    const ColumnsProbe = () => {
+      const { areMetadataColumnsSuppressed } = useExplorerColumns();
+      return (
+        <div
+          data-metadata-columns-suppressed={String(areMetadataColumnsSuppressed)}
+          data-testid="sidebar"
+        >
+          Sidebar
+        </div>
+      );
+    };
+    FileExplorerSidebarMock?.mockImplementation(() => <ColumnsProbe />);
+
+    try {
+      renderWithProviders(<FileExplorerPanel />);
+      const probe = await screen.findByTestId('sidebar');
+      // Width 0 means "not measured yet", and the narrow answer is the guess.
+      expect(probe).toHaveAttribute('data-metadata-columns-suppressed', 'true');
+
+      const treeArea = screen.getByTestId('explorer-scroll-root').parentElement;
+      const treeAreaObserver = observers.find((record) =>
+        record.targets.some((target) => target === treeArea)
+      );
+      if (!(treeArea && treeAreaObserver)) {
+        throw new Error('expected the tree area to be observed for its width');
+      }
+      const panelRendersBeforeResize = vi.mocked(useAdapters).mock.calls.length;
+
+      await act(async () => {
+        treeAreaObserver.callback(
+          [{ contentRect: { width: 640 }, target: treeArea } as unknown as ResizeObserverEntry],
+          {} as ResizeObserver
+        );
+        // `useResizeObserver` delivers on the next animation frame.
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+
+      expect(screen.getByTestId('sidebar')).toHaveAttribute(
+        'data-metadata-columns-suppressed',
+        'false'
+      );
+      expect(vi.mocked(useAdapters).mock.calls.length).toBe(panelRendersBeforeResize);
+    } finally {
+      vi.unstubAllGlobals();
       FileExplorerSidebarMock?.mockImplementation(() => <div data-testid="sidebar">Sidebar</div>);
     }
   });

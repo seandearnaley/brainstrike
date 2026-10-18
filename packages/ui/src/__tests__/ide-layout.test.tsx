@@ -78,12 +78,19 @@ vi.mock('react-resizable-panels', () => {
   // onLayoutChange fires on every pointer move and is NOT recommended for persistence
   interface GroupProps {
     children?: React.ReactNode;
+    disableCursor?: boolean;
     groupRef?: React.RefObject<{ getLayout: Mock; setLayout: Mock } | null>;
     onLayoutChanged?: LayoutChangedHandler;
     orientation?: string;
   }
 
-  const Group = ({ orientation, onLayoutChanged, groupRef, children }: GroupProps) => {
+  const Group = ({
+    orientation,
+    onLayoutChanged,
+    groupRef,
+    children,
+    disableCursor,
+  }: GroupProps) => {
     const handle = React.useMemo(
       () => ({ getLayout: vi.fn() as Mock, setLayout: vi.fn() as Mock }),
       []
@@ -111,7 +118,14 @@ vi.mock('react-resizable-panels', () => {
         handlers.vertical.push(onLayoutChanged);
       }
     }
-    return <div data-testid={`panel-group-${orientation}`}>{children}</div>;
+    return (
+      <div
+        data-disable-cursor={String(Boolean(disableCursor))}
+        data-testid={`panel-group-${orientation}`}
+      >
+        {children}
+      </div>
+    );
   };
 
   // v4 API: isExpanded() removed, only isCollapsed() exists
@@ -1120,6 +1134,69 @@ describe('IdeLayout', () => {
       expect(separatorBlocks.length).toBeGreaterThanOrEqual(3);
       for (const block of separatorBlocks) {
         expect(block).not.toContain('transition-colors');
+      }
+    });
+  });
+
+  /**
+   * BST-2184: the library shows its resize cursor by adding
+   * `*, *:hover { cursor: … !important }` to the document on separator hover and
+   * removing it after the drag. Each change restyles every element in the app:
+   * two ~110 ms main-thread tasks per drag at 12x CPU, measured in the built app.
+   * The layout opts out, and each separator carries the cursor itself.
+   */
+  describe('resize cursor', () => {
+    it('opts every Group out of the library cursor stylesheet', () => {
+      Object.assign(mockState, { showConsole: true, showLeftPanel: true, showRightPanel: true });
+      renderDefaultLayout();
+      expect(screen.getByTestId('panel-group-horizontal')).toHaveAttribute(
+        'data-disable-cursor',
+        'true'
+      );
+      expect(screen.getByTestId('panel-group-vertical')).toHaveAttribute(
+        'data-disable-cursor',
+        'true'
+      );
+    });
+
+    it.each([
+      ['expanded', true],
+      ['collapsed', false],
+    ])('%s separators show the resize cursor across the library hit target', (_label, shown) => {
+      Object.assign(mockState, { showConsole: shown, showLeftPanel: shown, showRightPanel: shown });
+      renderDefaultLayout();
+      const handles = screen.getAllByTestId('resize-handle');
+      const vertical = handles.filter((h) => h.className.includes('w-px'));
+      const horizontal = handles.filter((h) => h.className.includes('h-px'));
+      expect(vertical).toHaveLength(2);
+      expect(horizontal).toHaveLength(1);
+      // A collapsed panel is still dragged open from its separator, so its
+      // invisible separator keeps the cursor too.
+      for (const handle of vertical) {
+        // The cursor is on the separator itself: the library holds pointer capture
+        // on it during a drag, and Chromium shows the capture target's cursor.
+        expect(handle).toHaveClass('cursor-ew-resize', 'relative');
+        // The `after:` band matches the library's resizeTargetMinimumSize defaults,
+        // centred on the 1px seam: 10px for a fine pointer, 20px for a coarse one.
+        expect(handle).toHaveClass(
+          'after:absolute',
+          'after:inset-y-0',
+          'after:left-1/2',
+          'after:-translate-x-1/2',
+          'after:w-2.5',
+          'pointer-coarse:after:w-5'
+        );
+      }
+      for (const handle of horizontal) {
+        expect(handle).toHaveClass('cursor-ns-resize', 'relative');
+        expect(handle).toHaveClass(
+          'after:absolute',
+          'after:inset-x-0',
+          'after:top-1/2',
+          'after:-translate-y-1/2',
+          'after:h-2.5',
+          'pointer-coarse:after:h-5'
+        );
       }
     });
   });
