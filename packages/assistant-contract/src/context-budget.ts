@@ -35,10 +35,7 @@ export function deriveEffectiveInputBudget(
     throw new Error(`maxOutputTokens must be a positive finite number, got ${maxOutputTokens}`);
   }
   const output = maxOutputTokens ?? CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
-  const margin = Math.max(
-    CONTEXT_BUDGET_SAFETY_MARGIN_MIN,
-    Math.ceil(contextWindow * CONTEXT_BUDGET_SAFETY_MARGIN_RATIO)
-  );
+  const margin = contextBudgetSafetyMargin(contextWindow);
   const budget = contextWindow - output - margin;
   if (budget <= 0) {
     throw new Error(
@@ -46,6 +43,30 @@ export function deriveEffectiveInputBudget(
     );
   }
   return budget;
+}
+
+function contextBudgetSafetyMargin(contextWindow: number): number {
+  return Math.max(
+    CONTEXT_BUDGET_SAFETY_MARGIN_MIN,
+    Math.ceil(contextWindow * CONTEXT_BUDGET_SAFETY_MARGIN_RATIO)
+  );
+}
+
+/**
+ * The largest `maxOutputTokens` that still leaves a positive input budget in
+ * `contextWindow`: the bound an output control offers (BST-1810), from the
+ * same margin rule as {@link deriveEffectiveInputBudget}, never a second
+ * formula. Throws when the window cannot fit even one output token.
+ */
+export function deriveMaxOutputTokensWithinBudget(contextWindow: number): number {
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
+    throw new Error(`contextWindow must be a positive number, got ${contextWindow}`);
+  }
+  const maximum = contextWindow - contextBudgetSafetyMargin(contextWindow) - 1;
+  if (maximum <= 0) {
+    throw new Error(`contextWindow ${contextWindow} cannot fit any output plus its safety margin`);
+  }
+  return maximum;
 }
 
 /**
