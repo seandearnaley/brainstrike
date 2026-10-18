@@ -372,3 +372,11 @@ patchedDependencies:
   # CLI-only vendor API migration paired with the argparse 3 override above.
   # Retire both when the legacy YAML owner publishes this migration.
   js-yaml@3.15.2: patches/js-yaml@3.15.2.patch
+  # BST-2169: 2.7.0's caret hook flips a mount useState/useEffect flag, so every
+  # <Streamdown> mount renders twice (vercel/streamdown#673) and a text part's
+  # first token costs two message commits. The patch is upstream's merged fix,
+  # vercel/streamdown#677 (useSyncExternalStore), unreleased as of 2026-10-18.
+  # Paired test: packages/assistant-ui/src/__tests__/streamdown-mount-commit.browser.test.tsx.
+  # Drop it at the first streamdown release containing #677, and bump
+  # @assistant-ui/react-streamdown (and its override) to match.
+  streamdown@2.7.0: patches/streamdown@2.7.0.patch
