@@ -9,6 +9,7 @@ import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-util
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
 import { type ReactElement, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
@@ -225,11 +226,12 @@ describe('FileExplorerSidebar', () => {
     expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
   });
 
-  // BST-2088: a recursive folder click lands its selection and the scanned
-  // subtree in the same tick. The single-root tree used to render through
-  // useDeferredValue, so the urgent commit showed the NEW selection against
-  // the PREVIOUS (unloaded) tree and painted the fully selected folder
-  // indeterminate until the deferred render caught up — past the Performance
+  // BST-2088: a recursive folder click shows a loader, then its scan lands the
+  // subtree it read and the selection, and the loader clears. The single-root
+  // tree renders through useDeferredValue, so when the deferred render came
+  // after the loader cleared, the urgent commit painted the NEW selection
+  // against the PREVIOUS (unloaded) tree: the fully selected folder showed
+  // indeterminate until the deferred render caught up, past the Performance
   // E2E's two-frame interaction window on slow runners.
   it('paints a scanned, fully selected folder checked in the commit that applies the selection', () => {
     const unloadedFolder = createDirectoryNode({
@@ -245,16 +247,21 @@ describe('FileExplorerSidebar', () => {
     });
     const rootIdByPath = new Map([['/test-directory', 'test-folder']]);
     const harness: {
+      setLoadingPath: ((path: string | null) => void) | null;
       setTree: ((tree: IFileNode[]) => void) | null;
       store: ReturnType<typeof useFileExplorerStoreContext> | null;
-    } = { setTree: null, store: null };
+    } = { setLoadingPath: null, setTree: null, store: null };
     function Harness() {
       const [tree, setTree] = useState<IFileNode[]>([unloadedFolder]);
+      const [loadingPath, setLoadingPath] = useState<string | null>(null);
+      harness.setLoadingPath = setLoadingPath;
       harness.setTree = setTree;
       harness.store = useFileExplorerStoreContext();
       return (
         <FileExplorerSidebar
           {...defaultProps}
+          isLoadingForSelection={loadingPath !== null}
+          loadingPathForSelection={loadingPath}
           quickFilteredTree={tree}
           rootIdByPath={rootIdByPath}
         />
@@ -278,12 +285,23 @@ describe('FileExplorerSidebar', () => {
         }
         setAttribute.call(this, name, value);
       });
+    let loaderShown = false;
     act(() => {
+      // The click starts the scan: an urgent commit swaps the folder's
+      // checkbox for its loader.
+      flushSync(() => {
+        harness.setLoadingPath?.('folder');
+      });
+      loaderShown = screen.queryByLabelText('Loading folder for selection') !== null;
+      // The scan lands its subtree and selection and the loader clears before
+      // any deferred render has run: the order the hosted runner produces.
       harness.store?.getState().addSelectedFile('test-folder', 'folder/nested.js');
       harness.setTree?.([scannedFolder]);
+      harness.setLoadingPath?.(null);
     });
     setAttributeSpy.mockRestore();
 
+    expect(loaderShown).toBe(true);
     expect(paintedStates).toEqual(['checked']);
     expect(screen.getByLabelText('Select folder')).toHaveAttribute('data-state', 'checked');
   });
