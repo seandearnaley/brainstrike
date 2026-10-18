@@ -474,7 +474,7 @@ export function buildPlan(options = {}) {
 
   // --- --full: the advisory / nightly gates ------------------------------
   if (full && coverage) {
-    // nightly-coverage.yml's threshold gate. Its six package shards plus the
+    // nightly-coverage.yml's threshold gate. Its seven package shards plus the
     // dedicated db shard exist for CI timeout/failure domains; one unfiltered
     // turbo run is the same task set, db included.
     plan.push({
