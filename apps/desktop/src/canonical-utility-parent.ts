@@ -124,8 +124,12 @@ export class CanonicalUtilityParent {
     const owner = await this.attach(config, dependencies);
     const startScan = async (requestId: string): Promise<CanonicalCollectionScan> => {
       const session = this.sessions.get(owner);
-      if (this.closed || this.retiringAttachments || !session || session.stopping) {
+      if (this.closed || this.retiringAttachments || !session) {
         throw new Error('Canonical utility scan admission is closed.');
+      }
+      if (session.stopping) {
+        // Fenced or closing: Main revoked this attachment, so no scan starts (BST-2140).
+        throw new NativeAuthorityTransitionError('Canonical attachment scan admission was fenced.');
       }
       await this.channel.call(owner, 'start-scan', { requestId }, Schema.Null);
       let terminal: Promise<typeof receiptSchema.Type> | undefined;
@@ -199,6 +203,12 @@ export class CanonicalUtilityParent {
     await acquisition;
     if (this.closed || this.retiringAttachments || !this.sessions.has(owner)) {
       throw new Error('Canonical utility attachment retired during acquisition.');
+    }
+    // A fence during the acquisition revoked it; retirement still closes the retained owner.
+    if (this.sessions.get(owner)?.stopping) {
+      throw new NativeAuthorityTransitionError(
+        'Canonical attachment was fenced during acquisition.'
+      );
     }
     return owner;
   }

@@ -168,6 +168,20 @@ describe('actual utility canonical runtime attachment', () => {
     await parent.close();
   });
 
+  it('refuses a scan of a fenced attachment with the typed retirement, and starts none', async () => {
+    const { parent } = connected();
+    const dependencies = collection([]);
+    const load = vi.spyOn(dependencies.source.inventory, 'loadFiles');
+    const attachment = await parent.attachCollection(dependencies);
+    parent.fenceAttachments();
+    await expect(attachment.startScan('after-fence')).rejects.toBeInstanceOf(
+      NativeAuthorityTransitionError
+    );
+    expect(load).not.toHaveBeenCalled();
+    await parent.retireAttachments();
+    await parent.close();
+  });
+
   it('keeps a cancelled scan of an attachment Main never retired a typed cancellation', async () => {
     const { parent } = connected();
     const dependencies = collection([]);

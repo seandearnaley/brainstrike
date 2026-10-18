@@ -734,6 +734,40 @@ it('settles admitted work that fails on the revoked authority as its retirement 
 });
 
 // BST-2140: the shutdown fence revokes the graph about 20 ms before retirement starts.
+it('refuses an acquisition a fence overtook with the typed retirement and retires its owner', async () => {
+  const frames: object[] = [];
+  let answer: (() => void) | undefined;
+  const parent = new CanonicalUtilityParent((input) => {
+    frames.push(input);
+    const frame = decodeCanonicalFrame(input);
+    if (frame.kind === 'call') {
+      const respond = (): void =>
+        parent.receive({
+          channel: CANONICAL_CHANNEL,
+          id: frame.id,
+          kind: 'result',
+          ok: true,
+          owner: frame.owner,
+          value: null,
+        });
+      if (frame.op === 'attach') {
+        answer = respond;
+        return;
+      }
+      queueMicrotask(respond);
+    }
+  }, vi.fn());
+  const deps = fixture();
+  const attaching = parent.attachWorkspace(deps).catch((error: unknown) => error);
+  await flush();
+  parent.fenceAttachments();
+  answer?.();
+  expect(await attaching).toBeInstanceOf(NativeAuthorityTransitionError);
+  await parent.retireAttachments();
+  expect(deps.source.lease.retire).toHaveBeenCalledOnce();
+  await parent.close();
+});
+
 it('fences admitted work with the revoked authority, so it answers as that cancellation', async () => {
   const deps = fixture();
   const work = Promise.withResolvers<never[]>();
