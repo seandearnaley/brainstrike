@@ -724,9 +724,7 @@ test.describe('Desktop filter presets', () => {
     });
   });
 
-  test.fixme('keeps the selected preset after app restart', {
-    annotation: { description: 'BST-1967', type: 'quarantine' },
-  }, async ({ electron, window }) => {
+  test('keeps the selected preset after app restart', async ({ electron, window }) => {
     // 120s (the config default) rather than 90s: on the restoration-failed
     // path this test serially spends the 15s restore wait, selectMockRoot's own
     // mount wait, ensureViewFiltersExpanded's 15s + 20s, and TWO 45s preset-DB
