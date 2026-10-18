@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { IndexFileBinding, IndexScope, ScopedFilePlan } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDesktopIndex, openDesktopIndexReader } from '../src/desktop-index-connection.js';
 import { IndexReader, IndexWriter } from '../src/store.js';
@@ -49,6 +50,7 @@ describe('native scoped searches above the SQLite variable limit', () => {
   let variableLimit: number;
   const published = new Map<string, ScopedFilePlan>();
 
+  // A heavy hook: 2.9 s unthrottled, up to 38.4 s under coverage on a 2-vCPU-like throttle.
   beforeAll(async () => {
     variableLimit = nativeVariableLimit();
     // Reproduce the reviewed defect with a real catalog-shaped inventory above the driver limit.
@@ -105,7 +107,7 @@ describe('native scoped searches above the SQLite variable limit', () => {
     expect(reader.db.pragma('query_only', { simple: true })).toBe(1);
     writer.scoped.replaceBindings([...inventory, outside]);
     reader.scoped.replaceBindings([...inventory, outside]);
-  });
+  }, getAdjustedTimeout('heavy'));
 
   afterAll(async () => {
     reader?.db.close();

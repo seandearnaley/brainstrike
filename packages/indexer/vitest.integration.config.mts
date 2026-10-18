@@ -16,9 +16,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // The same real-process suites as coverage (vitest.config.mts), so the same budget.
+    hookTimeout: getAdjustedTimeout('integration'),
     include: ['__tests__/**/*.integration.test.ts'],
     reporters: ['default', new LostTestFileReporter()],
-    // The same real-process suites as coverage (vitest.config.mts), so the same budget.
     testTimeout: getAdjustedTimeout('integration'),
   },
 });
