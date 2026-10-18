@@ -231,7 +231,7 @@ export function createBrowserPaneHost(
       if (owner !== 'agent' || errorCode !== ERR_TUNNEL_CONNECTION_FAILED || host === null) {
         return null;
       }
-      const refusal = agentRoute.refusalFor(host);
+      const refusal = agentRoute.takeRefusal(host);
       if (refusal === undefined) {
         return null;
       }

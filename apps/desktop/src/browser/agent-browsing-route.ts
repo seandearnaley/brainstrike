@@ -15,12 +15,12 @@ import { type RefusedAgentResponse, routeAgentBrowserSession } from './browser-s
 export interface AgentBrowsingRoute {
   /** Start (or restart) the proxy and route the agent partition through it. */
   prepare(onRefused: (response: RefusedAgentResponse) => void): Promise<void>;
-  /** The proxy's most recent refusal of `host`, for a failed load's hint. */
-  refusalFor(host: string): EgressRefusal | undefined;
+  /** Take the proxy's fresh refusal of `host`, to name a tunnel failure (once). */
+  takeRefusal(host: string): EgressRefusal | undefined;
 }
 
 /** The proxy a route uses: by default the egress utility process. */
-export type AgentEgressSource = Pick<AgentEgressHost, 'ensure' | 'refusalFor'>;
+export type AgentEgressSource = Pick<AgentEgressHost, 'ensure' | 'takeRefusal'>;
 
 function forkEgressHost(): AgentEgressHost {
   return new AgentEgressHost(() =>
@@ -58,6 +58,6 @@ export function createAgentBrowsingRoute(
       }
       await routeAgentBrowserSession(proxy.port, onRefused);
     },
-    refusalFor: (host) => egress.refusalFor(host),
+    takeRefusal: (host) => egress.takeRefusal(host),
   };
 }

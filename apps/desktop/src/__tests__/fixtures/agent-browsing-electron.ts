@@ -98,7 +98,11 @@ async function main(): Promise<void> {
   });
   const route = createAgentBrowsingRoute({
     ensure: () => Promise.resolve({ password, port: proxy.port, username: 'agent' }),
-    refusalFor: (host) => refusals.get(host.toLowerCase()),
+    takeRefusal: (host) => {
+      const refusal = refusals.get(host.toLowerCase());
+      refusals.delete(host.toLowerCase());
+      return refusal;
+    },
   });
 
   const window = new BrowserWindow({ height: 600, show: false, width: 800 });
@@ -184,7 +188,7 @@ async function main(): Promise<void> {
     socket.once('error', reject);
   });
   await settle(100);
-  report('utility', { refusal: egress.refusalFor('127.0.0.1') ?? null, status });
+  report('utility', { refusal: egress.takeRefusal('127.0.0.1') ?? null, status });
   await egress.close();
 
   // Control: the user's own tab is unaffected and reaches the secret server,

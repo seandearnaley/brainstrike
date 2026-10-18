@@ -33,16 +33,28 @@ interface Current {
 
 const USERNAME = 'agent';
 const REFUSALS_KEPT = 64;
+/**
+ * A refused CONNECT fails its navigation within milliseconds; older refusals
+ * are not evidence about a later failure to the same host.
+ */
+const REFUSAL_FRESH_MS = 5000;
+
+interface RecordedRefusal {
+  readonly at: number;
+  readonly refusal: EgressRefusal;
+}
 
 export class AgentEgressHost {
   #current: Current | undefined;
-  readonly #refusals = new Map<string, EgressRefusal>();
+  readonly #refusals = new Map<string, RecordedRefusal>();
   readonly #fork: () => EgressUtility;
   readonly #startupTimeoutMs: number;
+  readonly #now: () => number;
 
-  constructor(fork: () => EgressUtility, startupTimeoutMs = 10_000) {
+  constructor(fork: () => EgressUtility, startupTimeoutMs = 10_000, now: () => number = Date.now) {
     this.#fork = fork;
     this.#startupTimeoutMs = startupTimeoutMs;
+    this.#now = now;
   }
 
   /** The running proxy, started (or restarted after an exit) on demand. */
@@ -51,9 +63,18 @@ export class AgentEgressHost {
     return this.#current.ready;
   }
 
-  /** The proxy's most recent refusal of `host`, if it refused one. */
-  refusalFor(host: string): EgressRefusal | undefined {
-    return this.#refusals.get(host.toLowerCase());
+  /**
+   * Take the running proxy's refusal of `host` from the last few seconds, if
+   * any. A tunnel failure is attributed to a refusal at most once, and never to
+   * one from an earlier attempt or an earlier proxy.
+   */
+  takeRefusal(host: string): EgressRefusal | undefined {
+    const key = host.toLowerCase();
+    const recorded = this.#refusals.get(key);
+    this.#refusals.delete(key);
+    return recorded !== undefined && this.#now() - recorded.at <= REFUSAL_FRESH_MS
+      ? recorded.refusal
+      : undefined;
   }
 
   /** Stop the proxy and join its exit. */
@@ -69,7 +90,7 @@ export class AgentEgressHost {
   #remember(refusal: EgressRefusal): void {
     const key = refusal.reason === 'malformed' ? refusal.target : refusal.host;
     this.#refusals.delete(key);
-    this.#refusals.set(key, refusal);
+    this.#refusals.set(key, { at: this.#now(), refusal });
     if (this.#refusals.size > REFUSALS_KEPT) {
       const oldest = this.#refusals.keys().next();
       if (oldest.done !== true) {
@@ -79,6 +100,7 @@ export class AgentEgressHost {
   }
 
   #start(): Current {
+    this.#refusals.clear();
     const utility = this.#fork();
     const password = randomBytes(32).toString('hex');
     const exit = Promise.withResolvers<void>();

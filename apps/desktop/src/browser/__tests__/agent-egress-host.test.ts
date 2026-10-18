@@ -21,13 +21,25 @@ class FakeUtility extends EventEmitter implements EgressUtility {
 
 function harness(startupTimeoutMs?: number) {
   const utilities: FakeUtility[] = [];
-  const host = new AgentEgressHost(() => {
-    const utility = new FakeUtility();
-    utilities.push(utility);
-    return utility;
-  }, startupTimeoutMs);
-  return { host, utilities };
+  const clock = { now: 1000 };
+  const host = new AgentEgressHost(
+    () => {
+      const utility = new FakeUtility();
+      utilities.push(utility);
+      return utility;
+    },
+    startupTimeoutMs,
+    () => clock.now
+  );
+  return { clock, host, utilities };
 }
+
+const LOOPBACK_REFUSAL = {
+  address: '127.0.0.1',
+  addressClass: 'loopback',
+  host: 'internal.test',
+  reason: 'destination',
+} as const;
 
 describe('AgentEgressHost (BST-1238)', () => {
   it('starts the proxy once with a fresh credential and answers its port', async () => {
@@ -48,27 +60,39 @@ describe('AgentEgressHost (BST-1238)', () => {
     });
   });
 
-  it('keeps the proxy refusals by host for a failed load to name', async () => {
+  it('hands a fresh refusal to the one tunnel failure it explains', async () => {
     const { host, utilities } = harness();
     const ready = host.ensure();
     utilities[0]?.answer({ port: 1, type: 'ready' });
     await ready;
-    utilities[0]?.answer({
-      refusal: {
-        address: '127.0.0.1',
-        addressClass: 'loopback',
-        host: 'internal.test',
-        reason: 'destination',
-      },
-      type: 'refusal',
-    });
-    expect(host.refusalFor('INTERNAL.test')).toEqual({
-      address: '127.0.0.1',
-      addressClass: 'loopback',
-      host: 'internal.test',
-      reason: 'destination',
-    });
-    expect(host.refusalFor('other.test')).toBeUndefined();
+    utilities[0]?.answer({ refusal: LOOPBACK_REFUSAL, type: 'refusal' });
+    expect(host.takeRefusal('other.test')).toBeUndefined();
+    expect(host.takeRefusal('INTERNAL.test')).toEqual(LOOPBACK_REFUSAL);
+    // Consumed: a later failure to the same host is not this refusal's.
+    expect(host.takeRefusal('internal.test')).toBeUndefined();
+  });
+
+  it('never names a later failure with a stale refusal', async () => {
+    const { clock, host, utilities } = harness();
+    const ready = host.ensure();
+    utilities[0]?.answer({ port: 1, type: 'ready' });
+    await ready;
+    utilities[0]?.answer({ refusal: LOOPBACK_REFUSAL, type: 'refusal' });
+    clock.now += 5001;
+    expect(host.takeRefusal('internal.test')).toBeUndefined();
+  });
+
+  it("drops a previous proxy's refusals when a new one starts", async () => {
+    const { host, utilities } = harness();
+    const first = host.ensure();
+    utilities[0]?.answer({ port: 1, type: 'ready' });
+    await first;
+    utilities[0]?.answer({ refusal: LOOPBACK_REFUSAL, type: 'refusal' });
+    utilities[0]?.emit('exit', 1);
+    const second = host.ensure();
+    utilities[1]?.answer({ port: 2, type: 'ready' });
+    await second;
+    expect(host.takeRefusal('internal.test')).toBeUndefined();
   });
 
   it.each([

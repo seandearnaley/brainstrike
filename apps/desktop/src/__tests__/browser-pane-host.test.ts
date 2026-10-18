@@ -319,7 +319,7 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
         onRefused = listener;
         return Promise.resolve();
       }),
-      refusalFor: vi.fn((host: string) => refusals.get(host)),
+      takeRefusal: vi.fn((host: string) => refusals.get(host)),
     };
     return { refusals, refuse: (response: unknown) => onRefused?.(response), route };
   }
