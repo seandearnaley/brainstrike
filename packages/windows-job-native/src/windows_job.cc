@@ -290,27 +290,24 @@ class DrainWorker final : public Napi::AsyncWorker {
     // signal awaited above, and JobObjectBasicProcessIdList keeps listing such a
     // member meanwhile (BST-2137).
     // https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information
-    // So the guard is proved alone when every other census entry is a joined
-    // member, the accounting counts exactly the guard and those members, and a
-    // census taken after the count lists exactly the same processes. Stop-
-    // admission is the caller's precondition, not an optimistic assumption: any
-    // other entry, discrepancy or failed query rejects cleanup rather than
-    // releasing the existing Root authority.
+    // Windows can release a joined member at any moment, including between the
+    // reads below, so the proof only assumes that membership shrinks: under the
+    // stop-admission precondition nothing can join. A census before and a census
+    // after the count must each list the guard and otherwise only joined members,
+    // the later one a subset of the earlier one; any other entry is a live or
+    // unknown process. Releases can only lower the count, so it must lie between
+    // the guard plus the members still listed afterwards and the guard plus those
+    // listed before. Stop-admission is the caller's precondition, not an
+    // optimistic assumption: any other entry, discrepancy or failed query rejects
+    // cleanup rather than releasing the existing Root authority.
     std::vector<ULONG_PTR> listed;
     if (!ReadMembers(&listed)) {
       return;
     }
-    bool guard_listed = false;
-    size_t joined = 0;
-    for (const ULONG_PTR pid : listed) {
-      if (pid == guard_pid_) {
-        guard_listed = true;
-      } else if (IsJoined(pid)) {
-        joined += 1;
-      } else {
-        SetError(kUnproved);
-        return;
-      }
+    size_t joined_listed = 0;
+    if (!ListsOnlyGuardAndJoined(listed, &joined_listed)) {
+      SetError(kUnproved);
+      return;
     }
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
     if (!QueryInformationJobObject(job_, JobObjectBasicAccountingInformation, &accounting,
@@ -322,10 +319,16 @@ class DrainWorker final : public Napi::AsyncWorker {
     if (!ReadMembers(&relisted)) {
       return;
     }
+    size_t joined_relisted = 0;
+    if (!ListsOnlyGuardAndJoined(relisted, &joined_relisted)) {
+      SetError(kUnproved);
+      return;
+    }
     std::sort(listed.begin(), listed.end());
     std::sort(relisted.begin(), relisted.end());
-    if (!guard_listed || static_cast<size_t>(accounting.ActiveProcesses) != 1 + joined ||
-        relisted != listed) {
+    const size_t active = accounting.ActiveProcesses;
+    if (!std::includes(listed.begin(), listed.end(), relisted.begin(), relisted.end()) ||
+        active < 1 + joined_relisted || active > 1 + joined_listed) {
       SetError(kUnproved);
     }
   }
@@ -346,6 +349,22 @@ class DrainWorker final : public Napi::AsyncWorker {
       }
     }
     return false;
+  }
+
+  // True when the census lists the guard and otherwise only joined members.
+  bool ListsOnlyGuardAndJoined(const std::vector<ULONG_PTR>& census, size_t* joined) const {
+    bool guard_listed = false;
+    *joined = 0;
+    for (const ULONG_PTR pid : census) {
+      if (pid == guard_pid_) {
+        guard_listed = true;
+      } else if (IsJoined(pid)) {
+        *joined += 1;
+      } else {
+        return false;
+      }
+    }
+    return guard_listed;
   }
 
   void CloseProcesses() {
