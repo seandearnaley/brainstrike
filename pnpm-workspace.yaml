@@ -43,7 +43,7 @@ catalog:
   # Node-only — imported ONLY beside the provider factory, never from the
   # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
   '@aws-sdk/credential-providers': 3.1152.0
-  '@assistant-ui/react': '~0.15.18'
+  '@assistant-ui/react': '~0.15.29'
   '@assistant-ui/react-streamdown': 0.3.20
   '@assistant-ui/styles': ^0.3.7
   # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
@@ -148,7 +148,7 @@ catalog:
   '@vitest/browser-playwright': ^5.0.5
   '@vitest/coverage-v8': ^5.0.5
   '@vitest/ui': ^5.0.5
-  assistant-stream: 0.3.41
+  assistant-stream: 0.3.52
   # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
   # `prebuilds/<platform>-<arch>.node` for every release target and must never
   # be compiled: `allowBuilds` DENIES it (see below) and electron-builder runs
@@ -361,7 +361,7 @@ patchedDependencies:
   # which Memory's internal observer/reflector streams now pass through. The 1.71
   # SemanticRecall and BackgroundTaskManager hunks are retired: nothing reaches them.
   '@mastra/core@1.78.0': patches/@mastra__core@1.78.0.patch
-  '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
+  '@assistant-ui/core@0.3.29': patches/@assistant-ui__core@0.3.29.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
