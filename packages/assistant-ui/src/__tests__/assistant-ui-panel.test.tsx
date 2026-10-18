@@ -56,12 +56,10 @@ const createMockAuiState = (parts: unknown[]): MockAuiState => ({
 
 let mockAuiState = createMockAuiState([completedReasoningPart]);
 
-// @assistant-ui/styles v0.3.x consolidated all styles into index.css
 // cmdk (composer model picker) scrolls the active option into view; happy-dom
 // has no layout.
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
-vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('../data-stream-runtime', () => ({
   AssistantRequestPreparationTimeoutError: class AssistantRequestPreparationTimeoutError extends Error {},
   AssistantRunAdmissionRejectedError: class AssistantRunAdmissionRejectedError extends Error {},

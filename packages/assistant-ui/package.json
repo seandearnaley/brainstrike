@@ -6,7 +6,6 @@
   "dependencies": {
     "@assistant-ui/react": "catalog:",
     "@assistant-ui/react-streamdown": "catalog:",
-    "@assistant-ui/styles": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/logging": "workspace:*",

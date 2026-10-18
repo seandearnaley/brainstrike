@@ -29,8 +29,6 @@ vi.mock('../assistant-message-text', () => ({
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
 
-vi.mock('@assistant-ui/styles/index.css', () => ({}));
-
 import { expandUserCommandTemplate } from '@brainstrike/assistant-contract';
 import { useState } from 'react';
 import { AssistantUiPanel } from '../assistant-ui-panel';
