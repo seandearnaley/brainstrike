@@ -16,6 +16,11 @@ const joinedAssertion =
 // Real new files exercise the repository's inclusion/override rules and scanner.
 // A separate synthetic config or --only would enable rules behind our backs.
 const layouts = [
+  ['packages/host-capabilities/__tests__/credentials/nested', '.test.ts'],
+  ['packages/host-capabilities/__tests__/provider-auth/nested', '.test.ts'],
+  ['packages/host-capabilities/__tests__/provider-auth', '.spec.ts'],
+  ['packages/host-capabilities/__tests__/provider-auth', '.mts'],
+  ['packages/host-capabilities/__tests__/provider-auth', '.mjs'],
   ['packages/indexer/__tests__/nested', '.test.ts'],
   ['packages/indexer/__tests__', '.spec.ts'],
   ['packages/indexer/__tests__', '.mts'],
@@ -66,6 +71,26 @@ function lint(t, side) {
     path: `${directory}/agent-quality-lint-${token}${suffix}`,
     rule: 'nursery/noFloatingPromises',
   }));
+  cases.push({
+    bad: assertion,
+    good: joinedAssertion,
+    path: `packages/host-capabilities/src/shared-flight-agent-quality-lint-${token}.ts`,
+    rule: 'nursery/noFloatingPromises',
+  });
+  cases.push(
+    {
+      bad: 'export function check() { return [1, 2].filter(async (value) => value > 0); }',
+      good: 'export function check() { return [1, 2].filter((value) => value > 0); }',
+      path: `packages/host-capabilities/src/shared-flight-predicate-agent-quality-lint-${token}.ts`,
+      rule: 'nursery/noMisusedPromises',
+    },
+    {
+      bad: "export function check(state: 'ready' | 'waiting') { switch (state) { case 'ready': return true; } }",
+      good: "export function check(state: 'ready' | 'waiting') { switch (state) { case 'ready': return true; case 'waiting': return false; } }",
+      path: `packages/host-capabilities/src/shared-flight-switch-agent-quality-lint-${token}.ts`,
+      rule: 'nursery/useExhaustiveSwitchCases',
+    }
+  );
   const nested = `packages/agent/src/__tests__/agent-quality-lint-${token}`;
   t.after(() => rmSync(path.join(root, nested), { force: true, recursive: true }));
   cases.push({
@@ -75,6 +100,8 @@ function lint(t, side) {
     rule: 'nursery/noFloatingPromises',
   });
   for (const directory of [
+    'packages/host-capabilities/src/provider-auth',
+    'packages/host-capabilities/__tests__/provider-auth',
     'packages/indexer/src',
     'packages/indexer/__tests__',
     'packages/host-capabilities/src/native-tools',
