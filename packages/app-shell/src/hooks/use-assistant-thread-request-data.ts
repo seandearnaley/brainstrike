@@ -10,6 +10,7 @@ import {
   buildAssistantRequestData,
   type RuntimeMemoryOptions,
 } from '../assistant-ui-panel-wrapper-runtime';
+import { useSubagentPersonasRequest } from './use-subagent-personas-request';
 
 interface UseAssistantThreadRequestDataArgs {
   readonly agentLoopSettings: RuntimeData['agentLoop'] | undefined;
@@ -50,7 +51,6 @@ interface UseAssistantThreadRequestDataArgs {
    * Opt-in workspace instructions preference; only set on the desktop
    * data-stream transport (web has no injection path). Passthrough otherwise.
    */
-  readonly subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   readonly workspaceIndex: {
     readonly blockedReason: RuntimeData['workspaceIndexBlockedReason'] | null;
     readonly enabled: boolean;
@@ -89,15 +89,15 @@ export function useAssistantThreadRequestData({
   selectionData,
   semanticRecallSettings,
   skillsPreference,
-  subagentPersonasRequest,
   workspaceInstructionsPreference,
   workspaceIndex,
   workspaceRootPath,
 }: UseAssistantThreadRequestDataArgs): UseAssistantThreadRequestDataResult {
-  // Per-child subagent budgets ride every desktop host request
-  // (`runtimeData.subagentSettings`); web has no subagents and its server
-  // rejects the field. Read here, not in the panel wrapper, which holds a
-  // shrink-only line budget.
+  // Both subagent wire fields ride only to the desktop assistant host: web has
+  // no subagents and its server rejects them. Persona availability is
+  // `undefined` at its defaults; per-child budgets ride every host request.
+  // Read here, not in the panel wrapper, which holds a shrink-only line budget.
+  const subagentPersonasRequest = useSubagentPersonasRequest(assistantServerAvailable);
   const subagentSettings = useAssistantSubagentPreferencesStore((state) => state.settings);
   const runtimeMemorySettings = useMemo(
     () => ({
