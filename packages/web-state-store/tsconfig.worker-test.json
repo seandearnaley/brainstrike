@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "rootDir": "."
+  },
+  "files": [
+    "src/__tests__/held-extension-worker.ts"
+  ],
+  "include": [],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}
