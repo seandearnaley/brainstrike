@@ -543,6 +543,10 @@ export interface HostMcpSettingsService {
   control(request: HostParams<'mcp/server/control'>): Promise<HostResults['mcp/server/control']>;
   createSampleConfig(): Promise<HostResults['mcp/config/sample']>;
   extensions(): Promise<HostResults['mcp/extensions/read']>;
+  /** Appends one catalog server to the profile's config, storing its token when it has one. */
+  installCatalogServer(
+    request: HostParams<'mcp/config/install'>
+  ): Promise<HostResults['mcp/config/install']>;
   readConfigText(): Promise<HostResults['mcp/config/read']>;
   reloadToolPreferences(): Promise<void>;
   resetTools(): Promise<void>;

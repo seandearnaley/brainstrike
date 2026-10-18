@@ -19,7 +19,6 @@ import {
 import {
   findMcpCatalogEntry,
   type McpCatalogEntry,
-  type McpCatalogInstallRequest,
   mcpCatalogServerInput,
 } from '@brainstrike/assistant-contract/mcp-catalog';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
@@ -66,7 +65,7 @@ function errorMessage(error: unknown): string {
 /** Why `entry` cannot take this request's access or token, or `undefined` when it can. */
 function catalogRequestRefusal(
   entry: McpCatalogEntry,
-  request: McpCatalogInstallRequest
+  request: HostParams<'mcp/config/install'>
 ): string | undefined {
   if (entry.urls[request.access] === undefined) {
     return `${entry.name} has no ${request.access} endpoint.`;
@@ -279,7 +278,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
    * Appends one catalog server to the config (spec 2026-10-18 §4.2). A token
    * entry stores its token first and removes it again when the write fails.
    */
-  installCatalogServer(request: McpCatalogInstallRequest): Promise<McpConfigWriteResult> {
+  installCatalogServer(
+    request: HostParams<'mcp/config/install'>
+  ): Promise<HostResults['mcp/config/install']> {
     return this.#trackOperation(async (lifecycleEpoch) => {
       const configPath = await this.options.configFile.path();
       const refuse = (error: string): McpConfigWriteResult => ({

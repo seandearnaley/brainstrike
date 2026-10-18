@@ -44,4 +44,25 @@ describe('host MCP settings methods', () => {
     expect(failed).toBeInstanceOf(ResponseError);
     expect(failed).toMatchObject({ message: 'Extension id is invalid' });
   });
+
+  it('routes a catalog install, token included, to the settings authority', async () => {
+    const handlers = new Map<HostMethod, (params: unknown) => Promise<unknown>>();
+    const installCatalogServer = vi.fn(async () => ({ path: '/tmp/mcp.json', success: true }));
+    bindHostMcpSettingsMethods(
+      (method, request) => {
+        handlers.set(method, request as (params: unknown) => Promise<unknown>);
+      },
+      { sendNotification: vi.fn(async () => undefined) } as unknown as MessageConnection,
+      { installCatalogServer } as unknown as HostMcpSettingsService,
+      'desktop-ui'
+    );
+    const install = handlers.get('mcp/config/install');
+    if (!install) {
+      throw new Error('mcp/config/install was not bound');
+    }
+    const request = { access: 'read-write', catalogId: 'github', token: 'fixture-token' };
+
+    await expect(install(request)).resolves.toEqual({ path: '/tmp/mcp.json', success: true });
+    expect(installCatalogServer).toHaveBeenCalledWith(request);
+  });
 });
