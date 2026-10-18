@@ -13,6 +13,7 @@ import {
 } from './canonical-utility-parent';
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
+import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 interface OwnedCollectionScan {
   fault?: { readonly error: unknown };
@@ -38,6 +39,8 @@ export class IndexerHostManager {
   readonly #scans = new Set<OwnedCollectionScan>();
   #sourceRetirement: Promise<void> | undefined;
   #sourceRetirementOwned = false;
+  /** Counts fences. An acquisition a fence overtook belongs to the fenced graph (BST-2140). */
+  #fences = 0;
 
   private constructor(options: IndexerOptions, deadlines: IndexerDeadlines, entryPath: string) {
     const embedding =
@@ -160,7 +163,9 @@ export class IndexerHostManager {
     if (this.#sourceRetirementOwned) {
       throw new Error('Indexer canonical source retirement owns attachment admission.');
     }
+    const fences = this.#fences;
     await this.start();
+    this.#refuseFencedAcquisition(fences);
     if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
       throw new Error('Indexer canonical attachment admission is closed.');
     }
@@ -181,7 +186,9 @@ export class IndexerHostManager {
     if (this.#sourceRetirementOwned) {
       throw new Error('Indexer canonical source retirement owns attachment admission.');
     }
+    const fences = this.#fences;
     await this.start();
+    this.#refuseFencedAcquisition(fences);
     if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
       throw new Error('Indexer canonical attachment admission is closed.');
     }
@@ -229,6 +236,26 @@ export class IndexerHostManager {
         return scan;
       },
     };
+  }
+
+  /** Synchronously stops the canonical attachments' admitted requests; see `fenceAttachments`. */
+  fenceCanonicalSources(): void {
+    this.#fences += 1;
+    this.#canonical?.fenceAttachments();
+  }
+
+  /**
+   * An acquisition that was awaiting start when a fence ran belongs to the graph the fence
+   * revoked: refused with that typed retirement before it creates a session (BST-2140). Scoped
+   * to that acquisition, not a flag, because sources a later graph admits after the fenced
+   * graph's retirement (a reset or root-data deletion reopening) are legitimate.
+   */
+  #refuseFencedAcquisition(fences: number): void {
+    if (fences !== this.#fences) {
+      throw new NativeAuthorityTransitionError(
+        'Native canonical attachment was fenced during its acquisition.'
+      );
+    }
   }
 
   retireCanonicalSources(): Promise<void> {

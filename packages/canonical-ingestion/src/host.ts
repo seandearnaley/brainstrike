@@ -9,6 +9,7 @@ import {
   vectorProfileHash,
 } from '@brainstrike/indexer/browser';
 import { sha256Hex } from '@brainstrike/utils/crypto';
+import { CanonicalOperationCancelledError } from './cancellation.js';
 import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
 import type {
   CanonicalCatalogFile,
@@ -187,9 +188,11 @@ export class CanonicalIngestionHost {
     if (!active || active.requestId !== requestId) {
       throw new Error('Canonical cancellation request is stale or unknown.');
     }
-    active.controller.abort(new DOMException('Canonical scan cancelled.', 'AbortError'));
+    active.controller.abort(new CanonicalOperationCancelledError('Canonical scan cancelled.'));
     await active.settled;
-    if (active.error !== undefined && active.error !== active.controller.signal.reason) {
+    // The scan ends as its cancellation either way: on this abort, or on a port operation its
+    // owner cancelled while retiring the same attachment (BST-2140). Any other error stays.
+    if (active.error !== undefined && !(active.error instanceof CanonicalOperationCancelledError)) {
       throw active.error;
     }
   }

@@ -1,3 +1,4 @@
+import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import type { Schema } from 'effect';
 import {
   CANONICAL_CHANNEL,
@@ -13,7 +14,6 @@ interface Pending {
   readonly reject: (error: unknown) => void;
   readonly resolve: (value: unknown) => void;
 }
-class RemoteCancellation extends Error {}
 /** Correlation for this private ingestion channel; cancellation is a notice, never a join. */
 export class CanonicalUtilityChannel {
   private sequence = 0;
@@ -77,7 +77,7 @@ export class CanonicalUtilityChannel {
       signal?.throwIfAborted();
       return decode(schema)(value);
     } catch (error) {
-      if (signal?.aborted && error instanceof RemoteCancellation) {
+      if (signal?.aborted && error instanceof CanonicalOperationCancelledError) {
         throw signal.reason;
       }
       throw error;
@@ -97,10 +97,15 @@ export class CanonicalUtilityChannel {
     this.pending.delete(frame.id);
     if (frame.ok) {
       pending.resolve(frame.value);
+    } else if (frame.cancelled) {
+      // Typed for the ingestion host: its owner cancelled this operation (BST-2140).
+      pending.reject(
+        new CanonicalOperationCancelledError(frame.error.message, {
+          cause: canonicalError(frame.error),
+        })
+      );
     } else {
-      const error = frame.cancelled
-        ? new RemoteCancellation(frame.error.message, { cause: canonicalError(frame.error) })
-        : canonicalError(frame.error);
+      const error = canonicalError(frame.error);
       error.name = frame.error.name;
       pending.reject(error);
     }

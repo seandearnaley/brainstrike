@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
 import type { CanonicalCatalogFile, CanonicalScanReceipt } from '@brainstrike/canonical-ingestion';
+import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
@@ -10,6 +11,7 @@ import {
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
+import { NativeAuthorityTransitionError } from '../native-authority-transition';
 
 function connected(hold?: (frame: object) => boolean): {
   parent: CanonicalUtilityParent;
@@ -124,11 +126,83 @@ describe('actual utility canonical runtime attachment', () => {
     parent.receive(held);
     parent.receive(notice);
     await retirement;
-    await expect(scan.join()).rejects.toThrow(/cancelled/);
+    // Typed as Main's own retirement, so its owners classify it (BST-2140).
+    const joined = scan.join().catch((error: unknown) => error);
+    expect(await joined).toBeInstanceOf(NativeAuthorityTransitionError);
+    expect(await joined).toMatchObject({ message: expect.stringMatching(/cancelled/) });
     expect(load).not.toHaveBeenCalled();
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({ aborted: true, full: false }));
     expect(child.channel.pendingCount).toBe(0);
     expect(parent.channel.pendingCount).toBe(0);
+    await parent.close();
+  });
+
+  // BST-2140: the shutdown fence stops the scan's Main-side work before any close.
+  it('reports a scan its port owner cancelled as cancelled, and as retirement once Main retired it', async () => {
+    const { parent } = connected();
+    const dependencies = collection([]);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    dependencies.source.inventory.loadFiles = async () => {
+      entered.resolve();
+      await release.promise;
+      throw new NativeAuthorityTransitionError('Native owner terminal retirement requested.');
+    };
+    // The failed scan still settles its ticket; this fixture's default finish expects a file.
+    dependencies.publication.finishScan = async ({ ticket }) => ({
+      reason: 'scan-errors',
+      scanComplete: false,
+      ticket,
+    });
+    const attachment = await parent.attachCollection(dependencies);
+    const scan = await attachment.startScan('fenced-scan');
+    await entered.promise;
+    parent.fenceAttachments();
+    release.resolve();
+    const joined = scan.join().catch((error: unknown) => error);
+    expect(await joined).toBeInstanceOf(NativeAuthorityTransitionError);
+    expect(await joined).toMatchObject({
+      message: 'Canonical attachment retirement cancelled its scan.',
+    });
+    await parent.retireAttachments();
+    await parent.close();
+  });
+
+  it('refuses a scan of a fenced attachment with the typed retirement, and starts none', async () => {
+    const { parent } = connected();
+    const dependencies = collection([]);
+    const load = vi.spyOn(dependencies.source.inventory, 'loadFiles');
+    const attachment = await parent.attachCollection(dependencies);
+    parent.fenceAttachments();
+    await expect(attachment.startScan('after-fence')).rejects.toBeInstanceOf(
+      NativeAuthorityTransitionError
+    );
+    expect(load).not.toHaveBeenCalled();
+    await parent.retireAttachments();
+    await parent.close();
+  });
+
+  it('keeps a cancelled scan of an attachment Main never retired a typed cancellation', async () => {
+    const { parent } = connected();
+    const dependencies = collection([]);
+    const entered = Promise.withResolvers<void>();
+    dependencies.source.inventory.loadFiles = async (_scope, context) => {
+      entered.resolve();
+      await new Promise((_resolve, reject) => {
+        context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+          once: true,
+        });
+      });
+      return [];
+    };
+    const attachment = await parent.attachCollection(dependencies);
+    const scan = await attachment.startScan('cancelled-scan');
+    await entered.promise;
+    await attachment.cancel();
+    const joined = scan.join().catch((error: unknown) => error);
+    expect(await joined).toBeInstanceOf(CanonicalOperationCancelledError);
+    expect(await joined).not.toBeInstanceOf(NativeAuthorityTransitionError);
+    await parent.retireAttachments();
     await parent.close();
   });
 

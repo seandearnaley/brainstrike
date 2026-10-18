@@ -47,6 +47,7 @@ vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: mocks.acquire,
   closeIndexerRuntime: mocks.close,
   destroyIndexerRuntime: mocks.destroy,
+  fenceIndexerCanonicalSources: vi.fn(),
   getReadyIndexerHost: mocks.readyHost,
   getReadyScopedIndexerPort: mocks.readyPort,
 }));

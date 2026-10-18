@@ -22,6 +22,7 @@ import {
   acquireIndexerHost,
   closeIndexerRuntime,
   destroyIndexerRuntime,
+  fenceIndexerCanonicalSources,
   getReadyIndexerHost,
   getReadyScopedIndexerPort,
 } from './indexer-runtime';
@@ -677,8 +678,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           }
         }
       },
-      fence: () =>
-        graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.')),
+      fence: () => {
+        // One turn, as `retireSources` does: revoked utility work answers cancelled (BST-2140).
+        graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.'));
+        fenceIndexerCanonicalSources();
+      },
     }
   );
   const failures = createNativeIndexFailures({

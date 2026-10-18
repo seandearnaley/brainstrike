@@ -1,4 +1,5 @@
 export { createNodeChunker, type NodeChunkerOptions } from '@brainstrike/chunking-worker/node';
+export { CanonicalOperationCancelledError } from './cancellation.js';
 export {
   createNativeCanonicalCatalog,
   decodeNativeCanonicalCatalogRecords,
