@@ -2,8 +2,10 @@ import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM (see its header).
 import './committed-assistant-browser-support';
 import { TooltipProvider } from '@brainstrike/ui';
-import { render, screen, within } from '@testing-library/react';
+import { CodeBlockBody } from '@brainstrike/ui/code-block';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { expect, onTestFinished, test, vi } from 'vitest';
+import { preloadMarkdownText } from '../assistant-message-text';
 import { CommittedAssistantConversation } from '../committed-assistant-conversation';
 import {
   answerStepLength,
@@ -67,6 +69,29 @@ async function waitForIdle(quietMs: number): Promise<void> {
   }
 }
 
+/**
+ * A chunk the page loads once is not a token's work, and a quiet period cannot
+ * see an import still in flight. Without these preloads, two one-time loads
+ * landed mid-sample on loaded runners (BST-2107):
+ * - the markdown chunk: assistant text shows "Loading message…" until it lands,
+ *   then one token parses the whole prefix (parses `[0, …, 11, 1, …]`);
+ * - Shiki's highlighter (its wasm and every grammar, loaded together the first
+ *   time a code block mounts): the first window with a code block in its prefix
+ *   then gets two highlight commits in one token (message commits `[…, 3, …]`).
+ * Both load through the modules the shipped surface uses: the markdown chunk
+ * through its own preload, and Shiki (which has no preload export) by mounting
+ * the shipped code-block body once.
+ */
+async function preloadOneTimeChunks(): Promise<void> {
+  await preloadMarkdownText();
+  const warm = render(<CodeBlockBody code="const warm = true;" language="ts" />);
+  // Real Shiki (wasm) resolves in-browser, as in assistant-chat-polish.
+  await waitFor(() => expect(warm.container.querySelector('pre.shiki')).not.toBeNull(), {
+    timeout: 15_000,
+  });
+  warm.unmount();
+}
+
 const median = (values: readonly number[]): number => {
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN;
@@ -90,6 +115,7 @@ interface TokenWork {
  * the open block, one commit of the streaming message.
  */
 test('a streamed token costs the same parse and commits at 10% of a long reply and at its end', async () => {
+  await preloadOneTimeChunks();
   const { baseline } = await recordedBaseline();
   const source = new RecordedCommittedSource();
   source.publishPrefix(answerStepLength);
