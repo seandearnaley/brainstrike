@@ -329,7 +329,7 @@ export class EmbeddingHostManager {
     backgroundWorker: boolean
   ): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('ensureStarted');
-    if (this.stopping) {
+    if (this.stopping !== null) {
       await this.stopping;
     }
     if (this.retirement) {
@@ -376,7 +376,7 @@ export class EmbeddingHostManager {
   }
 
   private async stopHost(timeoutMs = EMBEDDING_HOST_STOP_TIMEOUT_MS): Promise<EmbeddingHostStatus> {
-    if (this.stopping) {
+    if (this.stopping !== null) {
       if (timeoutMs === EMBEDDING_HOST_STOP_TIMEOUT_MS) {
         return this.stopping;
       }
@@ -485,7 +485,7 @@ export class EmbeddingHostManager {
     if (this.hostedRequests.hasPending) {
       await this.hostedRequests.retire();
     }
-    if (this.stopping) {
+    if (this.stopping !== null) {
       await this.stopping;
     }
     if (this.retirement) {
@@ -589,10 +589,10 @@ export class EmbeddingHostManager {
       if (selected.modelId !== payload.modelId || payload.inferencePlan) {
         throw new Error('Hosted query identity conflicts with the selected provider/model.');
       }
-      if (this.stopping) {
+      if (this.stopping !== null) {
         await this.stopping;
       }
-      if (this.hostedRequests.retirement) {
+      if (this.hostedRequests.retirement !== null) {
         await this.hostedRequests.retirement;
       }
       this.assertNotDisposed('queryEmbedding');
