@@ -4,7 +4,9 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import type { ElectronHarness } from './fixtures/electron-harness';
 import { seedPausedWorkspace } from './utils/foreground-latency-bench';
 import {
   closeIndexingPopover,
@@ -140,78 +142,100 @@ test.afterAll(() => {
   rmSync(rootDir, { force: true, recursive: true });
 });
 
+/** Indexes the root, then signals Main's process group `delayMs` after the workspace receipt. */
+async function signalGroupAfterScan(
+  electron: ElectronHarness,
+  page: Page,
+  testInfo: TestInfo,
+  delayMs: number
+): Promise<void> {
+  test.setTimeout(8 * 60 * 1000);
+  await seedPausedWorkspace(page, [{ path: rootDir, rootId: ROOT_ID }], 'wasm', 'shutdown');
+  await configureNativeIndex(page, 'wasm');
+  await waitForReadyIndex(page, 300_000);
+  const main = (await electron.ensureContext()).app.process();
+  const pid = main.pid;
+  if (pid === undefined) {
+    throw new Error('The Electron main process has no pid');
+  }
+  const log = capture(main);
+  const resume = await openResumeControl(page);
+  await resume.click();
+  await closeIndexingPopover(page);
+  await log.waitFor(
+    (record) =>
+      record.msg === 'Canonical native scan settled' &&
+      record.receipt?.scanComplete === true &&
+      record.receipt.ticket?.scope?.kind === 'workspace',
+    300_000
+  );
+  await delay(delayMs);
+
+  let ended: { readonly code: number | null; readonly signal: NodeJS.Signals | null } | null = null;
+  try {
+    await electron.endOutOfBand(async (mainProcess) => {
+      const closed = once(mainProcess, 'close', {
+        signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS),
+      });
+      // Playwright launches Main as its process group's leader.
+      signalGroup(pid);
+      await log.waitFor(
+        (record) => record.msg?.startsWith('Received shutdown signal') === true,
+        5000
+      );
+      signalGroup(pid);
+      await closed;
+      ended = { code: mainProcess.exitCode, signal: mainProcess.signalCode };
+    });
+  } finally {
+    await testInfo.attach('native-shutdown-signal-process-log', {
+      body: log.read().output,
+      contentType: 'text/plain',
+    });
+  }
+
+  const { records } = log.read();
+  const after = records.slice(
+    records.findIndex((record) => record.msg?.startsWith('Received shutdown signal') === true)
+  );
+  const messages = after.map((record) => record.msg);
+  expect(ended).toEqual({ code: 0, signal: null });
+  expect(messages).toContain('Shutdown already in progress; ignoring signal');
+  expect(messages).not.toContain('Timed out waiting for graceful shutdown; forcing exit');
+  expect(messages).not.toContain('Graceful shutdown completed with cleanup failures');
+  expect(
+    after.filter((record) => (record.level ?? 0) >= 50 && !isSignalKilledHelper(record))
+  ).toEqual([]);
+  const reports = after.flatMap((record) =>
+    record.msg === 'Graceful shutdown completed' && record.steps ? [record.steps] : []
+  );
+  expect(reports).toHaveLength(1);
+  expect(reports[0]?.map((step) => step.step)).toEqual(
+    expect.arrayContaining(['renderers', 'native-index', 'embedding-host', 'database-close'])
+  );
+  expect(reports[0]?.filter((step) => step.failed)).toEqual([]);
+}
+
 // At the workspace receipt the collection scan and reverification are still running; by 1 s the
 // index is idle. The ticket's own repro signalled about 0.2 s after the index reported complete.
-for (const delayMs of [0, 300, 1000]) {
-  test(`@desktop-embedding-native-shutdown a SIGTERM to Main's process group ${delayMs} ms after the native scan completes fails no shutdown step`, async ({
-    electron,
-    window: page,
-  }, testInfo) => {
-    test.setTimeout(8 * 60 * 1000);
-    await seedPausedWorkspace(page, [{ path: rootDir, rootId: ROOT_ID }], 'wasm', 'shutdown');
-    await configureNativeIndex(page, 'wasm');
-    await waitForReadyIndex(page, 300_000);
-    const main = (await electron.ensureContext()).app.process();
-    const pid = main.pid;
-    if (pid === undefined) {
-      throw new Error('The Electron main process has no pid');
-    }
-    const log = capture(main);
-    const resume = await openResumeControl(page);
-    await resume.click();
-    await closeIndexingPopover(page);
-    await log.waitFor(
-      (record) =>
-        record.msg === 'Canonical native scan settled' &&
-        record.receipt?.scanComplete === true &&
-        record.receipt.ticket?.scope?.kind === 'workspace',
-      300_000
-    );
-    await delay(delayMs);
+// Literal titles: the E2E lane-coverage guard reads them statically.
+test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 0 ms after the native scan completes fails no shutdown step", async ({
+  electron,
+  window: page,
+}, testInfo) => {
+  await signalGroupAfterScan(electron, page, testInfo, 0);
+});
 
-    let ended: { readonly code: number | null; readonly signal: NodeJS.Signals | null } | null =
-      null;
-    try {
-      await electron.endOutOfBand(async (mainProcess) => {
-        const closed = once(mainProcess, 'close', {
-          signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS),
-        });
-        // Playwright launches Main as its process group's leader.
-        signalGroup(pid);
-        await log.waitFor(
-          (record) => record.msg?.startsWith('Received shutdown signal') === true,
-          5000
-        );
-        signalGroup(pid);
-        await closed;
-        ended = { code: mainProcess.exitCode, signal: mainProcess.signalCode };
-      });
-    } finally {
-      await testInfo.attach('native-shutdown-signal-process-log', {
-        body: log.read().output,
-        contentType: 'text/plain',
-      });
-    }
+test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 300 ms after the native scan completes fails no shutdown step", async ({
+  electron,
+  window: page,
+}, testInfo) => {
+  await signalGroupAfterScan(electron, page, testInfo, 300);
+});
 
-    const { records } = log.read();
-    const after = records.slice(
-      records.findIndex((record) => record.msg?.startsWith('Received shutdown signal') === true)
-    );
-    const messages = after.map((record) => record.msg);
-    expect(ended).toEqual({ code: 0, signal: null });
-    expect(messages).toContain('Shutdown already in progress; ignoring signal');
-    expect(messages).not.toContain('Timed out waiting for graceful shutdown; forcing exit');
-    expect(messages).not.toContain('Graceful shutdown completed with cleanup failures');
-    expect(
-      after.filter((record) => (record.level ?? 0) >= 50 && !isSignalKilledHelper(record))
-    ).toEqual([]);
-    const reports = after.flatMap((record) =>
-      record.msg === 'Graceful shutdown completed' && record.steps ? [record.steps] : []
-    );
-    expect(reports).toHaveLength(1);
-    expect(reports[0]?.map((step) => step.step)).toEqual(
-      expect.arrayContaining(['renderers', 'native-index', 'embedding-host', 'database-close'])
-    );
-    expect(reports[0]?.filter((step) => step.failed)).toEqual([]);
-  });
-}
+test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 1000 ms after the native scan completes fails no shutdown step", async ({
+  electron,
+  window: page,
+}, testInfo) => {
+  await signalGroupAfterScan(electron, page, testInfo, 1000);
+});

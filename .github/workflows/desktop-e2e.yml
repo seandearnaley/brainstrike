@@ -234,6 +234,7 @@ jobs:
             e2e/mid-session-add-root.desktop.test.ts \
             e2e/native-index-semantic-results.desktop.test.ts \
             e2e/native-index-retry-indexing.desktop.test.ts \
+            e2e/native-index-shutdown-signal.desktop.test.ts \
             --project=regression \
             --workers=1 \
             --retries=0 \
