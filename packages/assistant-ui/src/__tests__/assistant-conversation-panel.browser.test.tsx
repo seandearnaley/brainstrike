@@ -158,7 +158,8 @@ test.each(
     const jump = child.getByRole('button', { name: 'Scroll to latest messages' });
     await waitFor(() => expect(jump).toBeEnabled());
     const jumpBounds = jump.getBoundingClientRect();
-    expect(jump).toBeVisible();
+    // Enabled state updates before the opacity transition has painted.
+    await waitFor(() => expect(jump).toBeVisible());
     expect(jumpBounds.top).toBeGreaterThanOrEqual(0);
     expect(jumpBounds.bottom).toBeLessThanOrEqual(window.innerHeight);
     expect(jumpBounds.left).toBeGreaterThanOrEqual(0);

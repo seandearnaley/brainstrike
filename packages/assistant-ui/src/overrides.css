@@ -1,62 +1,6 @@
-/* Brainstrike overrides for assistant-ui in the Right Panel */
-/**
- * COMPATIBILITY: @assistant-ui/styles v0.3.x
- * LAST VERIFIED: 2026-01-16 with @assistant-ui/styles@0.3.2
- * BREAKING CHANGE RISK: Medium
- */
+/* Brainstrike-owned presentation for the unstyled assistant-ui primitives. */
 
-/**
- * CRITICAL: Override assistant-ui's global theme variables
- *
- * The @assistant-ui/styles/index.css library defines global :root and .dark
- * selectors with hardcoded theme values that override our Brainstrike theme.
- * These rules restore our theme by mapping back to --bs-* variables.
- */
-:root {
-  --background: var(--bs-background);
-  --foreground: var(--bs-foreground);
-  --card: var(--bs-card);
-  --card-foreground: var(--bs-card-foreground);
-  --popover: var(--bs-popover);
-  --popover-foreground: var(--bs-popover-foreground);
-  --primary: var(--bs-primary);
-  --primary-foreground: var(--bs-primary-foreground);
-  --secondary: var(--bs-secondary);
-  --secondary-foreground: var(--bs-secondary-foreground);
-  --muted: var(--bs-muted);
-  --muted-foreground: var(--bs-muted-foreground);
-  --accent: var(--bs-accent);
-  --accent-foreground: var(--bs-accent-foreground);
-  --destructive: var(--bs-destructive);
-  --destructive-foreground: var(--bs-destructive-foreground);
-  --border: var(--bs-border);
-  --input: var(--bs-input);
-  --ring: var(--bs-ring);
-}
-
-.dark {
-  --background: var(--bs-background);
-  --foreground: var(--bs-foreground);
-  --card: var(--bs-card);
-  --card-foreground: var(--bs-card-foreground);
-  --popover: var(--bs-popover);
-  --popover-foreground: var(--bs-popover-foreground);
-  --primary: var(--bs-primary);
-  --primary-foreground: var(--bs-primary-foreground);
-  --secondary: var(--bs-secondary);
-  --secondary-foreground: var(--bs-secondary-foreground);
-  --muted: var(--bs-muted);
-  --muted-foreground: var(--bs-muted-foreground);
-  --accent: var(--bs-accent);
-  --accent-foreground: var(--bs-accent-foreground);
-  --destructive: var(--bs-destructive);
-  --destructive-foreground: var(--bs-destructive-foreground);
-  --border: var(--bs-border);
-  --input: var(--bs-input);
-  --ring: var(--bs-ring);
-}
-
-/* Restore host theme variables that assistant-ui's default theme overrides */
+/* Shared host theme and container geometry for root and delegated conversations. */
 .bs-thread {
   /*
    * The thread root is an inline-size container so message width/centering
@@ -65,6 +9,10 @@
    * message-sizing rule below (the composer dock now wraps via flexbox).
    */
   container: bs-thread / inline-size;
+  gap: 0.25rem;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  overscroll-behavior: contain;
   --background: var(--bs-background, 0 0% 100%);
   --foreground: var(--bs-foreground, 240 10% 3.9%);
   --card: var(--bs-card, 0 0% 100%);
@@ -216,29 +164,7 @@
   background: var(--agent-card);
 }
 
-/**
- * CRITICAL: Override .aui-root fixed positioning for embedded panel layout
- *
- * @assistant-ui/styles v0.3.x changed .aui-root to use fixed positioning for
- * a floating modal/popup pattern:
- *   - position: fixed
- *   - right: 16px; bottom: 16px
- *   - Fixed width: 400px; height: 500px
- *   - z-index: 50
- *
- * This breaks our embedded panel layout where the assistant UI should flow
- * within the Tools panel's tab content, not float over the page.
- *
- * THE FIX:
- * - Use position: relative so it participates in normal document flow
- * - Reset right/bottom to auto (removes corner positioning)
- * - Use width/height: 100% to fill parent container
- * - Reset z-index to auto (no layering needed for embedded content)
- * - Remove fixed dimensions that override flex layout
- *
- * This override applies to all .aui-root elements. If you need the floating
- * modal behavior elsewhere, use a different class or wrap in a container.
- */
+/* Embedded conversation surface; modal positioning belongs to the app shell. */
 .assistant-ui-panel .aui-root {
   position: relative;
   right: auto;
@@ -252,48 +178,21 @@
   overflow: visible;
 }
 
-/**
- * VIEWPORT OVERRIDE: Critical fix for extracted-composer layout pattern
- *
- * BACKGROUND:
- * The @assistant-ui library expects the composer to be INSIDE the viewport as a sticky footer.
- * We've extracted it OUTSIDE as a sibling, which requires aggressive CSS overrides.
- *
- * LIBRARY DEFAULTS (from @assistant-ui/styles/src/styles/tailwindcss/thread.css):
- *   .aui-thread-viewport {
- *     @apply relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll px-4;
- *   }
- *
- * THE PROBLEM:
- * - Library makes viewport a flex container with flex-direction: column
- * - Messages become flex items in a column and can grow infinitely
- * - Without constraints, messages push the composer down
- *
- * THE FIX:
- * - Keep viewport as a flex item (so it participates in parent's flex layout)
- * - Add min-height: 0 to allow proper flex shrinking (CRITICAL!)
- * - Constrain with max-height to prevent overflow
- * - Override the library's overflow-y: scroll with overflow-y: auto
- *
- * WHY !important IS NECESSARY:
- * - Library CSS loads first via: import '@assistant-ui/styles/index.css'
- * - Our overrides.css loads after, but library uses Tailwind's @apply
- * - @apply generates standard CSS with same specificity
- * - !important is the only way to guarantee our overrides win
- *
- * REFERENCES:
- * - Library source: node_modules/@assistant-ui/styles/src/styles/tailwindcss/thread.css
- *
- * DO NOT REMOVE unless you've verified the library has changed its structure
- * or we've refactored to use the library's intended composer-inside-viewport pattern.
- */
-/* !important is required to override @assistant-ui library defaults */
+/* The composer is a sibling of this bounded, independently scrolling viewport. */
 .aui-thread-viewport {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  scroll-behavior: smooth;
   flex: 1 1 0; /* Flex item that can grow and shrink */
   min-height: 0; /* CRITICAL: allows flex shrinking below content size */
   max-height: 100%; /* Constrain to parent height */
-  overflow-y: auto; /* Enable scrolling (override library's scroll) */
+  overflow-y: auto;
   overflow-x: hidden; /* Prevent horizontal scroll */
+}
+
+.aui-thread-root .aui-thread-viewport {
+  padding: 1rem 1rem 0;
 }
 
 /**
@@ -402,6 +301,7 @@
 .aui-composer-root {
   position: relative;
   display: flex;
+  width: 100%;
   flex-direction: column;
   gap: 0.5rem;
   border: 1px solid hsl(var(--border) / 0.72);
@@ -437,9 +337,8 @@
 }
 
 .aui-composer-input {
-  /* Kill the library's 4px margin-bottom: it pushed the textarea's bottom
-     edge out of line with the action cluster (measured, not cosmetic). */
   display: block;
+  width: 100%;
   margin: 0;
   min-height: 3rem;
   max-height: 12rem;
@@ -613,6 +512,13 @@
 }
 
 /* Message content sizing */
+.aui-assistant-message-content {
+  padding-inline: 0.5rem;
+  line-height: 1.625;
+  overflow-wrap: break-word;
+  color: hsl(var(--foreground));
+}
+
 .aui-assistant-message-content,
 .aui-user-message-content {
   font-size: 0.8125rem;
@@ -1745,41 +1651,27 @@
   background: hsl(var(--muted) / 0.4);
 }
 
-/**
- * MESSAGE SPACING OVERRIDE: Remove library's sticky-footer-pattern margins
- *
- * LIBRARY DEFAULTS (from @assistant-ui/styles/src/styles/tailwindcss/thread.css):
- *   .aui-assistant-message-root {
- *     @apply relative mx-auto w-full max-w-[var(--thread-max-width)] py-4 last:mb-24;
- *   }
- *
- * THE PROBLEM:
- * - Library adds `last:mb-24` (24rem = 96px!) to the last message
- * - This huge margin creates space for the sticky footer (composer) inside the viewport
- * - Since we extracted the composer OUTSIDE the viewport, this margin just pushes content down
- *
- * THE FIX:
- * - Remove the bottom margin on all messages (margin-bottom: 0)
- * - Add small padding-bottom for visual spacing
- * - Last message gets minimal margin (1rem instead of 24rem)
- *
- * REFERENCES:
- * - Issue: Composer "shunting down" as messages accumulate
- */
-/* !important is required to override @assistant-ui library defaults */
+/* Message boxes remain identical on the static and virtualized tiers. */
+:where(.aui-assistant-message-root, .aui-user-message-root) {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--thread-max-width);
+  padding-top: 0.75rem;
+}
+
 .aui-assistant-message-root {
-  margin-bottom: 0; /* Override library's default spacing */
+  margin-bottom: 0;
   padding-bottom: 0.625rem; /* Visual spacing between messages (compact rhythm) */
 }
 
-/* Last message: 0.75rem instead of library's 24rem (96px).
+/* Last-message trailing space is 0.75rem.
    Scoped to a DIRECT child of the scroller so it stays a "last message in the
    thread" rule. On the virtualized tier every root is the only child of its
    position wrapper, so an unscoped :last-child would fire on every row; that
    tier gets its trailing gap from `.bs-virtual-message[data-last-message]`
    below, inside the measured box. */
 .aui-thread-viewport > .aui-assistant-message-root:last-child {
-  margin-bottom: 0.75rem; /* Small margin, not 96px */
+  margin-bottom: 0.75rem;
 }
 
 /**
@@ -1789,6 +1681,8 @@
  * assistant message overrides above.
  */
 .aui-user-message-root {
+  align-content: flex-start;
+  padding-inline: 0.5rem;
   margin-bottom: 0.25rem; /* Tighter spacing for user messages */
 }
 
