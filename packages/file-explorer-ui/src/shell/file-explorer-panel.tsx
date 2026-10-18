@@ -130,6 +130,28 @@ function explorerScrollRootClassName(selectedCount: number, barPinned: boolean):
 
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
+/**
+ * Owns the tree area's measured width, the one column input that changes on
+ * every pointer move of a panel drag (BST-2184). Held here rather than in the
+ * panel, a width change re-renders only this provider: `children` are elements
+ * the panel already created, so React skips them, and only the
+ * `useExplorerColumns` consumers re-render, and only when the resolved columns
+ * actually change.
+ */
+function MeasuredExplorerColumnsProvider({
+  children,
+  containerRef,
+}: {
+  children: React.ReactNode;
+  containerRef: React.RefObject<HTMLElement | null>;
+}) {
+  return (
+    <ExplorerColumnsProvider value={useExplorerColumnsValue(containerRef)}>
+      {children}
+    </ExplorerColumnsProvider>
+  );
+}
+
 export interface FileExplorerPanelProps {
   /**
    * Host-composed `workspace-root` context actions (Open in Terminal, New
@@ -159,9 +181,9 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   // outer scroll root; the hook resolves the active (single-root vs forest)
   // scroller and captures via a capture-phase listener.
   const explorerScrollRootRef = React.useRef<HTMLDivElement | null>(null);
-  // Tree-grid columns: persisted preference narrowed by the tree area's width.
+  // Tree-grid columns: persisted preference narrowed by the tree area's width,
+  // measured by `MeasuredExplorerColumnsProvider` so a resize skips this panel.
   const treeAreaRef = React.useRef<HTMLDivElement | null>(null);
-  const explorerColumns = useExplorerColumnsValue(treeAreaRef);
   useExplorerScrollRestore(explorerScrollRootRef);
   const [
     includeFilters,
@@ -881,7 +903,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
 
   return (
     <FileExplorerErrorBoundary>
-      <ExplorerColumnsProvider value={explorerColumns}>
+      <MeasuredExplorerColumnsProvider containerRef={treeAreaRef}>
         <div className="grid h-full min-w-0 grid-rows-[auto_1fr] overflow-hidden">
           {/* Fixed Header - Toolbar and filter controls */}
           <div className="min-w-0 shrink-0">
@@ -1313,7 +1335,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
             variant={showStaleBanner ? 'stale' : showDeniedBanner ? 'denied' : 'pending'}
           />
         </div>
-      </ExplorerColumnsProvider>
+      </MeasuredExplorerColumnsProvider>
     </FileExplorerErrorBoundary>
   );
 });
