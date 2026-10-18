@@ -1643,8 +1643,7 @@ function buildBedrockOptions(
   modelName: string | undefined,
   settings: AssistantProviderSettings
 ): BedrockProviderOptions | undefined {
-  const effort = settings.bedrockEffort;
-  if (!(modelName && effort)) {
+  if (!modelName) {
     return;
   }
   // Keyed on the UNPREFIXED catalog id, which is all this seam can receive:
@@ -1653,8 +1652,29 @@ function buildBedrockOptions(
   // inside packages/agent. The agent-side capability lookup resolves a routed
   // id back to its catalog row for the same reason; if a prefixed id ever
   // reaches HERE, that invariant has already broken upstream.
-  const dialect = findLlmModelDefinition('bedrock', modelName)?.bedrockReasoning;
-  if (!(dialect && BEDROCK_REASONING_EFFORTS[dialect].includes(effort))) {
+  const definition = findLlmModelDefinition('bedrock', modelName);
+  const dialect = definition?.bedrockReasoning;
+  const effort = settings.bedrockEffort;
+  const offered =
+    dialect !== undefined && effort !== undefined
+      ? BEDROCK_REASONING_EFFORTS[dialect].includes(effort)
+      : false;
+  if (dialect === 'adaptive' && definition?.bedrockReasoningMandatory) {
+    // BST-1807, as BST-1804 did for the direct rows: an always-thinking route
+    // gets adaptive thinking at EVERY effort, Auto included. Its `display`
+    // defaults to `omitted`, so leaving the config out hides the
+    // show-reasoning preference, and on Opus 5.5 the between-tool-call
+    // progress text it returns as thinking. Auto, or an effort this route
+    // does not offer, sends no effort: the vendor default applies.
+    return {
+      reasoningConfig: {
+        display: resolveBedrockReasoningDisplay(settings),
+        ...(offered && effort !== undefined ? { maxReasoningEffort: effort } : {}),
+        type: 'adaptive',
+      },
+    };
+  }
+  if (!(dialect && effort && offered)) {
     return;
   }
   if (dialect === 'adaptive') {

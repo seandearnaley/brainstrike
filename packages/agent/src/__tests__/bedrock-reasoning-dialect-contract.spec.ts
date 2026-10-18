@@ -125,6 +125,31 @@ describe('bedrock reasoning dialect matches the installed provider', () => {
     }
   });
 
+  it('marks a route always-thinking only on the adaptive dialect, as its direct row says (BST-1807)', () => {
+    const direct = new Map(
+      listProviderLlmModels('anthropic').map((model) => [model.id, model.anthropicReasoning])
+    );
+    const marked = listProviderLlmModels('bedrock').filter(
+      (model) => model.bedrockReasoningMandatory
+    );
+    expect(marked.map((model) => model.id).sort()).toEqual([
+      'anthropic.claude-fable-5',
+      'anthropic.claude-fable-5-1',
+      'anthropic.claude-opus-5-5',
+    ]);
+    for (const model of listProviderLlmModels('bedrock')) {
+      if (model.bedrockReasoningMandatory) {
+        expect(model.bedrockReasoning, `bedrock/${model.id}`).toBe('adaptive');
+      }
+      const directReasoning = direct.get(model.id.replace(/^anthropic\./u, ''));
+      if (directReasoning) {
+        expect(model.bedrockReasoningMandatory === true, `bedrock/${model.id}`).toBe(
+          directReasoning.mandatory
+        );
+      }
+    }
+  });
+
   it('offers only efforts the budget table can price', () => {
     expect([...BEDROCK_REASONING_EFFORTS['budget-tokens']].sort()).toEqual(
       Object.keys(BEDROCK_BUDGET_TOKENS_BY_EFFORT).sort()
@@ -145,6 +170,25 @@ describe('bedrock reasoning wire shapes', () => {
     expect(fields.thinking).toEqual({ display: 'summarized', type: 'adaptive' });
     expect(fields.output_config).toEqual({ effort: 'high' });
   });
+
+  // BST-1807: at Auto, app-shell sends an always-thinking route adaptive
+  // thinking with a `display` and NO effort. The installed adapter must
+  // forward `display` without inventing an effort or a beta.
+  it.each(['summarized', 'omitted'] as const)(
+    'forwards adaptive thinking display %s with no effort for Opus 5.5 at Auto',
+    async (display) => {
+      const body = await captureRequestBody('anthropic.claude-opus-5-5', {
+        display,
+        type: 'adaptive',
+      });
+      const fields = body['additionalModelRequestFields'] as AdditionalModelRequestFields & {
+        readonly anthropic_beta?: unknown;
+      };
+      expect(fields.thinking).toEqual({ display, type: 'adaptive' });
+      expect(fields.output_config).toBeUndefined();
+      expect(fields.anthropic_beta).toBeUndefined();
+    }
+  );
 
   it('omits reasoning entirely when no config is sent', async () => {
     const body = await captureRequestBody('anthropic.claude-sonnet-5', undefined);
