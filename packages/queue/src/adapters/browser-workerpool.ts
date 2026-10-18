@@ -109,6 +109,32 @@ function readManagedWorkerInstanceId(workerScript: string | undefined): string {
   return workerInstanceId;
 }
 
+function countPoolWorkers(target: Pool): number {
+  return typeof target.stats === 'function' ? target.stats().totalWorkers : 0;
+}
+
+/**
+ * workerpool 10.0.3 retires a worker whose canceled task still awaits cleanup
+ * twice over: the cleanup's rejection runs `Pool._removeWorker`, which reports
+ * the worker to `onTerminateWorker` and spawns a `minWorkers` replacement, then
+ * `Pool.terminate` reports the same worker again and never sees that
+ * replacement. The replacement is idle, so one more terminate retires it
+ * without another respawn; a worker that still remains fails visibly (BST-2087).
+ */
+async function terminateEveryWorker(
+  target: Pool,
+  termination: ReturnType<Pool['terminate']>
+): Promise<void> {
+  await termination;
+  if (countPoolWorkers(target) > 0) {
+    await target.terminate(true);
+  }
+  const remaining = countPoolWorkers(target);
+  if (remaining > 0) {
+    throw new Error(`Embedding workerpool kept ${remaining} worker(s) after termination.`);
+  }
+}
+
 function calculateTransferBytes(vectors: QueueResult['vectors']): number {
   const buffers = new Set<ArrayBufferLike>();
   for (const vector of vectors) {
@@ -219,6 +245,8 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   // replacement generation. Unknown identities still fail validation visibly.
   const assignedWorkerInstanceIds = new Set<string>();
   const activeWorkerInstanceIds = new Set<string>();
+  // Workers already reported terminated; workerpool can report one twice (terminateEveryWorker).
+  const terminatedWorkerInstanceIds = new Set<string>();
   const telemetryChannelName = `${WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX}${globalThis.crypto.randomUUID()}`;
   const telemetryChannel = new BroadcastChannel(telemetryChannelName);
   let requestControlChannel: BroadcastChannel;
@@ -248,6 +276,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   };
   const forgetManagedWorkerIdentities = (): void => {
     assignedWorkerInstanceIds.clear();
+    terminatedWorkerInstanceIds.clear();
   };
   const assertManagedWorkerInstanceId = (workerInstanceId: string): void => {
     if (!assignedWorkerInstanceIds.has(workerInstanceId)) {
@@ -269,10 +298,14 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   };
   const removeTerminatedWorkerTelemetrySource = (workerScriptUrl: string | undefined): void => {
     const workerInstanceId = readManagedWorkerInstanceId(workerScriptUrl);
-    if (!activeWorkerInstanceIds.delete(workerInstanceId)) {
+    if (activeWorkerInstanceIds.delete(workerInstanceId)) {
+      terminatedWorkerInstanceIds.add(workerInstanceId);
+      removeWorkerTelemetrySource(workerInstanceId);
+      return;
+    }
+    if (!terminatedWorkerInstanceIds.has(workerInstanceId)) {
       throw new Error('Terminated embedding worker identity is not assigned to this workerpool.');
     }
-    removeWorkerTelemetrySource(workerInstanceId);
   };
   const recordPipelineCacheDiagnostic = (
     diagnostic: EmbedWorkerPipelineCacheDiagnostic
@@ -373,7 +406,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     const failedPool = pool;
     workerLifetimeRecovery = (async (): Promise<void> => {
       try {
-        await failedPool.terminate(true);
+        await terminateEveryWorker(failedPool, failedPool.terminate(true));
         clearEmbeddingTelemetrySources();
         if (terminalState === 'active') {
           pool = createPool();
@@ -410,7 +443,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     closeManagedChannels();
     void (async (): Promise<void> => {
       try {
-        await pool.terminate(true);
+        await terminateEveryWorker(pool, pool.terminate(true));
       } catch (terminationError) {
         logger.error('Embedding workerpool termination after telemetry failure failed.', {
           reason:
@@ -862,15 +895,18 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     }
   };
 
-  const terminatePool = (): ReturnType<Pool['terminate']> => {
+  const terminatePool = (): Promise<void> => {
+    const target = pool;
+    let termination: ReturnType<Pool['terminate']>;
     issuingPhysicalTermination = true;
     try {
       // Capture only this synchronous vendor call's rejections of already-aborted work.
       // Per-task cancel would re-enter worker cleanup and create a minWorkers replacement.
-      return pool.terminate(true);
+      termination = target.terminate(true);
     } finally {
       issuingPhysicalTermination = false;
     }
+    return terminateEveryWorker(target, termination);
   };
 
   const terminateInternal = (nextState: 'canceled' | 'disposed'): Promise<void> => {

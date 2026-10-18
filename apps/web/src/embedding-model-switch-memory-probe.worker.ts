@@ -115,11 +115,17 @@ function allocatePageTouchedStore(bytes: number): Uint8Array {
   return store;
 }
 
+interface SyntheticTokenizerOutput {
+  // biome-ignore lint/style/useNamingConvention: Transformers.js API name.
+  readonly input_ids: { readonly dims: readonly number[] };
+}
+
 function createSyntheticPipeline(
   model: string,
   contract: SyntheticModelContract
 ): ((texts: readonly string[]) => Promise<readonly Float32Array[]>) & {
   dispose: () => Promise<void>;
+  tokenizer: (text: string) => SyntheticTokenizerOutput;
 } {
   if (retainedResources.has(model)) {
     throw new Error(`BST-369 synthetic runtime attempted to allocate duplicate model ${model}.`);
@@ -139,6 +145,15 @@ function createSyntheticPipeline(
       throw new Error(`BST-369 synthetic runtime used disposed model ${model}.`);
     }
     return [Float32Array.of(1, 2, 3, 4)];
+  };
+  // The production worker measures each text with the pipeline's own tokenizer
+  // to plan attention-bounded batches (BST-2087).
+  pipeline.tokenizer = (text: string): SyntheticTokenizerOutput => {
+    if (text !== 'bst-369-memory-probe') {
+      throw new Error('BST-369 synthetic runtime tokenized an unexpected embedding payload.');
+    }
+    // biome-ignore lint/style/useNamingConvention: Transformers.js API name.
+    return { input_ids: { dims: [1, 4] } };
   };
   pipeline.dispose = async (): Promise<void> => {
     if (resource.store === null || !retainedResources.has(model)) {
