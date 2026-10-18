@@ -6,24 +6,11 @@ import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
-import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { expect } from 'vitest';
+import { REAL_PROCESS_TIMEOUT_MS } from './real-process-budget.js';
 
 /** The production executable, `bin/brainstrike.mjs`. */
 export const bin = fileURLToPath(new URL('../../bin/brainstrike.mjs', import.meta.url));
-
-/**
- * One budget for each real-process step: a bin invocation, and each wait on a
- * process it started (an exit, a Root release). 15 s, or 30 s on the nightly
- * (`TEST_TIMEOUT_MULTIPLIER=2`). Unthrottled, `host start` takes about 1 s; on
- * the hosted 2-vCPU coverage runner, about 10 s (BST-2157), at the 10 s
- * `execFile` guards these suites used and far past `expect.poll`'s 1 s default.
- *
- * A test budget, not a product bound. The product's own deadlines (the
- * launcher's 10 s startup, the starter's 10 s readiness) still run inside the
- * bin, and a missed one fails the command with its own error.
- */
-export const REAL_PROCESS_TIMEOUT_MS = getAdjustedTimeout('integration');
 
 /** `expect.poll` options for a wait on a real process. */
 export const REAL_PROCESS_WAIT = { timeout: REAL_PROCESS_TIMEOUT_MS } as const;
@@ -112,6 +99,8 @@ const NO_HOST = 'No host is running for this root\n';
  * failure. An owner gone without releasing the Root fails here under its pid.
  * A stop reply is not an exit (a cold Windows host spent 1.4 s saving Node's
  * compile cache after releasing the Root), so physical retirement is awaited.
+ * The stop and the exit wait are the two budgeted steps (`CLEANUP_STEPS`) that
+ * `hookTimeout` covers.
  */
 export async function retireRootOwner(
   dataRoot: string,
