@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises';
-import { Socket } from 'node:net';
+import { connect, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
@@ -31,6 +31,20 @@ const collection = {
   modelKey: 'fake::fake-embedding',
   name: 'Effect catalog',
 } as const;
+/** Resolves once the host's endpoint refuses a new connection: its transport is retiring. */
+const refusesConnections = (endpoint: string): Promise<void> =>
+  vi.waitFor(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const probe = connect(endpoint);
+        probe.once('connect', () => {
+          probe.destroy();
+          reject(new Error('The host still accepts connections'));
+        });
+        probe.once('error', () => resolve());
+      }),
+    { interval: 5, timeout: 30_000 }
+  );
 
 test('authenticated CLI-first catalog writes use the existing writer and survive reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'host-catalog-'));
@@ -147,6 +161,13 @@ test('host retirement drains an authenticated admitted catalog write before reti
   try {
     await Promise.resolve();
     await Promise.resolve();
+    expect(closed).toBe(false);
+    // BST-2174: hold the write until transport retirement has begun, so the
+    // answer cannot depend on how briefly the writer held it.
+    await refusesConnections(host.record.endpoint);
+    await expect(client.catalog.modelChoices({ operation: 'snapshot' })).rejects.toMatchObject({
+      code: 'host.closing',
+    });
     expect(closed).toBe(false);
     released.resolve();
     expect(await request).toEqual({
