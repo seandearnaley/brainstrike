@@ -101,6 +101,14 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
     const listbox = page.locator(SELECT_LISTBOX);
     await expect(listbox).toBeVisible({ timeout: 15_000 });
     await waitForFloatingLayerStack(page, SELECT_LISTBOX);
+    // The listbox opens with a `zoom-in-95` + `slide-in-from-top-2` animation,
+    // and getBoundingClientRect includes its transform. Measured mid-animation
+    // on hosted Linux, the box was 718 x 0.99847 wide (widthDelta -1.098) with
+    // its top raised by the same progress's translate (BST-2093). Measure the
+    // settled box; a rejected `finished` (a cancelled animation) fails here.
+    await listbox.evaluate(async (node) => {
+      await Promise.all(node.getAnimations().map((animation) => animation.finished));
+    });
 
     const geometry = await page.evaluate((selector) => {
       const content = document.querySelector(selector);

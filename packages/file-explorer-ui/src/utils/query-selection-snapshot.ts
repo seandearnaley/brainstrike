@@ -93,49 +93,32 @@ export async function createQuerySelectionSnapshot(
   }
 
   return withSerializedSnapshotWrite(db, async () => {
-    await db.query('BEGIN');
-    try {
-      await db.query(
-        `DELETE FROM selection_snapshots
+    // ONE statement, so the write is atomic and takes one turn on the shared
+    // database scheduler. A BEGIN/…/COMMIT sequence of separate queries waits
+    // for a turn per statement, and other writers' statements run inside its
+    // open transaction (BST-2093).
+    const snapshotResult = (await db.query(
+      `WITH expired AS (
+         DELETE FROM selection_snapshots
          WHERE expires_at IS NOT NULL
-           AND expires_at <= NOW()`
-      );
-
-      const snapshotResult = (await db.query(
-        `INSERT INTO selection_snapshots (expires_at)
+           AND expires_at <= NOW()
+       ), snapshot AS (
+         INSERT INTO selection_snapshots (expires_at)
          VALUES (NOW() + ($1::int * INTERVAL '1 hour'))
-         RETURNING id`,
-        [QUERY_SELECTION_SNAPSHOT_TTL_HOURS]
-      )) as { rows: QueryResultRow[] };
-      const snapshotId = snapshotResult.rows[0]?.id;
-      if (!snapshotId) {
-        logger.error('Selection snapshot insert did not return an id');
-        throw new Error('Selection snapshot insert did not return an id');
-      }
-
-      await db.query(
-        `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
-         SELECT $1, UNNEST($2::text[])`,
-        [snapshotId, Array.from(filePaths)]
-      );
-
-      await db.query('COMMIT');
-      return snapshotId;
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        (error.message === 'Selection snapshot write timed out' ||
-          error.message === 'Selection snapshot write lock timed out')
-      ) {
-        logger.warn('Selection snapshot write timed out', { errorMessage: error.message });
-      }
-      try {
-        await db.query('ROLLBACK');
-      } catch (rollbackError) {
-        logger.warn('Selection snapshot rollback failed', { rollbackError });
-      }
-      throw error;
+         RETURNING id
+       ), files AS (
+         INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+         SELECT snapshot.id, UNNEST($2::text[]) FROM snapshot
+       )
+       SELECT id FROM snapshot`,
+      [QUERY_SELECTION_SNAPSHOT_TTL_HOURS, Array.from(filePaths)]
+    )) as { rows: QueryResultRow[] };
+    const snapshotId = snapshotResult.rows[0]?.id;
+    if (!snapshotId) {
+      logger.error('Selection snapshot insert did not return an id');
+      throw new Error('Selection snapshot insert did not return an id');
     }
+    return snapshotId;
   });
 }
 
