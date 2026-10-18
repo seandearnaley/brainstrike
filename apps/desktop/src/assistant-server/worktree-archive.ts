@@ -52,6 +52,8 @@ export interface WorktreeSafetyReport {
   readonly ignoredTopLevelEntries: readonly string[];
   readonly ignoredTopLevelEntriesTruncated: boolean;
   readonly ignoredTopLevelEntryCount: number;
+  /** Non-ignored nested repositories; archive refuses them even when forced (BST-1625). */
+  readonly nestedRepositories: readonly string[];
   readonly threadIsRunning: boolean;
   readonly unpushedCommits: number;
 }
@@ -84,6 +86,85 @@ function parsePorcelainV1ZStatusEntries(stdout: string): readonly string[] {
     }
   }
   return entries;
+}
+
+/** The refusal for nested repositories, which `force` never overrides. */
+export function nestedRepositoriesArchiveBlocker(paths: readonly string[]): string {
+  return `This worktree contains nested Git repositories that the archive snapshot cannot restore: ${paths.join(
+    ', '
+  )}. Their commits and files would be deleted with the worktree. Move them out of the worktree before archiving.`;
+}
+
+function parseGitlinkPaths(stdout: string): string[] {
+  const paths: string[] = [];
+  for (const entry of stdout.split('\0')) {
+    // `<mode> <object> <stage>\t<path>`; mode 160000 is a gitlink.
+    const tab = entry.indexOf('\t');
+    if (tab !== -1 && entry.startsWith('160000 ')) {
+      paths.push(entry.slice(tab + 1));
+    }
+  }
+  return paths;
+}
+
+async function hasOwnGitDirectory(worktreePath: string, relativePath: string): Promise<boolean> {
+  try {
+    await fsPromises.lstat(path.join(worktreePath, relativePath, '.git'));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Nested Git repositories in a worktree that are not ignored (BST-1625).
+ *
+ * Their commits and untracked files live in their own `.git`, so the archive
+ * snapshot cannot restore them: `git add -A` records at most a gitlink, and
+ * fails outright on a repository with no commit. Git reports an untracked one
+ * as a `?? dir/` status entry and a committed one as a gitlink; either counts
+ * once it holds its own `.git`. An ignored one stays with the ignored-entry
+ * confirmation, which already says it will be deleted.
+ */
+export async function findNestedRepositories(input: {
+  readonly invoke: GitInvoke;
+  readonly worktreePath: string;
+  /** `git status --porcelain=v1 -z --untracked-files=all` entries, when the caller has them. */
+  readonly statusEntries?: readonly string[];
+}): Promise<GitResult<readonly string[]>> {
+  let statusEntries = input.statusEntries;
+  if (statusEntries === undefined) {
+    const statusRun = await invokeGitHookFree(input.invoke, [
+      'status',
+      '--porcelain=v1',
+      '-z',
+      '--untracked-files=all',
+    ]);
+    if (statusRun.exitCode !== 0) {
+      return { error: describeFailure(statusRun), ok: false };
+    }
+    statusEntries = parsePorcelainV1ZStatusEntries(statusRun.stdout);
+  }
+  const gitlinkRun = await invokeGitHookFree(input.invoke, ['ls-files', '--stage', '-z']);
+  if (gitlinkRun.exitCode !== 0) {
+    return { error: describeFailure(gitlinkRun), ok: false };
+  }
+  const candidates = new Set<string>(parseGitlinkPaths(gitlinkRun.stdout));
+  for (const entry of statusEntries) {
+    if (entry.startsWith('?? ') && entry.endsWith('/')) {
+      candidates.add(entry.slice(3, -1));
+    }
+  }
+  const nested: string[] = [];
+  for (const candidate of candidates) {
+    if (await hasOwnGitDirectory(input.worktreePath, candidate)) {
+      nested.push(candidate);
+    }
+  }
+  return { ok: true, value: nested.sort() };
 }
 
 async function inspectUnpushedSafety(input: {
@@ -196,6 +277,17 @@ export async function inspectWorktreeSafety(input: {
           )
           .digest('hex');
   const ignoredTopLevelEntries = allIgnoredTopLevelEntries.slice(0, MAX_IGNORED_TOP_LEVEL_ENTRIES);
+  const nested = await findNestedRepositories({
+    invoke: input.invoke,
+    statusEntries,
+    worktreePath: input.worktree.path,
+  });
+  if (!nested.ok) {
+    return nested;
+  }
+  if (nested.value.length > 0) {
+    blockers.push(nestedRepositoriesArchiveBlocker(nested.value));
+  }
   const dirty = statusEntries.some((entry) => !entry.startsWith('!! '));
   if (dirty) {
     blockers.push(
@@ -216,6 +308,7 @@ export async function inspectWorktreeSafety(input: {
       ignoredTopLevelEntriesTruncated:
         ignoredTopLevelEntries.length < allIgnoredTopLevelEntries.length,
       ignoredTopLevelEntryCount: allIgnoredTopLevelEntries.length,
+      nestedRepositories: nested.value,
       threadIsRunning: input.threadIsRunning,
       unpushedCommits: unpushed.value.count,
     },
