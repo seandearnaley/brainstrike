@@ -167,6 +167,7 @@ test('the closing text without its code is terminal: no wait and no other owner'
     lifetime: 'cli',
     spawn: async () => {
       started = true;
+      throw new Error('A terminal refusal must not start another owner');
     },
   }).catch((cause: unknown) => cause);
 
