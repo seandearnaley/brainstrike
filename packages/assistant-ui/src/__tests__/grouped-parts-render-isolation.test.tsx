@@ -6,6 +6,7 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAssistantDataUI,
   useLocalRuntime,
 } from '@assistant-ui/react';
 import { render, screen } from '@testing-library/react';
@@ -14,14 +15,15 @@ import { act, createContext, use, useState } from 'react';
 import { describe, expect, it } from 'vitest';
 
 /**
- * `MessagePrimitive.GroupedParts` (@assistant-ui/core 0.3.17, unchanged in
- * 0.3.19 and on upstream main) builds a new leaf render closure per part on
+ * `MessagePrimitive.GroupedParts` (reproduced through @assistant-ui/core
+ * 0.3.29) builds a new leaf render closure per part on
  * every render. `MessagePartChildren` caches on that closure's identity, so the
  * cache always misses and every part's subtree re-renders whenever ANY part
  * changes. A root message holding ~1,000 run-event parts re-rendered all of
  * them per streamed token during a GLM fan-out (2026-09-15), and React's dev
  * build retained a performance measure per render until the renderer crashed.
- * Paired with patches/@assistant-ui__core@0.3.17.patch.
+ * Paired with patches/@assistant-ui__core@0.3.29.patch. The rebase must also
+ * preserve upstream's nullish registered-UI rendering and explicit suppression.
  */
 const DATA_PARTS = 40;
 const leafRenders = { data: 0 };
@@ -116,6 +118,44 @@ function VariantHarness(): React.ReactNode {
   );
 }
 
+const registeredDataUI = {
+  name: 'test.registered',
+  render: () => <span>Registered data</span>,
+};
+const RegisteredLeafContext = createContext<() => React.ReactNode>(() => null);
+
+function RegisteredMessage(): React.ReactNode {
+  useAssistantDataUI(registeredDataUI);
+  const renderPart = use(RegisteredLeafContext);
+  return (
+    <MessagePrimitive.Root>
+      <span>Hydrated message</span>
+      <MessagePrimitive.GroupedParts groupBy={ungrouped}>
+        {renderPart}
+      </MessagePrimitive.GroupedParts>
+    </MessagePrimitive.Root>
+  );
+}
+
+function RegisteredHarness({ renderPart }: { readonly renderPart: () => React.ReactNode }) {
+  const runtime = useLocalRuntime(neverRun, {
+    initialMessages: [
+      { content: [{ data: {}, name: 'test.registered', type: 'data' }], role: 'assistant' },
+    ],
+  });
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <RegisteredLeafContext value={renderPart}>
+        <ThreadPrimitive.Root>
+          <ThreadPrimitive.Messages
+            components={{ AssistantMessage: RegisteredMessage, UserMessage: () => null }}
+          />
+        </ThreadPrimitive.Root>
+      </RegisteredLeafContext>
+    </AssistantRuntimeProvider>
+  );
+}
+
 function createGate(): { readonly promise: Promise<void>; readonly release: () => void } {
   let release: (() => void) | undefined;
   const promise = new Promise<void>((resolve) => {
@@ -185,5 +225,22 @@ describe('MessagePrimitive.GroupedParts render isolation', () => {
     expect(await screen.findByText('hello')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Label' }));
     expect(await screen.findByText('labelled: hello')).toBeInTheDocument();
+  });
+
+  it.each([
+    { name: 'null', renderPart: () => null },
+    { name: 'undefined', renderPart: () => undefined },
+  ])('preserves registered data UI when the leaf returns $name', async ({ renderPart }) => {
+    render(<RegisteredHarness renderPart={renderPart} />);
+    expect(await screen.findByText('Registered data')).toBeInTheDocument();
+  });
+
+  it.each([
+    { name: 'an empty fragment', renderPart: () => <></> },
+    { name: 'false', renderPart: () => false },
+  ])('preserves explicit suppression when the leaf returns $name', ({ renderPart }) => {
+    render(<RegisteredHarness renderPart={renderPart} />);
+    expect(screen.getByText('Hydrated message')).toBeInTheDocument();
+    expect(screen.queryByText('Registered data')).not.toBeInTheDocument();
   });
 });

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { ApprovalSubmissionProvider } from '../approval-submission-provider';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
-import { Harness, runEventPart } from './assistant-activity-timeline-fixtures';
+import { Harness, HostHistoryHarness, runEventPart } from './assistant-activity-timeline-fixtures';
 
 const neverRun = {
   async run() {
@@ -736,8 +736,7 @@ it.each(
       toolName: 'brainstrike.readWorkspaceFile',
     };
     render(
-      <Harness
-        adapter={neverRun}
+      <HostHistoryHarness
         initialMessages={[
           {
             content: [
@@ -773,7 +772,7 @@ it.each(
             {content}
           </AnsweredApprovalsProvider>
         )}
-      </Harness>
+      </HostHistoryHarness>
     );
     expect(await screen.findByText('Approved', { exact: true })).toBeInTheDocument();
     expect(screen.queryAllByText('Waiting for approval')).toHaveLength(0);
@@ -802,8 +801,7 @@ it.each([false, true])(
       type: 'data' as const,
     };
     render(
-      <Harness
-        adapter={neverRun}
+      <HostHistoryHarness
         initialMessages={[
           {
             content: [
@@ -832,7 +830,7 @@ it.each([false, true])(
         ]}
       >
         {(content) => <AnsweredApprovalsProvider>{content}</AnsweredApprovalsProvider>}
-      </Harness>
+      </HostHistoryHarness>
     );
     expect(screen.getByText('Delegating to Explorer')).toBeInTheDocument();
     expect(screen.getByText('Inspect evidence.')).toBeInTheDocument();
