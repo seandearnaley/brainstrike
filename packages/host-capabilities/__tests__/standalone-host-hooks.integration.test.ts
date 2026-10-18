@@ -4,63 +4,35 @@
  * approval gate, and the block's reason is committed with the call. A launch
  * root's project hooks run only once `hooks trust` pins their reviewed hash.
  */
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { HostRunNotices } from '@brainstrike/agent-host/thread-view';
-import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { writeStdoutHook } from './fixtures/native-hook-command.js';
+import { retireRootOwner, runBin } from './fixtures/real-bin.js';
 
-const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const REASON = 'Questions are disabled in this workspace';
 const cleanup: (() => Promise<void>)[] = [];
 function command(dataRoot: string, home: string, args: readonly string[]) {
-  return new Promise<{
-    code: number;
-    stderr: string;
-    stdout: string;
-  }>((resolve, reject) => {
-    execFile(
-      process.execPath,
-      [bin, '--data-root', dataRoot, ...args],
-      {
-        cwd: tmpdir(),
-        env: {
-          // The global hooks file is `$HOME/.brainstrike/hooks.json`.
-          BRAINSTRIKE_M3_STANDALONE_HTTP: 'question',
-          BRAINSTRIKE_M3_STANDALONE_RECEIPT: join(dataRoot, 'offline-receipt.jsonl'),
-          BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
-          HOME: home,
-          LC_ALL: 'C',
-          NODE_OPTIONS: `--import=${httpFixture}`,
-          PATH: process.env['PATH'],
-          SystemRoot: process.env['SystemRoot'],
-          TZ: 'UTC',
-          USERPROFILE: home,
-        },
-        timeout: 20_000,
-        windowsHide: true,
-      },
-      (cause, stdout, stderr) => {
-        if (!cause) {
-          resolve({ code: 0, stderr, stdout });
-        } else if (typeof cause.code === 'number') {
-          resolve({ code: cause.code, stderr, stdout });
-        } else {
-          reject(cause);
-        }
-      }
-    );
+  return runBin(dataRoot, args, {
+    // The global hooks file is `$HOME/.brainstrike/hooks.json`.
+    BRAINSTRIKE_M3_STANDALONE_HTTP: 'question',
+    BRAINSTRIKE_M3_STANDALONE_RECEIPT: join(dataRoot, 'offline-receipt.jsonl'),
+    BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
+    HOME: home,
+    LC_ALL: 'C',
+    NODE_OPTIONS: `--import=${httpFixture}`,
+    PATH: process.env['PATH'],
+    SystemRoot: process.env['SystemRoot'],
+    TZ: 'UTC',
+    USERPROFILE: home,
   });
 }
 afterEach(async () => {
@@ -77,26 +49,7 @@ async function startCliHost(options: {
   const home = await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-home-'));
   cleanup.push(() => rm(home, { force: true, recursive: true }));
   cleanup.push(async () => {
-    const owner = RootLock.inspect(dataRoot)?.owner;
-    if (owner && !owner.released) {
-      const record = decodeHostRecord(
-        JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))
-      );
-      expect(await command(dataRoot, home, ['host', 'stop'])).toMatchObject({
-        code: 0,
-        stderr: '',
-      });
-      expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
-      // Owner-approved Windows allowance (2026-10-11): the cold host spent
-      // 1.435s saving Node's compile cache after successful Root release.
-      // Still require physical retirement; a successful stop reply is not exit.
-      await expect
-        .poll(
-          () => processStartTime(record.pid),
-          process.platform === 'win32' ? { timeout: 5000 } : undefined
-        )
-        .toBeNull();
-    }
+    await retireRootOwner(dataRoot, () => command(dataRoot, home, ['host', 'stop']));
     await removeFixtureRoot(dataRoot);
   });
   await mkdir(join(home, '.brainstrike'));

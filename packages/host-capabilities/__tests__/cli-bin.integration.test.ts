@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import {
   access,
@@ -18,6 +17,7 @@ import { type AgentHost, loadHostPlatform, startAgentHost } from '@brainstrike/a
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test, vi } from 'vitest';
+import { type ProcessResult, runProcess } from './fixtures/real-bin.js';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const workspaceRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -28,12 +28,6 @@ const compiled = require.resolve('@brainstrike/agent-host/cli');
 const platform = require.resolve('@brainstrike/agent-host/test-fixtures/process-platform');
 const roots: string[] = [];
 const hosts: AgentHost[] = [];
-
-interface CommandResult {
-  readonly code: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
 
 function environment(): NodeJS.ProcessEnv {
   const selected = Object.fromEntries(
@@ -66,30 +60,8 @@ function command(
   args: string[],
   cwd: string,
   windowsVerbatimArguments = false
-): Promise<CommandResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      executable,
-      args,
-      {
-        cwd,
-        encoding: 'utf8',
-        env: environment(),
-        timeout: 10_000,
-        windowsHide: true,
-        windowsVerbatimArguments,
-      },
-      (cause, stdout, stderr) => {
-        if (!cause) {
-          resolve({ code: 0, stderr, stdout });
-        } else if (typeof cause.code === 'number') {
-          resolve({ code: cause.code, stderr, stdout });
-        } else {
-          reject(cause);
-        }
-      }
-    );
-  });
+): Promise<ProcessResult> {
+  return runProcess(executable, args, { cwd, env: environment(), windowsVerbatimArguments });
 }
 
 /**
@@ -97,7 +69,7 @@ function command(
  * under this Node, and a native distribution (corepack's pnpm 12) runs as its
  * own executable. Without one the suite was not started by pnpm, and refuses.
  */
-function runPnpm(args: readonly string[], cwd: string): Promise<CommandResult> {
+function runPnpm(args: readonly string[], cwd: string): Promise<ProcessResult> {
   const pnpm = process.env['npm_execpath'];
   if (!pnpm) {
     throw new Error('Run CLI executable integration with pnpm run test:integration');
@@ -114,7 +86,7 @@ function installedCommand(
   name: string,
   args: string[],
   cwd = workspaceRoot
-): Promise<CommandResult> {
+): Promise<ProcessResult> {
   return runPnpm(['--filter', '@brainstrike/desktop', 'exec', name, ...args], cwd);
 }
 
@@ -130,7 +102,7 @@ function windowsBatchArguments(executable: string, args: readonly string[]): str
   return ['/d', '/s', '/c', `"${escapeMeta(executable)} ${quoted.join(' ')}"`];
 }
 
-function installedExecutable(name: string, args: string[]): Promise<CommandResult> {
+function installedExecutable(name: string, args: string[]): Promise<ProcessResult> {
   const executable = join(workspaceRoot, 'apps/desktop/node_modules/.bin', name);
   // pnpm's recursive exec wrapper turns every nonzero child exit into 1 and
   // adds its own stdout diagnostics. Invoke the installed shim to observe the

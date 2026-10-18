@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
+import { HOOK_TIMEOUT_MS, TEST_TIMEOUT_MS } from './__tests__/fixtures/real-process-budget.ts';
 
 export default defineConfig({
   resolve: {
@@ -25,9 +26,11 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     fileParallelism: false,
     globals: true,
-    hookTimeout: 120_000,
+    // Both scale with the real-process step budget (BST-2157): hookTimeout covers
+    // cleanup's sequential waits, testTimeout a real-bin test's bin calls.
+    hookTimeout: HOOK_TIMEOUT_MS,
     include: ['__tests__/**/*.test.ts'],
     reporters: ['default', new LostTestFileReporter()],
-    testTimeout: 60_000,
+    testTimeout: TEST_TIMEOUT_MS,
   },
 });
