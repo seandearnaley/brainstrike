@@ -7,10 +7,11 @@
 // packages/secure-fs-native/test/packaged-smoke.cjs).
 
 const assert = require('node:assert/strict');
-const { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdtempSync, readdirSync, rmSync } = require('node:fs');
 const { createRequire } = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const { probePackagedWatcher } = require('./parcel-watch-probe.cjs');
 
 const BACKEND_BY_PLATFORM = {
   darwin: 'fs-events',
@@ -90,40 +91,9 @@ async function main() {
 
   const root = mkdtempSync(path.join(os.tmpdir(), 'bst568-packaged-'));
   try {
-    let sawEvent = () => undefined;
-    let sawError = () => undefined;
-    const firstEvent = new Promise((resolve, reject) => {
-      sawEvent = resolve;
-      sawError = reject;
-    });
-    const subscription = await watcher.subscribe(
-      root,
-      (error) => {
-        if (error) {
-          sawError(error);
-          return;
-        }
-        sawEvent();
-      },
-      { backend }
-    );
-    let timer = null;
-    try {
-      writeFileSync(path.join(root, 'probe.txt'), 'probe');
-      await Promise.race([
-        firstEvent,
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('no packaged watcher event within 5s')), 5000);
-        }),
-      ]);
-    } finally {
-      if (timer) {
-        clearTimeout(timer);
-      }
-      await subscription.unsubscribe();
-    }
+    const proof = await probePackagedWatcher(watcher, root, backend);
     process.stdout.write(
-      `${JSON.stringify({ arch: process.arch, backend, ok: true, platform: process.platform })}\n`
+      `${JSON.stringify({ arch: process.arch, backend, ok: true, platform: process.platform, ...proof })}\n`
     );
   } finally {
     rmSync(root, { force: true, recursive: true });
