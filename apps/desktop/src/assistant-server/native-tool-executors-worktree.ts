@@ -11,10 +11,7 @@ import type {
 } from '@brainstrike/host-capabilities/native-tools';
 import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktree-tools';
 
-/**
- * BST-1392. Both worktree ids are `localProvider: 'unregistered'` in the
- * catalog, so every fold skips them for the built-in local provider.
- */
+/** The worktree tools (BST-1392), built only when Main lends its worktree capability. */
 export function worktreeToolExecutors<Context extends NativeToolBuildContext>(
   capability: (context: Context) => WorktreeToolCapability | undefined
 ): {

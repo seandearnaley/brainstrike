@@ -60,7 +60,6 @@ export function executeCommandTool(
     windowsCommandEntry: packageWindowsCommandEntry,
     ...shell,
   })({
-    isLocalProvider: false,
     ports: {
       artifactReader: undefined,
       canvas: undefined,
