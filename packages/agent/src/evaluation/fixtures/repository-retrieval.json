@@ -1,12 +1,12 @@
 {
   "name": "brainstrike-repository-retrieval",
   "version": "1.0.0",
-  "sourceCommit": "ed97957e030dd3345c232650199dbc88929dad24",
+  "sourceCommit": "f7e7160dea8851b56883ee26ec492326e5b3a343",
   "judgmentMethod": "Source inspection by the author before retrieval; positive answer spans, not output-derived or exhaustive relevance labels. Each judgment identifies the implementation line answering a concrete query.",
   "sources": [
     {
       "relativePath": "packages/assistant-contract/src/context-budget.ts",
-      "sha256": "9e2ecf7b6d7675ea26887e42ead29ed258e084f90042970a3c57c0a147ce17c6"
+      "sha256": "aa7f2aeac5c4629ae018c2ed70fe4aa345d8ce2f90fbb3fc1e6725e7a40d32ef"
     },
     {
       "relativePath": "packages/assistant-contract/src/context-packer.ts",
@@ -99,8 +99,8 @@
         {
           "id": "repo-001-answer-1",
           "relativePath": "packages/assistant-contract/src/context-budget.ts",
-          "startLine": 42,
-          "endLine": 42,
+          "startLine": 39,
+          "endLine": 39,
           "evidence": "const budget = contextWindow - output - margin;",
           "rationale": "Derive the prompt capacity after reserving response tokens and a safety margin."
         }
@@ -115,8 +115,8 @@
         {
           "id": "repo-002-answer-1",
           "relativePath": "packages/assistant-contract/src/context-budget.ts",
-          "startLine": 43,
-          "endLine": 43,
+          "startLine": 40,
+          "endLine": 40,
           "evidence": "if (budget <= 0) {",
           "rationale": "The derivation rejects a nonpositive remaining input budget."
         }
@@ -131,8 +131,8 @@
         {
           "id": "repo-003-answer-1",
           "relativePath": "packages/assistant-contract/src/context-budget.ts",
-          "startLine": 86,
-          "endLine": 86,
+          "startLine": 107,
+          "endLine": 107,
           "evidence": "Number.isSafeInteger(requestMaxOutputTokens) &&",
           "rationale": "OpenRouter requires the positive integer output limit actually sent in the request."
         }
@@ -163,8 +163,8 @@
         {
           "id": "repo-005-answer-1",
           "relativePath": "packages/assistant-contract/src/context-budget.ts",
-          "startLine": 80,
-          "endLine": 80,
+          "startLine": 101,
+          "endLine": 101,
           "evidence": "if (providerId !== 'openrouter') {",
           "rationale": "Other providers derive the input cap from the model catalog maximum."
         }
