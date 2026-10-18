@@ -324,6 +324,32 @@ describe('expansions across focus changes (BST-2088)', () => {
     expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['src', 'src/lib']));
   });
 
+  it("restores the retired view's expansions whichever root mounts first", async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().setCurrentFolderId('root-1');
+    store.getState().setExpandedPaths(new Set(['a']));
+    store.getState().setCurrentFolderId('root-2');
+    store.getState().setExpandedPaths(new Set(['a', 'b']));
+    // Retirement saves the global set under the root it last focused, root-2.
+    store.getState().setCurrentFolderId(null);
+
+    // root-1's own snapshot is stale ({a}); it mounts first after the reload.
+    store.getState().setCurrentFolderId('root-1');
+    expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['a', 'b']));
+  });
+
+  it("a root with no snapshot mounting first still restores the retired view's expansions", async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().setCurrentFolderId('root-1');
+    store.getState().setExpandedPaths(new Set(['a']));
+    store.getState().setCurrentFolderId(null);
+
+    store.getState().setCurrentFolderId('root-new');
+    expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['a']));
+  });
+
   it('switching focus between mounted roots keeps the workspace-global expansions', async () => {
     const { createFileExplorerStore } = await import('../store');
     const store = createFileExplorerStore(createMemoryStorageAdapter());

@@ -50,22 +50,13 @@ export interface FolderStateActions {
 
 /** Build the state update for restoring an existing folder */
 function buildRestoreState(
-  state: Pick<FileExplorerState, 'activeRootIds' | 'currentFolderId' | 'expandedDirectoryPaths'>,
+  state: Pick<FileExplorerState, 'activeRootIds'>,
   folderId: string,
   folderState: FolderState,
   folderStates: Record<string, FolderState>,
   order: string[]
 ): Partial<FileExplorerState> {
-  // The one exception to the rule below: with no root focused and nothing
-  // expanded (an empty boot restore retired the view, or every root was
-  // removed), there is no workspace setting to overwrite. Re-mounting a root
-  // then restores the expansions its retired view saved into this snapshot,
-  // e.g. a web folder whose access is restored after a reload (BST-2088).
-  const seedsExpansions = state.currentFolderId === null && state.expandedDirectoryPaths.size === 0;
   return {
-    ...(seedsExpansions
-      ? { expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths) }
-      : {}),
     currentFolderId: folderId,
     folderAccessOrder: order,
     folderStates,
@@ -82,6 +73,30 @@ function buildRestoreState(
     // Only the SELECTION (selectedFilePaths + selectionModel) is genuinely
     // per-root.
   };
+}
+
+/**
+ * The one exception to WORKSPACE-GLOBAL expansions (see buildRestoreState).
+ * With no root focused and nothing expanded, an empty boot restore retired the
+ * view (or every root was removed), so there is no workspace setting to
+ * overwrite. Retirement saved the view's expansions under the root it last
+ * focused, the latest entry in the access order; mounting any root restores
+ * that set, e.g. web folders whose access is restored after a reload (BST-2088).
+ */
+function retiredViewExpansions(
+  state: Pick<FileExplorerState, 'currentFolderId' | 'expandedDirectoryPaths'>,
+  folderStates: Record<string, FolderState>,
+  order: readonly string[]
+): Partial<FileExplorerState> {
+  if (state.currentFolderId !== null || state.expandedDirectoryPaths.size > 0) {
+    return {};
+  }
+  const retiredFolderId = order.at(-1);
+  const saved =
+    retiredFolderId === undefined
+      ? undefined
+      : folderStates[retiredFolderId]?.expandedDirectoryPaths;
+  return saved && saved.size > 0 ? { expandedDirectoryPaths: new Set(saved) } : {};
 }
 
 /** Build the state update for creating a new folder */
@@ -137,14 +152,18 @@ function prepareFolderStates(
 /** Handle restoring an existing folder's state */
 function handleRestoreFolder(
   set: SetState<FileExplorerState>,
-  state: Pick<FileExplorerState, 'activeRootIds' | 'currentFolderId' | 'expandedDirectoryPaths'>,
+  state: Pick<FileExplorerState, 'activeRootIds'>,
   folderId: string,
   folderState: FolderState,
   folderStates: Record<string, FolderState>,
-  order: string[]
+  order: string[],
+  seeded: Partial<FileExplorerState>
 ): void {
   const updatedOrder = updateFolderAccessOrder(order, folderId);
-  set(buildRestoreState(state, folderId, folderState, folderStates, updatedOrder));
+  set({
+    ...buildRestoreState(state, folderId, folderState, folderStates, updatedOrder),
+    ...seeded,
+  });
 }
 
 /** Handle creating a new folder state */
@@ -153,13 +172,14 @@ function handleCreateNewFolder(
   state: FileExplorerState,
   folderId: string,
   folderStates: Record<string, FolderState>,
-  order: string[]
+  order: string[],
+  seeded: Partial<FileExplorerState>
 ): void {
   const updatedFolderStates = { ...folderStates, [folderId]: createNewFolderState(state) };
   let updatedOrder = updateFolderAccessOrder(order, folderId);
   const cleaned = cleanupOldFolderStates(updatedFolderStates, updatedOrder);
   updatedOrder = cleaned.order;
-  set(buildNewFolderState(folderId, cleaned.folderStates, updatedOrder));
+  set({ ...buildNewFolderState(folderId, cleaned.folderStates, updatedOrder), ...seeded });
 }
 
 export const createFolderStateActions = (
@@ -197,11 +217,12 @@ export const createFolderStateActions = (
 
     const { folderStates, order } = prepareFolderStates(state, currentFolderId);
     const existingFolderState = folderStates[folderId as string];
+    const seeded = folderId ? retiredViewExpansions(state, folderStates, order) : {};
 
     if (folderId && existingFolderState) {
-      handleRestoreFolder(set, state, folderId, existingFolderState, folderStates, order);
+      handleRestoreFolder(set, state, folderId, existingFolderState, folderStates, order, seeded);
     } else if (folderId) {
-      handleCreateNewFolder(set, state, folderId, folderStates, order);
+      handleCreateNewFolder(set, state, folderId, folderStates, order, seeded);
     } else {
       set(buildResetState(folderStates, order));
     }
