@@ -201,6 +201,52 @@ describe('MCP catalog install', () => {
     expect(h.bearer.stored.size).toBe(0);
   });
 
+  it('removes the stored token when the config write throws before writing', async () => {
+    const h = await started();
+    const writeFailure = new Error('EACCES: permission denied');
+    vi.spyOn(h.configFile, 'writeText').mockRejectedValueOnce(writeFailure);
+
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+    ).rejects.toMatchObject({
+      cause: writeFailure,
+      message: 'EACCES: permission denied; the stored GitHub token was removed',
+    });
+    expect(h.bearer.writer.delete).toHaveBeenCalledOnce();
+    expect(h.bearer.stored.size).toBe(0);
+    expect(await readFile(h.configPath, 'utf8')).toBe(COMMENTED);
+  });
+
+  it('reports both failures when the token cannot be removed after a thrown write', async () => {
+    const h = await started();
+    const writeFailure = new Error('EACCES: permission denied');
+    vi.spyOn(h.configFile, 'writeText').mockRejectedValueOnce(writeFailure);
+    h.bearer.writer.delete.mockRejectedValueOnce(new Error('keychain locked'));
+
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+    ).rejects.toMatchObject({
+      cause: writeFailure,
+      message:
+        'EACCES: permission denied; the stored GitHub token could not be removed: keychain locked',
+    });
+  });
+
+  it('keeps the stored token the written config references when the commit fails afterwards', async () => {
+    const h = await started();
+    const watchFailure = new Error('watch failed');
+    vi.mocked(h.configFile.watch).mockRejectedValueOnce(watchFailure);
+
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+    ).rejects.toBe(watchFailure);
+    expect(h.bearer.writer.delete).not.toHaveBeenCalled();
+    expect(h.bearer.stored.size).toBe(1);
+    const [id] = h.bearer.stored.keys();
+    expect(id).toBeDefined();
+    expect(await readFile(h.configPath, 'utf8')).toContain(`"id": "${id}"`);
+  });
+
   it('reports both failures when the token cannot be removed after a failed write', async () => {
     const h = await started();
     vi.spyOn(h.configFile, 'writeText').mockResolvedValueOnce({

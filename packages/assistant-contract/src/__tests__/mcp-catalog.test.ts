@@ -3,6 +3,7 @@ import {
   findMcpCatalogEntry,
   MCP_CATALOG,
   MCP_CATALOG_ACCESS,
+  mcpCatalogInstallRefusal,
   mcpCatalogServerInput,
 } from '../mcp-catalog.js';
 import { parseMcpServerValue } from '../mcp-config.js';
@@ -66,14 +67,45 @@ describe('MCP catalog', () => {
 
   it('refuses a build that does not match the entry', () => {
     expect(() => mcpCatalogServerInput(entry('linear'), 'read-write', REFERENCE)).toThrow(
-      'Linear signs in with OAuth and takes no token'
+      /^Linear signs in with OAuth and takes no token\.$/u
     );
     expect(() => mcpCatalogServerInput(entry('github'), 'read-write')).toThrow(
-      'GitHub needs a stored token'
+      /^GitHub needs a token\.$/u
     );
     expect(() => mcpCatalogServerInput(entry('gitlab'), 'read-only')).toThrow(
-      'GitLab has no read-only endpoint'
+      /^GitLab has no read-only endpoint\.$/u
     );
     expect(findMcpCatalogEntry('jira')).toBeUndefined();
+  });
+
+  it('names why a request does not fit its entry, endpoint first', () => {
+    const refusals = MCP_CATALOG.flatMap((catalogEntry) =>
+      MCP_CATALOG_ACCESS.flatMap((access) =>
+        [false, true].map((hasToken) => [
+          catalogEntry.id,
+          access,
+          hasToken,
+          mcpCatalogInstallRefusal(catalogEntry, { access, hasToken }),
+        ])
+      )
+    );
+    expect(refusals).toEqual([
+      ['linear', 'read-write', false, undefined],
+      ['linear', 'read-write', true, 'Linear signs in with OAuth and takes no token.'],
+      ['linear', 'read-only', false, undefined],
+      ['linear', 'read-only', true, 'Linear signs in with OAuth and takes no token.'],
+      ['github', 'read-write', false, 'GitHub needs a token.'],
+      ['github', 'read-write', true, undefined],
+      ['github', 'read-only', false, 'GitHub needs a token.'],
+      ['github', 'read-only', true, undefined],
+      ['atlassian', 'read-write', false, undefined],
+      ['atlassian', 'read-write', true, 'Atlassian signs in with OAuth and takes no token.'],
+      ['atlassian', 'read-only', false, 'Atlassian has no read-only endpoint.'],
+      ['atlassian', 'read-only', true, 'Atlassian has no read-only endpoint.'],
+      ['gitlab', 'read-write', false, undefined],
+      ['gitlab', 'read-write', true, 'GitLab signs in with OAuth and takes no token.'],
+      ['gitlab', 'read-only', false, 'GitLab has no read-only endpoint.'],
+      ['gitlab', 'read-only', true, 'GitLab has no read-only endpoint.'],
+    ]);
   });
 });

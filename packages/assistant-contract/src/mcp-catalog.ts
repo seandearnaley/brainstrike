@@ -1,4 +1,5 @@
 import type { McpServerInput } from './mcp-config.js';
+import type { McpCredentialReferenceSchema } from './mcp-host.js';
 
 /**
  * Curated official remote MCP servers that Settings installs in one click
@@ -75,10 +76,8 @@ export const MCP_CATALOG: readonly McpCatalogEntry[] = [
   },
 ];
 
-export interface McpCatalogCredentialReference {
-  readonly id: string;
-  readonly store: 'mcp-credentials';
-}
+/** The stored-token reference a token entry's server carries, as the config grammar encodes it. */
+export type McpCatalogCredentialReference = (typeof McpCredentialReferenceSchema)['Encoded'];
 
 /** One install request from Settings; `token` only for a token entry. */
 export interface McpCatalogInstallRequest {
@@ -92,6 +91,36 @@ export function findMcpCatalogEntry(catalogId: string): McpCatalogEntry | undefi
 }
 
 /**
+ * The catalog's install rules, stated once: the endpoint this access names, or
+ * why `entry` cannot take this access or token.
+ */
+function catalogInstallEndpoint(
+  entry: McpCatalogEntry,
+  request: { readonly access: McpCatalogAccess; readonly hasToken: boolean }
+): { readonly refusal: string } | { readonly url: string } {
+  const url = entry.urls[request.access];
+  if (url === undefined) {
+    return { refusal: `${entry.name} has no ${request.access} endpoint.` };
+  }
+  if (entry.auth === 'oauth' && request.hasToken) {
+    return { refusal: `${entry.name} signs in with OAuth and takes no token.` };
+  }
+  if (entry.auth === 'token' && !request.hasToken) {
+    return { refusal: `${entry.name} needs a token.` };
+  }
+  return { url };
+}
+
+/** Why `entry` cannot take this access or token, or `undefined` when it can. */
+export function mcpCatalogInstallRefusal(
+  entry: McpCatalogEntry,
+  request: { readonly access: McpCatalogAccess; readonly hasToken: boolean }
+): string | undefined {
+  const endpoint = catalogInstallEndpoint(entry, request);
+  return 'refusal' in endpoint ? endpoint.refusal : undefined;
+}
+
+/**
  * The config server entry one catalog install appends. A token entry needs the
  * reference to its stored token; an OAuth entry takes none.
  */
@@ -100,30 +129,22 @@ export function mcpCatalogServerInput(
   access: McpCatalogAccess,
   credential?: McpCatalogCredentialReference
 ): McpServerInput {
-  const url = entry.urls[access];
-  if (url === undefined) {
-    throw new Error(`${entry.name} has no ${access} endpoint`);
+  const endpoint = catalogInstallEndpoint(entry, { access, hasToken: credential !== undefined });
+  if ('refusal' in endpoint) {
+    throw new Error(endpoint.refusal);
   }
-  if (entry.auth === 'oauth') {
-    if (credential !== undefined) {
-      throw new Error(`${entry.name} signs in with OAuth and takes no token`);
-    }
-    return {
-      auth: { type: 'oauth-user' },
-      name: entry.id,
-      protocol: 'auto',
-      transport: 'streamable-http',
-      url,
-    };
-  }
-  if (credential === undefined) {
-    throw new Error(`${entry.name} needs a stored token`);
-  }
-  return {
-    auth: { credential: { id: credential.id, store: credential.store }, type: 'bearer' },
+  const target = {
     name: entry.id,
     protocol: 'auto',
     transport: 'streamable-http',
-    url,
+    url: endpoint.url,
+  } as const;
+  // The rules pair a credential with a token entry and none with an OAuth entry.
+  if (credential === undefined) {
+    return { auth: { type: 'oauth-user' }, ...target };
+  }
+  return {
+    auth: { credential: { id: credential.id, store: credential.store }, type: 'bearer' },
+    ...target,
   };
 }

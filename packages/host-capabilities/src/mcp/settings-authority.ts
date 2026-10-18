@@ -19,6 +19,7 @@ import {
 import {
   findMcpCatalogEntry,
   type McpCatalogEntry,
+  mcpCatalogInstallRefusal,
   mcpCatalogServerInput,
 } from '@brainstrike/assistant-contract/mcp-catalog';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
@@ -62,22 +63,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Why `entry` cannot take this request's access or token, or `undefined` when it can. */
-function catalogRequestRefusal(
-  entry: McpCatalogEntry,
-  request: HostParams<'mcp/config/install'>
-): string | undefined {
-  if (entry.urls[request.access] === undefined) {
-    return `${entry.name} has no ${request.access} endpoint.`;
-  }
-  if (entry.auth === 'oauth' && request.token !== undefined) {
-    return `${entry.name} signs in with OAuth and takes no token.`;
-  }
-  if (entry.auth === 'token' && request.token === undefined) {
-    return `${entry.name} needs a token.`;
-  }
-  return undefined;
-}
 /** A reset or shutdown retired the settings lifecycle: requests are refused, not failed. */
 const MCP_SETTINGS_CLOSED = refusal({
   category: 'availability',
@@ -276,7 +261,8 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
 
   /**
    * Appends one catalog server to the config (spec 2026-10-18 §4.2). A token
-   * entry stores its token first and removes it again when the write fails.
+   * entry stores its token first and removes it again unless the config file
+   * was written, since a written file references it.
    */
   installCatalogServer(
     request: HostParams<'mcp/config/install'>
@@ -292,7 +278,10 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       if (!entry) {
         return refuse(`Unknown MCP catalog entry "${request.catalogId}".`);
       }
-      const mismatch = catalogRequestRefusal(entry, request);
+      const mismatch = mcpCatalogInstallRefusal(entry, {
+        access: request.access,
+        hasToken: request.token !== undefined,
+      });
       if (mismatch !== undefined) {
         return refuse(mismatch);
       }
@@ -316,19 +305,59 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
         document.content,
         modify(document.content, ['servers', -1], server, { formattingOptions: CONFIG_FORMATTING })
       );
-      const result = await this.#commitConfigText(content, lifecycleEpoch);
+      const result = await this.#commitInstallText(entry, credential, content, lifecycleEpoch);
       if (result.success || credential === undefined) {
         return result;
       }
-      try {
-        await this.options.bearerCredentials.delete(credential);
+      const removalFailure = await this.#removeUnwrittenToken(credential);
+      if (removalFailure === undefined) {
         return result;
-      } catch (error) {
-        return refuse(
-          `${result.error}; the stored ${entry.name} token could not be removed: ${errorMessage(error)}`
-        );
       }
+      return refuse(
+        `${result.error}; the stored ${entry.name} token could not be removed: ${removalFailure}`
+      );
     });
+  }
+
+  /**
+   * Commits an install's config text. A commit that throws before the file was
+   * written removes the stored token and says so; once the file is written it
+   * references the token, so the token stays and the error passes unchanged.
+   */
+  async #commitInstallText(
+    entry: McpCatalogEntry,
+    credential: McpBearerCredentialReference | undefined,
+    content: string,
+    lifecycleEpoch: number
+  ): Promise<McpConfigWriteResult> {
+    let written = false;
+    try {
+      return await this.#commitConfigText(content, lifecycleEpoch, () => {
+        written = true;
+      });
+    } catch (error) {
+      if (written || credential === undefined) {
+        throw error;
+      }
+      const removalFailure = await this.#removeUnwrittenToken(credential);
+      const removal =
+        removalFailure === undefined ? 'was removed' : `could not be removed: ${removalFailure}`;
+      throw new Error(`${errorMessage(error)}; the stored ${entry.name} token ${removal}`, {
+        cause: error,
+      });
+    }
+  }
+
+  /** Removes a token no written config references: why it could not be, or `undefined`. */
+  async #removeUnwrittenToken(
+    credential: McpBearerCredentialReference
+  ): Promise<string | undefined> {
+    try {
+      await this.options.bearerCredentials.delete(credential);
+      return undefined;
+    } catch (error) {
+      return errorMessage(error);
+    }
   }
 
   createSampleConfig(): Promise<HostResults['mcp/config/sample']> {
@@ -785,11 +814,22 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     await this.#applyConfigChange(config, loadEpoch, lifecycleEpoch);
   }
 
-  /** Writes config text on this lifecycle and reloads it; the watcher pauses across the write. */
-  async #commitConfigText(content: string, lifecycleEpoch: number): Promise<McpConfigWriteResult> {
+  /**
+   * Writes config text on this lifecycle and reloads it; the watcher pauses
+   * across the write. `onWritten` runs once the file holds `content`, so a
+   * caller can tell a failure before the write from one after it.
+   */
+  async #commitConfigText(
+    content: string,
+    lifecycleEpoch: number,
+    onWritten?: () => void
+  ): Promise<McpConfigWriteResult> {
     const restartWatcher = this.#unwatch !== null;
     this.#stopWatcher();
     const result = await this.options.configFile.writeText(content);
+    if (result.success) {
+      onWritten?.();
+    }
     if (restartWatcher) {
       await this.#restartWatcherForLifecycle(lifecycleEpoch);
     }
