@@ -1,0 +1,8 @@
+/*
+ * Real Tailwind for the browser lane, so the dialog overlay and panel are
+ * painted where a click lands (BST-966 depends on hit-testing). See
+ * tab-strip.browser.css for what this lane does and does not cover.
+ */
+@import "tailwindcss";
+@import "../globals.css";
+@source "../";
