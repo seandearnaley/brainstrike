@@ -24,7 +24,12 @@ export type {
   CollectionReply,
   CollectionRequest,
 } from './collection-types.js';
-export { IndexerRequiredError, ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
+export {
+  IndexerRequiredError,
+  StateStoreReadOnlyError,
+  ThreadDamagedError,
+  ThreadReadOnlyError,
+} from './errors.js';
 export {
   type Decoded,
   decodeEvent,

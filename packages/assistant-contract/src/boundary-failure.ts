@@ -166,6 +166,15 @@ export class BoundaryFailureError extends Error {
 export function isBoundaryRefusal(cause: unknown): cause is BoundaryFailureError {
   return cause instanceof BoundaryFailureError && cause.failure.kind === 'refusal';
 }
+/**
+ * BST-2144: the state store opened damaged, so it is read-only and refused a
+ * write. Expected until the store is restored: callers that write on startup
+ * stop quietly, and the damaged-store notice explains it.
+ */
+export const STATE_STORE_READ_ONLY_CODE = 'state.read-only';
+export function isStateStoreReadOnly(cause: unknown): cause is BoundaryFailureError {
+  return isBoundaryRefusal(cause) && cause.failure.code === STATE_STORE_READ_ONLY_CODE;
+}
 /** A typed refusal ready to throw: `throw refusalError('conflict', 'run.already-active', '…')`. */
 export function refusalError(
   category: BoundaryFailureCategory,

@@ -60,7 +60,10 @@ async function corruptRunEventIndex(root: string): Promise<void> {
   await writeFile(file, bytes);
 }
 
-async function readHealth(root: string) {
+async function withHost<T>(
+  root: string,
+  work: (client: Awaited<ReturnType<typeof attachAgentHost>>) => Promise<T>
+): Promise<T> {
   const host = await startAgentHost(
     { lifetime: 'persistent', root },
     {
@@ -73,13 +76,19 @@ async function readHealth(root: string) {
   );
   const client = await attachAgentHost(host.record);
   try {
-    const health = await client.request('state/health/read', {});
-    const { threads } = await client.request('thread/list', {});
-    return { damagedListed: threads.filter((thread) => thread.damage).length, health };
+    return await work(client);
   } finally {
     await client.close();
     await host.close();
   }
+}
+
+function readHealth(root: string) {
+  return withHost(root, async (client) => {
+    const health = await client.request('state/health/read', {});
+    const { threads } = await client.request('thread/list', {});
+    return { damagedListed: threads.filter((thread) => thread.damage).length, health };
+  });
 }
 
 test('a healthy state store reports no damage and no damaged threads', async () => {
@@ -98,4 +107,25 @@ test('a damaged state DB reports its integrity failure, and reports it again aft
   // The count is the catalog's own: every thread `thread/list` marks damaged.
   expect(first.health.damagedThreads).toBe(first.damagedListed);
   expect(await readHealth(root)).toEqual(first);
+});
+
+test('a damaged state DB refuses writes as a typed read-only refusal and keeps serving reads (BST-2144)', async () => {
+  const root = await seededRoot();
+  await corruptRunEventIndex(root);
+
+  await withHost(root, async (client) => {
+    await expect(client.catalog.modelChoices({ operation: 'snapshot' })).resolves.toMatchObject({
+      models: [],
+    });
+    const refusal = {
+      failure: { category: 'availability', code: 'state.read-only', kind: 'refusal' },
+    };
+    await expect(
+      client.catalog.modelChoices({ enabled: true, operation: 'provider', providerId: 'openai' })
+    ).rejects.toMatchObject(refusal);
+    // A new thread's first append is refused because the store is, not the thread.
+    await expect(
+      client.request('thread/start', { commandId: crypto.randomUUID() })
+    ).rejects.toMatchObject(refusal);
+  });
 });
