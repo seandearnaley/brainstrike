@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -7,49 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { RootLock } from '@brainstrike/state-store';
 import { build } from 'tsup';
 import { expect, test } from 'vitest';
+import { runFixtureProcess } from './fixtures/fixture-process.js';
 
-function execute(args: readonly string[], signal: AbortSignal): Promise<{ stdout: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    let failure: unknown;
-    const stop = () => {
-      if (!child.kill('SIGTERM')) {
-        failure = new Error('Could not stop the owned native TEXT fixture process.');
-      }
-    };
-    child.stdout.on('data', (data) => {
-      stdout += String(data);
-    });
-    child.stderr.on('data', (data) => {
-      stderr += String(data);
-    });
-    child.on('error', (cause) => {
-      failure = cause;
-    });
-    signal.addEventListener('abort', stop, { once: true });
-    child.once('close', (code) => {
-      signal.removeEventListener('abort', stop);
-      if (failure !== undefined) {
-        reject(failure);
-      } else if (code !== 0) {
-        reject(
-          new Error(`Native TEXT fixture exited ${code}: ${stderr}\n${stdout}`, {
-            cause: signal.aborted ? signal.reason : undefined,
-          })
-        );
-      } else if (signal.aborted) {
-        reject(signal.reason);
-      } else {
-        resolve({ stdout });
-      }
-    });
-    if (signal.aborted) {
-      stop();
-    }
-  });
-}
 const driver = path.join(import.meta.dirname, 'fixtures/node-native-text-services.mjs');
 const desktop = path.resolve(import.meta.dirname, '../../../../apps/desktop/src');
 const captured = fileURLToPath(
@@ -97,13 +55,13 @@ async function runFixture(mode: Mode, signal: AbortSignal): Promise<unknown> {
       silent: true,
       splitting: false,
     });
-    const seeded = await execute([driver, 'seed', fixture, captured, ownerBundles], signal);
-    expect(JSON.parse(seeded.stdout.trim().split('\n').at(-1) ?? '')).toMatchObject({
+    expect(
+      await runFixtureProcess(driver, ['seed', fixture, captured, ownerBundles], signal)
+    ).toMatchObject({
       electron: false,
       seeded: true,
     });
-    const result = await execute([driver, mode, fixture, captured, ownerBundles], signal);
-    return JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '');
+    return await runFixtureProcess(driver, [mode, fixture, captured, ownerBundles], signal);
   } finally {
     const owner = RootLock.inspect(path.join(fixture, 'profiles', 'selected'));
     // Failed joins retain their physical evidence and are never retried by fixture cleanup.
