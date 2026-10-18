@@ -73,7 +73,7 @@ describe('MCP task IPC contract', () => {
   });
   it('validates list results and status events strictly', () => {
     expect(
-      Schema.decodeUnknownSync(McpTaskListResultSchema, {
+      Schema.decodeSync(McpTaskListResultSchema, {
         errors: 'all',
         onExcessProperty: 'error',
       })({ tasks: [presentation] }).tasks

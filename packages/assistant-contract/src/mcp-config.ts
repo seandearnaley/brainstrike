@@ -398,7 +398,7 @@ export function parseMcpConfigValue(value: unknown): {
       : []
   );
   return {
-    config: Schema.decodeUnknownSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })(
+    config: Schema.decodeSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })(
       parsed.success
     ),
     migrations,
