@@ -165,15 +165,11 @@ function ledgerState(outcome: HostRunState['outcome']): HostChildLedgerState {
 }
 /**
  * BST-1932: whether `run` is the run that takes the human input `accepted`
- * handed on (a committed run/input, never a legacy run/steer).
+ * handed on (a committed run/input, never a legacy run/steer): the run its
+ * input's run/start committed (BST-2178), never a regenerate or edit of it.
  */
 function takesHostInputOf(run: HostRunState, accepted: HostRunState): boolean {
-  return (
-    accepted.inputAccepted &&
-    run.id !== accepted.id &&
-    run.threadId === accepted.threadId &&
-    run.branch.parentMessageId === accepted.id
-  );
+  return accepted.inputRun === run.id;
 }
 /**
  * BST-1932: child work that took human input (an invocation or a follow-up,
@@ -183,11 +179,12 @@ function takesHostInputOf(run: HostRunState, accepted: HostRunState): boolean {
  * (core-run-end.ts).
  */
 function hostRunTakingInput(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): boolean {
+  const next = runs.get(run.inputRun ?? '');
   return (
     run.childInput !== undefined ||
-    [...runs.values()].some(
-      (next) => takesHostInputOf(next, run) && (!next.terminal || hostRunTakingInput(next, runs))
-    )
+    (next !== undefined &&
+      takesHostInputOf(next, run) &&
+      (!next.terminal || hostRunTakingInput(next, runs)))
   );
 }
 interface Invocation {

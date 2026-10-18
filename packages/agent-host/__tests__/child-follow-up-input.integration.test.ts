@@ -36,6 +36,8 @@ afterEach(async () => {
 const FOLLOW_UP = 'FOLLOW_UP_3: which file next?';
 const INPUT = 'HUMAN_INPUT_7: check the date too.';
 const SECOND_INPUT = 'HUMAN_INPUT_8: and who wrote them.';
+const EDITED = 'HUMAN_INPUT_9: check the year instead.';
+const BUSY = 'Busy: hold the parent turn.';
 const LEDGER = 'Background invocations of this turn';
 const startedRuns = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) => (event.type === 'run.started' ? [event] : []));
@@ -54,16 +56,26 @@ const hold = () => ({
  * human input. Each read_file holds until released, so the input lands during
  * the step in flight; when `chained`, the input's run reads too and takes a
  * second input. The last input's run waits for `lastRun.release` when `last`
- * is held, or stays open until it is aborted.
+ * is held, or stays open until it is aborted. A regenerate of that run, or an
+ * edit, stays open until it is aborted; a BUSY parent turn waits for
+ * `busy.release`.
  */
 async function followUpTakingInput(last: 'held' | 'blocks', chained = false) {
   const reads = [hold(), hold()];
   const lastRun = hold();
+  const busy = hold();
+  const replaced = Promise.withResolvers<void>();
   let read = 0;
+  let lastCalls = 0;
   const model = new MockLanguageModelV4({
     doStream: async (call) => {
       const users = userTexts(call);
       if (toolNames(call).includes('agent-explore')) {
+        if (users.at(-1) === BUSY) {
+          busy.entered.resolve();
+          await busy.release.promise;
+          return stream(text('Parent was busy.'));
+        }
         if (users.join('\n').includes(LEDGER)) {
           return stream(text('Parent read the children.'));
         }
@@ -85,6 +97,11 @@ async function followUpTakingInput(last: 'held' | 'blocks', chained = false) {
       }
       if (prompt === FOLLOW_UP || (chained && prompt === INPUT)) {
         return stream(toolCall('read_file', { path: 'notes.md' }, `read-${read}`));
+      }
+      lastCalls += 1;
+      if (prompt === EDITED || lastCalls > 1) {
+        replaced.resolve();
+        return blocked(call);
       }
       lastRun.entered.resolve();
       if (last === 'blocks') {
@@ -128,7 +145,7 @@ async function followUpTakingInput(last: 'held' | 'blocks', chained = false) {
   );
   cleanup.push(async () => {
     teardown.resolve();
-    for (const held of [...reads, lastRun]) {
+    for (const held of [...reads, lastRun, busy]) {
       held.release.resolve();
     }
   });
@@ -179,10 +196,25 @@ async function followUpTakingInput(last: 'held' | 'blocks', chained = false) {
     startedRuns(await harness.core().read(alpha.threadId, 0))
       .slice(1)
       .map(({ runId }) => runId);
+  /** A person's replacement of a committed user message in Alpha: Retry, or Edit from `parent`. */
+  const replace = async (how: 'regenerate' | 'edit', runId: string, parent: string) => {
+    const command = { commandId: randomUUID(), modelId: 'scripted', threadId: alpha.threadId };
+    if (how === 'edit') {
+      return (
+        await harness.core().startRun({ ...command, parentMessageId: parent, prompt: EDITED })
+      ).runId;
+    }
+    const { userMessageId } = committedRunIdentity(
+      await harness.core().read(alpha.threadId, 0),
+      runId
+    );
+    return (await harness.core().regenerateRun({ ...command, userMessageId })).runId;
+  };
   return {
     alpha,
     alphaRuns,
     beta,
+    busy,
     harness,
     /** Holds the next wake's admission until `until`; resolves once that wake is admitted. */
     holdNextWake: (until: Promise<void>) => {
@@ -193,6 +225,13 @@ async function followUpTakingInput(last: 'held' | 'blocks', chained = false) {
     input,
     lastRun,
     reads,
+    replace,
+    /** Resolves once a regenerate or edit is at its provider call, where it stays until aborted. */
+    replaced: replaced.promise,
+    stopAlpha: (runId: string) =>
+      expect(
+        harness.core().stop({ commandId: randomUUID(), runId, threadId: alpha.threadId })
+      ).resolves.toEqual({ outcome: 'stopped' }),
     stopBeta: () =>
       expect(
         harness
@@ -374,4 +413,115 @@ test("a stopped follow-up's refused input wakes nothing; a retry of that input r
     [{ childRunId: retried, followUp: true, state: 'returned' }],
   ]);
   expect(carrying[0]?.prompt).toContain('Child read the input.');
+});
+
+/** The parent's runs that delivered a follow-up's report, once `count` did and the last one ended. */
+async function settledDeliveries(harness: ChildRunHarness, count: number) {
+  let carrying: Awaited<ReturnType<typeof followUpDeliveries>> = [];
+  await expect
+    .poll(
+      async () => {
+        carrying = await followUpDeliveries(harness);
+        const last = carrying.at(-1);
+        return (
+          carrying.length >= count &&
+          last !== undefined &&
+          (await harness.core().read(harness.threadId, 0)).some(finished(last.runId))
+        );
+      },
+      { timeout: 5000 }
+    )
+    .toBe(true);
+  return carrying;
+}
+
+/**
+ * A later user turn delivers nothing from `childThreadId`: none of its results
+ * is still owed to the parent. A wake for one would be admitted first (this
+ * turn is then refused, the parent being busy) or deliver with this turn.
+ */
+async function expectNothingOwed(harness: ChildRunHarness, prompt: string, childThreadId: string) {
+  const runId = await harness.start(prompt);
+  const rows = await rowsUntil(harness, harness.threadId, finished(runId), 5000);
+  const delivery = startedRuns(rows).find((run) => run.runId === runId)?.delivery;
+  expect(delivery?.entries.filter((entry) => entry.childThreadId === childThreadId) ?? []).toEqual(
+    []
+  );
+}
+
+/**
+ * A regenerate or edit of the input's message branches from the run that took
+ * the input, but it is the person's new run, not that input's run: it reports
+ * only when it completes, and it never holds the follow-up's report.
+ */
+test.each([
+  ['a regenerate', 'regenerate'],
+  ['an edit', 'edit'],
+] as const)(
+  "%s of a follow-up's input does not hold the follow-up's report, and stopping it wakes nothing",
+  async (_, how) => {
+    const child = await followUpTakingInput('held');
+    const { busy, harness, lastRun, reads } = child;
+    lastRun.release.resolve();
+    // The parent is busy with its own turn, so the follow-up's report waits for that turn's end.
+    const busyRun = await harness.start(BUSY);
+    await busy.entered.promise;
+    reads[0]?.release.resolve();
+    await expect
+      .poll(
+        async () =>
+          finishedRuns(await harness.core().read(child.alpha.threadId, 0)).map(
+            ({ outcome }) => outcome
+          ),
+        { timeout: 5000 }
+      )
+      .toEqual(['completed', 'completed', 'completed']);
+    const [followUp = '', inputRun = ''] = await child.alphaRuns();
+    const replacement = await child.replace(how, inputRun, followUp);
+    await child.replaced;
+    busy.release.resolve();
+    await rowsUntil(harness, harness.threadId, finished(busyRun), 5000);
+    // The busy turn's end delivers the follow-up with its input's run, while the replacement runs.
+    const [carrying, ...more] = await settledDeliveries(harness, 1);
+    expect(more).toEqual([]);
+    expect(reported(carrying?.delivery?.entries)).toEqual([
+      { childRunId: followUp, followUp: true, state: 'returned' },
+      { childRunId: inputRun, followUp: true, state: 'returned' },
+    ]);
+    // Stopped, the replacement is an ordinary follow-up that did not complete: it wakes nothing.
+    await child.stopAlpha(replacement);
+    await rowsUntil(harness, child.alpha.threadId, finished(replacement), 5000);
+    await expectNothingOwed(harness, 'Again.', child.alpha.threadId);
+    expect(await followUpDeliveries(harness)).toHaveLength(1);
+  }
+);
+
+test.each([
+  ['regenerate', 'the input'],
+  ['edit', 'the input'],
+  ['edit', 'the follow-up'],
+] as const)('after a restart, an interrupted %s of %s reports nothing', async (how, message) => {
+  const child = await followUpTakingInput('held');
+  const { harness, lastRun, reads } = child;
+  lastRun.release.resolve();
+  reads[0]?.release.resolve();
+  const [delivered] = await settledDeliveries(harness, 1);
+  const [followUp = '', inputRun = ''] = await child.alphaRuns();
+  expect(reported(delivered?.delivery?.entries)).toEqual([
+    { childRunId: followUp, followUp: true, state: 'returned' },
+    { childRunId: inputRun, followUp: true, state: 'returned' },
+  ]);
+  // Editing the follow-up's own message branches from Alpha's invocation, which took no input.
+  const [replaced, parent] =
+    message === 'the input' ? [inputRun, followUp] : [followUp, child.alpha.run?.runId ?? ''];
+  await child.replace(how, replaced, parent);
+  await child.replaced;
+  await harness.core().close();
+  // Restart: the replayed log names the input's original run, not its replacement.
+  await harness.crash();
+  expect(
+    finishedRuns(await harness.core().read(child.alpha.threadId, 0)).map(({ outcome }) => outcome)
+  ).toEqual(['completed', 'completed', 'completed', 'interrupted']);
+  await expectNothingOwed(harness, 'Next.', child.alpha.threadId);
+  expect(await followUpDeliveries(harness)).toHaveLength(1);
 });

@@ -34,6 +34,29 @@ export async function acceptHostChildInput(
 }
 
 /**
+ * BST-2178: once the input's run/start (or its refusal) is committed, `run`
+ * no longer holds the input; it names the run that command started. Right
+ * after that commit it is the thread's only run whose user message is the
+ * command's (a later regenerate copies the message, never the run).
+ */
+export function settleHostChildInput(
+  run: HostRunState,
+  runs: ReadonlyMap<string, HostRunState>
+): void {
+  const commandId = run.childInput?.commandId;
+  run.childInput = undefined;
+  if (commandId === undefined) {
+    return;
+  }
+  const taken = [...runs.values()].find(
+    (next) => next.threadId === run.threadId && next.branch.userMessageId === commandId
+  );
+  if (taken) {
+    run.inputRun ??= taken.id;
+  }
+}
+
+/**
  * The input a settled child run hands to the child's next run, while the host
  * may still start one; its run's end takes it once. A run that was stopped or
  * ended some other way refuses it, so the input is committed as a failed run,
