@@ -339,6 +339,13 @@ export interface UseLazyFileTreeReturn {
 
 export interface UseLazyFileTreeOptions {
   /**
+   * False keeps the tree inert (BST-1957): no worker, no root load, an empty
+   * tree. For a caller that must call the hook for hook order but reads a
+   * shared FileTreeProvider tree instead. Defaults to true.
+   */
+  enabled?: boolean;
+
+  /**
    * Filter function to apply workspace include/exclude filters to a tree.
    * Called in the slow path when directories are loaded from the worker,
    * ensuring workspace filters are respected before file selection.
@@ -394,10 +401,12 @@ interface CommittedReset {
  * @returns Lazy file tree state and operations
  */
 export function useLazyFileTree(
-  rootDirectoryHandle: DirectoryHandle | null,
+  rootDirectoryHandleInput: DirectoryHandle | null,
   options: UseLazyFileTreeOptions = {}
 ): UseLazyFileTreeReturn {
-  const { filterTreeFn, onNodesIndexed, onRootRefreshSnapshot, rootId } = options;
+  const { enabled = true, filterTreeFn, onNodesIndexed, onRootRefreshSnapshot, rootId } = options;
+  // An inert tree sees no root, so it never loads one (BST-1957).
+  const rootDirectoryHandle = enabled ? rootDirectoryHandleInput : null;
   const { fileSystemAdapter } = useAdapters();
   const rootDirectoryPath = rootDirectoryHandle?.path ?? null;
   // A legacy mounted handle may lack its own rootId; `rootId` is the
@@ -584,6 +593,7 @@ export function useLazyFileTree(
 
   // Worker and handle map management - pass progress handler
   const { portRef, handleMapRef, setRootHandle } = useFileTreeWorker({
+    enabled,
     fileSystemAdapter,
     onError: handleWorkerError,
     onProgress: handleProgress,
