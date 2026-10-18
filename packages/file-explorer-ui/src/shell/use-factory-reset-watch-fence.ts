@@ -8,6 +8,42 @@ import { useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('FactoryResetWatchFence');
 
+type WatchDirectory = NonNullable<FileSystemAdapter['watchDirectory']>;
+
+// Keep the self-referencing disposer outside React's memoized render closure.
+function registerRootWatch(
+  activeWatches: Set<() => void>,
+  watchDirectory: WatchDirectory,
+  ...[handle, callback, onSignal]: Parameters<WatchDirectory>
+): () => void {
+  let disposed = false;
+  const stopWatch = watchDirectory(
+    handle,
+    (changes, metadata) => {
+      if (!disposed) {
+        callback(changes, metadata);
+      }
+    },
+    onSignal
+      ? (signal) => {
+          if (!disposed) {
+            onSignal(signal);
+          }
+        }
+      : undefined
+  );
+  const dispose = (): void => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    activeWatches.delete(dispose);
+    stopWatch();
+  };
+  activeWatches.add(dispose);
+  return dispose;
+}
+
 /**
  * The adapter an owner watches roots through, fenced by factory reset
  * (ADR-0015, BST-2149).
@@ -44,32 +80,13 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
         });
         return () => undefined;
       }
-      let disposed = false;
-      const stopWatch = watchDirectory(
+      return registerRootWatch(
+        activeWatchesRef.current,
+        watchDirectory,
         handle,
-        (changes, metadata) => {
-          if (!disposed) {
-            callback(changes, metadata);
-          }
-        },
+        callback,
         onSignal
-          ? (signal) => {
-              if (!disposed) {
-                onSignal(signal);
-              }
-            }
-          : undefined
       );
-      const dispose = (): void => {
-        if (disposed) {
-          return;
-        }
-        disposed = true;
-        activeWatchesRef.current.delete(dispose);
-        stopWatch();
-      };
-      activeWatchesRef.current.add(dispose);
-      return dispose;
     };
     return fencedAdapter;
   }, [adapter]);
