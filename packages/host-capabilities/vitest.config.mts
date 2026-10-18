@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
@@ -28,6 +29,9 @@ export default defineConfig({
     hookTimeout: 120_000,
     include: ['__tests__/**/*.test.ts'],
     reporters: ['default', new LostTestFileReporter()],
-    testTimeout: 60_000,
+    // A real-bin test makes up to 15 bin calls: 5 s unthrottled, 48 s on the
+    // hosted 2-vCPU coverage runner (BST-2157). It scales with each call's own
+    // budget (__tests__/fixtures/real-bin.ts): 60 s, or 120 s on the nightly.
+    testTimeout: getAdjustedTimeout('e2e'),
   },
 });

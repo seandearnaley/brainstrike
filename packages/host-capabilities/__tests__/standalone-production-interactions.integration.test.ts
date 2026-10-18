@@ -1,9 +1,7 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { HOST_RESULT_SCHEMAS, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
@@ -16,6 +14,7 @@ import question from '@brainstrike/test-utils/fixtures/committed-host-question.j
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import { REAL_PROCESS_WAIT, retireRootOwner, runBin } from './fixtures/real-bin.js';
 
 /** The canonical human tools plus the workspace tools (and shell) a standalone host runs. */
 const STANDALONE_NATIVE_TOOL_IDS = [
@@ -34,7 +33,6 @@ const STANDALONE_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.executeCommand,
 ];
-const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const roots: string[] = [];
 interface OfflineInteraction {
@@ -42,39 +40,15 @@ interface OfflineInteraction {
   readonly receipt: string;
 }
 function command(dataRoot: string, args: readonly string[], http: OfflineInteraction) {
-  return new Promise<{
-    code: number;
-    stderr: string;
-    stdout: string;
-  }>((resolve, reject) => {
-    execFile(
-      process.execPath,
-      [bin, '--data-root', dataRoot, ...args],
-      {
-        cwd: tmpdir(),
-        env: {
-          BRAINSTRIKE_M3_STANDALONE_HTTP: http.kind,
-          BRAINSTRIKE_M3_STANDALONE_RECEIPT: http.receipt,
-          BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
-          LC_ALL: 'C',
-          NODE_OPTIONS: `--import=${httpFixture}`,
-          PATH: process.env['PATH'],
-          SystemRoot: process.env['SystemRoot'],
-          TZ: 'UTC',
-        },
-        timeout: 10_000,
-        windowsHide: true,
-      },
-      (cause, stdout, stderr) => {
-        if (!cause) {
-          resolve({ code: 0, stderr, stdout });
-        } else if (typeof cause.code === 'number') {
-          resolve({ code: cause.code, stderr, stdout });
-        } else {
-          reject(cause);
-        }
-      }
-    );
+  return runBin(dataRoot, args, {
+    BRAINSTRIKE_M3_STANDALONE_HTTP: http.kind,
+    BRAINSTRIKE_M3_STANDALONE_RECEIPT: http.receipt,
+    BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
+    LC_ALL: 'C',
+    NODE_OPTIONS: `--import=${httpFixture}`,
+    PATH: process.env['PATH'],
+    SystemRoot: process.env['SystemRoot'],
+    TZ: 'UTC',
   });
 }
 async function owner(dataRoot: string) {
@@ -90,14 +64,12 @@ async function stop(dataRoot: string, http: OfflineInteraction) {
   const selected = await owner(dataRoot);
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
-  await expect.poll(() => processStartTime(selected.pid)).toBeNull();
+  await expect.poll(() => processStartTime(selected.pid), REAL_PROCESS_WAIT).toBeNull();
 }
 afterEach(async () => {
   for (const dataRoot of roots.splice(0)) {
-    const selected = RootLock.inspect(dataRoot)?.owner;
-    if (selected && !selected.released) {
-      await stop(dataRoot, { kind: 'question', receipt: join(dataRoot, 'offline-receipt.jsonl') });
-    }
+    const http = { kind: 'question', receipt: join(dataRoot, 'offline-receipt.jsonl') } as const;
+    await retireRootOwner(dataRoot, () => command(dataRoot, ['host', 'stop'], http));
     await removeFixtureRoot(dataRoot);
   }
 });
