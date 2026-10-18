@@ -8,7 +8,11 @@ const PATH = '/tmp/mcp.config.json';
 function props(overrides: Partial<Parameters<typeof McpCatalogSection>[0]> = {}) {
   return {
     configuredServerIds: new Set<string>(),
-    installMcpCatalogServer: vi.fn(async () => ({ path: PATH, success: true as const })),
+    installMcpCatalogServer: vi.fn(async () => ({
+      path: PATH,
+      revision: 'installed',
+      success: true as const,
+    })),
     onInstalled: vi.fn(async () => undefined),
     ...overrides,
   };

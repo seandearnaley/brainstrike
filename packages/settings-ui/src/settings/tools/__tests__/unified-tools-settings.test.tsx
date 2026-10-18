@@ -2329,13 +2329,14 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
       operations.installMcpCatalogServer = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
       const configured = (id: string): McpHostServerSnapshot => ({
         configuredProtocol: 'auto',
         configuredServerId: parseConfiguredMcpServerId(id),
@@ -2372,10 +2373,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2398,7 +2400,7 @@ describe('UnifiedToolsSettings', () => {
       );
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2417,6 +2419,7 @@ describe('UnifiedToolsSettings', () => {
           created: false,
           exists: true,
           path: '/tmp/mcp.config.json',
+          revision: 'loaded',
         });
       });
 
@@ -2430,10 +2433,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2454,10 +2458,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2482,10 +2487,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
       operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -2517,10 +2523,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
       operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -2546,6 +2553,7 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi.fn().mockResolvedValue({
         error: 'Invalid JSONC payload',
@@ -2576,10 +2584,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
       operations.openMcpConfig = vi.fn().mockResolvedValue(undefined);
       operations.resetMcpConfig = vi.fn().mockResolvedValue(undefined);
 
@@ -2613,10 +2622,11 @@ describe('UnifiedToolsSettings', () => {
         created: true,
         exists: false,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2632,7 +2642,7 @@ describe('UnifiedToolsSettings', () => {
       operations.readMcpConfigText = vi.fn().mockRejectedValue(new Error('Config read failed'));
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2648,10 +2658,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
       operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -2680,10 +2691,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2719,10 +2731,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2756,10 +2769,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -2776,6 +2790,7 @@ describe('UnifiedToolsSettings', () => {
         created: true,
         exists: false,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi.fn().mockResolvedValue({
         error: 'Invalid JSONC payload',
@@ -2820,10 +2835,11 @@ describe('UnifiedToolsSettings', () => {
         created: false,
         exists: true,
         path: '/tmp/mcp.config.json',
+        revision: 'loaded',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', revision: 'written', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 

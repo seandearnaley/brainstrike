@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { McpBearerCredentialReference } from '../src/mcp/bearer-credential.js';
+import { mcpConfigRevision } from '../src/mcp/config-file.js';
 import {
   createSettingsHarness,
   type SettingsHarness,
@@ -15,6 +17,24 @@ const COMMENTED = `{
 }
 `;
 const TOKEN = 'github_pat_fixture0123456789';
+const EXTERNAL = `${JSON.stringify({ servers: [stdioServer('external')] })}\n`;
+const GITHUB_CONFLICT =
+  'The MCP config changed while installing GitHub; nothing was installed. Try again.';
+
+/** The config changes on disk while the token is stored, as during a keychain prompt. */
+function editWhileStoringToken(h: SettingsHarness): void {
+  const create = h.bearer.writer.create.getMockImplementation();
+  if (!create) {
+    throw new Error('The harness token store has no implementation');
+  }
+  h.bearer.writer.create.mockImplementationOnce(
+    async (token: string): Promise<McpBearerCredentialReference> => {
+      const reference = await create(token);
+      await writeFile(h.configPath, EXTERNAL, 'utf8');
+      return reference;
+    }
+  );
+}
 
 let harness: SettingsHarness | undefined;
 
@@ -36,11 +56,17 @@ describe('MCP catalog install', () => {
   it('appends the OAuth server, keeps the comments and commits it to the runtime', async () => {
     const h = await started();
 
-    await expect(
-      h.authority.installCatalogServer({ access: 'read-only', catalogId: 'linear' })
-    ).resolves.toEqual({ path: h.configPath, success: true });
+    const result = await h.authority.installCatalogServer({
+      access: 'read-only',
+      catalogId: 'linear',
+    });
 
     const text = await readFile(h.configPath, 'utf8');
+    expect(result).toEqual({
+      path: h.configPath,
+      revision: mcpConfigRevision(text),
+      success: true,
+    });
     expect(text).toContain('// keep this comment');
     expect(text).toContain('// and this one');
     expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
@@ -59,11 +85,19 @@ describe('MCP catalog install', () => {
   it('stores a token entry and writes only its reference to the file', async () => {
     const h = await started();
 
-    await expect(
-      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
-    ).resolves.toEqual({ path: h.configPath, success: true });
+    const result = await h.authority.installCatalogServer({
+      access: 'read-write',
+      catalogId: 'github',
+      token: TOKEN,
+    });
 
-    expect(await readFile(h.configPath, 'utf8')).not.toContain(TOKEN);
+    const text = await readFile(h.configPath, 'utf8');
+    expect(result).toEqual({
+      path: h.configPath,
+      revision: mcpConfigRevision(text),
+      success: true,
+    });
+    expect(text).not.toContain(TOKEN);
     const [stored] = [...h.bearer.stored];
     expect(stored?.[1]).toBe(TOKEN);
     expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
@@ -263,5 +297,81 @@ describe('MCP catalog install', () => {
       path: h.configPath,
       success: false,
     });
+  });
+  it('refuses an install when the config changes while its token is stored, and removes the token', async () => {
+    const h = await started();
+    editWhileStoringToken(h);
+    const commits = h.replaceResolvedConfig.mock.calls.length;
+
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+    ).resolves.toEqual({
+      conflict: true,
+      error: GITHUB_CONFLICT,
+      path: h.configPath,
+      success: false,
+    });
+    expect(h.bearer.writer.delete).toHaveBeenCalledOnce();
+    expect(h.bearer.stored.size).toBe(0);
+    expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);
+    expect(h.replaceResolvedConfig).toHaveBeenCalledTimes(commits);
+  });
+
+  it('reports both failures when a conflicted install cannot remove its token', async () => {
+    const h = await started();
+    editWhileStoringToken(h);
+    h.bearer.writer.delete.mockRejectedValueOnce(new Error('keychain locked'));
+
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+    ).resolves.toEqual({
+      conflict: true,
+      error: `${GITHUB_CONFLICT}; the stored GitHub token could not be removed: keychain locked`,
+      path: h.configPath,
+      success: false,
+    });
+    expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);
+  });
+
+  it('refuses an OAuth install when the config changes after it was read', async () => {
+    const h = await started();
+    const readText = h.configFile.readText;
+    vi.spyOn(h.configFile, 'readText').mockImplementationOnce(async (createIfMissing) => {
+      const document = await readText(createIfMissing);
+      await writeFile(h.configPath, EXTERNAL, 'utf8');
+      return document;
+    });
+
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-only', catalogId: 'linear' })
+    ).resolves.toEqual({
+      conflict: true,
+      error: 'The MCP config changed while installing Linear; nothing was installed. Try again.',
+      path: h.configPath,
+      success: false,
+    });
+    expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);
+  });
+
+  it('removes the token of a refused write when the watcher then cannot restart, reporting both', async () => {
+    const h = await started();
+    editWhileStoringToken(h);
+    const watchFailure = new Error('watch failed');
+    vi.mocked(h.configFile.watch).mockRejectedValueOnce(watchFailure);
+
+    const failure = await h.authority
+      .installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+
+    expect(failure).toMatchObject({
+      message: `${GITHUB_CONFLICT}; the MCP config watcher could not restart: watch failed; the stored GitHub token was removed`,
+    });
+    expect((failure as Error).cause).toMatchObject({ cause: watchFailure });
+    expect(h.bearer.writer.delete).toHaveBeenCalledOnce();
+    expect(h.bearer.stored.size).toBe(0);
+    expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);
   });
 });

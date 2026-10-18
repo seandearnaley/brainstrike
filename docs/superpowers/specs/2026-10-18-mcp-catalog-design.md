@@ -139,6 +139,17 @@ behind the `mcpAvailable` capability gate (desktop only).
 `ToolsSettingsOperations` gains an optional `installMcpCatalogServer`; the card
 grid renders only when it is supplied (capability by omission).
 
+### 4.4 Compare-and-swap writes
+
+`McpConfigFile.readText` returns the text's `revision`, the lowercase hex SHA-256 of its
+UTF-8 bytes; an absent file has the revision of `''`. `writeText(content, baseRevision)`
+writes nothing and returns `conflict: true` when the file's revision differs. Host
+protocol v12 carries it: `mcp/config/read` returns `revision`, `mcp/config/write`
+requires `baseRevision`, and write and install successes return the new `revision`.
+The editor saves on the revision it last loaded or saved. An install commits on the
+revision it read, so an edit during the keychain write refuses it and removes its token.
+An external writer can still race the adjacent check and write; that is acceptable here.
+
 ## 5. Error handling
 
 Every refusal is a visible failure result with a specific message: unknown

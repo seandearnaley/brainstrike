@@ -49,12 +49,14 @@ export const McpConfigStatusSchema = Schema.Struct({
   ),
 });
 export type McpConfigStatus = (typeof McpConfigStatusSchema)['Type'];
+/** The config text and its `revision`, the SHA-256 a write names as its base. */
 export const McpConfigTextSchema = Schema.Struct({
   content: Schema.String,
   created: Schema.Boolean,
   error: Schema.optional(Schema.String),
   exists: Schema.Boolean,
   path: Schema.String,
+  revision: Schema.String,
 });
 export const McpToolMetadataSchema = Schema.Struct({
   description: Schema.optional(Schema.String),
@@ -114,11 +116,19 @@ export const McpSettingsEventSchema = Schema.Union(
 export type McpSettingsEvent = (typeof McpSettingsEventSchema)['Type'];
 const Applied = Schema.Struct({ applied: Schema.Literal(true) });
 const None = Schema.Record(Schema.String, Schema.Never);
-/** A config write or catalog install: the file it changed, or why nothing changed. */
+/**
+ * A config write or catalog install: the file it changed and its new revision,
+ * or why nothing changed. `conflict` marks a file that changed since its read.
+ */
 const McpConfigWriteResultSchema = Schema.Union(
   [
-    Schema.Struct({ path: Schema.String, success: Schema.Literal(true) }),
-    Schema.Struct({ error: Schema.String, path: Schema.String, success: Schema.Literal(false) }),
+    Schema.Struct({ path: Schema.String, revision: Schema.String, success: Schema.Literal(true) }),
+    Schema.Struct({
+      conflict: Schema.optional(Schema.Literal(true)),
+      error: Schema.String,
+      path: Schema.String,
+      success: Schema.Literal(false),
+    }),
   ],
   { mode: 'oneOf' }
 );
@@ -135,7 +145,8 @@ export const MCP_SETTINGS_METHOD_SCHEMAS = {
   'mcp/config/read': None,
   'mcp/config/sample': None,
   'mcp/config/status': None,
-  'mcp/config/write': Schema.Struct({ content: Schema.String }),
+  /** Writes only while the file still has `baseRevision`, the revision `mcp/config/read` returned. */
+  'mcp/config/write': Schema.Struct({ baseRevision: Schema.String, content: Schema.String }),
   'mcp/extensions/read': None,
   'mcp/extensions/set': McpExtensionEnablementSchema,
   /** connect, retry, cancel, disconnect or reauthorize one configured server. */

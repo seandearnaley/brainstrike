@@ -14,8 +14,20 @@ const validContent = invalidContent.replace('"transport": "sse"', '"transport": 
 const path = '/tmp/mcp.config.jsonc';
 const NO_SERVERS: ReadonlySet<string> = new Set();
 
+/** A stand-in for the host's SHA-256 revision: distinct per text. */
+function revisionOf(content: string): string {
+  return `revision of ${content}`;
+}
+
 function document(content: string, error?: string): McpConfigTextDocument {
-  return { content, created: false, ...(error === undefined ? {} : { error }), exists: true, path };
+  return {
+    content,
+    created: false,
+    ...(error === undefined ? {} : { error }),
+    exists: true,
+    path,
+    revision: revisionOf(content),
+  };
 }
 
 function operations(editorAvailable = true): ToolsSettingsOperations {
@@ -27,7 +39,13 @@ function operations(editorAvailable = true): ToolsSettingsOperations {
     readMcpConfigText: vi.fn().mockResolvedValue(document(validContent)),
     resetTools: vi.fn(),
     ...(editorAvailable
-      ? { writeMcpConfigText: vi.fn().mockResolvedValue({ path, success: true }) }
+      ? {
+          writeMcpConfigText: vi.fn(async (content: string) => ({
+            path,
+            revision: revisionOf(content),
+            success: true as const,
+          })),
+        }
       : {}),
   };
 }
@@ -55,7 +73,7 @@ describe('MCP config document validation', () => {
     fireEvent.change(editor, { target: { value: validContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByTestId('mcp-config-status')).toHaveTextContent('MCP config saved.');
-    expect(ops.writeMcpConfigText).toHaveBeenCalledWith(validContent);
+    expect(ops.writeMcpConfigText).toHaveBeenCalledWith(validContent, revisionOf(invalidContent));
     expect(editor).toHaveValue(validContent);
     expect(editor).not.toHaveAttribute('aria-invalid');
     expect(screen.queryByTestId('mcp-config-error')).not.toBeInTheDocument();
@@ -143,7 +161,7 @@ describe('MCP config document validation', () => {
   });
 
   it('marks only the submitted text saved when the user edits during a save', async () => {
-    const save = Promise.withResolvers<{ path: string; success: true }>();
+    const save = Promise.withResolvers<{ path: string; revision: string; success: true }>();
     const ops = operations();
     ops.readMcpConfigText = vi.fn().mockResolvedValue(document(invalidContent, validationError));
     ops.writeMcpConfigText = vi.fn().mockReturnValue(save.promise);
@@ -155,10 +173,10 @@ describe('MCP config document validation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
     await act(async () => {
-      save.resolve({ path, success: true });
+      save.resolve({ path, revision: revisionOf(validContent), success: true });
     });
     expect(editor).toHaveValue('{ "servers": [] }');
-    expect(ops.writeMcpConfigText).toHaveBeenCalledWith(validContent);
+    expect(ops.writeMcpConfigText).toHaveBeenCalledWith(validContent, revisionOf(invalidContent));
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
     expect(screen.getByTestId('mcp-config-status')).toHaveTextContent('Newer edits are unsaved.');
   });
@@ -171,7 +189,7 @@ describe('MCP config document validation', () => {
       ops.writeMcpConfigText = vi
         .fn()
         .mockReturnValueOnce(save.promise)
-        .mockResolvedValue({ path, success: true });
+        .mockResolvedValue({ path, revision: 'saved', success: true });
       render(
         <McpConfigPanel
           configuredServerIds={NO_SERVERS}
@@ -326,7 +344,7 @@ describe('MCP config document validation', () => {
   );
 
   it('refreshes tools after an obsolete successful save without replacing a newer loaded document', async () => {
-    const save = Promise.withResolvers<{ path: string; success: true }>();
+    const save = Promise.withResolvers<{ path: string; revision: string; success: true }>();
     const ops = operations();
     ops.readMcpConfigText = vi
       .fn()
@@ -351,7 +369,7 @@ describe('MCP config document validation', () => {
     });
     expect(editor).toHaveValue('{ "servers": [] }');
     await act(async () => {
-      save.resolve({ path, success: true });
+      save.resolve({ path, revision: revisionOf(validContent), success: true });
     });
     expect(editor).toHaveValue('{ "servers": [] }');
     expect(screen.queryByTestId('mcp-config-status')).not.toBeInTheDocument();
@@ -366,7 +384,7 @@ describe('MCP config document validation', () => {
     ops.writeMcpConfigText = vi
       .fn()
       .mockReturnValueOnce(older.promise)
-      .mockResolvedValueOnce({ path, success: true });
+      .mockResolvedValueOnce({ path, revision: 'saved', success: true });
     render(
       <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
     );
@@ -409,6 +427,77 @@ describe('MCP config document validation', () => {
   });
 });
 
+describe('MCP config compare-and-swap saves', () => {
+  it('saves on the loaded revision, then on the revision each save returns', async () => {
+    const ops = operations();
+    ops.writeMcpConfigText = vi
+      .fn()
+      .mockResolvedValueOnce({ path, revision: 'first-save', success: true })
+      .mockResolvedValueOnce({ path, revision: 'second-save', success: true });
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
+    const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
+
+    fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByTestId('mcp-config-status')).toHaveTextContent('MCP config saved.');
+    expect(ops.writeMcpConfigText).toHaveBeenLastCalledWith(
+      '{ "servers": [] }',
+      revisionOf(validContent)
+    );
+
+    fireEvent.change(editor, { target: { value: validContent } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(ops.writeMcpConfigText).toHaveBeenCalledTimes(2));
+    expect(ops.writeMcpConfigText).toHaveBeenLastCalledWith(validContent, 'first-save');
+  });
+
+  it('keeps Save unavailable while no document, and so no base revision, has loaded', async () => {
+    const ops = operations();
+    ops.readMcpConfigText = vi.fn().mockRejectedValue(new Error('Config read failed'));
+    render(
+      <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
+    );
+    const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
+    expect(screen.getByTestId('mcp-config-error')).toHaveTextContent('Config read failed');
+
+    fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    expect(saveButton).toBeDisabled();
+    fireEvent.click(saveButton);
+    fireEvent.keyDown(editor, { ctrlKey: true, key: 's' });
+    expect(ops.writeMcpConfigText).not.toHaveBeenCalled();
+  });
+
+  it('shows a conflict from the host and keeps the editor text', async () => {
+    const conflict =
+      'The MCP config changed on disk since it was read. Reload it, then save again.';
+    const ops = operations();
+    ops.writeMcpConfigText = vi
+      .fn()
+      .mockResolvedValue({ conflict: true, error: conflict, path, success: false });
+    const onConfigChanged = vi.fn();
+    render(
+      <McpConfigPanel
+        configuredServerIds={NO_SERVERS}
+        onConfigChanged={onConfigChanged}
+        operations={ops}
+      />
+    );
+    const editor = await screen.findByRole('textbox', { name: 'Config Editor (JSONC)' });
+
+    fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByTestId('mcp-config-error')).toHaveTextContent(conflict);
+    expect(editor).toHaveValue('{ "servers": [] }');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(screen.queryByTestId('mcp-config-status')).not.toBeInTheDocument();
+    expect(onConfigChanged).not.toHaveBeenCalled();
+  });
+});
+
 describe('MCP catalog in the config panel', () => {
   it('renders the catalog when the install capability exists, with the owner-supplied ids', async () => {
     const { rerender } = render(
@@ -422,7 +511,11 @@ describe('MCP catalog in the config panel', () => {
     expect(screen.queryByTestId('mcp-catalog')).not.toBeInTheDocument();
 
     const ops = operations();
-    ops.installMcpCatalogServer = vi.fn(async () => ({ path, success: true as const }));
+    ops.installMcpCatalogServer = vi.fn(async () => ({
+      path,
+      revision: 'installed',
+      success: true as const,
+    }));
     rerender(
       <McpConfigPanel
         configuredServerIds={new Set(['linear'])}
@@ -439,7 +532,11 @@ describe('MCP catalog in the config panel', () => {
 
   it('blocks installs while the editor is dirty and reloads the editor after an install', async () => {
     const ops = operations();
-    ops.installMcpCatalogServer = vi.fn(async () => ({ path, success: true as const }));
+    ops.installMcpCatalogServer = vi.fn(async () => ({
+      path,
+      revision: 'installed',
+      success: true as const,
+    }));
     const onConfigChanged = vi.fn(async () => undefined);
     render(
       <McpConfigPanel
@@ -466,7 +563,7 @@ describe('MCP catalog in the config panel', () => {
   });
 
   it('keeps edits typed while an install is pending and asks before reloading', async () => {
-    const install = Promise.withResolvers<{ path: string; success: true }>();
+    const install = Promise.withResolvers<{ path: string; revision: string; success: true }>();
     const ops = operations();
     ops.installMcpCatalogServer = vi.fn(() => install.promise);
     const onConfigChanged = vi.fn(async () => undefined);
@@ -482,12 +579,12 @@ describe('MCP catalog in the config panel', () => {
 
     fireEvent.click(gitlab.getByRole('button', { name: 'Install' }));
     fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
-    install.resolve({ path, success: true });
+    install.resolve({ path, revision: 'installed', success: true });
 
     await waitFor(() => expect(onConfigChanged).toHaveBeenCalledOnce());
     expect(editor).toHaveValue('{ "servers": [] }');
     expect(screen.getByTestId('mcp-config-reload-confirm')).toHaveTextContent(
-      'GitLab was added to the config on disk. Reload to see it; saving your current edits will remove it.'
+      "GitLab was added to the config on disk. Reload to see it; your unsaved edits can't be saved until you reload."
     );
     expect(ops.readMcpConfigText).toHaveBeenCalledOnce();
 
@@ -498,7 +595,11 @@ describe('MCP catalog in the config panel', () => {
 
   it('keeps the generic discard question for the Reload button', async () => {
     const ops = operations();
-    ops.installMcpCatalogServer = vi.fn(async () => ({ path, success: true as const }));
+    ops.installMcpCatalogServer = vi.fn(async () => ({
+      path,
+      revision: 'installed',
+      success: true as const,
+    }));
     render(
       <McpConfigPanel configuredServerIds={NO_SERVERS} onConfigChanged={vi.fn()} operations={ops} />
     );

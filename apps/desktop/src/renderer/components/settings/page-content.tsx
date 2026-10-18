@@ -390,8 +390,8 @@ export default function SettingsPageContent() {
         setMcpConfigPath: async (configPath: string | null) => {
           await mcpSettings.request('mcp/config/path/set', { path: configPath });
         },
-        writeMcpConfigText: async (content: string) =>
-          await mcpSettings.request('mcp/config/write', { content }),
+        writeMcpConfigText: async (content: string, baseRevision: string) =>
+          await mcpSettings.request('mcp/config/write', { baseRevision, content }),
       }),
       createSampleConfig: async () => {
         if (!mcpSettings) {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -271,11 +272,17 @@ export interface McpConfigTextDocument {
   error?: string;
   exists: boolean;
   path: string;
+  /** `mcpConfigRevision` of `content`, which is `''` when the file does not exist. */
+  revision: string;
 }
 
+/** A write refused because the file no longer holds the text its base revision names. */
+const MCP_CONFIG_CONFLICT =
+  'The MCP config changed on disk since it was read. Reload it, then save again.';
+
 export type McpConfigWriteResult =
-  | { path: string; success: true }
-  | { error: string; path: string; success: false };
+  | { path: string; revision: string; success: true }
+  | { conflict?: true; error: string; path: string; success: false };
 
 export interface McpWatcher {
   close: () => void;
@@ -291,7 +298,13 @@ export interface McpConfigFile {
   readText(createIfMissing?: boolean): Promise<McpConfigTextDocument>;
   setCustomPath(configPath: string | null): Promise<void>;
   watch(onChange: (config: LoadedMcpConfig) => Promise<void> | void): Promise<McpWatcher>;
-  writeText(content: string): Promise<McpConfigWriteResult>;
+  /** Writes valid text only while the file still has `baseRevision`; otherwise a conflict. */
+  writeText(content: string, baseRevision: string): Promise<McpConfigWriteResult>;
+}
+
+/** The revision of config text: the lowercase hex SHA-256 of its UTF-8 bytes. An absent file has the revision of `''`. */
+export function mcpConfigRevision(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 export function getDefaultMcpConfigTemplate(): string {
@@ -300,6 +313,18 @@ export function getDefaultMcpConfigTemplate(): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The file's text, or `''` when it does not exist. */
+async function readTextOrEmpty(target: string): Promise<string> {
+  try {
+    return await fsp.readFile(target, 'utf-8');
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'ENOENT') {
+      return '';
+    }
+    throw error;
+  }
 }
 
 function normalizeCustomConfigPath(configPath: string | null): string | null {
@@ -479,6 +504,7 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
           created: false,
           exists: false,
           path: ensured.path,
+          revision: mcpConfigRevision(''),
         };
       }
 
@@ -495,6 +521,7 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
         ...(validationError === undefined ? {} : { error: validationError }),
         exists: true,
         path: ensured.path,
+        revision: mcpConfigRevision(content),
       };
     },
     async setCustomPath(next) {
@@ -557,7 +584,7 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
         },
       };
     },
-    async writeText(content) {
+    async writeText(content, baseRevision) {
       const target = await configPath();
 
       try {
@@ -567,9 +594,16 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
       }
 
       try {
+        // The check and the write are adjacent, and the settings authority
+        // serializes every write in this process, but a writer outside it can
+        // still change the file between them. That window is acceptable for
+        // an editor file.
+        if (mcpConfigRevision(await readTextOrEmpty(target)) !== baseRevision) {
+          return { conflict: true, error: MCP_CONFIG_CONFLICT, path: target, success: false };
+        }
         await fsp.mkdir(path.dirname(target), { recursive: true });
         await fsp.writeFile(target, content, 'utf-8');
-        return { path: target, success: true };
+        return { path: target, revision: mcpConfigRevision(content), success: true };
       } catch (error) {
         return { error: errorMessage(error), path: target, success: false };
       }

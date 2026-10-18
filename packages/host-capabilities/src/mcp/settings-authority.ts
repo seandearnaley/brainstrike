@@ -241,6 +241,7 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   }
 
   writeConfigText({
+    baseRevision,
     content,
   }: HostParams<'mcp/config/write'>): Promise<HostResults['mcp/config/write']> {
     return this.#trackOperation(async (lifecycleEpoch) => {
@@ -255,14 +256,14 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
           success: false,
         };
       }
-      return await this.#commitConfigText(content, lifecycleEpoch);
+      return await this.#commitConfigText(content, baseRevision, lifecycleEpoch);
     });
   }
 
   /**
-   * Appends one catalog server to the config (spec 2026-10-18 §4.2). A token
-   * entry stores its token first and removes it again unless the config file
-   * was written, since a written file references it.
+   * Appends one catalog server to the config (spec 2026-10-18 §4.2) on the
+   * revision it read. A token entry stores its token first and removes it
+   * again unless the config file was written, since a written file references it.
    */
   installCatalogServer(
     request: HostParams<'mcp/config/install'>
@@ -305,58 +306,64 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
         document.content,
         modify(document.content, ['servers', -1], server, { formattingOptions: CONFIG_FORMATTING })
       );
-      const result = await this.#commitInstallText(entry, credential, content, lifecycleEpoch);
-      if (result.success || credential === undefined) {
-        return result;
-      }
-      const removalFailure = await this.#removeUnwrittenToken(credential);
-      if (removalFailure === undefined) {
-        return result;
-      }
-      return refuse(
-        `${result.error}; the stored ${entry.name} token could not be removed: ${removalFailure}`
+      return await this.#commitInstallText(
+        entry,
+        credential,
+        content,
+        document.revision,
+        lifecycleEpoch
       );
     });
   }
 
   /**
-   * Commits an install's config text. A commit that throws before the file was
-   * written removes the stored token and says so; once the file is written it
-   * references the token, so the token stays and the error passes unchanged.
+   * Commits an install's config text. The stored token stays only once the
+   * file that references it was written: a refused or failed write, or a commit
+   * that throws before writing, removes the token and reports a failed removal.
    */
   async #commitInstallText(
     entry: McpCatalogEntry,
     credential: McpBearerCredentialReference | undefined,
     content: string,
+    baseRevision: string,
     lifecycleEpoch: number
   ): Promise<McpConfigWriteResult> {
     let written = false;
+    let result: McpConfigWriteResult;
     try {
-      return await this.#commitConfigText(content, lifecycleEpoch, () => {
-        written = true;
+      result = await this.#commitConfigText(content, baseRevision, lifecycleEpoch, {
+        conflict: `The MCP config changed while installing ${entry.name}; nothing was installed. Try again.`,
+        onWritten: () => {
+          written = true;
+        },
       });
     } catch (error) {
       if (written || credential === undefined) {
         throw error;
       }
-      const removalFailure = await this.#removeUnwrittenToken(credential);
-      const removal =
-        removalFailure === undefined ? 'was removed' : `could not be removed: ${removalFailure}`;
-      throw new Error(`${errorMessage(error)}; the stored ${entry.name} token ${removal}`, {
-        cause: error,
-      });
+      const removalFailure = await this.#removeUnwrittenToken(entry, credential);
+      const removal = removalFailure ?? `the stored ${entry.name} token was removed`;
+      throw new Error(`${errorMessage(error)}; ${removal}`, { cause: error });
     }
+    if (result.success || credential === undefined) {
+      return result;
+    }
+    const removalFailure = await this.#removeUnwrittenToken(entry, credential);
+    return removalFailure === undefined
+      ? result
+      : { ...result, error: `${result.error}; ${removalFailure}` };
   }
 
-  /** Removes a token no written config references: why it could not be, or `undefined`. */
+  /** Removes a token no written config references: `undefined`, or why it could not be. */
   async #removeUnwrittenToken(
+    entry: McpCatalogEntry,
     credential: McpBearerCredentialReference
   ): Promise<string | undefined> {
     try {
       await this.options.bearerCredentials.delete(credential);
       return undefined;
     } catch (error) {
-      return errorMessage(error);
+      return `the stored ${entry.name} token could not be removed: ${errorMessage(error)}`;
     }
   }
 
@@ -815,23 +822,40 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   }
 
   /**
-   * Writes config text on this lifecycle and reloads it; the watcher pauses
-   * across the write. `onWritten` runs once the file holds `content`, so a
-   * caller can tell a failure before the write from one after it.
+   * Writes config text on this lifecycle while the file still has
+   * `baseRevision`, and reloads it; the watcher pauses across the write.
+   * `onWritten` runs once the file holds `content`, so a caller can tell a
+   * failure before the write from one after it. `conflict` words a stale base
+   * for the caller. A watcher that cannot restart never hides a failed write.
    */
   async #commitConfigText(
     content: string,
+    baseRevision: string,
     lifecycleEpoch: number,
-    onWritten?: () => void
+    { conflict, onWritten }: { readonly conflict?: string; readonly onWritten?: () => void } = {}
   ): Promise<McpConfigWriteResult> {
     const restartWatcher = this.#unwatch !== null;
     this.#stopWatcher();
-    const result = await this.options.configFile.writeText(content);
+    const written = await this.options.configFile.writeText(content, baseRevision);
+    const result =
+      !written.success && written.conflict && conflict !== undefined
+        ? { ...written, error: conflict }
+        : written;
     if (result.success) {
       onWritten?.();
     }
     if (restartWatcher) {
-      await this.#restartWatcherForLifecycle(lifecycleEpoch);
+      try {
+        await this.#restartWatcherForLifecycle(lifecycleEpoch);
+      } catch (error) {
+        if (result.success) {
+          throw error;
+        }
+        throw new Error(
+          `${result.error}; the MCP config watcher could not restart: ${errorMessage(error)}`,
+          { cause: error }
+        );
+      }
     }
     if (result.success) {
       logger.info('MCP config text updated', { path: result.path });

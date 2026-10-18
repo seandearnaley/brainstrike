@@ -15,7 +15,7 @@ test('the client distinguishes owned parser failures from ordinary invalid wire 
     endpoint: '/tmp/unused-wire-decoder-fixture',
     hostVersion: '0.1.0',
     pid: 1,
-    protocolVersion: 11,
+    protocolVersion: 12,
     start: 'fixture',
     token: 'a'.repeat(64),
   };

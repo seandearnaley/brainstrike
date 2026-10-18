@@ -8,13 +8,13 @@ import {
   HostEventSchema,
   parseHostParams,
 } from '../src/protocol.js';
-import wireV11 from './fixtures/host-v11-methods.json' with { type: 'json' };
+import wireV12 from './fixtures/host-v12-methods.json' with { type: 'json' };
 
 test('every first-party host request/result/event grammar has one Effect owner', () => {
   const requests = Object.entries(HOST_METHOD_SCHEMAS);
   const results = Object.entries(HOST_RESULT_SCHEMAS);
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV11.version);
-  expect(requests.map(([name]) => name).sort()).toEqual(wireV11.methods);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV12.version);
+  expect(requests.map(([name]) => name).sort()).toEqual(wireV12.methods);
   expect(results.map(([name]) => name).sort()).toEqual(requests.map(([name]) => name).sort());
   expect(
     [...requests, ...results, ['event', HostEventSchema]]
@@ -24,7 +24,7 @@ test('every first-party host request/result/event grammar has one Effect owner',
 });
 
 test('protocol version and secret-bearing request refusal stay fixed', () => {
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(11);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(12);
   expect(parseHostParams('auth/connect', { method: undefined, provider: 'openai' })).toEqual({
     method: undefined,
     provider: 'openai',
@@ -52,6 +52,31 @@ test('protocol version and secret-bearing request refusal stay fixed', () => {
     'Invalid MCP host request'
   );
   expect(() => parseHostParams('mcp/config/install', excessKey)).not.toThrow('never-print-me');
+});
+
+test('v12 MCP config writes require the base revision and return the new one', () => {
+  const revision = 'a'.repeat(64);
+  const decodeResult = (method: 'mcp/config/install' | 'mcp/config/read' | 'mcp/config/write') =>
+    Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], { onExcessProperty: 'error' });
+  expect(() => parseHostParams('mcp/config/write', { content: '{}' })).toThrow(
+    'Invalid MCP host request'
+  );
+  expect(parseHostParams('mcp/config/write', { baseRevision: revision, content: '{}' })).toEqual({
+    baseRevision: revision,
+    content: '{}',
+  });
+  const document = { content: '', created: false, exists: false, path: '/p', revision };
+  expect(decodeResult('mcp/config/read')(document)).toEqual(document);
+  const { revision: _, ...unrevised } = document;
+  expect(() => decodeResult('mcp/config/read')(unrevised)).toThrow();
+  for (const method of ['mcp/config/write', 'mcp/config/install'] as const) {
+    const success = { path: '/p', revision, success: true };
+    expect(decodeResult(method)(success)).toEqual(success);
+    expect(() => decodeResult(method)({ path: '/p', success: true })).toThrow();
+    const conflict = { conflict: true, error: 'stale', path: '/p', success: false };
+    expect(decodeResult(method)(conflict)).toEqual(conflict);
+    expect(() => decodeResult(method)({ ...conflict, conflict: false })).toThrow();
+  }
 });
 
 test('external URL normalization preserves the former URL decoder output', () => {

@@ -93,9 +93,9 @@ interface CapturedToolsOperations {
     access: 'read-only' | 'read-write';
     catalogId: string;
     token?: string;
-  }) => Promise<{ error?: string; path: string; success: boolean }>;
+  }) => Promise<{ error?: string; path: string; revision?: string; success: boolean }>;
   openMcpConfig: () => Promise<void>;
-  readMcpConfigText?: () => Promise<{ content: string; path: string }>;
+  readMcpConfigText?: () => Promise<{ content: string; path: string; revision: string }>;
   readMcpResource?: (request: unknown) => Promise<unknown>;
   refreshMcpServers: () => Promise<void>;
   reloadToolPreferences?: () => Promise<void>;
@@ -114,8 +114,9 @@ interface CapturedToolsOperations {
   subscribeMcpServerStatus?: (listener: (event: McpHostWatchEvent) => void) => () => void;
   subscribeMcpTools: (listener: () => void) => () => void;
   writeMcpConfigText?: (
-    content: string
-  ) => Promise<{ error?: string; path: string; success: boolean }>;
+    content: string,
+    baseRevision: string
+  ) => Promise<{ error?: string; path: string; revision?: string; success: boolean }>;
 }
 
 let capturedOperations: CapturedToolsOperations | null = null;
@@ -349,7 +350,7 @@ const MCP_TOOLS = {
 
 function createHostMcpSettings(): FakeHostMcpSettings {
   const responses: Record<string, (params: unknown) => unknown> = {
-    'mcp/config/install': () => ({ path: '/tmp/mcp.json', success: true }),
+    'mcp/config/install': () => ({ path: '/tmp/mcp.json', revision: 'installed', success: true }),
     'mcp/config/path': () => ({ path: '/tmp/mcp.json' }),
     'mcp/config/path/set': (params) => ({
       path: (params as { path: string | null }).path ?? '/tmp/default.json',
@@ -361,10 +362,11 @@ function createHostMcpSettings(): FakeHostMcpSettings {
       error: 'invalid_mcp_config: servers: required',
       exists: true,
       path: '/tmp/mcp.json',
+      revision: 'loaded',
     }),
     'mcp/config/sample': () => ({ path: '/tmp/sample.json', success: true }),
     'mcp/config/status': () => ({ exists: true, path: '/tmp/mcp.json' }),
-    'mcp/config/write': () => ({ path: '/tmp/mcp.json', success: true }),
+    'mcp/config/write': () => ({ path: '/tmp/mcp.json', revision: 'written', success: true }),
     'mcp/extensions/read': () => extensionPreferences,
     'mcp/extensions/set': (params) => params,
     'mcp/server/control': () => hostSnapshot.servers[0],
@@ -548,17 +550,20 @@ describe('desktop SettingsPageContent tool operations', () => {
       error: 'invalid_mcp_config: servers: required',
       exists: true,
       path: '/tmp/mcp.json',
+      revision: 'loaded',
     });
-    await expect(operations.writeMcpConfigText?.('{"servers":{}}')).resolves.toEqual({
+    await expect(operations.writeMcpConfigText?.('{"servers":{}}', 'loaded')).resolves.toEqual({
       path: '/tmp/mcp.json',
+      revision: 'written',
       success: true,
     });
     expect(settings.request).toHaveBeenCalledWith('mcp/config/write', {
+      baseRevision: 'loaded',
       content: '{"servers":{}}',
     });
     await expect(
       operations.installMcpCatalogServer?.({ access: 'read-only', catalogId: 'linear' })
-    ).resolves.toEqual({ path: '/tmp/mcp.json', success: true });
+    ).resolves.toEqual({ path: '/tmp/mcp.json', revision: 'installed', success: true });
     expect(settings.request).toHaveBeenCalledWith('mcp/config/install', {
       access: 'read-only',
       catalogId: 'linear',

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,8 +8,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createMcpConfigFile,
   getDefaultMcpConfigTemplate,
+  mcpConfigRevision,
   parseMcpConfig,
 } from '../src/mcp/config-file.js';
+
+const EMPTY_REVISION = mcpConfigRevision('');
+const CONFLICT = 'The MCP config changed on disk since it was read. Reload it, then save again.';
 
 /** One fresh config-file instance for a profile directory, under the loader's names. */
 function loader(userDataDir: string) {
@@ -20,7 +25,8 @@ function loader(userDataDir: string) {
     parseMcpConfig,
     readMcpConfigText: (createIfMissing?: boolean) => file.readText(createIfMissing),
     setCustomMcpConfigPath: (configPath: string | null) => file.setCustomPath(configPath),
-    writeMcpConfigText: (content: string) => file.writeText(content),
+    writeMcpConfigText: (content: string, baseRevision: string) =>
+      file.writeText(content, baseRevision),
   };
 }
 
@@ -252,7 +258,7 @@ describe('MCP config file', () => {
     expect(loaded.config).toBeUndefined();
 
     fs.rmSync(configPath);
-    const written = await file.writeText(content);
+    const written = await file.writeText(content, EMPTY_REVISION);
     expect(written.success).toBe(false);
     expect(fs.existsSync(configPath)).toBe(false);
   });
@@ -367,6 +373,7 @@ describe('MCP config file', () => {
       created: false,
       exists: false,
       path: missingPath,
+      revision: EMPTY_REVISION,
     });
   });
 
@@ -375,13 +382,14 @@ describe('MCP config file', () => {
     const configPath = path.join(tempDir, 'mcp', 'editable.json');
     await setCustomMcpConfigPath(configPath);
 
-    const invalid = await writeMcpConfigText('{ invalid json');
+    const invalid = await writeMcpConfigText('{ invalid json', EMPTY_REVISION);
     expect(invalid.success).toBe(false);
 
     const valid = await writeMcpConfigText(
       JSON.stringify({
         servers: [{ command: 'node', name: 'fs', transport: 'stdio' }],
-      })
+      }),
+      EMPTY_REVISION
     );
     expect(valid.success).toBe(true);
     expect(fs.existsSync(configPath)).toBe(true);
@@ -400,24 +408,36 @@ describe('MCP config file', () => {
     const error =
       'invalid_mcp_config: servers.0.auth: auth "oauth-user" is not supported with transport "sse"; use "streamable-http"';
 
+    const revision = mcpConfigRevision(content);
     expect(await readMcpConfigText(true)).toEqual({
       content,
       created: false,
       error,
       exists: true,
       path: configPath,
+      revision,
     });
     expect(await loadMcpConfig()).toEqual({ error, exists: true, path: configPath });
-    expect(await writeMcpConfigText(content)).toEqual({ error, path: configPath, success: false });
+    expect(await writeMcpConfigText(content, revision)).toEqual({
+      error,
+      path: configPath,
+      success: false,
+    });
     expect(fs.readFileSync(configPath, 'utf-8')).toBe(content);
 
     const corrected = content.replace('"transport": "sse"', '"transport": "streamable-http"');
-    expect(await writeMcpConfigText(corrected)).toEqual({ path: configPath, success: true });
+    const correctedRevision = mcpConfigRevision(corrected);
+    expect(await writeMcpConfigText(corrected, revision)).toEqual({
+      path: configPath,
+      revision: correctedRevision,
+      success: true,
+    });
     expect(await readMcpConfigText()).toEqual({
       content: corrected,
       created: false,
       exists: true,
       path: configPath,
+      revision: correctedRevision,
     });
     expect(fs.readFileSync(configPath, 'utf-8')).toBe(corrected);
   });
@@ -446,7 +466,8 @@ describe('MCP config file', () => {
     const result = await writeMcpConfigText(
       JSON.stringify({
         servers: [{ command: 'node', name: 'fs', transport: 'stdio' }],
-      })
+      }),
+      EMPTY_REVISION
     );
 
     expect(result.path).toBe(configPath);
@@ -454,6 +475,88 @@ describe('MCP config file', () => {
     if (!result.success) {
       expect(result.error.length).toBeGreaterThan(0);
     }
+  });
+
+  describe('compare-and-swap writes', () => {
+    const servers = (name: string) =>
+      JSON.stringify({
+        servers: [{ command: 'node', name, protocol: 'legacy', transport: 'stdio' }],
+      });
+    const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
+
+    it('reads the SHA-256 revision of the text, and of empty text when the file is absent', async () => {
+      const { readMcpConfigText, setCustomMcpConfigPath } = loader(tempDir);
+      const configPath = path.join(tempDir, 'mcp', 'revision.json');
+      await setCustomMcpConfigPath(configPath);
+
+      expect((await readMcpConfigText(false)).revision).toBe(sha256(''));
+
+      const content = `{\n  // caf\u00e9\n  "servers": []\n}\n`;
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, content, 'utf-8');
+      const doc = await readMcpConfigText(false);
+
+      expect(doc.revision).toBe(sha256(content));
+      expect(doc.revision).toMatch(/^[0-9a-f]{64}$/u);
+      expect(mcpConfigRevision(content)).toBe(sha256(content));
+    });
+
+    it('writes on the current revision and returns the new one', async () => {
+      const { readMcpConfigText, setCustomMcpConfigPath, writeMcpConfigText } = loader(tempDir);
+      const configPath = path.join(tempDir, 'mcp', 'current.json');
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, servers('before'), 'utf-8');
+      await setCustomMcpConfigPath(configPath);
+      const { revision } = await readMcpConfigText(false);
+
+      await expect(writeMcpConfigText(servers('after'), revision)).resolves.toEqual({
+        path: configPath,
+        revision: sha256(servers('after')),
+        success: true,
+      });
+      expect(fs.readFileSync(configPath, 'utf-8')).toBe(servers('after'));
+    });
+
+    it('refuses a stale revision and leaves the newer file byte-identical', async () => {
+      const { readMcpConfigText, setCustomMcpConfigPath, writeMcpConfigText } = loader(tempDir);
+      const configPath = path.join(tempDir, 'mcp', 'stale.json');
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, servers('before'), 'utf-8');
+      await setCustomMcpConfigPath(configPath);
+      const { revision } = await readMcpConfigText(false);
+      const external = `${servers('external')}\n// edited outside the app\n`;
+      fs.writeFileSync(configPath, external, 'utf-8');
+
+      await expect(writeMcpConfigText(servers('mine'), revision)).resolves.toEqual({
+        conflict: true,
+        error: CONFLICT,
+        path: configPath,
+        success: false,
+      });
+      expect(fs.readFileSync(configPath, 'utf-8')).toBe(external);
+
+      fs.rmSync(configPath);
+      await expect(writeMcpConfigText(servers('mine'), revision)).resolves.toEqual({
+        conflict: true,
+        error: CONFLICT,
+        path: configPath,
+        success: false,
+      });
+      expect(fs.existsSync(configPath)).toBe(false);
+    });
+
+    it('creates a missing file when the base is the empty revision', async () => {
+      const { setCustomMcpConfigPath, writeMcpConfigText } = loader(tempDir);
+      const configPath = path.join(tempDir, 'mcp', 'nested', 'created.json');
+      await setCustomMcpConfigPath(configPath);
+
+      await expect(writeMcpConfigText(servers('fresh'), EMPTY_REVISION)).resolves.toEqual({
+        path: configPath,
+        revision: sha256(servers('fresh')),
+        success: true,
+      });
+      expect(fs.readFileSync(configPath, 'utf-8')).toBe(servers('fresh'));
+    });
   });
 
   it('reports parse errors without treating config as missing', async () => {
