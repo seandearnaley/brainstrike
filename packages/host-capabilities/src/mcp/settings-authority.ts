@@ -16,9 +16,26 @@ import {
   parseMcpExtensionEnablement,
   refusal,
 } from '@brainstrike/assistant-contract';
+import {
+  findMcpCatalogEntry,
+  type McpCatalogEntry,
+  type McpCatalogInstallRequest,
+  mcpCatalogServerInput,
+} from '@brainstrike/assistant-contract/mcp-catalog';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
-import type { LoadedMcpConfig, McpConfigFile, ResolvedMcpConfig } from './config-file.js';
+import { applyEdits, type FormattingOptions, modify } from 'jsonc-parser';
+import type {
+  McpBearerCredentialReference,
+  McpBearerCredentialWriter,
+} from './bearer-credential.js';
+import {
+  type LoadedMcpConfig,
+  type McpConfigFile,
+  type McpConfigWriteResult,
+  parseMcpConfig,
+  type ResolvedMcpConfig,
+} from './config-file.js';
 import { toMcpConfigStatus } from './config-status.js';
 import {
   clearStoredMcpExtensionPreferences,
@@ -40,6 +57,28 @@ import type { McpDiscoveredTool } from './types.js';
 
 const logger = createLogger('McpSettingsAuthority');
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
+const CONFIG_FORMATTING: FormattingOptions = { eol: '\n', insertSpaces: true, tabSize: 2 };
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Why `entry` cannot take this request's access or token, or `undefined` when it can. */
+function catalogRequestRefusal(
+  entry: McpCatalogEntry,
+  request: McpCatalogInstallRequest
+): string | undefined {
+  if (entry.urls[request.access] === undefined) {
+    return `${entry.name} has no ${request.access} endpoint.`;
+  }
+  if (entry.auth === 'oauth' && request.token !== undefined) {
+    return `${entry.name} signs in with OAuth and takes no token.`;
+  }
+  if (entry.auth === 'token' && request.token === undefined) {
+    return `${entry.name} needs a token.`;
+  }
+  return undefined;
+}
 /** A reset or shutdown retired the settings lifecycle: requests are refused, not failed. */
 const MCP_SETTINGS_CLOSED = refusal({
   category: 'availability',
@@ -56,6 +95,8 @@ export interface McpSettingsRuntime {
 }
 
 export interface McpSettingsAuthorityOptions {
+  /** The one writer of the `mcp-credentials` tokens a catalog install stores. */
+  readonly bearerCredentials: McpBearerCredentialWriter;
   readonly configFile: McpConfigFile;
   /** The host's StateStore settings, holding the global extension dials. */
   readonly extensionStore: McpExtensionPreferencesStore;
@@ -230,17 +271,62 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
           success: false,
         };
       }
-      const restartWatcher = this.#unwatch !== null;
-      this.#stopWatcher();
-      const result = await this.options.configFile.writeText(content);
-      if (restartWatcher) {
-        await this.#restartWatcherForLifecycle(lifecycleEpoch);
+      return await this.#commitConfigText(content, lifecycleEpoch);
+    });
+  }
+
+  /**
+   * Appends one catalog server to the config (spec 2026-10-18 §4.2). A token
+   * entry stores its token first and removes it again when the write fails.
+   */
+  installCatalogServer(request: McpCatalogInstallRequest): Promise<McpConfigWriteResult> {
+    return this.#trackOperation(async (lifecycleEpoch) => {
+      const configPath = await this.options.configFile.path();
+      const refuse = (error: string): McpConfigWriteResult => ({
+        error,
+        path: configPath,
+        success: false,
+      });
+      const entry = findMcpCatalogEntry(request.catalogId);
+      if (!entry) {
+        return refuse(`Unknown MCP catalog entry "${request.catalogId}".`);
       }
-      if (result.success) {
-        logger.info('MCP config text updated', { path: result.path });
-        await this.#reloadForLifecycle(lifecycleEpoch);
+      const mismatch = catalogRequestRefusal(entry, request);
+      if (mismatch !== undefined) {
+        return refuse(mismatch);
       }
-      return result;
+      const document = await this.options.configFile.readText(true);
+      if (document.error !== undefined) {
+        return refuse(`Fix the MCP config before installing ${entry.name}: ${document.error}`);
+      }
+      if (parseMcpConfig(document.content).servers.some(({ name }) => name === entry.id)) {
+        return refuse(`An MCP server named "${entry.id}" is already configured.`);
+      }
+      let credential: McpBearerCredentialReference | undefined;
+      if (request.token !== undefined) {
+        try {
+          credential = await this.options.bearerCredentials.create(request.token);
+        } catch (error) {
+          return refuse(`${entry.name} token was not stored: ${errorMessage(error)}`);
+        }
+      }
+      const server = mcpCatalogServerInput(entry, request.access, credential);
+      const content = applyEdits(
+        document.content,
+        modify(document.content, ['servers', -1], server, { formattingOptions: CONFIG_FORMATTING })
+      );
+      const result = await this.#commitConfigText(content, lifecycleEpoch);
+      if (result.success || credential === undefined) {
+        return result;
+      }
+      try {
+        await this.options.bearerCredentials.delete(credential);
+        return result;
+      } catch (error) {
+        return refuse(
+          `${result.error}; the stored ${entry.name} token could not be removed: ${errorMessage(error)}`
+        );
+      }
     });
   }
 
@@ -696,6 +782,21 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     const loadEpoch = ++this.#latestLoadEpoch;
     const config = await this.options.configFile.load();
     await this.#applyConfigChange(config, loadEpoch, lifecycleEpoch);
+  }
+
+  /** Writes config text on this lifecycle and reloads it; the watcher pauses across the write. */
+  async #commitConfigText(content: string, lifecycleEpoch: number): Promise<McpConfigWriteResult> {
+    const restartWatcher = this.#unwatch !== null;
+    this.#stopWatcher();
+    const result = await this.options.configFile.writeText(content);
+    if (restartWatcher) {
+      await this.#restartWatcherForLifecycle(lifecycleEpoch);
+    }
+    if (result.success) {
+      logger.info('MCP config text updated', { path: result.path });
+      await this.#reloadForLifecycle(lifecycleEpoch);
+    }
+    return result;
   }
 
   #applyConfigPath(resolvedConfigPath: string | null): Promise<HostResults['mcp/config/path/set']> {

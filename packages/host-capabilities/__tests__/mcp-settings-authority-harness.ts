@@ -14,6 +14,10 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { vi } from 'vitest';
+import type {
+  McpBearerCredentialReference,
+  McpBearerCredentialWriter,
+} from '../src/mcp/bearer-credential.js';
 import {
   createMcpConfigFile,
   type LoadedMcpConfig,
@@ -120,6 +124,26 @@ function createSettingsStore() {
   };
 }
 
+/** The profile's MCP token store, in memory: fresh ids, and removal of a missing token fails. */
+function createBearerCredentials() {
+  const stored = new Map<string, string>();
+  let next = 0;
+  const writer = {
+    create: vi.fn(async (token: string): Promise<McpBearerCredentialReference> => {
+      next += 1;
+      const id = `00000000-0000-4000-8000-${String(next).padStart(12, '0')}`;
+      stored.set(id, token);
+      return { id, store: 'mcp-credentials' };
+    }),
+    delete: vi.fn(async (reference: McpBearerCredentialReference): Promise<void> => {
+      if (!stored.delete(reference.id)) {
+        throw new Error('MCP bearer credential could not be removed');
+      }
+    }),
+  } satisfies McpBearerCredentialWriter;
+  return { stored, writer };
+}
+
 /**
  * A real profile directory and config file. The file watcher is the one seam:
  * a test fires a change deterministically instead of waiting on file events.
@@ -129,6 +153,7 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
   const listTools: ListTools = options.listTools ?? (async () => toolList());
   const fake = createRuntime(listTools);
   const settings = createSettingsStore();
+  const bearer = createBearerCredentials();
   const realFile = createMcpConfigFile(userDataDir);
   const watchers: Array<{
     readonly onChange: (config: LoadedMcpConfig) => Promise<void> | void;
@@ -143,6 +168,7 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
     }),
   };
   const authority = new McpSettingsAuthority({
+    bearerCredentials: bearer.writer,
     configFile,
     extensionStore: settings.store,
     runtime: fake.runtime,
@@ -162,6 +188,7 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
   const preferencesPath = path.join(userDataDir, 'mcp', 'tool-preferences.json');
   return {
     authority,
+    bearer,
     configFile,
     configPath,
     events,

@@ -176,7 +176,12 @@ function compositionOptions(
   return {
     connection: { onRequest: () => ({ dispose: () => undefined }) } as unknown as MessageConnection,
     credentials: {
-      secrets: () => ({ getKey: async () => null, listProviders: async () => [] }),
+      secrets: () => ({
+        deleteKey: async () => false,
+        getKey: async () => null,
+        listProviders: async () => [],
+        saveKey: async () => false,
+      }),
       store: () => store,
     },
     request,
