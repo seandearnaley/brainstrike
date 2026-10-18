@@ -209,6 +209,73 @@ async function catalogRows(tab: WebStateStore, rootId: string) {
     .map(({ embeddingSetId, fileId, path }) => ({ embeddingSetId, fileId, path }));
 }
 
+/** A scan in flight, and its outcome once it settles: its receipt, or the error it failed with. */
+interface RunningScan {
+  readonly done: Promise<unknown>;
+  readonly settled: () => { readonly outcome: unknown } | undefined;
+}
+
+function startScan(
+  index: WebFileIndex,
+  rootId: string,
+  folder: FileSystemDirectoryHandle
+): RunningScan {
+  let settled: { readonly outcome: unknown } | undefined;
+  const done = index
+    .scan(rootId, folder)
+    .catch((error: unknown) => error)
+    .then((outcome) => {
+      settled = { outcome };
+      return outcome;
+    });
+  return { done, settled: () => settled };
+}
+
+function scanOutcome(outcome: unknown): string {
+  return outcome instanceof Error
+    ? `it failed: ${outcome.message}`
+    : `it completed: ${JSON.stringify(outcome)}`;
+}
+
+/**
+ * Reads `read` until `ready` holds, while `scan` runs. A scan that settles
+ * first fails the wait with its own outcome, so a scan that failed or
+ * finished never reads as a timeout. Answers when each value was first read,
+ * in ms since the wait began.
+ */
+async function whileScanning(
+  scan: RunningScan,
+  read: () => Promise<number>,
+  ready: (value: number) => boolean,
+  timeoutMs: number
+): Promise<string> {
+  const started = Date.now();
+  const seen: string[] = [];
+  let last: number | undefined;
+  while (true) {
+    const value = await read();
+    if (value !== last) {
+      seen.push(`${value} at ${Date.now() - started} ms`);
+      last = value;
+    }
+    const settled = scan.settled();
+    if (settled) {
+      throw new Error(
+        `The scan settled before the wait held (${seen.join(', ')}): ${scanOutcome(settled.outcome)}`
+      );
+    }
+    if (ready(value)) {
+      return seen.join(', ');
+    }
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`The wait did not hold in ${timeoutMs} ms (${seen.join(', ')}).`);
+    }
+    // On a loaded hosted runner the states awaited arrive seconds apart (BST-2145): a
+    // tighter poll gains nothing, and takes CPU from the scan it waits for.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 describe('the file index follows the saved Search & Indexing settings', () => {
   it('refuses until a tab hands it the settings, and settings that fail leave it refusing', async () => {
     const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
@@ -286,7 +353,9 @@ describe('the file index follows the saved Search & Indexing settings', () => {
     await expect(search(index, rootId, 'one')).rejects.toThrow('disabled in saved settings');
   });
 
-  it("retires a running scan before it reads a new configuration's authority", async () => {
+  it("retires a running scan before it reads a new configuration's authority", async ({
+    annotate,
+  }) => {
     // Three batches of 64: the later batches' catalog rows are written while the scan runs.
     const { folder, rootId } = await grantedFolder(
       Object.fromEntries(
@@ -299,18 +368,22 @@ describe('the file index follows the saved Search & Indexing settings', () => {
     const tab = await openTab(storeConfig());
     await register(tab, rootId);
     const index = await configuredIndex(tab);
-    const scanning = index.scan(rootId, folder).catch((error: unknown) => error);
-    // Into the second batch: its rows are written after the first batch's are published.
-    await expect
-      .poll(
-        async () =>
-          (await index.coverageScope({ scope: { kind: 'workspace', rootId } })).counts.indexedFiles,
-        { interval: 5, timeout: 30_000 }
-      )
-      .toBeGreaterThan(64);
+    const scan = startScan(index, rootId, folder);
+    // Into the second batch: its catalog rows are written once the first batch is published and
+    // completed, and before any of its own files is chunked.
+    const rows = await whileScanning(
+      scan,
+      async () => (await catalogPaths(tab, rootId)).length,
+      (count) => count > 64,
+      30_000
+    );
+    await annotate(`The root's catalog rows, as the scan wrote them: ${rows}`);
 
+    const settledBeforeConfigure = scan.settled();
     await index.configure(savedPreferences({ indexingPolicyPreset: 'full-root' }));
-    await scanning;
+    // The scan was still running when the configure was issued, and the configure retired it.
+    expect(settledBeforeConfigure).toBeUndefined();
+    expect(scanOutcome(await scan.done)).toContain('File ingestion retired.');
     // Every file the catalog holds as processed is still the store's: none was retired as unowned.
     const processed = (await tab.sourceCatalog({ operation: 'list' })).files.filter(
       (file) => file.rootId === rootId && file.chunksProcessed
