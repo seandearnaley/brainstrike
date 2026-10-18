@@ -28,15 +28,17 @@ export async function acceptHostChildInput(
   await accept();
   const { commandId: _input, runId, ...settings } = params;
   run.steered = true;
+  run.inputAccepted = true;
   run.childInput = { ...settings, commandId: randomUUID(), parentMessageId: runId };
   return { accepted: true };
 }
 
 /**
- * Take the input a settled child run hands to the child's next run, once,
- * while the host may still start one. A run that was stopped or ended some
- * other way refuses it, so the input is committed as a failed run, never
- * dropped.
+ * The input a settled child run hands to the child's next run, while the host
+ * may still start one; its run's end takes it once. A run that was stopped or
+ * ended some other way refuses it, so the input is committed as a failed run,
+ * never dropped. The input stays on the run until that next run is committed:
+ * until then the run is still taking it (core-child-runs.ts).
  */
 export function takeHostChildInput(
   run: HostRunState,
@@ -47,7 +49,6 @@ export function takeHostChildInput(
   if (!(open && params)) {
     return;
   }
-  run.childInput = undefined;
   if (run.stopped || outcome !== 'completed') {
     const ended = run.stopped ? 'stopped' : outcome;
     return {
