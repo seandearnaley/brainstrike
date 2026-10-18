@@ -185,6 +185,10 @@ test.describe('Unified workspace tab panel', () => {
     );
 
     // Singleton: picking Files again re-activates the SAME tab, never a second.
+    // The first pick's menu is still dismissing (exit animation, then focus
+    // returns to "+"); reopening inside that window is closed by the returning
+    // focus, so wait for it to go first.
+    await expect(page.getByRole('menu')).toHaveCount(0);
     await addButton.click();
     await page.getByRole('menu').getByRole('menuitem', { name: /Files/ }).click();
     await expect(page.getByTestId('workspace-app-tab-context-explorer')).toHaveCount(1);
