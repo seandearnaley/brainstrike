@@ -4,7 +4,7 @@ import { McpConfigSchema } from '../mcp/config';
 
 describe('agent MCP authentication configuration', () => {
   it('accepts explicit unauthenticated HTTP configuration', () => {
-    const parsed = Schema.decodeUnknownSync(McpConfigSchema, {
+    const parsed = Schema.decodeSync(McpConfigSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })({
@@ -22,7 +22,7 @@ describe('agent MCP authentication configuration', () => {
     ).toEqual(['none']);
   });
   it('accepts OAuth only with explicit user-paced startup', () => {
-    const parsed = Schema.decodeUnknownSync(McpConfigSchema, {
+    const parsed = Schema.decodeSync(McpConfigSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })({
@@ -41,37 +41,43 @@ describe('agent MCP authentication configuration', () => {
     });
   });
   it('keeps bearer references gated until a credential resolver exists', () => {
-    expect(() =>
-      Schema.decodeUnknownSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })({
-        servers: [
-          {
-            auth: {
-              credential: {
-                id: '00000000-0000-4000-8000-000000000001',
-                store: 'mcp-credentials',
-              },
-              type: 'bearer',
+    const unsupportedBearer: unknown = {
+      servers: [
+        {
+          auth: {
+            credential: {
+              id: '00000000-0000-4000-8000-000000000001',
+              store: 'mcp-credentials',
             },
-            name: 'bearer',
-            transport: 'streamable-http',
-            url: 'https://example.test/bearer',
+            type: 'bearer',
           },
-        ],
-      })
+          name: 'bearer',
+          transport: 'streamable-http',
+          url: 'https://example.test/bearer',
+        },
+      ],
+    };
+    expect(() =>
+      Schema.decodeUnknownSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })(
+        unsupportedBearer
+      )
     ).toThrow('MCP bearer authentication requires a production credential resolver');
   });
   it('rejects selecting HTTP OAuth for stdio', () => {
+    const invalidStdioOAuth: unknown = {
+      servers: [
+        {
+          auth: { type: 'oauth-user' },
+          command: 'node',
+          name: 'stdio-oauth',
+          transport: 'stdio',
+        },
+      ],
+    };
     expect(() =>
-      Schema.decodeUnknownSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })({
-        servers: [
-          {
-            auth: { type: 'oauth-user' },
-            command: 'node',
-            name: 'stdio-oauth',
-            transport: 'stdio',
-          },
-        ],
-      })
+      Schema.decodeUnknownSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })(
+        invalidStdioOAuth
+      )
     ).toThrow();
   });
 });

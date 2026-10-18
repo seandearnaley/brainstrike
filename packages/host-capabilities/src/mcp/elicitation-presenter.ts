@@ -312,7 +312,7 @@ export class McpElicitationPresenterAuthority {
     if (this.closed) {
       throw new McpElicitationPresenterError('mcp-elicitation-presenter-closed');
     }
-    const taskHandle = Schema.decodeUnknownSync(McpTaskHandleSchema, {
+    const taskHandle = Schema.decodeSync(McpTaskHandleSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(binding.taskHandle);

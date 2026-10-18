@@ -50,6 +50,8 @@ const TYPED_PRODUCER_COHORTS = new Set([
   'packages/effect-kit',
   'packages/assistant-contract',
   'packages/agent-host',
+  'packages/agent',
+  'packages/host-capabilities',
 ]);
 // The one package allowed to run effects: it IS the Promise boundary.
 const RUNNER_OWNER_PREFIX = 'packages/effect-kit/src/';

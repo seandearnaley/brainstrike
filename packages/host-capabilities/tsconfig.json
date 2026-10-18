@@ -21,7 +21,8 @@
           "returnEffectInGen": "error",
           "unsafeEffectTypeAssertion": "error",
           "experimentalApiUsage": "error",
-          "unstableApiUsage": "error"
+          "unstableApiUsage": "error",
+          "preferTypedSchemaDecoder": "error"
         }
       }
     ]

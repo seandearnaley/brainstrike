@@ -280,25 +280,27 @@ test.each([
   'permissionPolicy',
   'snapshot',
 ])('strict envelope refuses client authority field %s', (field) => {
+  const untrustedWorkspace: unknown = {
+    kind: 'cli-workspace',
+    version: 1,
+    workspace: { ...selected, [field]: 'untrusted' },
+  };
+  const untrustedEnvelope: unknown = {
+    kind: 'cli-workspace',
+    version: 1,
+    workspace: selected,
+    [field]: 'untrusted',
+  };
   expect(
     Schema.decodeUnknownResult(CliWorkspaceRunInputSchema, {
       errors: 'all',
       onExcessProperty: 'error',
-    })({
-      kind: 'cli-workspace',
-      version: 1,
-      workspace: selected,
-      [field]: 'untrusted',
-    })._tag === 'Success'
+    })(untrustedEnvelope)._tag === 'Success'
   ).toBe(false);
   expect(
     Schema.decodeUnknownResult(CliWorkspaceRunInputSchema, {
       errors: 'all',
       onExcessProperty: 'error',
-    })({
-      kind: 'cli-workspace',
-      version: 1,
-      workspace: { ...selected, [field]: 'untrusted' },
-    })._tag === 'Success'
+    })(untrustedWorkspace)._tag === 'Success'
   ).toBe(false);
 });
