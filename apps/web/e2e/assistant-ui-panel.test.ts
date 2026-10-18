@@ -81,6 +81,8 @@ async function restoreAssistantFixtureRoot(page: Page): Promise<void> {
   );
 }
 
+// The specs below spell this tag as a literal: e2e-lane-coverage reads Playwright
+// tags statically, and an identifier there is undecidable for lane selection.
 const DURABLE_WRITES_TAG = '@durable-writes';
 // Run activity reaches the rows later while every write waits for IndexedDB.
 const DURABLE_RUN_ACTIVITY_TIMEOUT_MS = 15_000;
@@ -173,7 +175,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
   });
 
   test('customizes thread identity and keeps diagnostics out of the primary row', {
-    tag: DURABLE_WRITES_TAG,
+    tag: '@durable-writes',
   }, async ({ page }) => {
     await expect(page.getByTestId('threads-panel')).toBeVisible();
     const threadRow = page.getByTestId('thread-row').first();
@@ -270,7 +272,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
   });
 
   test('tracks concurrent thread activity from durable runs and clears every terminal spinner', {
-    tag: DURABLE_WRITES_TAG,
+    tag: '@durable-writes',
   }, async ({ page }) => {
     const elements = getPanelElements(page);
     if (await elements.showRightPanelShim.isVisible()) {
