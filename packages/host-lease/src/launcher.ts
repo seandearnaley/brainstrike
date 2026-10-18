@@ -23,6 +23,11 @@ import { windowsPrivateAcl } from './windows-acl.js';
  * `retire` when it gives up, so a launch never abandons a host it started.
  */
 export interface StartedHost {
+  /**
+   * The started host's PID and OS start time, as its root lease names it. Its
+   * starter reads them when the host reports ready (BST-2176).
+   */
+  readonly identity: { readonly pid: number; readonly start: string };
   /** The launch attached: the host keeps the lifetime it was started with. */
   release(): Promise<void>;
   /** The launch gave up on it: cancel the host and join its exit. */
@@ -91,8 +96,11 @@ async function liveLease(root: string): Promise<LockOwner | null> {
   }
   return lease;
 }
-function matches(record: HostRecord, owner: LockOwner): boolean {
-  return record.pid === owner.pid && record.start === owner.start;
+function matches(
+  identity: { readonly pid: number; readonly start: string },
+  owner: LockOwner
+): boolean {
+  return identity.pid === owner.pid && identity.start === owner.start;
 }
 async function pause(signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
@@ -361,12 +369,22 @@ async function startWithin(launch: Launch, options: HostStartOptions): Promise<S
 /**
  * BST-2176: attach to the host this launch started under `deadline`, its own
  * attach budget, never what the startup deadline has left. The record read,
- * the handshake and any wait for that host to leave all share it.
+ * the handshake and any wait for that host to leave all share it. Only the
+ * host its starter named gets that budget: an owner that replaced it is
+ * attached as any other, under the launch's deadline, once the launch has
+ * retired the host it started.
  */
-async function attachStarted(launch: Launch, deadline: number): Promise<Step> {
+async function attachStarted(
+  launch: Launch,
+  started: StartedHost,
+  deadline: number
+): Promise<Step> {
   const acquired = await liveLease(launch.root);
   if (!acquired) {
     throw new Error('Host starter returned without a live root lease');
+  }
+  if (!matches(started.identity, acquired)) {
+    return AGAIN;
   }
   // The host this launch started may itself be leaving by now (an idle CLI
   // host with no client yet): the same exit-aware attach as any other owner,
@@ -390,7 +408,7 @@ async function startAndAttach(launch: Launch): Promise<Step> {
   const attachDeadline = Date.now() + launch.attachTimeoutMs;
   let step: Step;
   try {
-    step = await attachStarted(launch, attachDeadline);
+    step = await attachStarted(launch, started, attachDeadline);
   } catch (cause) {
     return retireAfter(started, cause);
   }

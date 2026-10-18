@@ -126,6 +126,18 @@ interface StarterState {
   released: boolean;
   readonly root: string;
 }
+/**
+ * BST-2176: the PID and OS start time a ready child's root lease names. Read
+ * before this starter has observed its exit, so the child is unreaped and the
+ * pid is still its own; a zombie has no start time.
+ */
+function readyIdentity(child: ChildProcess): StartedHost['identity'] {
+  const start = child.pid === undefined ? null : processStartTime(child.pid);
+  if (child.pid === undefined || start === null) {
+    throw new Error(`Host starter pid ${child.pid} exited as it reported ready`);
+  }
+  return { pid: child.pid, start };
+}
 /** The launch attached: hand the host the lifetime it was started with. */
 async function handOff(child: ChildProcess, lifetime: HostLifetime): Promise<void> {
   if (lifetime === 'app') {
@@ -221,10 +233,11 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
       },
       (child) => (state.released ? handOff(child, startOptions.lifetime) : retire(child, state))
     );
+    let identity: StartedHost['identity'];
     try {
-      await runWithTimeout(
+      identity = await runWithTimeout(
         (signal) =>
-          new Promise<void>((resolve, reject) => {
+          new Promise<StartedHost['identity']>((resolve, reject) => {
             const cleanup = (): void => {
               child.off('message', message);
               child.off('exit', exited);
@@ -246,9 +259,10 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
               try {
                 const decoded = decodeStartupMessage(inputMessage);
                 if (decoded.event === 'ready') {
+                  const identity = readyIdentity(child);
                   state.ready = true;
                   cleanup();
-                  resolve();
+                  resolve(identity);
                   return;
                 }
                 state.failedWithRetainedOwner = decoded.ownership === 'retained';
@@ -280,6 +294,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
     }
     // BST-2167: the launch, not this starter, decides the ready host's fate.
     return {
+      identity,
       release: () => {
         state.released = true;
         return owner.close();

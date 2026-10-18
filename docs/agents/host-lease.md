@@ -41,8 +41,11 @@ Three bounds govern a launch (BST-2176):
   readiness deadline, `HOST_STARTER_READY_TIMEOUT_MS`, is also 30 s.
 - **Self-started attach, 1.5 s** (`attachTimeoutMs`): fixed when the starter
   reports ready. It bounds that host's record read, handshake and any wait for
-  it to leave, and is never clipped by what the startup deadline has left. Any
-  other attach gets the same budget, clipped to the startup deadline. A
+  it to leave, and is never clipped by what the startup deadline has left. Only
+  the host its starter named gets it: the starter reads that host's PID and OS
+  start time at ready, and an owner that replaced it is attached like any other
+  once the launch has retired its own host. Any other attach gets the same
+  budget, clipped to the startup deadline. A
   self-started launch settles within startup plus attach, plus joining the exit
   of a host it retires.
 - **Cancel exit, 10 s** (`HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`): how long a

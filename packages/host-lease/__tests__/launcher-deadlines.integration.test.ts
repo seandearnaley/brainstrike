@@ -3,17 +3,25 @@
  * under the launch's startup deadline, 30 s by default. The host this launch
  * started then attaches under its own budget, `attachTimeoutMs` from the
  * moment its starter reported ready, never what the startup deadline has
- * left. An existing owner, or a start race's winner, attaches within what the
- * launch's one deadline has left (BST-2142).
+ * left. An existing owner, a start race's winner, or an owner that replaced
+ * the host this launch started, attaches within what the launch's one
+ * deadline has left (BST-2142).
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { type LockOwner, RootLock, RootLockedError } from '@brainstrike/state-store';
+import { fileURLToPath } from 'node:url';
+import {
+  type LockOwner,
+  processStartTime,
+  RootLock,
+  RootLockedError,
+} from '@brainstrike/state-store';
 import { afterEach, expect, test, vi } from 'vitest';
 import { attachHost, type HostAttachment } from '../src/client.js';
 import { LiveHostUnavailableError, launchHost, type StartedHost } from '../src/launcher.js';
+import { createNodeHostSpawner } from '../src/node-spawner.js';
 import {
   decodeHostRecord,
   HOST_VERSION,
@@ -81,6 +89,7 @@ function lateStarter(launchedAt: number, settled: Settled) {
     hosts.push(host);
     await sleep(Math.max(0, launchedAt + READY_AT_MS - Date.now()));
     return {
+      identity: { pid: host.record.pid, start: host.record.start },
       release: async () => {
         settled.released += 1;
       },
@@ -235,4 +244,65 @@ test('by default a launch gives the host it starts 30 s to report ready', async 
   vi.advanceTimersByTime(1);
   expect(signal.aborted).toBe(true);
   expect(await launching).toMatchObject({ message: 'Host startup timed out' });
+});
+
+/** Polls `condition` until it holds, or fails naming `what`. */
+async function until(what: string, condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 400; i += 1) {
+    if (condition()) {
+      return;
+    }
+    await sleep(25);
+  }
+  throw new Error(`Timed out waiting until ${what}`);
+}
+
+test('an owner that replaced the host this launch started gets only what the launch deadline has left, and that host is retired once', async () => {
+  const root = await freshRoot();
+  const settled = { released: 0, retired: 0 };
+  const offered: number[] = [];
+  const nodeStarter = createNodeHostSpawner({
+    entrypoint: fileURLToPath(new URL('../src/process-entry.ts', import.meta.url)),
+    execArgv: ['--import', 'tsx'],
+  });
+  const startupMs = 15_000;
+  const attachment = await launchHost(root, {
+    attach: (record, timeoutMs) => {
+      offered.push(timeoutMs);
+      return attachHost(record, timeoutMs);
+    },
+    // Far longer than the startup deadline, so the two budgets cannot be confused.
+    attachTimeoutMs: 60_000,
+    lifetime: 'cli',
+    spawn: async (options, signal) => {
+      const started = await nodeStarter(options, signal);
+      // Right after ready, the host this launch started exits, and another
+      // owner takes the root before the launch looks at it.
+      const left = RootLock.inspect(root)?.owner;
+      if (!left || left.pid === process.pid) {
+        throw new Error('the started host holds no lease of its own');
+      }
+      process.kill(left.pid, 'SIGTERM');
+      await until('the started host left', () => processStartTime(left.pid) !== left.start);
+      hosts.push(await startHost(options));
+      return {
+        ...started,
+        release: async () => {
+          settled.released += 1;
+          await started.release();
+        },
+        retire: async () => {
+          settled.retired += 1;
+          await started.retire();
+        },
+      };
+    },
+    startupTimeoutMs: startupMs,
+  });
+  clients.push(attachment);
+
+  expect(attachment.record.pid).toBe(process.pid);
+  expect(settled).toEqual({ released: 0, retired: 1 });
+  expect(offered).toHaveLength(1);
+  expect(offered[0]).toBeLessThanOrEqual(startupMs);
 });
