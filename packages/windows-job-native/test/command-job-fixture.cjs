@@ -111,13 +111,24 @@ function inbox(child, stdout = false) {
 // its parent's token, so a .NET runner or pwsh hands it to the whole test tree.
 // Together the two commands make a denial real for whoever runs the test. The
 // reply reports the actor's prior state: absent, disabled or enabled.
+//
+// `census <guardPid>` lists every member of the guard's Job (BST-2137): the
+// JobObjectBasicProcessIdList PIDs with each member's image, parent PID,
+// creation time and exit state, and the Job's active and total process counts.
+// The first census also associates a completion port with that Job, so every
+// later census includes the joins and exits recorded in between, each member
+// described when it joined. The observer closes its Job handle before replying,
+// so the guard's handle stays the last one and kill-on-close still ends the Job.
 const processObserverSource = `
 param([string]$ProcessIds)
 $ErrorActionPreference='Stop'
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 public static class DrainProof {
  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
  [DllImport("kernel32.dll", SetLastError=true)] public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
@@ -169,6 +180,251 @@ public static class DrainProof {
   }
  }
 }
+public static class JobCensus {
+ [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+ [DllImport("kernelbase.dll")] static extern bool CompareObjectHandles(IntPtr first, IntPtr second);
+ [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job, int information, IntPtr buffer, uint length, IntPtr returned);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(IntPtr job, int information, ref PortAssociation buffer, uint length);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr CreateIoCompletionPort(IntPtr file, IntPtr existing, UIntPtr key, uint threads);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetQueuedCompletionStatus(IntPtr port, out uint message, out UIntPtr key, out IntPtr value, uint milliseconds);
+ [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder name, ref uint size);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+ [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int information, IntPtr buffer, int length, out int returned);
+ [StructLayout(LayoutKind.Sequential)] struct PortAssociation { public IntPtr Key; public IntPtr Port; }
+ static readonly IntPtr self = new IntPtr(-1);
+ static readonly object gate = new object();
+ static readonly ArrayList events = new ArrayList();
+ static IntPtr port = IntPtr.Zero;
+ static uint recorded;
+ // PROCESS_HANDLE_SNAPSHOT_INFORMATION (ProcessHandleInformation, 51): a
+ // 16-byte header, then 40-byte entries with HandleValue at 0 and
+ // ObjectTypeIndex at 28.
+ static int Entry(long index) { return checked((int)(16 + index * 40)); }
+ static IntPtr Handles(IntPtr process, out long count) {
+  int length = 0x10000;
+  for (int attempt = 0; attempt < 8; attempt++) {
+   IntPtr buffer = Marshal.AllocHGlobal(length);
+   int returned;
+   int status = NtQueryInformationProcess(process, 51, buffer, length, out returned);
+   if (status == 0) { count = Marshal.ReadIntPtr(buffer).ToInt64(); return buffer; }
+   Marshal.FreeHGlobal(buffer);
+   if (status != unchecked((int)0xC0000004) && status != unchecked((int)0xC0000023)) throw new InvalidOperationException("ProcessHandleInformation failed with NTSTATUS 0x" + status.ToString("X8") + ".");
+   length = Math.Max(length * 2, returned + 0x1000);
+  }
+  throw new InvalidOperationException("ProcessHandleInformation did not fit in eight attempts.");
+ }
+ static int JobType() {
+  IntPtr own = CreateJobObject(IntPtr.Zero, null);
+  if (own == IntPtr.Zero) throw new Win32Exception();
+  try {
+   long count;
+   IntPtr table = Handles(self, out count);
+   try {
+    for (long i = 0; i < count; i++) {
+     if (Marshal.ReadIntPtr(table, Entry(i)) == own) return Marshal.ReadInt32(table, Entry(i) + 28);
+    }
+   } finally { Marshal.FreeHGlobal(table); }
+  } finally { CloseHandle(own); }
+  throw new InvalidOperationException("The observer's own Job handle is missing from its handle table.");
+ }
+ static int LimitFlags(IntPtr job) {
+  IntPtr limits = Marshal.AllocHGlobal(64);
+  try {
+   if (!QueryInformationJobObject(job, 2, limits, 64, IntPtr.Zero)) throw new Win32Exception();
+   return Marshal.ReadInt32(limits, 16);
+  } finally { Marshal.FreeHGlobal(limits); }
+ }
+ // A guard can hold handles to two Jobs that contain it. libuv also joins a
+ // Node parent to its own kill-on-close Job when it first spawns an attached
+ // child (uv__init_global_job_handle), and that Job permits silent breakaway.
+ // The guard's initialize() Job permits no breakaway, and it is the Job whose
+ // membership the drain proves.
+ static IntPtr GuardJob(IntPtr guard, out int limitFlags) {
+  int jobType = JobType();
+  long count;
+  IntPtr table = Handles(guard, out count);
+  IntPtr found = IntPtr.Zero;
+  limitFlags = 0;
+  try {
+   for (long i = 0; i < count; i++) {
+    if (Marshal.ReadInt32(table, Entry(i) + 28) != jobType) continue;
+    IntPtr candidate;
+    if (!DuplicateHandle(guard, Marshal.ReadIntPtr(table, Entry(i)), self, out candidate, 0, false, 2)) throw new Win32Exception();
+    bool keep = false;
+    try {
+     bool contains;
+     if (!IsProcessInJob(guard, candidate, out contains)) throw new Win32Exception();
+     if (!contains) continue;
+     int flags = LimitFlags(candidate);
+     if ((flags & 0x1800) != 0) continue;
+     if (found != IntPtr.Zero) {
+      if (CompareObjectHandles(found, candidate)) continue;
+      throw new InvalidOperationException("The guard holds two different no-breakaway Jobs that contain it.");
+     }
+     found = candidate;
+     limitFlags = flags;
+     keep = true;
+    } finally { if (!keep) CloseHandle(candidate); }
+   }
+  } catch {
+   if (found != IntPtr.Zero) CloseHandle(found);
+   throw;
+  } finally { Marshal.FreeHGlobal(table); }
+  if (found == IntPtr.Zero) throw new InvalidOperationException("The guard holds no no-breakaway Job that contains it.");
+  return found;
+ }
+ static long[] Members(IntPtr job) {
+  const int capacity = 4096;
+  int length = 8 + capacity * 8;
+  IntPtr list = Marshal.AllocHGlobal(length);
+  try {
+   Marshal.WriteInt32(list, 0, capacity);
+   if (!QueryInformationJobObject(job, 3, list, (uint)length, IntPtr.Zero)) throw new Win32Exception();
+   long[] ids = new long[Marshal.ReadInt32(list, 4)];
+   for (int i = 0; i < ids.Length; i++) ids[i] = Marshal.ReadIntPtr(list, 8 + i * 8).ToInt64();
+   return ids;
+  } finally { Marshal.FreeHGlobal(list); }
+ }
+ static Hashtable Describe(long pid, IntPtr process, int openError) {
+  Hashtable entry = new Hashtable();
+  entry["pid"] = pid;
+  if (process == IntPtr.Zero) { entry["openError"] = openError; return entry; }
+  StringBuilder image = new StringBuilder(1024);
+  uint size = (uint)image.Capacity;
+  if (QueryFullProcessImageName(process, 0, image, ref size)) entry["image"] = image.ToString();
+  else entry["imageError"] = Marshal.GetLastWin32Error();
+  // PROCESS_BASIC_INFORMATION: InheritedFromUniqueProcessId is at 40.
+  IntPtr basic = Marshal.AllocHGlobal(48);
+  try {
+   int returned;
+   int status = NtQueryInformationProcess(process, 0, basic, 48, out returned);
+   if (status == 0) entry["parentPid"] = Marshal.ReadIntPtr(basic, 40).ToInt64();
+   else entry["parentError"] = "0x" + status.ToString("X8");
+  } finally { Marshal.FreeHGlobal(basic); }
+  long creation, exit, kernel, user;
+  if (GetProcessTimes(process, out creation, out exit, out kernel, out user)) {
+   entry["start"] = creation.ToString();
+   entry["startUtc"] = DateTime.FromFileTimeUtc(creation).ToString("o");
+   if (exit != 0) entry["exitUtc"] = DateTime.FromFileTimeUtc(exit).ToString("o");
+  } else entry["timesError"] = Marshal.GetLastWin32Error();
+  entry["wait"] = WaitForSingleObject(process, 0);
+  uint code;
+  if (GetExitCodeProcess(process, out code)) entry["code"] = code;
+  else entry["codeError"] = Marshal.GetLastWin32Error();
+  return entry;
+ }
+ static string Message(uint message) {
+  switch (message) {
+   case 4: return "active-process-zero";
+   case 6: return "new-process";
+   case 7: return "exit-process";
+   case 8: return "abnormal-exit-process";
+   default: return "job-message-" + message;
+  }
+ }
+ static void Listen() {
+  try {
+   while (true) {
+    uint message;
+    UIntPtr key;
+    IntPtr value;
+    if (!GetQueuedCompletionStatus(port, out message, out key, out value, 0xFFFFFFFF)) throw new Win32Exception();
+    long pid = value.ToInt64();
+    Hashtable entry;
+    if (message == 6) {
+     IntPtr process = OpenProcess(0x101000, false, (uint)pid);
+     int error = Marshal.GetLastWin32Error();
+     try { entry = Describe(pid, process, error); }
+     finally { if (process != IntPtr.Zero) CloseHandle(process); }
+    } else {
+     entry = new Hashtable();
+     entry["pid"] = pid;
+    }
+    entry["message"] = Message(message);
+    entry["utc"] = DateTime.UtcNow.ToString("o");
+    lock (gate) { events.Add(entry); }
+   }
+  } catch (Exception error) {
+   Hashtable failure = new Hashtable();
+   failure["message"] = "recorder-failed";
+   failure["error"] = error.Message;
+   failure["utc"] = DateTime.UtcNow.ToString("o");
+   lock (gate) { events.Add(failure); }
+  }
+ }
+ static void Record(IntPtr job, uint guardPid) {
+  lock (gate) {
+   if (port != IntPtr.Zero) {
+    if (recorded != guardPid) throw new InvalidOperationException("This observer already records another guard's Job.");
+    return;
+   }
+   IntPtr created = CreateIoCompletionPort(new IntPtr(-1), IntPtr.Zero, UIntPtr.Zero, 1);
+   if (created == IntPtr.Zero) throw new Win32Exception();
+   PortAssociation association = new PortAssociation();
+   association.Key = IntPtr.Zero;
+   association.Port = created;
+   if (!SetInformationJobObject(job, 7, ref association, (uint)Marshal.SizeOf(typeof(PortAssociation)))) {
+    int error = Marshal.GetLastWin32Error();
+    CloseHandle(created);
+    throw new Win32Exception(error);
+   }
+   port = created;
+   recorded = guardPid;
+   Thread listener = new Thread(Listen);
+   listener.IsBackground = true;
+   listener.Start();
+  }
+ }
+ public static Hashtable Census(uint guardPid) {
+  if (IntPtr.Size != 8) throw new InvalidOperationException("The Job census reads 64-bit layouts.");
+  IntPtr guard = OpenProcess(0x1440, false, guardPid);
+  if (guard == IntPtr.Zero) throw new Win32Exception();
+  try {
+   int limitFlags;
+   IntPtr job = GuardJob(guard, out limitFlags);
+   try {
+    Record(job, guardPid);
+    long[] ids = Members(job);
+    string listed = DateTime.UtcNow.ToString("o");
+    IntPtr[] pinned = new IntPtr[ids.Length];
+    int[] errors = new int[ids.Length];
+    try {
+     for (int i = 0; i < ids.Length; i++) {
+      pinned[i] = OpenProcess(0x101000, false, (uint)ids[i]);
+      errors[i] = Marshal.GetLastWin32Error();
+     }
+     Hashtable census = new Hashtable();
+     census["utc"] = listed;
+     census["limitFlags"] = "0x" + limitFlags.ToString("X");
+     // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION: TotalProcesses at 36,
+     // ActiveProcesses at 40.
+     IntPtr accounting = Marshal.AllocHGlobal(48);
+     try {
+      if (!QueryInformationJobObject(job, 1, accounting, 48, IntPtr.Zero)) throw new Win32Exception();
+      census["totalProcesses"] = Marshal.ReadInt32(accounting, 36);
+      census["activeProcesses"] = Marshal.ReadInt32(accounting, 40);
+     } finally { Marshal.FreeHGlobal(accounting); }
+     ArrayList members = new ArrayList();
+     for (int i = 0; i < ids.Length; i++) members.Add(Describe(ids[i], pinned[i], errors[i]));
+     census["members"] = members;
+     lock (gate) {
+      census["events"] = new ArrayList(events);
+      events.Clear();
+     }
+     return census;
+    } finally {
+     foreach (IntPtr process in pinned) { if (process != IntPtr.Zero) CloseHandle(process); }
+    }
+   } finally { CloseHandle(job); }
+  } finally { CloseHandle(guard); }
+ }
+}
 '@
 $handles=@();$identities=@()
 try {
@@ -193,6 +449,10 @@ try {
   if($line -match '^restrict ([0-9]+)$'){
    $prior=[DrainProof]::RemoveDebugPrivilege([uint32]$Matches[1])
    [Console]::WriteLine((@{event='restricted';pid=[int]$Matches[1];debugPrivilege=$prior} | ConvertTo-Json -Compress))
+   continue
+  }
+  if($line -match '^census ([0-9]+)$'){
+   [Console]::WriteLine((@{event='census';census=[JobCensus]::Census([uint32]$Matches[1])} | ConvertTo-Json -Compress -Depth 8))
    continue
   }
   if($line -notin @('check','join')){throw 'Unexpected observer command'}
