@@ -28,6 +28,7 @@ export async function acceptHostChildInput(
   await accept();
   const { commandId: _input, runId, ...settings } = params;
   run.steered = true;
+  run.inputAccepted = true;
   run.childInput = { ...settings, commandId: randomUUID(), parentMessageId: runId };
   return { accepted: true };
 }

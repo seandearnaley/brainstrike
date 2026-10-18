@@ -15,6 +15,7 @@ import {
   blocked,
   type CallOptions,
   childThreads,
+  explorer,
   finished,
   recordingAdmission,
   rowsUntil,
@@ -520,6 +521,121 @@ test('a root Stop of a turn whose child took input wakes nothing; the next user 
     { childRunId: ids[1], followUp: true, state: 'failed' },
   ]);
   await expectNoRedelivery();
+});
+
+const FOLLOW_UP = 'FOLLOW_UP_3: which file next?';
+
+/**
+ * A legacy run/steer, unlike run/input, hands nothing to the child's next run:
+ * a follow-up typed into the steered child after it ended is its own run. The
+ * parent's own turn stays open (until released, or until aborted) so the
+ * steered child's report waits for the parent, not for a wake.
+ */
+async function steerWithoutInput(parentTurn: 'released' | 'until-aborted') {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const parentHeld = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const users = userTexts(call);
+      if (toolNames(call).includes('agent-explore')) {
+        if (users.join('\n').includes(LEDGER)) {
+          return stream(text('Parent read the child.'));
+        }
+        if (!call.prompt.some((message) => message.role === 'tool')) {
+          return stream(toolCall('agent-explore', { prompt: TASK }, 'steer-1'));
+        }
+        if (users.at(-1) !== 'Delegate.') {
+          return stream(text('Parent continues.'));
+        }
+        if (parentTurn === 'until-aborted') {
+          return blocked(call);
+        }
+        await parentHeld.promise;
+        return stream(text('Parent continues.'));
+      }
+      if (users.at(-1) === FOLLOW_UP) {
+        // The follow-up parks on a question to the person.
+        return stream(toolCall('ask_user', { question: 'Which file?' }, 'ask-1'));
+      }
+      return stream(toolCall('read_file', { path: 'notes.md' }, 'read-1'));
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {
+    personas: [{ ...explorer, allowedToolIds: ['read_file', 'ask_user'] }],
+    readFile: async () => {
+      entered.resolve();
+      await release.promise;
+      return { content: 'notes' };
+    },
+  });
+  cleanup.push(async () => {
+    release.resolve();
+    parentHeld.resolve();
+  });
+  const rootRunId = await harness.start('Delegate.');
+  await entered.promise;
+  const [childThreadId = ''] = await childThreads(harness);
+  const steered = startedRuns(await harness.core().read(childThreadId, 0))[0]?.runId ?? '';
+  await expect(
+    harness.core().steer({ commandId: randomUUID(), runId: steered, threadId: childThreadId })
+  ).resolves.toEqual({ outcome: 'steering' });
+  release.resolve();
+  const ended = await rowsUntil(harness, childThreadId, finished(steered), 5000);
+  expect(ended.find(finished(steered))?.event).toMatchObject({ outcome: 'completed' });
+  // The parent's turn is still open, so the steered child's report has not been delivered.
+  expect((await harness.core().read(harness.threadId, 0)).some(finished(rootRunId))).toBe(false);
+  /** A follow-up branched from the steered run, parked on its question. */
+  const parkFollowUp = async () => {
+    const { runId } = await harness.core().startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: FOLLOW_UP,
+      threadId: childThreadId,
+    });
+    const rows = await rowsUntil(
+      harness,
+      childThreadId,
+      (row) => row.event.type === 'interaction.requested',
+      5000
+    );
+    expect(startedRuns(rows).find((run) => run.runId === runId)?.parentMessageId).toBe(steered);
+    return runId;
+  };
+  return { childThreadId, harness, parkFollowUp, releaseParent: parentHeld.resolve, steered };
+}
+
+test("a follow-up after a run/steer does not hold the steered child's report", async () => {
+  const { childThreadId, harness, parkFollowUp, releaseParent, steered } =
+    await steerWithoutInput('released');
+  const followUp = await parkFollowUp();
+  releaseParent();
+  // The parent's turn ends and wakes it with the steered child's report.
+  await expect
+    .poll(
+      async () =>
+        startedRuns(await harness.core().read(harness.threadId, 0))
+          .filter(({ delivery }) => delivery?.via === 'wake')
+          .map(({ delivery }) => reported(delivery?.entries)),
+      { timeout: 5000 }
+    )
+    .toEqual([[{ childRunId: steered, followUp: undefined, state: 'returned' }]]);
+  // The follow-up is still waiting on its question: the report did not wait for it.
+  expect((await harness.core().read(childThreadId, 0)).some(finished(followUp))).toBe(false);
+});
+
+test('after a restart, a replayed run/steer does not hold the report while a follow-up waits', async () => {
+  const { harness, parkFollowUp, steered } = await steerWithoutInput('until-aborted');
+  await harness.core().close();
+  await harness.crash();
+  await parkFollowUp();
+  const next = await harness.start('Next.');
+  const rows = await rowsUntil(harness, harness.threadId, finished(next), 5000);
+  const turn = startedRuns(rows).find(({ runId }) => runId === next);
+  expect(turn?.delivery?.via).toBe('next-turn');
+  expect(reported(turn?.delivery?.entries)).toEqual([
+    { childRunId: steered, followUp: undefined, state: 'returned' },
+  ]);
 });
 
 test('only a running child accepts human input', async () => {

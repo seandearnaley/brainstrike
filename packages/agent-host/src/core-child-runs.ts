@@ -163,13 +163,16 @@ function settledState(outcome: Outcome): HostChildDeliveryEntry['state'] {
 function ledgerState(outcome: HostRunState['outcome']): HostChildLedgerState {
   return outcome === undefined ? 'running' : settledState(outcome);
 }
-/** BST-1932: whether `run` is the run that takes the human input `steered` handed on. */
-function takesHostInputOf(run: HostRunState, steered: HostRunState): boolean {
+/**
+ * BST-1932: whether `run` is the run that takes the human input `accepted`
+ * handed on (a committed run/input, never a legacy run/steer).
+ */
+function takesHostInputOf(run: HostRunState, accepted: HostRunState): boolean {
   return (
-    steered.steered &&
-    run.id !== steered.id &&
-    run.threadId === steered.threadId &&
-    run.branch.parentMessageId === steered.id
+    accepted.inputAccepted &&
+    run.id !== accepted.id &&
+    run.threadId === accepted.threadId &&
+    run.branch.parentMessageId === accepted.id
   );
 }
 /**
@@ -607,8 +610,8 @@ export class HostChildRuns {
     // The run taking an invocation's input is delivered with that invocation, never alone.
     const reporting = new Set(due.map(({ run }) => run.id));
     const continuing = followUps.flatMap((followUp) => {
-      const steered = this.inputOf(followUp.run, runs);
-      return steered && !(reporting.has(steered.id) || this.delivered.has(steered.id))
+      const invocation = this.inputOf(followUp.run, runs);
+      return invocation && !(reporting.has(invocation.id) || this.delivered.has(invocation.id))
         ? []
         : [followUp];
     });
@@ -668,15 +671,17 @@ export class HostChildRuns {
     };
   }
   /**
-   * The steered background invocation whose human input `run` takes, when
+   * The background invocation whose accepted human input `run` takes, when
    * `run` is that input's run; its report carries the invocation's.
    */
   private inputOf(
     run: HostRunState,
     runs: ReadonlyMap<string, HostRunState>
   ): HostRunState | undefined {
-    const steered = runs.get(this.invocations.get(run.threadId) ?? '');
-    return steered?.origin?.background && takesHostInputOf(run, steered) ? steered : undefined;
+    const invocation = runs.get(this.invocations.get(run.threadId) ?? '');
+    return invocation?.origin?.background && takesHostInputOf(run, invocation)
+      ? invocation
+      : undefined;
   }
   /**
    * What `threadId`'s children report to it: its background invocations, and
