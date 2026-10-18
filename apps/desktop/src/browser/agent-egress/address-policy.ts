@@ -11,19 +11,22 @@
  */
 import { BlockList, isIPv4, isIPv6 } from 'node:net';
 
-export type RefusedAddressClass =
-  | 'loopback'
-  | 'private'
-  | 'shared'
-  | 'link-local'
-  | 'multicast'
-  | 'unspecified'
-  | 'reserved'
-  | 'documentation'
-  | 'benchmarking'
-  | 'ipv4-carrier'
-  | 'not-global-unicast'
-  | 'invalid';
+export const REFUSED_ADDRESS_CLASSES = [
+  'loopback',
+  'private',
+  'shared',
+  'link-local',
+  'multicast',
+  'unspecified',
+  'reserved',
+  'documentation',
+  'benchmarking',
+  'ipv4-carrier',
+  'not-global-unicast',
+  'invalid',
+] as const;
+
+export type RefusedAddressClass = (typeof REFUSED_ADDRESS_CLASSES)[number];
 
 type Ranges = ReadonlyArray<readonly [address: string, prefix: number]>;
 

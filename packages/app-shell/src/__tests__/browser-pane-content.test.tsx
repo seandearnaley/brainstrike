@@ -77,6 +77,7 @@ function tab(overrides: Partial<BrowserTab>): BrowserTab {
     canGoBack: false,
     canGoForward: false,
     isLoading: false,
+    owner: 'user',
     tabId: 't',
     title: '',
     url: 'about:blank',
@@ -340,6 +341,21 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
     expect(alpha).toHaveAttribute('aria-controls', panel.id);
     expect(panel).toHaveAttribute('aria-labelledby', 'browser-tab-a');
     expect(screen.getByTestId('browser-new-tab').closest('[role="tablist"]')).toBeNull();
+  });
+
+  it("marks the agent's own tabs, which browse behind its egress proxy (BST-1238)", () => {
+    renderPane();
+    pushTabs([
+      tab({ active: true, tabId: 'u', title: 'Docs', url: 'https://docs.test/' }),
+      tab({ owner: 'agent', tabId: 'g', title: 'Search', url: 'https://search.test/' }),
+    ]);
+
+    const user = browserTab('Docs');
+    const agent = browserTab('Search');
+    expect(user).toHaveAttribute('data-tab-owner', 'user');
+    expect(user).toHaveAttribute('title', 'https://docs.test/');
+    expect(agent).toHaveAttribute('data-tab-owner', 'agent');
+    expect(agent).toHaveAttribute('title', 'Agent tab · https://search.test/');
   });
 
   it('selects a tab on click or Enter, never on arrow focus (manual activation)', async () => {

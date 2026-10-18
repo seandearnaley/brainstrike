@@ -23,6 +23,7 @@ import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
 import type { BrowserDriver } from '../browser/browser-driver';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import {
+  type BrowserTabOwner,
   type BrowserTabState,
   isNavigableUrl,
   normalizeUrl,
@@ -35,16 +36,19 @@ const logger = createLogger('BrowserAgentTools');
 export interface BrowserPaneHostLike {
   readonly driver: Pick<BrowserDriver, 'getPageText' | 'snapshot'>;
   readonly manager: {
-    createTab(url?: string): string;
+    createTab(url?: string, owner?: BrowserTabOwner): string;
     getActiveWebContentsId(): number | null;
     getNavigationError(tabId: string): string | null;
     listTabs(): readonly BrowserTabState[];
     navigate(tabId: string, url: string): boolean;
+    selectTab(tabId: string): boolean;
   };
+  prepareAgentBrowsing(): Promise<void>;
 }
 
 export interface BrowserToolFailure {
   readonly error:
+    | 'blocked_destination'
     | 'blocked_url'
     | 'browser_unavailable'
     | 'driver_failed'
@@ -87,10 +91,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function activeTab(host: BrowserPaneHostLike): BrowserTabState | undefined {
-  return host.manager.listTabs().find((tab) => tab.active);
-}
-
 /**
  * How long a stable not-loading state is trusted as "the load settled" when
  * neither a loading transition nor a url change was observed. Covers the
@@ -98,6 +98,59 @@ function activeTab(host: BrowserPaneHostLike): BrowserTabState | undefined {
  * without hanging same-url re-navigations until the timeout.
  */
 const SETTLE_GRACE_MS = 600;
+
+/** The prefix the pane host gives a navigation the egress proxy refused. */
+const BLOCKED_DESTINATION = 'blocked_destination:';
+
+/**
+ * Pin the TARGET tab now — polling "the active tab" would report whatever
+ * tab the user (or a popup interception) activated mid-wait as the result
+ * of this navigation. The agent drives only its own tabs, never one the
+ * user opened: the active agent tab, else the latest one, else a new one.
+ */
+function startAgentNavigation(
+  host: BrowserPaneHostLike,
+  url: string
+): { readonly preNavUrl: string | null; readonly tabId: string } | BrowserToolFailure {
+  const agentTabs = host.manager.listTabs().filter((tab) => tab.owner === 'agent');
+  const existing = agentTabs.find((tab) => tab.active) ?? agentTabs.at(-1);
+  if (existing === undefined) {
+    return { preNavUrl: null, tabId: host.manager.createTab(url, 'agent') };
+  }
+  if (!existing.active) {
+    host.manager.selectTab(existing.tabId);
+  }
+  if (!host.manager.navigate(existing.tabId, url)) {
+    return {
+      error: 'navigate_failed',
+      hint: `Tab ${existing.tabId} vanished mid-call; retry to open a fresh tab.`,
+      ok: false,
+    };
+  }
+  return { preNavUrl: existing.url, tabId: existing.tabId };
+}
+
+/**
+ * A blocked destination, a blocked scheme or a failed load
+ * (ERR_NAME_NOT_RESOLVED, refused connection) must never read as an ok blank
+ * page — NO SILENT FALLBACKS.
+ */
+function settledNavigation(
+  navigationError: string | null,
+  tab: BrowserTabState
+): BrowserNavigateResult {
+  if (navigationError?.startsWith(BLOCKED_DESTINATION) === true) {
+    return {
+      error: 'blocked_destination',
+      hint: navigationError.slice(BLOCKED_DESTINATION.length).trim(),
+      ok: false,
+    };
+  }
+  if (navigationError !== null) {
+    return { error: 'load_failed', hint: navigationError, ok: false };
+  }
+  return { ok: true, title: tab.title, url: tab.url };
+}
 
 export async function runBrowserNavigate(
   input: BrowserNavigateInput,
@@ -124,19 +177,24 @@ export async function runBrowserNavigate(
     return { error: 'blocked_url', hint: refusal, ok: false };
   }
 
-  // Pin the TARGET tab now — polling "the active tab" would report whatever
-  // tab the user (or a popup interception) activated mid-wait as the result
-  // of this navigation.
-  const existing = activeTab(host);
-  const targetTabId = existing?.tabId ?? host.manager.createTab(normalized);
-  const preNavUrl = existing?.url ?? null;
-  if (existing && !host.manager.navigate(existing.tabId, normalized)) {
+  // The literal check above is a fast refusal, not the boundary: agent tabs
+  // connect only through the egress proxy, which checks every connection's
+  // resolved address, redirects and popups included (BST-1238).
+  try {
+    await host.prepareAgentBrowsing();
+  } catch (error) {
     return {
-      error: 'navigate_failed',
-      hint: `Tab ${existing.tabId} vanished mid-call; retry to open a fresh tab.`,
+      error: 'browser_unavailable',
+      hint: `Agent browsing could not start its network route: ${String(error)}`,
       ok: false,
     };
   }
+
+  const started = startAgentNavigation(host, normalized);
+  if ('ok' in started) {
+    return started;
+  }
+  const { preNavUrl, tabId: targetTabId } = started;
 
   // Settle discipline: accept a stable not-loading state only once we have
   // EVIDENCE the navigation ran — a loading transition was observed, or the
@@ -164,17 +222,7 @@ export async function runBrowserNavigate(
     if (!(sawLoading || urlChanged || preNavUrl === null || gracePassed)) {
       continue;
     }
-    // A blocked scheme or a failed load (ERR_NAME_NOT_RESOLVED, refused
-    // connection) must never read as an ok blank page — NO SILENT FALLBACKS.
-    const navigationError = host.manager.getNavigationError(targetTabId);
-    if (navigationError) {
-      return {
-        error: 'load_failed',
-        hint: navigationError,
-        ok: false,
-      };
-    }
-    return { ok: true, title: tab.title, url: tab.url };
+    return settledNavigation(host.manager.getNavigationError(targetTabId), tab);
   }
   return {
     error: 'load_timeout',

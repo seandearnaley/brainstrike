@@ -15,7 +15,7 @@ interface FakeView extends BrowserPaneView {
     loaded: string[];
     closed: boolean;
   };
-  emit(event: string): void;
+  emit(event: string, ...args: unknown[]): void;
   readonly listeners: Map<string, Array<(...args: unknown[]) => void>>;
   navState: { back: boolean; forward: boolean; title: string; url: string };
 }
@@ -35,9 +35,9 @@ function createFakeView(id: number): FakeView {
       return openHandler;
     },
     calls,
-    emit(event) {
+    emit(event, ...args) {
       for (const listener of listeners.get(event) ?? []) {
-        listener();
+        listener(...args);
       }
     },
     listeners,
@@ -74,18 +74,24 @@ function createFakeView(id: number): FakeView {
   } as FakeView & { __openHandler: typeof openHandler };
 }
 
-function setup() {
+function setup(
+  describeLoadFailure?: ConstructorParameters<typeof BrowserViewManager>[0]['describeLoadFailure']
+) {
   const created: FakeView[] = [];
+  const partitions: string[] = [];
   const added: BrowserPaneView[] = [];
   const removed: BrowserPaneView[] = [];
   let counter = 0;
   const onTabsChanged = vi.fn<(tabs: readonly BrowserTabState[]) => void>();
   const manager = new BrowserViewManager({
-    createView: () => {
+    agentPartition: 'browser-pane-agent-test',
+    createView: (partition) => {
       const view = createFakeView(created.length + 1);
       created.push(view);
+      partitions.push(partition);
       return view;
     },
+    ...(describeLoadFailure === undefined ? {} : { describeLoadFailure }),
     hostWindow: {
       contentView: {
         addChildView: (view) => added.push(view),
@@ -100,7 +106,7 @@ function setup() {
   // A view is only shown at a non-zero rect, so most visibility assertions need
   // bounds already reported. Seed a default; tests that care set their own.
   manager.setBounds({ height: 300, width: 400, x: 0, y: 0 });
-  return { added, created, manager, onTabsChanged, removed };
+  return { added, created, manager, onTabsChanged, partitions, removed };
 }
 
 describe('normalizeUrl', () => {
@@ -180,6 +186,7 @@ describe('BrowserViewManager.dispose — host window lifecycle (BST-1843)', () =
     const onTabsChanged = vi.fn<(tabs: readonly BrowserTabState[]) => void>();
     let counter = 0;
     const manager = new BrowserViewManager({
+      agentPartition: 'browser-pane-agent-test',
       createView: () => {
         const view = createFakeView(created.length + 1);
         created.push(view);
@@ -304,6 +311,76 @@ describe('BrowserViewManager', () => {
     expect(created[1]?.calls.loaded).toEqual(['https://popup.example']);
   });
 
+  it("opens the user's tabs on the pane partition and the agent's on its own (BST-1238)", () => {
+    const { manager, partitions } = setup();
+    manager.createTab('a.com');
+    manager.createTab('b.com', 'agent');
+    expect(partitions).toEqual(['persist:browser-pane-test', 'browser-pane-agent-test']);
+    expect(manager.listTabs().map(({ owner, tabId }) => ({ owner, tabId }))).toEqual([
+      { owner: 'user', tabId: 'tab-1' },
+      { owner: 'agent', tabId: 'tab-2' },
+    ]);
+  });
+
+  it("keeps an agent page's popup behind the egress proxy: it opens as an agent tab", () => {
+    const { created, manager, partitions } = setup();
+    manager.createTab('a.com', 'agent');
+    const handler = (
+      created[0] as unknown as { __openHandler: (d: { url: string }) => { action: string } }
+    ).__openHandler;
+    expect(handler({ url: 'http://127.0.0.1:8080/' }).action).toBe('deny');
+    expect(partitions).toEqual(['browser-pane-agent-test', 'browser-pane-agent-test']);
+    expect(manager.listTabs().map(({ owner }) => owner)).toEqual(['agent', 'agent']);
+  });
+
+  it('records a later main-frame failure (a client redirect) so it never reads as a blank page', () => {
+    const { created, manager } = setup();
+    const tabId = manager.createTab('https://a.test/', 'agent');
+    created[0]?.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    // A subframe failure and a superseded load (ERR_ABORTED) are not the page's failure.
+    created[0]?.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://ad.test/', false);
+    created[0]?.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'https://a.test/next', true);
+    expect(manager.getNavigationError(tabId)).toBeNull();
+    created[0]?.emit(
+      'did-fail-load',
+      {},
+      -111,
+      'ERR_TUNNEL_CONNECTION_FAILED',
+      'https://internal.test/',
+      true
+    );
+    expect(manager.getNavigationError(tabId)).toBe(
+      'ERR_TUNNEL_CONNECTION_FAILED (-111) loading https://internal.test/'
+    );
+    // The next navigation starts clean.
+    created[0]?.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    expect(manager.getNavigationError(tabId)).toBeNull();
+  });
+
+  it('names a load failure through describeLoadFailure, keeping the first cause of a navigation', () => {
+    const describe = vi.fn(
+      ({ errorCode, owner, url }: { errorCode: number; owner: string; url: string }) =>
+        errorCode === -111 && owner === 'agent' ? `blocked_destination: ${url}` : null
+    );
+    const { created, manager } = setup(describe);
+    const tabId = manager.createTab('https://a.test/', 'agent');
+    created[0]?.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    created[0]?.emit('did-fail-load', {}, -111, 'ERR_TUNNEL', 'https://internal.test/', true);
+    expect(describe).toHaveBeenCalledWith({
+      errorCode: -111,
+      owner: 'agent',
+      url: 'https://internal.test/',
+    });
+    expect(manager.getNavigationError(tabId)).toBe('blocked_destination: https://internal.test/');
+    // A refusal Main recorded first stays the navigation's cause over the
+    // generic failure that follows it.
+    created[0]?.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    expect(manager.failNavigation(1, 'blocked_destination: plain http refused')).toBe(true);
+    created[0]?.emit('did-fail-load', {}, -20, 'ERR_BLOCKED_BY_CLIENT', 'http://x.test/', true);
+    expect(manager.getNavigationError(tabId)).toBe('blocked_destination: plain http refused');
+    expect(manager.failNavigation(99, 'no such tab')).toBe(false);
+  });
+
   it('drops a dangerous-scheme popup (window.open("file:///...")) — no new tab', () => {
     const { manager, created } = setup();
     manager.createTab('a.com');
@@ -327,6 +404,7 @@ describe('BrowserViewManager', () => {
     const created: FakeView[] = [];
     let counter = 0;
     const manager = new BrowserViewManager({
+      agentPartition: 'browser-pane-agent-test',
       createView: () => {
         const view = createFakeView(1);
         // Make loadURL reject like a real bad-host navigation.
@@ -400,6 +478,7 @@ describe('BrowserViewManager', () => {
     const created: FakeView[] = [];
     let counter = 0;
     const manager = new BrowserViewManager({
+      agentPartition: 'browser-pane-agent-test',
       createView: () => {
         const view = createFakeView(created.length + 1);
         created.push(view);
@@ -460,6 +539,7 @@ describe('BrowserViewManager', () => {
     // ("it just created a new tab and nothing else").
     const created: FakeView[] = [];
     const manager = new BrowserViewManager({
+      agentPartition: 'browser-pane-agent-test',
       createView: () => {
         const view = createFakeView(created.length + 1);
         created.push(view);
