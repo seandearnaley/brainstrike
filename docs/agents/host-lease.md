@@ -55,10 +55,12 @@ Three bounds govern a launch (BST-2176):
 
 An app-owned host closes when its parent process identity disappears. An ordinary
 CLI host closes after its last client and active run lease leave; explicit persistent
-start has a different lifetime. Startup without attachment follows the existing
-bounded owner policy. Cooperative close fences admission, joins Core/platform/native
-tails and SQLite, then removes discovery and releases Root. The requesting
-transport remains through its actual response write and final socket join.
+start has a different lifetime. A host no client ever attached closes once its
+startup grace has elapsed and no run lease is held, including a run it recovered on
+start that releases after the grace. Cooperative close fences admission, joins
+Core/platform/native tails and SQLite, then removes discovery and releases Root.
+The requesting transport remains through its actual response write and final socket
+join.
 
 POSIX children that inherit Root's descriptor retain its flock; PTY sessions,
 SDK stdio MCP servers and short `execFile` calls do not inherit it. Desktop's
