@@ -66,6 +66,8 @@ export interface HostConnectionOptions {
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
+  /** The transport's retirement: each in-flight request's signal aborts as `host.closing`. */
+  readonly retiring?: AbortSignal;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
   /** The semantic arm's index operations, where the host owns a state index. */
@@ -107,6 +109,7 @@ export function bindHostConnection(
     mcpSettings,
     origin = 'public-socket',
     providers,
+    retiring,
     searchState,
     searchStateVectors,
     searchWorkspace,
@@ -160,6 +163,9 @@ export function bindHostConnection(
         const cancelled = token.onCancellationRequested(() =>
           controller.abort(new Error('The client cancelled the request'))
         );
+        // BST-2174: retirement cancels the work that reads this signal, then joins it.
+        const retire = (): void => controller.abort(new BoundaryFailureError(HOST_CLOSING));
+        retiring?.addEventListener('abort', retire, { once: true });
         try {
           if (disposed || (!initialized && method !== 'initialize')) {
             throw new BoundaryFailureError(UNAUTHENTICATED);
@@ -183,6 +189,7 @@ export function bindHostConnection(
             : response;
         } finally {
           cancelled.dispose();
+          retiring?.removeEventListener('abort', retire);
         }
       })
     );

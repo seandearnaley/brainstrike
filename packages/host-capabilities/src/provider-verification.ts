@@ -65,6 +65,7 @@ import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-cre
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { TAVILY_SECRET_PROVIDER } from './native-tools/web-search-tool.js';
 import { resolveProviderBaseUrl } from './provider-base-url.js';
+import { createSharedFlights } from './shared-flight.js';
 
 /** Tavily owns a Settings key slot but is not a chat provider in the registry. */
 export { TAVILY_SECRET_PROVIDER };
@@ -126,7 +127,8 @@ export interface ProviderVerificationTarget {
 }
 
 export interface ProviderVerificationService {
-  verify(providerId: string): Promise<ProviderVerificationSnapshot>;
+  /** `signal` cancels this caller's wait with its reason; the probe aborts once no caller waits. */
+  verify(providerId: string, signal?: AbortSignal): Promise<ProviderVerificationSnapshot>;
 }
 
 interface ProviderVerificationServiceOptions {
@@ -437,7 +439,7 @@ export function createProviderVerificationService(
   const verifySubscription = options.verifySubscriptionSession;
 
   const cache = new Map<string, { checkedAtMs: number; result: ProviderVerificationResult }>();
-  const pending = new Map<string, Promise<ProviderVerificationSnapshot>>();
+  const flights = createSharedFlights<ProviderVerificationSnapshot>();
 
   const retain = (key: string, checkedAtMs: number, result: ProviderVerificationResult): void => {
     cache.delete(key);
@@ -538,7 +540,10 @@ export function createProviderVerificationService(
     };
   };
 
-  const runProbe = async (probe: ProbeRequest): Promise<ProviderVerificationResult> => {
+  const runProbe = async (
+    probe: ProbeRequest,
+    cancelled: AbortSignal
+  ): Promise<ProviderVerificationResult> => {
     const checkedAt = new Date(now()).toISOString();
     try {
       const { response, bodyText } = await runWithTimeout(
@@ -556,6 +561,7 @@ export function createProviderVerificationService(
         },
         {
           onTimeout: () => new ProviderProbeTimeoutError(requestTimeoutMs),
+          signal: cancelled,
           timeoutMs: requestTimeoutMs,
         }
       ).catch((error: unknown) => {
@@ -576,12 +582,16 @@ export function createProviderVerificationService(
           : `HTTP ${response.status}`;
       return { checkedAt, detail, status };
     } catch (error) {
+      // A cancelled probe has no verdict: its reason reaches the caller uncached.
+      if (cancelled.aborted) {
+        throw error;
+      }
       return { checkedAt, detail: toVisibleError(error), status: 'unreachable' };
     }
   };
 
   return {
-    async verify(providerId: string): Promise<ProviderVerificationSnapshot> {
+    async verify(providerId: string, signal?: AbortSignal): Promise<ProviderVerificationSnapshot> {
       const target = findProvider(providerId);
       if (!target) {
         throw new UnknownVerificationProviderError();
@@ -630,26 +640,23 @@ export function createProviderVerificationService(
         }
       }
 
-      const existing = pending.get(cacheKey);
-      if (existing) {
-        return await existing;
-      }
-      const request = (async (): Promise<ProviderVerificationSnapshot> => {
-        let result: ProviderVerificationResult;
-        if (isChainProbe(probe)) {
-          result = await runChainProbe(probe.resolveChain);
-        } else {
-          result = await runProbe(probe);
-        }
-        // Timestamp AFTER the probe resolves: a probe that spent its 10s
-        // timeout failing must not pre-burn the failure TTL it just earned.
-        retain(cacheKey, now(), result);
-        return { freshness: 'live', result };
-      })().finally(() => {
-        pending.delete(cacheKey);
-      });
-      pending.set(cacheKey, request);
-      return await request;
+      return await flights(
+        cacheKey,
+        async (cancelled): Promise<ProviderVerificationSnapshot> => {
+          let result: ProviderVerificationResult;
+          if (isChainProbe(probe)) {
+            // The SDK chain takes no signal: its waiters leave, it ends on its own bound.
+            result = await runChainProbe(probe.resolveChain);
+          } else {
+            result = await runProbe(probe, cancelled);
+          }
+          // Timestamp AFTER the probe resolves: a probe that spent its 10s
+          // timeout failing must not pre-burn the failure TTL it just earned.
+          retain(cacheKey, now(), result);
+          return { freshness: 'live', result };
+        },
+        signal
+      );
     },
   };
 }

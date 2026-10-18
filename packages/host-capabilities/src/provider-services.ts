@@ -67,7 +67,7 @@ export function createHostProviderServices(
     .map(({ id }) => id)
     .filter((id): id is SupportedProvider => isSupportedProvider(id));
   return {
-    openRouterModel: async (modelId) => {
+    openRouterModel: async (modelId, signal) => {
       requireOpenRouterModelId(modelId);
       const credential = await readCredential('openrouter');
       if (!credential) {
@@ -76,7 +76,7 @@ export function createHostProviderServices(
       if (credential.type !== 'api_key') {
         throw new Error('The stored OpenRouter credential is not an API key.');
       }
-      return await metadata.get(modelId, credential.key);
+      return await metadata.get(modelId, credential.key, signal);
     },
     status: () =>
       readProviderStatus({
@@ -86,7 +86,7 @@ export function createHostProviderServices(
         providers,
         secrets,
       }),
-    verify: async (providerId, origin) => {
+    verify: async (providerId, origin, signal) => {
       // The same desktop-only gate as a subscription run and auth/verify.
       if (
         findProviderDefinition(providerId)?.authType === 'oauth_subscription' &&
@@ -94,7 +94,7 @@ export function createHostProviderServices(
       ) {
         throw new Error('A subscription sign-in can be verified only from the desktop app.');
       }
-      return await verification.verify(providerId);
+      return await verification.verify(providerId, signal);
     },
   };
 }

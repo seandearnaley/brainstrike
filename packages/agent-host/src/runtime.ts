@@ -212,6 +212,7 @@ export async function startAgentHost(
           const replyFinished = Promise.withResolvers<void>();
           // Each dispatched message settles after its response write (BST-2174).
           const dispatched = new Set<Promise<void>>();
+          const retiring = new AbortController();
           let dispatchingMessage: Message | undefined;
           let shutdownMessage: Message | undefined;
           socket.once('close', () => replyFinished.resolve());
@@ -253,12 +254,14 @@ export async function startAgentHost(
                 return lifecycle.stop(replyFinished.promise);
               },
             },
+            retiring: retiring.signal,
             ...clientCapabilities(),
           });
           socket.once('close', () => connection.dispose());
-          // The requests already admitted when retirement reaches this socket;
-          // later ones refuse as closing.
+          // Cancel, then join, the requests already admitted when retirement
+          // reaches this socket; later ones refuse as closing.
           return async () => {
+            retiring.abort();
             await Promise.allSettled([...dispatched]);
           };
         },

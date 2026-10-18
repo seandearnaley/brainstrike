@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises';
-import { connect, Socket } from 'node:net';
+import { Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
@@ -12,6 +12,7 @@ import {
 } from 'vscode-jsonrpc/node';
 import { attachAgentHost } from '../src/client.js';
 import { startAgentHost } from '../src/runtime.js';
+import { refusesConnections } from './fixtures/host-endpoint.js';
 
 const platform = () => ({
   close: async () => undefined,
@@ -31,20 +32,6 @@ const collection = {
   modelKey: 'fake::fake-embedding',
   name: 'Effect catalog',
 } as const;
-/** Resolves once the host's endpoint refuses a new connection: its transport is retiring. */
-const refusesConnections = (endpoint: string): Promise<void> =>
-  vi.waitFor(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const probe = connect(endpoint);
-        probe.once('connect', () => {
-          probe.destroy();
-          reject(new Error('The host still accepts connections'));
-        });
-        probe.once('error', () => resolve());
-      }),
-    { interval: 5, timeout: 30_000 }
-  );
 
 test('authenticated CLI-first catalog writes use the existing writer and survive reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'host-catalog-'));
