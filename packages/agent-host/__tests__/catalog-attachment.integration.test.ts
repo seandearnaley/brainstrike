@@ -12,6 +12,7 @@ import {
 } from 'vscode-jsonrpc/node';
 import { attachAgentHost } from '../src/client.js';
 import { startAgentHost } from '../src/runtime.js';
+import { refusesConnections } from './fixtures/host-endpoint.js';
 
 const platform = () => ({
   close: async () => undefined,
@@ -147,6 +148,13 @@ test('host retirement drains an authenticated admitted catalog write before reti
   try {
     await Promise.resolve();
     await Promise.resolve();
+    expect(closed).toBe(false);
+    // BST-2174: hold the write until transport retirement has begun, so the
+    // answer cannot depend on how briefly the writer held it.
+    await refusesConnections(host.record.endpoint);
+    await expect(client.catalog.modelChoices({ operation: 'snapshot' })).rejects.toMatchObject({
+      code: 'host.closing',
+    });
     expect(closed).toBe(false);
     released.resolve();
     expect(await request).toEqual({
