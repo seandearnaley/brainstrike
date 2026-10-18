@@ -1,0 +1,16 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test:integration": {
+      // Real host, client and contender processes run outside Vitest's source
+      // aliases. They resolve @brainstrike/* through package exports to dist,
+      // and start-orders forks this package's emitted process-entry.js. `build`
+      // builds that entry and, through `^build`, every dist those children load.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    },
+    "test:coverage": {
+      // The coverage lane includes those same real-process suites.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

@@ -18,7 +18,9 @@
       "passThroughEnv": ["CI", "COVERAGE"]
     },
     "test:integration": {
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"]
+      // memory-domain imports agent-host's emitted token calculator, and
+      // memory-erasure hands that same dist module to the writer worker.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
     },
     "test:coverage": {
       // Coverage includes the integration suites and native writer processes.
