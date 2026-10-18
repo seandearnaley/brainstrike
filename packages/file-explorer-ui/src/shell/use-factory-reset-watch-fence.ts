@@ -28,7 +28,8 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
   // The owner calls this hook before it watches, so the effect below fences a
   // remounted owner before the owner's own watch effect runs.
   const fencedRef = useRef(false);
-  const activeWatchesRef = useRef(new Set<() => void>());
+  // Keyed by a per-watch token, so a watch's dispose never names itself.
+  const activeWatchesRef = useRef(new Map<object, () => void>());
 
   const watchAdapter = useMemo((): FileSystemAdapter => {
     const watchDirectory = adapter.watchDirectory?.bind(adapter);
@@ -45,6 +46,7 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
         return () => undefined;
       }
       let disposed = false;
+      const registration = {};
       const stopWatch = watchDirectory(
         handle,
         (changes, metadata) => {
@@ -65,10 +67,10 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
           return;
         }
         disposed = true;
-        activeWatchesRef.current.delete(dispose);
+        activeWatchesRef.current.delete(registration);
         stopWatch();
       };
-      activeWatchesRef.current.add(dispose);
+      activeWatchesRef.current.set(registration, dispose);
       return dispose;
     };
     return fencedAdapter;
@@ -82,7 +84,7 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
     }
     return registerFactoryResetPreparation(async () => {
       fencedRef.current = true;
-      for (const dispose of [...activeWatchesRef.current]) {
+      for (const dispose of [...activeWatchesRef.current.values()]) {
         dispose();
       }
     });
