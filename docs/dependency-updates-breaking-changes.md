@@ -550,59 +550,52 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 ---
 
-## web-tree-sitter (`web-tree-sitter` 0.25.x → 0.26.x) — deferred
+## web-tree-sitter (0.25.10 → 0.27.1) — Python path qualified
 
-**Why it matters:** `packages/chunking-worker/src/parsers/tree-sitter-adapter.ts` and
-`tree-sitter-grammar-loader.ts` use `web-tree-sitter` to parse Python for
-structure-aware chunking (function/class/decorated-definition boundaries),
-falling back to a recursive/line-based chunker when the grammar can't load.
+The runtime is pinned exactly to `0.27.1` for the existing Python grammar
+(BST-2033 follow-up). Python remains the only Tree-sitter language in
+`TreeSitterLanguage`, the rollout list and the canonical `.py`/`.pyi` route.
+The canonical Node and browser chunkers retain strict failure behavior; no
+parser replacement, grammar expansion or fallback is introduced.
 
-**What broke:** The vendored grammar WASM
-(`packages/chunking-worker/grammars/python.wasm`) used to be sourced from
-`tree-sitter-wasms@0.1.13` — abandoned, last published 2025-10-07, still the
-latest release of that package — and used the legacy Emscripten `"dylink"`
-WASM custom-section name. `web-tree-sitter@0.26.10`'s bundled runtime dropped
-the fallback that 0.25.x had for that legacy name and only accepts
-`"dylink.0"`. Verified live: loading the exact vendored `.wasm` bytes via
-`Language.load()` succeeded on 0.25.10 and threw immediately on 0.26.10
-(a bare `Error` with an empty message, from `getDylinkMetadata` → `failIf`).
-All other API surface this repo actually calls
-(`Parser.init/setLanguage/parse`, `Language.load`, `Query`, `query.matches`,
-`Node.type/startIndex/endIndex`, `tree/parser.delete`) is unchanged between
-the two versions.
+**Canonical upgrade path.** The published package renames its JS/runtime WASM
+assets to `web-tree-sitter.js` / `web-tree-sitter.wasm` and exposes separate
+ESM/CJS type declarations. Vite's existing static `new URL(..., import.meta.url)`
+asset handling follows the published filename; no copy shim or alternate loader
+is needed. The called `Parser.init/setLanguage/parse`, `Language.load`, `Query`,
+`matches`, node range and `tree/parser.delete` APIs remain compatible. Parser,
+tree, language and query ownership are unchanged.
 
-Per the existing catch-and-evict code in `tree-sitter-grammar-loader.ts`,
-this failure doesn't crash the app — it falls back to the recursive chunker —
-but it silently defeats the whole point of the tree-sitter-based Python
-chunking feature, so it must not ship unremediated.
+The grammar format repair from BST-1277 remains essential: the unchanged
+`grammars/python.wasm` is the canonical `tree-sitter-python@0.25.0` artifact,
+with `dylink.0` and ABI 15. Its provenance hash, custom section and real runtime
+load are asserted in `tree-sitter-grammar-abi.test.ts`. The former
+`tree-sitter-wasms@0.1.13` bytes used legacy `dylink` and could not load on the
+newer runtime. Do not re-vendor or force-load those bytes to advance a version.
 
-**Grammar side: resolved (BST-1277).** `grammars/python.wasm` is now
-`tree-sitter-python@0.25.0`'s package-root `tree-sitter-python.wasm`
-(`dylink.0`, ABI 15) — the canonical `tree-sitter/tree-sitter-python` repo.
-`@vscode/tree-sitter-wasm@0.3.1` ships a byte-identical copy of the same
-artifact, so the choice was provenance, not content. The bytes are vendored
-rather than taken as a dependency: nothing imports the package, and
-`tree-sitter-python` carries an `install: node-gyp-build` script plus
-five-platform native prebuilds that the vendored-`.wasm` architecture never
-uses. `tree-sitter-wasms` is gone from the tree.
-`src/__tests__/tree-sitter-grammar-abi.test.ts` pins the artifact's sha256,
-asserts the `dylink.0` section name, and asserts ABI >= 15 — the pin is
-enforced now instead of documented.
+**Recovery issue remains upstream.** [tree-sitter#5910](https://github.com/tree-sitter/tree-sitter/issues/5910)
+reproduces with the canonical JSON 0.24.8 WASM on both 0.26.13 and 0.27.1;
+0.25.10/0.26.12 retain its document root. This is not an upstream repair claim.
+That JSON grammar is outside Brainstrike's Tree-sitter route. Qualification
+uses the shipped Python grammar: malformed nested literals preserve surrounding
+definitions and exact UTF-16 source slices, including astral Unicode. The
+installed adapter, canonical chunkers, browser ingestion and built worker are
+covered; a future language expansion needs its own grammar/recovery evidence.
 
-**What remains before unpinning `web-tree-sitter`**
+**CSP and assets.** The built worker loads its actual same-origin runtime WASM
+and Python grammar under the existing production CSP, without JavaScript
+`unsafe-eval`. The Emscripten module still contains optional dynamic-linking
+`eval` sites; the qualified Python path does not require them. The warning filter
+matches only the qualified 0.27.1 module. Future versions, new modules and
+non-EVAL warnings remain visible, protected by negative controls. Security policy
+is unchanged. Unpackaged Electron flows separately exercise parser routing and
+structure-aware Python chunking; they do not establish packaged-app CSP or
+cross-platform acceptance.
 
-- Bump `packages/chunking-worker`'s `web-tree-sitter` range to `^0.26.x` and
-  re-run the chunking-worker suite plus
-  `apps/desktop/e2e/chunking-host-renderer.test.ts` (its chunk-count
-  assertions discriminate tree-sitter output from the recursive fallback, so
-  a silent degrade shows up as a failure rather than a quality regression).
-- Re-check the rest of the 0.26 API surface against the call sites listed
-  above; only the `dylink` fallback removal was investigated in depth.
-
-**Pointers**
-
-- [`Gregoor/tree-sitter-wasms#52`](https://github.com/Gregoor/tree-sitter-wasms/pull/52) (closed, unmerged; documents the `dylink` → `dylink.0` format change)
-- [`tree-sitter/tree-sitter-python`](https://github.com/tree-sitter/tree-sitter-python) — canonical grammar; the npm package ships the prebuilt `dylink.0` WASM at its package root
+Vendor sources: [0.27 release](https://github.com/tree-sitter/tree-sitter/releases/tag/v0.27.0),
+[0.27.1 notes](https://github.com/tree-sitter/tree-sitter/releases/tag/v0.27.1),
+[published artifact](https://registry.npmjs.org/web-tree-sitter/0.27.1),
+[canonical Python grammar](https://github.com/tree-sitter/tree-sitter-python).
 
 ---
 
@@ -612,7 +605,7 @@ Tracked decisions where we intentionally hold a dependency below its latest vers
 
 | Package | Pinned at | Reason | Tracking |
 | --- | --- | --- | --- |
-| `web-tree-sitter` | `^0.25.10` | Blocker cleared on the grammar side by BST-1277: the vendored Python grammar is now `tree-sitter-python@0.25.0` (`dylink.0`, ABI 15), which 0.26.10 loads. What remains is the range bump itself plus a re-check of the rest of the 0.26 API surface. | (covered in web-tree-sitter section above) |
+| `web-tree-sitter` | `0.27.1` | Existing Python route qualified with the unchanged canonical grammar, source-range/recovery, real worker, asset and production CSP controls. Upstream JSON issue 5910 remains outside this route. | (covered in web-tree-sitter section above) |
 
 **Resolved:** `@swc/core` + `@swc/wasm` were pinned at `~1.15.47` / `~1.15.43` (BST-1311) because `vite-plugin-top-level-await@1.6.0` builds SWC AST nodes that swc 1.16.0 rejects. Rather than unpin, the plugin was **removed** 2026-10-17: both apps now emit native top-level await. `@swc/wasm` left the graph; `@swc/core` remains only as tsup's optional peer, unpinned.
 
