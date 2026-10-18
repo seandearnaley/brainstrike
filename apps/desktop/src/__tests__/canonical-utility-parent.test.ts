@@ -841,3 +841,59 @@ it('retires failed acquisition under its original owner before a replacement can
   await parent.attachWorkspace(fixture());
   await parent.close();
 });
+
+/** An attached owner whose utility then dies: no later control frame is ever answered. */
+async function attachedUntilExit(dependencies = fixture()) {
+  let alive = true;
+  const parent = new CanonicalUtilityParent((input) => {
+    const frame = decodeCanonicalFrame(input);
+    if (alive && frame.kind === 'call') {
+      queueMicrotask(() =>
+        parent.receive({
+          channel: CANONICAL_CHANNEL,
+          id: frame.id,
+          kind: 'result',
+          ok: true,
+          owner: frame.owner,
+          value: null,
+        })
+      );
+    }
+  }, vi.fn());
+  let owner = '';
+  const attach = vi.spyOn(parent.channel, 'call');
+  await parent.attachWorkspace(dependencies);
+  owner = String(attach.mock.calls[0]?.[0]);
+  attach.mockRestore();
+  alive = false;
+  return { owner, parent };
+}
+
+// BST-2135: a signal to Main's process group kills the utility while Main retires its attachment.
+it('reports an attachment the utility exit ended as that exit, never as an owned retirement', async () => {
+  const { owner, parent } = await attachedUntilExit();
+  const exit = new Error('Indexer utility exited.');
+  const closing = parent.closeOwner(owner);
+  const exited = parent.exited(exit);
+  await expect(closing).rejects.toBe(exit);
+  await expect(exited).resolves.toBeUndefined();
+  // The exit joined Main's own work for that owner: nothing remains owned in Main.
+  await expect(parent.closeOwner(owner)).resolves.toBeUndefined();
+});
+
+it('keeps a Main capability failure during the utility exit an owned retirement failure', async () => {
+  const deps = fixture();
+  deps.source.lease.retire = vi.fn(async () => {
+    throw new Error('lease retirement failed');
+  });
+  const { owner, parent } = await attachedUntilExit(deps);
+  const exit = new Error('Indexer utility exited.');
+  const closing = parent.closeOwner(owner).catch((error: unknown) => error);
+  await expect(parent.exited(exit)).rejects.toThrow(/retained main cleanup/);
+  const outcome = await closing;
+  expect(outcome).not.toBe(exit);
+  expect(outcome).toBeInstanceOf(AggregateError);
+  expect((outcome as AggregateError).message).toBe(
+    'Canonical attachment retirement remains owned.'
+  );
+});

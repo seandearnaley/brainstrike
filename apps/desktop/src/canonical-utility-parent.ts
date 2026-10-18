@@ -58,6 +58,8 @@ export class CanonicalUtilityParent {
   private retiringAttachments = false;
   private attachmentRetirement: Promise<void> | undefined;
   private remoteExited = false;
+  /** The first exit's error: what an attachment the exit ended reports instead of a close. */
+  private remoteExit: unknown;
   readonly channel: CanonicalUtilityChannel;
   constructor(
     private readonly send: (frame: object) => void,
@@ -323,12 +325,19 @@ export class CanonicalUtilityParent {
     this.stop(session);
     session.close ??= (async () => {
       const errors: unknown[] = [];
+      let exit: { readonly error: unknown } | undefined;
       if (!session.childClosed) {
         try {
           await this.control(owner, 'close');
           session.childClosed = true;
         } catch (error) {
-          errors.push(error);
+          // An exited utility cannot close its attachment: the exit ended it, unretired
+          // (BST-2135). Main's own capabilities still join below.
+          if (this.remoteExited) {
+            exit = { error: this.remoteExit };
+          } else {
+            errors.push(error);
+          }
         }
       }
       // Join the original acquisition even if a close response arrives before its response.
@@ -340,6 +349,9 @@ export class CanonicalUtilityParent {
       }
       if (errors.length > 0) {
         throw new AggregateError(errors, 'Canonical attachment retirement remains owned.');
+      }
+      if (exit) {
+        throw exit.error;
       }
       this.sessions.delete(owner);
       this.acquisitions.delete(owner);
@@ -388,6 +400,7 @@ export class CanonicalUtilityParent {
   async exited(error: unknown): Promise<void> {
     this.closed = true;
     this.remoteExited = true;
+    this.remoteExit ??= error;
     for (const session of this.sessions.values()) {
       this.stop(session);
     }

@@ -24,6 +24,7 @@ import {
   spawnQueryProcess,
 } from '@brainstrike/sqlite-query';
 import { RootLock, StateStore } from '@brainstrike/state-store';
+import { sendFixtureResult } from './fixture-result.mjs';
 
 const [mode, fixture, capturedPath, ownerBundles] = process.argv.slice(2);
 assert.ok(mode && fixture && capturedPath && ownerBundles);
@@ -274,7 +275,7 @@ try {
     );
     await closeSeedIndexer();
     await closeStore();
-    process.stdout.write(`${JSON.stringify({ electron: false, seeded: true })}\n`);
+    await sendFixtureResult({ electron: false, seeded: true });
   } else {
     const seed = JSON.parse(await readFile(seedPath, 'utf8'));
     const joins = [];
@@ -703,7 +704,7 @@ try {
     await closeStore();
     assert.equal(RootLock.inspect(profileDirectory).owner.released, true);
     receipt.joined = true;
-    process.stdout.write(`${JSON.stringify(receipt)}\n`);
+    await sendFixtureResult(receipt);
   }
 } catch (cause) {
   operationFailure = cause;

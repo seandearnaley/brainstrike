@@ -62,7 +62,7 @@ import {
 } from './native-index-settings';
 import {
   type NativeIndexSources,
-  retireNativeIndexSources,
+  settleNativeIndexSources,
 } from './native-index-source-retirement';
 import { createNativeIndexWatchHealthHandler } from './native-index-watch-health';
 import type { NativeScopedRead, NativeSearchAuthority } from './native-scoped-search';
@@ -147,7 +147,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (!sources) {
       return;
     }
-    await retireNativeIndexSources(sources, () => getReadyIndexerHost().retireCanonicalSources());
+    await settleNativeIndexSources(
+      sources,
+      () => getReadyIndexerHost().retireCanonicalSources(),
+      (exit) => dependencies.onError('source retirement', exit)
+    );
     if (current.sources === sources) {
       current.sources = undefined;
     }

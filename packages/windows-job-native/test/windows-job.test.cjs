@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const windowsJob = require('..');
-const { processObserverSource } = require('./command-job-fixture.cjs');
+const { inbox, processObserverSource } = require('./command-job-fixture.cjs');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -160,73 +160,6 @@ test('kills inherited descendants when an owning launcher exits unexpectedly', {
   }
 });
 
-function inbox(child, stdout = false) {
-  const messages = [];
-  let output = '';
-  let stderr = '';
-  child.stderr?.on('data', (data) => {
-    stderr += data.toString();
-  });
-  const receive = (message) => {
-    messages.push(message);
-    child.emit('fixture-message');
-  };
-  if (stdout) {
-    child.stdout.on('data', (data) => {
-      output += data.toString();
-      let newline = output.indexOf('\n');
-      while (newline !== -1) {
-        const line = output.slice(0, newline).trim();
-        output = output.slice(newline + 1);
-        if (line) {
-          receive(JSON.parse(line));
-        }
-        newline = output.indexOf('\n');
-      }
-    });
-  } else {
-    child.on('message', receive);
-  }
-  return {
-    child,
-    wait: (event) =>
-      new Promise((resolve, reject) => {
-        const cleanup = () => {
-          clearTimeout(timer);
-          child.off('fixture-message', check);
-          child.off('exit', exited);
-          child.off('error', failed);
-        };
-        const failed = (error) => {
-          cleanup();
-          reject(error);
-        };
-        const exited = () => failed(new Error(`Fixture exited before ${event}: ${stderr}`));
-        const check = () => {
-          const error = messages.find((message) => message.event === 'failed');
-          const message = messages.find((entry) => entry.event === event);
-          if (error) {
-            failed(new Error(error.message));
-          } else if (message) {
-            cleanup();
-            resolve(message);
-          }
-        };
-        const timer = setTimeout(
-          () => failed(new Error(`Timed out waiting for ${event}: ${stderr}`)),
-          5000
-        );
-        child.on('fixture-message', check);
-        child.once('exit', exited);
-        child.once('error', failed);
-        check();
-        if (child.exitCode !== null || child.signalCode !== null) {
-          exited();
-        }
-      }),
-  };
-}
-
 async function drainFixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-windows-job-drain-'));
   const guards = [];
@@ -265,6 +198,12 @@ async function drainFixture(t) {
     await rm(root, { force: true, recursive: true });
   });
   return {
+    // BST-2137: name every member of the guard's Job. The first census also
+    // starts recording the Job's later joins and exits.
+    census: async (observer, guardPid) => {
+      observer.child.stdin.write(`census ${guardPid}\n`);
+      return (await observer.wait('census')).census;
+    },
     guard: (source) => {
       const child = spawn(
         process.execPath,
@@ -324,19 +263,65 @@ const job = require(${JSON.stringify(path.resolve(__dirname, '..'))});
   };
 }
 
+// Windows can still count a joined member until it releases that member's
+// references, so a resolved drain may report activeProcessCount() above 1 for a
+// moment (BST-2137). The guard then polls until the count reaches 1, within this
+// deadline: the hosted censuses saw the lag clear in well under a second.
+const CONVERGENCE_DEADLINE_MS = 3000;
+
 // One settlement event per drain, so a test that expects one outcome sees the
-// other outcome and its message instead of timing out on a missing event.
+// other outcome and its message instead of timing out on a missing event. The
+// UTC bounds place the census's recorded joins and exits relative to the drain.
+// A resolved drain is followed by one `converged` event.
 const drainCommands = `
 process.on('message', async ({ exitCode }) => {
+ const startedUtc = new Date().toISOString();
  const pending = job.drainOtherProcesses(exitCode);
+ let value;
  try {
-  const value = await pending;
-  process.send({ event: 'settled', outcome: 'drained', valueIsUndefined: value === undefined, isPromise: pending instanceof Promise, count: job.activeProcessCount() });
+  value = await pending;
  } catch(error) {
-  process.send({ event: 'settled', outcome: 'rejected', message: error.message, count: job.activeProcessCount() });
+  process.send({ event: 'settled', outcome: 'rejected', message: error.message, count: job.activeProcessCount(), startedUtc, settledUtc: new Date().toISOString() });
+  return;
  }
+ process.send({ event: 'settled', outcome: 'drained', valueIsUndefined: value === undefined, isPromise: pending instanceof Promise, count: job.activeProcessCount(), startedUtc, settledUtc: new Date().toISOString() });
+ const deadline = Date.now() + ${CONVERGENCE_DEADLINE_MS};
+ let count = job.activeProcessCount();
+ while (count > 1 && Date.now() < deadline) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  count = job.activeProcessCount();
+ }
+ process.send({ event: 'converged', count });
 });
 `;
+
+// The drain's post-condition, read from the census: besides the guard, the Job
+// may still list only members the drain joined, each exited with its code.
+function assertOnlyJoinedMembers(census, guardPid, pids, exitCode) {
+  assert.ok(census.members.some((member) => member.pid === guardPid));
+  for (const member of census.members.filter((entry) => entry.pid !== guardPid)) {
+    assert.ok(pids.includes(member.pid), `Unexpected Job member ${JSON.stringify(member)}`);
+    assert.deepEqual({ code: member.code, wait: member.wait }, { code: exitCode, wait: 0 });
+  }
+}
+
+// A drain that cannot prove the guard alone must name what else is in its Job
+// (BST-2137). `before` is the census taken just before the drain; `after` lists
+// the members once it settles, with the joins and exits recorded in between.
+// After a rejection, `later` is taken a second afterwards and shows whether the
+// extra member is still there, and when it left.
+async function reportDrainCensus(t, fixture, observer, guardPid, before, settled) {
+  const after = await fixture.census(observer, guardPid);
+  let later;
+  if (settled.outcome !== 'drained') {
+    await sleep(1000);
+    later = await fixture.census(observer, guardPid);
+  }
+  t.diagnostic(
+    JSON.stringify({ after, before, event: 'drain-job-census', guardPid, later, settled })
+  );
+  return after;
+}
 
 test('drain rejects uninitialized and invalid calls as Promises without admitting work', {
   skip: process.platform !== 'win32',
@@ -399,18 +384,21 @@ ${drainCommands}
   const ready = await guard.wait('ready');
   assert.equal(ready.count, 4);
   const observer = await fixture.observe(ready.pids);
+  const before = await fixture.census(observer, guard.child.pid);
   guard.child.send({ exitCode: 259 });
-  assert.deepEqual(await guard.wait('settled'), {
-    count: 1,
-    event: 'settled',
-    isPromise: true,
-    outcome: 'drained',
-    valueIsUndefined: true,
-  });
+  const settled = await guard.wait('settled');
+  const after = await reportDrainCensus(t, fixture, observer, guard.child.pid, before, settled);
+  const { isPromise, message, outcome, valueIsUndefined } = settled;
+  assert.deepEqual(
+    { isPromise, message, outcome, valueIsUndefined },
+    { isPromise: true, message: undefined, outcome: 'drained', valueIsUndefined: true }
+  );
   observer.child.stdin.write('check\n');
   const checked = await observer.wait('check');
   assert.deepEqual(checked.waits, [0, 0, 0]);
   assert.deepEqual(checked.codes, [259, 259, 259]);
+  assertOnlyJoinedMembers(after, guard.child.pid, ready.pids, 259);
+  assert.equal((await guard.wait('converged')).count, 1);
   assert.doesNotThrow(() => process.kill(control.child.pid, 0));
   assert.doesNotThrow(() => process.kill(guard.child.pid, 0));
 });
@@ -434,6 +422,7 @@ ${drainCommands}
   assert.equal(ready.parentExit, 0);
   assert.equal(ready.count, 2);
   const observer = await fixture.observe(ready.pids);
+  const before = await fixture.census(observer, guard.child.pid);
   guard.child.send({ exitCode: 91 });
   let settled;
   try {
@@ -447,15 +436,19 @@ ${drainCommands}
       cause: error,
     });
   }
-  const { count, message, outcome } = settled;
-  assert.deepEqual(
-    { count, message, outcome },
-    { count: 1, message: undefined, outcome: 'drained' }
-  );
+  const after = await reportDrainCensus(t, fixture, observer, guard.child.pid, before, settled);
+  const { message, outcome } = settled;
+  assert.deepEqual({ message, outcome }, { message: undefined, outcome: 'drained' });
   observer.child.stdin.write('check\n');
   const checked = await observer.wait('check');
   assert.deepEqual(checked.waits, [0]);
   assert.deepEqual(checked.codes, [91]);
+  assertOnlyJoinedMembers(after, guard.child.pid, ready.pids, 91);
+  // The guard's Node never opens the orphan, so any handle it holds to it now
+  // would be one the drain pinned and leaked.
+  observer.child.stdin.write(`held ${guard.child.pid}\n`);
+  assert.deepEqual((await observer.wait('held')).held, [0]);
+  assert.equal((await guard.wait('converged')).count, 1);
 });
 
 test('drain rejects denied cleanup while the guard and contained member remain physically live', {

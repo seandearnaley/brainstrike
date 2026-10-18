@@ -5,6 +5,7 @@ import { CanonicalUtilityChild } from '../canonical-utility-child';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import { CANONICAL_CHANNEL, decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { IndexerHostManager } from '../indexer-host-manager';
+import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 
 const engine = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
@@ -476,7 +477,8 @@ it('fences scans at physical utility exit and rejects pending work only after ad
     await expect(attachment.scan('late')).rejects.toThrow(/closed|admission/);
   } finally {
     release();
-    await expect(result).resolves.toMatchObject({ message: 'Indexer utility exited.' });
+    // Typed, so source retirement can settle the exit as its own outcome (BST-2135).
+    await expect(result).resolves.toBeInstanceOf(IndexerUtilityExitedError);
     await manager.close();
   }
   expect(engine.close).not.toHaveBeenCalled();

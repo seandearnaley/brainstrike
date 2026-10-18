@@ -4,6 +4,7 @@ import {
   createEmbeddingHostManager,
   currentLifecycleStatus,
   type EmbeddingLifecycleStatus,
+  lifecycleCallbacks,
   lifecycleState,
   mockHostWindow,
   powerSaveBlockerIsStartedMock,
@@ -906,6 +907,58 @@ describe('EmbeddingHostManager teardown ownership', () => {
     await disposing;
     expect(lifecycleState.waitForStatus).toHaveBeenCalledOnce();
     expect(lifecycleState.dispose).toHaveBeenCalledOnce();
+  });
+
+  // BST-2135: a signal to Main's process group kills the host renderer with Main.
+  const exitRenderer = (): void => {
+    if (!lifecycleCallbacks.current) {
+      throw new Error('The manager registered no lifecycle callbacks.');
+    }
+    lifecycleCallbacks.current.onRenderProcessGone({
+      exitCode: 15,
+      message: 'embedding-host renderer exited (killed, code 15)',
+      reason: 'killed',
+      window: mockHostWindow,
+    });
+  };
+
+  it('settles dispose at once as stopped when the host renderer already exited', async () => {
+    const manager = createEmbeddingHostManager();
+    exitRenderer();
+    await expect(manager.dispose()).resolves.toBeUndefined();
+    expect(mockHostWindow.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.anything()
+    );
+    expect(lifecycleState.waitForStatus).not.toHaveBeenCalled();
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+    expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
+  });
+
+  it('ends a Stop waiting on its ack when the host renderer exits mid-wait', async () => {
+    let settle!: (status: EmbeddingLifecycleStatus) => void;
+    lifecycleState.waitForStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve;
+        })
+    );
+    const manager = createEmbeddingHostManager();
+    const disposing = manager.dispose();
+    await Promise.resolve();
+    const predicate = lifecycleState.waitForStatus.mock.calls[0]?.[0];
+    expect(predicate?.({ ...currentLifecycleStatus })).toBe(false);
+    exitRenderer();
+    // The lifecycle re-checks its waiters on the status that render-process-gone sets.
+    expect(predicate?.({ ...currentLifecycleStatus })).toBe(true);
+    settle({ ...currentLifecycleStatus });
+    await expect(disposing).resolves.toBeUndefined();
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+    expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
   });
 
   it('preserves a failed host stop while still destroying the owned renderer', async () => {

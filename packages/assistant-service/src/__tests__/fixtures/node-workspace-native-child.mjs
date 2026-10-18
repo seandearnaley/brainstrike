@@ -6,6 +6,7 @@ import {
   openExistingNodeWorkspaceServices,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { RootLock, StateStore } from '@brainstrike/state-store';
+import { sendFixtureResult } from './fixture-result.mjs';
 
 const [mode, fixture] = process.argv.slice(2);
 assert.ok(mode && fixture);
@@ -54,7 +55,7 @@ try {
     );
     await store.close();
     store = undefined;
-    process.stdout.write(`${JSON.stringify({ aliasId, electron: false, rootId, seeded: true })}\n`);
+    await sendFixtureResult({ aliasId, electron: false, rootId, seeded: true });
   } else {
     const joins = [];
     const originalLedger = await readFile(ledger, 'utf8');
@@ -186,9 +187,18 @@ try {
     assert.ok(nextOwner.gen > previousGeneration);
     nextOwner.release();
     services = undefined;
-    process.stdout.write(
-      `${JSON.stringify({ aliasRefused: true, catalogPreserved: true, electron: false, joined: true, mode, preferencesUnchanged: mode !== 'revoke', rootId, sameLease: true, secondWriterRefused: true, wrongProfileRefused: true })}\n`
-    );
+    await sendFixtureResult({
+      aliasRefused: true,
+      catalogPreserved: true,
+      electron: false,
+      joined: true,
+      mode,
+      preferencesUnchanged: mode !== 'revoke',
+      rootId,
+      sameLease: true,
+      secondWriterRefused: true,
+      wrongProfileRefused: true,
+    });
   }
 } finally {
   await services?.close();
