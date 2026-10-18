@@ -12,7 +12,7 @@ export class ResourceOwner {
   private closing: Promise<void> | undefined;
 
   acquire<T>(acquire: () => Promise<T>, release: (value: T) => Promise<void>): Promise<T> {
-    if (this.closing) {
+    if (this.closing !== undefined) {
       return Promise.reject(new Error('Host resource owner is closing'));
     }
     return runAtPromiseBoundary(

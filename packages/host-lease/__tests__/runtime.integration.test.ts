@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { attachHost, type HostAttachment } from '../src/client.js';
-import { decodeHostRecord } from '../src/record.js';
+import { decodeHostRecord, PROTOCOL_VERSION } from '../src/record.js';
 import { type HostRuntime, startHost } from '../src/runtime.js';
 
 const roots: string[] = [];
@@ -58,17 +58,53 @@ test('a CLI host retains an active run after its last client leaves and exits af
   const client = await attachHost(host.record);
   clients.push(client);
   let closed = false;
-  host.closed.then(() => {
-    closed = true;
-  });
+  const observation = Promise.allSettled([
+    host.closed.then(() => {
+      closed = true;
+    }),
+  ]);
   await client.close();
   await new Promise<void>((resolve) => setTimeout(resolve, 50));
   expect(host.clientCount).toBe(0);
   expect(closed).toBe(false);
   release();
   await host.closed;
+  expect(await observation).toEqual([{ status: 'fulfilled', value: undefined }]);
   expect(closed).toBe(true);
   expect(() => host.retainRun()).toThrow(/closing/);
+});
+
+test('a joined exit observation exposes the original cleanup rejection', async () => {
+  const root = await freshRoot();
+  const failure = new Error('Injected root cleanup failure');
+  const host = await startHost(
+    { lifetime: 'persistent', root },
+    {
+      acceptSocket: () => {
+        throw new Error('This fixture admits no client');
+      },
+      acquireRoot: async () => {
+        const lock = await RootLock.acquire(root);
+        return {
+          close: async () => {
+            lock.release();
+            throw failure;
+          },
+          lock,
+        };
+      },
+      protocolVersion: PROTOCOL_VERSION,
+    }
+  );
+  // Attach rejection handling immediately, then inspect its outcome at the join.
+  const observation = Promise.allSettled([
+    host.closed.then(() => {
+      throw new Error('A failed close must never notify a successful observer');
+    }),
+  ]);
+  await expect(host.close()).rejects.toBe(failure);
+  expect(await observation).toEqual([{ reason: failure, status: 'rejected' }]);
+  expect(RootLock.inspect(root)?.owner.released).toBe(true);
 });
 
 test('an attached client observes host termination without another protocol request', async () => {
