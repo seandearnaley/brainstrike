@@ -163,6 +163,27 @@ function settledState(outcome: Outcome): HostChildDeliveryEntry['state'] {
 function ledgerState(outcome: HostRunState['outcome']): HostChildLedgerState {
   return outcome === undefined ? 'running' : settledState(outcome);
 }
+/** BST-1932: whether `run` is the run that takes the human input `steered` handed on. */
+function takesHostInputOf(run: HostRunState, steered: HostRunState): boolean {
+  return (
+    steered.steered &&
+    run.id !== steered.id &&
+    run.threadId === steered.threadId &&
+    run.branch.parentMessageId === steered.id
+  );
+}
+/**
+ * BST-1932: a background invocation that took human input reports with the
+ * run taking that input, in one wake, so it is still at work for its parent
+ * until that run settles. The input stays on the invocation until its run is
+ * committed (core-run-end.ts).
+ */
+function hostRunTakingInput(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): boolean {
+  return (
+    run.childInput !== undefined ||
+    [...runs.values()].some((next) => !next.terminal && takesHostInputOf(next, run))
+  );
+}
 interface Invocation {
   readonly origin: HostChildOrigin;
   readonly run: HostRunState;
@@ -474,18 +495,20 @@ export class HostChildRuns {
   }
   /**
    * The parent thread a settled child run reports to: a background invocation
-   * in any outcome, a follow-up only when it completed (a pause or a stop never
+   * in any outcome, and so the run taking its human input, which carries its
+   * report; any other follow-up only when it completed (a pause or a stop never
    * wakes the parent).
    */
-  deliveryParent(run: HostRunState): string | undefined {
+  deliveryParent(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): string | undefined {
     const origin = run.origin;
     if (!origin) {
       return;
     }
     const invocation = this.invocations.get(run.threadId) === run.id;
-    return (invocation && origin.background) || (!invocation && run.outcome === 'completed')
-      ? origin.parentThreadId
-      : undefined;
+    const reports = invocation
+      ? origin.background
+      : run.outcome === 'completed' || this.inputOf(run, runs) !== undefined;
+    return reports ? origin.parentThreadId : undefined;
   }
   /**
    * A delegation. The child thread's origin and first run commit with the
@@ -570,15 +593,26 @@ export class HostChildRuns {
         (run) =>
           !run.origin && run.stopped && run.threadId === threadId && hostRunTurnId(run) === turnId
       );
+    // An invocation still taking human input reports with that input's run.
+    const reported = ({ run }: Invocation): Outcome | undefined =>
+      hostRunTakingInput(run, runs) ? undefined : run.outcome;
     const due = all.flatMap((invocation) => {
-      const outcome = invocation.run.outcome;
+      const outcome = reported(invocation);
       return outcome &&
         !this.delivered.has(invocation.run.id) &&
         (includeStopped || !stopped(invocation.origin.turnId))
         ? [{ ...invocation, outcome }]
         : [];
     });
-    if (due.length === 0 && followUps.length === 0) {
+    // The run taking an invocation's input is delivered with that invocation, never alone.
+    const reporting = new Set(due.map(({ run }) => run.id));
+    const continuing = followUps.flatMap((followUp) => {
+      const steered = this.inputOf(followUp.run, runs);
+      return steered && !(reporting.has(steered.id) || this.delivered.has(steered.id))
+        ? []
+        : [followUp];
+    });
+    if (due.length === 0 && continuing.length === 0) {
       return;
     }
     const persona = ({ origin, run }: Invocation): AssistantPersonaDefinition =>
@@ -605,8 +639,11 @@ export class HostChildRuns {
       toolCallId: invocation.origin.toolCallId,
     });
     const turns = new Set(due.map(({ origin }) => origin.turnId));
-    const continued = followUps.map(
-      (followUp): HostChildDeliveryEntry => ({ ...entry(followUp, 'completed'), followUp: true })
+    const continued = continuing.map(
+      (followUp): HostChildDeliveryEntry => ({
+        ...entry(followUp, followUp.outcome),
+        followUp: true,
+      })
     );
     const ledger = due.length
       ? [
@@ -617,7 +654,7 @@ export class HostChildRuns {
                 persona: persona(invocation).label,
                 prompt: invocation.run.branch.prompt,
                 reason: invocation.run.detail,
-                state: ledgerState(invocation.run.outcome),
+                state: ledgerState(reported(invocation)),
                 toolCallId: invocation.origin.toolCallId,
                 toolName: `agent-${invocation.origin.persona}`,
               }))
@@ -627,34 +664,51 @@ export class HostChildRuns {
     return {
       entries: [...due.map((invocation) => entry(invocation, invocation.outcome)), ...continued],
       ledger: [...ledger, ...continued.map(describeHostChildContinuation)].join('\n\n'),
-      turnId: followUps.at(-1)?.run.id ?? due.at(-1)?.origin.turnId ?? threadId,
+      turnId: continuing.at(-1)?.run.id ?? due.at(-1)?.origin.turnId ?? threadId,
     };
   }
   /**
+   * The steered background invocation whose human input `run` takes, when
+   * `run` is that input's run; its report carries the invocation's.
+   */
+  private inputOf(
+    run: HostRunState,
+    runs: ReadonlyMap<string, HostRunState>
+  ): HostRunState | undefined {
+    const steered = runs.get(this.invocations.get(run.threadId) ?? '');
+    return steered?.origin?.background && takesHostInputOf(run, steered) ? steered : undefined;
+  }
+  /**
    * What `threadId`'s children report to it: its background invocations, and
-   * the completed follow-ups typed into any of its children not yet delivered.
+   * the follow-ups typed into any of its children not yet delivered: those that
+   * completed, and the run taking an invocation's input in any outcome.
    */
   private reports(
     threadId: string,
     runs: ReadonlyMap<string, HostRunState>
   ): {
     readonly all: Invocation[];
-    readonly followUps: Invocation[];
+    readonly followUps: (Invocation & { readonly outcome: Outcome })[];
   } {
     const all: Invocation[] = [];
-    const followUps: Invocation[] = [];
+    const followUps: (Invocation & { readonly outcome: Outcome })[] = [];
     for (const run of runs.values()) {
       const origin = run.origin;
       if (origin?.parentThreadId !== threadId) {
         continue;
       }
       const invocation: Invocation = { origin, run, threadId: run.threadId };
+      const outcome = run.outcome;
       if (this.invocations.get(run.threadId) === run.id) {
         if (origin.background) {
           all.push(invocation);
         }
-      } else if (run.outcome === 'completed' && !this.delivered.has(run.id)) {
-        followUps.push(invocation);
+      } else if (
+        outcome !== undefined &&
+        !this.delivered.has(run.id) &&
+        (outcome === 'completed' || this.inputOf(run, runs) !== undefined)
+      ) {
+        followUps.push({ ...invocation, outcome });
       }
     }
     return { all, followUps };
