@@ -41,8 +41,9 @@
 | `packages/agent-host/__tests__/mcp-settings-connection.test.ts` | Modify | Routing test |
 | `packages/host-capabilities/src/mcp/desktop-node-mcp.ts` | Modify | Compose the writer into the authority |
 | `packages/host-capabilities/__tests__/desktop-mcp-diagnostics.test.ts` | Modify | Widened credentials fake |
-| `packages/settings-ui/src/settings/external-link.ts` | Create | Shared external-link click helper (extracted) |
-| `packages/settings-ui/src/settings/secrets/credential-inventory/credential-oauth-actions.tsx` | Modify | Use the extracted helper |
+| `packages/settings-ui/src/settings/external-link.ts` | Create | Shared external-link click helper (extracted); resolves the failure message |
+| `packages/settings-ui/src/settings/__tests__/external-link.test.ts` | Create | Helper outcomes |
+| `packages/settings-ui/src/settings/secrets/credential-inventory/credential-oauth-actions.tsx` | Modify | Use the extracted helper; show a link failure |
 | `packages/settings-ui/src/settings/tools/types.ts` | Modify | `installMcpCatalogServer` operation |
 | `packages/settings-ui/src/settings/tools/mcp-catalog-section.tsx` | Create | Catalog cards and token dialog |
 | `packages/settings-ui/src/settings/tools/mcp-config-panel.tsx` | Modify | Render the section; reload editor after install |
@@ -1113,6 +1114,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `packages/settings-ui/src/settings/external-link.ts`
+- Test: `packages/settings-ui/src/settings/__tests__/external-link.test.ts`
 - Modify: `packages/settings-ui/src/settings/secrets/credential-inventory/credential-oauth-actions.tsx:13-28, 89`
 - Modify: `packages/settings-ui/src/settings/tools/types.ts` (`ToolsSettingsOperations`)
 - Create: `packages/settings-ui/src/settings/tools/mcp-catalog-section.tsx`
@@ -1123,7 +1125,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: Task 1's `MCP_CATALOG`, `McpCatalogAccess`, `McpCatalogEntry` and `McpCatalogInstallRequest`; `McpHostSnapshot` from `@brainstrike/assistant-contract`; the existing `getMcpServerStatus` and `subscribeMcpServerStatus` operations.
 - Produces:
-  - `openExternalLink(event: MouseEvent<HTMLAnchorElement>, url: string): void`
+  - `openExternalLink(event: MouseEvent<HTMLAnchorElement>, url: string): Promise<string | undefined>` — resolves to the failure message when the desktop bridge could not open the link (owner ruling 2026-10-18: link failures are surfaced, never swallowed); `undefined` when it opened, or on web where the native anchor navigates.
   - `ToolsSettingsOperations.installMcpCatalogServer?: (request: McpCatalogInstallRequest) => Promise<{ success: true; path: string } | { success: false; path: string; error: string }>`
   - `McpCatalogSection` with props `{ blockedReason?: string | undefined; getMcpServerStatus; installMcpCatalogServer; onInstalled: () => Promise<void>; subscribeMcpServerStatus? }`
   - Test ids:
@@ -1134,7 +1136,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
     - `mcp-catalog-blocked`
     - `mcp-catalog-status-error`
 
-- [ ] **Step 1: Extract the external-link helper (behavior-preserving)**
+- [ ] **Step 1: Extract the external-link helper and surface its failures**
 
 Create `packages/settings-ui/src/settings/external-link.ts`:
 
@@ -1146,25 +1148,46 @@ import type { MouseEvent } from 'react';
  * through the `window.platform.openExternal` bridge when it exists; without that
  * bridge (web) the native anchor navigation does the job.
  */
-export function openExternalLink(event: MouseEvent<HTMLAnchorElement>, url: string): void {
+type OpenExternal = (target: string) => Promise<{ error?: string; ok: boolean }>;
+
+/** Resolves to why the link did not open, or `undefined` when it opened (or the anchor navigates). */
+export async function openExternalLink(
+  event: MouseEvent<HTMLAnchorElement>,
+  url: string
+): Promise<string | undefined> {
   const platform = (window as unknown as { platform?: { openExternal?: unknown } }).platform;
   const openExternal = platform?.openExternal;
   if (typeof openExternal !== 'function') {
-    return;
+    return undefined;
   }
+  // Synchronous, before the first await: the click's default navigation is cancelled.
   event.preventDefault();
-  void (openExternal as (target: string) => Promise<unknown>)(url);
+  try {
+    const result = await (openExternal as OpenExternal)(url);
+    return result.ok ? undefined : (result.error ?? 'The link could not be opened.');
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 ```
 
 In `credential-oauth-actions.tsx`:
 - Delete the local `openVerificationUri` function. Keep the first sentence of its doc comment as a one-line comment above the anchor: `{/* The device flow hands the verification URI to the renderer, so this link must actually work. */}`.
 - Import `openExternalLink` from `'../../external-link'`.
-- Change `onClick={(event) => openVerificationUri(event, status.verificationUri)}` to `onClick={(event) => openExternalLink(event, status.verificationUri)}`.
+- In the component that renders the anchor, add `const [linkError, setLinkError] = useState<string | null>(null);` and change the anchor's handler to
+  `onClick={(event) => void openExternalLink(event, status.verificationUri).then((failure) => setLinkError(failure === undefined ? null : `Couldn't open link: ${failure}`))}`.
+  Render `{linkError ? <p className="text-destructive text-xs" data-testid={`credential-oauth-link-error-${slot.id}`} role="alert">{linkError}</p> : null}` directly after the anchor.
 - Remove the `MouseEvent` type import if it's now unused.
+- Create `packages/settings-ui/src/settings/__tests__/external-link.test.ts` (red first) covering:
+  - with no `window.platform`, it resolves `undefined` and does not call `preventDefault`;
+  - with `openExternal` resolving `{ ok: true }`, it resolves `undefined` and calls `preventDefault` once;
+  - with `{ ok: false, error: 'Blocked protocol: file:' }`, it resolves `'Blocked protocol: file:'`;
+  - with `{ ok: false }`, it resolves `'The link could not be opened.'`;
+  - with a rejecting `openExternal`, it resolves the rejection's message.
+  Set and delete `window.platform` per test, and pass `{ preventDefault: vi.fn() } as unknown as MouseEvent<HTMLAnchorElement>` as the event.
 
-Run: `pnpm --filter @brainstrike/settings-ui exec vitest run src/settings/secrets`
-Expected: PASS (unchanged behavior).
+Run: `pnpm --filter @brainstrike/settings-ui exec vitest run src/settings/__tests__/external-link.test.ts src/settings/secrets`
+Expected: PASS.
 
 - [ ] **Step 2: Add the operation type**
 
@@ -1313,6 +1336,24 @@ describe('MCP catalog section', () => {
       'Save or reload the config editor before installing.'
     );
     expect(card('linear').getByRole('button', { name: 'Install' })).toBeDisabled();
+  });
+
+  it('shows a link that failed to open on the card instead of dropping it', async () => {
+    const openExternal = vi.fn(async () => ({ error: 'Blocked by policy', ok: false }));
+    Object.assign(window, { platform: { openExternal } });
+    try {
+      render(<McpCatalogSection {...props()} />);
+      fireEvent.click(await card('gitlab').findByRole('link', { name: 'Docs' }));
+
+      expect(await screen.findByTestId('mcp-catalog-error-gitlab')).toHaveTextContent(
+        "Couldn't open link: Blocked by policy"
+      );
+      expect(openExternal).toHaveBeenCalledWith(
+        'https://docs.gitlab.com/user/model_context_protocol/mcp_server/'
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'platform');
+    }
   });
 
   it('says so when the installed servers cannot be read', async () => {
@@ -1511,6 +1552,12 @@ function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCard
     void submit();
   };
 
+  const reportLinkFailure = (failure: string | undefined) => {
+    if (failure !== undefined) {
+      setError(`Couldn't open link: ${failure}`);
+    }
+  };
+
   return (
     <div className="space-y-2 rounded-md border p-3" data-testid={`mcp-catalog-card-${entry.id}`}>
       <div className="flex items-center justify-between gap-2">
@@ -1533,7 +1580,7 @@ function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCard
         <a
           className="text-primary text-xs underline"
           href={entry.docsUrl}
-          onClick={(event) => openExternalLink(event, entry.docsUrl)}
+          onClick={(event) => void openExternalLink(event, entry.docsUrl).then(reportLinkFailure)}
           rel="noreferrer"
           target="_blank"
         >
@@ -1558,6 +1605,7 @@ function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCard
         <McpCatalogTokenDialog
           entry={entry}
           error={error}
+          onLinkFailure={reportLinkFailure}
           onOpenChange={setTokenOpen}
           onSubmit={submit}
           open={tokenOpen}
@@ -1571,6 +1619,7 @@ function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCard
 interface McpCatalogTokenDialogProps {
   entry: TokenEntry;
   error: string | null;
+  onLinkFailure: (failure: string | undefined) => void;
   onOpenChange: (open: boolean) => void;
   onSubmit: (token: string) => Promise<boolean>;
   open: boolean;
@@ -1581,6 +1630,7 @@ interface McpCatalogTokenDialogProps {
 function McpCatalogTokenDialog({
   entry,
   error,
+  onLinkFailure,
   onOpenChange,
   onSubmit,
   open,
@@ -1632,7 +1682,9 @@ function McpCatalogTokenDialog({
             <a
               className="text-primary text-xs underline"
               href={entry.token.createUrl}
-              onClick={(event) => openExternalLink(event, entry.token.createUrl)}
+              onClick={(event) =>
+                void openExternalLink(event, entry.token.createUrl).then(onLinkFailure)
+              }
               rel="noreferrer"
               target="_blank"
             >
@@ -1662,7 +1714,7 @@ function McpCatalogTokenDialog({
 - [ ] **Step 6: Run the section test to verify it passes**
 
 Run: `pnpm --filter @brainstrike/settings-ui exec vitest run src/settings/tools/__tests__/mcp-catalog-section.test.tsx`
-Expected: PASS (7 tests). Radix `Tabs` activates on `mouseDown` in jsdom; if the "Read-only" tab does not switch, use `fireEvent.keyDown(tab, { key: 'Enter' })` the way `unified-tools-settings.test.tsx` drives its tabs.
+Expected: PASS (8 tests). Radix `Tabs` activates on `mouseDown` in jsdom; if the "Read-only" tab does not switch, use `fireEvent.keyDown(tab, { key: 'Enter' })` the way `unified-tools-settings.test.tsx` drives its tabs.
 
 - [ ] **Step 7: Write the failing panel test**
 
@@ -1759,7 +1811,7 @@ Expected: exit 0.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add packages/settings-ui/src/settings/external-link.ts packages/settings-ui/src/settings/secrets/credential-inventory/credential-oauth-actions.tsx packages/settings-ui/src/settings/tools/types.ts packages/settings-ui/src/settings/tools/mcp-catalog-section.tsx packages/settings-ui/src/settings/tools/mcp-config-panel.tsx packages/settings-ui/src/settings/tools/__tests__/mcp-catalog-section.test.tsx packages/settings-ui/src/settings/tools/__tests__/mcp-config-panel.test.tsx
+git add packages/settings-ui/src/settings/external-link.ts packages/settings-ui/src/settings/__tests__/external-link.test.ts packages/settings-ui/src/settings/secrets/credential-inventory/credential-oauth-actions.tsx packages/settings-ui/src/settings/tools/types.ts packages/settings-ui/src/settings/tools/mcp-catalog-section.tsx packages/settings-ui/src/settings/tools/mcp-config-panel.tsx packages/settings-ui/src/settings/tools/__tests__/mcp-catalog-section.test.tsx packages/settings-ui/src/settings/tools/__tests__/mcp-config-panel.test.tsx
 git commit -m "feat(settings): MCP catalog cards install Linear, GitHub, Atlassian and GitLab
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
