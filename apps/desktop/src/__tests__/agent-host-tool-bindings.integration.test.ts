@@ -93,7 +93,6 @@ test.each(['approve', 'deny'] as const)(
         workspaceRoots: [{ displayName: 'Owned workspace', path: workspace, rootId: 'owned-root' }],
       };
       const read = SHARED_NATIVE_TOOL_EXECUTORS[NATIVE_TOOL_ID.readWorkspaceDirectory]({
-        isLocalProvider: false,
         ports: hostExecutionPorts(),
         readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
         resolveActiveDomainCharBudget: () =>

@@ -244,7 +244,6 @@ it('composes production tools with the scoped SQLite writer and real separate qu
     const entry = retrievalToolExecutors(() => ({ dependencies, store }))[
       NATIVE_TOOL_ID.hybridSearch
     ]({
-      isLocalProvider: false,
       ports: hostExecutionPorts(),
       readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
       resolveActiveDomainCharBudget: () => 6000,
