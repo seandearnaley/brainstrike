@@ -25,6 +25,14 @@ Register startup/exit listeners before awaited acquisition. A desktop manager ow
 only hosts it forks; closing an attachment to a CLI/external host cannot signal
 that owner. Electron stays in the adapter, not the shared lease package.
 
+A launch owns the host its starter started until it settles it (BST-2167): an
+attachment releases it to its lifetime; a failed attach, a startup deadline, or
+a host that left on its own retires it before the launch rejects or acquires
+again. The deadline aborts the starter and waits for it to settle. The Node
+starter retires with `cancel-startup`, then SIGKILL (the group of a detached
+host) if the host has not exited within its readiness deadline, and a forced
+kill is an error, never a clean retirement.
+
 An app-owned host closes when its parent process identity disappears. An ordinary
 CLI host closes after its last client and active run lease leave; explicit persistent
 start has a different lifetime. Startup without attachment follows the existing

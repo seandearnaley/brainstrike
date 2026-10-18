@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { attachHost, type HostAttachment } from '../src/client.js';
-import { LiveHostUnavailableError, launchHost } from '../src/launcher.js';
+import { LiveHostUnavailableError, launchHost, type StartedHost } from '../src/launcher.js';
 import {
   decodeHostRecord,
   HOST_VERSION,
@@ -83,11 +83,19 @@ async function exit(root: string, lock: RootLock): Promise<void> {
   lock.release();
 }
 
+/** An in-process host its launch owns until it settles it; afterEach closes a released one. */
 const realHost =
-  (started: { count: number }) => async (options: Parameters<typeof startHost>[0]) => {
-    hosts.push(await startHost(options));
+  (started: { count: number }) =>
+  async (options: Parameters<typeof startHost>[0]): Promise<StartedHost> => {
+    const host = await startHost(options);
+    hosts.push(host);
     started.count += 1;
+    return { release: async () => undefined, retire: () => host.close() };
   };
+const noStart = (onStart: () => void) => async (): Promise<never> => {
+  onStart();
+  throw new Error('This launch must not start a host');
+};
 
 test('an owner that refuses attach because it is closing is waited out, then a new host starts', async () => {
   const root = await freshRoot();
@@ -210,9 +218,9 @@ test('a live owner that keeps the root is refused at the deadline, with its atta
   const refused = await launchHost(root, {
     attach: () => Promise.reject(refusal),
     lifetime: 'cli',
-    spawn: async () => {
+    spawn: noStart(() => {
       started = true;
-    },
+    }),
     startupTimeoutMs: 300,
   }).catch((cause: unknown) => cause);
 
@@ -232,9 +240,9 @@ test('an authentication failure stays terminal: no wait, no other owner, even wh
       return Promise.reject(new Error('Host token authentication failed'));
     },
     lifetime: 'cli',
-    spawn: async () => {
+    spawn: noStart(() => {
       started = true;
-    },
+    }),
   }).catch((cause: unknown) => cause);
 
   expect(refused).toBeInstanceOf(LiveHostUnavailableError);
@@ -253,7 +261,7 @@ test('an attach never outlasts the launch deadline', async () => {
     },
     attachTimeoutMs: 1500,
     lifetime: 'cli',
-    spawn: async () => undefined,
+    spawn: noStart(() => undefined),
     startupTimeoutMs: 300,
   }).catch(() => undefined);
 
@@ -300,7 +308,7 @@ test('a losing starter whose winner releases before publishing acquires again in
         setTimeout(() => winner.release(), 50);
         throw new RootLockedError(owner as NonNullable<typeof owner>);
       }
-      await realHost(started)(options);
+      return realHost(started)(options);
     },
   });
   clients.push(attachment);
@@ -320,7 +328,7 @@ test('a refusal that arrives after the winner released acquires again', async ()
       if (spawns === 1) {
         throw new RootContentionError('data root is in use by pid 1 on another-host');
       }
-      await realHost(started)(options);
+      return realHost(started)(options);
     },
   });
   clients.push(attachment);
