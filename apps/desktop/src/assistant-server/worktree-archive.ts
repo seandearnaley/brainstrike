@@ -95,16 +95,31 @@ export function nestedRepositoriesArchiveBlocker(paths: readonly string[]): stri
   )}. Their commits and files would be deleted with the worktree. Move them out of the worktree before archiving.`;
 }
 
-function parseGitlinkPaths(stdout: string): string[] {
-  const paths: string[] = [];
+/**
+ * Every gitlink in the index, plus every directory that holds an indexed path.
+ * A repository initialized inside a tracked directory gets no `?? dir/` status
+ * entry, since its files are the outer repository's tracked files, so the
+ * directories themselves must be checked for their own `.git`.
+ */
+function indexCandidatePaths(stdout: string): Set<string> {
+  const candidates = new Set<string>();
   for (const entry of stdout.split('\0')) {
     // `<mode> <object> <stage>\t<path>`; mode 160000 is a gitlink.
     const tab = entry.indexOf('\t');
-    if (tab !== -1 && entry.startsWith('160000 ')) {
-      paths.push(entry.slice(tab + 1));
+    if (tab === -1) {
+      continue;
+    }
+    const indexedPath = entry.slice(tab + 1);
+    if (entry.startsWith('160000 ')) {
+      candidates.add(indexedPath);
+    }
+    let directory = path.posix.dirname(indexedPath);
+    while (directory !== '.' && !candidates.has(directory)) {
+      candidates.add(directory);
+      directory = path.posix.dirname(directory);
     }
   }
-  return paths;
+  return candidates;
 }
 
 async function hasOwnGitDirectory(worktreePath: string, relativePath: string): Promise<boolean> {
@@ -125,9 +140,10 @@ async function hasOwnGitDirectory(worktreePath: string, relativePath: string): P
  * Their commits and untracked files live in their own `.git`, so the archive
  * snapshot cannot restore them: `git add -A` records at most a gitlink, and
  * fails outright on a repository with no commit. Git reports an untracked one
- * as a `?? dir/` status entry and a committed one as a gitlink; either counts
- * once it holds its own `.git`. An ignored one stays with the ignored-entry
- * confirmation, which already says it will be deleted.
+ * as a `?? dir/` status entry and a committed one as a gitlink, and one inside
+ * a tracked directory not at all; each counts once it holds its own `.git`. An
+ * ignored one stays with the ignored-entry confirmation, which already says it
+ * will be deleted.
  */
 export async function findNestedRepositories(input: {
   readonly invoke: GitInvoke;
@@ -148,23 +164,22 @@ export async function findNestedRepositories(input: {
     }
     statusEntries = parsePorcelainV1ZStatusEntries(statusRun.stdout);
   }
-  const gitlinkRun = await invokeGitHookFree(input.invoke, ['ls-files', '--stage', '-z']);
-  if (gitlinkRun.exitCode !== 0) {
-    return { error: describeFailure(gitlinkRun), ok: false };
+  const indexRun = await invokeGitHookFree(input.invoke, ['ls-files', '--stage', '-z']);
+  if (indexRun.exitCode !== 0) {
+    return { error: describeFailure(indexRun), ok: false };
   }
-  const candidates = new Set<string>(parseGitlinkPaths(gitlinkRun.stdout));
+  const candidates = indexCandidatePaths(indexRun.stdout);
   for (const entry of statusEntries) {
     if (entry.startsWith('?? ') && entry.endsWith('/')) {
       candidates.add(entry.slice(3, -1));
     }
   }
-  const nested: string[] = [];
-  for (const candidate of candidates) {
-    if (await hasOwnGitDirectory(input.worktreePath, candidate)) {
-      nested.push(candidate);
-    }
-  }
-  return { ok: true, value: nested.sort() };
+  const owned = await Promise.all(
+    [...candidates].map(async (candidate) =>
+      (await hasOwnGitDirectory(input.worktreePath, candidate)) ? candidate : null
+    )
+  );
+  return { ok: true, value: owned.filter((candidate) => candidate !== null).sort() };
 }
 
 async function inspectUnpushedSafety(input: {

@@ -111,6 +111,28 @@ describe('WorktreeService archive with nested repositories (real git + real SQLi
     expect(git(nested, ['log', '--format=%s']).trim()).toBe('nested work');
   });
 
+  it('refuses a repository initialized inside a directory the worktree tracks', async () => {
+    // Codex review: Git reports no `?? pkg/` here, since the outer repository
+    // tracks pkg/'s files; the nested history lives only in pkg/.git.
+    mkdirSync(path.join(repo, 'pkg'));
+    writeFileSync(path.join(repo, 'pkg', 'index.ts'), 'export const pkg = 1;\n');
+    git(repo, ['add', 'pkg/index.ts']);
+    git(repo, ['commit', '--quiet', '-m', 'track pkg']);
+    const { service, worktree } = await createWorktree('nested-in-tracked');
+    const nested = path.join(worktree.path, 'pkg');
+    git(nested, ['init', '--quiet', '-b', 'main']);
+    git(nested, ['config', 'user.email', 'test@brainstrike.invalid']);
+    git(nested, ['config', 'user.name', 'BrainStrike Test']);
+    git(nested, ['add', 'index.ts']);
+    git(nested, ['commit', '--quiet', '-m', 'nested history']);
+
+    await expect(service.archive({ force: true, worktreeId: worktree.id })).resolves.toEqual({
+      error: refusal('pkg'),
+      ok: false,
+    });
+    expect(git(nested, ['log', '--format=%s']).trim()).toBe('nested history');
+  });
+
   it('archives once the nested repository is moved out', async () => {
     const { service, worktree } = await createWorktree('nested-moved');
     const nested = path.join(worktree.path, 'sandbox');
