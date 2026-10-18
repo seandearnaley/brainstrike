@@ -150,7 +150,7 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
   },
   {
     reason:
-      'Part of the platform-specific Native Electron Package job, excluded as a unit — package with VITE_MCP_TASK_HARNESS=1 and run `pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-tasks` against that developer-platform package explicitly.',
+      'Part of the platform-specific Native Electron Package job, excluded as a unit — run `pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-tasks` against a developer-platform package explicitly.',
     step: 'native-electron › Verify packaged MCP Tasks lifecycle',
   },
   {

@@ -824,10 +824,6 @@ jobs:
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
 
       - name: Package the desktop application
-        env:
-          # Bakes the E2E-only MCP Tasks harness chunk into THIS package for the
-          # packaged Tasks verifier below; release packaging never sets it.
-          VITE_MCP_TASK_HARNESS: '1'
         run: |
           set -euo pipefail
           test -n "${ELECTRON_DIST:-}"
