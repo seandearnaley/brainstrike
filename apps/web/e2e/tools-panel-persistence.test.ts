@@ -61,6 +61,25 @@ test.describe('Agent sidebar database access @stateful @web-db-startup', () => {
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
   });
 
+  test('opens the collections help from the database toolbar on click (BST-524)', async ({
+    page,
+  }) => {
+    const elements = getPanelElements(page);
+    if (await elements.showAgentPanelShim.isVisible().catch(() => false)) {
+      await elements.showAgentPanelShim.click();
+    }
+    await page.getByRole('tab', { name: 'Collections' }).click();
+    const toolbar = page.getByTestId('database-panel-toolbar');
+    await expect(toolbar).toBeVisible({ timeout: 15_000 });
+
+    await toolbar.getByRole('button', { name: 'Help' }).click();
+    const help = page.getByTestId('database-panel-help');
+    await expect(help).toBeVisible();
+    await expect(help).toContainText('Collections let you search files with different AI models.');
+    await page.keyboard.press('Escape');
+    await expect(help).toHaveCount(0);
+  });
+
   test('keeps one stable database frame and contains centered actions at the Library minimum', async ({
     page,
   }) => {
