@@ -178,7 +178,8 @@ export async function writeContainedFileBytes(args: {
         throw error;
       }
       throw new Error(
-        `Parent directory of "${requestedPath}" no longer exists; it may have been renamed or deleted.`
+        `Parent directory of "${requestedPath}" no longer exists; it may have been renamed or deleted.`,
+        { cause: error }
       );
     }
   }

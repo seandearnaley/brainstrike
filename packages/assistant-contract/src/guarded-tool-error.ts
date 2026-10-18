@@ -26,8 +26,8 @@ export interface GuardedToolError {
 export class ToolInputError extends Error {
   readonly code = 'tool_input_invalid' as const;
 
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'ToolInputError';
   }
 }

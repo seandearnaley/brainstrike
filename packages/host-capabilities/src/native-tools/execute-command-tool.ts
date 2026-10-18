@@ -259,7 +259,7 @@ async function resolveCommandCwd(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new ToolInputError(`cwd "${requestedCwd}" does not exist.`);
+      throw new ToolInputError(`cwd "${requestedCwd}" does not exist.`, { cause: error });
     }
     throw error;
   }

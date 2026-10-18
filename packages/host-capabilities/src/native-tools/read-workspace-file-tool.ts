@@ -413,7 +413,8 @@ function decodeReadWorkspaceFileText(
   } catch (error) {
     if (error instanceof TypeError) {
       throw new ToolInputError(
-        `Path "${requestedPath}" contains malformed UTF-8 and cannot be read as text.`
+        `Path "${requestedPath}" contains malformed UTF-8 and cannot be read as text.`,
+        { cause: error }
       );
     }
     throw error;
