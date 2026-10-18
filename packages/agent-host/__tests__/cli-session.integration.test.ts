@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -36,6 +37,10 @@ const platformPath = fileURLToPath(
   )
 );
 const exec = promisify(execFile);
+// A cold `run` reaches its approval prompt only after it started the detached host: readiness, not a latency the
+// product promises (the host's own startup bound is 10 s). On hosted Linux it took 1.5-1.9 s, past the 1 s it once
+// had (BST-2151). 15 s, scaled by TEST_TIMEOUT_MULTIPLIER (30 s in CI).
+const PROMPT_READY_MS = getAdjustedTimeout('integration');
 const roots: string[] = [];
 const owners: HostRecord[] = [];
 const clients: HostClient[] = [];
@@ -135,12 +140,11 @@ function startCli(
       stdout: () => terminal.output.stdout(),
       waitForPrompt: async () => {
         const started = await spawned;
-        // Same 10-second startup bound as the production host spawner. Observe
-        // output events and reject early with exit/stderr instead of a 1s poll.
+        // Observe output events and reject early with exit/stderr instead of a poll.
         await terminal.output.waitFor(
           'stderr',
           'Approve, deny, or stop?',
-          AbortSignal.timeout(10_000)
+          AbortSignal.timeout(PROMPT_READY_MS)
         );
         recordFixtureEvent('cli-prompt-readiness', {
           elapsedMs: Date.now() - started,
@@ -166,10 +170,12 @@ function startCli(
     },
     stderr: () => observed.output.stderr(),
     stdout: () => observed.output.stdout(),
-    // Preserve the original non-Windows 1s observation bound. Windows alone
-    // uses the existing host-startup 10s bound with measured readiness evidence.
     waitForPrompt: () =>
-      observed.output.waitFor('stderr', 'Approve, deny, or stop?', AbortSignal.timeout(1000)),
+      observed.output.waitFor(
+        'stderr',
+        'Approve, deny, or stop?',
+        AbortSignal.timeout(PROMPT_READY_MS)
+      ),
     write: (text) => {
       child.stdin?.write(text);
     },

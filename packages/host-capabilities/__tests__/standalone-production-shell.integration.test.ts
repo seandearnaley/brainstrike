@@ -37,8 +37,13 @@ afterEach(async () => {
   }
 });
 
+interface ShellInput {
+  readonly command: string;
+  readonly timeoutMs?: number;
+}
+
 /** The standalone platform with one scripted shell call; every started native process is logged. */
-async function shellPlatformModule(directory: string, command: string, spawnLog: string) {
+async function shellPlatformModule(directory: string, input: ShellInput, spawnLog: string) {
   const module = join(directory, 'shell-platform.mjs');
   await writeFile(
     module,
@@ -50,7 +55,7 @@ observeNativeChildren({
   exited: () => undefined,
   started: (child) => appendFileSync(${JSON.stringify(spawnLog)}, JSON.stringify(child) + '\\n'),
 });
-const fixture = scriptedToolSteps([[{ input: { command: ${JSON.stringify(command)} }, toolId: ${JSON.stringify(SHELL_TOOL)} }]]);
+const fixture = scriptedToolSteps([[{ input: ${JSON.stringify(input)}, toolId: ${JSON.stringify(SHELL_TOOL)} }]]);
 const model = {
   doGenerate: (options) => fixture.doGenerate(options),
   doStream: (options) => fixture.doStream(options),
@@ -66,12 +71,14 @@ export const createHostPlatform = (options, startup, launch) =>
   return module;
 }
 
-async function shellHost(command: string) {
+/** `shellInput` receives the spawn log's path, so the command can wait for its own record. */
+async function shellHost(shellInput: (spawnLog: string) => ShellInput) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-standalone-shell-data-'));
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-standalone-shell-ws-')));
   const fixtures = await mkdtemp(join(tmpdir(), 'bs-standalone-shell-module-'));
   const spawnLog = join(fixtures, 'native-children.jsonl');
   await writeFile(spawnLog, '');
+  const input = shellInput(spawnLog);
   const cli = (args: readonly string[]) =>
     new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
       execFile(
@@ -114,7 +121,7 @@ async function shellHost(command: string) {
       await expect.poll(() => processStartTime(pid), { timeout: 30_000 }).toBeNull();
     }
   });
-  const module = await shellPlatformModule(fixtures, command, spawnLog);
+  const module = await shellPlatformModule(fixtures, input, spawnLog);
   expect(
     await cli(['host', 'start', '--workspace', workspace, '--platform', module])
   ).toMatchObject({ code: 0, stderr: '' });
@@ -151,7 +158,7 @@ async function shellHost(command: string) {
     if (requested?.type !== 'interaction.requested') {
       throw new Error('The standalone shell call did not pause for approval');
     }
-    expect(requested).toMatchObject({ input: { command }, kind: 'approval', toolId: SHELL_TOOL });
+    expect(requested).toMatchObject({ input, kind: 'approval', toolId: SHELL_TOOL });
     expect(pausedRows.find((row) => row.event.type === 'run.started')?.event).toMatchObject({
       snapshot: {
         configuration: {
@@ -205,7 +212,13 @@ async function shellHost(command: string) {
 test('an approved executeCommand runs echo in the launch root and commits its output', {
   timeout: 180_000,
 }, async () => {
-  const host = await shellHost('echo standalone-shell-ok');
+  // The host supervises a native process only while it is alive: an exited one holds nothing (ADR-0017). On Linux,
+  // dash runs a bare `echo` and is already a zombie when the host reads its start time (BST-2151), so this shell
+  // echoes its pid only once the observer has recorded it. The tool's own timeout bounds a record that never comes.
+  const host = await shellHost((spawnLog) => ({
+    command: `until [ -s '${spawnLog}' ]; do sleep 0.01; done; echo standalone-shell-ok $$`,
+    timeoutMs: 30_000,
+  }));
   const { rows, spawned, toolCallId, workspace } = await host.decide('approve');
   expect(rows.find((row) => row.event.type === 'effect.started')?.event).toMatchObject({
     toolCallId,
@@ -220,17 +233,18 @@ test('an approved executeCommand runs echo in the launch root and commits its ou
       exitCode: 0,
       rootId: workspace,
       signal: null,
-      stdout: expect.stringMatching(/^standalone-shell-ok\r?\n$/u),
+      stdout: expect.stringMatching(/^standalone-shell-ok \d+\n$/u),
       timedOut: false,
     },
   });
   // The shell itself is a native process the host started under its Root.
-  expect(spawned.length).toBeGreaterThan(0);
+  const { output } = z.object({ output: z.object({ stdout: z.string() }) }).parse(finished);
+  expect(spawned).toContainEqual({ pid: Number(output.stdout.split(' ')[1]) });
 });
 
 test('a denied executeCommand never spawns its process', { timeout: 180_000 }, async () => {
   const marker = 'denied-marker.txt';
-  const host = await shellHost(`echo should-not-run > ${marker}`);
+  const host = await shellHost(() => ({ command: `echo should-not-run > ${marker}` }));
   const { rows, spawned, toolCallId, workspace } = await host.decide('deny');
   expect(spawned).toEqual([]);
   expect(existsSync(join(workspace, marker))).toBe(false);
