@@ -117,7 +117,7 @@ const SMOKE_E2E_JOB_CONDITION = [
   '(',
   "needs.admission.result != 'success' ||",
   '(',
-  "github.event_name != 'workflow_dispatch' &&",
+  "(github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&",
   "needs.admission.outputs.admitted == 'true' &&",
   "needs.build.result == 'success'",
   ')',

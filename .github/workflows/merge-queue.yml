@@ -1,529 +1,94 @@
 # Runs the fast tier on each merge-queue group for main (BST-2188).
-# Per-push PR CI stays off: only merge groups and manual dispatches run this.
+# Per-push PR CI stays off: pull_request runs start no runner.
 
 name: Merge Queue
 
-# The ruleset requires one check from this workflow: the `Merge Queue Gate` job
-# below. Its lanes are copies of the nightly's (test.yml), which explains each
-# step; scripts/__tests__/merge-queue-contract.test.mjs keeps every copy equal
-# to its nightly job and lists the deliberate differences.
+# scripts/__tests__/merge-queue-contract.test.mjs pins these triggers, the
+# call and the gate.
 on:
+  # Skip-only (BST-2188, owner decision 2026-10-19). GitHub admits a PR to the
+  # queue only once the required checks pass on its head, so Merge Queue Gate
+  # must report there too. Every job below skips on pull_request, and GitHub
+  # reports a job skipped by its condition as success to required checks.
+  # `edited` covers a stacked PR retargeted to main, whose head never ran here.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
   merge_group:
     types: [checks_requested]
     branches: [main]
   workflow_dispatch:
 
+# A called workflow can only narrow these, and test.yml asks for both.
 permissions:
   contents: read
-
-env:
-  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  TURBO_CACHE_DIR: .turbo
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  # A variable, not a secret (BST-2105); see test.yml.
-  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  pull-requests: read
 
 jobs:
-  # Unit selection runs on its own, unlike the nightly where Static owns it, so
-  # the Unit shards start without waiting for lint and type-check, and a red
-  # Static cannot skip them. A merge group selects the shards its change affects
-  # against `merge_group.base_sha`, the group's parent commit: the commits below
-  # it are main, or queue entries ahead of this one whose own runs test them. A
-  # manual dispatch selects every shard.
-  plan:
-    name: Plan
-    if: github.repository == 'seandearnaley/brainstrike'
-    outputs:
-      unit-matrix: ${{ steps.unit-shards.outputs.matrix }}
-      unit-shard-count: ${{ steps.unit-shards.outputs.count }}
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 10
-    steps:
-      # Full history: affected selection needs the group's base commit.
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+  # The fast tier is test.yml itself: Static, Unit (affected against the merge
+  # group's base), Build and the three smoke E2E lanes. Its nightly-only jobs
+  # skip under `merge-queue: true`. A dispatch runs every Unit shard. Check
+  # names read "Test / Static", "Test / Unit (db-1)" and so on.
+  test:
+    name: Test
+    if: github.repository == 'seandearnaley/brainstrike' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/test.yml
+    with:
+      merge-queue: true
+    secrets:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-
-      - name: Select affected Unit shards
-        id: unit-shards
-        env:
-          UNIT_MATRIX: >-
-            {
-              "include": [
-                {
-                  "shard": "db-1",
-                  "partition": "db",
-                  "pr_filters": "--filter=\"@brainstrike/db\"",
-                  "push_filters": "--filter=\"@brainstrike/db\"",
-                  "vitest_shard": "1/2"
-                },
-                {
-                  "shard": "db-2",
-                  "partition": "db",
-                  "pr_filters": "--filter=\"@brainstrike/db\"",
-                  "push_filters": "--filter=\"@brainstrike/db\"",
-                  "vitest_shard": "2/2"
-                },
-                {
-                  "shard": "agent-1",
-                  "partition": "agent",
-                  "pr_filters": "--filter=\"@brainstrike/agent\"",
-                  "push_filters": "--filter=\"@brainstrike/agent\"",
-                  "vitest_shard": "1/2"
-                },
-                {
-                  "shard": "agent-2",
-                  "partition": "agent",
-                  "pr_filters": "--filter=\"@brainstrike/agent\"",
-                  "push_filters": "--filter=\"@brainstrike/agent\"",
-                  "vitest_shard": "2/2"
-                },
-                {
-                  "shard": "desktop-1",
-                  "partition": "desktop",
-                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
-                  "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "1/3"
-                },
-                {
-                  "shard": "desktop-2",
-                  "partition": "desktop",
-                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
-                  "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "2/3"
-                },
-                {
-                  "shard": "desktop-3",
-                  "partition": "desktop",
-                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
-                  "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "3/3"
-                },
-                {
-                  "shard": "heavy",
-                  "partition": "heavy",
-                  "pr_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\" --filter=\"@brainstrike/app-shell\"",
-                  "push_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\" --filter=\"@brainstrike/app-shell\"",
-                  "vitest_shard": ""
-                },
-                {
-                  "shard": "rest",
-                  "partition": "rest",
-                  "pr_filters": "--filter=\"!@brainstrike/db\" --filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\"",
-                  "vitest_shard": "",
-                  "push_filters": "--filter=\"!@brainstrike/db\" --filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\""
-                }
-              ]
-            }
-          EVENT_NAME: ${{ github.event_name }}
-          TURBO_SCM_BASE: ${{ github.event.merge_group.base_sha }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
-          COVERAGE: "false"
-          TEST_TIMEOUT_MULTIPLIER: "2"
-          TURBO_TEST_MODE: unit
-        run: node scripts/select-unit-shards.mjs
-
-  # Lint, type-check, script contracts, secret scan and package boundaries on
-  # the complete repository. Turbo's remote cache replays every package whose
-  # inputs the group did not change, so no selection is needed here.
-  static:
-    name: Static
-    if: github.repository == 'seandearnaley/brainstrike'
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Lockfile catalog conformance (pre-install)
-        run: node scripts/verify-lockfile-catalog-conformance.mjs
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'true'
-
-      - name: Secret scan
-        run: pnpm secrets:scan
-
-      - name: Package boundaries
-        run: pnpm run boundaries
-
-      - name: Script tests
-        run: pnpm test:scripts
-
-      - name: Lint
-        run: pnpm run lint:ci
-
-      - name: Type check
-        env:
-          TURBO_CONCURRENCY: 4
-        run: pnpm run type-check
-
-      - name: MCP representative verification
-        run: pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json
-
-  unit-shard:
-    name: Unit (${{ matrix.shard }})
-    if: needs.plan.outputs.unit-shard-count != '0'
-    needs: [plan]
-    runs-on: ubicloud-standard-4
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.unit-matrix) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'true'
-
-      - name: Provision the Linux desktop test host
-        uses: ./.github/actions/linux-desktop-test-host
-        with:
-          model-cache: ${{ matrix.partition == 'desktop' }}
-
-      - name: Merge group affected unit tests
-        if: github.event_name == 'merge_group'
-        env:
-          TURBO_SCM_BASE: ${{ github.event.merge_group.base_sha }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
-          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
-          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
-          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
-          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
-          COVERAGE: "false"
-          DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
-          TEST_TIMEOUT_MULTIPLIER: "2"
-          TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
-
-      - name: Merge group affected integration tests
-        if: github.event_name == 'merge_group'
-        env:
-          TURBO_SCM_BASE: ${{ github.event.merge_group.base_sha }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
-          BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
-          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
-          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
-          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
-          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
-          COVERAGE: "false"
-          TEST_TIMEOUT_MULTIPLIER: "2"
-          TURBO_TEST_MODE: unit
-        run: xvfb-run --auto-servernum node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
-
-      - name: Manual unit tests
-        if: github.event_name != 'merge_group'
-        env:
-          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
-          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
-          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
-          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
-          COVERAGE: "false"
-          DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
-          TEST_TIMEOUT_MULTIPLIER: "2"
-          TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
-
-      - name: Manual integration tests
-        if: github.event_name != 'merge_group'
-        env:
-          BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
-          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
-          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
-          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
-          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
-          COVERAGE: "false"
-          TEST_TIMEOUT_MULTIPLIER: "2"
-          TURBO_TEST_MODE: unit
-        run: xvfb-run --auto-servernum node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
-
-  build:
-    name: Build
-    if: github.repository == 'seandearnaley/brainstrike'
-    runs-on: ubicloud-standard-4
-    timeout-minutes: 25
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'true'
-
-      - name: Build
-        env:
-          TAILWIND_DEBUG: '1'
-        run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful
-
-      - name: Validate CSS bundle
-        run: |
-          CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-          echo "CSS bundle size: ${CSS_SIZE} bytes"
-
-          if [ "$CSS_SIZE" -lt 50000 ]; then
-            echo "::error::CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources."
-            exit 1
-          fi
-
-          PAT='*,:after,:before,::backdrop{box-sizing:border-box'
-          DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
-          if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-            echo "::error::Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import \"tailwindcss\" statements."
-            exit 1
-          fi
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-artifacts
-          path: |
-            apps/web/dist/
-            apps/desktop/dist/
-            packages/*/dist/
-          retention-days: 1
-          if-no-files-found: error
-
-  web-e2e:
-    name: Web E2E
-    needs: [build]
-    runs-on: ubicloud-standard-4
-    container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
-      options: --user 0
-    timeout-minutes: 25
-    env:
-      NODE_ENV: production
-      PORT: "8080"
-      BASE_URL: http://127.0.0.1:8080
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      pnpm_config_verify_deps_before_run: "false"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install web test system tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends unzip lsof procps
-
-      - name: Provision qualified web Chromium
-        shell: bash
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          BRAINSTRIKE_WEB_CHROMIUM_DIR="$RUNNER_TEMP/web-chromium"
-          echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"
-          test "$(node --version)" = "v$(cat .nvmrc)"
-          mkdir -p apps/web/test-results
-          node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR" > apps/web/test-results/web-chromium-provisioning.json
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native' --filter '!@brainstrike/windows-job-native'
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
-
-      - name: Run web smoke
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
-
-      - name: Upload web smoke traces
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-smoke-main-test-results
-          path: apps/web/test-results/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  desktop-e2e-smoke:
-    name: Desktop E2E (smoke)
-    needs: [build]
-    runs-on: ubicloud-standard-4
-    timeout-minutes: 25
-    env:
-      NODE_ENV: test
-      CI: "true"
-      ELECTRON_ENABLE_STACK_DUMPING: "false"
-      ELECTRON_DISABLE_GPU: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
-
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install Chromium system dependencies
-        run: pnpm exec playwright install-deps chromium
-
-      - name: Provision Electron binary
-        working-directory: apps/desktop
-        run: |
-          set -euo pipefail
-          VER=$(node -p "require('electron/package.json').version")
-          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
-          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
-          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
-          echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
-          rm -rf "${DIR}/dist" "${DIR}/path.txt"
-          mkdir -p "${DIR}/dist"
-          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
-          printf 'electron' > "${DIR}/path.txt"
-          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
-
-      - name: Run desktop smoke
-        working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:smoke
-
-      - name: Upload desktop smoke traces
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-smoke-main-test-results
-          path: |
-            apps/desktop/test-results/
-            apps/desktop/blob-report/
-          retention-days: 1
-          if-no-files-found: warn
-
-  desktop-e2e-delegated:
-    name: Desktop E2E (delegated smoke)
-    needs: [build]
-    runs-on: ubicloud-standard-4
-    timeout-minutes: 25
-    env:
-      NODE_ENV: test
-      CI: "true"
-      ELECTRON_ENABLE_STACK_DUMPING: "false"
-      ELECTRON_DISABLE_GPU: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
-
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install Chromium system dependencies
-        run: pnpm exec playwright install-deps chromium
-
-      - name: Provision Electron binary
-        working-directory: apps/desktop
-        run: |
-          set -euo pipefail
-          VER=$(node -p "require('electron/package.json').version")
-          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
-          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
-          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
-          echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
-          rm -rf "${DIR}/dist" "${DIR}/path.txt"
-          mkdir -p "${DIR}/dist"
-          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
-          printf 'electron' > "${DIR}/path.txt"
-          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
-
-      - name: Run desktop delegated smoke
-        working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated
-
-      - name: Upload desktop delegated smoke traces
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-smoke-delegated-test-results
-          path: |
-            apps/desktop/test-results/
-            apps/desktop/blob-report/
-          retention-days: 1
-          if-no-files-found: warn
-
-  # The one check the ruleset requires; keep its name exact. It waits for every
-  # job and passes only when each one succeeded. The Unit matrix may skip only
-  # when Plan succeeded and verified that no Unit task is affected. A failed,
-  # cancelled or otherwise skipped lane fails the gate, so nothing reports
-  # green without having run.
+  # The one check the ruleset requires; keep its name exact. It passes only
+  # when the call succeeded, every fast-tier job succeeded and every
+  # nightly-only job skipped. Static owns Unit selection, so the Unit matrix
+  # may skip only when Static succeeded and selected no affected shard; a Unit
+  # skipped because Static failed, or any other skipped, failed or cancelled
+  # job, fails the gate.
   merge-queue-gate:
     name: Merge Queue Gate
-    if: github.repository == 'seandearnaley/brainstrike' && always()
-    needs: [plan, static, unit-shard, build, web-e2e, desktop-e2e-smoke, desktop-e2e-delegated]
+    if: github.repository == 'seandearnaley/brainstrike' && github.event_name != 'pull_request' && always()
+    needs: [test]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
-      - name: Judge every lane
+      - name: Judge every job
         env:
-          RESULT_PLAN: ${{ needs.plan.result }}
-          RESULT_STATIC: ${{ needs.static.result }}
-          RESULT_UNIT_SHARD: ${{ needs.unit-shard.result }}
-          RESULT_BUILD: ${{ needs.build.result }}
-          RESULT_WEB_E2E: ${{ needs.web-e2e.result }}
-          RESULT_DESKTOP_E2E_SMOKE: ${{ needs.desktop-e2e-smoke.result }}
-          RESULT_DESKTOP_E2E_DELEGATED: ${{ needs.desktop-e2e-delegated.result }}
-          UNIT_SHARD_COUNT: ${{ needs.plan.outputs.unit-shard-count }}
+          NIGHTLY_ONLY: NATIVE_WINDOWS NATIVE_ELECTRON BROWSER_TESTS NOTIFY_LINEAR
+          UNIT_SHARD_COUNT: ${{ needs.test.outputs.unit-shard-count }}
+          RESULT_TEST: ${{ needs.test.result }}
+          RESULT_ADMISSION: ${{ needs.test.outputs.admission-result }}
+          RESULT_STATIC: ${{ needs.test.outputs.static-result }}
+          RESULT_UNIT_SHARD: ${{ needs.test.outputs.unit-shard-result }}
+          RESULT_UNIT: ${{ needs.test.outputs.unit-result }}
+          RESULT_BUILD: ${{ needs.test.outputs.build-result }}
+          RESULT_NATIVE_WINDOWS: ${{ needs.test.outputs.native-windows-result }}
+          RESULT_NATIVE_ELECTRON: ${{ needs.test.outputs.native-electron-result }}
+          RESULT_BROWSER_TESTS: ${{ needs.test.outputs.browser-tests-result }}
+          RESULT_WEB_E2E: ${{ needs.test.outputs.web-e2e-result }}
+          RESULT_DESKTOP_E2E_SMOKE: ${{ needs.test.outputs.desktop-e2e-smoke-result }}
+          RESULT_DESKTOP_E2E_DELEGATED: ${{ needs.test.outputs.desktop-e2e-delegated-result }}
+          RESULT_DESKTOP_E2E: ${{ needs.test.outputs.desktop-e2e-result }}
+          RESULT_NOTIFY_LINEAR: ${{ needs.test.outputs.notify-linear-result }}
         run: |
           set -euo pipefail
           failed=0
           for lane in "${!RESULT_@}"; do
+            job="${lane#RESULT_}"
             result="${!lane}"
-            echo "${lane#RESULT_}: ${result}"
-            if [ "$result" = success ]; then
+            expected=success
+            case " ${NIGHTLY_ONLY} " in
+              *" ${job} "*) expected=skipped ;;
+            esac
+            echo "${job}: ${result} (expected ${expected})"
+            if [ "$result" = "$expected" ]; then
               continue
             fi
-            if [ "$lane" = RESULT_UNIT_SHARD ] && [ "$result" = skipped ] &&
-              [ "$RESULT_PLAN" = success ] && [ "$UNIT_SHARD_COUNT" = 0 ]; then
-              echo "Plan verified that no Unit task is affected."
+            if [ "$job" = UNIT_SHARD ] && [ "$result" = skipped ] &&
+              [ "$RESULT_STATIC" = success ] && [ "$UNIT_SHARD_COUNT" = 0 ]; then
+              echo "Static succeeded and selected no affected Unit shard."
               continue
             fi
-            echo "::error::${lane#RESULT_} did not succeed: ${result}"
+            echo "::error::${job} was ${result:-missing}, expected ${expected}"
             failed=1
           done
           exit "$failed"

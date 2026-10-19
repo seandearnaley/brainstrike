@@ -44,9 +44,17 @@ const STAYS_DISABLED = [
 ];
 const REUSABLE = ['nightly-linear-alert.yml'];
 // BST-2188: the merge queue's fast tier. merge-queue-contract.test.mjs owns its
-// triggers and gate; a red merge group removes the PR from the queue, so it
-// files nothing to Linear.
+// triggers, its call into test.yml and its gate; a red merge group removes the
+// PR from the queue, so it files nothing to Linear.
 const MERGE_QUEUE = ['merge-queue.yml'];
+// Narrow allowances, both BST-2188 (owner decision 2026-10-19), each proven by
+// merge-queue-contract.test.mjs:
+// - test.yml may also be called (`workflow_call`), only by merge-queue.yml, so
+//   the queue runs the nightly's own jobs rather than copies of them;
+// - merge-queue.yml may trigger on pull_request, skip-only: every job skips on
+//   that event, so its required gate reports on PR heads and no runner starts.
+const CALLED_BY = new Map([['test.yml', 'merge-queue.yml']]);
+const SKIP_ONLY_PULL_REQUEST = ['merge-queue.yml'];
 
 const POLICY_LINE =
   '# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.';
@@ -78,7 +86,7 @@ function assertScheduleOnly(file, source) {
   const { on } = parseYaml(source);
   assert.deepEqual(
     Object.keys(on).sort(),
-    ['schedule', 'workflow_dispatch'],
+    ['schedule', ...(CALLED_BY.has(file) ? ['workflow_call'] : []), 'workflow_dispatch'],
     `${file} must run only on its schedule and manual dispatch`
   );
   assert.deepEqual(on.schedule, [{ cron: SCHEDULED.get(file) }], `${file} schedule`);
@@ -223,6 +231,43 @@ test('PR, bot and manual workflows keep their triggers and say they stay disable
   assert.deepEqual(prTriggered, ['claude-code-review.yml', 'coverage.yml', 'react-doctor.yml']);
 });
 
+const workflowFiles = () => readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
+const allWorkflows = () => new Map(workflowFiles().map((file) => [file, readWorkflow(file)]));
+const DISABLED_PULL_REQUEST = ['claude-code-review.yml', 'coverage.yml', 'react-doctor.yml'];
+
+function assertPullRequestTriggers(sources) {
+  const prTriggered = [...sources]
+    .filter(([, source]) => parseYaml(source).on?.pull_request !== undefined)
+    .map(([file]) => file)
+    .sort();
+  assert.deepEqual(
+    prTriggered,
+    [...DISABLED_PULL_REQUEST, ...SKIP_ONLY_PULL_REQUEST].sort(),
+    'a new pull_request trigger needs its own owner decision'
+  );
+}
+
+function assertCallers(sources) {
+  for (const [callee, caller] of CALLED_BY) {
+    const callers = [...sources]
+      .filter(([, source]) =>
+        Object.values(parseYaml(source).jobs ?? {}).some(
+          (job) => job.uses === `./.github/workflows/${callee}`
+        )
+      )
+      .map(([file]) => file);
+    assert.deepEqual(callers, [caller], `${callee} may be called only by ${caller}`);
+  }
+}
+
+test('beside the disabled PR workflows, only the skip-only merge queue triggers on pull_request', () => {
+  assertPullRequestTriggers(allWorkflows());
+});
+
+test('test.yml is called only by the merge queue', () => {
+  assertCallers(allWorkflows());
+});
+
 test('no scheduled or merge-queue job can start in a fork', () => {
   for (const file of [...SCHEDULED.keys(), ...MERGE_QUEUE]) {
     assertForkGuard(file, readWorkflow(file));
@@ -305,4 +350,20 @@ test('CONTROL: the retired AGENTS.md sentence fails the policy check', () => {
     'CI is disabled due to cost; validation must run locally.'
   );
   assert.throws(() => assertPolicyText(retired, ciQuality), /nightly policy/u);
+});
+
+test('CONTROL: another pull_request trigger, caller or workflow_call fails its allowance check', () => {
+  const sources = allWorkflows();
+  const knip = mutate(sources.get('knip.yml'), '\non:\n', '\non:\n  pull_request:\n');
+  assert.throws(
+    () => assertPullRequestTriggers(new Map([...sources, ['knip.yml', knip]])),
+    /its own owner decision/u
+  );
+  const caller = `${sources.get('knip.yml')}  extra:\n    uses: ./.github/workflows/test.yml\n`;
+  assert.throws(
+    () => assertCallers(new Map([...sources, ['knip.yml', caller]])),
+    /called only by merge-queue\.yml/u
+  );
+  const callable = mutate(readWorkflow('web-e2e.yml'), '\non:\n', '\non:\n  workflow_call:\n');
+  assert.throws(() => assertScheduleOnly('web-e2e.yml', callable), /schedule and manual dispatch/u);
 });

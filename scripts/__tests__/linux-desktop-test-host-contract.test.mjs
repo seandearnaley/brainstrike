@@ -66,17 +66,13 @@ const DESKTOP = '@brainstrike/desktop';
 const LANE = /\bturbo\s+run\s+test:(?:integration|coverage)(?=\s|$)/u;
 const DIRECT_DESKTOP_LANE =
   /(?<!!)@brainstrike\/desktop\b[^\n]*?\btest:(?:integration|coverage)(?=\s|$)/u;
-/** The Unit matrix, selected by test.yml's Static or the merge queue's Plan (BST-2188). */
-const UNIT_MATRIX = /^\$\{\{\s*fromJSON\(needs\.(static|plan)\.outputs\.unit-matrix\)\s*\}\}$/u;
+const UNIT_MATRIX = /^\$\{\{\s*fromJSON\(needs\.static\.outputs\.unit-matrix\)\s*\}\}$/u;
 
-/**
- * The floor: 3 desktop Unit rows x 2 integration steps in test.yml and again in
- * merge-queue.yml, plus Nightly Coverage's desktop shard.
- */
-const KNOWN_DESKTOP_LANE_ROWS = 13;
-/** The floor: 9 Unit rows x 2 integration steps in each of two workflows, plus Nightly Coverage's 7 package shards. */
-const KNOWN_HOST_LANE_ROWS = 43;
-const KNOWN_DESKTOP_LANE_WORKFLOWS = ['merge-queue.yml', 'nightly-coverage.yml', 'test.yml'];
+/** The floor: 3 desktop Unit rows x 2 integration steps, plus Nightly Coverage's desktop shard. */
+const KNOWN_DESKTOP_LANE_ROWS = 7;
+/** The floor: 9 Unit rows x 2 integration steps, plus Nightly Coverage's 7 package shards. */
+const KNOWN_HOST_LANE_ROWS = 25;
+const KNOWN_DESKTOP_LANE_WORKFLOWS = ['nightly-coverage.yml', 'test.yml'];
 
 function readWorkflow(file) {
   return readFileSync(path.join(workflowsDir, file), 'utf8');
@@ -167,10 +163,9 @@ function matrixRows(workflow, job) {
   if (matrix === undefined) {
     return [{}];
   }
-  const unit = typeof matrix === 'string' ? UNIT_MATRIX.exec(matrix.trim()) : null;
-  if (unit) {
+  if (typeof matrix === 'string' && UNIT_MATRIX.test(matrix.trim())) {
     // Unit selection only drops rows of this full matrix (select-unit-shards.mjs).
-    const selection = workflow.jobs?.[unit[1]]?.steps?.find((step) => step.id === 'unit-shards');
+    const selection = workflow.jobs?.static?.steps?.find((step) => step.id === 'unit-shards');
     return JSON.parse(selection.env.UNIT_MATRIX).include;
   }
   if (Array.isArray(matrix?.include) && Object.keys(matrix).length === 1) {

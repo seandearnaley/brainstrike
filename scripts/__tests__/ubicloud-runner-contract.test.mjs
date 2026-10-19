@@ -69,7 +69,11 @@ test('Native Windows stays always-on without custom diff-routing machinery', () 
   assert.doesNotMatch(workflow, /native-windows-impact\.mjs/);
 
   const windows = jobBlock('native-windows');
-  assert.match(windows, /^ {4}if: needs\.admission\.outputs\.admitted == 'true'$/m);
+  // BST-2188: nightly-only; it skips when merge-queue.yml calls this workflow.
+  assert.match(
+    windows,
+    /^ {4}if: needs\.admission\.outputs\.admitted == 'true' && !inputs\.merge-queue$/m
+  );
   assert.match(windows, /^ {4}needs: \[admission\]$/m);
   assert.doesNotMatch(windows, /^ {4}if: always\(\)/m);
 });
