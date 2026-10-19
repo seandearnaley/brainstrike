@@ -8,6 +8,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveDatabaseLocation } from '../../database-location';
 import { resetDesktopApplicationData } from '../../desktop-factory-reset';
 
+/** Whether the temp directory's file system ignores case: macOS and Windows by default, not Linux. */
+const tmpFoldsCase = ((): boolean => {
+  const probe = mkdtempSync(path.join(tmpdir(), 'brainstrike-reset-case-'));
+  try {
+    return existsSync(path.join(path.dirname(probe), path.basename(probe).toUpperCase()));
+  } finally {
+    rmSync(probe, { recursive: true });
+  }
+})();
+
 /**
  * Packaged macOS keeps the database at `<userData>/data/profiles/default/pgdata`,
  * i.e. INSIDE the directory factory reset wipes wholesale. Real filesystem, so
@@ -78,6 +88,44 @@ describe('factory reset with the packaged macOS database layout', () => {
     const next = await RootLock.acquire(profile);
     next.release();
   });
+
+  // BST-2234: the lock records its root's canonical spelling. Reset must compare userData in that same spelling, or a
+  // userData reached through another one (case here, a Windows 8.3 short name on hosted runners) no longer contains
+  // the lock namespace and is staged for deletion with it.
+  it.skipIf(!tmpFoldsCase)(
+    'preserves the live reset namespace when userData is reached through another spelling of its path',
+    async () => {
+      const respelled = path.join(path.dirname(userData), path.basename(userData).toUpperCase());
+      const { profile, rootPath } = resolveDatabaseLocation({
+        env: {},
+        isPackaged: true,
+        isTestRun: false,
+        paths: { documents: '/unused', home: '/unused', userData: respelled },
+        platform: 'darwin',
+        productDirName: 'BrainStrike Desktop',
+        readGitContext: () => null,
+      });
+      const profileDirectory = path.join(rootPath, 'profiles', profile);
+      mkdirSync(profileDirectory, { recursive: true });
+      mkdirSync(path.join(respelled, 'Local Storage'));
+      const lease = await acquireProfileResetLease(profileDirectory);
+      try {
+        await resetDesktopApplicationData({
+          getProtectedPaths: () => [RootLock.dirOf(lease.root)],
+          resetDatabaseProfile: () => lease.clearRootContents(),
+          stopBackgroundRuntimes: async () => undefined,
+          userDataPath: respelled,
+        });
+        expect(existsSync(RootLock.dirOf(lease.root))).toBe(true);
+        expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
+        await expect(RootLock.acquire(profileDirectory)).rejects.toMatchObject({
+          name: 'RootLockedError',
+        });
+      } finally {
+        lease.release();
+      }
+    }
+  );
 
   it('closes and resets the database before any userData entry is staged, then wipes the data root but keeps logs', async () => {
     const { pgdata, root } = seedPackagedProfile();
