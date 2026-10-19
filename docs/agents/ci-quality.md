@@ -3,7 +3,9 @@
 Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
 nightly on main and files failures to Linear (`nightly-alert`). Treat an open
 `nightly-alert` issue as a red main: fix main first, before merging other work
-onto it. Enabling or dispatching other workflows, and automated reviews, require
+onto it. Merges go through Mergify's merge queue, whose fast tier runs on each
+batch (see [Merge through the queue](#merge-through-the-queue)). Enabling or
+dispatching other workflows, and automated reviews, require
 explicit owner authorization; the disabled per-PR workflows' YAML is reference
 material, not a request to run them.
 
@@ -81,12 +83,54 @@ Required acceptance must pass before merge. State the tested change/artifact,
 commands and results, and any unverified platforms or behavior. Keep the summary
 short; raw logs belong in artifacts, not a growing list of permanent rules.
 
-Squash with `--match-head-commit`. Validate the candidate against current main and
-verify the merged tree matches the qualified tree. If inputs change, assess and
-retest what they invalidate. Normal hooks and existing checks remain in force.
+Validate the candidate against current main before you enqueue it. If inputs
+change, assess and retest what they invalidate. Normal hooks and existing checks
+remain in force.
 
 Tool versions, lane membership, worker counts, thresholds and setup order are
 owned by executable configuration. Consult those files when changing tooling.
 Historical explanations remain in the
 [archived CI notes](../archive/agent-contract-history/ci-quality/) and Git history;
 they are not additional gates or mandatory reading.
+
+## Merge through the queue
+
+Main lands only through [Mergify's merge queue](https://docs.mergify.com/merge-queue/),
+configured in `.mergify.yml`. After you validate the head, enqueue it:
+
+```sh
+gh pr comment <number> --body '@mergifyio queue'
+```
+
+Use the same command to requeue after a fix, and `@mergifyio dequeue` to pull a
+PR out. Follow the PR's `Mergify Merge Queue` check and Mergify's status
+comments. Do not use `gh pr merge`, with or without `--auto`: `Merge Queue Gate`
+never reports on a PR head, so the ruleset blocks every merge but Mergify's.
+
+Mergify batches up to five queued PRs, one batch under test at a time. It builds
+each batch on main, pushes it to a `mergify/merge-queue/` branch and opens a
+draft PR for it. That push runs `.github/workflows/merge-queue.yml`; no pull
+request starts it, so per-push PR CI stays off. When `Merge Queue Gate` passes on
+the batch, Mergify squashes each of its PRs onto main. A push to a queued PR
+resets its batch, and the queue tests the new head, so what lands is always
+tested, but it may not be the head you validated: revalidate before you push.
+
+The fast tier is `test.yml` itself, called with `merge-queue: true`. It tests
+the batch commit with Static, Unit tests for what the batch changes against the
+main commit it was built on, Build, and the web and desktop smoke E2E lanes.
+Native Windows, Native Electron, Browser tests and the full regression suites
+stay nightly, so local validation still owns the risk the tier does not cover. A
+red batch files nothing to Linear.
+
+A red batch is split until Mergify finds the PR that fails, and that PR leaves
+the queue. Read the failed lane, fix the cause, revalidate and enqueue again.
+Re-enqueueing to retry a failure is not a fix; a flaky lane needs the same
+diagnosis as any other failure.
+
+For a GitHub-native stack (`gh stack`), comment `@mergifyio queue` on the top
+PR only. Mergify queues every member below it, in order, against main, and
+keeps the stack in one batch when it fits
+([stacked pull requests](https://docs.mergify.com/merge-queue/stacks/)). The
+queue squashes, so members still open after a partial landing carry the landed
+commits under new SHAs: run `gh stack sync`, revalidate, and queue the top PR
+again.
