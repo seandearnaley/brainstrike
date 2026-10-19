@@ -7,6 +7,8 @@ import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-host-memory-semantic-recall';
 const OPENAI_KEY = 'test-key-host-memory-semantic-recall-openai';
+// The assistant panel's persisted Detail level (assistant-detail-level-context.tsx).
+const DETAIL_LEVEL_KEY = 'brainstrike.assistant.detail-level';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
@@ -157,6 +159,8 @@ test('a hosted embedder recalls from the first send, with observations on', asyn
   // text-embedding-3-small's catalog dimensions.
   modelProvider.serveEmbeddings(1536);
   await enableModel(page);
+  // BST-2225: the Developer detail level shows the recall in the memory panel.
+  await page.evaluate((key) => window.localStorage.setItem(key, 'developer'), DETAIL_LEVEL_KEY);
   await enableSemanticRecall(page, 'openai/text-embedding-3-small');
 
   await sendFirstMessage(page);
@@ -165,6 +169,15 @@ test('a hosted embedder recalls from the first send, with observations on', asyn
     input: [PROMPT],
     model: 'text-embedding-3-small',
   });
+  // The recall reached this view live, never as a committed row.
+  await page
+    .getByRole('region', { exact: true, name: 'Assistant' })
+    .getByTestId('context-usage-trigger')
+    .hover();
+  await expect(page.getByTestId('context-usage-memory-last-recall')).toContainText(
+    / messages? · top \d+ · (all threads|this thread) · [\d,]+ ms/u,
+    { timeout: 30_000 }
+  );
   await startNewThread(page);
   expect(await finishedOutcomes(page)).toEqual(['completed']);
   expect(modelProvider.refusals()).toEqual([]);
