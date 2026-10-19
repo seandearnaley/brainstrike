@@ -463,8 +463,33 @@ describe('AssistantMemorySettingsSection', () => {
         devicePrefConfigured: true,
       });
       expect(select).toHaveValue('wasm');
-      // A chosen device no longer offers automatic detection.
-      expect(within(select).queryByRole('option', { name: /Automatic/ })).toBeNull();
+    });
+
+    it('returns a chosen device to automatic detection, clearing the saved choice', async () => {
+      const user = userEvent.setup();
+      render(
+        <AssistantMemorySettingsSection
+          assistantMemoryBackendAvailable={true}
+          onDeviceEmbedding={true}
+          providerKeySources={hostedProviderKeySources}
+        />
+      );
+
+      const select = screen.getByRole('combobox', { name: 'On-device embedding device' });
+      await user.selectOptions(select, 'wasm');
+      expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(true);
+      await user.selectOptions(select, within(select).getByRole('option', { name: /Automatic/ }));
+
+      // Unconfigured is what the embedding host resolves through detection (BST-2193).
+      expect(useVectorPreferencesStore.getState()).toMatchObject({
+        devicePref: 'webgpu',
+        devicePrefConfigured: false,
+      });
+      expect(select).toHaveValue('');
+      expect(within(select).getByRole('option', { name: /Automatic/ })).toHaveProperty(
+        'selected',
+        true
+      );
     });
 
     it('waits for the saved preference before showing one', () => {

@@ -15,6 +15,11 @@ interface VectorPreferencesData {
 }
 
 interface VectorPreferencesActions {
+  /**
+   * Drop a chosen device: the preference is unconfigured again, as on first
+   * run, so the embedding host resolves its device through detection.
+   */
+  clearDevicePref: () => void;
   markHydrated: () => void;
   setDetectedDevicePref: (v: DevicePref) => void;
   setDevicePref: (v: DevicePref) => void;
@@ -282,6 +287,8 @@ function toRehydrationError(error: unknown): Error | null {
 export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   persist(
     (set) => ({
+      // The unconfigured state persisted preferences normalize to (see normalizePersistedVectorPreferences).
+      clearDevicePref: () => set({ devicePref: 'webgpu', devicePrefConfigured: false }),
       devicePref: 'webgpu',
       devicePrefConfigured: false,
       hasHydrated: false,

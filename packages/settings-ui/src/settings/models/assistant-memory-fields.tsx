@@ -77,6 +77,8 @@ export function MemoryNumberField({
 }
 
 const DEVICE_LABEL = 'On-device embedding device';
+/** The select value for an unconfigured preference: the host detects the device. */
+const AUTOMATIC = '';
 
 /**
  * The embedding host's saved device for on-device models (the vector
@@ -84,9 +86,10 @@ const DEVICE_LABEL = 'On-device embedding device';
  * automatic detection, which uses WebGPU and never selects WASM on its own.
  */
 export function OnDeviceEmbeddingDeviceField() {
-  const { devicePref, devicePrefConfigured, hasHydrated, setDevicePref } =
+  const { clearDevicePref, devicePref, devicePrefConfigured, hasHydrated, setDevicePref } =
     useVectorPreferencesStore(
       useShallow((state) => ({
+        clearDevicePref: state.clearDevicePref,
         devicePref: state.devicePref,
         devicePrefConfigured: state.devicePrefConfigured,
         hasHydrated: state.hasHydrated,
@@ -103,17 +106,21 @@ export function OnDeviceEmbeddingDeviceField() {
         id={id}
         onChange={(event) => {
           const next = event.target.value;
-          // Automatic is shown only while it is the saved state, so it is never chosen.
+          if (next === AUTOMATIC) {
+            clearDevicePref();
+            return;
+          }
           if (next !== 'webgpu' && next !== 'wasm') {
             throw new Error(`Unknown on-device embedding device: ${next}`);
           }
           setDevicePref(next);
         }}
-        value={hasHydrated && devicePrefConfigured ? devicePref : ''}
+        value={hasHydrated && devicePrefConfigured ? devicePref : AUTOMATIC}
       >
-        {!hasHydrated && <option value="">Loading the saved device…</option>}
-        {hasHydrated && !devicePrefConfigured && (
-          <option value="">Automatic — WebGPU when this device has it</option>
+        {hasHydrated ? (
+          <option value={AUTOMATIC}>Automatic — WebGPU when this device has it</option>
+        ) : (
+          <option value={AUTOMATIC}>Loading the saved device…</option>
         )}
         <option value="webgpu">WebGPU</option>
         <option value="wasm">WASM (slower; no GPU needed)</option>
