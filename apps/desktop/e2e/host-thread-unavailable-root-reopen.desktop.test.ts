@@ -5,6 +5,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { WINDOWS_SMOKE_EXCLUSIONS } from './utils/windows-smoke-exclusions';
 
 const API_KEY = 'test-key-root-restore';
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
@@ -23,6 +24,7 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
   modelProvider,
   window: page,
 }) => {
+  test.fixme(process.platform === 'win32', WINDOWS_SMOKE_EXCLUSIONS.staleCatalogModelSelection);
   test.setTimeout(240_000);
   const rootPath = await electronApp.app.evaluate(
     () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''

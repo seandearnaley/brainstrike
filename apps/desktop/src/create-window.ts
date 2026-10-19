@@ -569,9 +569,10 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     process.env['BRAINSTRIKE_E2E_SHOW_INACTIVE'] === '1' &&
     !win.isDestroyed()
   ) {
-    // E2E keeps windows hidden so runs never pop up on a developer's desktop. On
-    // Linux, Chromium renders a window X11 never mapped at one frame per second,
-    // so the harness opts in to an unfocused show for Linux CI under Xvfb (BST-2040).
+    // E2E keeps windows hidden so runs never pop up on a developer's desktop. A
+    // never-shown window renders no usable frames on Linux (BST-2040) or Windows
+    // (BST-2239), so the harness opts in to an unfocused show on those CI machines
+    // (e2e/utils/e2e-show-inactive.ts).
     win.showInactive();
   }
 
