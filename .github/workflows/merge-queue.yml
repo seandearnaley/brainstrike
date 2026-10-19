@@ -1,22 +1,24 @@
-# Runs the fast tier on each merge-queue group for main (BST-2188).
-# Per-push PR CI stays off: pull_request runs start no runner.
+# Runs the fast tier on each Mergify merge-queue batch for main (BST-2188).
+# Per-push and per-PR CI stays off: no pull request starts this workflow.
 
 name: Merge Queue
 
 # scripts/__tests__/merge-queue-contract.test.mjs pins these triggers, the
-# call and the gate.
+# call, the gate and .mergify.yml.
 on:
-  # Skip-only (BST-2188, owner decision 2026-10-19). GitHub admits a PR to the
-  # queue only once the required checks pass on its head, so Merge Queue Gate
-  # must report there too. Every job below skips on pull_request, and GitHub
-  # reports a job skipped by its condition as success to required checks.
-  # `edited` covers a stacked PR retargeted to main, whose head never ran here.
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, edited]
-  merge_group:
-    types: [checks_requested]
-    branches: [main]
+  # Mergify builds each batch on main and pushes it to a branch under the
+  # queue_branch_prefix in .mergify.yml (owner decision 2026-10-19). The branch
+  # filter, not a job condition, keeps every other push and every pull request
+  # from starting this workflow: GitHub reports a job skipped by its condition
+  # as success to required checks, while a check whose workflow never started
+  # stays pending. So Merge Queue Gate never reports on an ordinary PR head, and
+  # the ruleset that requires it blocks any merge but Mergify's.
+  #
+  # No merge_group trigger: GitHub's native merge queue is unavailable to this
+  # private, user-owned repository (the ruleset API rejects the merge_queue
+  # rule), and Mergify needs that rule off on the branches it queues.
+  push:
+    branches: ['mergify/merge-queue/**']
   workflow_dispatch:
 
 # A called workflow can only narrow these, and test.yml asks for both.
@@ -25,28 +27,31 @@ permissions:
   pull-requests: read
 
 jobs:
-  # The fast tier is test.yml itself: Static, Unit (affected against the merge
-  # group's base), Build and the three smoke E2E lanes. Its nightly-only jobs
-  # skip under `merge-queue: true`. A dispatch runs every Unit shard. Check
-  # names read "Test / Static", "Test / Unit (db-1)" and so on.
+  # The fast tier is test.yml itself: Static, Unit (affected against the main
+  # commit the batch was built on), Build and the three smoke E2E lanes. Its
+  # nightly-only jobs skip under `merge-queue: true`. A dispatch runs every Unit
+  # shard. Check names read "Test / Static", "Test / Unit (db-1)" and so on.
+  #
+  # Deleting a branch also fires push, with the SHA reverted to main. Mergify
+  # deletes each queue branch once its batch is done, so every job skips that.
   test:
     name: Test
-    if: github.repository == 'seandearnaley/brainstrike' && github.event_name != 'pull_request'
+    if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted
     uses: ./.github/workflows/test.yml
     with:
       merge-queue: true
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-  # The one check the ruleset requires; keep its name exact. It passes only
-  # when the call succeeded, every fast-tier job succeeded and every
-  # nightly-only job skipped. Static owns Unit selection, so the Unit matrix
-  # may skip only when Static succeeded and selected no affected shard; a Unit
-  # skipped because Static failed, or any other skipped, failed or cancelled
-  # job, fails the gate.
+  # The merge condition in .mergify.yml and the check the ruleset requires;
+  # keep its name exact. It passes only when the call succeeded, every
+  # fast-tier job succeeded and every nightly-only job skipped. Static owns
+  # Unit selection, so the Unit matrix may skip only when Static succeeded and
+  # selected no affected shard; a Unit skipped because Static failed, or any
+  # other skipped, failed or cancelled job, fails the gate.
   merge-queue-gate:
     name: Merge Queue Gate
-    if: github.repository == 'seandearnaley/brainstrike' && github.event_name != 'pull_request' && always()
+    if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted && always()
     needs: [test]
     runs-on: ubuntu-slim
     timeout-minutes: 5
