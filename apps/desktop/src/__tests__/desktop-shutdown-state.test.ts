@@ -1,6 +1,7 @@
 import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
 import { IndexerError } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
+import { SqliteQueryDeadlineError, SqliteQueryProcessExitedError } from '@brainstrike/sqlite-query';
 import { describe, expect, it } from 'vitest';
 import {
   HOST_LEASE_CLOSED,
@@ -21,6 +22,8 @@ const retirements = {
   'a lost host connection': new BoundaryFailureError(
     fault({ category: 'availability', code: 'host.connection-lost', message: 'Lost.' })
   ),
+  // BST-2192: a signal to Main's process group ends the SQLite query process under a read.
+  'a SQLite query process that exited': new SqliteQueryProcessExitedError(),
   // BST-2192: a signal to Main's process group ends the indexer under an in-flight call.
   'an indexer process that exited': new IndexerError('indexer-exited', 'Indexer process exited.'),
   'the reset reopen cancelled by quit': new BoundaryFailureError(RESET_REOPEN_CANCELLED),
@@ -31,6 +34,8 @@ const unrelated = {
   'a plain failure with the exit code': Object.assign(new Error('Indexer process exited.'), {
     code: 'indexer-exited',
   }),
+  'a plain failure with the SQLite exit message': new Error('SQLite query process exited.'),
+  'a SQLite read that exceeded its deadline': new SqliteQueryDeadlineError(1000),
   'an indexer still transitioning': new NativeIndexRefusalError(
     { kind: 'transitioning' },
     'Native index is transitioning.'
