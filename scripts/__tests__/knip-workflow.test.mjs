@@ -20,13 +20,25 @@ assert.ok(
 // model absent build outputs and failures without rebuilding the repo in this suite.
 // The fixture lives in the OS temp dir: it holds executables named `node`/`knip`/`turbo`,
 // which must never be left inside the repository if the process is interrupted.
-function runWorkflow(buildExit, auditExit) {
+// knip:production grades unused exports and types in production mode only
+// (knip.jsonc excludes both from the default run), so its flags are pinned here.
+const auditArgs = {
+  knip: [],
+  'knip:production': [
+    '--production',
+    '--include',
+    'files,dependencies,optionalPeerDependencies,unlisted,binaries,unresolved,exports,types,enumMembers,namespaceMembers',
+  ],
+};
+
+function runWorkflow(script, buildExit, auditExit) {
   const fixture = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-knip-workflow-'));
   try {
     const binaries = {
       knip: `
         import assert from 'node:assert/strict';
         import { appendFileSync, existsSync } from 'node:fs';
+        assert.deepEqual(process.argv.slice(2), ${JSON.stringify(auditArgs[script])});
         appendFileSync('events.log', 'audit\\n');
         assert.ok(existsSync('platform-utils-built'), 'platform-utils must be built before analysis');
         assert.ok(existsSync('build-utils-built'), 'build-utils must be built before analysis');
@@ -66,7 +78,8 @@ function runWorkflow(buildExit, auditExit) {
     const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path');
     assert.ok(pathKey, 'the command fixture requires PATH');
     env[pathKey] = `${fixture}${path.delimiter}${env[pathKey]}`;
-    const result = spawnSync(scripts.knip, {
+    assert.ok(scripts[script], `package.json must define ${script}`);
+    const result = spawnSync(scripts[script], {
       cwd: fixture,
       encoding: 'utf8',
       env,
@@ -84,20 +97,22 @@ function runWorkflow(buildExit, auditExit) {
   }
 }
 
-test('knip prepares both config dependencies before auditing a fresh checkout', () => {
-  const result = runWorkflow(0, 0);
-  assert.equal(result.exitCode, 0, result.output);
-  assert.equal(result.events, 'build\naudit\n');
-});
+for (const script of Object.keys(auditArgs)) {
+  test(`${script} prepares both config dependencies before auditing a fresh checkout`, () => {
+    const result = runWorkflow(script, 0, 0);
+    assert.equal(result.exitCode, 0, result.output);
+    assert.equal(result.events, 'build\naudit\n');
+  });
 
-test('knip fails without starting analysis when the prerequisite build fails', () => {
-  const result = runWorkflow(17, 0);
-  assert.equal(result.exitCode, 17, result.output);
-  assert.equal(result.events, 'build\n');
-});
+  test(`${script} fails without starting analysis when the prerequisite build fails`, () => {
+    const result = runWorkflow(script, 17, 0);
+    assert.equal(result.exitCode, 17, result.output);
+    assert.equal(result.events, 'build\n');
+  });
 
-test('knip preserves the auditor failure after a successful build', () => {
-  const result = runWorkflow(0, 23);
-  assert.equal(result.exitCode, 23, result.output);
-  assert.equal(result.events, 'build\naudit\n');
-});
+  test(`${script} preserves the auditor failure after a successful build`, () => {
+    const result = runWorkflow(script, 0, 23);
+    assert.equal(result.exitCode, 23, result.output);
+    assert.equal(result.events, 'build\naudit\n');
+  });
+}

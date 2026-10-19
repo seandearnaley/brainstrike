@@ -7,19 +7,15 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  applyBatchResultsToTree,
   canLoadNode,
   collectDirectoryPaths,
   collectExpandedPaths,
   discoverChildDirectories,
   findNodeByPath,
   getUnloadedDirectories,
-  needsLoading,
-  setNodeLoadState,
   sortFileNodes,
-  updateNodeChildren,
 } from './tree-operations';
-import type { BatchLoadResult, WorkerFileNode } from './types';
+import type { WorkerFileNode } from './types';
 
 // Test fixtures
 function createFileNode(overrides: Partial<WorkerFileNode> = {}): WorkerFileNode {
@@ -94,33 +90,6 @@ describe('findNodeByPath', () => {
   });
 });
 
-describe('needsLoading', () => {
-  it('should return true for unloaded directory', () => {
-    const node = createDirectoryNode({ loadState: 'unloaded' });
-    expect(needsLoading(node)).toBe(true);
-  });
-
-  it('should return true for directory without loadState', () => {
-    const { loadState: _, ...node } = createDirectoryNode();
-    expect(needsLoading(node as WorkerFileNode)).toBe(true);
-  });
-
-  it('should return false for loaded directory', () => {
-    const node = createDirectoryNode({ loadState: 'loaded' });
-    expect(needsLoading(node)).toBe(false);
-  });
-
-  it('should return false for loading directory', () => {
-    const node = createDirectoryNode({ loadState: 'loading' });
-    expect(needsLoading(node)).toBe(false);
-  });
-
-  it('should return false for file nodes', () => {
-    const node = createFileNode();
-    expect(needsLoading(node)).toBe(false);
-  });
-});
-
 describe('canLoadNode', () => {
   it('should return true for unloaded directory', () => {
     const node = createDirectoryNode({ loadState: 'unloaded' });
@@ -143,47 +112,6 @@ describe('canLoadNode', () => {
   it('should return false for loaded directory', () => {
     const node = createDirectoryNode({ loadState: 'loaded' });
     expect(canLoadNode(node)).toBe(false);
-  });
-});
-
-describe('updateNodeChildren', () => {
-  it('should update children of target node', () => {
-    const tree = [createDirectoryNode({ path: '/root/dir' })];
-    const children = [createFileNode({ path: '/root/dir/file.txt' })];
-
-    const updated = updateNodeChildren(tree, '/root/dir', children);
-
-    expect(updated[0]?.children).toHaveLength(1);
-    expect(updated[0]?.loadState).toBe('loaded');
-  });
-
-  it('should maintain immutability', () => {
-    const original = [createDirectoryNode({ path: '/root/dir' })];
-    const children = [createFileNode({ path: '/root/dir/file.txt' })];
-
-    const updated = updateNodeChildren(original, '/root/dir', children);
-
-    expect(updated).not.toBe(original);
-    expect(original[0]?.children).toBeUndefined();
-  });
-});
-
-describe('setNodeLoadState', () => {
-  it('should set loading state', () => {
-    const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
-
-    const updated = setNodeLoadState(tree, '/root/dir', 'loading');
-
-    expect(updated[0]?.loadState).toBe('loading');
-  });
-
-  it('should set error state with message', () => {
-    const tree = [createDirectoryNode({ path: '/root/dir' })];
-
-    const updated = setNodeLoadState(tree, '/root/dir', 'error', 'Permission denied');
-
-    expect(updated[0]?.loadState).toBe('error');
-    expect(updated[0]?.loadError).toBe('Permission denied');
   });
 });
 
@@ -333,44 +261,5 @@ describe('discoverChildDirectories', () => {
 
     expect(nextWave.size).toBe(0);
     expect(newCount).toBe(0);
-  });
-});
-
-describe('applyBatchResultsToTree', () => {
-  it('should apply successful load results', () => {
-    const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
-    const children = [createFileNode({ path: '/root/dir/file.txt' })];
-    const results: BatchLoadResult[] = [{ children, path: '/root/dir' }];
-
-    const updated = applyBatchResultsToTree(tree, results);
-
-    expect(updated[0]?.children).toHaveLength(1);
-    expect(updated[0]?.loadState).toBe('loaded');
-  });
-
-  it('should apply error results', () => {
-    const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
-    const results: BatchLoadResult[] = [{ error: 'Access denied', path: '/root/dir' }];
-
-    const updated = applyBatchResultsToTree(tree, results);
-
-    expect(updated[0]?.loadState).toBe('error');
-    expect(updated[0]?.loadError).toBe('Access denied');
-  });
-
-  it('should apply multiple results', () => {
-    const tree = [
-      createDirectoryNode({ loadState: 'loading', path: '/root/dir1' }),
-      createDirectoryNode({ loadState: 'loading', path: '/root/dir2' }),
-    ];
-    const results: BatchLoadResult[] = [
-      { children: [], path: '/root/dir1' },
-      { error: 'Error', path: '/root/dir2' },
-    ];
-
-    const updated = applyBatchResultsToTree(tree, results);
-
-    expect(updated[0]?.loadState).toBe('loaded');
-    expect(updated[1]?.loadState).toBe('error');
   });
 });
