@@ -33,6 +33,7 @@ function fakeHost(options?: {
     createTab: vi.fn(() => 'tab-1'),
     getActiveWebContentsId: vi.fn(() => 7),
     getNavigationError: vi.fn((): string | null => null),
+    getWebContentsId: vi.fn((): number | null => 7),
     listTabs: vi.fn(() => sequence[Math.min(call++, sequence.length - 1)] ?? []),
     navigate: vi.fn(() => true),
     selectTab: vi.fn(() => true),
@@ -134,6 +135,56 @@ describe('runBrowserNavigate', () => {
     });
     await runBrowserNavigate({ url: 'https://e.test' }, host, { pollMs: 1 });
     expect(order).toEqual(['prepare', 'createTab']);
+    // A public page admits no loopback server.
+    expect(host.prepareAgentBrowsing).toHaveBeenCalledWith();
+  });
+
+  it('opens an approved loopback dev server, admitting it for its own tab only (BST-1178)', async () => {
+    const order: string[] = [];
+    const host = fakeHost({
+      tabsSequence: [[], [tab({ title: 'Dev', url: 'http://localhost:5173/' })]],
+    });
+    host.manager.createTab.mockImplementation(((url: string) => {
+      order.push(`createTab ${url}`);
+      return 'tab-1';
+    }) as never);
+    host.prepareAgentBrowsing.mockImplementation((() => {
+      order.push('prepare');
+      return Promise.resolve();
+    }) as never);
+    host.manager.navigate.mockImplementation(((_tabId: string, url: string) => {
+      order.push(`navigate ${url}`);
+      return true;
+    }) as never);
+    const result = await runBrowserNavigate({ url: 'http://localhost:5173/' }, host, { pollMs: 1 });
+    // The tab opens blank (no network), its admission names it, then it loads.
+    expect(order).toEqual(['createTab about:blank', 'prepare', 'navigate http://localhost:5173/']);
+    expect(host.prepareAgentBrowsing).toHaveBeenCalledExactlyOnceWith({
+      authority: 'localhost:5173',
+      origin: 'http://localhost:5173',
+      webContentsId: 7,
+    });
+    expect(result).toEqual({ ok: true, title: 'Dev', url: 'http://localhost:5173/' });
+  });
+
+  it('runs one agent navigation at a time, so a parallel call never replaces an admission mid-load', async () => {
+    const host = fakeHost({
+      tabsSequence: [[tab({ isLoading: true })], [tab({})], [tab({})], [tab({})]],
+    });
+    const events: string[] = [];
+    host.prepareAgentBrowsing.mockImplementation(((admission?: { authority: string }) => {
+      events.push(`prepare ${admission?.authority ?? 'public'}`);
+      return Promise.resolve();
+    }) as never);
+    const first = runBrowserNavigate({ url: 'http://localhost:5173/' }, host, { pollMs: 1 }).then(
+      (result) => {
+        events.push('first settled');
+        return result;
+      }
+    );
+    const second = runBrowserNavigate({ url: 'https://example.com/' }, host, { pollMs: 1 });
+    await Promise.all([first, second]);
+    expect(events).toEqual(['prepare localhost:5173', 'first settled', 'prepare public']);
   });
 
   it('fails visibly, opening nothing, when the egress route cannot start', async () => {
@@ -188,7 +239,9 @@ describe('runBrowserNavigate', () => {
       'file:///etc/passwd',
       'http://169.254.169.254/latest/meta-data/',
       'http://192.168.1.1/admin',
-      'http://localhost:3000',
+      'http://127.0.0.2:3000',
+      'http://app.localhost:3000',
+      'http://user:pass@localhost:3000',
       'https://user:pass@example.com/',
       'about:blank',
     ]) {

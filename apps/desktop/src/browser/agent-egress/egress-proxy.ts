@@ -12,6 +12,11 @@
  *
  * It listens on loopback and requires a per-launch credential, so no other
  * local process can borrow it as a relay.
+ *
+ * BST-1178: the one exception is a loopback server a person approved. Main
+ * admits that navigation's exact `host:port` ({@link EgressProxy.admitLoopback})
+ * before the agent opens it, and replaces it at the next navigation; the
+ * proxy dials such a target at its literal, never through DNS.
  */
 import { timingSafeEqual } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
@@ -55,6 +60,11 @@ export interface EgressProxyOptions {
 }
 
 export interface EgressProxy {
+  /**
+   * The loopback servers agent tabs may reach, replacing the last set: each a
+   * `localhost`, `127.0.0.1` or `::1` host at one port (`host:port`).
+   */
+  admitLoopback(authorities: readonly string[]): void;
   close(): Promise<void>;
   readonly port: number;
 }
@@ -69,6 +79,30 @@ async function systemResolve(host: string): Promise<readonly ResolvedAddress[]> 
 
 function defaultDial(address: string, port: number): Socket {
   return connect({ host: address, port });
+}
+
+/** Each admissible loopback host, and the literal addresses it is dialed at. */
+const LOOPBACK_ADDRESSES: ReadonlyMap<string, readonly string[]> = new Map([
+  ['127.0.0.1', ['127.0.0.1']],
+  ['::1', ['::1']],
+  ['localhost', ['127.0.0.1', '::1']],
+]);
+
+/** A validated set of admitted loopback `host:port` keys. */
+function loopbackKeys(authorities: readonly string[]): ReadonlySet<string> {
+  return new Set(
+    authorities.map((authority) => {
+      const separator = authority.lastIndexOf(':');
+      const host = authority.slice(0, separator);
+      const port = Number(authority.slice(separator + 1));
+      if (
+        !(LOOPBACK_ADDRESSES.has(host) && Number.isInteger(port) && port >= 1 && port <= 65_535)
+      ) {
+        throw new Error(`Not an admissible loopback server: ${authority}`);
+      }
+      return `${host}:${port}`;
+    })
+  );
 }
 
 /** `host:port`, with a bracketed IPv6 host. Null when it is not one. */
@@ -137,6 +171,7 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
   const dial = options.dial ?? defaultDial;
   const connectTimeoutMs = options.connectTimeoutMs ?? 15_000;
   const open = new Set<Duplex>();
+  let loopback: ReadonlySet<string> = new Set();
   const track = (stream: Duplex): void => {
     open.add(stream);
     stream.once('close', () => open.delete(stream));
@@ -207,7 +242,9 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
    */
   const admit = async (host: string, port: number): Promise<Socket> => {
     const deadline = AbortSignal.any([lifetime.signal, AbortSignal.timeout(connectTimeoutMs)]);
-    const answers = await checkedAnswers(host, deadline);
+    const answers = loopback.has(`${host}:${port}`)
+      ? (LOOPBACK_ADDRESSES.get(host) ?? []).map((address) => ({ address }))
+      : await checkedAnswers(host, deadline);
     let lastFailure: unknown;
     for (const { address } of answers) {
       try {
@@ -364,6 +401,9 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
   }
 
   return {
+    admitLoopback: (authorities) => {
+      loopback = loopbackKeys(authorities);
+    },
     close: async (): Promise<void> => {
       lifetime.abort(new Error('The agent browsing proxy closed'));
       const closed = new Promise<void>((resolveClose) => server.close(() => resolveClose()));

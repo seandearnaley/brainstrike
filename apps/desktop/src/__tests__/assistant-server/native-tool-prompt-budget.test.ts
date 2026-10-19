@@ -221,6 +221,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 //     BST-2045) and #3734's skill wording. Not measured one by one.
 // Measured 9920 → 9953; both bounds move to centre it (9,976 → 10,100 and
 // 9,676 → 9,800).
+//
+// BST-1178 LOOPBACK (+9, no band move). browserNavigate's description now says
+// the user approves each new site and that a localhost dev server loads, so the
+// model neither retries a refused site nor avoids a dev server it was asked to
+// open. Trim-first kept it to one sentence and one clause. Measured 9953 → 9962.
 /** The same 36 the eager-baseline gate above counts: the tool half is unchanged. */
 const AUTHORED_PROVIDER_TOOL_COUNT = 36;
 const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_100;
