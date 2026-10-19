@@ -24,11 +24,24 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
   alone ends a silent call: such a request (`callerGuardsInactivity`) keeps the
   total as its SDK idle timeout, because the SDK re-arms its own 60 s timer on
   progress before the guard does and would otherwise end the call first, as an
-  unexplained failure. Native tools keep their flat guard.
+  unexplained failure. A server's own `toolTimeoutMs` (1 s to 10 min) replaces
+  the window for its tools, for servers that work long in silence; it also
+  bounds that server's unguarded requests. The ceiling is the transport's
+  default total, which keeps every guard ending below the stream's
+  tool-executing backstop. An MCP Tasks settlement wait fits in three quarters
+  of what the call's guard has left once the task is tracked
+  (`readToolGuardRemainingMs`). Native tools keep their flat guard.
 - Failed or abnormal finishes produce failed durable outcomes. Recoverable
   attempts are recorded before retry, stay on the committed branch, and never
   repeat a step that streamed tool input or a call. Context-overflow recovery
   requires a committed compaction that actually shortens the request.
+- Pre-request compaction measures the request the provider will receive. With
+  Memory, that is the request Memory builds (its selected and recalled turns,
+  rewritten tool outputs and system context), not the branch, and only the
+  earlier turns that request holds can be compacted. Memory then reassembles the
+  request from the log without re-running its step preparation. When the
+  summarizer fails, the deterministic fallback's `context.compacted` records the
+  typed failure code and the reference its cause is logged under.
 
 Owners: [execution](../../packages/agent-host/src/core-run-execution.ts),
 [watchdog](../../packages/agent-host/src/run-stream-watchdog.ts),

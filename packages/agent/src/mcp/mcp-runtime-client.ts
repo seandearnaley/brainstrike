@@ -1,4 +1,5 @@
 import {
+  readToolGuardRemainingMs,
   reportToolGuardActivity,
   resolveGuardedToolSignal,
   toolGuardOwnsInactivity,
@@ -499,6 +500,7 @@ async function executeMcpTool(
       // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
       configuredServerId: serverName,
       ...host,
+      guardRemainingMs: () => readToolGuardRemainingMs(context),
       result: createdTask,
       ...(context?.abortSignal ? { signal: context?.abortSignal } : {}),
       toolName,

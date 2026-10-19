@@ -14,6 +14,7 @@ import {
   MCP_HOST_LISTED_CATALOG_SECTIONS,
   McpHostErrorSchema,
   McpResourceUriSchema,
+  McpToolTimeoutMsSchema,
 } from './mcp-host.js';
 
 /**
@@ -180,6 +181,7 @@ const McpHostServerSnapshotFields = {
   enabledTools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   extensions: Schema.optional(McpExtensionEnablementSchema),
   generation: Schema.Int.check(Schema.isGreaterThan(0)),
+  toolTimeoutMs: Schema.optional(McpToolTimeoutMsSchema),
   transport: Schema.Literals(['sse', 'stdio', 'streamable-http']),
 };
 const McpHostServerSnapshotSchema = Schema.Union(

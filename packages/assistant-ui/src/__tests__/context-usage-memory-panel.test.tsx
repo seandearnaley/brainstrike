@@ -156,6 +156,98 @@ describe('the Developer memory panel', () => {
     expect(row('embedder')).toHaveTextContent('Not reported by this host');
   });
 
+  it('shows the last observation and reflection cycle, a failed one with its code and reference (BST-2224)', () => {
+    const CYCLE_AT = Date.UTC(2026, 9, 19, 9, 0, 0);
+    popover({
+      ...LIVE,
+      cycles: {
+        observation: {
+          at: CYCLE_AT,
+          durationMs: 3200,
+          failure: {
+            code: 'memory.observer-failed',
+            correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
+          },
+          outcome: 'failed',
+          trigger: 'async-buffer',
+        },
+        reflection: {
+          durationMs: 900,
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 4210, outputTokens: 312, totalTokens: 4522 },
+        },
+      },
+    });
+    const observation = row('last-observation-cycle');
+    expect(observation).toHaveTextContent(
+      'Failed · async-buffer · 3.2 s · memory.observer-failed · Reference: 0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11'
+    );
+    expect(
+      within(observation).getByText((_, element) => element?.tagName === 'TIME')
+    ).toHaveAttribute('datetime', new Date(CYCLE_AT).toISOString());
+    expect(row('last-reflection-cycle')).toHaveTextContent(
+      'Completed · turn-sync · 0.9 s · 4,210 in / 312 out'
+    );
+  });
+
+  it('shows the last recall this view saw live, and none before one (BST-2225)', () => {
+    const RECALLED_AT = Date.UTC(2026, 9, 19, 10, 0, 0);
+    const { unmount } = popover(LIVE);
+    expect(screen.queryByTestId('context-usage-memory-last-recall')).toBeNull();
+    unmount();
+    popover({
+      ...LIVE,
+      recall: { at: RECALLED_AT, latencyMs: 1240, messages: 6, scope: 'resource', topK: 4 },
+    });
+    const recall = row('last-recall');
+    expect(recall).toHaveTextContent('Last recall (live)');
+    expect(recall).toHaveTextContent('6 messages · top 4 · all threads · 1,240 ms');
+    expect(within(recall).getByText((_, element) => element?.tagName === 'TIME')).toHaveAttribute(
+      'datetime',
+      new Date(RECALLED_AT).toISOString()
+    );
+  });
+
+  it('keeps the last live recall beside a failed read', () => {
+    popover({
+      code: 'memory.embedder-failed',
+      kind: 'error',
+      reason: 'Memory recall failed because its embedding model failed.',
+      recall: {
+        at: Date.UTC(2026, 9, 19, 10, 0, 0),
+        latencyMs: 90,
+        messages: 1,
+        scope: 'thread',
+      },
+    });
+    expect(row('last-recall')).toHaveTextContent('1 message · this thread · 90 ms');
+  });
+
+  it('shows no cycle rows before the thread’s first cycle', () => {
+    popover(LIVE);
+    expect(screen.queryByTestId('context-usage-memory-last-observation-cycle')).toBeNull();
+    expect(screen.queryByTestId('context-usage-memory-last-reflection-cycle')).toBeNull();
+  });
+
+  it('shows the last failed cycle beside a failed read', () => {
+    popover({
+      code: 'memory.observer-failed',
+      cycles: {
+        observation: {
+          failure: { code: 'memory.observer-failed' },
+          outcome: 'failed',
+          trigger: 'turn-sync',
+        },
+      },
+      kind: 'error',
+      reason: 'Memory observe failed because its observer model failed.',
+    });
+    expect(row('last-observation-cycle')).toHaveTextContent(
+      'Failed · turn-sync · memory.observer-failed'
+    );
+  });
+
   it('names a waiting observer’s reason, and recall’s embedder while observations are off', () => {
     const { unmount } = popover({
       kind: 'awaiting-observer',

@@ -718,7 +718,9 @@ function McpHelpCard() {
         <div className="text-muted-foreground text-xs">
           Use `streamable-http` for new remote endpoints, `stdio` for local commands, and `sse` only
           for legacy HTTP+SSE servers. Comments are supported in this file. Keep placeholder values
-          replaced before enabling servers.
+          replaced before enabling servers. A tool that reports no progress for 60 s is stopped; on
+          a server whose tools work longer than that in silence, set `toolTimeoutMs` (milliseconds,
+          1000 to 600000), for example `"toolTimeoutMs": 180000`.
         </div>
         <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-[11px]">
           {`// stdio example

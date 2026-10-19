@@ -4,7 +4,14 @@
  * value the host did not report is labelled, never filled in.
  */
 import { type ReactNode, useId } from 'react';
-import type { MemoryModelsDisplay, OmMeterState, OmRecordLifecycle } from './context-usage-meter';
+import type {
+  MemoryCycleDisplay,
+  MemoryCyclesDisplay,
+  MemoryModelsDisplay,
+  MemoryRecallDisplay,
+  OmMeterState,
+  OmRecordLifecycle,
+} from './context-usage-meter';
 
 const NOT_REPORTED = 'Not reported by this host';
 
@@ -115,6 +122,84 @@ function embedderValue(models: MemoryModelsDisplay | undefined): string {
   ].join(' · ');
 }
 
+const OUTCOME_LABELS: Record<MemoryCycleDisplay['outcome'], string> = {
+  cancelled: 'Cancelled',
+  completed: 'Completed',
+  failed: 'Failed',
+};
+
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** One cycle on a line: outcome, trigger, duration, tokens, and a failure's code and reference. */
+function cycleValue(cycle: MemoryCycleDisplay): ReactNode {
+  const { usage } = cycle;
+  const parts = [
+    OUTCOME_LABELS[cycle.outcome],
+    cycle.trigger,
+    cycle.durationMs === undefined ? undefined : seconds(cycle.durationMs),
+    usage?.inputTokens === undefined || usage.outputTokens === undefined
+      ? undefined
+      : `${exact(usage.inputTokens)} in / ${exact(usage.outputTokens)} out`,
+    cycle.failure?.code,
+    cycle.failure?.correlationId === undefined
+      ? undefined
+      : `Reference: ${cycle.failure.correlationId}`,
+  ].filter((part) => part !== undefined);
+  return cycle.at === undefined ? (
+    parts.join(' · ')
+  ) : (
+    <>
+      {parts.join(' · ')} · {storedTime(cycle.at)}
+    </>
+  );
+}
+
+/** The last cycle of each kind the thread committed; none before its first. */
+function cycleRows(cycles: MemoryCyclesDisplay | undefined): PanelRow[] {
+  const rows: PanelRow[] = [];
+  for (const [id, label, cycle] of [
+    ['last-observation-cycle', 'Last observation', cycles?.observation],
+    ['last-reflection-cycle', 'Last reflection', cycles?.reflection],
+  ] as const) {
+    if (cycle) {
+      rows.push({
+        id,
+        label,
+        ...(cycle.outcome === 'failed' ? { tone: 'error' as const } : {}),
+        value: cycleValue(cycle),
+      });
+    }
+  }
+  return rows;
+}
+
+/** The last recall this view saw: what it returned, how wide it searched, and how long it took. */
+function recallRows(recall: MemoryRecallDisplay | undefined): PanelRow[] {
+  if (!recall) {
+    return [];
+  }
+  const parts = [
+    `${exact(recall.messages)} ${recall.messages === 1 ? 'message' : 'messages'}`,
+    ...(recall.topK === undefined ? [] : [`top ${exact(recall.topK)}`]),
+    recall.scope === 'resource' ? 'all threads' : 'this thread',
+    `${exact(recall.latencyMs)} ms`,
+  ];
+  return [
+    {
+      id: 'last-recall',
+      // Live telemetry, never committed: a reload clears it.
+      label: 'Last recall (live)',
+      value: (
+        <>
+          {parts.join(' · ')} · {storedTime(recall.at)}
+        </>
+      ),
+    },
+  ];
+}
+
 /** The rows a read state has; null for states with no host read behind them. */
 function stateRows(state: OmMeterState): PanelRow[] | null {
   switch (state.kind) {
@@ -124,6 +209,8 @@ function stateRows(state: OmMeterState): PanelRow[] | null {
         ...(state.code === undefined
           ? []
           : [{ id: 'error-code', label: 'Code', tone: 'error' as const, value: state.code }]),
+        ...cycleRows(state.cycles),
+        ...recallRows(state.recall),
       ];
     case 'stats':
     case 'empty':
@@ -131,6 +218,8 @@ function stateRows(state: OmMeterState): PanelRow[] | null {
     case 'awaiting-observer':
       return [
         ...(state.kind === 'stats' ? recordRows(state) : []),
+        ...cycleRows(state.cycles),
+        ...recallRows(state.recall),
         { id: 'observer', label: 'Observer', value: observerValue(state, state.models) },
         { id: 'embedder', label: 'Embedder', value: embedderValue(state.models) },
       ];

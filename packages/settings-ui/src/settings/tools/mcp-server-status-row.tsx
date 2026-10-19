@@ -212,6 +212,11 @@ function McpDiagnostics({ server }: { readonly server: McpServerInfo }) {
   );
 }
 
+/** A configured tool window (BST-1779), exact: whole seconds, else milliseconds. */
+function formatToolTimeout(ms: number): string {
+  return ms % 1000 === 0 ? `${ms / 1000} s` : `${ms} ms`;
+}
+
 function McpConnectionDetails({ server }: { readonly server: McpServerInfo }) {
   return (
     <details className="mt-2 text-muted-foreground text-xs">
@@ -225,6 +230,9 @@ function McpConnectionDetails({ server }: { readonly server: McpServerInfo }) {
         <span className="text-muted-foreground">
           transport {server.transport} · policy {server.configuredProtocol} · generation{' '}
           {server.generation}
+          {server.toolTimeoutMs === undefined
+            ? ''
+            : ` · tool timeout ${formatToolTimeout(server.toolTimeoutMs)}`}
         </span>
         <McpAuthStatus server={server} />
         <McpExtensionStatus server={server} />

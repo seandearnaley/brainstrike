@@ -2,12 +2,25 @@ import {
   COMPACTION_SUMMARIZER_INSTRUCTIONS,
   hasCompactionSummarySchema,
 } from '@brainstrike/agent/provider-runtime';
-import { denormalizeNativeToolName, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryFailure,
+  BoundaryFailureError,
+  denormalizeNativeToolName,
+  fault,
+  INTERNAL_FAULT,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import type { HostRunState } from './core-state.js';
+import { correlatedFailure } from './failure-correlation.js';
 import { type Json, jsonValue } from './json-value.js';
+import type { HostPreparedStep } from './ports.js';
+import { applyProjectionRewrites } from './projection-rewrites.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.js';
+
+const logger = createLogger('AgentHost');
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
 
@@ -207,11 +220,17 @@ export interface HostContextSummary extends HostContextSummaryUsage {
 }
 
 /** The summarizer answered, but not in the required five-section shape. */
-export class HostContextSummarySchemaError extends Error {
+export class HostContextSummarySchemaError extends BoundaryFailureError {
   readonly receipt: HostContextSummaryUsage;
 
   constructor(receipt: HostContextSummaryUsage) {
-    super('Compaction summarizer response violated the required five-section schema.');
+    super(
+      fault({
+        category: 'availability',
+        code: 'compaction.summary-invalid',
+        message: 'Compaction summarizer response violated the required five-section schema.',
+      })
+    );
     this.name = 'HostContextSummarySchemaError';
     this.receipt = receipt;
   }
@@ -219,7 +238,13 @@ export class HostContextSummarySchemaError extends Error {
 
 function requireUsage(count: number | undefined, field: string): void {
   if (!(typeof count === 'number' && Number.isFinite(count) && count >= 0)) {
-    throw new Error(`Compaction summarizer omitted provider-reported ${field}.`);
+    throw new BoundaryFailureError(
+      fault({
+        category: 'availability',
+        code: 'compaction.summary-usage-missing',
+        message: `Compaction summarizer omitted provider-reported ${field}.`,
+      })
+    );
   }
 }
 
@@ -276,16 +301,45 @@ function messageCount(turns: readonly Turn[]): number {
 
 interface CompactionRequest {
   readonly candidates: readonly Turn[];
+  /** The run's own reading of a summarizer failure; a typed host failure keeps its own. */
+  readonly classify?: (cause: unknown) => BoundaryFailure;
   readonly reclaim: number;
-  readonly runId: string;
+  readonly run: HostRunState;
   readonly signal: AbortSignal;
   readonly summarize: (transcript: string) => Promise<HostContextSummary>;
 }
 
 /**
+ * Why the summarizer failed, as its fallback records it: the typed code, and
+ * the reference its cause is logged under (BST-2204).
+ */
+function summarizerFailure(
+  request: CompactionRequest,
+  cause: unknown
+): NonNullable<Compacted['summarizerFailure']> {
+  const failure = correlatedFailure(
+    cause instanceof BoundaryFailureError
+      ? cause.failure
+      : (request.classify?.(cause) ?? INTERNAL_FAULT),
+    cause
+  );
+  logger.error('Compaction summarizer failed; its deterministic fallback compacts instead', {
+    cause,
+    code: failure.code,
+    ...(failure.correlationId === undefined ? {} : { correlationId: failure.correlationId }),
+    runId: request.run.id,
+    threadId: request.run.threadId,
+  });
+  return {
+    code: failure.code,
+    ...(failure.correlationId === undefined ? {} : { correlationId: failure.correlationId }),
+  };
+}
+
+/**
  * Past the trigger, the agentic summary replaces every droppable turn. When
  * the summarizer fails, the legacy deterministic fallback drops only the
- * oldest turns that reach the target, and the committed summary says so.
+ * oldest turns that reach the target, and the committed event says why.
  */
 async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
   try {
@@ -295,7 +349,7 @@ async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
       kind: 'agentic',
       modelId: summary.modelId,
       reason: 'pre-request',
-      runId: request.runId,
+      runId: request.run.id,
       summary: summary.text,
       type: 'context.compacted',
       usage: summary.usage,
@@ -306,12 +360,13 @@ async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
     }
     return {
       ...deterministicEvent(
-        request.runId,
+        request.run.id,
         select(request.candidates, request.reclaim),
         'pre-request',
         'an agentic summarizer failure'
       ),
       ...(cause instanceof HostContextSummarySchemaError ? cause.receipt : {}),
+      summarizerFailure: summarizerFailure(request, cause),
     };
   }
 }
@@ -372,40 +427,73 @@ function applyOverlay(turns: readonly Turn[], compactions: readonly Compacted[])
   return turns.filter((turn) => !compacted.has(turn.run.id)).flatMap((turn) => turn.messages);
 }
 
+/** Memory's request as the provider receives it: its messages, rewritten, and its system context. */
+function estimateStep(step: HostPreparedStep): number {
+  return (
+    estimateTokens(applyProjectionRewrites(step.messages, step.rewrites)) +
+    (step.system === undefined ? 0 : chars4(step.system))
+  );
+}
+
 /**
  * Before the first provider request of a run: past the trigger ratio, commit a
  * compaction of the droppable earlier turns, then apply every committed
  * compaction of this branch. Below the trigger nothing is committed.
+ *
+ * With Memory, the trigger measures the request Memory builds, not the branch,
+ * and only this branch's turns that request holds are compacted; Memory then
+ * rebuilds it without them (ADR-0013). A turn recalled from another thread is
+ * that thread's history: compacting it here would drop it from that thread's
+ * own requests too, so the provider request's limiter trims it instead.
  */
 export async function prepareCompactedContext(input: {
   readonly chain: readonly HostRunState[];
+  /** The run's reading of a summarizer failure, recorded on its fallback. */
+  readonly classify?: (cause: unknown) => BoundaryFailure;
   readonly commit: (event: Compacted) => Promise<void>;
   readonly compactions: readonly Compacted[];
   readonly inputTokenLimit: number | undefined;
   readonly messages: readonly ModelMessage[];
+  /** The run's Memory: the request it builds over the overlaid branch. */
+  readonly prepareStep?: (messages: readonly ModelMessage[]) => Promise<HostPreparedStep>;
   readonly signal: AbortSignal;
   readonly summarize: (transcript: string) => Promise<HostContextSummary>;
-}): Promise<{ readonly messages: ModelMessage[]; readonly note?: string }> {
+}): Promise<{
+  readonly messages: ModelMessage[];
+  readonly note?: string;
+  /** Memory's request, after any compaction this call committed. */
+  readonly step?: HostPreparedStep;
+}> {
   const turns = splitTurns(input.chain, input.messages);
   const compactions = [...input.compactions];
+  let step = await input.prepareStep?.(applyOverlay(turns, compactions));
   const limit = input.inputTokenLimit;
   const run = input.chain.at(-1);
   if (run && limit !== undefined) {
-    const current = estimateTokens(applyOverlay(turns, compactions));
+    const current = step ? estimateStep(step) : estimateTokens(applyOverlay(turns, compactions));
     const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
-    const candidates = droppable(turns, compacted);
+    const held = step?.historyRunIds;
+    const candidates = droppable(turns, compacted).filter(
+      (turn) => held === undefined || held.has(turn.run.id)
+    );
     if (current >= CONTEXT_COMPACTION_TRIGGER_RATIO * limit && candidates.length > 0) {
       const event = await compactionEvent({
         candidates,
+        ...(input.classify ? { classify: input.classify } : {}),
         reclaim: current - CONTEXT_COMPACTION_TARGET_RATIO * limit,
-        runId: run.id,
+        run,
         signal: input.signal,
         summarize: input.summarize,
       });
       await input.commit(event);
       compactions.push(event);
+      step = await step?.rebuild();
     }
   }
   const note = compactionNote(compactions, new Set(input.chain.map((turn) => turn.id)));
-  return { messages: applyOverlay(turns, compactions), ...(note ? { note } : {}) };
+  return {
+    messages: applyOverlay(turns, compactions),
+    ...(note ? { note } : {}),
+    ...(step ? { step } : {}),
+  };
 }

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { REGISTERED_EXTENSION_RESULT_KEY } from '../mcp/client-extension-registry';
 import {
   createMcpTaskToolTracking,
+  fitMcpTaskSettlementWaitMs,
   MCP_TASK_SETTLEMENT_WAIT_MS,
   projectMcpTaskToolModelOutput,
   readMcpCreatedTaskResult,
@@ -109,6 +110,19 @@ describe('resolveMcpTaskSettlementTimeoutMs', () => {
   });
 });
 
+describe('fitMcpTaskSettlementWaitMs', () => {
+  it('keeps the configured wait when no guard is running', () => {
+    expect(fitMcpTaskSettlementWaitMs(45_000, undefined)).toBe(45_000);
+  });
+
+  it('cuts the wait to three quarters of what the guard has left (PR review)', () => {
+    // A task created 400 ms into a 1 s window: 600 ms left.
+    expect(fitMcpTaskSettlementWaitMs(750, 600)).toBe(450);
+    expect(fitMcpTaskSettlementWaitMs(45_000, 60_000)).toBe(45_000);
+    expect(fitMcpTaskSettlementWaitMs(45_000, 0)).toBe(0);
+  });
+});
+
 describe('settleMcpTaskToolResult', () => {
   it('throws when a task arrives without a tracking capability', async () => {
     await expect(
@@ -170,6 +184,27 @@ describe('settleMcpTaskToolResult', () => {
 
     expect(capability.awaitSettlement).toHaveBeenCalledWith(HANDLE, { timeoutMs: 15_000 });
     expect(result).toEqual({ kind: 'mcp-task', task: live });
+  });
+
+  it('waits only what the guard has left, and not at all when nothing is left', async () => {
+    const live = presentation({ statusMessage: 'Still exporting' });
+    const capability = fakeCapability({ reason: 'timeout', settled: false, task: live });
+    const settle = (guardRemainingMs: number) =>
+      settleMcpTaskToolResult({
+        configuredServerId: 'remote',
+        guardRemainingMs: () => guardRemainingMs,
+        result: CREATED_TASK,
+        toolName: 'export',
+        tracking: createMcpTaskToolTracking(capability, 60_000),
+      });
+
+    await settle(8000);
+    expect(capability.awaitSettlement).toHaveBeenCalledWith(HANDLE, { timeoutMs: 6000 });
+    vi.mocked(capability.awaitSettlement).mockClear();
+
+    // The tracked task's live presentation answers at once.
+    await expect(settle(0)).resolves.toEqual({ kind: 'mcp-task', task: presentation() });
+    expect(capability.awaitSettlement).not.toHaveBeenCalled();
   });
 });
 

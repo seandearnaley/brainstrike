@@ -181,7 +181,7 @@ async function runAgainstProviderHttp(
             },
             prepareHostStep: (request) =>
               owner.prepareHostStep?.(request) ??
-              Promise.resolve({ messages: [...request.messages] }),
+              Promise.reject(new Error('Production host Memory owner prepares no step')),
           };
         },
       };

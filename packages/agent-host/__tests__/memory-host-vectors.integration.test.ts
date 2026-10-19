@@ -7,6 +7,10 @@ import { DatabaseSync } from 'node:sqlite';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import {
+  MEMORY_RECALL_TELEMETRY_TYPE,
+  readMemoryRecallTelemetry,
+} from '@brainstrike/assistant-contract/tool-telemetry';
 import { acquireProfileResetLease } from '@brainstrike/host-lease';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
@@ -185,10 +189,37 @@ test('semantic recall writes vectors to the host state index and recalls them on
   try {
     expect((await host.run('The capital of France is Paris.')).finished?.outcome).toBe('completed');
     expect(host.storedVectors()).toBeGreaterThan(0);
-    expect((await host.run('Which city did I mention?')).finished?.outcome).toBe('completed');
+    // BST-2225: a view subscribed to the reading thread receives its recall live.
+    const { threadId } = await host.client.request('thread/start', { commandId: randomUUID() });
+    await host.client.request('log/subscribe', { fromSeq: 0, threadId });
+    const recalls: unknown[] = [];
+    const release = host.client.onTelemetry((telemetry) => {
+      if (telemetry.threadId === threadId && readMemoryRecallTelemetry(telemetry.chunk)) {
+        recalls.push(telemetry.chunk);
+      }
+    });
+    try {
+      expect((await host.run('Which city did I mention?', threadId)).finished?.outcome).toBe(
+        'completed'
+      );
+    } finally {
+      release();
+    }
     // The recalled earlier turn from another thread reaches the provider request.
     expect(prompt(reader)).toContain('The capital of France is Paris.');
     expect(host.embedded).toContain('Which city did I mention?');
+    expect(recalls).toEqual([
+      {
+        latencyMs: expect.any(Number),
+        messages: 1,
+        scope: 'resource',
+        topK: 1,
+        type: MEMORY_RECALL_TELEMETRY_TYPE,
+      },
+    ]);
+    // Live only: the thread's committed log holds no trace of it.
+    const rows = (await host.client.request('thread/read', { fromSeq: 0, threadId })).rows;
+    expect(JSON.stringify(rows)).not.toContain(MEMORY_RECALL_TELEMETRY_TYPE);
     expect(fetch).not.toHaveBeenCalled();
   } finally {
     await host.close();
