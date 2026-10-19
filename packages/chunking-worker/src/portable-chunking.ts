@@ -356,8 +356,6 @@ function estimateTokenCount(text: string): number {
   return countTokensHeuristic(text);
 }
 
-export { buildLineStartOffsets, findLineForOffset } from './line-offsets';
-
 async function resolveTokenCounter(
   useAccurate: boolean,
   tokenUtilsModule: TokenUtilsLiteModule | null

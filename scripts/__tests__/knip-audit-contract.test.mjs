@@ -5,7 +5,7 @@ import { parse } from 'yaml';
 
 const root = new URL('../../', import.meta.url);
 
-test('Knip is reachable on schedule and dispatch and failures cannot turn green', () => {
+test('Knip runs both modes on schedule and dispatch and failures cannot turn green', () => {
   const workflow = parse(readFileSync(new URL('.github/workflows/knip.yml', root), 'utf8'));
   assert.deepEqual(Object.keys(workflow.on).sort(), ['schedule', 'workflow_dispatch']);
   assert.equal(workflow.on.schedule.length, 1);
@@ -17,7 +17,9 @@ test('Knip is reachable on schedule and dispatch and failures cannot turn green'
   const commands = job.steps.filter((step) => step.run);
   assert.deepEqual(
     commands.map((step) => step.run),
-    ['time pnpm knip', 'node scripts/check-knip-liveness.mjs']
+    // The probe runs before production mode so that a red production audit
+    // cannot hide whether the auditor still detects planted dead code.
+    ['time pnpm knip', 'node scripts/check-knip-liveness.mjs', 'time pnpm knip:production']
   );
   for (const step of commands) {
     assert.equal(step['continue-on-error'], undefined);
