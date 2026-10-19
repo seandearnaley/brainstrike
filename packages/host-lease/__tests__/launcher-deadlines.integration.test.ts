@@ -9,7 +9,7 @@
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
@@ -61,6 +61,12 @@ const STARTUP_MS = 1000;
 const READY_AT_MS = 700;
 const ATTACH_BUDGET_MS = 800;
 const HANDSHAKE_MS = 500;
+// The launcher reads its deadlines from Date.now(). A test that pins what the
+// launch deadline has left fakes only Date, from LAUNCHED_AT, and moves it to
+// the owner's publication itself, so the attach is offered the launcher's own
+// arithmetic, never this runner's scheduling delay (BST-2205). Polls, timers,
+// sockets and file reads stay real.
+const LAUNCHED_AT = Date.UTC(2026, 9, 18);
 
 /**
  * An attach whose handshake takes `takesMs`: offered at least that long it
@@ -103,12 +109,12 @@ function lateStarter(launchedAt: number, settled: Settled) {
 
 interface LateOwner {
   readonly lease: LockOwner;
-  /** Settles once the owner's record is published, `READY_AT_MS` into the launch. */
-  readonly published: Promise<void>;
+  /** Publishes the owner's record. */
+  publish(): Promise<void>;
   readonly record: HostRecord;
 }
-/** An owner in this process that holds the root now and publishes its record late. */
-async function lateOwner(root: string, launchedAt: number): Promise<LateOwner> {
+/** An owner in this process that holds the root now and publishes its record when told. */
+async function lateOwner(root: string): Promise<LateOwner> {
   const lock = await RootLock.acquire(root);
   locks.push(lock);
   const lease = RootLock.inspect(root)?.owner;
@@ -118,7 +124,7 @@ async function lateOwner(root: string, launchedAt: number): Promise<LateOwner> {
   const record = decodeHostRecord({
     endpoint:
       process.platform === 'win32'
-        ? String.raw`\\.\pipe\brainstrike-late-${process.pid}-${Date.now()}`
+        ? String.raw`\\.\pipe\brainstrike-late-${basename(root)}`
         : join(root, 'late.sock'),
     hostVersion: HOST_VERSION,
     pid: lease.pid,
@@ -126,10 +132,7 @@ async function lateOwner(root: string, launchedAt: number): Promise<LateOwner> {
     start: lease.start,
     token: 'd'.repeat(64),
   });
-  const published = sleep(Math.max(0, launchedAt + READY_AT_MS - Date.now())).then(() =>
-    publishHostRecord(root, record)
-  );
-  return { lease, published, record };
+  return { lease, publish: () => publishHostRecord(root, record), record };
 }
 
 function rootFree(root: string): boolean {
@@ -179,9 +182,11 @@ test('a host this launch started that overruns its own attach budget is retired,
 test('an existing owner that publishes late is attached within what the launch deadline has left', async () => {
   const root = await freshRoot();
   const offered: number[] = [];
-  const owner = await lateOwner(root, Date.now());
+  const owner = await lateOwner(root);
   let started = false;
-  const refused = await launchHost(root, {
+  vi.useFakeTimers({ now: LAUNCHED_AT, toFake: ['Date'] });
+  // launchHost reads its deadline before its first await, at LAUNCHED_AT.
+  const launching = launchHost(root, {
     attach: slowAttach(HANDSHAKE_MS, offered),
     attachTimeoutMs: ATTACH_BUDGET_MS,
     lifetime: 'cli',
@@ -191,37 +196,41 @@ test('an existing owner that publishes late is attached within what the launch d
     },
     startupTimeoutMs: STARTUP_MS,
   }).catch((cause: unknown) => cause);
-  await owner.published;
+  vi.setSystemTime(LAUNCHED_AT + READY_AT_MS);
+  await owner.publish();
+  const refused = await launching;
 
   expect(refused).toBeInstanceOf(LiveHostUnavailableError);
   expect(refused).toMatchObject({ pid: owner.record.pid });
   expect(started).toBe(false);
-  expect(offered).toHaveLength(1);
-  expect(offered[0]).toBeLessThanOrEqual(STARTUP_MS - READY_AT_MS);
+  expect(offered).toEqual([STARTUP_MS - READY_AT_MS]);
 });
 
 test('a start race winner that publishes late is attached within what the launch deadline has left', async () => {
   const root = await freshRoot();
   const offered: number[] = [];
-  const launchedAt = Date.now();
-  let winner: LateOwner | undefined;
-  const refused = await launchHost(root, {
+  const lost = Promise.withResolvers<LateOwner>();
+  vi.useFakeTimers({ now: LAUNCHED_AT, toFake: ['Date'] });
+  const launching = launchHost(root, {
     attach: slowAttach(HANDSHAKE_MS, offered),
     attachTimeoutMs: ATTACH_BUDGET_MS,
     lifetime: 'cli',
     // This starter loses the race to an owner that took the root first.
     spawn: async () => {
-      winner = await lateOwner(root, launchedAt);
+      const winner = await lateOwner(root);
+      lost.resolve(winner);
       throw new RootLockedError(winner.lease);
     },
     startupTimeoutMs: STARTUP_MS,
   }).catch((cause: unknown) => cause);
-  await winner?.published;
+  const winner = await lost.promise;
+  vi.setSystemTime(LAUNCHED_AT + READY_AT_MS);
+  await winner.publish();
+  const refused = await launching;
 
   expect(refused).toBeInstanceOf(LiveHostUnavailableError);
-  expect(refused).toMatchObject({ pid: winner?.record.pid });
-  expect(offered).toHaveLength(1);
-  expect(offered[0]).toBeLessThanOrEqual(STARTUP_MS - READY_AT_MS);
+  expect(refused).toMatchObject({ pid: winner.record.pid });
+  expect(offered).toEqual([STARTUP_MS - READY_AT_MS]);
 });
 
 test('by default a launch gives the host it starts 30 s to report ready', async () => {
