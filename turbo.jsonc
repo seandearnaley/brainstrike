@@ -465,11 +465,17 @@
     // `pnpm test:scripts` runs this root task. The script tests load real
     // Vitest configs (apps/desktop, apps/web, embedding-worker, web-writer),
     // and those import @brainstrike/build-utils, which exports only dist.
+    // effect-diagnostics-execution type-checks fixtures against the real desktop
+    // wire modules, which resolve agent-host, assistant-contract and indexer
+    // through their dist types (BST-2216).
     // Script tests read the whole repository, so a cached green is never sound.
     "//#test:scripts:run": {
       "cache": false,
       "dependsOn": [
-        "@brainstrike/build-utils#build"
+        "@brainstrike/agent-host#build",
+        "@brainstrike/assistant-contract#build",
+        "@brainstrike/build-utils#build",
+        "@brainstrike/indexer#build"
       ],
       "outputs": []
     },
