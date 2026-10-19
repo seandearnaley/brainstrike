@@ -101,6 +101,34 @@ async function startNewThread(page: Page): Promise<void> {
   await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);
 }
 
+interface MainLogRecord {
+  readonly args?: readonly unknown[];
+  readonly scope?: string;
+}
+
+/** Main's session log records, as Settings → Logs reads them. */
+async function mainLogRecords(page: Page): Promise<readonly MainLogRecord[]> {
+  return await page.evaluate(async () => {
+    const logging = (
+      window as Window & {
+        logging?: {
+          getBufferedLogs(): Promise<
+            { ok: true; value: MainLogRecord[] } | { error: unknown; ok: false }
+          >;
+        };
+      }
+    ).logging;
+    if (!logging) {
+      throw new Error('The logging bridge is unavailable');
+    }
+    const result = await logging.getBufferedLogs();
+    if (!result.ok) {
+      throw new Error(JSON.stringify(result.error));
+    }
+    return result.value;
+  });
+}
+
 async function finishedOutcomes(page: Page): Promise<readonly unknown[]> {
   const userData = await page.evaluate(() => globalThis.window.electronAPI!.getUserDataPath());
   return await withAppHost(userData, async (client) => {
@@ -168,6 +196,58 @@ test('an on-device embedder recalls from the first send, with observations on', 
   expect(await finishedOutcomes(page)).toEqual(['completed']);
   // No hosted embedding was requested: the shim serves none here, so one would be refused.
   expect(modelProvider.refusals()).toEqual([]);
+});
+
+/**
+ * BST-2202: a memory embedder's provider rejection is memory's typed failure,
+ * named after the embedder's own provider (never the OpenRouter chat model),
+ * with the reference its cause was logged under in Main's diagnostics.
+ */
+test('a hosted embedder’s rejection names the memory embedder and its diagnostic reference', async ({
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(300_000);
+  modelProvider.setScript(({ requestBody }) => ({
+    finalText: (requestBody as { stream?: unknown }).stream === true ? ANSWER : 'Lisbon venue',
+  }));
+  // No embeddings are served: the shim refuses the embedder's request with a terminal 401.
+  await enableModel(page);
+  await enableSemanticRecall(page, 'openai/text-embedding-3-small');
+
+  const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
+  const input = panel.getByRole('textbox', { name: 'Message input' });
+  await expect(input).toBeEnabled({ timeout: 30_000 });
+  await input.fill(PROMPT);
+  await panel.getByRole('button', { exact: true, name: 'Send' }).click();
+  // The failure row: the run timeline also titles the run with the same reason.
+  const typed = panel
+    .getByRole('alert')
+    .getByText(
+      /^Memory recall failed because its embedding model \(OpenAI text-embedding-3-small\) failed: Embedding provider openai refused the request \(HTTP 401\)\. Check the OpenAI API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory\. Provider response: OpenAI returned HTTP 401\. Reference: [0-9a-f-]{36}$/u
+    );
+  await expect(typed.or(page.getByText(GENERIC_FAULT)).first()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);
+  await expect(page.getByText(/OpenRouter rejected/u)).toHaveCount(0);
+  const reference = /Reference: ([0-9a-f-]{36})$/u.exec((await typed.textContent()) ?? '')?.[1];
+  expect(reference).toBeDefined();
+  // The agent host's record of the cause reached Main's logger under that reference.
+  await expect
+    .poll(
+      async () =>
+        (await mainLogRecords(page)).some(
+          (record) =>
+            record.scope === 'AgentHost' &&
+            JSON.stringify(record.args).includes(`"correlationId":"${reference}"`) &&
+            JSON.stringify(record.args).includes('"code":"memory.embedder-failed"')
+        ),
+      { timeout: 30_000 }
+    )
+    .toBe(true);
+  expect(await finishedOutcomes(page)).toEqual(['failed']);
+  expect(modelProvider.refusals()).toEqual([
+    expect.objectContaining({ knob: 'OPENAI_BASE_URL', method: 'POST', route: '/embeddings' }),
+  ]);
 });
 
 test('an on-device embedder with no execution device refuses with its reason, not a fault', async ({

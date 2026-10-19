@@ -1,4 +1,11 @@
-import { refusalError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  fault,
+  MEMORY_EMBEDDER_SELECTION_REMEDY,
+  MEMORY_FAILURE_CODES,
+  MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import { parseSemanticRecallEmbeddingModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { resolveNativeCanonicalProfile } from '@brainstrike/canonical-ingestion';
 import {
@@ -49,7 +56,12 @@ export async function resolveDesktopMemoryVectors(
     return undefined;
   }
   if (!semanticRecall.embeddingModelTarget?.trim()) {
-    throw new Error('Memory vectors require the selected semantic recall embedding model target');
+    throw refusalError(
+      'configuration',
+      MEMORY_FAILURE_CODES.configuration,
+      'Semantic recall has no embedding model selected.',
+      MEMORY_EMBEDDER_SELECTION_REMEDY
+    );
   }
   const target = parseSemanticRecallEmbeddingModelTarget(semanticRecall.embeddingModelTarget);
   const modelKey = `${target.provider}::${target.model}`;
@@ -86,7 +98,11 @@ export async function readEmbeddingHostDevice(
 ): Promise<'webgpu' | 'wasm'> {
   const status = await waitForHostStartup(host.ensureDeviceResolved(), signal);
   if (status.state !== 'running') {
-    throw new Error(status.lastError ?? 'The embedding host is not running.');
+    // BST-2202: the host's own reason stays the cause, logged under the reference.
+    throw embedderUnavailable(
+      'The on-device memory embedder is not running.',
+      status.lastError ?? 'The embedding host is not running.'
+    );
   }
   const runtime = status.embeddingRuntime;
   if (runtime?.hostDevice) {
@@ -95,9 +111,25 @@ export async function readEmbeddingHostDevice(
   if (runtime?.hostDeviceError) {
     throw refusalError(
       'configuration',
-      'memory.embedder-device-unavailable',
-      `The on-device memory embedder has no execution device: ${runtime.hostDeviceError} Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval.`
+      MEMORY_FAILURE_CODES.embedderDeviceUnavailable,
+      `The on-device memory embedder has no execution device: ${runtime.hostDeviceError} ${MEMORY_ON_DEVICE_EMBEDDER_REMEDY}`
     );
   }
-  throw new Error('The embedding host has not resolved its execution device.');
+  throw embedderUnavailable(
+    'The on-device memory embedder has not resolved its execution device.',
+    'The embedding host reported running without a device or a device error.'
+  );
+}
+
+/** The on-device embedder cannot run now: a fault whose reason is logged, not shown. */
+function embedderUnavailable(message: string, reason: string): BoundaryFailureError {
+  return new BoundaryFailureError(
+    fault({
+      category: 'availability',
+      code: MEMORY_FAILURE_CODES.embedderUnavailable,
+      message,
+      remedy: MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
+    }),
+    { cause: new Error(reason) }
+  );
 }

@@ -1,4 +1,13 @@
-import { isSupportedProvider, type ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  fault,
+  isSupportedProvider,
+  MEMORY_EMBEDDER_SELECTION_REMEDY,
+  MEMORY_FAILURE_CODES,
+  MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
+  type ModelCatalogCapability,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   type CatalogEmbeddingModel,
@@ -34,7 +43,12 @@ function readHostedEmbeddingDimensions(provider: string, modelId: string): numbe
     ? listEmbeddingModels(provider).find((candidate) => candidate.id === modelId)
     : undefined;
   if (!model) {
-    throw new Error(`Embedding model "${provider}/${modelId}" is not in the provider catalog.`);
+    throw refusalError(
+      'configuration',
+      MEMORY_FAILURE_CODES.configuration,
+      `The semantic recall embedding model ${provider}/${modelId} is not in the provider catalog.`,
+      MEMORY_EMBEDDER_SELECTION_REMEDY
+    );
   }
   return model.defaultDimension;
 }
@@ -48,7 +62,12 @@ async function readLocalEmbeddingModel(
     (model) => model.id === modelId && model.providerId === 'local'
   );
   if (!row) {
-    throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
+    throw refusalError(
+      'configuration',
+      MEMORY_FAILURE_CODES.configuration,
+      `The semantic recall embedding model local/${modelId} is not in the model catalog.`,
+      MEMORY_EMBEDDER_SELECTION_REMEDY
+    );
   }
   return decodeCatalogEmbeddingModel(row);
 }
@@ -58,7 +77,15 @@ async function readLocalEmbeddingHostDevice(
   signal: AbortSignal
 ): Promise<'webgpu' | 'wasm'> {
   if (!read) {
-    throw new Error('Local Memory vectors require the embedding host');
+    throw new BoundaryFailureError(
+      fault({
+        category: 'availability',
+        code: MEMORY_FAILURE_CODES.embedderUnavailable,
+        message: 'This desktop has no embedding host for the on-device memory embedder.',
+        remedy: MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
+      }),
+      { cause: new Error('Local Memory vectors require the embedding host') }
+    );
   }
   return await read(signal);
 }

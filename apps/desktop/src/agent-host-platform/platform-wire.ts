@@ -34,6 +34,23 @@ export {
 } from './platform-client-configuration';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
+/**
+ * BST-2202: the agent host's error and fatal log records reach Main's
+ * diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
+ * correlation id names is in the desktop log and debug bundle.
+ */
+export const PLATFORM_DIAGNOSTICS_RECORD_METHOD = 'platform/diagnostics/record';
+/** One record as its producer's logger redacted it, bounded to JSON. */
+export const PlatformDiagnosticRecordSchema = Schema.Struct({
+  record: Schema.Struct({
+    args: Schema.mutable(Schema.Array(Schema.MutableJson)),
+    bindings: Schema.Record(Schema.String, Schema.MutableJson),
+    level: Schema.Literals(['error', 'fatal']),
+    message: Schema.optional(Schema.String),
+    scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
+    timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+});
 /** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
 export const PlatformNativeChildSchema = Schema.Struct({
   group: Schema.Boolean,

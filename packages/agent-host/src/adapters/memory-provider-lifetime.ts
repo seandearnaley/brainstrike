@@ -1,6 +1,8 @@
 import { isProxy } from 'node:util/types';
+import type { MemoryComponent } from '@brainstrike/assistant-contract';
 import type { MastraEmbeddingModel, MastraVector } from '@mastra/core/vector';
 import { type LanguageModelUsage, wrapLanguageModel } from 'ai';
+import { memoryFailureCauses } from './memory-failure.js';
 
 export type MemoryLanguageModel = Parameters<typeof wrapLanguageModel>[0]['model'];
 type Model = ReturnType<typeof wrapLanguageModel>;
@@ -8,6 +10,17 @@ type StreamResult = Awaited<ReturnType<Model['doStream']>>;
 type Part = StreamResult['stream'] extends ReadableStream<infer Value> ? Value : never;
 type Usage = Awaited<ReturnType<Model['doGenerate']>>['usage'];
 type Kind = 'observation' | 'reflection';
+
+const KIND_COMPONENTS: Readonly<Record<Kind, MemoryComponent>> = {
+  observation: 'observer',
+  reflection: 'reflector',
+};
+
+/** The memory part a failure came from, and the failure this enclosure saw. */
+export interface MemoryFailureAttribution {
+  readonly cause: object;
+  readonly component: MemoryComponent;
+}
 
 interface Source {
   cancel(): Promise<void>;
@@ -24,6 +37,8 @@ export class MemoryProviderLifetime {
   private readonly sources = new Set<Source>();
   private readonly failures: unknown[] = [];
   private readonly cancellations = new WeakSet<object>();
+  /** BST-2202: the memory part each failed provider or vector call belonged to. */
+  private readonly components = new WeakMap<object, MemoryComponent>();
   private closing: Promise<void> | undefined;
   private observing = false;
   private readonly onAbort = (): void => {
@@ -118,6 +133,34 @@ export class MemoryProviderLifetime {
     }
   }
 
+  /** Record which memory part `cause` failed in; the first record sticks, cancellation has none. */
+  private attribute(component: MemoryComponent, cause: unknown): void {
+    if (
+      typeof cause !== 'object' ||
+      cause === null ||
+      this.components.has(cause) ||
+      (this.signal.aborted && cause === this.signal.reason) ||
+      this.ownsCancellation(cause)
+    ) {
+      return;
+    }
+    this.components.set(cause, component);
+  }
+
+  /**
+   * The memory part a failure came from: the first of its causes that a
+   * provider or vector call of this enclosure failed with. Undefined when none did.
+   */
+  attribution(cause: unknown): MemoryFailureAttribution | undefined {
+    for (const candidate of memoryFailureCauses(cause)) {
+      const component = this.components.get(candidate);
+      if (component !== undefined) {
+        return { cause: candidate, component };
+      }
+    }
+    return;
+  }
+
   private cancellation(): Error {
     const failure = new Error('Run-owned memory embedding cancelled', {
       cause: this.signal.reason,
@@ -155,6 +198,7 @@ export class MemoryProviderLifetime {
           if (this.signal.aborted && cause === this.signal.reason) {
             throw this.cancellation();
           }
+          this.attribute('embedder', cause);
           throw cause;
         }
         if (this.signal.aborted) {
@@ -194,7 +238,10 @@ export class MemoryProviderLifetime {
     }
   }
 
-  /** Fence native vector dispatch without reclassifying any writer rejection. */
+  /**
+   * Fence native vector dispatch without reclassifying any writer rejection:
+   * a rejection keeps its identity, attributed to the vector store (BST-2202).
+   */
   vector(vector: MastraVector): MastraVector {
     return new Proxy(vector, {
       get: (target, key) => {
@@ -205,7 +252,11 @@ export class MemoryProviderLifetime {
         ) {
           return (...args: unknown[]) => {
             this.embeddingAdmission();
-            return Reflect.apply(member, target, args);
+            const dispatched: unknown = Reflect.apply(member, target, args);
+            return Promise.resolve(dispatched).catch((cause: unknown) => {
+              this.attribute('vector-store', cause);
+              throw cause;
+            });
           };
         }
         return typeof member === 'function' ? member.bind(target) : member;
@@ -221,6 +272,13 @@ export class MemoryProviderLifetime {
         (cause instanceof DOMException && cause.name === 'AbortError'))
       ? this.signal.reason
       : cause;
+  }
+
+  /** A memory model's own failure, attributed to its observer or reflector. */
+  private providerFailure(kind: Kind, cause: unknown): unknown {
+    const failure = this.normalizeProviderAbort(cause);
+    this.attribute(KIND_COMPONENTS[kind], failure);
+    return failure;
   }
 
   model(kind: Kind, model: MemoryLanguageModel): Model {
@@ -243,7 +301,7 @@ export class MemoryProviderLifetime {
             Promise.resolve()
               .then(doGenerate)
               .catch((cause: unknown) => {
-                throw this.normalizeProviderAbort(cause);
+                throw this.providerFailure(kind, cause);
               }),
             true
           );
@@ -262,7 +320,7 @@ export class MemoryProviderLifetime {
             Promise.resolve()
               .then(doStream)
               .catch((cause: unknown) => {
-                throw this.normalizeProviderAbort(cause);
+                throw this.providerFailure(kind, cause);
               }),
             true
           );
@@ -316,7 +374,7 @@ export class MemoryProviderLifetime {
             controller.enqueue(item.value);
           }
         } catch (cause) {
-          const failure = this.normalizeProviderAbort(cause);
+          const failure = this.providerFailure(kind, cause);
           if (this.signal.aborted && failure === this.signal.reason) {
             done.resolve();
           } else {

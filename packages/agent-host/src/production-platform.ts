@@ -20,6 +20,7 @@ import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
+import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
 import {
   type HostObservationSource,
@@ -67,12 +68,14 @@ export interface ProductionHostRunConfiguration {
   readonly maxSteps: number;
   readonly memory: Omit<
     StateStoreHostMemoryOptions,
-    'store' | 'providerRequestContext' | 'vectorBridge'
+    'embedderIdentity' | 'store' | 'providerRequestContext' | 'vectorBridge'
   > & {
     /** Observational memory is on but waits for an observer this admission can run. */
     readonly observerAwaiting?: HostObserverAwaitingReason;
     /** Recall/vector-OM embedder and its profile; the host's own state index stores the vectors. */
     readonly vectors?: {
+      /** The platform's model-safe reading of its embedder's raw failures (BST-2202). */
+      readonly classifyFailure?: HostMemoryEmbedderIdentity['classifyFailure'];
       readonly embedder: NonNullable<StateStoreHostMemoryOptions['native']['embedder']>;
       readonly profile: VectorProfile;
     };
@@ -546,6 +549,17 @@ export async function createProductionHostPlatform<Configuration extends Product
             const runOptions = hostRunMemoryOptions(memory, context);
             const owner = StateStoreHostMemory.open(context, {
               ...runOptions,
+              // The embedder's failures name its own catalog identity (BST-2202).
+              ...(vectors
+                ? {
+                    embedderIdentity: {
+                      ...(vectors.classifyFailure
+                        ? { classifyFailure: vectors.classifyFailure }
+                        : {}),
+                      modelId: `${vectors.profile.provider}::${vectors.profile.modelId}`,
+                    },
+                  }
+                : {}),
               native: nativeMemory(bridge, runOptions.native),
               providerRequestContext: () => selected.providerRequestContext,
               // Core keeps every run and its admission; a closed owner leaves this map.

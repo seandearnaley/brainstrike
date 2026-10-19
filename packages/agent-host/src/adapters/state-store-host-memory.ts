@@ -5,6 +5,7 @@ import {
   preparedPromptBreakdown,
   preparedPromptToolCalls,
 } from '@brainstrike/agent/provider-request';
+import { memoryConfigurationError } from '@brainstrike/assistant-contract';
 import {
   applyPromptToolCallWindow,
   diffPromptToolCallWindow,
@@ -47,6 +48,7 @@ import {
   HostMemoryStepError,
   type HostMemoryStepName,
 } from './memory.js';
+import { classifyMemoryFailure, type HostMemoryEmbedderIdentity } from './memory-failure.js';
 import { StateStoreMemoryStorage } from './memory-storage.js';
 import {
   StateStoreMemoryVector,
@@ -100,6 +102,8 @@ async function selectRunMemory(
   return { ...native, options: { ...native.options, observationalMemory: false } };
 }
 export interface StateStoreHostMemoryOptions {
+  /** The run's embedder, as its failures name it (BST-2202); with vectors only. */
+  readonly embedderIdentity?: HostMemoryEmbedderIdentity;
   readonly native: Omit<HostMemoryCapabilities['native'], 'storage'>;
   /** The observer's catalog `provider::model`; required when observational memory is on. */
   readonly observerModelId?: string;
@@ -168,7 +172,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     try {
       return await StateStoreHostMemory.openOwner(context, options);
     } catch (cause) {
-      throw memoryStepFailure(context.signal, 'open', cause);
+      throw memoryOpenFailure(context.signal, cause);
     }
   }
 
@@ -185,7 +189,9 @@ export class StateStoreHostMemory implements HostRunOwner {
     if (vectorBridge) {
       vectorBridge.assertOwner(options.resourceId, context.threadId, context.signal);
       if (options.native.vector !== vectorBridge) {
-        throw new Error('Native Memory must use its captured prepared vector bridge');
+        throw memoryConfigurationError(
+          'Native Memory must use its captured prepared vector bridge'
+        );
       }
     }
     if (
@@ -193,7 +199,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       (!(vectorBridge instanceof StateStoreObservationVector && options.native.embedder) ||
         typeof options.native.embedder === 'string')
     ) {
-      throw new Error(
+      throw memoryConfigurationError(
         'Observational vector retrieval requires its captured canonical observation bridge and concrete embedder'
       );
     }
@@ -202,7 +208,9 @@ export class StateStoreHostMemory implements HostRunOwner {
       (!(options.native.vector && options.native.embedder) ||
         typeof options.native.embedder === 'string')
     ) {
-      throw new Error('Semantic recall requires the borrowed vector owner and a concrete embedder');
+      throw memoryConfigurationError(
+        'Semantic recall requires the borrowed vector owner and a concrete embedder'
+      );
     }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
@@ -233,6 +241,7 @@ export class StateStoreHostMemory implements HostRunOwner {
               new StateStoreObservationMemory(native, vectorBridge),
           }
         : {}),
+      ...(options.embedderIdentity ? { embedderIdentity: options.embedderIdentity } : {}),
       native: { ...native, storage },
       ...(options.observerModelId === undefined
         ? {}
@@ -287,8 +296,15 @@ export class StateStoreHostMemory implements HostRunOwner {
       await memory.beginTurn(current);
       return owner;
     } catch (cause) {
-      throw await retireFailedOpen(owner, cause);
+      throw await retireFailedOpen(owner, owner.stepFailure('open', cause));
     }
+  }
+
+  /** A step's typed failure; cancellation and unjoined cleanup keep their identity. */
+  private stepFailure(step: HostMemoryStepName, cause: unknown): unknown {
+    return keepsIdentity(this.identity.signal, cause)
+      ? cause
+      : this.memory.stepFailure(step, cause);
   }
 
   prepareHostModel(model: LanguageModel): LanguageModel {
@@ -325,7 +341,12 @@ export class StateStoreHostMemory implements HostRunOwner {
           this.previousRequestToolCalls,
           toolCallWindow
         );
-        await this.memory.recordPrompt(prepared.params);
+        try {
+          await this.memory.recordPrompt(prepared.params);
+        } catch (cause) {
+          // Memory's own failure inside the chat model call: never a provider error.
+          throw this.stepFailure('accounting', cause);
+        }
       },
     });
     return wrapLanguageModel({
@@ -362,11 +383,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     try {
       return await this.selectStep(request);
     } catch (cause) {
-      throw memoryStepFailure(
-        this.identity.signal,
-        this.memory.failedStep(cause) ?? 'context',
-        cause
-      );
+      throw this.stepFailure('context', cause);
     }
   }
 
@@ -550,7 +567,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     try {
       await this.commitStep();
     } catch (cause) {
-      throw memoryStepFailure(this.identity.signal, this.memory.failedStep(cause) ?? 'save', cause);
+      throw this.stepFailure('save', cause);
     }
   }
 
@@ -632,11 +649,23 @@ async function retireFailedOpen(owner: StateStoreHostMemory, cause: unknown): Pr
   return cause;
 }
 
-/** Name the memory step; cancellation and unjoined cleanup keep their identity. */
-function memoryStepFailure(signal: AbortSignal, step: HostMemoryStepName, cause: unknown): unknown {
-  return cause instanceof HostRunOwnerCleanupError || (signal.aborted && cause === signal.reason)
+/** Cancellation and unjoined cleanup keep their identity through a memory step. */
+function keepsIdentity(signal: AbortSignal, cause: unknown): boolean {
+  return cause instanceof HostRunOwnerCleanupError || (signal.aborted && cause === signal.reason);
+}
+
+/**
+ * An open that failed before its owner existed: a typed failure its producer
+ * gave it (memory's configuration), else the internal fault (BST-2202).
+ */
+function memoryOpenFailure(signal: AbortSignal, cause: unknown): unknown {
+  return keepsIdentity(signal, cause)
     ? cause
-    : HostMemoryStepError.wrap(step, cause);
+    : HostMemoryStepError.wrap(
+        'open',
+        cause,
+        classifyMemoryFailure('open', cause, { attribution: () => undefined })
+      );
 }
 
 function retrievesObservationVectors(native: StateStoreHostMemoryOptions['native']): boolean {

@@ -6,7 +6,6 @@
  * message instead, and a settled child takes a follow-up run/start.
  */
 import { randomUUID } from 'node:crypto';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { committedRunIdentity } from '../src/committed-identities.js';
@@ -27,7 +26,10 @@ import {
   toolNames,
   userTexts,
 } from './fixtures/child-run-host.js';
-import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
+import {
+  captureHostFailureDiagnostics,
+  INTERNAL_FAULT_DETAIL,
+} from './fixtures/host-failure-diagnostics.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -838,7 +840,7 @@ test('input a stopped child never read commits a safe failed run and retains its
   );
   expect(finishedRuns(child).map(({ detail, outcome }) => ({ detail, outcome }))).toEqual([
     { detail: undefined, outcome: 'stopped' },
-    { detail: INTERNAL_FAULT.message, outcome: 'failed' },
+    { detail: INTERNAL_FAULT_DETAIL, outcome: 'failed' },
   ]);
   diagnostics.expectCause('The child run ended stopped before it read this input.');
   // The input never reached the model.

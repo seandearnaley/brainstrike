@@ -44,12 +44,14 @@ import {
   type DesktopAdmissionReads,
   type DesktopRunSelection,
 } from './desktop-run-admission';
+import { forwardHostDiagnostics } from './host-diagnostics';
 import { mainQueryEmbedding } from './host-retrieval-clients';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
+  PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
@@ -270,6 +272,11 @@ export async function createDesktopHostConfiguration(
     connection.dispose();
     port.close();
   });
+  // BST-2202: this host's error records reach Main's diagnostics with their correlation ids.
+  const diagnostics = forwardHostDiagnostics((record) =>
+    connection.sendRequest(PLATFORM_DIAGNOSTICS_RECORD_METHOD, record)
+  );
+  await startup.register(() => diagnostics.close());
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
   // Its servers connect after readiness, so bearer reads wait for a pending
   // legacy import like every other credential use. Its OAuth records live in
@@ -302,7 +309,12 @@ export async function createDesktopHostConfiguration(
       await mcpHost.close();
       // The language servers, command trees and command sessions this host spawned.
       await disposeHostTools();
+      // Accepted error records are delivered while Main's connection is open.
+      const [delivered] = await Promise.allSettled([diagnostics.close()]);
       await request('platform/close', {});
+      if (delivered.status === 'rejected') {
+        throw delivered.reason;
+      }
     },
     confirmMainReady: async () => {
       wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(

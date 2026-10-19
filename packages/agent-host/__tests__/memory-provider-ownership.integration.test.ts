@@ -3,14 +3,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
-import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
+import {
+  captureHostFailureDiagnostics,
+  INTERNAL_FAULT_DETAIL,
+} from './fixtures/host-failure-diagnostics.js';
 import { MemoryProviderOwnershipFixture } from './fixtures/memory-provider-ownership.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
@@ -238,7 +240,7 @@ test('a joined source cancellation failure has a safe stopped detail, keeps its 
       (event) => event.type === 'run.finished'
     );
     expect(finished).toMatchObject({
-      detail: INTERNAL_FAULT.message,
+      detail: INTERNAL_FAULT_DETAIL,
       outcome: 'stopped',
     });
     diagnostics.expectCause(failure.message);

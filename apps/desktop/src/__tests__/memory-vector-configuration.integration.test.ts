@@ -1,5 +1,6 @@
 // @vitest-environment node
 import type { LocalEmbeddingHostClient } from '@brainstrike/agent/provider-runtime';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
@@ -156,25 +157,96 @@ test('hosted recall embeds in Node with the resolved credential for the admitted
   expect(request.url).toMatch(/\/embeddings$/u);
   expect(request.headers.get('authorization')).toBe('Bearer offline-fixture-key');
 });
-test('missing vector capabilities refuse visibly without substituting a model', async () => {
+test('missing vector capabilities refuse visibly, typed, without substituting a model (BST-2202)', async () => {
+  const failure = (pending: Promise<unknown>) =>
+    pending.then(
+      () => undefined,
+      (error: unknown) => {
+        expect(error).toBeInstanceOf(BoundaryFailureError);
+        return error as BoundaryFailureError;
+      }
+    );
   const noProfile = selection(localProfile);
   const { vectorProfile: _omitted, ...memory } = noProfile.memory;
-  await expect(
+  const unadmitted = await failure(
     createDesktopHostMemoryConfiguration(
       { ...noProfile, memory },
       async () => undefined,
       borrowed(async () => [])
     )
-  ).rejects.toThrow(/embedding profile Main admitted/);
-  await expect(
-    createDesktopHostMemoryConfiguration(selection(localProfile), async () => undefined)
-  ).rejects.toThrow(/desktop embedding host/);
-  await expect(
-    createDesktopHostMemoryConfiguration(selection(hostedProfile), async () => undefined)
-  ).rejects.toThrow(
-    'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.'
   );
+  expect(unadmitted?.failure).toMatchObject({
+    code: 'memory.configuration-invalid',
+    kind: 'fault',
+  });
+  // The composition's own reason is the cause logged under the reference.
+  expect(unadmitted?.cause).toEqual(
+    new Error('Memory vectors require the embedding profile Main admitted')
+  );
+  expect(
+    (
+      await failure(
+        createDesktopHostMemoryConfiguration(selection(localProfile), async () => undefined)
+      )
+    )?.failure
+  ).toEqual({
+    category: 'availability',
+    code: 'memory.embedder-unavailable',
+    kind: 'fault',
+    message: 'The on-device memory embedder cannot be reached from the agent host.',
+    remedy:
+      'Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval.',
+  });
+  expect(
+    (
+      await failure(
+        createDesktopHostMemoryConfiguration(selection(hostedProfile), async () => undefined)
+      )
+    )?.failure
+  ).toEqual({
+    category: 'configuration',
+    code: 'memory.credential-missing',
+    kind: 'refusal',
+    message:
+      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.',
+  });
   expect(fetch).not.toHaveBeenCalled();
+});
+test('a hosted embedder’s provider rejection reads with the hosted embedding classification (BST-2202)', async () => {
+  fetch.mockImplementation(async () =>
+    Response.json(
+      { error: { message: 'Incorrect API key provided: sk-fixture-not-a-key' } },
+      { status: 401 }
+    )
+  );
+  const configured = await createDesktopHostMemoryConfiguration(
+    selection(hostedProfile),
+    async () => ({ apiKey: 'offline-fixture-key', kind: 'api_key' as const })
+  );
+  const embedder = configured.vectors?.embedder;
+  const classify = configured.vectors?.classifyFailure;
+  if (!embedder || typeof embedder === 'string' || !classify) {
+    throw new Error('A concrete hosted embedder and its classification are required');
+  }
+  const rejected = await embedder.doEmbed({ values: ['recall query'] }).then(
+    () => undefined,
+    (error: unknown) => error
+  );
+  expect(classify(rejected)).toEqual({
+    detail: 'Embedding provider openai refused the request (HTTP 401).',
+    httpStatus: 401,
+  });
+  fetch.mockImplementation(async () => new Response('{}', { status: 429 }));
+  const limited = await embedder.doEmbed({ values: ['recall query'] }).then(
+    () => undefined,
+    (error: unknown) => error
+  );
+  expect(classify(limited)).toEqual({
+    detail: 'Embedding provider openai is rate limiting requests; try again later.',
+    httpStatus: 429,
+  });
+  // A failure that never reached the provider has no hosted classification.
+  expect(classify(new Error('Local invariant'))).toBeUndefined();
 });
 test('disabled recall and existing observer messages/off options preserve provider model and thresholds', async () => {
   const admitted = selection(undefined);
