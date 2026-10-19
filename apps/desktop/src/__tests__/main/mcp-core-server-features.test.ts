@@ -557,6 +557,27 @@ describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
     await features.close();
   });
 
+  it('waits out a server tool window on a call nothing guards, and only there (BST-1779)', async () => {
+    const { client } = createClient();
+    const features = createMcpCoreServerFeatures(client, { toolTimeoutMs: 180_000 });
+    await features.initialize();
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {
+      callerGuardsInactivity: true,
+    });
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {});
+    const [[, guarded], [, unguarded]] = client.callTool.mock.calls as unknown as [
+      [unknown, Record<string, unknown>],
+      [unknown, Record<string, unknown>],
+    ];
+    // The guard owns the window; the request still keeps only the total.
+    expect(guarded).toMatchObject({
+      maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+      timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+    });
+    expect(unguarded).toMatchObject({ timeout: 180_000 });
+    await features.close();
+  });
+
   describe('listing (BST-1632)', () => {
     function deferred<T>() {
       let resolve: (value: T) => void = () => undefined;

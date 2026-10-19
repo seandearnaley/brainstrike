@@ -805,6 +805,34 @@ describe('MCP runtime client', () => {
       }
     );
 
+    it("fits a task's settlement wait under its server's own tool window (BST-1779)", async () => {
+      const remote = {
+        ...createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult),
+        toolTimeoutMs: 8000,
+      };
+      const mcpTaskTracking: McpTaskTrackingCapability = {
+        awaitSettlement: vi.fn(async () => ({ settled: true as const, task: settled })),
+        track: vi.fn(async () => live),
+      };
+      const { host } = createTestHost({ remote });
+      const runtimeClient = await createMcpRuntimeClient({
+        config: undefined,
+        host,
+        mcpTaskTracking,
+        toolTimeoutMs: 60_000,
+      });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+      const abortController = new AbortController();
+
+      await tool.execute({}, { abortSignal: abortController.signal, toolCallId: 'task-call' });
+      // Three quarters of the server's 8 s window, not of the host's 60 s.
+      expect(mcpTaskTracking.awaitSettlement).toHaveBeenCalledWith(handle, {
+        signal: abortController.signal,
+        timeoutMs: 6000,
+      });
+    });
+
     it.each([
       { name: 'direct', result: createdTask },
       {

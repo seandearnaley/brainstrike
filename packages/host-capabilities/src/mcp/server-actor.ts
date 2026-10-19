@@ -63,6 +63,8 @@ interface McpServerActorOptions extends Pick<ClientContext, 'configuredServerId'
   onInternalError(code: McpServerActorDiagnosticCode, cause: unknown): void;
   onSnapshotChanged?(snapshot: McpHostServerSnapshot): void;
   startup: 'automatic' | 'authentication-required';
+  /** The server's configured tool window (BST-1779), published on its snapshot. */
+  toolTimeoutMs?: number;
   transport: 'sse' | 'stdio' | 'streamable-http';
 }
 type ActorStatus =
@@ -401,6 +403,9 @@ export class McpServerActor {
       ...(this.diagnostics.length > 0 ? { diagnostics: this.diagnostics } : {}),
       generation: this.options.generation,
       ...this.status,
+      ...(this.options.toolTimeoutMs === undefined
+        ? {}
+        : { toolTimeoutMs: this.options.toolTimeoutMs }),
       transport: this.options.transport,
     });
   }

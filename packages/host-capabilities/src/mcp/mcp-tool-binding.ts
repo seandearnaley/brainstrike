@@ -75,10 +75,11 @@ export function bindMcpTool(options: {
     tools: {
       // BST-1779: an MCP call's progress restarts its window (an inactivity
       // budget), bounded by the transport's own total budget; a silent server
-      // still ends at `toolTimeoutMs`.
+      // still ends at the window: the server's configured `toolTimeoutMs`,
+      // else the host's.
       [canonicalId]: guardToolExecution(source, {
         activity: { maxTotalMs: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS },
-        timeoutMs: options.toolTimeoutMs,
+        timeoutMs: owner.toolTimeoutMs ?? options.toolTimeoutMs,
         toolName: canonicalId,
       }),
     },

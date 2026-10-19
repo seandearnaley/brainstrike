@@ -212,22 +212,25 @@ export async function createMcpRuntimeClient(
     return;
   }
   const authority = options.host.snapshot();
-  const servers = authority.servers.map(({ configuredServerId, enabledTools, generation }) => ({
-    ...(enabledTools ? { enabledTools: [...enabledTools] } : {}),
-    generation,
-    name: configuredServerId,
-  }));
+  const servers = authority.servers.map(
+    ({ configuredServerId, enabledTools, generation, toolTimeoutMs }) => ({
+      ...(enabledTools ? { enabledTools: [...enabledTools] } : {}),
+      generation,
+      name: configuredServerId,
+      toolTimeoutMs,
+    })
+  );
   if (servers.length === 0) {
     return;
   }
-  const taskTracking = resolveTaskTracking(options);
   const serverClients: TransportOwnedServerClient[] = [];
   try {
-    for (const { generation, ...server } of servers) {
+    for (const { generation, toolTimeoutMs, ...server } of servers) {
       serverClients.push({
         client: createHostClient(options.host, server.name, generation),
         server,
-        taskTracking,
+        // A server's own tool window is its guard's, so settlement fits under it.
+        taskTracking: resolveTaskTracking(options, toolTimeoutMs),
       });
     }
     return new CompositeMcpRuntimeClient(serverClients);
@@ -238,15 +241,17 @@ export async function createMcpRuntimeClient(
 }
 
 function resolveTaskTracking(
-  options: CreateMcpRuntimeClientOptions
+  options: CreateMcpRuntimeClientOptions,
+  serverToolTimeoutMs: number | undefined
 ): McpTaskToolTracking | undefined {
   if (!options.mcpTaskTracking) {
     return;
   }
-  if (options.toolTimeoutMs === undefined) {
+  const toolTimeoutMs = serverToolTimeoutMs ?? options.toolTimeoutMs;
+  if (toolTimeoutMs === undefined) {
     throw new Error('MCP task tracking requires the tool guard timeout to bound settlement');
   }
-  return createMcpTaskToolTracking(options.mcpTaskTracking, options.toolTimeoutMs);
+  return createMcpTaskToolTracking(options.mcpTaskTracking, toolTimeoutMs);
 }
 
 class CompositeMcpRuntimeClient implements McpRuntimeClient {

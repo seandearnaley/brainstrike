@@ -154,6 +154,8 @@ interface McpHostServerSnapshotBase {
   /** Effective registered-extension state for this generation (BST-1604). */
   extensions?: McpExtensionEnablement;
   generation: number;
+  /** The server's configured tool window (BST-1779); absent uses the host's default. */
+  toolTimeoutMs?: number;
   transport: McpStatusTransport;
 }
 export interface McpHostDiagnostic {
@@ -442,6 +444,32 @@ export const McpStartupPolicySchema = Schema.Literals(['automatic', 'authenticat
   .annotate({ default: 'automatic' })
   .pipe(Schema.withDecodingDefault(Effect.succeed('automatic')));
 export type McpStartupPolicy = (typeof McpStartupPolicySchema)['Type'];
+/**
+ * A server's `toolTimeoutMs` ceiling (BST-1779): the transport's default total
+ * (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`), and so below the stream's
+ * tool-executing backstop, which is derived to sit above every guard window.
+ * A longer silent window would end at that backstop instead of its own.
+ */
+export const MAX_MCP_TOOL_TIMEOUT_MS = 600_000;
+/** Below a second, `toolTimeoutMs` is far likelier a value meant in seconds. */
+export const MIN_MCP_TOOL_TIMEOUT_MS = 1000;
+/**
+ * BST-1779: how long one of this server's tools may run without reporting
+ * progress, for servers that are slow and silent. Out of range is refused,
+ * never clamped.
+ */
+export const McpToolTimeoutMsSchema = Schema.Number.check(
+  Schema.makeFilter((value) =>
+    Number.isSafeInteger(value) &&
+    value >= MIN_MCP_TOOL_TIMEOUT_MS &&
+    value <= MAX_MCP_TOOL_TIMEOUT_MS
+      ? undefined
+      : {
+          issue: `must be a whole number of milliseconds from ${MIN_MCP_TOOL_TIMEOUT_MS} (1 s) to ${MAX_MCP_TOOL_TIMEOUT_MS} (10 min)`,
+          path: [],
+        }
+  )
+);
 const McpConfiguredServerSchema = Schema.Struct({
   auth: McpConfiguredAuthSchema,
   configuredProtocol: McpConfiguredProtocolSchema,
@@ -449,6 +477,7 @@ const McpConfiguredServerSchema = Schema.Struct({
   enabledTools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   extensions: Schema.optional(McpExtensionEnablementSchema),
   startup: McpStartupPolicySchema,
+  toolTimeoutMs: Schema.optional(McpToolTimeoutMsSchema),
   transport: TransportSchema,
 })
   .check(

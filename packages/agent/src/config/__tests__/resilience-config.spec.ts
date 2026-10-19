@@ -1,7 +1,11 @@
 // packages/agent/src/config/__tests__/resilience-config.spec.ts
 
-import { MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS } from '@brainstrike/assistant-contract';
+import {
+  MAX_MCP_TOOL_TIMEOUT_MS,
+  MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS,
+} from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS } from '../../mcp/client-policy';
 import { TOOL_GUARD_MARGIN_MS } from '../../tools/resolve-tool-guard-budget';
 import {
   DEFAULT_APPROVAL_STALE_MS,
@@ -72,6 +76,14 @@ describe('resilience-config', () => {
       toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
+  });
+
+  it('keeps every MCP guard ending below the tool-executing backstop (BST-1779)', () => {
+    // A server's own window, and the total a call that keeps reporting progress
+    // may run to: a guard that answers must never be pre-empted by the backstop.
+    const { toolExecutingMs } = resolveAssistantResilienceConfig();
+    expect(MAX_MCP_TOOL_TIMEOUT_MS).toBeLessThanOrEqual(DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS);
+    expect(DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS).toBeLessThan(toolExecutingMs);
   });
 
   it('resolves valid tool and stream timeout env values together', () => {

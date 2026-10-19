@@ -4,7 +4,11 @@ import {
   McpExtensionEnablementSchema,
   resolveMcpExtensionEnablement,
 } from './mcp-extensions.js';
-import { ConfiguredMcpServerIdSchema, McpConfiguredAuthSchema } from './mcp-host.js';
+import {
+  ConfiguredMcpServerIdSchema,
+  McpConfiguredAuthSchema,
+  McpToolTimeoutMsSchema,
+} from './mcp-host.js';
 export const McpTransportEnum = Schema.Literals(['stdio', 'streamable-http', 'sse']);
 export const McpProtocolEnum = Schema.Literals(['legacy', 'auto', '2026-07-28']);
 export type McpProtocol = (typeof McpProtocolEnum)['Type'];
@@ -174,6 +178,7 @@ const StdioServerSchema = Schema.Struct({
   name: ConfiguredMcpServerIdSchema,
   protocol: Schema.optional(McpProtocolEnum),
   startup: StartupPolicySchema,
+  toolTimeoutMs: Schema.optional(McpToolTimeoutMsSchema),
   transport: Schema.Literal('stdio'),
 });
 const HttpServerSchema = Schema.Struct({
@@ -184,6 +189,7 @@ const HttpServerSchema = Schema.Struct({
   name: ConfiguredMcpServerIdSchema,
   protocol: Schema.optional(McpProtocolEnum),
   startup: StartupPolicySchema,
+  toolTimeoutMs: Schema.optional(McpToolTimeoutMsSchema),
   url: HttpUrlSchema,
 });
 const McpServerUnionSchema = Schema.Union(
