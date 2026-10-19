@@ -38,6 +38,16 @@ function isPlaceholderServer(server: McpServer): boolean {
   return false;
 }
 
+/**
+ * A connected server whose catalog advertises no tools capability, like a
+ * prompts-only or resources-only server (BST-1632). There is nothing to
+ * discover, and asking anyway made the SDK refuse a `tools/list` the server
+ * never offered.
+ */
+function offersNoTools(snapshot: McpHostSnapshot['servers'][number] | undefined): boolean {
+  return snapshot?.state === 'connected' && snapshot.catalog?.features.tools === false;
+}
+
 export interface DiscoveredServerTools {
   server: ResolvedMcpServer;
   tools: Record<string, McpDiscoveredTool>;
@@ -62,6 +72,7 @@ export async function discoverToolsFromConfig(
       committedIds.has(parseConfiguredMcpServerId(server.name)) &&
       committedById.get(parseConfiguredMcpServerId(server.name))?.state !==
         'authentication-required' &&
+      !offersNoTools(committedById.get(parseConfiguredMcpServerId(server.name))) &&
       !isPlaceholderServer(server)
   );
   const skippedPlaceholderServers = config.servers

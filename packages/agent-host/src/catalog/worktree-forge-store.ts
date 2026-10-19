@@ -187,9 +187,7 @@ export function createWorktreeForgeClient(
         await sendCatalogRequest(
           connection,
           WORKTREE_METHOD,
-          Schema.decodeUnknownSync(WorktreeRequest, { errors: 'all', onExcessProperty: 'error' })(
-            request
-          )
+          Schema.decodeSync(WorktreeRequest, { errors: 'all', onExcessProperty: 'error' })(request)
         )
       ),
   };

@@ -114,6 +114,7 @@
       "import": "./dist/test-fixtures/mcp-host-lifecycle.mjs",
       "require": "./dist/test-fixtures/mcp-host-lifecycle.js"
     },
+    "./test-fixtures/mcp-stdio-catalog-shape-server.mjs": "./test-fixtures/mcp-stdio-catalog-shape-server.mjs",
     "./test-fixtures/mcp-stdio-handshake-exit-server.mjs": "./test-fixtures/mcp-stdio-handshake-exit-server.mjs",
     "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs": "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs",
     "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs": "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs",

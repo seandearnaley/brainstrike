@@ -5,12 +5,14 @@ import type {
   McpServerFeatureEventHandlers,
 } from '@brainstrike/agent/mcp-client';
 import { MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT } from '@brainstrike/agent/mcp-client';
-import type {
-  McpHostCatalog,
-  McpHostCatalogSection,
-  McpHostInvokeOptions,
-  McpHostOperation,
-  McpHostSubscriptionFilter,
+import {
+  MCP_HOST_LISTED_CATALOG_SECTIONS,
+  type McpHostCatalog,
+  type McpHostCatalogSection,
+  type McpHostInvokeOptions,
+  type McpHostListedCatalogSection,
+  type McpHostOperation,
+  type McpHostSubscriptionFilter,
 } from '@brainstrike/assistant-contract';
 import {
   parseMcpHostCatalog,
@@ -178,6 +180,7 @@ export class McpCoreServerFeatures {
   private readonly onCatalogChanged: (catalog: McpHostCatalog) => void;
   private readonly onInternalError: (code: string, cause: unknown) => void;
   private readonly backoff: Backoff;
+  private readonly listingCounts = new Map<McpHostListedCatalogSection, number>();
   private readonly resourceSubscriptions = new Set<string>();
   private relistenAttempts = 0;
   private readonly signal: AbortSignal;
@@ -416,44 +419,77 @@ export class McpCoreServerFeatures {
   }
 
   private async refreshTools(): Promise<void> {
-    try {
-      this.acceptCatalogResult('tools/list', await this.client.listTools({ signal: this.signal }));
-    } catch (cause) {
-      this.recordCatalogError('tools', cause);
-    }
+    await this.refreshSection(
+      'tools',
+      'tools/list',
+      async () => await this.client.listTools({ signal: this.signal })
+    );
   }
 
   private async refreshResources(): Promise<void> {
-    try {
-      this.acceptCatalogResult(
-        'resources/list',
-        await this.client.listResources({ signal: this.signal })
-      );
-    } catch (cause) {
-      this.recordCatalogError('resources', cause);
-    }
+    await this.refreshSection(
+      'resources',
+      'resources/list',
+      async () => await this.client.listResources({ signal: this.signal })
+    );
   }
 
   private async refreshResourceTemplates(): Promise<void> {
-    try {
-      this.acceptCatalogResult(
-        'resources/templates/list',
-        await this.client.listResourceTemplates({ signal: this.signal })
-      );
-    } catch (cause) {
-      this.recordCatalogError('resourceTemplates', cause);
-    }
+    await this.refreshSection(
+      'resourceTemplates',
+      'resources/templates/list',
+      async () => await this.client.listResourceTemplates({ signal: this.signal })
+    );
   }
 
   private async refreshPrompts(): Promise<void> {
+    await this.refreshSection(
+      'prompts',
+      'prompts/list',
+      async () => await this.client.listPrompts({ signal: this.signal })
+    );
+  }
+
+  /**
+   * One list request for a section, published as `listing` while it is in
+   * flight (BST-1632): a section that is listing and has no result yet is
+   * loading, never a settled empty list. Overlapping refreshes of one section
+   * (a list-changed notification during a listing) keep it listing until the
+   * last one settles.
+   */
+  private async refreshSection(
+    section: McpHostListedCatalogSection,
+    type: 'prompts/list' | 'resources/list' | 'resources/templates/list' | 'tools/list',
+    list: () => Promise<unknown>
+  ): Promise<void> {
+    this.setListing(section, 1);
+    this.publish();
+    let result: unknown;
     try {
-      this.acceptCatalogResult(
-        'prompts/list',
-        await this.client.listPrompts({ signal: this.signal })
-      );
+      result = await list();
     } catch (cause) {
-      this.recordCatalogError('prompts', cause);
+      this.setListing(section, -1);
+      this.recordCatalogError(section, cause);
+      return;
     }
+    this.setListing(section, -1);
+    try {
+      this.acceptCatalogResult(type, result);
+    } catch (cause) {
+      this.recordCatalogError(section, cause);
+    }
+  }
+
+  private setListing(section: McpHostListedCatalogSection, delta: 1 | -1): void {
+    const count = (this.listingCounts.get(section) ?? 0) + delta;
+    if (count > 0) {
+      this.listingCounts.set(section, count);
+    } else {
+      this.listingCounts.delete(section);
+    }
+    const listing = MCP_HOST_LISTED_CATALOG_SECTIONS.filter((name) => this.listingCounts.has(name));
+    const { listing: _previous, ...catalog } = this.catalog;
+    this.catalog = listing.length > 0 ? { ...catalog, listing } : catalog;
   }
 
   private acceptCatalogResult(

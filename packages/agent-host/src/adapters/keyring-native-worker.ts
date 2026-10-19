@@ -17,7 +17,7 @@ export function createKeyringNativeBackend(
   service: string,
   options: KeyringNativeWorkerOptions = {}
 ): KeyringNativeBackend {
-  Schema.decodeUnknownSync(Schema.String.check(Schema.isMinCodePoints(1)), {
+  Schema.decodeSync(Schema.String.check(Schema.isMinCodePoints(1)), {
     errors: 'all',
     onExcessProperty: 'error',
   })(service);

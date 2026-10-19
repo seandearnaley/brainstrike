@@ -40,7 +40,7 @@ export function readDesktopRunConfiguration(
   if (configuration === undefined) {
     return;
   }
-  const parsed = Schema.decodeUnknownResult(DesktopRunConfigurationSchema)(configuration);
+  const parsed = Schema.decodeResult(DesktopRunConfigurationSchema)(configuration);
   if (!(parsed._tag === 'Success')) {
     logger.warn('A host run committed a configuration this renderer cannot read', {
       issues: SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues.map(

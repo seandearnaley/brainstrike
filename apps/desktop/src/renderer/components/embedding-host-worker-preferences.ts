@@ -62,3 +62,8 @@ export async function resolveHydratedEmbeddingWorkerPreferences(): Promise<Hydra
 export async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceType> {
   return (await resolveHydratedEmbeddingWorkerPreferences()).devicePref;
 }
+
+/** The saved device preference as last hydrated, without detection. */
+export function readSavedVectorDevicePreference(): EmbeddingDeviceType {
+  return useVectorPreferencesStore.getState().devicePref;
+}

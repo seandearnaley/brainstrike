@@ -41,17 +41,32 @@ export function createEmbeddingRuntimeMetadata(
   };
 }
 
-/** The same metadata with its host device re-resolved, or the reason it could not be. */
-export async function withResolvedHostDevice(
-  current: EmbeddingHostRuntimeMetadata,
+/** The device an unpinned load uses, resolved now, or the reason it could not be. */
+export async function resolveEmbeddingHostDevice(
   resolve: () => Promise<EmbeddingDeviceType>
-): Promise<EmbeddingHostRuntimeMetadata> {
-  const { hostDevice: _device, hostDeviceError: _error, ...rest } = current;
+): Promise<EmbeddingHostDevice> {
   try {
-    return { ...rest, hostDevice: await resolve() };
+    return { hostDevice: await resolve() };
   } catch (error) {
-    return { ...rest, hostDeviceError: error instanceof Error ? error.message : String(error) };
+    return { hostDeviceError: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/**
+ * The metadata with a newly resolved host device. A host that has embedded
+ * nothing yet has no metadata (it chooses no device at start), so its first
+ * metadata selects the resolved device, or the saved preference if none.
+ */
+export function withEmbeddingHostDevice(
+  current: EmbeddingHostRuntimeMetadata | null,
+  device: EmbeddingHostDevice,
+  savedPreference: () => EmbeddingDeviceType
+): EmbeddingHostRuntimeMetadata {
+  if (!current) {
+    return createEmbeddingRuntimeMetadata(device.hostDevice ?? savedPreference(), null, device);
+  }
+  const { hostDevice: _device, hostDeviceError: _error, ...rest } = current;
+  return { ...rest, ...device };
 }
 
 export function createBackendMismatchError(metadata: EmbeddingHostRuntimeMetadata): string | null {

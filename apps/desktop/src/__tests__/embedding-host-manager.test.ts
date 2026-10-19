@@ -315,7 +315,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         runtimeId: 'embedding-host-runtime',
       })
     );
-    // A host that is not running resolves its device when it next starts.
+    // A host that is not running resolves its device when a reader next asks for it.
     mockHostWindow.webContents.send.mockClear();
     currentLifecycleStatus.state = 'stopped';
     manager.resolveDevice();

@@ -1,4 +1,5 @@
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
+import { isPeerReset } from '@brainstrike/agent-host/boundary-wire';
 import { attachAgentHost } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
@@ -195,18 +196,21 @@ async function closeChild(child: OwnedChild): Promise<void> {
     throw new Error(`Owned host utility exited with code ${code}`);
   }
 }
-/** The peer closed with Main's bytes unread: the reset an exited host's socket reports. */
-const PEER_RESET_CODES = new Set(['ECONNRESET', 'EPIPE']);
+/** The peer closed with Main's bytes unread or unsent: the reset a closing host's socket reports. */
 function isPeerResetOnly(cause: unknown): boolean {
   if (cause instanceof AggregateError) {
     return cause.errors.length > 0 && cause.errors.every(isPeerResetOnly);
   }
-  return cause instanceof Error && PEER_RESET_CODES.has(String(Reflect.get(cause, 'code')));
+  return isPeerReset(cause);
 }
 /**
- * BST-2143: a host lost while Main's requests were in flight resets this
- * connection as it exits. That reset is the loss already reported, like its
- * exit code; failing the release would refuse every later admission.
+ * Only the host can reset Main's end of this connection, and this release
+ * closes it before closeChild asks the host to close. A reset here is the
+ * host ending the connection with Main's requests in flight: it was lost
+ * (BST-2143), or it is closing on its own, as when a signal to Main's process
+ * group reaches it too (BST-2192). Either way closeChild still joins its exit
+ * and reports a failed one. After this owner asked first (a content clear), or
+ * on a host it did not start, a reset stays a close failure.
  */
 async function closeAttachment(
   attachment: HostAttachment,
@@ -215,7 +219,7 @@ async function closeAttachment(
   try {
     await attachment.close();
   } catch (cause) {
-    if (!(child?.lost && isPeerResetOnly(cause))) {
+    if (!(child && !child.closing && isPeerResetOnly(cause))) {
       throw cause;
     }
   }

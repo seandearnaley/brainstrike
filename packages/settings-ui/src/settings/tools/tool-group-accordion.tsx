@@ -80,12 +80,14 @@ function getStatusIndicatorClasses(
       // a server that connected and failed to enumerate showed the same green
       // dot as a healthy one, which is why the row could not be trusted.
       //
-      // A settled enumeration failure is warning; a connection still in
-      // progress is info. Keep these distinct, with the accessible status
-      // label carrying the meaning independently of the color.
-      return toolsAvailability === 'tools-unavailable'
-        ? 'fill-warning text-warning'
-        : 'fill-success text-success';
+      // A settled enumeration failure is warning; a listing still in flight is
+      // info, like a connection still in progress (BST-1632). Keep these
+      // distinct, with the accessible status label carrying the meaning
+      // independently of the color.
+      if (toolsAvailability === 'tools-unavailable') {
+        return 'fill-warning text-warning';
+      }
+      return toolsAvailability === 'loading' ? 'fill-info text-info' : 'fill-success text-success';
     case 'connecting':
     case 'authorizing':
       return 'fill-info text-info';

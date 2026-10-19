@@ -63,7 +63,7 @@ export function materializeCliWorkspaceIntent<T extends WorkspaceIntent>(
   owner: T,
   input: CliWorkspaceSelection
 ): MaterializedIntent<T> {
-  const selection = Schema.decodeUnknownSync(CliWorkspaceSelectionSchema, {
+  const selection = Schema.decodeSync(CliWorkspaceSelectionSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(input);
@@ -109,7 +109,7 @@ export function selectCliWorkspaceRoots<
     readonly rootId: string;
   },
 >(liveRoots: readonly T[], input: CliWorkspaceSelection): T[] {
-  const selection = Schema.decodeUnknownSync(CliWorkspaceSelectionSchema, {
+  const selection = Schema.decodeSync(CliWorkspaceSelectionSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(input);

@@ -21,7 +21,7 @@ describe('no legacy credential import', () => {
   });
   it('refuses a launch that declares a pending import', () => {
     expect(
-      Schema.decodeUnknownResult(HostPlatformLaunchOptionsSchema, {
+      Schema.decodeResult(HostPlatformLaunchOptionsSchema, {
         errors: 'all',
         onExcessProperty: 'error',
       })({})._tag === 'Success'

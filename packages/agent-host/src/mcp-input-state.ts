@@ -99,7 +99,7 @@ function taskKey(handle: McpTaskHandle): string {
   return canonical(jsonValue(handle));
 }
 function safeEvent<T extends HostEvent>(event: T): T {
-  const parsed = Schema.decodeUnknownResult(HostEventSchema, {
+  const parsed = Schema.decodeResult(HostEventSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(event);
@@ -109,7 +109,7 @@ function safeEvent<T extends HostEvent>(event: T): T {
   return parsed.success as T;
 }
 function safeTask(handle: McpTaskHandle, tool: HostTool): McpTaskHandle {
-  const parsed = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+  const parsed = Schema.decodeResult(McpTaskHandleSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(handle);
@@ -436,7 +436,7 @@ export class HostMcpInputState {
    * without it is `unknown` and is never resent. No intent: nothing was sent.
    */
   inputOutcome(handle: McpTaskHandle, inputKey: string): 'acknowledged' | 'unknown' | undefined {
-    const parsed = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+    const parsed = Schema.decodeResult(McpTaskHandleSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(handle);
@@ -470,7 +470,7 @@ export class HostMcpInputState {
     handle: McpTaskHandle,
     ownerOf: (threadId: string, runId: string) => HostMcpExecutionOwner | undefined
   ): HostMcpExecution | undefined {
-    const parsed = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+    const parsed = Schema.decodeResult(McpTaskHandleSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(handle);
@@ -490,7 +490,7 @@ export class HostMcpInputState {
       bindTask: (task) =>
         owner.admit(async (): Promise<void> => {
           current();
-          const bound = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+          const bound = Schema.decodeResult(McpTaskHandleSchema, {
             errors: 'all',
             onExcessProperty: 'error',
           })(task.handle);
