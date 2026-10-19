@@ -6,8 +6,9 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * The ONE order desktop main tears down in. Each owner stops while everything
  * it depends on is still alive: a factory reset in flight finishes first (it
  * needs its replacement renderer and reopens the agent host), renderers before
- * the hosts they call, Main's child processes (shell, terminals, command
- * sessions, LSP) reaped early, the agent host's admission fenced before Main's
+ * the hosts they call, the startup snapshot maintenance stopped and joined
+ * before anything it reads (agent host, database, git) retires (BST-1859),
+ * Main's child processes (shell, terminals, command sessions, LSP) reaped early, the agent host's admission fenced before Main's
  * MCP control closes (a host
  * starting after it would be refused), git and forge before the
  * database they read, and `database-drain` last: it stops everything that
@@ -19,6 +20,7 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  */
 export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'factory-reset',
+  'snapshot-maintenance',
   'renderers',
   'child-processes',
   'native-index',

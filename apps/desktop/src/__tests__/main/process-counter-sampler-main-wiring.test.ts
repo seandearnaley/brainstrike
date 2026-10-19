@@ -59,6 +59,7 @@ describe('Main process sampler owner composition', () => {
         'native-index': () => {},
         'parser-host': () => {},
         renderers: () => {},
+        'snapshot-maintenance': () => {},
       };
       steps['native-index'] = () => {
         if (failEarlierOwner) {

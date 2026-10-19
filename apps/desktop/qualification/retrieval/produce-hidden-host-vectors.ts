@@ -154,7 +154,6 @@ const onnxMjsAsset = builtAsset(/^ort-wasm-simd-threaded\.asyncify-.*\.mjs$/u);
 const onnxWasmAsset = builtAsset(/^ort-wasm-simd-threaded\.asyncify-.*\.wasm$/u);
 const onnxFiles = resolveTransformersOnnxRuntimeWasmFiles([
   join(desktop, '../../packages/embedding-worker'),
-  join(desktop, '../../packages/agent'),
 ]);
 for (const [subpath, source] of Object.entries(onnxFiles)) {
   const emitted = subpath.endsWith('.mjs') ? onnxMjsAsset : onnxWasmAsset;

@@ -14,6 +14,7 @@
  * - dist/host-lease-entry.js  shared root-discovery utility process
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
  * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
+ * - dist/windows-command-entry.js  self-contained Windows command wrapper
  *
  * This single-file-per-entry-point (`bundle: true`) output is why resolving
  * a sibling output file from the running bundled module's own on-disk path
@@ -179,3 +180,32 @@ export const AGENT_HOST_PLATFORM_BUILD_OPTIONS = {
   plugins: [],
   splitting: true,
 };
+
+/**
+ * dist/windows-command-entry.js, the trusted Windows command wrapper. It inlines
+ * every package; only the native Job addon stays a runtime require.
+ * @type {import('esbuild').BuildOptions}
+ */
+export const WINDOWS_COMMAND_BUILD_OPTIONS = {
+  absWorkingDir: appRoot,
+  bundle: true,
+  entryPoints: { 'windows-command-entry': 'src/windows-command-entry.ts' },
+  external: ['@brainstrike/windows-job-native'],
+  format: 'cjs',
+  logLevel: 'info',
+  outdir: path.join(appRoot, 'dist'),
+  packages: 'bundle',
+  platform: 'node',
+  target: 'node24',
+  tsconfigRaw: '{}',
+};
+
+/**
+ * Every Node-side build, in order. build-main.mjs emits each one, then its
+ * inference gate scans all of them (BST-2148); nothing Node loads is emitted later.
+ */
+export const NODE_BUILDS = [
+  MAIN_PROCESS_BUILD_OPTIONS,
+  AGENT_HOST_PLATFORM_BUILD_OPTIONS,
+  WINDOWS_COMMAND_BUILD_OPTIONS,
+];

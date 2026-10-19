@@ -13,7 +13,8 @@
     "files": [
       "dist/**/*",
       "public/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/onnxruntime-node{,/**/*}"
     ],
     "npmRebuild": false,
     "asarUnpack": [
@@ -230,9 +231,8 @@
     "build": "pnpm build:renderer && pnpm build:main",
     "build:cached": "node ../../scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --filter=@brainstrike/desktop",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "build:main": "node scripts/build-main.mjs && pnpm run build:windows-command",
+    "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
-    "build:windows-command": "esbuild src/windows-command-entry.ts --bundle --packages=bundle --platform=node --format=cjs --target=node24 --tsconfig-raw={} --external:@brainstrike/windows-job-native --outfile=dist/windows-command-entry.js",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
     "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs --all",
     "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run desktop-dev-dependencies --filter=@brainstrike/desktop",
