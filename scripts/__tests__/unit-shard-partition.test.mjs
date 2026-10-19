@@ -68,23 +68,19 @@ test('the real unit-shard matrix is a valid partition', () => {
     4
   );
   assert.match(workflow, /pnpm turbo run test \$\{\{ matrix\.pr_filters \}\}/u);
-  // A pull request or a merge group (BST-2188) selects against its exact base and head.
+  // A merge-queue batch (BST-2188) selects against its main base and exact head;
+  // merge-queue-contract.test.mjs pins where each comes from.
   assert.equal(
-    [
-      ...workflow.matchAll(
-        /TURBO_SCM_BASE: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \}\}/gu
-      ),
-    ].length,
-    3
+    [...workflow.matchAll(/TURBO_SCM_BASE: \$\{\{ steps\.affected-base\.outputs\.sha \}\}/gu)]
+      .length,
+    1
   );
   assert.equal(
-    [
-      ...workflow.matchAll(
-        /TURBO_SCM_HEAD: \$\{\{ github\.event\.merge_group\.head_sha \|\| github\.sha \}\}/gu
-      ),
-    ].length,
-    3
+    [...workflow.matchAll(/TURBO_SCM_BASE: \$\{\{ needs\.static\.outputs\.affected-base \}\}/gu)]
+      .length,
+    2
   );
+  assert.equal([...workflow.matchAll(/TURBO_SCM_HEAD: \$\{\{ github\.sha \}\}/gu)].length, 3);
   assert.equal(
     [...workflow.matchAll(/matrix\.pr_filters \}\} --affected --concurrency=/gu)].length,
     2
