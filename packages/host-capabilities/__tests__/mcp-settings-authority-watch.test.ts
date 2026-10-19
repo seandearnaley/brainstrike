@@ -13,6 +13,8 @@ const EMPTY_REVISION = mcpConfigRevision('');
 const WATCH_FAILURE = 'EMFILE: too many open files, watch';
 const RUNTIME_FAILURE = 'EPERM: operation not permitted, watch';
 const CLOSE_FAILURE = 'the config watcher handle could not be closed';
+const RELOAD_FAILURE = 'runtime refused the config';
+const RELOAD_AFTER_RESTART_FAILURE = `the MCP config could not be reloaded after its watcher restarted: ${RELOAD_FAILURE}`;
 
 let harness: SettingsHarness | undefined;
 async function setup(): Promise<SettingsHarness> {
@@ -324,14 +326,81 @@ describe('MCP settings authority config watcher that fails while held', () => {
     expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
   });
 
-  it('rejects a config read whose watcher restart cannot reload what it missed', async () => {
+  it('puts a restarted watcher back down when it cannot reload what it missed, and rejects the read', async () => {
     const h = await setup();
     await watcherDiedWhileRunning(h);
-    const reloadFailure = new Error('runtime refused the config');
+    const reloadFailure = new Error(RELOAD_FAILURE);
     h.replaceResolvedConfig.mockRejectedValueOnce(reloadFailure);
 
     await expect(h.authority.readConfigText()).rejects.toBe(reloadFailure);
+
+    expect(h.activeWatcher()).toBeUndefined();
+    expect(configEvents(h).at(-1)?.config).toMatchObject({
+      watchError: RELOAD_AFTER_RESTART_FAILURE,
+    });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({
+      watchError: RELOAD_AFTER_RESTART_FAILURE,
+    });
+  });
+
+  it('retries a failed recovery reload on the next config read, applying the missed edit', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+    h.replaceResolvedConfig.mockRejectedValueOnce(new Error(RELOAD_FAILURE));
+    await expect(h.authority.readConfigText()).rejects.toThrow(RELOAD_FAILURE);
+    await h.writeConfig([stdioServer('external')]);
+
+    await expect(h.authority.readConfigText()).resolves.toMatchObject({ exists: true });
+
     expect(h.activeWatcher()).toBeDefined();
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
+    expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
+  it('puts a watcher a failed save restarted back down when it cannot reload what it missed', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+    vi.spyOn(h.configFile, 'writeText').mockResolvedValueOnce({
+      error: 'disk full',
+      path: h.configPath,
+      success: false,
+    });
+    h.replaceResolvedConfig.mockRejectedValueOnce(new Error(RELOAD_FAILURE));
+
+    await expect(
+      h.authority.writeConfigText({ baseRevision: EMPTY_REVISION, content: '{"servers":[]}' })
+    ).rejects.toMatchObject({
+      message: `disk full; the MCP config could not be reloaded: ${RELOAD_FAILURE}`,
+    });
+
+    expect(h.activeWatcher()).toBeUndefined();
+    await expect(h.authority.configStatus()).resolves.toMatchObject({
+      watchError: RELOAD_AFTER_RESTART_FAILURE,
+    });
+  });
+
+  it('drops a recovery reload failure that a reset retired before it settled', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+    const reload = Promise.withResolvers<never>();
+    const calls = h.replaceResolvedConfig.mock.calls.length;
+    h.replaceResolvedConfig.mockImplementationOnce(async () => await reload.promise);
+    const read = h.authority.readConfigText();
+    await vi.waitFor(() => expect(h.replaceResolvedConfig).toHaveBeenCalledTimes(calls + 1));
+
+    const reset = h.authority.reset();
+    reload.reject(new Error(RELOAD_FAILURE));
+    await expect(read).rejects.toThrow(RELOAD_FAILURE);
+    await reset;
+    await h.authority.resume('failed');
+
+    expect(
+      configEvents(h).some(({ config }) => config.watchError === RELOAD_AFTER_RESTART_FAILURE)
+    ).toBe(false);
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
   });
 
   it('ignores a failure from the watcher of a retired lifecycle', async () => {

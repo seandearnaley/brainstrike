@@ -142,8 +142,9 @@ describe('desktop MCP diagnostic delivery', () => {
       const health = new McpConfigWatchHealth();
       health.want();
       await health.ensure({
+        announce: () => undefined,
         current: () => true,
-        running: false,
+        running: () => false,
         start: () => Promise.reject(new Error('EMFILE: too many open files, watch')),
       });
       await relay.drain();

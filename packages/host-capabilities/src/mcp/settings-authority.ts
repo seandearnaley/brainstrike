@@ -32,7 +32,7 @@ import {
   type McpConfigWriteSync,
   syncFailureError,
 } from './config-sync.js';
-import { McpConfigWatchHealth } from './config-watch.js';
+import { type McpConfigWatchControl, McpConfigWatchHealth } from './config-watch.js';
 import {
   clearStoredMcpExtensionPreferences,
   type McpExtensionPreferencesStore,
@@ -223,9 +223,7 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   /** The editor's load and Reload; restarting a watcher that was down reloads what it missed. */
   readConfigText(): Promise<HostResults['mcp/config/read']> {
     return this.#trackOperation(async (lifecycleEpoch) => {
-      if (await this.#ensureWatcherForLifecycle(lifecycleEpoch)) {
-        await this.#reloadForLifecycle(lifecycleEpoch);
-      }
+      await this.#watchHealth.recover(this.#watchControl(lifecycleEpoch));
       return await this.options.configFile.readText(true);
     });
   }
@@ -756,14 +754,15 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     lifecycleEpoch: number,
     conflict?: string
   ): Promise<McpConfigWriteSync> {
-    const wasDown = this.#unwatch === null;
-    const stopped = this.#stopWatcherForLifecycle();
+    const watch = this.#watchControl(lifecycleEpoch);
+    const wasDown = !watch.running();
+    const stopped = this.#watchHealth.stop(watch);
     let written: McpConfigWriteResult;
     let recovered = false;
     try {
       written = await this.options.configFile.writeText(content, baseRevision);
     } finally {
-      recovered = stopped && (await this.#ensureWatcherForLifecycle(lifecycleEpoch)) && wasDown;
+      recovered = stopped && (await this.#watchHealth.ensure(watch)) && wasDown;
     }
     const result =
       !written.success && written.conflict && conflict !== undefined
@@ -776,7 +775,10 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       logger.info('MCP config text updated', { path: result.path });
     }
     try {
-      await this.#reloadForLifecycle(lifecycleEpoch);
+      // After a failed write only a restart reloads; one whose reload fails goes back down.
+      await (result.success || result.conflict
+        ? watch.reload()
+        : this.#watchHealth.reloadAfterRestart(watch));
     } catch (error) {
       return { result, syncFailure: { error, step: 'the MCP config could not be reloaded' } };
     }
@@ -818,22 +820,22 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       return;
     }
     this.#watchHealth.want();
-    if (this.#stopWatcherForLifecycle()) {
-      await this.#ensureWatcherForLifecycle(lifecycleEpoch);
+    const watch = this.#watchControl(lifecycleEpoch);
+    if (this.#watchHealth.stop(watch)) {
+      await this.#watchHealth.ensure(watch);
     }
   }
 
-  /** Starts the wanted watcher if none runs, announcing a new `watchError`; resolves if it did. */
-  async #ensureWatcherForLifecycle(lifecycleEpoch: number): Promise<boolean> {
-    const { changed, started } = await this.#watchHealth.ensure({
+  /** The watch health's hold on this lifecycle's watcher, which the authority keeps. */
+  #watchControl(lifecycleEpoch: number): McpConfigWatchControl {
+    return {
+      announce: () => this.#emitConfigStatus(),
       current: () => this.#lifecycleOpen && lifecycleEpoch === this.#lifecycleEpoch,
-      running: this.#unwatch !== null,
+      reload: () => this.#reloadForLifecycle(lifecycleEpoch),
+      running: () => this.#unwatch !== null,
       start: () => this.#restartWatcherForLifecycle(lifecycleEpoch),
-    });
-    if (changed) {
-      this.#emitConfigStatus();
-    }
-    return started;
+      stop: () => this.#stopWatcher(),
+    };
   }
 
   async #restartWatcherForLifecycle(lifecycleEpoch: number): Promise<void> {
@@ -868,15 +870,6 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     const stop = this.#unwatch;
     this.#unwatch = null;
     stop?.();
-  }
-
-  /** Stops the held watcher; false when its close threw, which is `watchError`. Never throws. */
-  #stopWatcherForLifecycle(): boolean {
-    const stopped = this.#watchHealth.stop(() => this.#stopWatcher());
-    if (!stopped) {
-      this.#emitConfigStatus();
-    }
-    return stopped;
   }
 
   #beginCleanup(): unknown[] {
