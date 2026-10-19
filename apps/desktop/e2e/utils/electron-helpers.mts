@@ -17,6 +17,9 @@ import {
   resolveProviderEgressEnvironment,
   startModelProviderShim,
 } from './model-provider-shim.ts';
+// BST-2239 proof only: every launch logs at info (Main, its agent host and utilities) and keeps
+// Main's own INFO file log; the harness records the process output and copies the app's logs.
+import { shutdownDiagnosticsEnabled } from './shutdown-diagnostics.ts';
 
 declare const process: NodeJS.Process;
 const require = createRequire(import.meta.url);
@@ -159,9 +162,25 @@ const ignoredElectronOutputPatterns = [
   'SharedImageManager::ProduceMemory: Trying to Produce a Memory representation from a non-existent mailbox.',
 ] as const;
 
+/** A pino JSON record below warn: under the diagnostics knob it is in the output file instead. */
+function isBelowWarnRecord(output: string): boolean {
+  if (!output.startsWith('{')) {
+    return false;
+  }
+  try {
+    const record = JSON.parse(output) as { level?: unknown };
+    return typeof record.level === 'number' && record.level < 40;
+  } catch {
+    return false;
+  }
+}
+
 function shouldIgnoreElectronOutput(output: string): boolean {
   if (isVerboseE2eLoggingEnabled) {
     return false;
+  }
+  if (shutdownDiagnosticsEnabled && isBelowWarnRecord(output)) {
+    return true;
   }
 
   return ignoredElectronOutputPatterns.some((pattern) => output.includes(pattern));
@@ -524,9 +543,17 @@ function createLaunchOptions(
             [dbRootPathEnv]: userDataDir,
           }
         : {}),
-      // Force console logging and disable file logging to avoid contention/permissions issues
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
+      // Force console logging and disable file logging to avoid contention/permissions issues.
+      // BST-2239 proof: the diagnostics knob keeps Main's INFO file log and logs at info.
+      ...(shutdownDiagnosticsEnabled
+        ? {
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            LOG_LEVEL: 'info',
+          }
+        : {
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
+          }),
       // BST-1864: `windowFocus` reports the NATIVE window's focus, and this harness
       // window is `focusable: false` and never shown, so it is never focused —
       // while Playwright forces the renderer's `document.hasFocus()` true. Left on,
@@ -811,9 +838,24 @@ export async function closeElectronApp(
     exitListener = () => resolve(true);
     process.once('exit', exitListener);
   });
+  const closeStartedAt = Date.now();
+  const mark = (event: string): void => {
+    if (shutdownDiagnosticsEnabled) {
+      console.log(
+        `[BST-2239 harness] ${new Date().toISOString()} ${event} +${Date.now() - closeStartedAt}ms`
+      );
+    }
+  };
+  mark('close requested (app.close())');
+  void exited.then(() =>
+    mark(`main process exited code=${process.exitCode} signal=${process.signalCode}`)
+  );
   try {
     // Hidden windows retain their command listeners until app-owned retirement.
-    const graceful = app.close().then(() => exited);
+    const graceful = app
+      .close()
+      .then(() => mark('app.close() resolved'))
+      .then(() => exited);
     const joined = await waitForWithTimeout(
       graceful,
       electronAppCloseTimeoutMs,

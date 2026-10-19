@@ -5,6 +5,7 @@ import {
   ResourceOwner,
   startHost,
 } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
 import {
   type ClearContentResult,
   StateStore,
@@ -23,6 +24,21 @@ import { HostCore } from './core.js';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.js';
 import type { HostClientOrigin, HostPlatform } from './ports.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
+
+// BST-2239 proof only: the host's own close phases.
+const timingLogger = createLogger('AgentHostShutdownTiming');
+async function timed<T>(phase: string, run: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  timingLogger.info('BST-2239 host close phase started', { phase });
+  try {
+    return await run();
+  } finally {
+    timingLogger.info('BST-2239 host close phase settled', {
+      elapsedMs: Date.now() - startedAt,
+      phase,
+    });
+  }
+}
 
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
@@ -104,8 +120,8 @@ export async function startAgentHost(
   const closePlatform = (): Promise<void> => {
     platformClose ??= Promise.resolve().then(async () => {
       const joined = await Promise.allSettled([
-        Promise.resolve().then(() => platform?.close()),
-        Promise.resolve().then(() => partialPlatform.close()),
+        timed('platform.close', async () => platform?.close()),
+        timed('partial-platform.close', () => partialPlatform.close()),
       ]);
       const failures = joined.filter((result) => result.status === 'rejected');
       if (failures.length > 0) {
@@ -329,15 +345,18 @@ export async function startAgentHost(
           }
           return {
             close: async () => {
-              await closeHostStoreAfterCore(
-                async () => core?.close(),
-                async () => {
-                  if (clearContent) {
-                    cleared = await store.clearContent();
-                    return;
-                  }
-                  await store.close();
-                }
+              await timed('root', () =>
+                closeHostStoreAfterCore(
+                  () => timed('core.close', async () => core?.close()),
+                  () =>
+                    timed('store.close', async () => {
+                      if (clearContent) {
+                        cleared = await store.clearContent();
+                        return;
+                      }
+                      await store.close();
+                    })
+                )
               );
             },
             lock: store.lock,
@@ -400,7 +419,7 @@ export async function startAgentHost(
     get clientCount(): number {
       return runtime.clientCount;
     },
-    close: () => runtime.close(),
+    close: () => timed('runtime.close', () => runtime.close()),
     closed: runtime.closed,
     core,
     record: runtime.record,

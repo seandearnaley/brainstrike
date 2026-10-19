@@ -1,4 +1,5 @@
 import { runShutdownSequence, type ShutdownStepOutcome } from '@brainstrike/effect-kit';
+import { createLogger } from '@brainstrike/logging';
 import { DB_HOST_CLOSE_BUDGET_MS } from '../db-host-close-budget';
 import { type SerializedDesktopError, serializeDesktopError } from '../desktop-error-serialization';
 
@@ -93,6 +94,9 @@ export interface DesktopGracefulShutdown {
    */
   run(trigger: DesktopShutdownTrigger, forcedExitTrigger: DesktopForcedExitTrigger): Promise<void>;
 }
+
+// BST-2239 proof only: per-step timings, for a run the harness kills before its receipt.
+const timingLogger = createLogger('DesktopShutdownTiming');
 
 /** A failed step’s serialized failure record; null on success. */
 function toFailure(outcome: ShutdownStepOutcome): SerializedDesktopError | null {
@@ -200,11 +204,19 @@ export function createDesktopGracefulShutdown(
     trigger: DesktopShutdownTrigger,
     forcedExitTrigger: DesktopForcedExitTrigger
   ): Promise<void> => {
+    // BST-2239 proof only: a run the harness kills never reaches the receipt below.
+    timingLogger.info('Graceful shutdown started', { trigger });
     options.retireBackgroundAdmission();
     const plan = planRun();
     const failures: SerializedDesktopError[] = [];
 
     const recordSettled = (outcome: ShutdownStepOutcome): void => {
+      timingLogger.info('Graceful shutdown step settled', {
+        elapsedMs: outcome.elapsedMs,
+        outcome: outcome.outcome,
+        step: outcome.step,
+        trigger,
+      });
       const failure = toFailure(outcome);
       if (failure) {
         failures.push(failure);
@@ -229,6 +241,12 @@ export function createDesktopGracefulShutdown(
     // the deadline aborted one.
     // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- ordered after the sequence, not independent of it: `database-drain` stops everything that still issues database work, so it must finish (or the deadline abort it) before the close; running them together would close PGlite under admitted work.
     const databaseClose = await runDatabaseClose(plan, now);
+    timingLogger.info('Graceful shutdown step settled', {
+      elapsedMs: databaseClose.elapsedMs,
+      outcome: databaseClose.failure ? 'failed' : 'succeeded',
+      step: DATABASE_CLOSE_STEP,
+      trigger,
+    });
     if (report.timedOut) {
       if (databaseClose.failure) {
         logErrorBeforeExit('Database close failed during a forced shutdown', {

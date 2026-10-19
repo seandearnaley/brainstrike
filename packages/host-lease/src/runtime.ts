@@ -343,8 +343,20 @@ export async function startHost(
     await owner.acquire(
       () => listen(server, endpoint),
       async (value) => {
+        // BST-2239 proof only.
+        const serverCloseStartedAt = Date.now();
+        const timing = (msg: string): void => {
+          process.stderr.write(
+            `${JSON.stringify({ elapsedMs: Date.now() - serverCloseStartedAt, level: 30, msg, sockets: sockets.size, time: Date.now() })}\n`
+          );
+        };
+        timing('BST-2239 host server close started');
         serverClosing = new Promise<void>((resolve, reject) =>
           value.close((error?: Error) => (error ? reject(error) : resolve()))
+        );
+        void serverClosing.then(
+          () => timing('BST-2239 host server closed'),
+          () => timing('BST-2239 host server close failed')
         );
         serverClosing.catch(() => undefined);
         // BST-2174: new connections are refused from here; a request a socket
@@ -357,6 +369,7 @@ export async function startHost(
               await destroySocket(socket);
             })
         );
+        timing('BST-2239 host sockets destroyed');
         if (!stopReply) {
           await serverClosing;
         }
@@ -370,7 +383,17 @@ export async function startHost(
     }
     await owner.acquire(
       async () => record,
-      (value) => removeOwnHostRecord(canonicalRoot, value)
+      async (value) => {
+        // BST-2239 proof only.
+        const removeStartedAt = Date.now();
+        try {
+          await removeOwnHostRecord(canonicalRoot, value);
+        } finally {
+          process.stderr.write(
+            `${JSON.stringify({ elapsedMs: Date.now() - removeStartedAt, level: 30, msg: 'BST-2239 host record removed', time: Date.now() })}\n`
+          );
+        }
+      }
     );
     await publishHostRecord(canonicalRoot, record);
     signal?.throwIfAborted();

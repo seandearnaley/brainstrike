@@ -11,6 +11,7 @@ import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { type ModelProviderShim, startModelProviderShim } from '../utils/model-provider-shim';
+import { preserveAppLogs, shutdownDiagnosticsEnabled } from '../utils/shutdown-diagnostics';
 import { ElectronHarness } from './electron-harness';
 
 interface ElectronTestOptions {
@@ -63,8 +64,14 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
     try {
       await use(harness);
     } finally {
-      // Failed retirement keeps the disposable profile for the still-owned process.
-      await harness.dispose();
+      try {
+        // Failed retirement keeps the disposable profile for the still-owned process.
+        await harness.dispose();
+      } finally {
+        if (shutdownDiagnosticsEnabled && userDataDir) {
+          await preserveAppLogs(userDataDir, testInfo.outputPath('app-logs'));
+        }
+      }
       await removeElectronUserDataDir(userDataDir);
       await rm(workspaceRoot, { force: true, recursive: true });
     }

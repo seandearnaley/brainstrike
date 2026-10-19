@@ -1,4 +1,5 @@
 import './agent-host-compile-cache';
+import { flushCompileCache } from 'node:module';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
@@ -87,6 +88,13 @@ async function main(): Promise<void> {
     if (controlFailure !== undefined) {
       throw controlFailure;
     }
+    // BST-2239 proof only: the exit flushes Node's compile cache anyway; flushing it here first
+    // times that same write, so the exit itself has nothing left to persist.
+    const flushStartedAt = Date.now();
+    flushCompileCache();
+    process.stderr.write(
+      `${JSON.stringify({ elapsedMs: Date.now() - flushStartedAt, level: 30, msg: 'BST-2239 host compile cache flushed; utility exiting', time: Date.now() })}\n`
+    );
     process.exit(0);
   } catch (cause) {
     const failure = kernelStarted ? cause : (controlFailure ?? cause);

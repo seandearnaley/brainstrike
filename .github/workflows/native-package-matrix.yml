@@ -192,6 +192,9 @@ jobs:
         if: ${{ matrix.desktopSmoke }}
         env:
           BRAINSTRIKE_E2E_DESKTOP_TARGET: packaged
+          # BST-2239 proof only: info-level logs, the process output and Main's own log
+          # files land in each test's test-results/ folder, uploaded below on failure.
+          BRAINSTRIKE_E2E_SHUTDOWN_DIAGNOSTICS: ${{ runner.os == 'Windows' && '1' || '' }}
         run: pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke
 
       # test-results/ holds each failed test's trace, screenshots, video and error

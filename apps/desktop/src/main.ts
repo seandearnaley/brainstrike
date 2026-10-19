@@ -486,13 +486,26 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
-        await agentHostMainClient.close();
+        // BST-2239 proof only: the step's own phases.
+        const phase = async (name: string, run: () => Promise<void>): Promise<void> => {
+          const startedAt = Date.now();
+          try {
+            await run();
+          } finally {
+            logger.info('BST-2239 shutdown phase settled', {
+              elapsedMs: Date.now() - startedAt,
+              phase: name,
+              step: 'native-index',
+            });
+          }
+        };
+        await phase('agent-host-main-client.close', () => agentHostMainClient.close());
         // Fence profile admission before joining the renderer's in-flight host connect:
         // a host start that fails during shutdown is then never retried as a second host.
         const nativeRetirement = nativeIndexActivation.close();
         void retireEmbeddings();
-        await nativeRetirement;
-        await agentHostClientIpc.close();
+        await phase('native-index-activation.close', () => nativeRetirement);
+        await phase('agent-host-client-ipc.close', () => agentHostClientIpc.close());
       },
       'parser-host': async () => {
         await parserHostManager.stop();

@@ -140,6 +140,10 @@ export async function runAgentHostProcess(
   let host: AgentHost | undefined;
   let ready = false;
   const stop = (): void => {
+    // BST-2239 proof only.
+    process.stderr.write(
+      `${JSON.stringify({ level: 30, msg: 'BST-2239 host stop requested', time: Date.now() })}\n`
+    );
     controller.abort(new Error('Host process cancelled'));
     void host?.close().catch((cause: unknown) => {
       process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
@@ -237,9 +241,13 @@ export async function runAgentHostProcess(
       failures.push(cause);
     } finally {
       // After close joined its runs, so their spans are flushed too.
+      const tracingStartedAt = Date.now();
       await tracing?.shutdown().catch((cause: unknown) => {
         failures.push(cause);
       });
+      process.stderr.write(
+        `${JSON.stringify({ elapsedMs: Date.now() - tracingStartedAt, level: 30, msg: 'BST-2239 host tracing shutdown settled', time: Date.now() })}\n`
+      );
       const owner = root ? RootLock.inspect(root)?.owner : undefined;
       if (!(owner && !owner.released && owner.pid === process.pid)) {
         releaseParent?.();

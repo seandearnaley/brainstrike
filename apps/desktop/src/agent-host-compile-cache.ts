@@ -5,6 +5,10 @@ import { enableCompileCache } from 'node:module';
 // at every host start. It must run before the host's modules load, so the
 // entry imports this module first.
 const cache = enableCompileCache();
+// BST-2239 proof only.
+process.stderr.write(
+  `${JSON.stringify({ directory: cache.directory, level: 30, msg: 'BST-2239 host compile cache', status: cache.status, time: Date.now() })}\n`
+);
 if (cache.directory) {
   // Node enables only this instance; its documented environment setting also
   // enables the real index engine and nested writer before their imports.

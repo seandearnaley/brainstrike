@@ -13,6 +13,7 @@ import {
   launchHost,
   type StartupMessage,
 } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
 import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
@@ -224,8 +225,30 @@ async function closeAttachment(
     }
   }
 }
-function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {
-  return runAtPromiseBoundary(Scope.addFinalizer(scope, Effect.promise(release)));
+// BST-2239 proof only: each lease finalizer's duration.
+const timingLogger = createLogger('DesktopHostLease');
+function addFinalizer(
+  scope: Scope.Closeable,
+  release: () => Promise<void>,
+  name: string
+): Promise<void> {
+  return runAtPromiseBoundary(
+    Scope.addFinalizer(
+      scope,
+      Effect.promise(async () => {
+        const startedAt = Date.now();
+        timingLogger.info('BST-2239 host lease finalizer started', { finalizer: name });
+        try {
+          await release();
+        } finally {
+          timingLogger.info('BST-2239 host lease finalizer settled', {
+            elapsedMs: Date.now() - startedAt,
+            finalizer: name,
+          });
+        }
+      })
+    )
+  );
 }
 /**
  * ADR-0017: a host forked by the app dies with the app. The host gets one end of a lifetime channel
@@ -239,7 +262,7 @@ async function ownLifetime(
   child: OwnedChild
 ): Promise<void> {
   const channel = (options.lifetimeChannel ?? (() => new MessageChannelMain()))();
-  await addFinalizer(scope, async () => channel.port1.close());
+  await addFinalizer(scope, async () => channel.port1.close(), 'lifetime-port');
   child.handle.postMessage({ event: 'lifetime' }, [channel.port2]);
 }
 /** The platform an owned host borrows, and Main's supervisor of its native processes (ADR-0017). */
@@ -256,10 +279,10 @@ async function ownPlatform(
   const nativeChildren = createHostNativeChildren(options.root);
   // Runs last, after the platform closed: join the host's native processes, then
   // require the Root's flock free.
-  await addFinalizer(scope, () => nativeChildren.close());
+  await addFinalizer(scope, () => nativeChildren.close(), 'native-children');
   const platform = options.platform(nativeChildren);
   // Runs after closeChild has joined the host's exit, never during its cleanup.
-  await addFinalizer(scope, () => platform.close());
+  await addFinalizer(scope, () => platform.close(), 'platform');
   return { nativeChildren, platform };
 }
 
@@ -342,7 +365,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
           await ownLifetime(scope, options, child);
-          await addFinalizer(scope, () => closeChild(child));
+          await addFinalizer(scope, () => closeChild(child), 'child-exit');
           if (platform) {
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
           }
@@ -362,7 +385,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           ? {}
           : { startupTimeoutMs: options.startupTimeoutMs }),
       });
-      await addFinalizer(scope, () => closeAttachment(attachment, ownedChild));
+      await addFinalizer(scope, () => closeAttachment(attachment, ownedChild), 'attachment');
       if (retired) {
         throw abort.signal.reason;
       }

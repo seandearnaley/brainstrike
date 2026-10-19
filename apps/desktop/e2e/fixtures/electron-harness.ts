@@ -5,6 +5,11 @@ import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { ElectronProcessExitGuard } from '../utils/electron-process-exit-guard';
 import { loadElectronHelpers } from '../utils/load-electron-helpers';
 import type { ModelProviderShim } from '../utils/model-provider-shim';
+import {
+  markHarnessEvent,
+  recordProcessOutput,
+  shutdownDiagnosticsEnabled,
+} from '../utils/shutdown-diagnostics';
 import { resetToAppHome } from '../utils/test-reset';
 
 interface ElectronHarnessOptions {
@@ -193,6 +198,9 @@ export class ElectronHarness {
 
   private async closeContext(context: Pick<ElectronAppContext, 'app'>): Promise<void> {
     const mainProcess = context.app.process();
+    if (shutdownDiagnosticsEnabled) {
+      markHarnessEvent(this.processOutputPath(), 'intentional close begins');
+    }
     this.exitGuard.beginIntentionalClose(mainProcess);
     // Listen before the close request, so the physical exit cannot be missed.
     let onExit = (): void => undefined;
@@ -206,9 +214,18 @@ export class ElectronHarness {
       const { closeElectronApp } = await loadElectronHelpers();
       await closeElectronApp(context);
       await exited;
+    } catch (error) {
+      if (shutdownDiagnosticsEnabled) {
+        markHarnessEvent(this.processOutputPath(), `intentional close failed: ${String(error)}`);
+      }
+      throw error;
     } finally {
       mainProcess.off('exit', onExit);
     }
+  }
+
+  private processOutputPath(): string {
+    return this.testInfo.outputPath('electron-process-output.log');
   }
 
   private async launchContext(
@@ -220,6 +237,9 @@ export class ElectronHarness {
       onAppAcquired: (app) => {
         this.app = app;
         this.exitGuard.observe(app.process());
+        if (shutdownDiagnosticsEnabled) {
+          recordProcessOutput(app.process(), this.processOutputPath());
+        }
         onAppAcquired?.(app);
       },
       ...(this.electronEnv ? { env: this.electronEnv } : {}),

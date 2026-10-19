@@ -318,13 +318,27 @@ export async function createDesktopHostConfiguration(
   return {
     auth: host.auth,
     close: async () => {
+      // BST-2239 proof only: the platform's close phases.
+      const timed = async <T>(phase: string, run: () => Promise<T>): Promise<T> => {
+        const startedAt = Date.now();
+        try {
+          return await run();
+        } finally {
+          logger.info('BST-2239 host platform close phase settled', {
+            elapsedMs: Date.now() - startedAt,
+            phase,
+          });
+        }
+      };
       // The MCP runtime joins while Main's platform connection is still open.
-      await mcpHost.close();
+      await timed('mcp-host.close', () => mcpHost.close());
       // The language servers, command trees and command sessions this host spawned.
-      await disposeHostTools();
+      await timed('dispose-host-tools', async () => disposeHostTools());
       // Accepted error records are delivered while Main's connection is open.
-      const [delivered] = await Promise.allSettled([diagnostics.close()]);
-      await request('platform/close', {});
+      const [delivered] = await timed('diagnostics.close', () =>
+        Promise.allSettled([diagnostics.close()])
+      );
+      await timed('platform/close request', () => request('platform/close', {}));
       if (delivered.status === 'rejected') {
         throw delivered.reason;
       }
