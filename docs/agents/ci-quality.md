@@ -102,10 +102,17 @@ the PR on top of main and the entries ahead of it in a merge group, runs
 `.github/workflows/merge-queue.yml` on that commit, and lands it only when
 `Merge Queue Gate` is green. Do not bypass the queue with `--admin`.
 
-The fast tier tests the merge group's merged commit: Unit tests for what the
-change affects, the full static checks and build, and the web and desktop smoke
-E2E lanes. The full regression suites stay nightly, so local validation still
-owns the risk the tier does not cover.
+That workflow also triggers on `pull_request`, but skip-only: every job skips,
+so the PR head shows `Merge Queue Gate` as skipped, which GitHub counts as
+passing for queue entry, and no runner starts. A skipped gate on a PR is not a
+test result; per-push PR CI stays off.
+
+The fast tier is `test.yml` itself, called with `merge-queue: true`. It tests
+the merge group's merged commit with Static, Unit tests for what the change
+affects, Build, and the web and desktop smoke E2E lanes. Native Windows, Native
+Electron, Browser tests and the full regression suites stay nightly, so local
+validation still owns the risk the tier does not cover. A red merge group files
+nothing to Linear.
 
 A red gate removes the PR from the queue, and the entries behind it rebuild
 without it. Read the failed lane, fix the cause, revalidate and enqueue again.
