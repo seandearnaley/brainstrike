@@ -9,12 +9,9 @@ import {
   collectDirectoryPaths as collectDirectoryPathsGeneric,
   collectExpandedPaths as collectExpandedPathsGeneric,
   findNodeByPath as findNodeByPathGeneric,
-  needsLoading as needsLoadingGeneric,
-  setNodeLoadState as setNodeLoadStateGeneric,
   sortTreeNodes,
-  updateNodeChildren as updateNodeChildrenGeneric,
 } from './generic-tree-operations';
-import type { BatchLoadResult, DirectoryLoadState, WorkerFileNode } from './types';
+import type { WorkerFileNode } from './types';
 
 // Re-export generic functions typed for WorkerFileNode
 export function sortFileNodes(nodes: WorkerFileNode[]): WorkerFileNode[] {
@@ -23,28 +20,6 @@ export function sortFileNodes(nodes: WorkerFileNode[]): WorkerFileNode[] {
 
 export function findNodeByPath(tree: WorkerFileNode[], targetPath: string): WorkerFileNode | null {
   return findNodeByPathGeneric(tree, targetPath);
-}
-
-export function needsLoading(node: WorkerFileNode): boolean {
-  return needsLoadingGeneric(node);
-}
-
-export function updateNodeChildren(
-  tree: WorkerFileNode[],
-  targetPath: string,
-  children: WorkerFileNode[],
-  loadState: DirectoryLoadState = 'loaded'
-): WorkerFileNode[] {
-  return updateNodeChildrenGeneric(tree, targetPath, children, loadState);
-}
-
-export function setNodeLoadState(
-  tree: WorkerFileNode[],
-  targetPath: string,
-  loadState: DirectoryLoadState,
-  error?: string
-): WorkerFileNode[] {
-  return setNodeLoadStateGeneric(tree, targetPath, loadState, error);
 }
 
 export function collectDirectoryPaths(nodes: WorkerFileNode[], paths: Set<string>): void {
@@ -105,23 +80,4 @@ export function discoverChildDirectories(
     }
   }
   return { newCount, nextWave };
-}
-
-/**
- * Apply batch results to the tree.
- * Worker-specific: handles BatchLoadResult format.
- */
-export function applyBatchResultsToTree(
-  tree: WorkerFileNode[],
-  results: BatchLoadResult[]
-): WorkerFileNode[] {
-  let newTree = tree;
-  for (const result of results) {
-    if (result.children) {
-      newTree = updateNodeChildren(newTree, result.path, result.children, 'loaded');
-    } else if (result.error) {
-      newTree = setNodeLoadState(newTree, result.path, 'error', result.error);
-    }
-  }
-  return newTree;
 }
