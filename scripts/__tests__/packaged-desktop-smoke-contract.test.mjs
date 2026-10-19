@@ -89,12 +89,48 @@ function assertWorkflow(source, targetVariable) {
   assert.match(String(traces.with.name), /\$\{\{ matrix\.os \}\}/u, 'one artifact per target');
 }
 
+const EXCLUSIONS = 'apps/desktop/e2e/utils/windows-smoke-exclusions.ts';
+const WINDOWS_FIXME =
+  /test\.(?:fixme|skip)\(\s*process\.platform === 'win32',\s*WINDOWS_SMOKE_EXCLUSIONS\.(\w+)\s*\)/gu;
+
+/** The smoke lane's spec files, from its own script. */
+function smokeLaneSpecs() {
+  const { scripts } = JSON.parse(read('apps/desktop/package.json'));
+  return scripts['test:e2e:lane:smoke'].match(/e2e\/\S+\.test\.ts/gu);
+}
+
+/**
+ * Every Windows exclusion is a named entry with its reason, and every entry is
+ * used: a smoke spec can skip on Windows only through the list.
+ */
+function assertWindowsExclusions(listSource, specSources) {
+  const listed = [...listSource.matchAll(/^ {2}(\w+):/gmu)].map((match) => match[1]).sort();
+  const used = new Set();
+  for (const [file, source] of specSources) {
+    for (const match of source.matchAll(WINDOWS_FIXME)) {
+      used.add(match[1]);
+    }
+    const unlisted = source.replaceAll(WINDOWS_FIXME, '');
+    assert.doesNotMatch(
+      unlisted,
+      /test\.(?:fixme|skip)\([^)]*win32/u,
+      `${file} skips on Windows outside ${EXCLUSIONS}`
+    );
+  }
+  assert.deepEqual([...used].sort(), listed, `every ${EXCLUSIONS} entry is used, and only those`);
+}
+
 test('macOS arm64 and Windows x64 are the packaged desktop smoke targets', () => {
   assertTargets(selectNativePackageTargets().include);
 });
 
 test('each flagged leg runs the smoke lane on the app it packaged, and keeps traces', () => {
   assertWorkflow(read(WORKFLOW), harnessTargetVariable(read(HARNESS_TARGET)));
+});
+
+test('the smoke lane skips on Windows only through the named exclusion list', () => {
+  const specs = smokeLaneSpecs().map((file) => [file, read(`apps/desktop/${file}`)]);
+  assertWindowsExclusions(read(EXCLUSIONS), specs);
 });
 
 function mutate(source, from, to) {
@@ -169,4 +205,23 @@ test('CONTROL: traces uploaded on every leg, or not at all, FAIL this contract',
     () => assertWorkflow(JSON.stringify(workflow), variable),
     /uploads its Playwright traces/u
   );
+});
+
+test('CONTROL: an unlisted Windows skip, or an unused exclusion, FAILS this contract', () => {
+  const specs = smokeLaneSpecs().map((file) => [file, read(`apps/desktop/${file}`)]);
+  const [[file, source], ...rest] = specs;
+  const unlisted = [
+    [file, `${source}\ntest.skip(process.platform === 'win32', 'flaky on Windows');\n`],
+    ...rest,
+  ];
+  assert.throws(
+    () => assertWindowsExclusions(read(EXCLUSIONS), unlisted),
+    /skips on Windows outside/u
+  );
+  const unused = mutate(
+    read(EXCLUSIONS),
+    '} as const;',
+    "  unusedEntry: 'never used',\n} as const;"
+  );
+  assert.throws(() => assertWindowsExclusions(unused, specs), /every .* entry is used/u);
 });
