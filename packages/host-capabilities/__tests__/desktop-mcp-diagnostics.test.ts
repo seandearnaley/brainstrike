@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import type { MessageConnection } from 'vscode-jsonrpc';
+import { McpConfigWatchHealth } from '../src/mcp/config-watch.js';
 import {
   createDesktopMcpDiagnostics,
   createDesktopNodeMcpHost,
@@ -125,6 +126,36 @@ describe('desktop MCP diagnostic delivery', () => {
               { port: 12_345, reusedPersistedPort: true, server: 'oauth' },
             ],
             scope: 'McpOAuthClientProvider',
+          },
+          type: 'record',
+        },
+      ]);
+    } finally {
+      relay.dispose();
+    }
+  });
+
+  it('forwards the config watcher health records', async () => {
+    const request = vi.fn(async (_method: string, _payload: unknown) => undefined);
+    const relay = createDesktopMcpDiagnostics(request);
+    try {
+      const health = new McpConfigWatchHealth();
+      health.want();
+      await health.ensure({
+        current: () => true,
+        running: false,
+        start: () => Promise.reject(new Error('EMFILE: too many open files, watch')),
+      });
+      await relay.drain();
+      expect(request.mock.calls.map((call) => call[1])).toMatchObject([
+        {
+          record: {
+            args: [
+              'MCP config watcher cannot run',
+              { error: { message: 'EMFILE: too many open files, watch' } },
+            ],
+            level: 'error',
+            scope: 'McpConfigWatch',
           },
           type: 'record',
         },

@@ -101,10 +101,12 @@ result in the same success/failure union shape as `mcp/config/write`. It runs on
 7. The token's fate follows whether the file was written. A write that returned a
    failure (including a conflict) or threw before writing deletes the token, and
    the error says so. A failure after a successful write (the reload) keeps the
-   token, because the config already references it, and rethrows. A failed
-   delete is reported beside the original failure. A watcher that cannot restart
-   fails nothing: config status carries `watchError`, and Settings shows it,
-   until a later save or config read restarts the watcher.
+   token, because the config already references it, and the install rejects with
+   "<Name> was added to the MCP config, but the MCP config could not be
+   reloaded: <cause>". A failed delete is reported beside the original failure.
+   A watcher that cannot restart fails nothing: config status carries
+   `watchError`, and Settings shows it, until a later save or config read
+   restarts the watcher.
 
 `bearer-credential.ts` gains `createSecretsMcpBearerCredentialWriter`, whose
 `create(token)` and `delete(reference)` use the same `SecretsService` as the
@@ -158,7 +160,10 @@ A conflict reloads the runtime from the changed file. The editor allows one save
 flight, and after a conflict it keeps the editor text but locks Save until a reload.
 When a write fails and the reload then fails too, the write's failure is
 reported first. An install the host committed stays a success when the
-later Settings refresh fails; that failure gets its own alert.
+later Settings refresh fails; that failure gets its own alert. A watcher that
+cannot run shows as `watchError` in config status and Settings until a save,
+install or config read restarts it; a restart reloads the runtime first, so
+edits made while it was down are applied.
 
 ## 5. Error handling
 
@@ -166,9 +171,11 @@ Every refusal is a visible failure result with a specific message: unknown
 catalog id, unknown access variant, already configured, config does not parse,
 token missing, token malformed, token not accepted for an OAuth entry, write
 failed, write failed with the stored token not removed, a write on a stale base
-(the config changed on disk since it was read), and an install whose config
-changed while installing. No fallback endpoint, no silent overwrite, no partial
-state left behind without being reported.
+(the config changed on disk since it was read), an install whose config
+changed while installing, and an install that wrote the config but could not
+reload it ("<Name> was added to the MCP config, but the MCP config could not be
+reloaded: <cause>", keeping its token). No fallback endpoint, no silent
+overwrite, no partial state left behind without being reported.
 
 ## 6. Testing
 

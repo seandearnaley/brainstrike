@@ -220,10 +220,12 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     return this.#applyConfigPath(this.#lastUserSelectedConfigPath);
   }
 
-  /** The editor's load and Reload, which first retry a watcher that is not running. */
+  /** The editor's load and Reload; restarting a watcher that was down reloads what it missed. */
   readConfigText(): Promise<HostResults['mcp/config/read']> {
     return this.#trackOperation(async (lifecycleEpoch) => {
-      await this.#ensureWatcherForLifecycle(lifecycleEpoch);
+      if (await this.#ensureWatcherForLifecycle(lifecycleEpoch)) {
+        await this.#reloadForLifecycle(lifecycleEpoch);
+      }
       return await this.options.configFile.readText(true);
     });
   }
@@ -742,8 +744,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
    * Writes config text on this lifecycle while the file still has `baseRevision`,
    * with the watcher paused across the write and restarted after it however it
    * ended. A watcher that cannot stop or restart is `watchError`, not a failure;
-   * one whose close threw stays down until a later save, install or read. A write
-   * or a conflict (the file changed on disk) reloads the runtime. A `writeText` that
+   * one whose close threw stays down until a later save, install or read. A write,
+   * a conflict (the file changed on disk) or the restart of a watcher that was
+   * down, which missed the edits made meanwhile, reloads the runtime. A `writeText` that
    * throws propagates, since nothing was written; a reload that throws afterwards
    * is returned with the write's result. `conflict` words a stale base.
    */
@@ -753,20 +756,20 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     lifecycleEpoch: number,
     conflict?: string
   ): Promise<McpConfigWriteSync> {
+    const wasDown = this.#unwatch === null;
     const stopped = this.#stopWatcherForLifecycle();
     let written: McpConfigWriteResult;
+    let recovered = false;
     try {
       written = await this.options.configFile.writeText(content, baseRevision);
     } finally {
-      if (stopped) {
-        await this.#ensureWatcherForLifecycle(lifecycleEpoch);
-      }
+      recovered = stopped && (await this.#ensureWatcherForLifecycle(lifecycleEpoch)) && wasDown;
     }
     const result =
       !written.success && written.conflict && conflict !== undefined
         ? { ...written, error: conflict }
         : written;
-    if (!(result.success || result.conflict)) {
+    if (!(result.success || result.conflict || recovered)) {
       return { result };
     }
     if (result.success) {
@@ -809,7 +812,7 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     throw new Error('MCP config path must be selected with the native file picker.');
   }
 
-  /** Wants the watcher on the current config file and restarts it there unless the old one cannot stop; never throws. */
+  /** Moves the watcher to the current config file unless the old one cannot stop; never throws. */
   async #watchForLifecycle(lifecycleEpoch: number): Promise<void> {
     if (!this.#lifecycleOpen || lifecycleEpoch !== this.#lifecycleEpoch) {
       return;
@@ -820,9 +823,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     }
   }
 
-  /** Starts the wanted watcher when none runs; never throws, and announces a new `watchError`. */
-  async #ensureWatcherForLifecycle(lifecycleEpoch: number): Promise<void> {
-    const changed = await this.#watchHealth.ensure({
+  /** Starts the wanted watcher if none runs, announcing a new `watchError`; resolves if it did. */
+  async #ensureWatcherForLifecycle(lifecycleEpoch: number): Promise<boolean> {
+    const { changed, started } = await this.#watchHealth.ensure({
       current: () => this.#lifecycleOpen && lifecycleEpoch === this.#lifecycleEpoch,
       running: this.#unwatch !== null,
       start: () => this.#restartWatcherForLifecycle(lifecycleEpoch),
@@ -830,6 +833,7 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     if (changed) {
       this.#emitConfigStatus();
     }
+    return started;
   }
 
   async #restartWatcherForLifecycle(lifecycleEpoch: number): Promise<void> {
@@ -842,7 +846,7 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     this.#unwatch = unwatch;
   }
 
-  /** Opens a config watcher on this lifecycle; one that dies while held is dropped as `watchError`. */
+  /** Opens a lifecycle's config watcher; one that dies while held is dropped as `watchError`. */
   async #openWatcher(lifecycleEpoch: number): Promise<() => void> {
     let watcher: McpWatcher | undefined;
     const unwatch = (): void => watcher?.close();

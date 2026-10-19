@@ -22,7 +22,10 @@ export class McpConfigWatchHealth {
     this.#wanted = true;
   }
 
-  /** The held watcher failed, dying while it ran or failing to close: `error` says why until a later start succeeds. */
+  /**
+   * The held watcher failed, dying while it ran or failing to close: `error`
+   * says why until a later start succeeds.
+   */
   fail(cause: unknown): void {
     this.#error = errorMessage(cause);
   }
@@ -51,15 +54,16 @@ export class McpConfigWatchHealth {
   /**
    * Starts the wanted watcher when none is `running`, and records how that
    * went. It never throws, and records nothing once the lifecycle is no longer
-   * `current`. Resolves whether `error` changed.
+   * `current`. Resolves whether `error` `changed`, and whether it `started` a
+   * watcher, which saw none of the edits made while no watcher ran.
    */
   async ensure(watch: {
     readonly current: () => boolean;
     readonly running: boolean;
     readonly start: () => Promise<void>;
-  }): Promise<boolean> {
+  }): Promise<{ readonly changed: boolean; readonly started: boolean }> {
     if (!this.#wanted || watch.running) {
-      return false;
+      return { changed: false, started: false };
     }
     let error: string | null = null;
     try {
@@ -68,10 +72,11 @@ export class McpConfigWatchHealth {
       logger.error('MCP config watcher cannot run', { error: cause });
       error = errorMessage(cause);
     }
-    if (error === this.#error || !watch.current()) {
-      return false;
+    if (!watch.current()) {
+      return { changed: false, started: false };
     }
+    const changed = error !== this.#error;
     this.#error = error;
-    return true;
+    return { changed, started: error === null };
   }
 }

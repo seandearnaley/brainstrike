@@ -109,7 +109,7 @@ describe('MCP settings authority config watcher health', () => {
     await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
   });
 
-  it('restarts the watcher when the editor reads the config, announcing only a change', async () => {
+  it('restarts the watcher when the editor reads the config, reloading and announcing only then', async () => {
     const h = await setup();
     await savedWithoutWatcher(h);
     const before = configEvents(h).length;
@@ -121,13 +121,16 @@ describe('MCP settings authority config watcher health', () => {
 
     await expect(h.authority.readConfigText()).resolves.toMatchObject({ exists: true });
     expect(h.activeWatcher()).toBeDefined();
-    expect(configEvents(h)).toHaveLength(before + 1);
+    // The cleared watchError, then the reload of what the watcher missed.
+    expect(configEvents(h)).toHaveLength(before + 2);
     expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
 
     const watches = vi.mocked(h.configFile.watch).mock.calls.length;
+    const reloads = h.replaceResolvedConfig.mock.calls.length;
     await h.authority.readConfigText();
     expect(h.configFile.watch).toHaveBeenCalledTimes(watches);
-    expect(configEvents(h)).toHaveLength(before + 1);
+    expect(h.replaceResolvedConfig).toHaveBeenCalledTimes(reloads);
+    expect(configEvents(h)).toHaveLength(before + 2);
   });
 
   it('starts without a watcher, loading the config and reporting watchError', async () => {
@@ -282,6 +285,53 @@ describe('MCP settings authority config watcher that fails while held', () => {
     expect(h.activeWatcher()).toBeDefined();
     expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
     await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
+  it('applies an edit made while the watcher was down when a config read restarts it', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+    await h.writeConfig([stdioServer('external')]);
+
+    await expect(h.authority.readConfigText()).resolves.toMatchObject({ exists: true });
+
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
+    expect(configEvents(h).at(-1)?.config).toMatchObject({
+      servers: [{ name: 'external', protocol: 'legacy', transport: 'stdio' }],
+    });
+    expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
+  });
+
+  it('applies an edit made while the watcher was down when a failed save restarts it', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+    await h.writeConfig([stdioServer('external')]);
+    vi.spyOn(h.configFile, 'writeText').mockResolvedValueOnce({
+      error: 'disk full',
+      path: h.configPath,
+      success: false,
+    });
+
+    await expect(
+      h.authority.writeConfigText({ baseRevision: EMPTY_REVISION, content: '{"servers":[]}' })
+    ).resolves.toEqual({ error: 'disk full', path: h.configPath, success: false });
+
+    expect(h.activeWatcher()).toBeDefined();
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
+    expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
+  });
+
+  it('rejects a config read whose watcher restart cannot reload what it missed', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+    const reloadFailure = new Error('runtime refused the config');
+    h.replaceResolvedConfig.mockRejectedValueOnce(reloadFailure);
+
+    await expect(h.authority.readConfigText()).rejects.toBe(reloadFailure);
+    expect(h.activeWatcher()).toBeDefined();
   });
 
   it('ignores a failure from the watcher of a retired lifecycle', async () => {

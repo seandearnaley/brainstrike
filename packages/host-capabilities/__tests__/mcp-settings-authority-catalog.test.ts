@@ -271,19 +271,44 @@ describe('MCP catalog install', () => {
     const reloadFailure = new Error('EIO: i/o error, read');
     vi.spyOn(h.configFile, 'load').mockRejectedValueOnce(reloadFailure);
 
-    await expect(
-      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
-    ).rejects.toMatchObject({
-      cause: reloadFailure,
-      message:
-        'GitHub was added to the MCP config, but the MCP config could not be reloaded: EIO: i/o error, read',
-    });
+    const error = await h.authority
+      .installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      'GitHub was added to the MCP config, but the MCP config could not be reloaded: EIO: i/o error, read'
+    );
+    expect((error as Error).cause).toBe(reloadFailure);
     expect(h.configFile.load).toHaveBeenCalledOnce();
     expect(h.bearer.writer.delete).not.toHaveBeenCalled();
     expect(h.bearer.stored.size).toBe(1);
     const [id] = h.bearer.stored.keys();
     expect(id).toBeDefined();
     expect(await readFile(h.configPath, 'utf8')).toContain(`"id": "${id}"`);
+  });
+
+  it('says an OAuth install was added when the written config cannot be reloaded', async () => {
+    const h = await started();
+    const reloadFailure = new Error('EIO: i/o error, read');
+    vi.spyOn(h.configFile, 'load').mockRejectedValueOnce(reloadFailure);
+
+    const error = await h.authority
+      .installCatalogServer({ access: 'read-only', catalogId: 'linear' })
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      'Linear was added to the MCP config, but the MCP config could not be reloaded: EIO: i/o error, read'
+    );
+    expect((error as Error).cause).toBe(reloadFailure);
+    expect(await readFile(h.configPath, 'utf8')).toContain('"name": "linear"');
   });
 
   it('installs, keeps its token and reports watchError when the watcher cannot restart', async () => {
