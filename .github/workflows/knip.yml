@@ -35,8 +35,12 @@ jobs:
       - uses: ./.github/actions/setup-workspace
       - name: Audit unused files and dependencies
         run: time pnpm knip
-      - name: Prove file and dependency detection
+      - name: Prove file, dependency and test-only export detection
         run: node scripts/check-knip-liveness.mjs
+      # Production mode (BST-2071): only code the shipped entries reach counts,
+      # so files, dependencies, exports and types that only tests use fail here.
+      - name: Audit production code
+        run: time pnpm knip:production
 
   notify-linear:
     name: Notify Linear
