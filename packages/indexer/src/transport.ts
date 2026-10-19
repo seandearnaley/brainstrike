@@ -1,7 +1,7 @@
-import { realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { runWithTimeout } from '@brainstrike/effect-kit';
+import { canonicalRoot } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import {
   commitResultSchema,
@@ -125,7 +125,7 @@ export function validateIndexerOptions(input: unknown): typeof optionsSchema.Typ
   if (options.stateRoot !== undefined) {
     if (
       !path.isAbsolute(options.stateRoot) ||
-      realpathSync(options.stateRoot) !== options.stateRoot
+      canonicalRoot(options.stateRoot) !== options.stateRoot
     ) {
       throw new TypeError(
         'State index acquisition requires its trusted canonical absolute truth root.'
