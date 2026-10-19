@@ -12,6 +12,7 @@ import {
   type SqliteGrepOptions,
   SqliteQueryClient,
   SqliteQueryDeadlineError,
+  SqliteQueryProcessExitedError,
   spawnQueryProcess,
 } from '../../dist/index.js';
 import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
@@ -229,7 +230,12 @@ describe('grep reader over a real IndexerPort index', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     process.kill(pid, 'SIGKILL');
     const crash = await inflight;
-    expect(crash).toMatchObject({ message: 'SQLite query process exited.' });
+    // Typed, so Main classifies a signal's exit while quitting by its type (BST-2192).
+    expect(crash).toMatchObject({
+      message: 'SQLite query process exited.',
+      name: 'SqliteQueryProcessExitedError',
+    });
+    expect(crash).toBeInstanceOf(SqliteQueryProcessExitedError);
     await expect(client.grep(proof('alpha'))).rejects.toBe(crash);
     await client.close();
     expect(hash()).toBe(originalHash);
