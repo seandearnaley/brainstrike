@@ -32,9 +32,22 @@ async function waitForChildExit(child) {
 }
 
 // Every wait() is bounded, so a stuck fixture child fails naming its event and
-// stderr instead of hanging the job.
+// stderr instead of hanging the job. BST-2213 measured both bounds.
+//
+// A guard reports each event, and a started observer answers each command,
+// within EVENT_DEADLINE_MS. On hosted Windows (2 vCPUs) and on a 16-core
+// Windows 11 box the slowest such wait took 158 ms. In the failed attempt of
+// hosted Test run 39192445447, on a runner 2-15x slower than usual, every one
+// that ran still fit.
 const EVENT_DEADLINE_MS = 5000;
-const OBSERVER_START_DEADLINE_MS = EVENT_DEADLINE_MS;
+// An observer's start is one-time work, not a reply. Windows PowerShell starts
+// (115-412 ms measured) and compiles the observer's C# with Add-Type (133-416
+// ms) before the observer pins its targets. Healthy starts took 275-652 ms.
+// On that failed runner the first observer's start took roughly 40-50 s,
+// inferred from its test's 55.7 s; the runner itself was never sampled. This
+// deadline is twice that slowest start. Only a start that never finishes pays
+// it in full: an observer that exits is reported at once.
+const OBSERVER_START_DEADLINE_MS = 100_000;
 
 function inbox(child, stdout = false) {
   const messages = [];
