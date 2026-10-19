@@ -3,7 +3,9 @@
 Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
 nightly on main and files failures to Linear (`nightly-alert`). Treat an open
 `nightly-alert` issue as a red main: fix main first, before merging other work
-onto it. Enabling or dispatching other workflows, and automated reviews, require
+onto it. Merges go through the merge queue, whose fast tier runs on each merge
+group (see [Merge through the queue](#merge-through-the-queue)). Enabling or
+dispatching other workflows, and automated reviews, require
 explicit owner authorization; the disabled per-PR workflows' YAML is reference
 material, not a request to run them.
 
@@ -81,12 +83,31 @@ Required acceptance must pass before merge. State the tested change/artifact,
 commands and results, and any unverified platforms or behavior. Keep the summary
 short; raw logs belong in artifacts, not a growing list of permanent rules.
 
-Squash with `--match-head-commit`. Validate the candidate against current main and
-verify the merged tree matches the qualified tree. If inputs change, assess and
-retest what they invalidate. Normal hooks and existing checks remain in force.
+Validate the candidate against current main before you enqueue it. If inputs
+change, assess and retest what they invalidate. Normal hooks and existing checks
+remain in force.
 
 Tool versions, lane membership, worker counts, thresholds and setup order are
 owned by executable configuration. Consult those files when changing tooling.
 Historical explanations remain in the
 [archived CI notes](../archive/agent-contract-history/ci-quality/) and Git history;
 they are not additional gates or mandatory reading.
+
+## Merge through the queue
+
+Main requires a merge queue. Enqueue with
+`gh pr merge --squash --auto --match-head-commit <sha>`, where `<sha>` is the
+head you validated; GitHub refuses the request if the head has moved. GitHub puts
+the PR on top of main and the entries ahead of it in a merge group, runs
+`.github/workflows/merge-queue.yml` on that commit, and lands it only when
+`Merge Queue Gate` is green. Do not bypass the queue with `--admin`.
+
+The fast tier tests the merge group's merged commit: Unit tests for what the
+change affects, the full static checks and build, and the web and desktop smoke
+E2E lanes. The full regression suites stay nightly, so local validation still
+owns the risk the tier does not cover.
+
+A red gate removes the PR from the queue, and the entries behind it rebuild
+without it. Read the failed lane, fix the cause, revalidate and enqueue again.
+Re-enqueueing to retry a failure is not a fix; a flaky lane needs the same
+diagnosis as any other failure.
