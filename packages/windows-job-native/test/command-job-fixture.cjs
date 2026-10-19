@@ -31,6 +31,11 @@ async function waitForChildExit(child) {
   });
 }
 
+// Every wait() is bounded, so a stuck fixture child fails naming its event and
+// stderr instead of hanging the job.
+const EVENT_DEADLINE_MS = 5000;
+const OBSERVER_START_DEADLINE_MS = EVENT_DEADLINE_MS;
+
 function inbox(child, stdout = false) {
   const messages = [];
   let output = '';
@@ -60,7 +65,7 @@ function inbox(child, stdout = false) {
   }
   return {
     child,
-    wait: (event) =>
+    wait: (event, deadlineMs = EVENT_DEADLINE_MS) =>
       new Promise((resolve, reject) => {
         const cleanup = () => {
           clearTimeout(timer);
@@ -86,8 +91,9 @@ function inbox(child, stdout = false) {
           }
         };
         const timer = setTimeout(
-          () => failed(new Error(`Timed out waiting for ${event}: ${stderr}`)),
-          5000
+          () =>
+            failed(new Error(`Timed out after ${deadlineMs} ms waiting for ${event}: ${stderr}`)),
+          deadlineMs
         );
         child.on('fixture-message', check);
         child.once('exit', exited);
@@ -98,6 +104,11 @@ function inbox(child, stdout = false) {
         }
       }),
   };
+}
+
+// A process observer has started once it has pinned its targets.
+function waitForObserverStart(observer) {
+  return observer.wait('pinned', OBSERVER_START_DEADLINE_MS);
 }
 
 // `deny <mask>` gives the first pinned member a DACL that denies <mask> to
@@ -592,7 +603,7 @@ async function commandFixture(t) {
       );
       const observer = inbox(child, true);
       observers.push(observer);
-      const pinned = await observer.wait('pinned');
+      const pinned = await waitForObserverStart(observer);
       observer.pinned = pinned;
       assert.deepEqual(
         pinned.identities.map((identity) => identity.pid),
@@ -614,4 +625,12 @@ async function commandFixture(t) {
     root,
   };
 }
-module.exports = { commandFixture, inbox, processObserverSource, waitForChildExit };
+module.exports = {
+  commandFixture,
+  eventDeadlineMs: EVENT_DEADLINE_MS,
+  inbox,
+  observerStartDeadlineMs: OBSERVER_START_DEADLINE_MS,
+  processObserverSource,
+  waitForChildExit,
+  waitForObserverStart,
+};
