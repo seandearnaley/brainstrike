@@ -1,6 +1,6 @@
 // Every entry point that catches the state index up, over a cold backlog far
-// past one catch-up step and behind a request deadline far shorter than that
-// backlog's projection in one request: each is served, and the worker lives.
+// past one catch-up step and behind a request deadline half that backlog's
+// projection in one request: each is served, and the worker lives.
 import { fork } from 'node:child_process';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -15,6 +15,8 @@ import { StateStore } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createIndexerConnection } from '../dist/transport.js';
+
+type Port = Awaited<ReturnType<typeof openIndexer>>;
 
 /** 60 steps. */
 const BACKLOG = STATE_CATCH_UP_STEP_EVENTS * 60;
@@ -32,13 +34,18 @@ const backlogs: Readonly<Record<string, number>> = {
   similar: BACKLOG,
 };
 /**
- * The request deadline, in fresh steps measured in this run: coverage and a busy
- * runner stretch steps so far that no fixed deadline fits every runner. It must
- * exceed every step the cases make, which they prove (in the first 20 overwrite
- * steps, at most 12 fresh steps measured), and stay under catching up either
- * backlog in one request, which the setup asserts.
+ * A case's request deadline is its own backlog projected in one request,
+ * measured in this run, divided by this: coverage and a busy runner stretch the
+ * work so far that no fixed deadline fits every runner. Carrying the backlog in
+ * one request misses the deadline twice over, while a case's largest request
+ * measured about a tenth of that one request, and a sixth at worst, idle and
+ * under load (BST-2214). The deadline comes from that long request rather than
+ * a few short step samples, which load moves apart from it, and each case has
+ * its own: one deadline for every case had to sit both above a rebuild's
+ * overwrite steps (10 to 30 fresh steps) and below the fresh backlog in one
+ * request (about 55).
  */
-const DEADLINE_STEPS = 20;
+const DEADLINES_PER_BACKLOG = 2;
 const calibrationDeadlines = { closeMs: 5000, exitMs: 5000, requestMs: 120_000, startupMs: 5000 };
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
@@ -49,12 +56,14 @@ const profile = {
   provider: 'local',
 } as const;
 
-let port: Awaited<ReturnType<typeof openIndexer>>;
-let release: () => Promise<void>;
-let requestMs: number;
-let calibrated = '';
+let root: string;
+/** The index the calibration and every case open. */
+let options: unknown;
+let entry: string;
+/** The fresh backlog, and the rebuild's overwrite, each projected in one request. */
+let oneRequestMs: { readonly fresh: number; readonly rebuild: number };
 
-/** One request to the measured indexer: its order, op and timings. */
+/** One request to a measured indexer: its order, op and timings. */
 interface TimedRequest {
   readonly index: number;
   indexerMs?: number;
@@ -62,7 +71,6 @@ interface TimedRequest {
   roundTripMs?: number;
   readonly sent: number;
 }
-const requests = new Map<number, TimedRequest>();
 
 /** The indexer process entry, also reporting how long each request spent inside it. */
 const timedEntry = `const received = new Map();
@@ -83,8 +91,12 @@ process.send = (message, ...rest) => {
 await import(${JSON.stringify(new URL('../dist/process-entry.js', import.meta.url).href)});
 `;
 
-/** openIndexer's own fork and connection, recording every request in `requests`. */
-async function openTimedIndexer(entry: string, options: unknown, deadlines: unknown) {
+/**
+ * openIndexer's own fork and connection, with the slowest requests it sent, so
+ * a missed deadline names its request.
+ */
+async function openTimedIndexer(deadlines: unknown) {
+  const requests = new Map<number, TimedRequest>();
   const child = fork(entry, [], {
     execArgv: [],
     serialization: 'advanced',
@@ -148,24 +160,21 @@ async function openTimedIndexer(entry: string, options: unknown, deadlines: unkn
       });
     },
   });
-  return connection.ready;
-}
-
-/** The slowest requests since `from`, so a missed deadline names its request. */
-function slowest(from: number): string {
-  const now = performance.now();
-  return (
-    [...requests.values()]
-      .filter((request) => request.index >= from)
-      .map((request) => ({ ...request, ms: request.roundTripMs ?? now - request.sent }))
-      .sort((a, b) => b.ms - a.ms)
-      .slice(0, 5)
-      .map(
-        (request) =>
-          `#${request.index - from} ${request.op}: ${Math.round(request.ms)} ms round trip${request.roundTripMs === undefined ? ' (unanswered)' : ''}, ${request.indexerMs ?? 'unknown'} ms in the indexer`
-      )
-      .join('; ') || 'none'
-  );
+  const slowest = (): string => {
+    const now = performance.now();
+    return (
+      [...requests.values()]
+        .map((request) => ({ ...request, ms: request.roundTripMs ?? now - request.sent }))
+        .sort((a, b) => b.ms - a.ms)
+        .slice(0, 5)
+        .map(
+          (request) =>
+            `#${request.index} ${request.op}: ${Math.round(request.ms)} ms round trip${request.roundTripMs === undefined ? ' (unanswered)' : ''}, ${request.indexerMs ?? 'unknown'} ms in the indexer`
+        )
+        .join('; ') || 'none'
+    );
+  };
+  return { port: await connection.ready, slowest };
 }
 
 async function elapsed(work: () => Promise<unknown>): Promise<number> {
@@ -175,16 +184,17 @@ async function elapsed(work: () => Promise<unknown>): Promise<number> {
 }
 
 beforeAll(async () => {
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-state-backlog-')));
-  const options = {
-    dbPath: path.join(root, 'index.sqlite'),
+  root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-state-backlog-')));
+  const dbPath = path.join(root, 'index.sqlite');
+  options = {
+    dbPath,
     embedding: { indexMode: 'text-only' },
     rootIds: ['canonical'],
     stateProjection: { mode: 'dev', module: producer },
     stateRoot: root,
-  } as const;
+  };
   const calibration = await openIndexer(options, calibrationDeadlines);
-  let store = await StateStore.open(root, { indexer: createStateStoreIndexer(calibration) });
+  const store = await StateStore.open(root, { indexer: createStateStoreIndexer(calibration) });
   const append = (threadId: string, count: number) =>
     store.append(
       Array.from({ length: count }, (_, index) => ({
@@ -196,66 +206,51 @@ beforeAll(async () => {
   for (const [threadId, backlog] of Object.entries(backlogs)) {
     await append(threadId, backlog);
   }
-  await append('step', STATE_CATCH_UP_STEP_EVENTS * 5);
   await append('whole', BACKLOG);
   await append('rewrite', REBUILD_BACKLOG);
-  const steps: number[] = [];
-  for (let sample = 0; sample < 5; sample += 1) {
-    steps.push(
-      await elapsed(() => calibration.catchUpStateStep(['step'], STATE_CATCH_UP_STEP_EVENTS))
-    );
-  }
-  const step = steps.sort((a, b) => a - b)[2] ?? Number.NaN;
   const whole = await elapsed(() => calibration.catchUpStateStep(['whole'], BACKLOG));
   await calibration.catchUpStateStep(['rewrite'], REBUILD_BACKLOG);
   // What state-rebuild does to a thread without vectors (state-event-store.ts):
   // its cursor goes, so the next catch-up overwrites every row.
-  const db = openConnection(options.dbPath);
+  const db = openConnection(dbPath);
   try {
     db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run('rewrite');
   } finally {
     db.close();
   }
   const rewrite = await elapsed(() => calibration.catchUpStateStep(['rewrite'], REBUILD_BACKLOG));
-  requestMs = Math.ceil(step * DEADLINE_STEPS);
-  calibrated = `requestMs ${requestMs} (fresh step ${Math.round(step)} ms, backlog in one request ${Math.round(whole)} ms, rebuild in one request ${Math.round(rewrite)} ms)`;
-  // Without stepping, catching up either backlog in one request would miss the deadline.
-  expect(whole, calibrated).toBeGreaterThan(requestMs);
-  expect(rewrite, calibrated).toBeGreaterThan(requestMs);
+  oneRequestMs = { fresh: whole, rebuild: rewrite };
   await store.close();
   await calibration.close();
-  const entry = path.join(root, 'timed-indexer-entry.mjs');
+  entry = path.join(root, 'timed-indexer-entry.mjs');
   await writeFile(entry, timedEntry);
-  port = await openTimedIndexer(entry, options, { ...calibrationDeadlines, requestMs });
-  store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
-  release = async () => {
-    await store.close();
-    await port.close();
-    await rm(root, { force: true, recursive: true });
-  };
 }, getAdjustedTimeout('performance'));
 
-afterAll(() => release());
+afterAll(() => rm(root, { force: true, recursive: true }));
 
-const entryPoints: readonly [string, () => Promise<unknown>, (served: unknown) => void][] = [
+const entryPoints: readonly [
+  string,
+  (port: Port) => Promise<unknown>,
+  (served: unknown) => void,
+][] = [
   [
     'search',
-    () => port.searchState({ limit: 5, query: 'garden', threadIds: ['search'] }),
+    (port) => port.searchState({ limit: 5, query: 'garden', threadIds: ['search'] }),
     (hits) => expect(hits).toHaveLength(5),
   ],
   [
     'pending',
-    () => port.searchStatePending({ limit: 10, profile, threadIds: ['pending'] }),
+    (port) => port.searchStatePending({ limit: 10, profile, threadIds: ['pending'] }),
     (rows) => expect(rows).toHaveLength(10),
   ],
   [
     'coverage',
-    () => port.searchStateCoverage({ profile, threadIds: ['coverage'] }),
+    (port) => port.searchStateCoverage({ profile, threadIds: ['coverage'] }),
     (coverage) => expect(coverage).toEqual({ embedded: 0, errored: 0, rows: BACKLOG }),
   ],
   [
     'similar',
-    () =>
+    (port) =>
       port.searchStateSimilar({
         limit: 5,
         profile,
@@ -267,7 +262,7 @@ const entryPoints: readonly [string, () => Promise<unknown>, (served: unknown) =
   ],
   [
     'rebuild',
-    async () => {
+    async (port) => {
       await port.catchUpState(['rebuild']);
       await port.rebuildState('rebuild');
       return port.stateStats('rebuild');
@@ -276,7 +271,7 @@ const entryPoints: readonly [string, () => Promise<unknown>, (served: unknown) =
   ],
   [
     'gc',
-    () => port.stateBlobCounts(['gc'], ['a'.repeat(64)]),
+    (port) => port.stateBlobCounts(['gc'], ['a'.repeat(64)]),
     (counts) => expect(counts).toEqual({ ['a'.repeat(64)]: 0 }),
   ],
 ];
@@ -284,14 +279,26 @@ const entryPoints: readonly [string, () => Promise<unknown>, (served: unknown) =
 it.each(entryPoints)(
   '%s over a cold backlog is served, every request inside the deadline',
   async (threadId, serve, check) => {
-    const from = requests.size;
-    const served = await serve().catch((error: unknown) => {
-      throw new Error(`${calibrated}; slowest requests: ${slowest(from)}`, { cause: error });
-    });
-    check(served);
-    expect((await port.stateStats(threadId)).cursor).toBe(backlogs[threadId]);
-    // Retirement would have failed the connection: the same worker still answers.
-    await expect(port.stateHealth()).resolves.toEqual({ indexerErrors: [] });
+    const rebuild = threadId === 'rebuild';
+    const oneRequest = rebuild ? oneRequestMs.rebuild : oneRequestMs.fresh;
+    const requestMs = Math.ceil(oneRequest / DEADLINES_PER_BACKLOG);
+    const { port, slowest } = await openTimedIndexer({ ...calibrationDeadlines, requestMs });
+    const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
+    try {
+      const served = await serve(port).catch((error: unknown) => {
+        throw new Error(
+          `requestMs ${requestMs} (${rebuild ? 'rebuild' : 'backlog'} in one request ${Math.round(oneRequest)} ms); slowest requests: ${slowest()}`,
+          { cause: error }
+        );
+      });
+      check(served);
+      expect((await port.stateStats(threadId)).cursor).toBe(backlogs[threadId]);
+      // Retirement would have failed the connection: the same worker still answers.
+      await expect(port.stateHealth()).resolves.toEqual({ indexerErrors: [] });
+    } finally {
+      await store.close();
+      await port.close();
+    }
   },
   getAdjustedTimeout('performance')
 );
