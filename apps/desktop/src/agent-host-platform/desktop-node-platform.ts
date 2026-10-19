@@ -296,10 +296,14 @@ export async function createDesktopHostConfiguration(
   }
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
-  const runAdmission = createDesktopRunAdmission(mainAdmissionReads(request), async () => {
-    const saved = await readHostPermissionPolicy(startup.store);
-    return saved ? hostPermissionGate(saved) : undefined;
-  });
+  const runAdmission = createDesktopRunAdmission(
+    mainAdmissionReads(request),
+    async () => {
+      const saved = await readHostPermissionPolicy(startup.store);
+      return saved ? hostPermissionGate(saved) : undefined;
+    },
+    (provider, origin) => host.auth.resolveProviderAuth(provider, origin)
+  );
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
     credentials: {

@@ -57,6 +57,7 @@ function localModelReads(answer: PlatformLocalModel) {
   return { asked, reads };
 }
 const signal = new AbortController().signal;
+const noAuth = async () => undefined;
 const resolved = (
   contextLength: Extract<PlatformLocalModel, { state: 'resolved' }>['contextLength'],
   thinking = false
@@ -76,7 +77,7 @@ test('an Ollama run is admitted at the window its model reports, capped, at its 
     provider: 'ollama',
     providerOptions: { ollama: { apiToken: 'tok', baseUrl: 'http://gpu.lan:11434' } },
   };
-  await expect(readDesktopLocalModel(reads, configuration, signal)).resolves.toEqual({
+  await expect(readDesktopLocalModel(reads, configuration, signal, noAuth)).resolves.toEqual({
     contextWindow: 32_768,
     thinking: true,
   });
@@ -92,7 +93,7 @@ test.each([
 ])('an Ollama model reading %j is admitted at %i tokens', async (answer, contextWindow) => {
   const { reads } = localModelReads(answer);
   await expect(
-    readDesktopLocalModel(reads, { model: 'phi4', provider: 'ollama' }, signal)
+    readDesktopLocalModel(reads, { model: 'phi4', provider: 'ollama' }, signal, noAuth)
   ).resolves.toEqual({ contextWindow, thinking: false });
 });
 
@@ -103,7 +104,7 @@ test('an Ollama server that cannot describe the model refuses the run, saying wh
     state: 'unavailable',
   });
   await expect(
-    readDesktopLocalModel(reads, { model: 'missing', provider: 'ollama' }, signal)
+    readDesktopLocalModel(reads, { model: 'missing', provider: 'ollama' }, signal, noAuth)
   ).rejects.toThrow(
     'Ollama could not describe "missing" at http://127.0.0.1:11434/api/show: Ollama /api/show responded with 404'
   );
@@ -112,7 +113,28 @@ test('an Ollama server that cannot describe the model refuses the run, saying wh
 test('a run on any other provider reads no local model', async () => {
   const { asked, reads } = localModelReads(resolved({ state: 'unreported' }));
   await expect(
-    readDesktopLocalModel(reads, { model: 'qwen2.5', provider: 'lmstudio' }, signal)
+    readDesktopLocalModel(reads, { model: 'qwen2.5', provider: 'lmstudio' }, signal, noAuth)
   ).resolves.toBeUndefined();
   expect(asked).toEqual([]);
+});
+
+test("the admission lookup carries the host's stored Ollama credential, before a configured token (BST-754)", async () => {
+  const { asked, reads } = localModelReads(resolved({ state: 'unreported' }));
+  const configuration = {
+    model: 'qwen3',
+    provider: 'ollama',
+    providerOptions: { ollama: { apiToken: 'configured', baseUrl: 'https://gpu.lan' } },
+  };
+  await readDesktopLocalModel(reads, configuration, signal, async () => ({
+    apiKey: 'stored',
+    kind: 'api_key' as const,
+  }));
+  await readDesktopLocalModel(reads, configuration, signal, noAuth);
+  expect(asked).toEqual([
+    { endpoint: { apiToken: 'stored', baseUrl: 'https://gpu.lan' }, model: 'qwen3' },
+    { endpoint: { apiToken: 'configured', baseUrl: 'https://gpu.lan' }, model: 'qwen3' },
+  ]);
+  await expect(
+    readDesktopLocalModel(reads, { model: 'qwen3', provider: 'ollama' }, signal, undefined)
+  ).rejects.toThrow("An Ollama run needs the host's credential authority");
 });

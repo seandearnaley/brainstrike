@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { buildModelSettingsOption } from '@brainstrike/agent/provider-request';
+import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostRunIntentRequest } from '@brainstrike/agent-host';
 import {
   materializeCliWorkspaceIntent,
@@ -89,11 +90,15 @@ export interface DesktopLocalModel {
  * `/api/show`, at the run configuration's endpoint): the window the run
  * budgets and Ollama allocates (`num_ctx`), and whether the model thinks. A
  * server that cannot describe the model refuses the run, saying why.
+ *
+ * The lookup is authenticated as the run's own chat requests are: the host's
+ * stored Ollama credential first, then a token the configuration carries.
  */
 export async function readDesktopLocalModel(
   reads: DesktopAdmissionReads,
   configuration: (typeof PlatformModelConfigurationSchema)['Type'],
-  signal: AbortSignal
+  signal: AbortSignal,
+  resolveAuth: (() => Promise<ProviderAuthInput | undefined>) | undefined
 ): Promise<DesktopLocalModel | undefined> {
   if (configuration.provider !== 'ollama') {
     return;
@@ -101,13 +106,19 @@ export async function readDesktopLocalModel(
   if (!reads.localRuntimeModel) {
     throw new Error('An Ollama run needs the desktop local runtime catalog');
   }
+  if (!resolveAuth) {
+    throw new Error("An Ollama run needs the host's credential authority");
+  }
   const options = configuration.providerOptions?.['ollama'];
   const baseUrl = options?.['baseUrl'];
-  const apiToken = options?.['apiToken'];
+  const auth = await resolveAuth();
+  const stored = auth?.kind === 'api_key' && auth.apiKey.trim() ? auth.apiKey : undefined;
+  const configured = options?.['apiToken'];
+  const apiToken = stored ?? (typeof configured === 'string' ? configured : undefined);
   const facts = await reads.localRuntimeModel(
     {
       endpoint: {
-        ...(typeof apiToken === 'string' ? { apiToken } : {}),
+        ...(apiToken === undefined ? {} : { apiToken }),
         ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
       },
       model: configuration.model,

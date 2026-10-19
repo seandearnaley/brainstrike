@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { type RuntimeData, resolveAssistantResilienceConfig } from '@brainstrike/agent';
+import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import { DEFAULT_AGENT_MAX_STEPS } from '@brainstrike/agent/tool-runtime';
 import type {
   HostDelegation,
@@ -417,7 +418,15 @@ function desktopNativeRuntime(
 export function createDesktopRunAdmission(
   reads: DesktopAdmissionReads,
   /** The policy the user saved, which the host keeps; undefined when none is saved. */
-  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>
+  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>,
+  /**
+   * BST-754: the host's credential authority, for the admission's own
+   * provider reads; an Ollama run refuses without it.
+   */
+  resolveProviderAuth?: (
+    provider: string,
+    origin: HostRunIntentRequest['origin']
+  ) => Promise<ProviderAuthInput | undefined>
 ): DesktopRunAdmission {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -452,7 +461,14 @@ export function createDesktopRunAdmission(
       );
     }
     // BST-754: an Ollama model is budgeted at the window it reports, capped.
-    const localModel = await readDesktopLocalModel(reads, configuration, request.signal);
+    const localModel = await readDesktopLocalModel(
+      reads,
+      configuration,
+      request.signal,
+      resolveProviderAuth
+        ? () => resolveProviderAuth(configuration.provider, request.origin)
+        : undefined
+    );
     const catalog = localModel
       ? {
           ...selection,
