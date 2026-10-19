@@ -1,5 +1,18 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  // PRODUCTION MODE (BST-2071). `pnpm knip:production` runs `knip --production`
+  // (https://knip.dev/features/production-mode): it grades only what the code we
+  // ship reaches, so an export, file or dependency that only a test uses is
+  // reported there while the default run still credits the test.
+  //   * An `entry`/`project` pattern suffixed `!` is production; an unsuffixed
+  //     one is development-only and production mode drops it. A workspace with no
+  //     `project` keeps knip's default `**/*.{js,…}!`, which is production.
+  //   * package.json `exports`/`main`/`bin` are production entries without any
+  //     config, as are the module scripts a Vite `index.html` loads.
+  //   * Plugin entries (Vitest/Playwright/Node test files, setup files, configs)
+  //     are development-only, and so are the files only they reach.
+  //   * Production mode reads only `dependencies`, never `devDependencies`.
+  // Both runs use this one file; neither replaces the other.
   "workspaces": {
     // The ROOT workspace, declared explicitly (BST-1377).
     //
@@ -45,13 +58,29 @@
         "oxc-transform-react"
       ]
     },
+    // Every package without a block of its own (knip picks ONE config key per
+    // workspace: the deepest match, and a literal key beats a glob at the same
+    // depth). The project is knip's default `**/*` as production code, minus
+    // the `__tests__/` fixtures and helpers only test files reach. Default mode
+    // drops `!pattern!` negations, so it still grades those files. The blocks
+    // below that set no `project` of their own repeat these two patterns.
+    "packages/*": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"]
+    },
     // Define workspaces based on the Turborepo setup
     "apps/web": {
       "entry": [
-        "index.html", // Entry for the web app
-        "src/main.tsx", // Main entry point
-        "src/app/api/assistant/route.ts", // Assistant API route
-        "src/app/api/assistant/status/route.ts", // Assistant status API route
+        // Production: index.html's module script, which imports
+        // ./configure-browser-runtime and ./main. knip's Vite plugin derives
+        // the same entry from index.html; it is listed so the entry is visible
+        // here. The old "index.html" and "src/main.tsx" entries are dropped:
+        // knip has no HTML compiler (only the Vite plugin reads index.html's
+        // module scripts), and entry.ts reaches main.tsx.
+        "src/entry.ts!",
+        // Production: the Vercel functions (vercel.json `functions: api/**/*.ts`).
+        // They import src/app/api/assistant/route.ts and status/route.ts, so
+        // those two are no longer listed as entries.
+        "api/**/*.ts!",
         // Statically analysed instead of loaded; see the `playwright` block below.
         "playwright.config.mts"
       ],
@@ -64,7 +93,8 @@
         "entry": ["e2e/**/*.test.ts", "!e2e/**/__tests__/**"]
       },
       "project": [
-        "src/**/*.{ts,tsx}" // Source files
+        "src/**/*.{ts,tsx}!", // Source files
+        "api/**/*.ts!"
       ],
       "ignore": [
         // Keep specific ignores relevant to this app
@@ -116,10 +146,25 @@
       }
     },
     "apps/desktop": {
+      // Production entries (`!`) are the esbuild entries in
+      // scripts/build-main-config.mjs (MAIN_PROCESS_ENTRY_POINTS, plus the
+      // agent-host platform and windows-command builds) and the renderer that
+      // index.html loads. Each esbuild entry ships as its own dist/*.js that
+      // Electron, utilityProcess.fork or worker_threads loads BY FILE NAME, so
+      // nothing in the module graph imports it.
       "entry": [
-        "src/main.ts", // Electron main process
-        "src/preload.ts", // Electron preload script
-        "src/renderer/main.tsx", // Renderer entry point
+        "src/main-bootstrap.ts!", // dist/main.js, package.json "main"
+        "src/main.ts!", // Electron main process (dist/main-runtime.js)
+        "src/desktop-bootstrap-runtime.ts!",
+        "src/desktop-database-location.ts!",
+        "src/desktop-env.ts!",
+        "src/desktop-shutdown-state.ts!",
+        "src/diagnostics/main-log-transport.ts!",
+        "src/parser-host-entry.ts!",
+        "src/agent-host-platform-entry.ts!", // AGENT_HOST_PLATFORM_BUILD_OPTIONS
+        "src/preload.ts!", // Electron preload script
+        "src/hidden-preload.ts!",
+        "src/renderer/main.tsx!", // Renderer entry point (index.html's module script)
         // Freeze-watchdog worker_threads target. A REAL esbuild entry
         // (scripts/build-main-config.mjs MAIN_PROCESS_ENTRY_POINTS), shipped as
         // the flat `dist/main-watchdog-worker.js` that apps/desktop/package.json
@@ -128,24 +173,24 @@
         // in the module graph reaches it. The build config that names it lives
         // under apps/desktop/scripts/, which the root `scripts/**/*` ignore hides
         // from knip. Contract: docs/agents/platform-contracts.md:1284.
-        "src/diagnostics/main-watchdog-worker.ts",
+        "src/diagnostics/main-watchdog-worker.ts!",
         // Official MCP conformance child-process entry. Like the watchdog, this
         // is a real build-main-config entry invoked by file name from the root
         // driver rather than imported by the desktop module graph.
-        "src/official-conformance-client-entry.ts",
+        "src/official-conformance-client-entry.ts!",
         // Utility-process targets, also MAIN_PROCESS_ENTRY_POINTS; each is forked
         // by its built file name, never imported. The forking module:
-        "src/agent-egress-entry.ts", // src/browser/agent-browsing-route.ts
-        "src/agent-host-entry.ts", // src/host-lease-manager.ts
-        "src/host-lease-entry.ts", // src/host-lease-manager.ts
-        "src/indexer-host-entry.ts", // src/indexer-host-manager.ts
-        "src/sqlite-query-host-entry.ts", // src/sqlite-query-host-manager.ts
+        "src/agent-egress-entry.ts!", // src/browser/agent-browsing-route.ts
+        "src/agent-host-entry.ts!", // src/host-lease-manager.ts
+        "src/host-lease-entry.ts!", // src/host-lease-manager.ts
+        "src/indexer-host-entry.ts!", // src/indexer-host-manager.ts
+        "src/sqlite-query-host-entry.ts!", // src/sqlite-query-host-manager.ts
         // The Windows command wrapper, built by build-main-config.mjs's own
         // windows-command build and launched by file name from
         // src/assistant-server/run-skill-script-tool.ts.
-        "src/windows-command-entry.ts"
+        "src/windows-command-entry.ts!"
       ],
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // logs-page-content.test.tsx imports the real virtualizer inside its mock.
@@ -203,7 +248,7 @@
       }
     },
     "packages/ui": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -220,7 +265,7 @@
       }
     },
     "packages/assistant-ui": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -237,6 +282,7 @@
       }
     },
     "packages/agent-host": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       "entry": [
         // Worker thread: src/host-state-index.ts starts the built file with
         // `new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST))`.
@@ -252,6 +298,7 @@
       ]
     },
     "packages/sqlite-query": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       "entry": [
         // The Node query host: src/process.ts forks the built file with
         // `new URL(transport === 'node' ? './query-host.js' : ..., import.meta.url)`,
@@ -262,19 +309,23 @@
       ]
     },
     "packages/canonical-ingestion": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
       "ignoreDependencies": ["@brainstrike/config"]
     },
     "packages/web-state-store": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
       "ignoreDependencies": ["@brainstrike/config"]
     },
     "packages/host-lease": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // Loaded as `execArgv: ['--import', 'tsx']` by the processes the integration
       // suites fork, never imported. Same class as packages/state-store.
       "ignoreDependencies": ["tsx"]
     },
     "packages/host-capabilities": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // Recorders run by hand (`node <file>`) to regenerate the committed
       // test-utils fixtures committed-host-hook-blocked.json and
       // committed-host-hooks-skipped.json, which agent-host, assistant-ui and
@@ -282,6 +333,7 @@
       "entry": ["__tests__/fixtures/record-*-log.mjs"]
     },
     "packages/indexer": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // scoped-electron.integration.test.ts launches the Electron main fixture by
       // path; it starts the utility fixture with `utilityProcess.fork(path)`.
       "entry": [
@@ -290,6 +342,7 @@
       ]
     },
     "packages/web-writer": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // vitest.config.mts's worker-realm plugin prepends an import of this file,
       // by resolved path, to every worker module under test.
       "entry": ["src/__tests__/fixtures/vitest-worker-realm.ts"],
@@ -297,6 +350,7 @@
       "ignoreDependencies": ["@brainstrike/config"]
     },
     "packages/agent-evals": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // The eval corpus, not package source. src/task.ts loads tasks/<id>/ as
       // data and src/sandbox.ts copies repo/ into a sandbox workspace, then
       // verify/ into <workspace>/.verify/, so a verifier's `../src/x.ts`
@@ -305,6 +359,7 @@
       "ignore": ["tasks/**"]
     },
     "packages/assistant-service": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // Child processes the integration suites spawn by path
       // (`path.join(import.meta.dirname, 'fixtures/<file>')`); each imports
       // fixture-result.mjs.
@@ -315,14 +370,14 @@
       ]
     },
     "packages/assistant-data": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/hooks": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -334,25 +389,26 @@
       }
     },
     "packages/utils": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/types": {
-      "project": ["src/**/*.ts"],
+      "project": ["src/**/*.ts!"],
       "ignore": [],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/config": {
+      // Development entries (no `!`): Playwright and Vitest configs load them.
       "entry": [
         "src/playwright-environment.ts",
         "src/vitest-browser.ts"
       ],
-      "project": ["**/*.{js,json,ts}"],
+      "project": ["**/*.{js,json,ts}!"],
       "ignore": [],
       "ignoreDependencies": ["playwright"],
       "typescript": {
@@ -360,7 +416,7 @@
       }
     },
     "packages/app-shell": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // Used only in tests; app-shell excludes tests from knip project paths
@@ -377,7 +433,7 @@
       }
     },
     "packages/file-explorer": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -389,7 +445,7 @@
       }
     },
     "packages/file-explorer-hooks": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -401,7 +457,7 @@
       }
     },
     "packages/file-explorer-ui": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // Test-only virtualizer mock; excluded from the production source graph.
@@ -414,14 +470,14 @@
       }
     },
     "packages/file-system": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/storage": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // See packages/db: consumed as the relative source path
@@ -434,7 +490,7 @@
       }
     },
     "packages/embedding-worker": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // See packages/db: consumed as the relative source path
@@ -450,12 +506,15 @@
     // binding.gyp — `<!@(node -p "require('node-addon-api').include")` — and knip
     // does not parse gyp files, so no entry/project glob can reach it.
     "packages/secure-fs-native": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       "ignoreDependencies": ["node-addon-api"]
     },
     "packages/windows-job-native": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       "ignoreDependencies": ["node-addon-api"]
     },
     "packages/state-store": {
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
       // Child processes the suites spawn by path (`node --import tsx <file>`,
       // `node <file>.mjs`): writers that are SIGKILLed, lock holders and racing
       // contenders, a read-only reader, the kernel-sync run and its attribution.
@@ -467,26 +526,27 @@
       "ignoreBinaries": ["strace"]
     },
     "packages/app-state": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/settings-ui": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/test-utils": {
+      // Development entries (no `!`): test configs and suites load them.
       "entry": [
         "src/test-timeouts.ts", // Used by vitest configs across the monorepo
         "src/playwright/failure-artifacts.ts",
         "src/vitest.setup.ts"
       ],
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -504,8 +564,8 @@
       }
     },
     "packages/workers": {
-      "entry": ["file-content-worker.ts"],
-      "project": ["*.{ts,tsx}"],
+      "entry": ["file-content-worker.ts!"],
+      "project": ["*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -519,10 +579,10 @@
     "packages/embeddings": {
       "entry": [
         // Explicit entrypoints including CLI
-        "src/index.ts",
-        "src/cli/embed-code.ts"
+        "src/index.ts!",
+        "src/cli/embed-code.ts!"
       ],
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -534,7 +594,7 @@
       }
     },
     "packages/file-import": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // React is a peer dependency for the hooks/components; knip treats it as optional
@@ -546,9 +606,11 @@
     },
     "packages/db": {
       "entry": [
+        // Development entry (no `!`): the root `pnpm queue` script runs it, and
+        // production mode honours only a package's `start` script.
         "src/cli/queue-cli.ts" // CLI entry point used via pnpm queue script
       ],
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -569,7 +631,7 @@
       }
     },
     "packages/platform-utils": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
@@ -578,7 +640,7 @@
     "packages/mcp-test-lab": {
       "entry": ["__tests__/**/*.test.ts"],
       "project": [
-        "src/**/*.ts",
+        "src/**/*.ts!",
         "__tests__/**/*.test.ts"
       ],
       "ignoreDependencies": [
@@ -591,21 +653,21 @@
       }
     },
     "packages/effect-kit": {
-      "project": ["src/**/*.ts"],
+      "project": ["src/**/*.ts!"],
       "ignore": ["**/__tests__/**", "**/*.test.ts"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/context-actions": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/workspace-search": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // Test-only virtualizer mock; excluded from the production source graph.
@@ -618,7 +680,7 @@
       }
     },
     "packages/chunking-worker": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -634,7 +696,7 @@
       }
     },
     "packages/file-tree-worker": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -647,7 +709,7 @@
       }
     },
     "packages/agent": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignoreDependencies": [
         // Hosted bundling inlines workspace logging/tokenization. Their native
         // loaders remain external and resolve from agent, not their source owner.
@@ -665,7 +727,7 @@
       }
     },
     "packages/token-cache": {
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // jsdom is provided by Vitest for environment: 'jsdom' in vitest.config.mts
@@ -731,13 +793,17 @@
     "@effect/language-service"
   ],
   "ignoreExportsUsedInFile": true,
+  // Unused exports and exported types are graded by PRODUCTION mode only (BST-2071).
+  // The default run credits every test import, so an export only a test uses
+  // looks alive there; `knip:production` re-includes both types with `--include`,
+  // and the liveness probe proves it reports a test-only export.
+  //
+  // These were `rules: { exports: "off", types: "off" }` "due to false positives"
+  // (knip 6 split type-only exports into `types` at the 6.24 -> 6.32 bump). A rule
+  // that is "off" drops the issue type in every mode, and no CLI flag can
+  // re-include it; an `exclude` filter is overridden by `--include`.
+  "exclude": ["exports", "types"],
   "rules": {
-    "duplicates": "off", // Keep user's rule setting
-    "exports": "off", // Disable export checking for now due to false positives
-    // knip 6 splits type-only exports out of `exports` into their own `types` rule, so the
-    // 6.24 -> 6.32 bump surfaced 34 "unused exported types" that `exports: off` used to cover.
-    // They are the same false-positive class (public barrel re-exports consumed across package
-    // boundaries), so this tracks the existing `exports` decision rather than making a new one.
-    "types": "off"
+    "duplicates": "off" // Keep user's rule setting
   }
 }
