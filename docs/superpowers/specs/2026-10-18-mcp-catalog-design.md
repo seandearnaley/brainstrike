@@ -155,8 +155,10 @@ An external writer can still race the adjacent check and write; that is acceptab
 Every refusal is a visible failure result with a specific message: unknown
 catalog id, unknown access variant, already configured, config does not parse,
 token missing, token malformed, token not accepted for an OAuth entry, write
-failed, and write failed with the stored token not removed. No fallback endpoint,
-no silent overwrite, no partial state left behind without being reported.
+failed, write failed with the stored token not removed, a write on a stale base
+(the config changed on disk since it was read), and an install whose config
+changed while installing. No fallback endpoint, no silent overwrite, no partial
+state left behind without being reported.
 
 ## 6. Testing
 

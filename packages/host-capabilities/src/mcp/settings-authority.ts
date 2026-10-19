@@ -37,6 +37,7 @@ import {
   type ResolvedMcpConfig,
 } from './config-file.js';
 import { toMcpConfigStatus } from './config-status.js';
+import { type McpConfigWriteSync, syncFailureError } from './config-sync.js';
 import {
   clearStoredMcpExtensionPreferences,
   type McpExtensionPreferencesStore,
@@ -318,8 +319,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
 
   /**
    * Commits an install's config text. The stored token stays only once the
-   * file that references it was written: a refused or failed write, or a commit
-   * that throws before writing, removes the token and reports a failed removal.
+   * file that references it was written (`writeText` resolved success): a
+   * refused or failed write, or a `writeText` that throws, removes the token
+   * and reports a failed removal.
    */
   async #commitInstallText(
     entry: McpCatalogEntry,
@@ -328,27 +330,34 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     baseRevision: string,
     lifecycleEpoch: number
   ): Promise<McpConfigWriteResult> {
-    let written = false;
-    let result: McpConfigWriteResult;
+    let committed: McpConfigWriteSync;
     try {
-      result = await this.#commitConfigText(content, baseRevision, lifecycleEpoch, {
-        conflict: `The MCP config changed while installing ${entry.name}; nothing was installed. Try again.`,
-        onWritten: () => {
-          written = true;
-        },
-      });
+      committed = await this.#writeAndSync(
+        content,
+        baseRevision,
+        lifecycleEpoch,
+        `The MCP config changed while installing ${entry.name}; nothing was installed. Try again.`
+      );
     } catch (error) {
-      if (written || credential === undefined) {
+      if (credential === undefined) {
         throw error;
       }
       const removalFailure = await this.#removeUnwrittenToken(entry, credential);
       const removal = removalFailure ?? `the stored ${entry.name} token was removed`;
       throw new Error(`${errorMessage(error)}; ${removal}`, { cause: error });
     }
+    const { result, syncFailure } = committed;
     if (result.success || credential === undefined) {
+      if (syncFailure !== undefined) {
+        throw syncFailureError(result, syncFailure);
+      }
       return result;
     }
     const removalFailure = await this.#removeUnwrittenToken(entry, credential);
+    if (syncFailure !== undefined) {
+      const removal = removalFailure ?? `the stored ${entry.name} token was removed`;
+      throw syncFailureError(result, syncFailure, removal);
+    }
     return removalFailure === undefined
       ? result
       : { ...result, error: `${result.error}; ${removalFailure}` };
@@ -821,19 +830,33 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     await this.#applyConfigChange(config, loadEpoch, lifecycleEpoch);
   }
 
-  /**
-   * Writes config text on this lifecycle while the file still has
-   * `baseRevision`, and reloads it; the watcher pauses across the write.
-   * `onWritten` runs once the file holds `content`, so a caller can tell a
-   * failure before the write from one after it. `conflict` words a stale base
-   * for the caller. A watcher that cannot restart never hides a failed write.
-   */
+  /** Commits editor text: a failed sync step after the write is thrown. */
   async #commitConfigText(
     content: string,
     baseRevision: string,
-    lifecycleEpoch: number,
-    { conflict, onWritten }: { readonly conflict?: string; readonly onWritten?: () => void } = {}
+    lifecycleEpoch: number
   ): Promise<McpConfigWriteResult> {
+    const { result, syncFailure } = await this.#writeAndSync(content, baseRevision, lifecycleEpoch);
+    if (syncFailure !== undefined) {
+      throw syncFailureError(result, syncFailure);
+    }
+    return result;
+  }
+
+  /**
+   * Writes config text on this lifecycle while the file still has
+   * `baseRevision`; the watcher pauses across the write. After a write, or a
+   * conflict (the file changed on disk), the runtime reloads the file. A
+   * `writeText` that throws propagates, since nothing was written; a sync step
+   * that throws afterwards is returned with the write's result. `conflict`
+   * words a stale base for the caller.
+   */
+  async #writeAndSync(
+    content: string,
+    baseRevision: string,
+    lifecycleEpoch: number,
+    conflict?: string
+  ): Promise<McpConfigWriteSync> {
     const restartWatcher = this.#unwatch !== null;
     this.#stopWatcher();
     const written = await this.options.configFile.writeText(content, baseRevision);
@@ -841,27 +864,25 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       !written.success && written.conflict && conflict !== undefined
         ? { ...written, error: conflict }
         : written;
-    if (result.success) {
-      onWritten?.();
-    }
     if (restartWatcher) {
       try {
         await this.#restartWatcherForLifecycle(lifecycleEpoch);
       } catch (error) {
-        if (result.success) {
-          throw error;
-        }
-        throw new Error(
-          `${result.error}; the MCP config watcher could not restart: ${errorMessage(error)}`,
-          { cause: error }
-        );
+        return { result, syncFailure: { error, step: 'the MCP config watcher could not restart' } };
       }
+    }
+    if (!(result.success || result.conflict)) {
+      return { result };
     }
     if (result.success) {
       logger.info('MCP config text updated', { path: result.path });
-      await this.#reloadForLifecycle(lifecycleEpoch);
     }
-    return result;
+    try {
+      await this.#reloadForLifecycle(lifecycleEpoch);
+    } catch (error) {
+      return { result, syncFailure: { error, step: 'the MCP config could not be reloaded' } };
+    }
+    return { result };
   }
 
   #applyConfigPath(resolvedConfigPath: string | null): Promise<HostResults['mcp/config/path/set']> {

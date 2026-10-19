@@ -301,7 +301,6 @@ describe('MCP catalog install', () => {
   it('refuses an install when the config changes while its token is stored, and removes the token', async () => {
     const h = await started();
     editWhileStoringToken(h);
-    const commits = h.replaceResolvedConfig.mock.calls.length;
 
     await expect(
       h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
@@ -314,7 +313,9 @@ describe('MCP catalog install', () => {
     expect(h.bearer.writer.delete).toHaveBeenCalledOnce();
     expect(h.bearer.stored.size).toBe(0);
     expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);
-    expect(h.replaceResolvedConfig).toHaveBeenCalledTimes(commits);
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
   });
 
   it('reports both failures when a conflicted install cannot remove its token', async () => {
@@ -369,7 +370,7 @@ describe('MCP catalog install', () => {
     expect(failure).toMatchObject({
       message: `${GITHUB_CONFLICT}; the MCP config watcher could not restart: watch failed; the stored GitHub token was removed`,
     });
-    expect((failure as Error).cause).toMatchObject({ cause: watchFailure });
+    expect((failure as Error).cause).toBe(watchFailure);
     expect(h.bearer.writer.delete).toHaveBeenCalledOnce();
     expect(h.bearer.stored.size).toBe(0);
     expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);

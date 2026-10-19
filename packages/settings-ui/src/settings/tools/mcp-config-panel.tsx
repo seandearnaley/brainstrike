@@ -41,6 +41,10 @@ interface McpPanelState {
   pathDraft: string;
   reloadConfirm: ReloadConfirmReason | null;
   savedValue: string;
+  /** A save is in flight; the next one waits, since it would name the same base. */
+  saving: boolean;
+  /** A save found the file changed on disk: every retry on this base conflicts until a reload. */
+  staleBase: boolean;
   statusMessage: string | null;
   statusTone: McpConfigStatusTone;
 }
@@ -64,6 +68,9 @@ type McpPanelAction =
   | { type: 'CLEAR_MESSAGES' }
   | { type: 'SHOW_RELOAD_CONFIRM'; reason: ReloadConfirmReason }
   | { type: 'HIDE_RELOAD_CONFIRM' }
+  | { type: 'SAVE_STARTED' }
+  | { type: 'SAVE_SETTLED' }
+  | { type: 'SAVE_CONFLICT'; message: string }
   | { type: 'SAVE_SUCCESS'; value: string; revision: string };
 
 const initialState: McpPanelState = {
@@ -75,6 +82,8 @@ const initialState: McpPanelState = {
   pathDraft: '',
   reloadConfirm: null,
   savedValue: '',
+  saving: false,
+  staleBase: false,
   statusMessage: null,
   statusTone: 'success',
 };
@@ -104,6 +113,7 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
         pathDraft: action.path,
         reloadConfirm: null,
         savedValue: action.content,
+        staleBase: false,
         statusMessage: action.created
           ? 'Created a new MCP config template with commented examples.'
           : null,
@@ -130,6 +140,18 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
       return { ...state, reloadConfirm: action.reason };
     case 'HIDE_RELOAD_CONFIRM':
       return { ...state, reloadConfirm: null };
+    case 'SAVE_STARTED':
+      return {
+        ...state,
+        errorMessage: null,
+        saving: true,
+        statusMessage: null,
+        statusTone: 'success',
+      };
+    case 'SAVE_SETTLED':
+      return { ...state, saving: false };
+    case 'SAVE_CONFLICT':
+      return { ...state, errorMessage: action.message, staleBase: true, statusMessage: null };
     case 'SAVE_SUCCESS':
       return {
         ...state,
@@ -164,6 +186,8 @@ export function McpConfigPanel({
     statusTone,
     errorMessage,
     reloadConfirm,
+    saving,
+    staleBase,
   } = state;
 
   const editorAvailable = useMemo(
@@ -182,8 +206,9 @@ export function McpConfigPanel({
   }, [operations.readMcpConfigText]);
 
   const hasUnsavedChanges = editorValue !== savedValue;
-  // A save names the revision it read, so Save waits for a loaded document.
-  const canSave = !loading && hasUnsavedChanges && baseRevision !== null;
+  // A save names the revision it read, so Save waits for a loaded document, for
+  // the save in flight, and after a conflict for a reload.
+  const canSave = !(loading || saving || staleBase) && hasUnsavedChanges && baseRevision !== null;
   // An install settles after the click that captured its callback; it reads the latest dirty state.
   const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
 
@@ -329,11 +354,14 @@ export function McpConfigPanel({
     const editorRevision = editorRevisionRef.current;
     const ownsFeedback = (): boolean =>
       request === documentRequestRef.current && editorRevision === editorRevisionRef.current;
-    const reportSaveFailure = (message: string): void => {
+    const reportSaveFailure = (message: string, conflict: boolean): void => {
       if (request !== documentRequestRef.current) {
         return;
       }
-      if (ownsFeedback()) {
+      if (conflict) {
+        // The file changed whatever was typed meanwhile, so the message applies to these edits.
+        dispatch({ message, type: 'SAVE_CONFLICT' });
+      } else if (ownsFeedback()) {
         dispatch({ message, type: 'SET_ERROR' });
       } else {
         dispatch({
@@ -344,15 +372,17 @@ export function McpConfigPanel({
       }
     };
     let result: Awaited<ReturnType<typeof writeMcpConfigText>>;
+    dispatch({ type: 'SAVE_STARTED' });
     try {
-      dispatch({ type: 'CLEAR_MESSAGES' });
       result = await writeMcpConfigText(editorValue, baseRevision);
     } catch (error) {
-      reportSaveFailure(errorMessageOr(error, 'Failed to save MCP config'));
+      reportSaveFailure(errorMessageOr(error, 'Failed to save MCP config'), false);
       return;
+    } finally {
+      dispatch({ type: 'SAVE_SETTLED' });
     }
     if (!result.success) {
-      reportSaveFailure(result.error);
+      reportSaveFailure(result.error, result.conflict === true);
       return;
     }
     if (request === documentRequestRef.current) {

@@ -250,14 +250,13 @@ describe('MCP settings authority config text and path', () => {
     expect(existsSync(h.configPath)).toBe(false);
   });
 
-  it('refuses a stale base without writing, reloading or replacing the runtime config', async () => {
+  it('refuses a stale base without writing, and commits the changed file to the runtime', async () => {
     const h = await setup();
     await h.writeConfig([stdioServer('before')]);
     await h.authority.start();
     const { revision } = await h.authority.readConfigText();
     await h.writeConfig([stdioServer('external')]);
     const external = await readFile(h.configPath, 'utf8');
-    const commits = h.replaceResolvedConfig.mock.calls.length;
 
     await expect(
       h.authority.writeConfigText({
@@ -267,8 +266,30 @@ describe('MCP settings authority config text and path', () => {
     ).resolves.toEqual({ conflict: true, error: CONFLICT, path: h.configPath, success: false });
 
     expect(await readFile(h.configPath, 'utf8')).toBe(external);
-    expect(h.replaceResolvedConfig).toHaveBeenCalledTimes(commits);
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
     expect(h.activeWatcher()).toBeDefined();
+  });
+
+  it('reports a refused write first when the runtime then cannot reload the changed file', async () => {
+    const h = await setup();
+    await h.writeConfig([stdioServer('before')]);
+    await h.authority.start();
+    const { revision } = await h.authority.readConfigText();
+    await h.writeConfig([stdioServer('external')]);
+    const reloadFailure = new Error('runtime refused the config');
+    h.replaceResolvedConfig.mockRejectedValueOnce(reloadFailure);
+
+    await expect(
+      h.authority.writeConfigText({
+        baseRevision: revision,
+        content: JSON.stringify({ servers: [stdioServer('mine')] }),
+      })
+    ).rejects.toMatchObject({
+      cause: reloadFailure,
+      message: `${CONFLICT}; the MCP config could not be reloaded: runtime refused the config`,
+    });
   });
 
   it('reports a refused write first when the watcher then cannot restart', async () => {
