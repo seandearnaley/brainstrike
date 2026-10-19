@@ -19,6 +19,8 @@ export const DESKTOP_SMOKE_EXCLUSIONS = Object.freeze({
     'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
   'ubuntu-24.04-arm':
     'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
+  'windows-2025':
+    'BST-2237: on hosted run 39316808845 the BST-2234 fix let the launcher recognize its own host, and two smoke tests passed; agent host startup then failed with "Windows host privacy command timed out", the 5 s powershell.exe ACL verify that liveLease runs on every check. The BST-2237 native check turns this leg back on.',
 });
 
 export function selectNativePackageTargets(platform = 'all') {
