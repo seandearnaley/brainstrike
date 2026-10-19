@@ -1,4 +1,3 @@
-import './agent-host-compile-cache';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
