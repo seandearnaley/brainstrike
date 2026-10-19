@@ -136,6 +136,61 @@ it.each([false, true])(
   }
 );
 
+/** An error as the logger keeps it: each nested failure with its own message. */
+interface LoggedError {
+  readonly errors?: readonly LoggedError[];
+  readonly message: string;
+}
+
+it('a failed private close logs every inner failure in Main and sends the host the typed internal fault (BST-2192)', async () => {
+  // Hosted run 39164110759: the host's close got only "Desktop platform capability
+  // cleanup failed", kept its Root, and never exited. Nothing said which retirement failed.
+  const workspace = new Error('Workspace close failed');
+  const native = new Error('Native Root retirement failed');
+  const closeRoot = vi.fn(async (): Promise<void> => {
+    throw new AggregateError(
+      [workspace, native],
+      'Desktop workspace and native Root retirement failed'
+    );
+  });
+  const records: LogRecord[] = [];
+  const unsubscribe = addLogListener((record) => records.push(record));
+  const f = harness(mainReads(), closeRoot);
+  try {
+    const failure = await f.client
+      .sendRequest('platform/close', {})
+      .catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(ResponseError);
+    const response = failure as ResponseError<unknown>;
+    expect(response.data).toEqual({ ...INTERNAL_FAULT, correlationId: expect.any(String) });
+    const correlationId = (response.data as { correlationId: string }).correlationId;
+    const logged = records.find(
+      (record) =>
+        record.level === 'error' &&
+        record.args.some(
+          (arg) =>
+            typeof arg === 'object' &&
+            arg !== null &&
+            'correlationId' in arg &&
+            arg.correlationId === correlationId
+        )
+    );
+    expect(logged?.scope).toBe('DesktopMainPlatform');
+    const fields = logged?.args.find(
+      (arg) => typeof arg === 'object' && arg !== null && 'error' in arg
+    ) as { error: LoggedError };
+    expect(fields.error.message).toBe('Desktop platform capability cleanup failed');
+    expect(fields.error.errors?.[0]?.errors?.map((error) => error.message)).toEqual([
+      workspace.message,
+      native.message,
+    ]);
+    await expect(f.owner.close()).rejects.toThrow('Desktop platform capability cleanup failed');
+  } finally {
+    unsubscribe();
+    f.destroy();
+  }
+});
+
 const BINDING = { operatingRootDisplayName: 'Bound', operatingRootId: 'root-bound' };
 
 /** The host borrows a thread's bound workspace for a run. */
