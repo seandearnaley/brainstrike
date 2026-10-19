@@ -30,6 +30,18 @@ and voyage). Its registry runtime is `on-device`, which stays distinct from
 `local` (an Ollama/LM Studio SERVER with a base URL). See
 [local inference](local-inference.md).
 
+Ollama runs on its native `/api/chat` (BST-754), the only route that sizes the
+context per request. Admission reads the model's `/api/show` through Main's
+local runtime catalog. The run's window is the reported
+`<architecture>.context_length`, capped at `DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW`,
+or that default when nothing is reported (`localRuntimeContextWindow`). The
+picker shows the same window. Every call the model makes, titles and
+compaction included, sends it as `num_ctx`, sets `think` from the reported
+capability, and puts sampling settings in `options`. A server that cannot
+describe the model refuses the run. A model whose window cannot hold the run's
+instructions and tools fails as `provider.context-overflow`, naming both
+numbers. LM Studio stays on its OpenAI-compatible route at the default window.
+
 Prepare provider history through
 [the shared request boundary](../../packages/agent/src/provider-request.ts).
 Keep executed tool provenance and OpenAI call/output identities distinct. Native

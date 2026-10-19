@@ -9,6 +9,7 @@ import type {
   LanguageModelV4Middleware,
   LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import type {
   AssistantContextBreakdown,
   AssistantToolCallUsage,
@@ -34,6 +35,7 @@ import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
 } from './providers/generation-settings';
+import type { OllamaModelFacts } from './providers/ollama-chat-model';
 import { classifyOpenAIStoredItemError } from './providers/openai-expired-item';
 import {
   assertProviderRequestBoundaries,
@@ -54,6 +56,7 @@ export {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
 } from './providers/generation-settings';
+export type { OllamaModelFacts } from './providers/ollama-chat-model';
 export {
   isOpenAIStoredItemExpiredError,
   OpenAIStoredItemExpiredError,
@@ -75,6 +78,11 @@ export interface ProviderRequestContext {
   readonly history?: readonly MastraDBMessage[];
   readonly inputTokenLimit?: number;
   readonly interruptedToolCallIds?: ReadonlySet<string>;
+  /**
+   * BST-754: an Ollama run's admitted window and thinking capability, which
+   * its model sends with every call (`num_ctx`, `think`).
+   */
+  readonly localModel?: OllamaModelFacts;
   readonly provider: SupportedProvider;
   readonly rewrites?: ReadonlyMap<string, ToolProjectionRewriteEntry>;
   readonly runtimeData?: Pick<RuntimeData, 'model' | 'modelSettings' | 'providerOptions'>;
@@ -238,8 +246,13 @@ export function preparedPromptBreakdown(
   };
 }
 
-export class ProviderRequestContextOverflowError extends Error {
-  readonly code = 'provider_request_context_overflow';
+/**
+ * The request does not fit the selected model's input budget. Core recovers it
+ * by compacting; when nothing can be dropped (a model whose window cannot hold
+ * the run's own instructions and tools), the run fails with this refusal,
+ * naming both numbers (BST-754: a small local model is now budgeted honestly).
+ */
+export class ProviderRequestContextOverflowError extends BoundaryFailureError {
   readonly retryable = false;
 
   constructor(
@@ -247,7 +260,15 @@ export class ProviderRequestContextOverflowError extends Error {
     readonly inputTokenLimit: number,
     options?: ErrorOptions
   ) {
-    super('The protected provider prompt exceeds the selected input token limit.', options);
+    super(
+      refusal({
+        category: 'configuration',
+        code: 'provider.context-overflow',
+        message: `This request needs about ${accounting.totalTokens.toLocaleString('en-US')} input tokens, but the selected model accepts ${inputTokenLimit.toLocaleString('en-US')}.`,
+        remedy: 'Choose a model with a larger context window, or start a new thread.',
+      }),
+      options
+    );
     this.name = 'ProviderRequestContextOverflowError';
   }
 }

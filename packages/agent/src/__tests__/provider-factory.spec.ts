@@ -90,13 +90,13 @@ describe('provider-factory', () => {
       expect(model.modelId).toBe('z-ai/glm-5.2');
     });
 
-    it('creates Ollama provider with custom model', () => {
-      expect(createProvider('ollama', undefined, 'qwen2.5:latest')).toEqual({
-        apiKey: 'ollama',
-        modelId: 'qwen2.5:latest',
-        providerId: 'ollama',
-        url: 'http://127.0.0.1:11434/v1',
-      });
+    it('creates an Ollama model on its native chat route (BST-754, ollama-chat-model.spec.ts)', () => {
+      expect(
+        createProvider('ollama', undefined, 'qwen2.5:latest', undefined, {
+          contextWindow: 32_768,
+          thinking: false,
+        })
+      ).toMatchObject({ modelId: 'qwen2.5:latest', specificationVersion: 'v4' });
     });
 
     it('creates LM Studio provider with custom model', () => {
@@ -112,7 +112,6 @@ describe('provider-factory', () => {
     // its router normalizes that to the same `provider/model` route as the
     // older `{ id }` shape. Observe the actual routed request, not the shape.
     describe.each([
-      { model: 'qwen2.5:latest', runtime: 'ollama', url: 'http://127.0.0.1:11434/v1' },
       { model: 'qwen2.5', runtime: 'lmstudio', url: 'http://127.0.0.1:1234/v1' },
     ] as const)('$runtime model config through the Mastra router', ({ model, runtime, url }) => {
       afterEach(() => {

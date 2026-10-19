@@ -5,13 +5,13 @@ import {
   type BedrockProviderOptions,
   DESKTOP_NATIVE_TOOL_IDS,
   type DesktopNativeToolId,
-  DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
   deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
   findLlmModelDefinition,
   type GoogleProviderOptions,
   getLlmModelDefinition,
   listProviderLlmModels,
+  localRuntimeContextWindow,
   memoryCredentialRequiredReason,
   mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
@@ -878,12 +878,12 @@ export function toRuntimeProviderModels(
 
   const llmCandidates = runtimeState.models.filter((model) => model.capabilities.llm);
   return llmCandidates.map((model, index) => ({
-    // Conservative floor: user-supplied local models don't declare their context window.
-    // This intentionally under-budgets large models (a 128k model gets a 32k budget — safe).
-    // For small models (e.g. a 4k-context quantized GGUF) it over-estimates: the agent may
-    // compose prompts larger than the model holds. Accepted tradeoff — the local server's
-    // own context cap is the real enforcement on that path.
-    contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+    // BST-754: the window run admission budgets and Ollama allocates (num_ctx):
+    // the model's reported native context, capped at the documented default,
+    // or that default where the runtime reports none (LM Studio, old Ollama).
+    contextWindow: localRuntimeContextWindow(
+      model.contextLength?.state === 'reported' ? model.contextLength.tokens : undefined
+    ).tokens,
     default: index === 0,
     id: model.modelId,
     label: model.displayName,

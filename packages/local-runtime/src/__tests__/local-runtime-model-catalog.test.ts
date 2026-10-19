@@ -498,6 +498,7 @@ describe('local-runtime-model-catalog', () => {
         expect(init.body).toBe(JSON.stringify({ model: 'qwen2.5:latest' }));
         return jsonResponse({
           capabilities: ['completion', 'tools', 'thinking', 'unknown-future'],
+          model_info: { 'general.architecture': 'qwen2', 'qwen2.context_length': 32_768 },
         });
       }
       return new Response('missing', { status: 404 });
@@ -520,6 +521,12 @@ describe('local-runtime-model-catalog', () => {
     expect(result.tools).toBe(true);
     expect(result.thinking).toBe(true);
     expect(result.vision).toBe(false);
+    // BST-754: the native context Ollama reports, read through its architecture.
+    expect(result.contextLength).toEqual({
+      key: 'qwen2.context_length',
+      state: 'reported',
+      tokens: 32_768,
+    });
 
     // Second call within TTL should be served from the cache without re-fetching.
     await service.resolveOllamaCapabilities('qwen2.5:latest');

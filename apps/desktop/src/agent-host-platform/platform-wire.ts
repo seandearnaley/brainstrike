@@ -257,6 +257,42 @@ export const PlatformCatalogModelSchema = Schema.Struct({ model: Id, provider: I
 export const PlatformCatalogModelResultSchema = Schema.NullOr(
   Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id })
 );
+/**
+ * BST-754: what admission asks Main's local runtime catalog about the selected
+ * Ollama model (its `/api/show`), at the run configuration's endpoint.
+ */
+export const PlatformLocalModelSchema = Schema.Struct({
+  endpoint: Schema.optional(
+    Schema.Struct({
+      apiToken: Schema.optional(Schema.String),
+      baseUrl: Schema.optional(Schema.String),
+    })
+  ),
+  model: Id,
+});
+const ContextTokens = Schema.Int.check(Schema.isGreaterThan(0));
+export const PlatformLocalModelResultSchema = Schema.Union([
+  Schema.Struct({
+    contextLength: Schema.Union([
+      Schema.Struct({
+        key: Schema.String,
+        state: Schema.Literal('reported'),
+        tokens: ContextTokens,
+      }),
+      Schema.Struct({ state: Schema.Literal('unreported') }),
+      Schema.Struct({ detail: Schema.String, state: Schema.Literal('malformed') }),
+    ]),
+    endpoint: Schema.String,
+    state: Schema.Literal('resolved'),
+    thinking: Schema.Boolean,
+  }),
+  Schema.Struct({
+    endpoint: Schema.String,
+    message: Schema.String,
+    state: Schema.Literal('unavailable'),
+  }),
+]);
+export type PlatformLocalModel = (typeof PlatformLocalModelResultSchema)['Type'];
 export const PlatformObserverCandidatesSchema = Schema.Struct({
   candidates: Schema.mutable(Schema.Array(Id)),
 });

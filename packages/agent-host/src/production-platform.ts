@@ -159,14 +159,16 @@ export interface ProductionHostPlatformOptions {
 }
 function rootModel(
   configuration: RuntimeData,
-  auth: ProviderAuthInput | undefined
+  auth: ProviderAuthInput | undefined,
+  localModel: ProviderRequestContext['localModel']
 ): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(
     selected.provider,
     selected.authInput,
     selected.runtime.model,
-    selected.runtime
+    selected.runtime,
+    localModel
   );
   return materializeHostProviderModel(model);
 }
@@ -196,13 +198,13 @@ async function admittedProviderAuth(
 /** The run's concrete model. */
 async function admittedModel(
   options: Pick<ProductionHostPlatformOptions, 'resolveModel'>,
-  selected: Pick<ProductionHostRunConfiguration, 'configuration'>,
+  selected: Pick<ProductionHostRunConfiguration, 'configuration' | 'providerRequestContext'>,
   auth: ProviderAuthInput | undefined
 ): Promise<Exclude<LanguageModel, string>> {
   const { configuration } = selected;
   return options.resolveModel
     ? await options.resolveModel(configuration, auth)
-    : rootModel(configuration, auth);
+    : rootModel(configuration, auth, selected.providerRequestContext.localModel);
 }
 function unavailableMcpServers(
   borrowed: HostMcpToolSelection | undefined

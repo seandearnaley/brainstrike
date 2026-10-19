@@ -19,6 +19,7 @@ import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { resolveOllamaModelForAdmission } from '../ipc-runtime';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
@@ -137,6 +138,17 @@ function desktopAdmissionReads(
     },
     liveWorkspaceRoots: async () =>
       await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots),
+    localRuntimeModel: async ({ endpoint, model }, signal) => {
+      const result = await resolveOllamaModelForAdmission(model, endpoint, signal);
+      return result.state === 'resolved'
+        ? {
+            contextLength: result.contextLength,
+            endpoint: result.endpoint,
+            state: 'resolved',
+            thinking: result.thinking,
+          }
+        : { endpoint: result.endpoint, message: result.message, state: 'unavailable' };
+    },
     memoryVectors: async (settings, signal) =>
       await resolveDesktopMemoryVectors(settings, {
         readDimensions: async (provider, modelId) =>

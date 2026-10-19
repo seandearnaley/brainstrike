@@ -56,6 +56,7 @@ import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
+  PlatformLocalModelResultSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformRewindConflictsSchema,
@@ -190,6 +191,11 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/roots', {}, signal)),
+    localRuntimeModel: async (target, signal) =>
+      Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/admission/local-model', target, signal)),
     memoryVectors: async (settings, signal) => {
       const resolved = Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
         errors: 'all',
@@ -290,10 +296,14 @@ export async function createDesktopHostConfiguration(
   }
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
-  const runAdmission = createDesktopRunAdmission(mainAdmissionReads(request), async () => {
-    const saved = await readHostPermissionPolicy(startup.store);
-    return saved ? hostPermissionGate(saved) : undefined;
-  });
+  const runAdmission = createDesktopRunAdmission(
+    mainAdmissionReads(request),
+    async () => {
+      const saved = await readHostPermissionPolicy(startup.store);
+      return saved ? hostPermissionGate(saved) : undefined;
+    },
+    (provider, origin) => host.auth.resolveProviderAuth(provider, origin)
+  );
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
     credentials: {
@@ -430,6 +440,7 @@ export async function createDesktopHostConfiguration(
         memory,
         providerRequestContext: {
           inputTokenLimit: selected.inputTokenLimit,
+          ...(selected.localModel ? { localModel: selected.localModel } : {}),
           provider,
           runtimeData: configuration,
         },
