@@ -64,5 +64,15 @@ test('the workflow uses the selector for its actual matrix and keeps full schedu
   const selection = workflow.jobs['select-targets'].steps.find((step) => step.id === 'select');
   assert.equal(selection.env.TARGET_PLATFORM, actions("inputs.platform || 'all'"));
   assert.match(selection.run, /node scripts\/native-package-targets\.mjs "\$TARGET_PLATFORM"/);
-  assert.deepEqual(workflow.on.schedule, [{ cron: '41 9 * * *' }]);
+  // BST-2233: the scheduled nightly.yml calls this workflow with no platform,
+  // so `inputs.platform` is empty and the night covers every target.
+  assert.equal(workflow.on.schedule, undefined);
+  assert.equal(workflow.on.workflow_call?.inputs?.platform, undefined);
+  const nightly = parse(readFileSync(path.join(root, '.github/workflows/nightly.yml'), 'utf8'));
+  const calls = Object.values(nightly.jobs).filter(
+    (job) => job.uses === './.github/workflows/native-package-matrix.yml'
+  );
+  assert.equal(calls.length, 1, 'nightly.yml calls the matrix once');
+  assert.equal(calls[0].with, undefined, 'the nightly call passes no platform');
+  assert.ok(nightly.on.schedule, 'nightly.yml runs on a schedule');
 });

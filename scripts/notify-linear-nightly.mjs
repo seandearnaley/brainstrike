@@ -103,7 +103,8 @@ const ADD_LABEL_MUTATION = `mutation ($id: String!, $labelId: String!) {
   issueAddLabel(id: $id, labelId: $labelId) { success }
 }`;
 
-function parseResults(raw) {
+/** `job=result,...` into its entries; scripts/nightly-results-artifacts.mjs reads the same input. */
+export function parseResults(raw) {
   return raw.split(',').map((entry) => {
     const separator = entry.indexOf('=');
     if (separator < 1) {

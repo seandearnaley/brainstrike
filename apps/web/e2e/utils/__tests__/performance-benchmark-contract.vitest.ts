@@ -54,9 +54,26 @@ function assertModelSwitchCoverageOwnership(vitestConfig: string): void {
   }
 }
 
-function assertScheduledPerformanceOwner(performanceWorkflow: string): void {
-  if (!performanceWorkflow.includes("on:\n  schedule:\n    - cron: '")) {
-    throw new Error('BST-369 coverage ownership requires the scheduled performance workflow.');
+// BST-2233: nightly.yml owns the schedule and calls performance.yml, so every
+// night's performance run builds the same commit as the other required nightlies.
+function assertScheduledPerformanceOwner(
+  performanceWorkflow: string,
+  nightlyWorkflow: string
+): void {
+  if (
+    !(
+      /^on:\n(?: {2}#.*\n)* {2}schedule:\n {4}- cron: '/mu.test(nightlyWorkflow) &&
+      nightlyWorkflow.includes('uses: ./.github/workflows/performance.yml')
+    )
+  ) {
+    throw new Error(
+      'BST-369 coverage ownership requires the scheduled nightly to call performance.yml.'
+    );
+  }
+  if (!/^on:\n(?: {2}.*\n|\n)*? {2}workflow_call:/mu.test(performanceWorkflow)) {
+    throw new Error(
+      'BST-369 coverage ownership requires performance.yml to accept the nightly call.'
+    );
   }
   const performanceStep = /- name: Run performance tests[\s\S]*?- name: Upload blob report/u.exec(
     performanceWorkflow
@@ -170,6 +187,7 @@ describe('performance benchmark measurement contracts', () => {
       embeddingWorkerPackageSource,
       hookSource,
       performanceWorkflow,
+      nightlyWorkflow,
       probeSource,
       vitestConfig,
       workerSource,
@@ -182,6 +200,7 @@ describe('performance benchmark measurement contracts', () => {
       readFile(path.join(process.cwd(), '../../packages/embedding-worker/package.json'), 'utf8'),
       readFile(path.join(process.cwd(), 'src/web-e2e-test-hooks.tsx'), 'utf8'),
       readFile(path.join(process.cwd(), '../../.github/workflows/performance.yml'), 'utf8'),
+      readFile(path.join(process.cwd(), '../../.github/workflows/nightly.yml'), 'utf8'),
       readFile(path.join(process.cwd(), 'src/embedding-model-switch-memory-probe.ts'), 'utf8'),
       readFile(path.join(process.cwd(), 'vitest.config.mts'), 'utf8'),
       readFile(
@@ -237,13 +256,14 @@ describe('performance benchmark measurement contracts', () => {
     expect(playwrightConfig).toContain("testMatch: '**/performance/*.test.ts'");
     expect(performanceWorkflow).toContain("default: 'performance'");
     assertModelSwitchCoverageOwnership(vitestConfig);
-    assertScheduledPerformanceOwner(performanceWorkflow);
+    assertScheduledPerformanceOwner(performanceWorkflow, nightlyWorkflow);
   });
 
   it('fails closed when coverage broadens or the scheduled owner narrows', async () => {
-    const [vitestConfig, performanceWorkflow] = await Promise.all([
+    const [vitestConfig, performanceWorkflow, nightlyWorkflow] = await Promise.all([
       readFile(path.join(process.cwd(), 'vitest.config.mts'), 'utf8'),
       readFile(path.join(process.cwd(), '../../.github/workflows/performance.yml'), 'utf8'),
+      readFile(path.join(process.cwd(), '../../.github/workflows/nightly.yml'), 'utf8'),
     ]);
 
     expect(() =>
@@ -254,15 +274,32 @@ describe('performance benchmark measurement contracts', () => {
 
     expect(() =>
       assertScheduledPerformanceOwner(
-        performanceWorkflow.replace('  schedule:\n', '  disabled-schedule:\n')
+        performanceWorkflow,
+        nightlyWorkflow.replace('  schedule:\n', '  disabled-schedule:\n')
       )
-    ).toThrow('requires the scheduled performance workflow');
+    ).toThrow('requires the scheduled nightly to call performance.yml');
+    expect(() =>
+      assertScheduledPerformanceOwner(
+        performanceWorkflow,
+        nightlyWorkflow.replace(
+          'uses: ./.github/workflows/performance.yml',
+          'uses: ./.github/workflows/web-e2e.yml'
+        )
+      )
+    ).toThrow('requires the scheduled nightly to call performance.yml');
+    expect(() =>
+      assertScheduledPerformanceOwner(
+        performanceWorkflow.replace('  workflow_call:\n', '  disabled-call:\n'),
+        nightlyWorkflow
+      )
+    ).toThrow('requires performance.yml to accept the nightly call');
     expect(() =>
       assertScheduledPerformanceOwner(
         performanceWorkflow.replace(
           PERFORMANCE_PROJECT_FALLBACK,
           `PERF_PROJECT: ${githubExpression("github.event.inputs.project || 'functional'")}`
-        )
+        ),
+        nightlyWorkflow
       )
     ).toThrow('must select the performance project');
     expect(() =>
@@ -270,7 +307,8 @@ describe('performance benchmark measurement contracts', () => {
         performanceWorkflow.replace(
           EMPTY_PERFORMANCE_GREP_FALLBACK,
           `PERF_GREP: ${githubExpression("github.event.inputs.grep || 'smoke'")}`
-        )
+        ),
+        nightlyWorkflow
       )
     ).toThrow('must default to an empty grep');
     expect(() =>
@@ -278,7 +316,8 @@ describe('performance benchmark measurement contracts', () => {
         performanceWorkflow.replace(
           'pnpm exec playwright test --project="$PERF_PROJECT"\n          fi',
           'pnpm exec playwright test --project="$PERF_PROJECT" -g "forced"\n          fi'
-        )
+        ),
+        nightlyWorkflow
       )
     ).toThrow('must retain the unfiltered project fallback');
   });
