@@ -15,7 +15,7 @@ const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import
 function integrationStepCommands(source) {
   const commands = [];
   for (const match of source.matchAll(
-    /- name: (?:Pull request affected|Push and manual) integration tests[\s\S]*?\n\s+run: ([^\n]+)/gu
+    /- name: (?:Affected|Push and manual) integration tests[\s\S]*?\n\s+run: ([^\n]+)/gu
   )) {
     commands.push(match[1]?.trim());
   }
@@ -73,7 +73,7 @@ test('all required unit and integration steps run through the fatal classifier',
     command.startsWith(DISPLAY_WRAPPER) ? command.slice(DISPLAY_WRAPPER.length) : command
   );
   for (const match of workflow.matchAll(
-    /- name: (?:Pull request affected|Push and manual) unit tests[\s\S]*?\n\s+run: ([^\n]+)/gu
+    /- name: (?:Affected|Push and manual) unit tests[\s\S]*?\n\s+run: ([^\n]+)/gu
   )) {
     commands.push(match[1]?.trim());
   }
