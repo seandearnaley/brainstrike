@@ -1,7 +1,6 @@
 import { providerDeprecatedEnvKeys, providerEnvKeys } from '@brainstrike/agent/hosted-web';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  getAssistantApiKey,
   HOSTED_WEB_ASSISTANT_PROVIDERS,
   resetHostedWebDeprecatedEnvVarsForTests,
   resolveAssistantProviderConfig,
@@ -69,7 +68,6 @@ describe('assistant-config', () => {
       provider: 'openai',
       source: 'BRAINSTRIKE_OPENAI_API_KEY',
     });
-    expect(getAssistantApiKey('openai')).toBe('brainstrike');
   });
 
   it('trims env values and skips empty strings', () => {
@@ -199,6 +197,5 @@ describe('assistant-config', () => {
       enabled: false,
       provider: 'anthropic',
     });
-    expect(getAssistantApiKey('anthropic')).toBeUndefined();
   });
 });

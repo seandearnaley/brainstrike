@@ -37,8 +37,11 @@ describe('web log-buffer', () => {
     logBufferInstances.length = 0;
   });
 
-  it('creates a singleton buffer and exposes pause/resume helpers', async () => {
+  it('creates a singleton buffer that bulk operations pause and resume', async () => {
     const module = await import('../log-buffer');
+    const { registerBulkOperationPauseCallback } = await import(
+      '@brainstrike/utils/bulk-operation-context'
+    );
 
     const first = module.getWebLogBuffer();
     const second = module.getWebLogBuffer();
@@ -49,8 +52,10 @@ describe('web log-buffer', () => {
     expect(firstWithSize.size).toBe(500);
     expect(firstWithSize.maxArgSize).toBe(500);
 
-    module.pauseWebLogBuffer();
-    module.resumeWebLogBuffer();
+    expect(registerBulkOperationPauseCallback).toHaveBeenCalledTimes(1);
+    const [pause, resume] = vi.mocked(registerBulkOperationPauseCallback).mock.calls[0] ?? [];
+    pause?.();
+    resume?.();
 
     expect(pauseSpy).toHaveBeenCalledTimes(1);
     expect(resumeSpy).toHaveBeenCalledTimes(1);
