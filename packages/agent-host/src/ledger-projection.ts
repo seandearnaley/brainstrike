@@ -111,6 +111,7 @@ interface RunFold {
 }
 /** The observer's calls are one source each; the observer names its own model. */
 const MEMORY_USAGE_KIND = {
+  embedding: 'memory-embedding',
   observation: 'om-observation',
   reflection: 'om-reflection',
 } as const satisfies Record<string, AssistantRunUsageKind>;

@@ -544,6 +544,7 @@
         "vision": "supported"
       },
       {
+        "_note": "Pricing: OpenAI model page, retrieved 2026-10-19 (BST-2226):\nhttps://developers.openai.com/api/docs/models/text-embedding-3-small\n$0.02 per 1M tokens; embeddings bill no output.",
         "catalog": {
           "bestFor": ["Search", "Clustering"],
           "description": null,
@@ -558,11 +559,15 @@
         "defaultDimension": 1536,
         "dimensionParameter": "dimensions",
         "id": "text-embedding-3-small",
+        "pricing": {
+          "inputPerMTok": 0.02
+        },
         "supportsCustomDimensions": true,
         "supportsStandardDimension": true,
         "type": "embedding"
       },
       {
+        "_note": "Pricing: OpenAI model pages, retrieved 2026-10-19 (BST-2226):\nhttps://developers.openai.com/api/docs/models/text-embedding-3-small\n(quick comparison: text-embedding-3-large $0.13 per 1M tokens);\nembeddings bill no output.",
         "catalog": {
           "bestFor": ["Semantic search", "Knowledge retrieval"],
           "description": null,
@@ -576,6 +581,9 @@
         "defaultDimension": 3072,
         "dimensionParameter": "dimensions",
         "id": "text-embedding-3-large",
+        "pricing": {
+          "inputPerMTok": 0.13
+        },
         "supportsCustomDimensions": true,
         "supportsStandardDimension": true,
         "type": "embedding"
@@ -1223,7 +1231,7 @@
         "type": "embedding"
       },
       {
-        "_note": "Auto-normalizes truncated outputs (unlike 001). JSON param is\noutputDimensionality; this value is a UI hint.",
+        "_note": "Auto-normalizes truncated outputs (unlike 001). JSON param is\noutputDimensionality; this value is a UI hint.\nPricing: Gemini API pricing page, retrieved 2026-10-19 (BST-2226):\nhttps://ai.google.dev/gemini-api/docs/pricing\n$0.20 per 1M text input tokens (standard, paid tier). The AI SDK's\nGoogle embedding model reports no token usage, so its calls are not\ncosted until it does.",
         "catalog": {
           "bestFor": ["General purpose", "Retrieval"],
           "description": null,
@@ -1237,6 +1245,9 @@
         "defaultDimension": 3072,
         "dimensionParameter": "output_dimensionality",
         "id": "gemini-embedding-2",
+        "pricing": {
+          "inputPerMTok": 0.2
+        },
         "supportsCustomDimensions": true,
         "supportsStandardDimension": true,
         "type": "embedding"
