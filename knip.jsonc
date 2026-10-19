@@ -132,7 +132,14 @@
         // Official MCP conformance child-process entry. Like the watchdog, this
         // is a real build-main-config entry invoked by file name from the root
         // driver rather than imported by the desktop module graph.
-        "src/official-conformance-client-entry.ts"
+        "src/official-conformance-client-entry.ts",
+        // Utility-process targets, also MAIN_PROCESS_ENTRY_POINTS; each is forked
+        // by its built file name, never imported. The forking module:
+        "src/agent-egress-entry.ts", // src/browser/agent-browsing-route.ts
+        "src/agent-host-entry.ts", // src/host-lease-manager.ts
+        "src/host-lease-entry.ts", // src/host-lease-manager.ts
+        "src/indexer-host-entry.ts", // src/indexer-host-manager.ts
+        "src/sqlite-query-host-entry.ts" // src/sqlite-query-host-manager.ts
       ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
@@ -141,6 +148,13 @@
         // This workspace's production graph excludes tests; keep ownership local.
         "@tanstack/react-virtual",
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
+        // Resolved at run time by src/assistant-server/lsp-diagnostics.ts through
+        // `resolveLspModule` (a createRequire(...).resolve knip cannot follow) and
+        // unpacked from app.asar by package.json `asarUnpack`.
+        "typescript-language-server",
+        // e2e/mcp-apps-production-lifecycle.desktop.test.ts resolves it from this
+        // app with createRequire(import.meta.url).resolve, which knip cannot follow.
+        "@modelcontextprotocol/ext-apps",
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
         "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
