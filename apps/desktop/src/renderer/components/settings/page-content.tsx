@@ -16,6 +16,7 @@ import type {
   McpHostControlRequest,
   McpHostWatchEvent,
 } from '@brainstrike/assistant-contract';
+import type { McpCatalogInstallRequest } from '@brainstrike/assistant-contract/mcp-catalog';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -32,6 +33,7 @@ import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settin
 import {
   createToolsSettingsCategory,
   type McpCompleteRequest,
+  type McpConfigInfo,
   type McpGetPromptRequest,
   type McpReadResourceRequest,
   type ToolDisplayMetadata,
@@ -56,6 +58,7 @@ import {
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { indexSearchContract } from '../../../ipc-domains/index-search.contract';
+import { resolveDesktopHostBrowserOrigins } from '../../host-browser-origins';
 import {
   type DesktopHostMcpSettings,
   resolveDesktopHostMcpSettings,
@@ -213,6 +216,7 @@ export default function SettingsPageContent() {
   // The agent host owns the MCP config, extension dials, tool preferences,
   // server status and lifecycle control; a window without the host has none.
   const mcpSettings = useMemo(() => resolveDesktopHostMcpSettings(), []);
+  const browserOrigins = useMemo(() => resolveDesktopHostBrowserOrigins(), []);
   // BST-1585: user-initiated MCP content browsing comes from the agent host
   // (BST-1930 c5d); web has none, so the Settings affordance is absent.
   const mcpContent = useMemo(() => resolveDesktopMcpContent(), []);
@@ -359,9 +363,7 @@ export default function SettingsPageContent() {
         useNativeToolPreferencesStore.getState().resetTools();
         await mcpSettings?.request('mcp/tools/reset', {});
       },
-      subscribeMcpConfig: (
-        listener: (info: { error?: string; exists: boolean; path: string }) => void
-      ) => {
+      subscribeMcpConfig: (listener: (info: McpConfigInfo) => void) => {
         if (!mcpSettings) {
           throw new Error('MCP settings need the desktop agent host');
         }
@@ -383,12 +385,14 @@ export default function SettingsPageContent() {
       },
       ...(mcpSettings && {
         getMcpConfigPath: async () => (await mcpSettings.request('mcp/config/path', {})).path,
+        installMcpCatalogServer: async (request: McpCatalogInstallRequest) =>
+          await mcpSettings.request('mcp/config/install', request),
         readMcpConfigText: async () => await mcpSettings.request('mcp/config/read', {}),
         setMcpConfigPath: async (configPath: string | null) => {
           await mcpSettings.request('mcp/config/path/set', { path: configPath });
         },
-        writeMcpConfigText: async (content: string) =>
-          await mcpSettings.request('mcp/config/write', { content }),
+        writeMcpConfigText: async (content: string, baseRevision: string) =>
+          await mcpSettings.request('mcp/config/write', { baseRevision, content }),
       }),
       createSampleConfig: async () => {
         if (!mcpSettings) {
@@ -405,6 +409,7 @@ export default function SettingsPageContent() {
           exists: config.exists,
           path: config.path,
           ...(config.error ? { error: config.error } : {}),
+          ...(config.watchError === undefined ? {} : { watchError: config.watchError }),
         };
       },
     };
@@ -459,7 +464,7 @@ export default function SettingsPageContent() {
         mcpAvailable: mcpSettings !== null,
         operations: toolOperations,
       }),
-      createPermissionSettingsCategory(),
+      createPermissionSettingsCategory(browserOrigins ? { browserOrigins } : undefined),
       createSubagentPersonasSettingsCategory(),
       createSkillsSettingsCategory(),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
@@ -485,6 +490,7 @@ export default function SettingsPageContent() {
     accurateRuntimeAvailable,
     apiKeyStatus,
     assistantProviderKeySources,
+    browserOrigins,
     devInlineFixtureEnabled,
     hookReviewRoots,
     hostProviders,

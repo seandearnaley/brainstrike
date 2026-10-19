@@ -13,7 +13,11 @@ import {
   type McpHostServerSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import { vi } from 'vitest';
+import { type Mock, vi } from 'vitest';
+import type {
+  McpBearerCredentialReference,
+  McpBearerCredentialWriter,
+} from '../src/mcp/bearer-credential.js';
 import {
   createMcpConfigFile,
   type LoadedMcpConfig,
@@ -120,6 +124,26 @@ function createSettingsStore() {
   };
 }
 
+/** The profile's MCP token store, in memory: fresh ids, and removal of a missing token fails. */
+function createBearerCredentials() {
+  const stored = new Map<string, string>();
+  let next = 0;
+  const writer = {
+    create: vi.fn(async (token: string): Promise<McpBearerCredentialReference> => {
+      next += 1;
+      const id = `00000000-0000-4000-8000-${String(next).padStart(12, '0')}`;
+      stored.set(id, token);
+      return { id, store: 'mcp-credentials' };
+    }),
+    delete: vi.fn(async (reference: McpBearerCredentialReference): Promise<void> => {
+      if (!stored.delete(reference.id)) {
+        throw new Error('MCP bearer credential could not be removed');
+      }
+    }),
+  } satisfies McpBearerCredentialWriter;
+  return { stored, writer };
+}
+
 /**
  * A real profile directory and config file. The file watcher is the one seam:
  * a test fires a change deterministically instead of waiting on file events.
@@ -129,20 +153,23 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
   const listTools: ListTools = options.listTools ?? (async () => toolList());
   const fake = createRuntime(listTools);
   const settings = createSettingsStore();
+  const bearer = createBearerCredentials();
   const realFile = createMcpConfigFile(userDataDir);
   const watchers: Array<{
     readonly onChange: (config: LoadedMcpConfig) => Promise<void> | void;
-    readonly close: ReturnType<typeof vi.fn>;
+    readonly onError: (error: unknown) => void;
+    readonly close: Mock<() => void>;
   }> = [];
   const configFile: McpConfigFile = {
     ...realFile,
-    watch: vi.fn(async (onChange) => {
-      const watcher = { close: vi.fn(), onChange };
+    watch: vi.fn(async (onChange, onError) => {
+      const watcher = { close: vi.fn<() => void>(), onChange, onError };
       watchers.push(watcher);
       return { close: watcher.close };
     }),
   };
   const authority = new McpSettingsAuthority({
+    bearerCredentials: bearer.writer,
     configFile,
     extensionStore: settings.store,
     runtime: fake.runtime,
@@ -162,6 +189,7 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
   const preferencesPath = path.join(userDataDir, 'mcp', 'tool-preferences.json');
   return {
     authority,
+    bearer,
     configFile,
     configPath,
     events,
@@ -174,6 +202,15 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
     async cleanup() {
       mcpToolRegistry.clear();
       await rm(userDataDir, { force: true, recursive: true });
+    },
+    /** Fail a watcher while it runs, as a dying fs watcher does: it closes itself, then reports. */
+    failWatch(error: unknown, watcher?: (typeof watchers)[number]): void {
+      const failing = watcher ?? this.activeWatcher();
+      if (!failing) {
+        throw new Error('No live MCP config watcher');
+      }
+      failing.close();
+      failing.onError(error);
     },
     /** Fire the live watcher as a saved edit of the config file would. */
     async fireWatch() {

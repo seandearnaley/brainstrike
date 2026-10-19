@@ -18,7 +18,7 @@ const ReportSchema = z.object({ detail: z.unknown(), event: z.string() });
 const BLOCKED =
   /^blocked_destination: agent browsing may not connect to (127\.0\.0\.1|localhost), a loopback address$/;
 
-it('an agent tab reaches public pages through its proxy and never a loopback server', async () => {
+it('an agent tab reaches public pages through its proxy, and loopback only at an approved origin', async () => {
   const desktop = resolve(import.meta.dirname, '../../..');
   await mkdir(join(desktop, 'dist'), { recursive: true });
   const directory = await mkdtemp(join(desktop, 'dist/agent-browsing-proof-'));
@@ -103,6 +103,23 @@ it('an agent tab reaches public pages through its proxy and never a loopback ser
         reason: 'destination',
       },
       status: 'HTTP/1.1 403 Refused',
+    });
+    // BST-1178: an approved loopback origin opens, and only at its port.
+    expect(reports.get('loopback-approved')).toMatchObject({
+      navigate: { ok: true, title: 'Secret' },
+      text: expect.stringContaining('SECRET-BST-1238'),
+    });
+    // Another agent tab's public page cannot reach the admitted server.
+    expect(reports.get('loopback-other-tab')).toEqual({ secretHits: 0, title: 'Fetcher' });
+    expect(reports.get('loopback-other-port')).toMatchObject({
+      navigate: { error: 'blocked_destination' },
+    });
+    // The next, public navigation closes loopback again.
+    expect((reports.get('loopback-after-public') as { failure: string }).failure).toMatch(BLOCKED);
+    // The real utility admits a loopback server and closes it again.
+    expect(reports.get('utility-loopback')).toEqual({
+      admitted: 'HTTP/1.1 200 Connection Established',
+      closed: 'HTTP/1.1 403 Refused',
     });
     // Control: a user tab is unaffected and reaches the same server.
     expect(reports.get('user-tab')).toEqual({ error: null, owner: 'user', secretHits: 1 });

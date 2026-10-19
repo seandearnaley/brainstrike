@@ -280,6 +280,29 @@ describe('CredentialInventory oauth_subscription slot', () => {
     expect(copy?.getAttribute('data-copy-text')).toBe('WXYZ-1234');
   });
 
+  it('shows a verification link that failed to open instead of dropping it', async () => {
+    const openExternal = vi.fn(async () => ({ error: 'Blocked by policy', ok: false }));
+    Object.assign(window, { platform: { openExternal } });
+    try {
+      await renderCodexRow(
+        createProviderAuth({
+          state: 'awaiting_device_code',
+          userCode: 'WXYZ-1234',
+          verificationUri: 'https://auth.openai.com/device',
+        })
+      );
+
+      fireEvent.click(await screen.findByTestId(`credential-oauth-verification-uri-${SLOT_ID}`));
+
+      expect(
+        (await screen.findByTestId(`credential-oauth-link-error-${SLOT_ID}`)).textContent
+      ).toBe("Couldn't open link: Blocked by policy");
+      expect(openExternal).toHaveBeenCalledWith('https://auth.openai.com/device');
+    } finally {
+      Reflect.deleteProperty(window, 'platform');
+    }
+  });
+
   it('names the connected account and offers Disconnect', async () => {
     const auth = createProviderAuth({ accountId: 'user@example.com', state: 'connected' });
     await renderCodexRow(auth);

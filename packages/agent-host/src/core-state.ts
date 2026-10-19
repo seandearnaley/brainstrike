@@ -141,6 +141,14 @@ export function hasHostInteractionResponse(pending: PendingInteraction): boolean
     ? pending.decision !== undefined
     : Object.hasOwn(pending, 'resumeData');
 }
+/**
+ * A call's pending network consent: whether the policy also asked to approve
+ * it, and the browser origin it asks to open (BST-1178).
+ */
+export interface HostConsent {
+  readonly approval: boolean;
+  readonly origin?: string;
+}
 /** What a run was started with that its plan's follow-up run starts with again. */
 export interface HostRunInput {
   readonly configuration?: HostParams<'run/start'>['configuration'];
@@ -258,13 +266,8 @@ export interface HostRunState {
   /** BST-1932: human input a running child takes; it starts the run after this one. */
   childInput?: HostParams<'run/start'> | undefined;
   completion?: Promise<void>;
-  /** Calls awaiting network consent this step, and whether the policy also asked to approve them. */
-  readonly consents: Map<
-    string,
-    {
-      readonly approval: boolean;
-    }
-  >;
+  /** Calls awaiting network consent this step. */
+  readonly consents: Map<string, HostConsent>;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */
   deadline?: string;

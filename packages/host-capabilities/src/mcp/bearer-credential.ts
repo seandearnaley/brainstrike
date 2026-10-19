@@ -124,3 +124,35 @@ export function createSecretsMcpBearerCredentialAuthority(
     },
   };
 }
+
+/** Stores and removes the tokens that `bearer` config references name. */
+export interface McpBearerCredentialWriter {
+  /** Stores `token` under a fresh reference; a malformed token is refused before any write. */
+  create(token: string): Promise<McpBearerCredentialReference>;
+  /** Removes a stored token; throws when the store reports nothing was removed. */
+  delete(reference: McpBearerCredentialReference): Promise<void>;
+}
+
+/** The one writer of `mcp-credentials:<uuid>` secrets; the reader above resolves them. */
+export function createSecretsMcpBearerCredentialWriter(
+  secrets: Pick<SecretsService, 'deleteKey' | 'saveKey'>,
+  newId: () => string = () => crypto.randomUUID()
+): McpBearerCredentialWriter {
+  return {
+    async create(token) {
+      if (!isBearerToken(token)) {
+        throw new McpBearerCredentialFailure('mcp-bearer-credential-malformed');
+      }
+      const reference: McpBearerCredentialReference = { id: newId(), store: 'mcp-credentials' };
+      if (!(await secrets.saveKey(mcpBearerCredentialStorageKey(reference), token))) {
+        throw new Error('MCP bearer credential could not be stored');
+      }
+      return reference;
+    },
+    async delete(reference) {
+      if (!(await secrets.deleteKey(mcpBearerCredentialStorageKey(reference)))) {
+        throw new Error('MCP bearer credential could not be removed');
+      }
+    },
+  };
+}

@@ -489,6 +489,13 @@ export interface HostTool {
    */
   readonly approvalTarget?: (input: unknown) => HostApprovalTargetRoot | undefined;
   /**
+   * BST-1178: the web origin this call opens. A person answers the first call
+   * to each origin; their Always allow or Don't allow is saved by the host and
+   * answers every later call to it. Undefined where the call names no origin
+   * it could open (its execute refuses the URL).
+   */
+  readonly browserOrigin?: (input: unknown) => string | undefined;
+  /**
    * Whether this call's own input asks for network a person must allow, per
    * call, before it executes (run_python's requested domains). Never remembered
    * and never answered by a grant or policy.
@@ -551,6 +558,10 @@ export interface HostMcpSettingsService {
   control(request: HostParams<'mcp/server/control'>): Promise<HostResults['mcp/server/control']>;
   createSampleConfig(): Promise<HostResults['mcp/config/sample']>;
   extensions(): Promise<HostResults['mcp/extensions/read']>;
+  /** Appends one catalog server to the profile's config, storing its token when it has one. */
+  installCatalogServer(
+    request: HostParams<'mcp/config/install'>
+  ): Promise<HostResults['mcp/config/install']>;
   readConfigText(): Promise<HostResults['mcp/config/read']>;
   reloadToolPreferences(): Promise<void>;
   resetTools(): Promise<void>;

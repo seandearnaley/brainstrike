@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { isNavigableUrl, normalizeUrl } from '../browser/browser-url';
 import {
   type BrowserPaneView,
   type BrowserTabState,
   BrowserViewManager,
-  isNavigableUrl,
-  normalizeUrl,
   type PaneRect,
 } from '../browser/browser-view-manager';
 

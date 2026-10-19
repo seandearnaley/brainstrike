@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mcpConfigRevision } from '../src/mcp/config-file.js';
 import {
   createSettingsHarness,
   enabledById,
@@ -10,6 +11,9 @@ import {
   stdioServer,
   toolList,
 } from './mcp-settings-authority-harness.js';
+
+const EMPTY_REVISION = mcpConfigRevision('');
+const CONFLICT = 'The MCP config changed on disk since it was read. Reload it, then save again.';
 
 let harness: SettingsHarness | undefined;
 async function setup(options?: Parameters<typeof createSettingsHarness>[0]) {
@@ -178,12 +182,15 @@ describe('MCP settings authority config text and path', () => {
     const firstWatcher = h.activeWatcher();
     const content = JSON.stringify({ servers: [stdioServer('fs')] });
 
-    await expect(h.authority.writeConfigText({ content })).resolves.toEqual({
+    const result = await h.authority.writeConfigText({ baseRevision: EMPTY_REVISION, content });
+
+    const written = await readFile(h.configPath, 'utf8');
+    expect(written).toBe(content);
+    expect(result).toEqual({
       path: h.configPath,
+      revision: mcpConfigRevision(written),
       success: true,
     });
-
-    expect(await readFile(h.configPath, 'utf8')).toBe(content);
     expect(firstWatcher?.close).toHaveBeenCalled();
     expect(h.activeWatcher()).toBeDefined();
     expect(h.activeWatcher()).not.toBe(firstWatcher);
@@ -195,7 +202,10 @@ describe('MCP settings authority config text and path', () => {
     await h.authority.start();
     const commits = h.replaceResolvedConfig.mock.calls.length;
 
-    const result = await h.authority.writeConfigText({ content: '{"servers": [{}]}' });
+    const result = await h.authority.writeConfigText({
+      baseRevision: EMPTY_REVISION,
+      content: '{"servers": [{}]}',
+    });
 
     expect(result).toMatchObject({ path: h.configPath, success: false });
     expect(existsSync(h.configPath)).toBe(false);
@@ -206,13 +216,18 @@ describe('MCP settings authority config text and path', () => {
     const h = await setup();
     await h.authority.start();
 
-    await expect(h.authority.writeConfigText({ content: '   ' })).resolves.toEqual({
+    await expect(
+      h.authority.writeConfigText({ baseRevision: EMPTY_REVISION, content: '   ' })
+    ).resolves.toEqual({
       error: 'MCP config content cannot be empty',
       path: h.configPath,
       success: false,
     });
     await expect(
-      h.authority.writeConfigText({ content: `{"servers":[]}${' '.repeat(1_000_001)}` })
+      h.authority.writeConfigText({
+        baseRevision: EMPTY_REVISION,
+        content: `{"servers":[]}${' '.repeat(1_000_001)}`,
+      })
     ).resolves.toEqual({
       error: 'MCP config exceeds 1000000 bytes',
       path: h.configPath,
@@ -228,11 +243,81 @@ describe('MCP settings authority config text and path', () => {
       servers: [{ ...stdioServer('local'), env: { TOKENEncrypted: 'c2VjcmV0' } }],
     });
 
-    const result = await h.authority.writeConfigText({ content });
+    const result = await h.authority.writeConfigText({ baseRevision: EMPTY_REVISION, content });
 
     expect(result.success).toBe(false);
     expect(result.success ? '' : result.error).toContain('"TOKENEncrypted"');
     expect(existsSync(h.configPath)).toBe(false);
+  });
+
+  it('refuses a stale base without writing, and commits the changed file to the runtime', async () => {
+    const h = await setup();
+    await h.writeConfig([stdioServer('before')]);
+    await h.authority.start();
+    const { revision } = await h.authority.readConfigText();
+    await h.writeConfig([stdioServer('external')]);
+    const external = await readFile(h.configPath, 'utf8');
+
+    await expect(
+      h.authority.writeConfigText({
+        baseRevision: revision,
+        content: JSON.stringify({ servers: [stdioServer('mine')] }),
+      })
+    ).resolves.toEqual({ conflict: true, error: CONFLICT, path: h.configPath, success: false });
+
+    expect(await readFile(h.configPath, 'utf8')).toBe(external);
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
+    expect(h.activeWatcher()).toBeDefined();
+  });
+
+  it('reports a refused write first when the runtime then cannot reload the changed file', async () => {
+    const h = await setup();
+    await h.writeConfig([stdioServer('before')]);
+    await h.authority.start();
+    const { revision } = await h.authority.readConfigText();
+    await h.writeConfig([stdioServer('external')]);
+    const reloadFailure = new Error('runtime refused the config');
+    h.replaceResolvedConfig.mockRejectedValueOnce(reloadFailure);
+
+    await expect(
+      h.authority.writeConfigText({
+        baseRevision: revision,
+        content: JSON.stringify({ servers: [stdioServer('mine')] }),
+      })
+    ).rejects.toMatchObject({
+      cause: reloadFailure,
+      message: `${CONFLICT}; the MCP config could not be reloaded: runtime refused the config`,
+    });
+  });
+
+  it('keeps a refused write and reloads the changed file when the watcher then cannot restart', async () => {
+    const h = await setup();
+    await h.writeConfig([stdioServer('before')]);
+    await h.authority.start();
+    const { revision } = await h.authority.readConfigText();
+    await h.writeConfig([stdioServer('external')]);
+    vi.mocked(h.configFile.watch).mockRejectedValueOnce(new Error('watch failed'));
+
+    await expect(
+      h.authority.writeConfigText({
+        baseRevision: revision,
+        content: JSON.stringify({ servers: [stdioServer('mine')] }),
+      })
+    ).resolves.toEqual({ conflict: true, error: CONFLICT, path: h.configPath, success: false });
+
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
+    expect(h.events.findLast(({ type }) => type === 'config')).toEqual({
+      config: expect.objectContaining({ watchError: 'watch failed' }),
+      type: 'config',
+    });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({
+      servers: [{ name: 'external', protocol: 'legacy', transport: 'stdio' }],
+      watchError: 'watch failed',
+    });
   });
 
   it('restores the default path, reloads it and watches it', async () => {

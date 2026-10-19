@@ -27,6 +27,8 @@ export interface AgentEgress {
 
 interface Current {
   readonly exited: Promise<void>;
+  /** Each loopback revision posted and not yet answered. */
+  readonly loopback: Map<number, PromiseWithResolvers<void>>;
   readonly ready: Promise<AgentEgress>;
   readonly utility: EgressUtility;
 }
@@ -38,6 +40,8 @@ const REFUSALS_KEPT = 64;
  * are not evidence about a later failure to the same host.
  */
 const REFUSAL_FRESH_MS = 5000;
+/** A running proxy answers a loopback revision at once; silence is a failure. */
+const LOOPBACK_ANSWER_MS = 5000;
 
 interface RecordedRefusal {
   readonly at: number;
@@ -46,6 +50,7 @@ interface RecordedRefusal {
 
 export class AgentEgressHost {
   #current: Current | undefined;
+  #revision = 0;
   readonly #refusals = new Map<string, RecordedRefusal>();
   readonly #fork: () => EgressUtility;
   readonly #startupTimeoutMs: number;
@@ -61,6 +66,38 @@ export class AgentEgressHost {
   ensure(): Promise<AgentEgress> {
     this.#current ??= this.#start();
     return this.#current.ready;
+  }
+
+  /**
+   * BST-1178: the running proxy (started on demand) with the loopback servers
+   * agent tabs may reach replaced by `authorities` (each `host:port`), both on
+   * one proxy, so the route and its admission never name different ones. A
+   * proxy that refuses or exits rejects. One that stays silent is killed: it
+   * may have applied the set, so it must not keep serving.
+   */
+  async prepare(authorities: readonly string[]): Promise<AgentEgress> {
+    this.#current ??= this.#start();
+    const current = this.#current;
+    const egress = await current.ready;
+    if (this.#current !== current) {
+      throw new Error('The agent browsing proxy restarted while it was being prepared');
+    }
+    this.#revision += 1;
+    const revision = this.#revision;
+    const answer = Promise.withResolvers<void>();
+    current.loopback.set(revision, answer);
+    const timer = setTimeout(() => {
+      answer.reject(new Error('The agent browsing proxy did not admit loopback servers in time'));
+      current.utility.kill();
+    }, LOOPBACK_ANSWER_MS);
+    current.utility.postMessage({ authorities: [...authorities], revision, type: 'loopback' });
+    try {
+      await answer.promise;
+    } finally {
+      clearTimeout(timer);
+      current.loopback.delete(revision);
+    }
+    return egress;
   }
 
   /**
@@ -109,11 +146,19 @@ export class AgentEgressHost {
       ready.reject(new Error('The agent browsing proxy did not start in time'));
       utility.kill();
     }, this.#startupTimeoutMs);
-    const current: Current = { exited: exit.promise, ready: ready.promise, utility };
+    const current: Current = {
+      exited: exit.promise,
+      loopback: new Map(),
+      ready: ready.promise,
+      utility,
+    };
     utility.once('exit', () => {
       clearTimeout(timer);
       // Settles only a start still in flight; a ready proxy keeps its answer.
       ready.reject(new Error('The agent browsing proxy exited before it was ready'));
+      for (const answer of current.loopback.values()) {
+        answer.reject(new Error('The agent browsing proxy exited before it admitted loopback'));
+      }
       if (this.#current === current) {
         this.#current = undefined;
       }
@@ -140,6 +185,14 @@ export class AgentEgressHost {
         case 'failed':
           ready.reject(new Error(`The agent browsing proxy failed to start: ${event.message}`));
           utility.kill();
+          return;
+        case 'loopback-admitted':
+          current.loopback.get(event.revision)?.resolve();
+          return;
+        case 'loopback-refused':
+          current.loopback
+            .get(event.revision)
+            ?.reject(new Error(`The agent browsing proxy refused loopback: ${event.message}`));
           return;
       }
     });

@@ -34,6 +34,7 @@ import {
 } from './protocol-mcp-settings.js';
 import { HostMemoryModelsSchema, HostObservationalMemoryStateSchema } from './protocol-memory.js';
 import {
+  HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
   PERMISSION_POLICY_RESULT_SCHEMAS,
 } from './protocol-permission-policy.js';
@@ -78,50 +79,46 @@ export * from './protocol-selection.js';
 export * from './protocol-state-health.js';
 export * from './run-wire.js';
 export * from './workspace-wire.js';
-// 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
-// and the explicit branch links they commit on `run.started`), thread
-// presentation (`thread/update`, `thread.updated`: title, colour and icon, also
-// in `thread/list`), withheld observational memory, tool catalog IDs on
-// committed tool events, image attachments on a user message (`run/start`
-// and `run.started`), committed workspace edit attribution,
-// `checkpoint/revert`, per-thread tool state, the prompt breakdown on
-// `provider.request.prepared`, `run/steer` (end the active run at its next
-// step boundary), run attempt records, `mcp.tools.unavailable`, committed with
-// `run.started` for each configured MCP server whose tools the run proceeds
-// without, permission grants answered with an approval (`interaction/respond`
-// grant, `permission.granted`, the request's risk), plan mode (`run/start`,
-// `run/regenerate` and `run.started` planMode), child threads (BST-1932):
-// `thread.started` with a delegation `origin`, the child results a
-// `run.started` delivers, an approval the root's policy answered, and
-// `thread/children` (a thread's direct children), lifecycle hook context
-// (`hook.context`), host-owned project hook trust (`hooks/trust`,
-// `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory
-// readiness for the next run), run_python's network consent (an
-// `interaction.requested` of kind `network`, answered by `interaction/resume`
-// with `{ action }` and, when the policy also asked, an approval grant), a
-// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
-// restore to before a message (`thread/rewind/preview`, `thread/rewind`,
-// `thread/rewind/redo`; `thread.rewind.started`, `thread.rewound`,
-// `thread.rewind.redo.started`, `thread.rewind.redone`,
-// `thread.rewind.interrupted`), the hook files a run did not load
-// (`hooks.skipped`), `ledger/read` (every thread's runs and costed provider calls, as Core folds
-// them), the threads `thread/delete` deleted (`threadIds`), and the desktop's
-// MCP settings (`mcp/config/*`, `mcp/extensions/*`, `mcp/tools/*`,
-// `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
-// control (`mcp/status/read`, `mcp/server/control`, the event's `status`
-// variant), and its MCP presentations (`mcp/tasks/list`, `mcp/tasks/act`,
-// `mcp/elicitation/settle`, `mcp/presentation/subscribe` and its
-// `mcp/presentation/event`), content browsing (`mcp/content/complete`,
-// `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
-// (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning
-// thread's policy, and `worktree.created` (a worktree a call's shell command
-// made, which the desktop adopted), and a provider request's tool calls (the
-// breakdown's `toolCallsTokens` and `toolCallsByTool`, and the request's
-// `toolCallWindow`), and `state/health/read` (BST-1880), and `thread/memory/read`'s
-// observation lifecycle, reflection threshold and memory models (BST-2201). These additions are optional fields, new
-// variants and new methods, so a v11 reader that uses none of them sees
+// 11: committed branch history (`run/start` parentMessageId, `run/regenerate`, and the explicit
+// branch links they commit on `run.started`), thread presentation (`thread/update`,
+// `thread.updated`: title, colour and icon, also in `thread/list`), withheld observational memory,
+// tool catalog IDs on committed tool events, image attachments on a user message (`run/start` and
+// `run.started`), committed workspace edit attribution, `checkpoint/revert`, per-thread tool state,
+// the prompt breakdown on `provider.request.prepared`, `run/steer` (end the active run at its next
+// step boundary), run attempt records, `mcp.tools.unavailable`, committed with `run.started` for
+// each configured MCP server whose tools the run proceeds without, permission grants answered with
+// an approval (`interaction/respond` grant, `permission.granted`, the request's risk), plan mode
+// (`run/start`, `run/regenerate` and `run.started` planMode), child threads (BST-1932):
+// `thread.started` with a delegation `origin`, the child results a `run.started` delivers, an
+// approval the root's policy answered, and `thread/children` (a thread's direct children),
+// lifecycle hook context (`hook.context`), host-owned project hook trust (`hooks/trust`,
+// `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory readiness for the next run),
+// run_python's network consent (an `interaction.requested` of kind `network`, answered by
+// `interaction/resume` with `{ action }` and, when the policy also asked, an approval grant), a
+// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`), restore to before a
+// message (`thread/rewind/preview`, `thread/rewind`, `thread/rewind/redo`; `thread.rewind.started`,
+// `thread.rewound`, `thread.rewind.redo.started`, `thread.rewind.redone`,
+// `thread.rewind.interrupted`), the hook files a run did not load (`hooks.skipped`), `ledger/read`
+// (every thread's runs and costed provider calls, as Core folds them), the threads `thread/delete`
+// deleted (`threadIds`), and the desktop's MCP settings (`mcp/config/*`, `mcp/extensions/*`,
+// `mcp/tools/*`, `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
+// control (`mcp/status/read`, `mcp/server/control`, the event's `status` variant), and its MCP
+// presentations (`mcp/tasks/list`, `mcp/tasks/act`, `mcp/elicitation/settle`,
+// `mcp/presentation/subscribe` and its `mcp/presentation/event`), content browsing
+// (`mcp/content/complete`, `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
+// (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning thread's policy, and
+// `worktree.created` (a worktree a call's shell command made, which the desktop adopted), and a
+// provider request's tool calls (the breakdown's `toolCallsTokens` and `toolCallsByTool`, and the
+// request's `toolCallWindow`), `state/health/read` (BST-1880), and `thread/memory/read`'s
+// observation lifecycle, reflection threshold and memory models (BST-2201). These additions are
+// optional fields, new variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
-export const AGENT_HOST_PROTOCOL_VERSION = 11;
+// v12 (2026-10-18): `mcp/config/read` returns the config text's `revision` (a SHA-256 of its
+// content). `mcp/config/write` requires `baseRevision` and refuses a stale base with
+// `conflict: true` instead of overwriting. Write and catalog-install successes return the new
+// `revision`. The required parameter is why this is a version bump and not a v11 addition.
+// Config status carries `watchError` while the config file watcher cannot run.
+export const AGENT_HOST_PROTOCOL_VERSION = 12;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
@@ -183,13 +180,6 @@ const PermissionGrant = Schema.Union(
   { mode: 'oneOf' }
 );
 export type HostPermissionGrant = (typeof PermissionGrant)['Type'];
-/**
- * The answer to a `network` interaction: allow lets this one call reach its
- * requested domains; deny settles it unrun (run_python's `network_denied`).
- */
-export const HostNetworkConsentSchema = Schema.Struct({
-  action: Schema.Literals(['allow', 'deny']),
-});
 const McpInput = { ...Run, interactionId: Id };
 /** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
 const McpAppCall = {
@@ -735,6 +725,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         executionContext: Schema.optional(json()),
         interactionId: Id,
         kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
+        origin: Schema.optional(HostBrowserOriginSchema),
         risk: Schema.optional(RiskCategory),
         targetRoot: Schema.optional(HostApprovalTargetRootSchema),
       }),
@@ -753,6 +744,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
             Schema.Struct({
               type: Schema.Literal('interaction.responded'),
               ...RunFields,
+              by: Schema.optional(Schema.Literal('policy')),
               interactionId: Id,
               resumeData: json(),
             }),

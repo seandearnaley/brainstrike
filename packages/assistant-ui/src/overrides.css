@@ -816,9 +816,12 @@
   grid-template-rows: 1fr;
 }
 
+/* `clip`, not `hidden`: a hidden overflow is still a scroll container, so
+   revealing a clipped control mid-transition (focus, scrollIntoView) scrolled
+   it, and the rest of the transition slid the body back under the pointer. */
 .assistant-ui-panel .bs-trace-collapse-inner {
   min-height: 0;
-  overflow: hidden;
+  overflow: clip;
 }
 
 /* The stagger index is set on an ANCESTOR (`.bs-step-list`'s nth-child rules

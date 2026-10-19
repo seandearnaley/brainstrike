@@ -9,13 +9,14 @@ import {
 } from 'vscode-jsonrpc/node';
 import { isConnectionLoss } from '../src/boundary-wire.js';
 import { authenticateHostClient, type HostClient } from '../src/client-connection.js';
+import { AGENT_HOST_PROTOCOL_VERSION } from '../src/protocol.js';
 import { stdioConnection } from '../src/transports.js';
 
 const record: HostRecord = {
   endpoint: '/tmp/unused-peer-reset-fixture',
   hostVersion: '0.1.0',
   pid: 1,
-  protocolVersion: 11,
+  protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
   start: 'fixture',
   token: 'a'.repeat(64),
 };

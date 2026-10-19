@@ -11,16 +11,24 @@ import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { type AgentEgress, AgentEgressHost } from './agent-egress/agent-egress-host';
 import type { EgressRefusal } from './agent-egress/egress-proxy';
 import { type RefusedAgentResponse, routeAgentBrowserSession } from './browser-session';
+import type { LoopbackAdmission } from './browser-url';
 
 export interface AgentBrowsingRoute {
-  /** Start (or restart) the proxy and route the agent partition through it. */
-  prepare(onRefused: (response: RefusedAgentResponse) => void): Promise<void>;
+  /**
+   * Start (or restart) the proxy and route the agent partition through it.
+   * BST-1178: `loopback` is the one loopback server the navigation about to
+   * open may reach, admitted in that same proxy; null closes loopback again.
+   */
+  prepare(
+    onRefused: (response: RefusedAgentResponse) => void,
+    loopback: LoopbackAdmission | null
+  ): Promise<void>;
   /** Take the proxy's fresh refusal of `host`, to name a tunnel failure (once). */
   takeRefusal(host: string): EgressRefusal | undefined;
 }
 
 /** The proxy a route uses: by default the egress utility process. */
-export type AgentEgressSource = Pick<AgentEgressHost, 'ensure' | 'takeRefusal'>;
+export type AgentEgressSource = Pick<AgentEgressHost, 'prepare' | 'takeRefusal'>;
 
 function forkEgressHost(): AgentEgressHost {
   return new AgentEgressHost(() =>
@@ -38,8 +46,8 @@ export function createAgentBrowsingRoute(
   let current: AgentEgress | null = null;
   let answering = false;
   return {
-    async prepare(onRefused) {
-      const proxy = await egress.ensure();
+    async prepare(onRefused, loopback) {
+      const proxy = await egress.prepare(loopback === null ? [] : [loopback.authority]);
       current = proxy;
       if (!answering) {
         app.on('login', (event, _webContents, _details, authInfo, callback) => {
@@ -56,7 +64,7 @@ export function createAgentBrowsingRoute(
         });
         answering = true;
       }
-      await routeAgentBrowserSession(proxy.port, onRefused);
+      await routeAgentBrowserSession(proxy.port, onRefused, loopback);
     },
     takeRefusal: (host) => egress.takeRefusal(host),
   };

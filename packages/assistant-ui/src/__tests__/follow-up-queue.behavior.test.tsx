@@ -11,10 +11,12 @@ import {
   AssistantRuntimeProvider,
   ComposerPrimitive,
   ThreadPrimitive,
+  useAuiState,
   useLocalRuntime,
 } from '@assistant-ui/react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLayoutEffect } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FollowUpQueueBridge,
@@ -30,40 +32,58 @@ import {
 import { ThreadScrollFollowProvider } from '../thread-scroll-follow';
 
 /** A controllable adapter: each run() blocks until its release() is called, so
- * the thread is GENUINELY running in between. Records every run's last user
- * message text. */
+ * the thread is GENUINELY running in between. `release()` opens the next run's
+ * gate in start order, started or not: a run released before it starts ends in
+ * the same task it starts. Records every run's last user message text. */
 function createControllableAdapter() {
-  const releases: Array<() => void> = [];
+  const gates: PromiseWithResolvers<void>[] = [];
+  const gate = (index: number) => {
+    gates[index] ??= Promise.withResolvers<void>();
+    return gates[index];
+  };
+  let released = 0;
   const runInputs: string[] = [];
   const adapter: ChatModelAdapter = {
     async *run({ messages }) {
       const lastUser = [...messages].reverse().find((message) => message.role === 'user');
       const text =
         lastUser?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
-      runInputs.push(text);
-      await new Promise<void>((resolve) => {
-        releases.push(resolve);
-      });
+      const index = runInputs.push(text) - 1;
+      await gate(index).promise;
       yield { content: [{ text: `echo: ${text}`, type: 'text' as const }] };
     },
   };
   return {
     adapter,
-    release: () => releases.shift()?.(),
+    release: () => {
+      gate(released).resolve();
+      released += 1;
+    },
     runInputs,
   };
+}
+
+/** Every `isRunning` value the thread committed to the screen, in order. */
+function RenderedRunningProbe({ committed }: { committed: boolean[] }) {
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  useLayoutEffect(() => {
+    committed.push(isRunning);
+  }, [committed, isRunning]);
+  return null;
 }
 
 function Harness({
   adapter,
   threadKey,
   bridgeMounted = true,
+  committedRunning,
   isReattaching = false,
   onSteerRequest,
 }: {
   adapter: ChatModelAdapter;
   threadKey: string;
   bridgeMounted?: boolean;
+  committedRunning?: boolean[];
   isReattaching?: boolean;
   onSteerRequest?: () => Promise<boolean>;
 }) {
@@ -71,6 +91,7 @@ function Harness({
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadScrollFollowProvider>
+        {committedRunning ? <RenderedRunningProbe committed={committedRunning} /> : null}
         {bridgeMounted ? (
           <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
         ) : null}
@@ -142,6 +163,49 @@ describe('follow-up queue behavior (real local runtime)', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
     });
+  });
+
+  it('a dispatched run that ends before the thread renders it running still sends the next queued message (BST-2207)', async () => {
+    // Thread state reaches React in batched renders, so a dispatched run that
+    // starts and ends between two of them is never on screen as running — a
+    // fast or failing run, or any run on a loaded renderer (hosted Unit (rest)
+    // run 39178827573). Releasing the steer's run before it starts pins that
+    // interleaving: it ends in the task it starts in.
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    const committedRunning: boolean[] = [];
+    const onSteerRequest = () => Promise.resolve(true);
+    render(
+      <Harness
+        adapter={adapter}
+        committedRunning={committedRunning}
+        onSteerRequest={onSteerRequest}
+        threadKey="t-unseen-run"
+      />
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByTestId('assistant-queue-follow-up');
+    await user.type(input, 'passive follow-up');
+    await user.click(screen.getByTestId('assistant-queue-follow-up'));
+    await user.type(input, 'steer: change course');
+    await user.click(screen.getByTestId('assistant-steer-run'));
+
+    release();
+    release();
+    await waitFor(() => {
+      expect(runInputs).toEqual(['first message', 'steer: change course', 'passive follow-up']);
+    });
+    expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
+    release();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    });
+    // Precondition: the steer's run was never on screen as running; only the
+    // first run and the passive follow-up's run were.
+    expect(committedRunning).toEqual([false, true, false, true, false]);
   });
 
   it('a steer whose control request fails keeps the message queued (dispatches on natural run end)', async () => {

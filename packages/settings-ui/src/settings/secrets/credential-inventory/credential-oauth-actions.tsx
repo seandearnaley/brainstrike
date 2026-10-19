@@ -1,6 +1,7 @@
 import type { ProviderAuthStatus } from '@brainstrike/assistant-contract/provider-auth';
 import { Button, CopyTextButton } from '@brainstrike/ui';
-import type { MouseEvent } from 'react';
+import { useState } from 'react';
+import { openExternalLink } from '../../external-link';
 import type { CredentialSlot } from './credential-slots';
 import { getProviderAuthCapability, type ProviderAuthBridge } from './provider-auth-capability';
 import { type ProviderAuthController, useProviderAuthStatus } from './use-provider-auth-status';
@@ -8,23 +9,6 @@ import { type ProviderAuthController, useProviderAuthStatus } from './use-provid
 interface ActionsProps {
   readonly controller: ProviderAuthController;
   readonly slot: CredentialSlot;
-}
-
-/**
- * The device flow does NOT open a browser for the user — the engine hands the
- * verification URI to the renderer instead — so this link must actually work.
- * Desktop denies renderer navigation to external origins, so the click routes
- * through the `window.platform.openExternal` bridge when it exists; without
- * that bridge (web) the native anchor navigation is left to do the job.
- */
-function openVerificationUri(event: MouseEvent<HTMLAnchorElement>, url: string): void {
-  const platform = (window as unknown as { platform?: { openExternal?: unknown } }).platform;
-  const openExternal = platform?.openExternal;
-  if (typeof openExternal !== 'function') {
-    return;
-  }
-  event.preventDefault();
-  void (openExternal as (target: string) => Promise<unknown>)(url);
 }
 
 function CancelAction({ controller, slot }: ActionsProps) {
@@ -70,6 +54,7 @@ function DeviceCodeActions({
   slot,
   status,
 }: ActionsProps & { readonly status: ProviderAuthStatus & { state: 'awaiting_device_code' } }) {
+  const [linkError, setLinkError] = useState<string | null>(null);
   return (
     <>
       <code
@@ -85,16 +70,30 @@ function DeviceCodeActions({
           text={status.userCode}
         />
       </span>
+      {/* The device flow hands the verification URI to the renderer, so this link must actually work. */}
       <a
         className="break-all text-primary text-xs underline"
         data-testid={`credential-oauth-verification-uri-${slot.id}`}
         href={status.verificationUri}
-        onClick={(event) => openVerificationUri(event, status.verificationUri)}
+        onClick={(event) =>
+          void openExternalLink(event, status.verificationUri).then((failure) =>
+            setLinkError(failure === undefined ? null : `Couldn't open link: ${failure}`)
+          )
+        }
         rel="noreferrer"
         target="_blank"
       >
         {status.verificationUri}
       </a>
+      {linkError ? (
+        <span
+          className="text-destructive text-xs"
+          data-testid={`credential-oauth-link-error-${slot.id}`}
+          role="alert"
+        >
+          {linkError}
+        </span>
+      ) : null}
       <CancelAction controller={controller} slot={slot} />
     </>
   );
