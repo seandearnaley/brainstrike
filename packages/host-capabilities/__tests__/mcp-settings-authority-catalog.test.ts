@@ -289,6 +289,43 @@ describe('MCP catalog install', () => {
     const [id] = h.bearer.stored.keys();
     expect(id).toBeDefined();
     expect(await readFile(h.configPath, 'utf8')).toContain(`"id": "${id}"`);
+    // The watcher was running before the install, so it stays up.
+    expect(h.activeWatcher()).toBeDefined();
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
+  it('keeps the token of an install that restarted the watcher, and puts it back down when the reload fails', async () => {
+    const h = await started();
+    h.failWatch(new Error('EPERM: operation not permitted, watch'));
+    const reloadFailure = new Error('EIO: i/o error, read');
+    vi.spyOn(h.configFile, 'load').mockRejectedValueOnce(reloadFailure);
+
+    const error = await h.authority
+      .installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      'GitHub was added to the MCP config, but the MCP config could not be reloaded: EIO: i/o error, read'
+    );
+    expect((error as Error).cause).toBe(reloadFailure);
+    expect(h.bearer.writer.delete).not.toHaveBeenCalled();
+    expect(h.bearer.stored.size).toBe(1);
+    expect(h.activeWatcher()).toBeUndefined();
+    await expect(h.authority.configStatus()).resolves.toMatchObject({
+      watchError:
+        'the MCP config could not be reloaded after its watcher restarted: EIO: i/o error, read',
+    });
+
+    await h.authority.readConfigText();
+    expect(h.activeWatcher()).toBeDefined();
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'github' })],
+    });
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
   });
 
   it('says an OAuth install was added when the written config cannot be reloaded', async () => {

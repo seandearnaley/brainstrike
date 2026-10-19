@@ -360,6 +360,36 @@ describe('MCP settings authority config watcher that fails while held', () => {
     await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
   });
 
+  it('puts a watcher a successful save restarted back down when its reload fails, and a read retries', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+    const revision = mcpConfigRevision(await readFile(h.configPath, 'utf8'));
+    const reloadFailure = new Error(RELOAD_FAILURE);
+    h.replaceResolvedConfig.mockRejectedValueOnce(reloadFailure);
+
+    await expect(
+      h.authority.writeConfigText({
+        baseRevision: revision,
+        content: JSON.stringify({ servers: [stdioServer('git')] }),
+      })
+    ).rejects.toBe(reloadFailure);
+
+    expect(h.activeWatcher()).toBeUndefined();
+    expect(configEvents(h).at(-1)?.config).toMatchObject({
+      watchError: RELOAD_AFTER_RESTART_FAILURE,
+    });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({
+      watchError: RELOAD_AFTER_RESTART_FAILURE,
+    });
+
+    await expect(h.authority.readConfigText()).resolves.toMatchObject({ exists: true });
+    expect(h.activeWatcher()).toBeDefined();
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'git' })],
+    });
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
   it('puts a watcher a failed save restarted back down when it cannot reload what it missed', async () => {
     const h = await setup();
     await watcherDiedWhileRunning(h);

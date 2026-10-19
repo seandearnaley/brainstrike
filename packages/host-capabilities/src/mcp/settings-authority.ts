@@ -744,7 +744,8 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
    * ended. A watcher that cannot stop or restart is `watchError`, not a failure;
    * one whose close threw stays down until a later save, install or read. A write,
    * a conflict (the file changed on disk) or the restart of a watcher that was
-   * down, which missed the edits made meanwhile, reloads the runtime. A `writeText` that
+   * down, which missed the edits made meanwhile, reloads the runtime; after such a
+   * restart, a reload that fails puts the watcher back down. A `writeText` that
    * throws propagates, since nothing was written; a reload that throws afterwards
    * is returned with the write's result. `conflict` words a stale base.
    */
@@ -775,10 +776,8 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       logger.info('MCP config text updated', { path: result.path });
     }
     try {
-      // After a failed write only a restart reloads; one whose reload fails goes back down.
-      await (result.success || result.conflict
-        ? watch.reload()
-        : this.#watchHealth.reloadAfterRestart(watch));
+      // A watcher this save restarted from down goes back down when its reload fails.
+      await (recovered ? this.#watchHealth.reloadAfterRestart(watch) : watch.reload());
     } catch (error) {
       return { result, syncFailure: { error, step: 'the MCP config could not be reloaded' } };
     }
