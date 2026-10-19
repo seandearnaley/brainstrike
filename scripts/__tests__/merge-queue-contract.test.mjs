@@ -158,8 +158,69 @@ function assertMergify(mergifySource) {
   );
   assert.equal(rule.merge_method, 'squash', 'squash keeps main linear');
   assert.equal(rule.batch_size, 5);
-  assert.equal(rule.checks_timeout, '60 min');
   assert.equal(rule.name, 'default');
+}
+
+// GitHub documents no runner pickup time. Allow this much for each job on the
+// longest path, since each one waits for a runner after its needs finish.
+const RUNNER_PICKUP_MINUTES_PER_JOB = 2;
+
+function declaredTimeout(file, id, job) {
+  const minutes = job?.['timeout-minutes'];
+  assert.ok(
+    Number.isInteger(minutes) && minutes > 0,
+    `${file} › ${id} must declare timeout-minutes: the queue's checks_timeout is derived from it`
+  );
+  return minutes;
+}
+
+/**
+ * The longest chain of job timeouts a batch can run through, up to and
+ * including the gate: every test.yml job that can run in the queue, along its
+ * `needs`, then Merge Queue Gate. Each job also costs a runner pickup.
+ */
+function longestQueueChain(mergeQueueSource, nightlySource) {
+  const { jobs } = parseYaml(nightlySource);
+  const skipped = new Set(nightlyOnlyJobs(nightlySource));
+  const cost = ({ jobs: count, minutes }) => minutes + count * RUNNER_PICKUP_MINUTES_PER_JOB;
+  const longest = (chains) =>
+    chains.reduce((best, next) => (cost(next) > cost(best) ? next : best), {
+      jobs: 0,
+      minutes: 0,
+    });
+  const chains = new Map();
+  const chainTo = (id) => {
+    if (!chains.has(id)) {
+      const minutes = declaredTimeout(NIGHTLY, id, jobs[id]);
+      const needs = [jobs[id].needs ?? []].flat().filter((need) => !skipped.has(need));
+      const before = longest(needs.map(chainTo));
+      chains.set(id, { jobs: before.jobs + 1, minutes: before.minutes + minutes });
+    }
+    return chains.get(id);
+  };
+  const tier = longest(
+    Object.keys(jobs)
+      .filter((id) => !skipped.has(id))
+      .map(chainTo)
+  );
+  const gate = declaredTimeout(MERGE_QUEUE, GATE, parseYaml(mergeQueueSource).jobs[GATE]);
+  const chain = { jobs: tier.jobs + 1, minutes: tier.minutes + gate };
+  return { ...chain, required: cost(chain) };
+}
+
+/** Mergify must not dequeue a batch before GitHub's own job timeouts decide it. */
+function assertChecksTimeout(mergifySource, mergeQueueSource, nightlySource) {
+  const chain = longestQueueChain(mergeQueueSource, nightlySource);
+  const timeout = parseYaml(mergifySource).queue_rules[0].checks_timeout;
+  const match = /^(\d+) min$/u.exec(String(timeout));
+  assert.ok(match, `checks_timeout must read "<minutes> min", not ${JSON.stringify(timeout)}`);
+  assert.ok(
+    Number(match[1]) >= chain.required,
+    `checks_timeout ${timeout} must cover the longest job-timeout chain to the gate ` +
+      `(${chain.minutes} min over ${chain.jobs} jobs) plus ${RUNNER_PICKUP_MINUTES_PER_JOB} min ` +
+      `of runner pickup per job: at least ${chain.required} min`
+  );
+  return chain;
 }
 
 /** The fast tier is test.yml itself, with only the secret it needs. */
@@ -442,6 +503,17 @@ test('.mergify.yml lands each batch only on Merge Queue Gate success, squashed o
   assertMergify(readMergify());
 });
 
+test('.mergify.yml waits out the longest job-timeout chain to the gate, plus runner pickup', (t) => {
+  const chain = assertChecksTimeout(
+    readMergify(),
+    readWorkflow(MERGE_QUEUE),
+    readWorkflow(NIGHTLY)
+  );
+  t.diagnostic(
+    `longest chain ${chain.minutes} min over ${chain.jobs} jobs; checks_timeout needs at least ${chain.required} min`
+  );
+});
+
 test('the fast tier is test.yml itself, passed only TURBO_TOKEN', () => {
   assertCall(readWorkflow(MERGE_QUEUE));
   assertSecrets(readWorkflow(MERGE_QUEUE), readWorkflow(NIGHTLY));
@@ -552,6 +624,42 @@ test('CONTROL: a missing or loosened merge condition, or another way to merge, f
     'branch_protection_injection_mode: queue'
   );
   assert.throws(() => assertMergify(queueEntry), /gate the merge, not queue entry/u);
+});
+
+test('CONTROL: a longer job, an undeclared timeout or a shorter checks_timeout fails the timeout check', () => {
+  const mergify = readMergify();
+  const source = readWorkflow(MERGE_QUEUE);
+  const nightly = readWorkflow(NIGHTLY);
+  const { required } = longestQueueChain(source, nightly);
+  // A Unit shard 10 minutes longer lengthens the longest chain by 10.
+  const slowShard = mutate(
+    nightly,
+    '    timeout-minutes: 30\n    strategy:',
+    '    timeout-minutes: 40\n    strategy:'
+  );
+  assert.throws(
+    () => assertChecksTimeout(mergify, source, slowShard),
+    new RegExp(`at least ${required + 10} min`, 'u')
+  );
+  const undeclaredGate = mutate(source, '    timeout-minutes: 5\n    steps:', '    steps:');
+  assert.throws(
+    () => assertChecksTimeout(mergify, undeclaredGate, nightly),
+    /merge-queue\.yml › merge-queue-gate must declare timeout-minutes/u
+  );
+  const undeclaredBuild = mutate(
+    nightly,
+    '    runs-on: ubicloud-standard-4\n    timeout-minutes: 25\n    steps:',
+    '    runs-on: ubicloud-standard-4\n    steps:'
+  );
+  assert.throws(
+    () => assertChecksTimeout(mergify, source, undeclaredBuild),
+    /test\.yml › build must declare timeout-minutes/u
+  );
+  const sixty = mutate(mergify, /checks_timeout: \d+ min/u, 'checks_timeout: 60 min');
+  assert.throws(
+    () => assertChecksTimeout(sixty, source, nightly),
+    new RegExp(`at least ${required} min`, 'u')
+  );
 });
 
 test('CONTROL: an inherited or extra secret, or an unskipped reader, fails the secrets check', () => {

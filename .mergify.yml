@@ -27,7 +27,12 @@ queue_rules:
     merge_method: squash
     # merge-queue.yml triggers on pushes under this prefix.
     queue_branch_prefix: mergify/merge-queue/
-    # Above the slowest full-tier run measured for BST-2188 (47.6 min), and
-    # equal to the longest chain of job timeouts ahead of the gate: admission
-    # 5, Static 20, a Unit shard 30 and Unit 5 minutes.
-    checks_timeout: 60 min
+    # Mergify must not dequeue a batch before GitHub's own job timeouts decide
+    # it. The longest chain of job timeouts up to and including the gate is
+    # 65 minutes over 5 jobs: admission 5, Static 20, a Unit shard 30, Unit 5
+    # and Merge Queue Gate 5 (admission, Build, a desktop smoke lane and Desktop
+    # E2E tie it). GitHub documents no runner pickup time, so allow 2 minutes
+    # per job: 65 + 5 x 2 = 75. merge-queue-contract.test.mjs derives this
+    # bound from the workflows. Not `auto`: it applies no timeout until the
+    # queue has about 20 qualifying runs in seven days.
+    checks_timeout: 75 min
