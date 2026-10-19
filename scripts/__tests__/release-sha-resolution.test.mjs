@@ -9,6 +9,11 @@
  * counts as missing. The decision is a pure function over run records; the
  * CLI tests run the real script against a local fake of the REST API.
  *
+ * BST-2233 (owner decision 2026-10-19): the six owner-named workflows run as
+ * one scheduled run of nightly.yml, so the required set is that one workflow.
+ * Its run succeeds only when every call succeeded, so a SHA is green only when
+ * that night's run did.
+ *
  * Each check is a function over its inputs, so the CONTROL tests can feed it a
  * broken set or workflow and watch it fail.
  */
@@ -31,8 +36,9 @@ const workflowPath = (file) => path.join(repoRoot, '.github', 'workflows', file)
 const readWorkflow = (file) =>
   existsSync(workflowPath(file)) ? readFileSync(workflowPath(file), 'utf8') : undefined;
 
-// The owner's named set (BST-2190). This is the expectation the module is held
-// to, not a second definition: nothing but these tests reads it.
+// The owner's named set (BST-2190), and the one scheduled run that calls it
+// (BST-2233). These are the expectations the module is held to, not a second
+// definition: nothing but these tests reads them.
 const OWNER_NAMED = [
   'desktop-e2e.yml',
   'native-package-matrix.yml',
@@ -41,6 +47,7 @@ const OWNER_NAMED = [
   'test.yml',
   'web-e2e.yml',
 ];
+const NIGHTLY = 'nightly.yml';
 
 function assertRequiredWorkflowsAreScheduled(required, read) {
   assert.ok(required.length > 0, 'the required nightly set must name at least one workflow');
@@ -58,12 +65,36 @@ function assertRequiredWorkflowsAreScheduled(required, read) {
   }
 }
 
-test('the required nightly set is the owner-named six workflows', () => {
-  assert.deepEqual([...REQUIRED_NIGHTLY_WORKFLOWS].sort(), OWNER_NAMED);
+/** The required set is the one scheduled run that calls each owner-named workflow. */
+function assertRequiredNightlyCallsTheSix(required, read) {
+  assert.deepEqual([...required], [NIGHTLY], `a release must judge ${NIGHTLY}'s scheduled run`);
+  const called = Object.values(parseYaml(read(NIGHTLY)).jobs)
+    .map((job) => String(job.uses ?? ''))
+    .filter((uses) => uses.startsWith('./.github/workflows/'))
+    .map((uses) => path.basename(uses))
+    .sort();
+  assert.deepEqual(called, OWNER_NAMED, `${NIGHTLY} must call each owner-named workflow`);
+}
+
+test('the required nightly is the one scheduled run that calls the owner-named six', () => {
+  assertRequiredNightlyCallsTheSix(REQUIRED_NIGHTLY_WORKFLOWS, readWorkflow);
 });
 
 test('every required nightly workflow exists and runs on a schedule', () => {
   assertRequiredWorkflowsAreScheduled(REQUIRED_NIGHTLY_WORKFLOWS, readWorkflow);
+});
+
+test('CONTROL: the six judged one by one, or a caller missing one, fails the contract', () => {
+  assert.throws(
+    () => assertRequiredNightlyCallsTheSix(OWNER_NAMED, readWorkflow),
+    /must judge nightly\.yml's scheduled run/u
+  );
+  const short = readWorkflow(NIGHTLY).replace('uses: ./.github/workflows/web-e2e.yml', '');
+  assert.notEqual(short, readWorkflow(NIGHTLY), 'control mutation matched nothing');
+  assert.throws(
+    () => assertRequiredNightlyCallsTheSix([NIGHTLY], () => short),
+    /must call each owner-named workflow/u
+  );
 });
 
 test('CONTROL: a missing or unscheduled required workflow fails the contract', () => {
@@ -71,11 +102,11 @@ test('CONTROL: a missing or unscheduled required workflow fails the contract', (
     () => assertRequiredWorkflowsAreScheduled(['no-such-nightly.yml'], readWorkflow),
     /no-such-nightly\.yml does not exist/u
   );
-  const unscheduled = readWorkflow('test.yml').replace(/\n {2}schedule:\n(?: {4}.*\n)+/u, '\n');
-  assert.notEqual(unscheduled, readWorkflow('test.yml'), 'control mutation matched nothing');
+  const unscheduled = readWorkflow(NIGHTLY).replace(/\n {2}schedule:\n(?: {4}.*\n)+/u, '\n');
+  assert.notEqual(unscheduled, readWorkflow(NIGHTLY), 'control mutation matched nothing');
   assert.throws(
-    () => assertRequiredWorkflowsAreScheduled(['test.yml'], () => unscheduled),
-    /test\.yml is required for a release, but it has no schedule trigger/u
+    () => assertRequiredWorkflowsAreScheduled([NIGHTLY], () => unscheduled),
+    /nightly\.yml is required for a release, but it has no schedule trigger/u
   );
 });
 
@@ -104,10 +135,10 @@ function run(sha, overrides = {}) {
   };
 }
 
-/** One night: every owner-named workflow's scheduled run on `sha`, unless `changes` says otherwise. */
+/** One night: nightly.yml's scheduled run on `sha`, unless `changes` says otherwise. */
 function night(sha, createdAt, changes = {}) {
   return Object.fromEntries(
-    OWNER_NAMED.map((workflow) => [
+    REQUIRED_NIGHTLY_WORKFLOWS.map((workflow) => [
       workflow,
       changes[workflow] ?? [run(sha, { created_at: createdAt })],
     ])
@@ -117,84 +148,71 @@ function night(sha, createdAt, changes = {}) {
 /** Merges nights into one runs-by-workflow record, as the API lists them. */
 function nights(...list) {
   return Object.fromEntries(
-    OWNER_NAMED.map((workflow) => [workflow, list.flatMap((entry) => entry[workflow] ?? [])])
+    REQUIRED_NIGHTLY_WORKFLOWS.map((workflow) => [
+      workflow,
+      list.flatMap((entry) => entry[workflow] ?? []),
+    ])
   );
 }
 
 const stateOf = (verdict, workflow) =>
   verdict.workflows.find((entry) => entry.workflow === workflow)?.state;
 
-test('a SHA whose every required nightly passed is green', () => {
+test('a SHA whose nightly run passed is green', () => {
   const verdict = judgeSha(SHA.newest, night(SHA.newest, NIGHT.third));
   assert.equal(verdict.green, true);
   assert.deepEqual(
-    verdict.workflows.map((entry) => entry.state),
-    OWNER_NAMED.map(() => 'success')
+    verdict.workflows.map((entry) => [entry.workflow, entry.state]),
+    [[NIGHTLY, 'success']]
   );
 });
 
-test('a red workflow excludes its SHA', async (t) => {
-  for (const workflow of OWNER_NAMED) {
-    await t.test(workflow, () => {
-      const runs = night(SHA.newest, NIGHT.third, {
-        [workflow]: [run(SHA.newest, { conclusion: 'failure' })],
-      });
-      const verdict = judgeSha(SHA.newest, runs);
-      assert.equal(verdict.green, false, `a red ${workflow} must exclude the SHA`);
-      assert.equal(stateOf(verdict, workflow), 'failure');
-    });
+test('a red, missing or in-progress nightly run excludes its SHA', () => {
+  for (const [label, runs, state] of [
+    ['red', [run(SHA.newest, { conclusion: 'failure' })], 'failure'],
+    ['cancelled', [run(SHA.newest, { conclusion: 'cancelled' })], 'cancelled'],
+    ['missing', [], 'missing'],
+    ['in progress', [run(SHA.newest, { conclusion: null, status: 'in_progress' })], 'missing'],
+  ]) {
+    const verdict = judgeSha(SHA.newest, night(SHA.newest, NIGHT.third, { [NIGHTLY]: runs }));
+    assert.equal(verdict.green, false, `a ${label} nightly run must exclude the SHA`);
+    assert.equal(stateOf(verdict, NIGHTLY), state, label);
   }
 });
 
-test('a missing run excludes its SHA', async (t) => {
-  for (const workflow of OWNER_NAMED) {
-    await t.test(workflow, () => {
-      const verdict = judgeSha(SHA.newest, night(SHA.newest, NIGHT.third, { [workflow]: [] }));
-      assert.equal(verdict.green, false, `a missing ${workflow} must exclude the SHA`);
-      assert.equal(stateOf(verdict, workflow), 'missing');
-    });
-  }
-});
-
-test('an in-progress run excludes its SHA', async (t) => {
-  for (const workflow of OWNER_NAMED) {
-    await t.test(workflow, () => {
-      const runs = night(SHA.newest, NIGHT.third, {
-        [workflow]: [run(SHA.newest, { conclusion: null, status: 'in_progress' })],
-      });
-      const verdict = judgeSha(SHA.newest, runs);
-      assert.equal(verdict.green, false, `an in-progress ${workflow} must exclude the SHA`);
-      assert.equal(stateOf(verdict, workflow), 'missing');
-    });
-  }
+test('the six workflows’ own runs never make a SHA green: only the nightly run counts', () => {
+  const ownRuns = Object.fromEntries(OWNER_NAMED.map((workflow) => [workflow, [run(SHA.newest)]]));
+  const verdict = judgeSha(SHA.newest, { ...ownRuns, [NIGHTLY]: [] });
+  assert.equal(verdict.green, false);
+  assert.equal(stateOf(verdict, NIGHTLY), 'missing');
 });
 
 test('only scheduled runs on that exact SHA count', () => {
   const dispatched = night(SHA.newest, NIGHT.third, {
-    'web-e2e.yml': [run(SHA.newest, { event: 'workflow_dispatch' })],
+    [NIGHTLY]: [run(SHA.newest, { event: 'workflow_dispatch' })],
   });
-  assert.equal(stateOf(judgeSha(SHA.newest, dispatched), 'web-e2e.yml'), 'missing');
-  const elsewhere = night(SHA.newest, NIGHT.third, { 'web-e2e.yml': [run(SHA.oldest)] });
-  assert.equal(stateOf(judgeSha(SHA.newest, elsewhere), 'web-e2e.yml'), 'missing');
+  assert.equal(stateOf(judgeSha(SHA.newest, dispatched), NIGHTLY), 'missing');
+  const elsewhere = night(SHA.newest, NIGHT.third, { [NIGHTLY]: [run(SHA.oldest)] });
+  assert.equal(stateOf(judgeSha(SHA.newest, elsewhere), NIGHTLY), 'missing');
 });
 
 test('the latest completed scheduled run on a SHA decides it', () => {
   const passedThenFailed = night(SHA.newest, NIGHT.third, {
-    'test.yml': [
+    [NIGHTLY]: [
       run(SHA.newest, { created_at: NIGHT.second }),
       run(SHA.newest, { conclusion: 'failure' }),
     ],
   });
   assert.equal(judgeSha(SHA.newest, passedThenFailed).green, false);
   const failedThenPassed = night(SHA.newest, NIGHT.third, {
-    'test.yml': [
+    [NIGHTLY]: [
       run(SHA.newest, { conclusion: 'failure', created_at: NIGHT.second }),
       run(SHA.newest),
     ],
   });
   assert.equal(judgeSha(SHA.newest, failedThenPassed).green, true);
   const passedThenRunning = night(SHA.newest, NIGHT.third, {
-    'test.yml': [
+    [NIGHTLY]: [
       run(SHA.newest, { created_at: NIGHT.second }),
       run(SHA.newest, { conclusion: null, status: 'in_progress' }),
     ],
@@ -207,7 +225,7 @@ test('the newest all-green SHA is chosen', () => {
     night(SHA.oldest, NIGHT.first),
     night(SHA.middle, NIGHT.second),
     night(SHA.newest, NIGHT.third, {
-      'native-package-matrix.yml': [run(SHA.newest, { conclusion: 'failure' })],
+      [NIGHTLY]: [run(SHA.newest, { conclusion: 'failure' })],
     })
   );
   const { chosen, judged } = newestGreenSha(runs);
@@ -222,12 +240,11 @@ test('the newest all-green SHA is chosen', () => {
   );
 });
 
-test('a night split across two SHAs leaves neither green', () => {
-  const runs = night(SHA.newest, NIGHT.third, {
-    'desktop-e2e.yml': [run(SHA.middle)],
-    'native-package-matrix.yml': [run(SHA.middle)],
-    'nightly-coverage.yml': [run(SHA.middle)],
-  });
+test('with no green nightly run, no SHA is chosen', () => {
+  const runs = nights(
+    night(SHA.middle, NIGHT.second, { [NIGHTLY]: [run(SHA.middle, { conclusion: 'failure' })] }),
+    night(SHA.newest, NIGHT.third, { [NIGHTLY]: [run(SHA.newest, { conclusion: 'cancelled' })] })
+  );
   const { chosen, judged } = newestGreenSha(runs);
   assert.equal(chosen, undefined);
   assert.deepEqual(
@@ -319,34 +336,33 @@ async function runResolver(args, { commits = {}, runs = {} }) {
 const runListings = (requests) =>
   requests.filter((url) => url.pathname.endsWith('/runs')).map((url) => url.searchParams);
 
-test('a given red SHA refuses and names every red or missing workflow', async () => {
-  const runs = night(SHA.newest, NIGHT.third, {
-    'desktop-e2e.yml': [],
-    'native-package-matrix.yml': [run(SHA.newest, { conclusion: 'failure' })],
-    'web-e2e.yml': [run(SHA.newest, { conclusion: null, status: 'in_progress' })],
-  });
-  const result = await runResolver(['--given', SHA.newest], {
-    commits: { [SHA.newest]: SHA.newest },
-    runs,
-  });
-  assert.equal(result.status, 1, result.stderr);
-  assert.equal(result.stdout, '', 'a refusal resolves no SHA');
-  assert.match(result.stderr, /Refusing to release c{40}: 3 of 6 required nightly workflows/u);
-  assert.match(
-    result.stderr,
-    /::error::desktop-e2e\.yml: missing \(no scheduled run on this SHA\)/u
-  );
-  assert.match(
-    result.stderr,
-    /::error::native-package-matrix\.yml: failure \(https:\/\/github\.com/u
-  );
-  assert.match(
-    result.stderr,
-    /::error::web-e2e\.yml: missing \(1 scheduled run still in progress\)/u
-  );
-  for (const params of runListings(result.requests)) {
-    assert.equal(params.get('event'), 'schedule');
-    assert.equal(params.get('head_sha'), SHA.newest);
+test('a given red SHA refuses and says why its nightly run is not green', async () => {
+  for (const [runs, reason] of [
+    [[run(SHA.newest, { conclusion: 'failure' })], /failure \(https:\/\/github\.com/u],
+    [[], /missing \(no scheduled run on this SHA\)/u],
+    [
+      [run(SHA.newest, { conclusion: null, status: 'in_progress' })],
+      /missing \(1 scheduled run still in progress\)/u,
+    ],
+  ]) {
+    const result = await runResolver(['--given', SHA.newest], {
+      commits: { [SHA.newest]: SHA.newest },
+      runs: night(SHA.newest, NIGHT.third, { [NIGHTLY]: runs }),
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, '', 'a refusal resolves no SHA');
+    assert.match(result.stderr, /Refusing to release c{40}: 1 of 1 required nightly workflows/u);
+    assert.match(result.stderr, new RegExp(`::error::nightly\\.yml: ${reason.source}`, 'u'));
+    const listings = result.requests.filter((url) => url.pathname.endsWith('/runs'));
+    assert.deepEqual(
+      [...new Set(listings.map((url) => url.pathname))],
+      ['/repos/o/r/actions/workflows/nightly.yml/runs'],
+      'the resolver reads only the nightly run, never the six workflows one by one'
+    );
+    for (const params of runListings(result.requests)) {
+      assert.equal(params.get('event'), 'schedule');
+      assert.equal(params.get('head_sha'), SHA.newest);
+    }
   }
 });
 
@@ -372,7 +388,7 @@ test('a given green SHA resolves, reading every page of its runs', async () => {
 test('a pushed tag is judged as the given commit it points to', async () => {
   const tag = 'refs/tags/v1.2.3';
   const red = night(SHA.middle, NIGHT.third, {
-    'test.yml': [run(SHA.middle, { conclusion: 'cancelled' })],
+    [NIGHTLY]: [run(SHA.middle, { conclusion: 'cancelled' })],
   });
   const refused = await runResolver(['--given', tag], {
     commits: { 'tags/v1.2.3': SHA.middle },
@@ -381,7 +397,7 @@ test('a pushed tag is judged as the given commit it points to', async () => {
   assert.equal(refused.status, 1, 'a tag on a red commit refuses, with no other SHA chosen');
   assert.equal(refused.stdout, '');
   assert.match(refused.stderr, /Refusing to release b{40}/u);
-  assert.match(refused.stderr, /::error::test\.yml: cancelled/u);
+  assert.match(refused.stderr, /::error::nightly\.yml: cancelled/u);
   const green = await runResolver(['--given', tag], {
     commits: { 'tags/v1.2.3': SHA.middle },
     runs: night(SHA.middle, NIGHT.third),
@@ -402,12 +418,12 @@ test('by default the newest all-green main commit within the lookback is chosen'
   const runs = nights(
     night(SHA.oldest, NIGHT.first),
     night(SHA.middle, NIGHT.second),
-    night(SHA.newest, NIGHT.third, { 'performance.yml': [] })
+    night(SHA.newest, NIGHT.third, { [NIGHTLY]: [run(SHA.newest, { conclusion: 'failure' })] })
   );
   const result = await runResolver(['--newest-green', '--lookback-days', '14'], { runs });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, `sha=${SHA.middle}\n`);
-  assert.match(result.stderr, /c{40} is not green: performance\.yml: missing/u);
+  assert.match(result.stderr, /c{40} is not green: nightly\.yml: failure/u);
   for (const params of runListings(result.requests)) {
     assert.equal(params.get('event'), 'schedule');
     assert.equal(params.get('branch'), 'main');
@@ -417,8 +433,10 @@ test('by default the newest all-green main commit within the lookback is chosen'
 
 test('with no all-green main commit in the lookback the default fails and says how far back it searched', async () => {
   const runs = nights(
-    night(SHA.middle, NIGHT.second, { 'test.yml': [run(SHA.middle, { conclusion: 'failure' })] }),
-    night(SHA.newest, NIGHT.third, { 'web-e2e.yml': [] })
+    night(SHA.middle, NIGHT.second, { [NIGHTLY]: [run(SHA.middle, { conclusion: 'failure' })] }),
+    night(SHA.newest, NIGHT.third, {
+      [NIGHTLY]: [run(SHA.newest, { conclusion: null, status: 'in_progress' })],
+    })
   );
   const result = await runResolver(['--newest-green', '--lookback-days', '14'], { runs });
   assert.equal(result.status, 1);
@@ -427,8 +445,8 @@ test('with no all-green main commit in the lookback the default fails and says h
     result.stderr,
     /::error::No main commit has every required nightly green in the last 14 days \(scheduled runs created since \d{4}-\d{2}-\d{2}T[^)]*\); judged 2 commits/u
   );
-  assert.match(result.stderr, /c{40} is not green: web-e2e\.yml: missing/u);
-  assert.match(result.stderr, /b{40} is not green: test\.yml: failure/u);
+  assert.match(result.stderr, /c{40} is not green: nightly\.yml: missing/u);
+  assert.match(result.stderr, /b{40} is not green: nightly\.yml: failure/u);
 });
 
 test('an unknown mode or a missing token is refused before any request', async () => {

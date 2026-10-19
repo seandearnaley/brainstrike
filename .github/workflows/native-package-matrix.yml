@@ -11,6 +11,10 @@ name: Native Package Matrix
 # `vec0.*` from `app.asar.unpacked`, the packaged tree has no node-gyp output,
 # and a vec0 table round-trips.
 #
+# BST-2190: legs with `desktopSmoke` also run the desktop smoke E2E lane against
+# that same packaged app: today macOS arm64. scripts/native-package-targets.mjs
+# names every excluded target with its Linear issue (Windows x64: BST-2234).
+#
 # Adapted from the native-index-sqlite spike. NOT a required check: failures on
 # the nightly run go to Linear (rule 7).
 #
@@ -18,18 +22,24 @@ name: Native Package Matrix
 # path as x64; no packaging step or addon smoke is skipped for that target.
 
 on:
+  # BST-2233: no schedule of its own; nightly.yml calls it each night with no
+  # platform, so `inputs.platform` is empty and the night covers every target.
+  workflow_call:
+    secrets:
+      LINEAR_API_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       platform:
-        description: Platform to qualify (scheduled runs always cover every target)
+        description: Platform to qualify (nightly runs always cover every target)
         type: choice
         default: all
         options: [all, linux, windows]
-  schedule:
-    - cron: '41 9 * * *'
 
+# In a called run github.workflow is the caller's name; the file name keeps this
+# group apart from nightly.yml's and its siblings'.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}-${{ inputs.platform || 'all' }}
+  group: ${{ github.workflow }}-native-package-matrix-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -171,6 +181,32 @@ jobs:
             ${{ runner.temp }}/electron-builder.log
           if-no-files-found: warn
 
+      # BST-2190: `desktopSmoke` legs run the desktop smoke lane against the app
+      # this leg just packaged (and, on macOS, signed). Excluded targets, each
+      # with its Linear issue, are in scripts/native-package-targets.mjs. BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged makes the
+      # shared Electron harness launch apps/desktop/release's executable instead
+      # of dist/main.js; a missing executable fails the lane, never the dev build.
+      # Each test gets a disposable profile and the loopback provider shim, so no
+      # provider is called and no credential is read.
+      - name: Packaged desktop smoke E2E
+        if: ${{ matrix.desktopSmoke }}
+        env:
+          BRAINSTRIKE_E2E_DESKTOP_TARGET: packaged
+        run: pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke
+
+      # test-results/ holds each failed test's trace, screenshots, video and error
+      # context; blob-report/ holds the report zip for `playwright merge-reports`.
+      - name: Upload packaged desktop smoke traces
+        if: ${{ failure() && matrix.desktopSmoke }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-desktop-smoke-${{ matrix.os }}-test-results
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
+          retention-days: 1
+          if-no-files-found: warn
+
       # Same guards as native-windows: a key that lacked the resolved Node
       # version, or a failed install, would shadow the good entry forever.
       - name: Save node-gyp headers (Windows)
@@ -186,7 +222,8 @@ jobs:
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
-      workflow_name: ${{ github.workflow }}
+      # Its own name: in nightly.yml's call, github.workflow is the caller's.
+      workflow_name: Native Package Matrix
       results: select-targets=${{ needs.select-targets.result }},smoke=${{ needs.smoke.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

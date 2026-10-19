@@ -147,7 +147,17 @@ function assertAlertDownloadsReports(source) {
   const steps = parseYaml(source).jobs.notify.steps;
   const download = steps.find((step) => String(step.uses).startsWith('actions/download-artifact@'));
   assert.ok(download, 'Notify Linear must download the nightly results');
-  assert.equal(download.with.pattern, 'nightly-results--*');
+  // BST-2233: every workflow nightly.yml calls shares one run and its
+  // artifacts, so Notify Linear downloads only the jobs it reports.
+  const scope = steps.find((step) => step.id === 'results-artifacts');
+  assert.ok(scope, 'Notify Linear must name the results artifacts of the jobs it reports');
+  assert.equal(scope.env?.RESULTS, expression('inputs.results'));
+  assert.equal(
+    scope.run,
+    'node scripts/nightly-results-artifacts.mjs --results "$RESULTS" >> "$GITHUB_OUTPUT"'
+  );
+  assert.ok(steps.indexOf(scope) < steps.indexOf(download), 'name the artifacts, then download');
+  assert.equal(download.with.pattern, expression('steps.results-artifacts.outputs.pattern'));
   assert.equal(download.with.path, `${expression('runner.temp')}/nightly-results`);
   assert.equal(
     download.with['merge-multiple'],
@@ -242,6 +252,15 @@ test('CONTROL: a job that records no status FAILS this contract', () => {
 test('CONTROL: a notifier that never reads the reports FAILS this contract', () => {
   const mutated = mutate(read(ALERT), /--reports "\$RUNNER_TEMP\/nightly-results"\n/u, '');
   assert.throws(() => assertAlertDownloadsReports(mutated));
+});
+
+test('CONTROL: a notifier downloading every workflow’s results FAILS this contract', () => {
+  const mutated = mutate(
+    read(ALERT),
+    `pattern: ${expression('steps.results-artifacts.outputs.pattern')}`,
+    'pattern: nightly-results--*'
+  );
+  assert.throws(() => assertAlertDownloadsReports(mutated), /results-artifacts\.outputs\.pattern/u);
 });
 
 test('CONTROL: a config without the JSON reporter FAILS this contract', () => {
