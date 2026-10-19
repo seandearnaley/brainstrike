@@ -186,6 +186,18 @@ test('every test task that loads a build-utils Vitest config builds build-utils 
     ['@brainstrike/build-utils#build'],
     'the script tests load the build-utils Vitest configs'
   );
+  // BST-2216: effect-diagnostics-execution type-checks fixtures against the real
+  // desktop wire modules, which resolve these packages through their dist types.
+  assertScheduledBefore(
+    scripts,
+    '//#test:scripts:run',
+    [
+      '@brainstrike/agent-host#build',
+      '@brainstrike/assistant-contract#build',
+      '@brainstrike/indexer#build',
+    ],
+    'the effect-diagnostics desktop cases type-check against their dist'
+  );
 });
 
 function turboDryRun() {
