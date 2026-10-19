@@ -3,12 +3,13 @@ import {
   BoundaryFailureError,
   memoryConfigurationError,
 } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import type { LanguageModelMiddleware, LanguageModelUsage } from 'ai';
 import { correlationIdFor } from '../failure-correlation.js';
-import type { HostRunContext, HostRunOwner } from '../ports.js';
+import type { HostMemoryCycle, HostRunContext, HostRunOwner } from '../ports.js';
 import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.js';
 import {
   classifyMemoryFailure,
@@ -23,6 +24,38 @@ type Turn = ReturnType<Engine['beginTurn']>;
 type PreparedStep = Awaited<ReturnType<ReturnType<Turn['step']>['prepare']>>;
 type NativeContext = Awaited<ReturnType<Memory['getContext']>>;
 type ProviderRequest = Parameters<NonNullable<LanguageModelMiddleware['wrapStream']>>[0]['params'];
+type ObservationConfig = Extract<
+  NonNullable<MemoryConfig['options']>['observationalMemory'],
+  object
+>;
+type CycleHooks = NonNullable<ObservationConfig['hooks']>;
+type CycleStart = Parameters<NonNullable<CycleHooks['onObservationStart']>>[0];
+type CycleEnd = Parameters<NonNullable<CycleHooks['onObservationEnd']>>[0];
+
+const logger = createLogger('AgentHostMemory');
+
+/** The lifecycle hooks the host installs to commit each cycle (BST-2224). */
+const CYCLE_HOOKS = [
+  'onObservationStart',
+  'onObservationEnd',
+  'onReflectionStart',
+  'onReflectionEnd',
+] as const satisfies readonly (keyof CycleHooks)[];
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/** The token counts a cycle reported; absent when it made no model call. */
+function cycleUsage(usage: CycleEnd['usage']): HostMemoryCycle['usage'] {
+  const counts = {
+    inputTokens: tokenCount(usage?.inputTokens),
+    outputTokens: tokenCount(usage?.outputTokens),
+    totalTokens: tokenCount(usage?.totalTokens),
+  };
+  const reported = Object.entries(counts).filter(([, count]) => count !== undefined);
+  return reported.length === 0 ? undefined : Object.fromEntries(reported);
+}
 
 /** A run's identity for native Memory, which reads committed history only through its storage domain. */
 export interface HostMemoryIdentity extends Omit<HostRunContext, 'readCommittedRows'> {
@@ -46,6 +79,11 @@ export interface HostMemoryCapabilities {
    * attributed under. Required whenever observational memory is on.
    */
   readonly observerModelId?: string;
+  /**
+   * Each observation and reflection cycle's facts (BST-2224), from Mastra's
+   * documented lifecycle hooks. Without it no cycle hooks are installed.
+   */
+  recordMemoryCycle?(identity: HostMemoryIdentity, cycle: HostMemoryCycle): Promise<void>;
   /** Actual observer/reflector usage and model identity, for the existing usage ledger. */
   recordObserverUsage(
     identity: HostMemoryIdentity,
@@ -217,19 +255,7 @@ export class HostMemory implements HostRunOwner {
           ...native,
           options: {
             ...native.options,
-            observationalMemory: {
-              ...observation,
-              abortSignal: identity.signal,
-              model: undefined,
-              observation: {
-                ...observation.observation,
-                model: this.providers.model('observation', observer),
-              },
-              reflection: {
-                ...observation.reflection,
-                model: this.providers.model('reflection', reflector),
-              },
-            },
+            observationalMemory: this.enclosedObservation(observation, observer, reflector),
           },
         };
       }
@@ -241,6 +267,118 @@ export class HostMemory implements HostRunOwner {
       resourceId: identity.resourceId,
       threadId: identity.threadId,
     });
+  }
+
+  /**
+   * The run's observational memory: its observer and reflector inside the
+   * provider enclosure, the run's signal, and the host's lifecycle hooks
+   * beside the transform hooks it was configured with.
+   */
+  private enclosedObservation(
+    observation: ObservationConfig,
+    observer: MemoryLanguageModel,
+    reflector: MemoryLanguageModel
+  ): ObservationConfig {
+    const configured = observation.hooks ?? {};
+    if (CYCLE_HOOKS.some((name) => configured[name] !== undefined)) {
+      throw memoryConfigurationError('Observational memory lifecycle hooks are host-owned');
+    }
+    return {
+      ...observation,
+      abortSignal: this.identity.signal,
+      ...(this.capabilities.recordMemoryCycle
+        ? { hooks: { ...configured, ...this.cycleHooks() } }
+        : {}),
+      model: undefined,
+      observation: {
+        ...observation.observation,
+        model: this.providers.model('observation', observer),
+      },
+      reflection: {
+        ...observation.reflection,
+        model: this.providers.model('reflection', reflector),
+      },
+    };
+  }
+
+  /**
+   * Mastra's documented lifecycle hooks, which commit each cycle's facts
+   * (BST-2224). Mastra tracks a hook's promise as its background work, so
+   * `settled()` joins the commit before this owner closes.
+   */
+  private cycleHooks(): CycleHooks {
+    // Start times per kind and trigger, oldest first: cycles of one kind end in order.
+    const started = new Map<string, number[]>();
+    const key = (kind: HostMemoryCycle['kind'], trigger: string | undefined) =>
+      `${kind}:${trigger ?? ''}`;
+    const start = (kind: HostMemoryCycle['kind']) => (info: CycleStart) => {
+      const list = started.get(key(kind, info?.trigger)) ?? [];
+      list.push(performance.now());
+      started.set(key(kind, info?.trigger), list);
+    };
+    const end = (kind: HostMemoryCycle['kind']) => (result: CycleEnd) =>
+      this.recordCycle(kind, started.get(key(kind, result.trigger))?.shift(), result);
+    return {
+      onObservationEnd: end('observation'),
+      onObservationStart: start('observation'),
+      onReflectionEnd: end('reflection'),
+      onReflectionStart: start('reflection'),
+    };
+  }
+
+  /**
+   * One cycle's committed facts. A failed cycle names its typed memory
+   * failure, and its cause is logged under that failure's reference: Mastra
+   * reports a buffered cycle's failure only to this hook.
+   */
+  private recordCycle(
+    kind: HostMemoryCycle['kind'],
+    startedAt: number | undefined,
+    result: CycleEnd
+  ): Promise<void> {
+    const record = this.capabilities.recordMemoryCycle;
+    if (!record) {
+      return Promise.resolve();
+    }
+    if (this.joined) {
+      return Promise.reject(new Error('Host memory lifetime is already joined'));
+    }
+    const { error, trigger } = result;
+    const cancelled = error !== undefined && this.expectedCancellation(error, true);
+    const failure =
+      error === undefined || cancelled ? undefined : this.stepFailure('observe', error).failure;
+    if (failure) {
+      logger.error('Memory cycle failed', {
+        cause: error,
+        code: failure.code,
+        ...(failure.correlationId === undefined ? {} : { correlationId: failure.correlationId }),
+        kind,
+        runId: this.identity.runId,
+        threadId: this.identity.threadId,
+        ...(trigger === undefined ? {} : { trigger }),
+      });
+    }
+    const usage = cycleUsage(result.usage);
+    const cycle: HostMemoryCycle = {
+      ...(startedAt === undefined
+        ? {}
+        : { durationMs: Math.max(0, Math.round(performance.now() - startedAt)) }),
+      ...(failure
+        ? {
+            failure: {
+              code: failure.code,
+              ...(failure.correlationId === undefined
+                ? {}
+                : { correlationId: failure.correlationId }),
+            },
+          }
+        : {}),
+      kind,
+      outcome: cancelled ? 'cancelled' : failure ? 'failed' : 'completed',
+      ...(trigger === undefined ? {} : { trigger }),
+      ...(usage ? { usage } : {}),
+    };
+    return this.track('accounting', () => record(this.identity, cycle));
   }
 
   private expectedCancellation(cause: unknown, providerCancellation: boolean): boolean {

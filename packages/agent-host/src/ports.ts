@@ -66,6 +66,9 @@ export type HostProjectionRewrite = Extract<
   { type: 'tool.projection.rewritten' }
 >['rewrites'][number];
 
+/** A memory cycle's committed facts, without the run they belong to (BST-2224). */
+export type HostMemoryCycle = Omit<Extract<HostEvent, { type: 'memory.cycle' }>, 'runId' | 'type'>;
+
 /** One committed tool call on a request's branch, with its committed model-facing result. */
 export interface HostToolInvocation {
   readonly args: unknown;
@@ -164,6 +167,11 @@ export interface HostRunContext {
    * decoded them, threads by id and each by seq: the run's Memory history.
    */
   readCommittedRows(threadIds: ReadonlySet<string>): readonly HostLogRow[];
+  /**
+   * One observation or reflection cycle's facts (BST-2224), committed through
+   * HostCore before the run's owner joins, like its spend.
+   */
+  recordMemoryCycle?(cycle: HostMemoryCycle): Promise<void>;
   /** A typed, committed reason this run received no observational memory. */
   recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */

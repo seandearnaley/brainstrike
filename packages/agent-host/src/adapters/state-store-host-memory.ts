@@ -251,6 +251,12 @@ export class StateStoreHostMemory implements HostRunOwner {
       ...(options.observerModelId === undefined
         ? {}
         : { observerModelId: options.observerModelId }),
+      recordMemoryCycle: async (_current, cycle) => {
+        if (!context.recordMemoryCycle) {
+          throw new Error('Public Memory requires the host-owned memory cycle writer');
+        }
+        await context.recordMemoryCycle(cycle);
+      },
       recordObserverUsage: async (current, receipt) => {
         if (!context.recordObserverUsage) {
           throw new Error('Public Memory requires the host-owned usage receipt writer');
