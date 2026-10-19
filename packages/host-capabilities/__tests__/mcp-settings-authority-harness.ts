@@ -13,7 +13,7 @@ import {
   type McpHostServerSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import { vi } from 'vitest';
+import { type Mock, vi } from 'vitest';
 import type {
   McpBearerCredentialReference,
   McpBearerCredentialWriter,
@@ -157,12 +157,13 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
   const realFile = createMcpConfigFile(userDataDir);
   const watchers: Array<{
     readonly onChange: (config: LoadedMcpConfig) => Promise<void> | void;
-    readonly close: ReturnType<typeof vi.fn>;
+    readonly onError: (error: unknown) => void;
+    readonly close: Mock<() => void>;
   }> = [];
   const configFile: McpConfigFile = {
     ...realFile,
-    watch: vi.fn(async (onChange) => {
-      const watcher = { close: vi.fn(), onChange };
+    watch: vi.fn(async (onChange, onError) => {
+      const watcher = { close: vi.fn<() => void>(), onChange, onError };
       watchers.push(watcher);
       return { close: watcher.close };
     }),
@@ -201,6 +202,15 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
     async cleanup() {
       mcpToolRegistry.clear();
       await rm(userDataDir, { force: true, recursive: true });
+    },
+    /** Fail a watcher while it runs, as a dying fs watcher does: it closes itself, then reports. */
+    failWatch(error: unknown, watcher?: (typeof watchers)[number]): void {
+      const failing = watcher ?? this.activeWatcher();
+      if (!failing) {
+        throw new Error('No live MCP config watcher');
+      }
+      failing.close();
+      failing.onError(error);
     },
     /** Fire the live watcher as a saved edit of the config file would. */
     async fireWatch() {

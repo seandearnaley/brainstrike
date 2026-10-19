@@ -1,3 +1,4 @@
+import type { McpHostServerSnapshot } from '@brainstrike/assistant-contract';
 import { errorMessage, type McpConfigWriteResult } from './config-file.js';
 
 /**
@@ -31,4 +32,40 @@ export function syncFailureError(
   return new Error(`${result.error}; ${failure.step}: ${errorMessage(failure.error)}${tail}`, {
     cause: failure.error,
   });
+}
+
+/**
+ * A destructive lifecycle control (disconnect, reauthorize), then the config
+ * reload that follows it whatever the control's outcome. When both fail, both
+ * failures surface.
+ */
+export async function controlThenReloadConfig(
+  control: () => Promise<McpHostServerSnapshot>,
+  reloadConfig: () => Promise<void>
+): Promise<McpHostServerSnapshot> {
+  let controlFailure: unknown;
+  let result: McpHostServerSnapshot | undefined;
+  try {
+    result = await control();
+  } catch (cause) {
+    controlFailure = cause;
+  }
+  try {
+    await reloadConfig();
+  } catch (reloadFailure) {
+    if (controlFailure !== undefined) {
+      throw new AggregateError(
+        [controlFailure, reloadFailure],
+        'MCP lifecycle control and config reload both failed'
+      );
+    }
+    throw reloadFailure;
+  }
+  if (controlFailure !== undefined) {
+    throw controlFailure;
+  }
+  if (result === undefined) {
+    throw new Error('MCP lifecycle control completed without a result');
+  }
+  return result;
 }

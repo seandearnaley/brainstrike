@@ -22,6 +22,26 @@ export class McpConfigWatchHealth {
     this.#wanted = true;
   }
 
+  /** The held watcher failed, dying while it ran or failing to close: `error` says why until a later start succeeds. */
+  fail(cause: unknown): void {
+    this.#error = errorMessage(cause);
+  }
+
+  /**
+   * Stops the held watcher with `stop`, never throwing: a close that throws is
+   * the watcher's failure, as `fail` records it. Returns whether it stopped.
+   */
+  stop(stop: () => void): boolean {
+    try {
+      stop();
+      return true;
+    } catch (cause) {
+      logger.error('MCP config watcher could not be stopped', { error: cause });
+      this.fail(cause);
+      return false;
+    }
+  }
+
   /** A retired lifecycle wants no watcher, so none can be failing. */
   retire(): void {
     this.#wanted = false;

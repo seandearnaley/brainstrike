@@ -297,7 +297,14 @@ export interface McpConfigFile {
   path(): Promise<string>;
   readText(createIfMissing?: boolean): Promise<McpConfigTextDocument>;
   setCustomPath(configPath: string | null): Promise<void>;
-  watch(onChange: (config: LoadedMcpConfig) => Promise<void> | void): Promise<McpWatcher>;
+  /**
+   * Watches the config file. A watcher that fails while running closes itself
+   * and reports why to `onError`, once; it delivers no change after that.
+   */
+  watch(
+    onChange: (config: LoadedMcpConfig) => Promise<void> | void,
+    onError: (error: unknown) => void
+  ): Promise<McpWatcher>;
   /** Writes valid text only while the file still has `baseRevision`; otherwise a conflict. */
   writeText(content: string, baseRevision: string): Promise<McpConfigWriteResult>;
 }
@@ -531,7 +538,7 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
       cache.initialized = true;
       await saveCustomConfigPath(normalizedPath);
     },
-    async watch(onChange) {
+    async watch(onChange, onError) {
       const p = await configPath();
       // Ensure the directory exists to avoid immediate watch errors.
       await fsp.mkdir(path.dirname(p), { recursive: true });
@@ -573,17 +580,28 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
           }
         }, 100);
       });
-      return {
-        close: () => {
-          closed = true;
-          changeEpoch += 1;
-          if (timer) {
-            clearTimeout(timer);
-            timer = null;
-          }
-          watcher.close();
-        },
+      const close = (): void => {
+        closed = true;
+        changeEpoch += 1;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        watcher.close();
       };
+      // Without a listener an fs watcher's `error` is thrown, and the watcher dies unseen.
+      watcher.on('error', (error: unknown) => {
+        if (closed) {
+          return;
+        }
+        logger.error('MCP config watcher failed', { error });
+        try {
+          close();
+        } finally {
+          onError(error);
+        }
+      });
+      return { close };
     },
     async writeText(content, baseRevision) {
       const target = await configPath();

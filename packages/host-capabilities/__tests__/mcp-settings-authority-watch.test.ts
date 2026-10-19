@@ -11,6 +11,8 @@ import {
 
 const EMPTY_REVISION = mcpConfigRevision('');
 const WATCH_FAILURE = 'EMFILE: too many open files, watch';
+const RUNTIME_FAILURE = 'EPERM: operation not permitted, watch';
+const CLOSE_FAILURE = 'the config watcher handle could not be closed';
 
 let harness: SettingsHarness | undefined;
 async function setup(): Promise<SettingsHarness> {
@@ -32,6 +34,24 @@ function configEvents(h: SettingsHarness): Extract<McpSettingsEvent, { type: 'co
 
 function failNextWatch(h: SettingsHarness): void {
   vi.mocked(h.configFile.watch).mockRejectedValueOnce(new Error(WATCH_FAILURE));
+}
+
+/** Starts the authority on one server, then its running watcher dies. */
+async function watcherDiedWhileRunning(h: SettingsHarness): Promise<void> {
+  await h.writeConfig([stdioServer('fs')]);
+  await h.authority.start();
+  h.failWatch(new Error(RUNTIME_FAILURE));
+}
+
+/** The live watcher's next close throws. */
+function failNextClose(h: SettingsHarness): void {
+  const watcher = h.activeWatcher();
+  if (!watcher) {
+    throw new Error('No live MCP config watcher');
+  }
+  watcher.close.mockImplementationOnce(() => {
+    throw new Error(CLOSE_FAILURE);
+  });
 }
 
 /** Starts the authority, then saves one server while the watcher cannot restart. */
@@ -223,5 +243,97 @@ describe('MCP settings authority config watcher health', () => {
 
     expect(configEvents(h).some(({ config }) => config.watchError !== undefined)).toBe(false);
     await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+});
+
+describe('MCP settings authority config watcher that fails while held', () => {
+  it('reports watchError when the running watcher dies, and the next save restarts it', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+
+    expect(h.activeWatcher()).toBeUndefined();
+    expect(configEvents(h).at(-1)).toEqual({
+      config: expect.objectContaining({ exists: true, watchError: RUNTIME_FAILURE }),
+      type: 'config',
+    });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({
+      watchError: RUNTIME_FAILURE,
+    });
+
+    const revision = mcpConfigRevision(await readFile(h.configPath, 'utf8'));
+    await expect(
+      h.authority.writeConfigText({
+        baseRevision: revision,
+        content: JSON.stringify({ servers: [stdioServer('git')] }),
+      })
+    ).resolves.toMatchObject({ success: true });
+
+    expect(h.activeWatcher()).toBeDefined();
+    expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
+  it('restarts a watcher that died while running when the editor reads the config', async () => {
+    const h = await setup();
+    await watcherDiedWhileRunning(h);
+
+    await expect(h.authority.readConfigText()).resolves.toMatchObject({ exists: true });
+
+    expect(h.activeWatcher()).toBeDefined();
+    expect(configEvents(h).at(-1)?.config).not.toHaveProperty('watchError');
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
+  it('ignores a failure from the watcher of a retired lifecycle', async () => {
+    const h = await setup();
+    await h.authority.start();
+    const retired = h.activeWatcher();
+    expect(retired).toBeDefined();
+    await h.authority.reset();
+    await h.authority.resume('succeeded');
+
+    h.failWatch(new Error(RUNTIME_FAILURE), retired);
+
+    expect(configEvents(h).some(({ config }) => config.watchError !== undefined)).toBe(false);
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
+  it('keeps a save whose watcher cannot be stopped, reporting watchError until a read restarts it', async () => {
+    const h = await setup();
+    await h.authority.start();
+    failNextClose(h);
+
+    await expect(
+      h.authority.writeConfigText({
+        baseRevision: EMPTY_REVISION,
+        content: JSON.stringify({ servers: [stdioServer('fs')] }),
+      })
+    ).resolves.toMatchObject({ success: true });
+
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'fs' })],
+    });
+    expect(h.activeWatcher()).toBeUndefined();
+    expect(configEvents(h).at(-1)?.config).toMatchObject({ watchError: CLOSE_FAILURE });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({ watchError: CLOSE_FAILURE });
+
+    await h.authority.readConfigText();
+    expect(h.activeWatcher()).toBeDefined();
+    await expect(h.authority.configStatus()).resolves.not.toHaveProperty('watchError');
+  });
+
+  it('keeps a path change whose watcher cannot be stopped, and reports watchError', async () => {
+    const h = await setup();
+    await h.authority.start();
+    failNextClose(h);
+
+    await expect(h.authority.setConfigPath({ path: null })).resolves.toEqual({
+      path: h.configPath,
+      success: true,
+    });
+
+    expect(h.activeWatcher()).toBeUndefined();
+    expect(configEvents(h).at(-1)?.config).toMatchObject({ watchError: CLOSE_FAILURE });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({ watchError: CLOSE_FAILURE });
   });
 });

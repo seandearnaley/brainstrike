@@ -12,7 +12,6 @@ import {
   type McpHostServerSnapshot,
   type McpHostSnapshot,
   type McpToolPreferencesFault,
-  type McpToolPreferencesFaultKind,
   parseMcpExtensionEnablement,
   refusal,
 } from '@brainstrike/assistant-contract';
@@ -24,10 +23,15 @@ import type {
   LoadedMcpConfig,
   McpConfigFile,
   McpConfigWriteResult,
+  McpWatcher,
   ResolvedMcpConfig,
 } from './config-file.js';
 import { toMcpConfigStatus } from './config-status.js';
-import { type McpConfigWriteSync, syncFailureError } from './config-sync.js';
+import {
+  controlThenReloadConfig,
+  type McpConfigWriteSync,
+  syncFailureError,
+} from './config-sync.js';
 import { McpConfigWatchHealth } from './config-watch.js';
 import {
   clearStoredMcpExtensionPreferences,
@@ -37,6 +41,7 @@ import {
 } from './extension-preferences.js';
 import {
   applyToolPreferenceMutation,
+  buildToolPreferencesFaultMessage,
   type DiscoveredServerTools,
   discoverToolsFromConfig,
   loadToolPreferencesForProjection,
@@ -84,15 +89,6 @@ interface McpFactoryResetSnapshot {
   readonly selectedConfigPath: string | null;
   readonly toolPreferencesFault: McpToolPreferencesFault | null;
   readonly tools: McpToolsByServer;
-}
-
-function buildToolPreferencesFaultMessage(fault: {
-  kind: McpToolPreferencesFaultKind;
-  path: string;
-  reason: string;
-}): string {
-  const cause = fault.kind === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
-  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved, so your saved choices are left on disk untouched. Repair or remove that file, then choose Reload tool preferences in Settings. Reset tool preferences discards your saved choices.`;
 }
 
 function serializableTools(): McpToolsByServer {
@@ -401,8 +397,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     }
     return this.#trackOperation(async (lifecycleEpoch) => {
       if (request.action === 'disconnect' || request.action === 'reauthorize') {
-        return await this.#controlDestructive(request, () =>
-          this.#reloadForLifecycle(lifecycleEpoch)
+        return await controlThenReloadConfig(
+          () => host.control(request),
+          () => this.#reloadForLifecycle(lifecycleEpoch)
         );
       }
       const result = await host.control(request);
@@ -452,10 +449,7 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
         }
         await this.#restoreSnapshot(snapshot);
       }
-      const watcher = await this.options.configFile.watch((config) =>
-        this.#handleConfigChange(config, lifecycleEpoch)
-      );
-      resumedWatcher = () => watcher.close();
+      resumedWatcher = await this.#openWatcher(lifecycleEpoch);
       if (lifecycleEpoch !== this.#lifecycleEpoch) {
         throw new Error('MCP settings resume was retired before admission reopened');
       }
@@ -468,9 +462,7 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       this.#watchHealth.want();
       this.#lifecycleOpen = true;
       if (shouldRestore) {
-        if (this.#last !== null) {
-          this.#emit({ config: this.#toConfigStatus(this.#last), type: 'config' });
-        }
+        this.#emitConfigStatus();
         this.#emitTools();
       }
       this.#pendingFactoryResetSnapshot = null;
@@ -513,6 +505,12 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
 
   #toConfigStatus(config: LoadedMcpConfig): HostResults['mcp/config/status'] {
     return toMcpConfigStatus(config, this.#watchHealth.error);
+  }
+
+  #emitConfigStatus(): void {
+    if (this.#last !== null) {
+      this.#emit({ config: this.#toConfigStatus(this.#last), type: 'config' });
+    }
   }
 
   #emitTools(): void {
@@ -743,8 +741,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   /**
    * Writes config text on this lifecycle while the file still has `baseRevision`,
    * with the watcher paused across the write and restarted after it however it
-   * ended (one that cannot restart is `watchError`, not a failure). A write or a
-   * conflict (the file changed on disk) reloads the runtime. A `writeText` that
+   * ended. A watcher that cannot stop or restart is `watchError`, not a failure;
+   * one whose close threw stays down until a later save, install or read. A write
+   * or a conflict (the file changed on disk) reloads the runtime. A `writeText` that
    * throws propagates, since nothing was written; a reload that throws afterwards
    * is returned with the write's result. `conflict` words a stale base.
    */
@@ -754,12 +753,14 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     lifecycleEpoch: number,
     conflict?: string
   ): Promise<McpConfigWriteSync> {
-    this.#stopWatcher();
+    const stopped = this.#stopWatcherForLifecycle();
     let written: McpConfigWriteResult;
     try {
       written = await this.options.configFile.writeText(content, baseRevision);
     } finally {
-      await this.#ensureWatcherForLifecycle(lifecycleEpoch);
+      if (stopped) {
+        await this.#ensureWatcherForLifecycle(lifecycleEpoch);
+      }
     }
     const result =
       !written.success && written.conflict && conflict !== undefined
@@ -808,14 +809,15 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     throw new Error('MCP config path must be selected with the native file picker.');
   }
 
-  /** Wants the watcher on the current config file and restarts it there; never throws. */
+  /** Wants the watcher on the current config file and restarts it there unless the old one cannot stop; never throws. */
   async #watchForLifecycle(lifecycleEpoch: number): Promise<void> {
     if (!this.#lifecycleOpen || lifecycleEpoch !== this.#lifecycleEpoch) {
       return;
     }
     this.#watchHealth.want();
-    this.#stopWatcher();
-    await this.#ensureWatcherForLifecycle(lifecycleEpoch);
+    if (this.#stopWatcherForLifecycle()) {
+      await this.#ensureWatcherForLifecycle(lifecycleEpoch);
+    }
   }
 
   /** Starts the wanted watcher when none runs; never throws, and announces a new `watchError`. */
@@ -825,21 +827,37 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       running: this.#unwatch !== null,
       start: () => this.#restartWatcherForLifecycle(lifecycleEpoch),
     });
-    if (changed && this.#last !== null) {
-      this.#emit({ config: this.#toConfigStatus(this.#last), type: 'config' });
+    if (changed) {
+      this.#emitConfigStatus();
     }
   }
 
   async #restartWatcherForLifecycle(lifecycleEpoch: number): Promise<void> {
     this.#stopWatcher();
-    const watcher = await this.options.configFile.watch((config) =>
-      this.#handleConfigChange(config, lifecycleEpoch)
-    );
+    const unwatch = await this.#openWatcher(lifecycleEpoch);
     if (!this.#lifecycleOpen || lifecycleEpoch !== this.#lifecycleEpoch) {
-      watcher.close();
+      unwatch();
       return;
     }
-    this.#unwatch = () => watcher.close();
+    this.#unwatch = unwatch;
+  }
+
+  /** Opens a config watcher on this lifecycle; one that dies while held is dropped as `watchError`. */
+  async #openWatcher(lifecycleEpoch: number): Promise<() => void> {
+    let watcher: McpWatcher | undefined;
+    const unwatch = (): void => watcher?.close();
+    watcher = await this.options.configFile.watch(
+      (config) => this.#handleConfigChange(config, lifecycleEpoch),
+      (error) => {
+        // A retired lifecycle or a later start has already let go of this watcher.
+        if (this.#unwatch === unwatch) {
+          this.#unwatch = null;
+          this.#watchHealth.fail(error);
+          this.#emitConfigStatus();
+        }
+      }
+    );
+    return unwatch;
   }
 
   #stopWatcher(): void {
@@ -848,35 +866,13 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     stop?.();
   }
 
-  async #controlDestructive(
-    request: McpHostControlRequest,
-    reloadConfig: () => Promise<void>
-  ): Promise<McpHostServerSnapshot> {
-    let controlFailure: unknown;
-    let result: McpHostServerSnapshot | undefined;
-    try {
-      result = await this.options.runtime.host.control(request);
-    } catch (cause) {
-      controlFailure = cause;
+  /** Stops the held watcher; false when its close threw, which is `watchError`. Never throws. */
+  #stopWatcherForLifecycle(): boolean {
+    const stopped = this.#watchHealth.stop(() => this.#stopWatcher());
+    if (!stopped) {
+      this.#emitConfigStatus();
     }
-    try {
-      await reloadConfig();
-    } catch (reloadFailure) {
-      if (controlFailure !== undefined) {
-        throw new AggregateError(
-          [controlFailure, reloadFailure],
-          'MCP lifecycle control and config reload both failed'
-        );
-      }
-      throw reloadFailure;
-    }
-    if (controlFailure !== undefined) {
-      throw controlFailure;
-    }
-    if (result === undefined) {
-      throw new Error('MCP lifecycle control completed without a result');
-    }
-    return result;
+    return stopped;
   }
 
   #beginCleanup(): unknown[] {

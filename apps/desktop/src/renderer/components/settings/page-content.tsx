@@ -33,6 +33,7 @@ import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settin
 import {
   createToolsSettingsCategory,
   type McpCompleteRequest,
+  type McpConfigInfo,
   type McpGetPromptRequest,
   type McpReadResourceRequest,
   type ToolDisplayMetadata,
@@ -360,9 +361,7 @@ export default function SettingsPageContent() {
         useNativeToolPreferencesStore.getState().resetTools();
         await mcpSettings?.request('mcp/tools/reset', {});
       },
-      subscribeMcpConfig: (
-        listener: (info: { error?: string; exists: boolean; path: string }) => void
-      ) => {
+      subscribeMcpConfig: (listener: (info: McpConfigInfo) => void) => {
         if (!mcpSettings) {
           throw new Error('MCP settings need the desktop agent host');
         }

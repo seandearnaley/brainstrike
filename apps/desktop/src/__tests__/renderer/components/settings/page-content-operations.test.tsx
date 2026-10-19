@@ -111,7 +111,12 @@ interface CapturedToolsOperations {
     preferences: McpExtensionEnablement
   ) => Promise<McpExtensionEnablement>;
   subscribeMcpConfig: (
-    listener: (config: { error?: string; exists: boolean; path: string }) => void
+    listener: (config: {
+      error?: string;
+      exists: boolean;
+      path: string;
+      watchError?: string;
+    }) => void
   ) => () => void;
   subscribeMcpExtensionPreferences?: (
     listener: (preferences: McpExtensionEnablement) => void
@@ -692,7 +697,11 @@ describe('desktop SettingsPageContent tool operations', () => {
     const toolsListener = vi.fn();
     const stopTools = operations.subscribeMcpTools(toolsListener);
     const [configStream, toolsStream] = settings.subscribe.mock.calls.map(([listener]) => listener);
-    const config = { exists: false, path: '/tmp/new-mcp.json' };
+    const config = {
+      exists: false,
+      path: '/tmp/new-mcp.json',
+      watchError: 'EPERM: operation not permitted, watch',
+    };
     configStream?.({ config, type: 'config' });
     configStream?.({ tools: {}, type: 'tools' });
     toolsStream?.({ tools: MCP_TOOLS, type: 'tools' });
