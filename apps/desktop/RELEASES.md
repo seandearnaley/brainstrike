@@ -9,6 +9,22 @@ posture even when signing secrets are configured, so a proof run signs and
 notarizes nothing. Starting either, and providing its signing and publishing
 secrets, is the owner's decision.
 
+## Release commit (BST-2190)
+
+A release builds only a commit on which every required nightly workflow
+passed. `scripts/release-required-workflows.mjs` names that set, and
+`scripts/resolve-release-sha.mjs` judges a commit from the Actions API: for
+each required workflow, the latest completed scheduled run on the commit must
+have succeeded. A run in progress, or no scheduled run, counts as missing.
+
+The workflow's first job resolves the commit, and every other job checks it
+out instead of the triggering ref. A tag push judges the tagged commit, and a
+dispatch judges its `sha` input when one is given. If any required workflow is
+red or missing, the run refuses and names each one; it never builds another
+commit instead. A dispatch without `sha` builds the newest all-green `main`
+commit from the last 14 days of scheduled runs, or fails and says how far back
+it searched.
+
 ## Publication pipeline
 
 1. One authoritative application version: the tag, the packaged application
@@ -27,6 +43,15 @@ secrets, is the owner's decision.
    carry the DMG's arch, or name the other darwin arch with its target sibling
    present. `scripts/__tests__/release-workflow-contract.test.mjs` pins this
    shape.
+
+   **Linux builds x64 and arm64 AppImages, each natively (BST-2190).** Each
+   leg runs on a Ubicloud runner of its arch (`ubicloud-standard-4`,
+   `ubicloud-standard-4-arm`) and asserts its runner is its target. Each leg
+   names its AppImage `Brainstrike-<version>-linux-<arch>.AppImage`, overriding
+   `linux.artifactName`, whose x64 literal exists because electron-builder's
+   `${arch}` names an x64 AppImage `x86_64`. The contract test pins one release
+   leg per Native Package Matrix target and checks that the manifest names
+   every leg's asset.
 3. Sign the final macOS DMGs' apps and notarize them; Windows ships unsigned
    until Authenticode (Azure Trusted Signing) lands; Linux publishes a SHA-256
    digest. Once signing credentials are configured, the pipeline fails if
