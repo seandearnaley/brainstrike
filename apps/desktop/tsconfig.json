@@ -17,7 +17,22 @@
           "unsafeEffectTypeAssertion": "error",
           "experimentalApiUsage": "error",
           "unstableApiUsage": "error"
-        }
+        },
+        "overrides": [
+          {
+            "include": [
+              "src/__tests__/host-permission-policy.test.ts",
+              "src/__tests__/memory-model-configuration.test.ts",
+              "src/__tests__/agent-host-desktop-host-tools.test.ts",
+              "src/__tests__/effect-transferred-ports.test.ts"
+            ],
+            "options": {
+              "diagnosticSeverity": {
+                "preferTypedSchemaDecoder": "error"
+              }
+            }
+          }
+        ]
       }
     ],
     "target": "ES2022",

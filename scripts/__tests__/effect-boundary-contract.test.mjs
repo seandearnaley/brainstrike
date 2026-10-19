@@ -9,6 +9,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { parse as parseYaml } from 'yaml';
+import { DESKTOP_TYPED_PRODUCER_FILES } from '../effect-typed-producer-cohorts.mjs';
+import { inspectTsconfigProgram } from '../verify-test-tsconfig-program.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const readRepoFile = (filePath) => readFileSync(path.join(repoRoot, filePath), 'utf8');
@@ -358,6 +360,29 @@ test('every package that depends on effect runs the Effect diagnostics in type-c
     );
   }
   assert.deepEqual(admitted, TYPED_PRODUCER_COHORTS, 'every admitted producer cohort is checked');
+});
+
+test('desktop typed producers are enforced only for the named, checked fixture cohort', () => {
+  const project = 'apps/desktop/tsconfig.test.json';
+  const plugin = effectiveCompilerOptions(project).plugins.find(
+    (entry) => entry.name === LANGUAGE_SERVICE_PLUGIN
+  );
+  assert.ok(DESKTOP_TYPED_PRODUCER_FILES.length > 0, 'the desktop cohort is nonempty');
+  assert.equal(new Set(DESKTOP_TYPED_PRODUCER_FILES).size, DESKTOP_TYPED_PRODUCER_FILES.length);
+  assert.deepEqual(plugin.overrides, [
+    {
+      include: DESKTOP_TYPED_PRODUCER_FILES,
+      options: { diagnosticSeverity: { preferTypedSchemaDecoder: 'error' } },
+    },
+  ]);
+  const checked = new Set(inspectTsconfigProgram(path.join(repoRoot, project)));
+  for (const file of DESKTOP_TYPED_PRODUCER_FILES) {
+    assert.match(file, /^src\/__tests__\/[\w/-]+\.test\.tsx?$/u, 'no wildcard admission');
+    assert.ok(!file.includes('.integration.'), 'integration fixtures stay separate');
+    const absolute = path.join(repoRoot, 'apps/desktop', file);
+    assert.ok(existsSync(absolute), `${file} exists`);
+    assert.ok(checked.has(absolute), `${file} is in the canonical desktop compiler program`);
+  }
 });
 
 test('production code imports only effect and effect/testing and runs effects only in effect-kit', () => {
