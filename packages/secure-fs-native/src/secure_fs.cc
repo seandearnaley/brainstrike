@@ -239,21 +239,20 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
   return result;
 }
 
-NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path, bool* missing) {
-  *missing = false;
+// The path with `/` separators normalized, or empty unless it is drive-absolute
+// (X:\..., optionally with the \\?\ extended-length prefix) or UNC
+// (\\server\share\...): CreateFileW resolves a relative path against the
+// process CWD, which would silently widen what the caller named.
+std::wstring AbsoluteWindowsPath(const std::string& utf8_path) {
   std::wstring path = Utf8ToWide(utf8_path);
   if (path.empty() || path.find(L'\0') != std::wstring::npos) {
-    return kInvalidHandle;
+    return {};
   }
   for (wchar_t& character : path) {
     if (character == L'/') {
       character = L'\\';
     }
   }
-  // Reject anything that is not drive-absolute (X:\..., optionally with the
-  // \\?\ extended-length prefix) or UNC (\\server\share\...): CreateFileW
-  // resolves a relative path against the process CWD, which would silently
-  // widen the trusted root beyond what the caller requested.
   bool is_absolute;
   if (path.rfind(L"\\\\?\\UNC\\", 0) == 0) {
     is_absolute = true;
@@ -264,7 +263,13 @@ NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path, bool* missing) 
   } else {
     is_absolute = path.size() >= 3 && path[1] == L':' && path[2] == L'\\';
   }
-  if (!is_absolute) {
+  return is_absolute ? path : std::wstring();
+}
+
+NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path, bool* missing) {
+  *missing = false;
+  const std::wstring path = AbsoluteWindowsPath(utf8_path);
+  if (path.empty()) {
     return kInvalidHandle;
   }
   const NativeHandle handle = CreateFileW(
@@ -723,9 +728,18 @@ NativeHandle OpenPrivateParent(NativeHandle root, const std::vector<std::string>
 }
 
 #ifdef _WIN32
+enum class PrivateVerdict { kPrivate, kForeignOwner, kAclMismatch };
+
+// A private directory's one grant is inherited by everything created inside it,
+// as host-lease's PowerShell set wrote it (ContainerInherit | ObjectInherit).
+constexpr BYTE kPrivateDirectoryAceFlags =
+    static_cast<BYTE>(OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE);
+
 class PrivateSecurity {
  public:
-  PrivateSecurity() {
+  // `ace_flags` are the inheritance flags of the one private grant: none for a
+  // file, kPrivateDirectoryAceFlags for a directory.
+  explicit PrivateSecurity(BYTE ace_flags = 0) : ace_flags_(ace_flags) {
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return;
     PrivateHandle owned_token(token);
@@ -740,7 +754,7 @@ class PrivateSecurity {
     acl_.resize(acl_bytes);
     auto* acl = reinterpret_cast<PACL>(acl_.data());
     ready_ = InitializeAcl(acl, acl_bytes, ACL_REVISION) &&
-             AddAccessAllowedAceEx(acl, ACL_REVISION, 0, FILE_ALL_ACCESS, sid_) &&
+             AddAccessAllowedAceEx(acl, ACL_REVISION, ace_flags_, FILE_ALL_ACCESS, sid_) &&
              InitializeSecurityDescriptor(&descriptor_, SECURITY_DESCRIPTOR_REVISION) &&
              SetSecurityDescriptorOwner(&descriptor_, sid_, FALSE) &&
              SetSecurityDescriptorDacl(&descriptor_, TRUE, acl, FALSE) &&
@@ -749,41 +763,62 @@ class PrivateSecurity {
   }
   bool Ready() const { return ready_; }
   PSECURITY_DESCRIPTOR Descriptor() { return &descriptor_; }
+  PSID Sid() const { return sid_; }
+  PACL Acl() { return reinterpret_cast<PACL>(acl_.data()); }
+  // Reads the owner and DACL of the object `handle` is open on, from that same
+  // handle. Private: the current user owns it, and its DACL is protected and
+  // holds exactly one ACE, an explicit Allow of FILE_ALL_ACCESS to that user
+  // with this grant's flags. Returns the Win32 error when it cannot be read.
+  DWORD Inspect(NativeHandle handle, PrivateVerdict* verdict) const {
+    if (!ready_) return ERROR_NO_TOKEN;
+    PSID owner = nullptr;
+    PACL acl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD result = GetSecurityInfo(handle, SE_FILE_OBJECT,
+                                         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                                         &owner, nullptr, &acl, nullptr, &descriptor);
+    if (result == ERROR_SUCCESS) *verdict = Classify(owner, acl, descriptor);
+    if (descriptor != nullptr) LocalFree(descriptor);
+    return result;
+  }
   bool Verify(NativeHandle file) const {
     if (!ready_ || GetFileType(file) != FILE_TYPE_DISK || IsReparsePoint(file)) return false;
     FILE_STANDARD_INFO info{};
     if (!GetFileInformationByHandleEx(file, FileStandardInfo, &info, sizeof(info)) ||
         info.Directory)
       return false;
-    PSID owner = nullptr;
-    PACL acl = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    const DWORD result = GetSecurityInfo(file, SE_FILE_OBJECT,
-                                         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-                                         &owner, nullptr, &acl, nullptr, &descriptor);
-    bool valid = false;
-    if (result == ERROR_SUCCESS && owner != nullptr && acl != nullptr && IsValidSid(owner) &&
-        EqualSid(owner, sid_) && IsValidAcl(acl) && acl->AceCount == 1) {
-      SECURITY_DESCRIPTOR_CONTROL control = 0;
-      DWORD revision = 0;
-      void* raw_ace = nullptr;
-      if (GetSecurityDescriptorControl(descriptor, &control, &revision) &&
-          (control & SE_DACL_PROTECTED) != 0 && GetAce(acl, 0, &raw_ace)) {
-        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw_ace);
-        const PSID ace_sid = const_cast<DWORD*>(&ace->SidStart);
-        valid = ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE && ace->Header.AceFlags == 0 &&
-                ace->Mask == FILE_ALL_ACCESS && IsValidSid(ace_sid) && EqualSid(ace_sid, sid_);
-      }
-    }
-    if (descriptor != nullptr) LocalFree(descriptor);
-    return valid;
+    PrivateVerdict verdict = PrivateVerdict::kAclMismatch;
+    return Inspect(file, &verdict) == ERROR_SUCCESS && verdict == PrivateVerdict::kPrivate;
   }
 
  private:
+  PrivateVerdict Classify(PSID owner, PACL acl, PSECURITY_DESCRIPTOR descriptor) const {
+    if (owner == nullptr || !IsValidSid(owner) || !EqualSid(owner, sid_)) {
+      return PrivateVerdict::kForeignOwner;
+    }
+    SECURITY_DESCRIPTOR_CONTROL control = 0;
+    DWORD revision = 0;
+    void* raw_ace = nullptr;
+    if (acl == nullptr || !IsValidAcl(acl) || acl->AceCount != 1 ||
+        !GetSecurityDescriptorControl(descriptor, &control, &revision) ||
+        (control & SE_DACL_PROTECTED) == 0 || !GetAce(acl, 0, &raw_ace)) {
+      return PrivateVerdict::kAclMismatch;
+    }
+    const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw_ace);
+    if (ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE || ace->Header.AceFlags != ace_flags_ ||
+        ace->Mask != FILE_ALL_ACCESS) {
+      return PrivateVerdict::kAclMismatch;
+    }
+    const PSID ace_sid = const_cast<DWORD*>(&ace->SidStart);
+    return IsValidSid(ace_sid) && EqualSid(ace_sid, sid_) ? PrivateVerdict::kPrivate
+                                                          : PrivateVerdict::kAclMismatch;
+  }
+
   std::vector<uint8_t> token_user_;
   std::vector<uint8_t> acl_;
   PSID sid_ = nullptr;
   SECURITY_DESCRIPTOR descriptor_{};
+  BYTE ace_flags_;
   bool ready_ = false;
 };
 
@@ -1426,6 +1461,132 @@ Napi::Value TryExclusiveFlock(const Napi::CallbackInfo& info) {
 }
 
 
+[[noreturn]] void ThrowCoded(Napi::Env env, const std::string& message, const char* code) {
+  const auto error = Napi::Error::New(env, message);
+  error.Value().Set("code", code);
+  throw error;
+}
+
+#ifdef _WIN32
+// A Win32 failure as a typed error: the nearest errno-style `code`, and the
+// Win32 code itself as `win32Code`.
+[[noreturn]] void ThrowWindowsError(Napi::Env env, const std::string& message, DWORD code) {
+  const auto error = Napi::Error::New(env, message + " (Windows " + std::to_string(code) + ")");
+  const char* name = "EIO";
+  if (code == ERROR_ACCESS_DENIED) name = "EACCES";
+  else if (code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION) name = "EBUSY";
+  else if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) name = "ENOENT";
+  else if (code == ERROR_NOT_SUPPORTED || code == ERROR_INVALID_PARAMETER) name = "ENOTSUP";
+  error.Value().Set("code", name);
+  error.Value().Set("win32Code", Napi::Number::New(env, code));
+  throw error;
+}
+
+const char* VerdictName(PrivateVerdict verdict) {
+  switch (verdict) {
+    case PrivateVerdict::kPrivate:
+      return "private";
+    case PrivateVerdict::kForeignOwner:
+      return "foreign-owner";
+    case PrivateVerdict::kAclMismatch:
+      break;
+  }
+  return "acl-mismatch";
+}
+#endif
+
+// BST-2237: the host's private data-root directory, checked and set without
+// starting a process. Windows only; POSIX callers keep their mode/uid check.
+//
+// The directory opens once, following reparse points as the by-name PowerShell
+// check did, with FILE_FLAG_BACKUP_SEMANTICS. Its owner and DACL are read, and
+// for apply written and read back, on that one handle. Verify returns the
+// verdict. Apply, like the PowerShell set it replaces, refuses a directory
+// another principal owns before writing anything and never takes ownership;
+// it then writes the owner and a protected DACL holding one explicit Allow of
+// FILE_ALL_ACCESS to the user with ContainerInherit | ObjectInherit, and throws
+// unless the same handle then reads back private.
+Napi::Value PrivateDirectory(const Napi::CallbackInfo& info, bool apply) {
+  const Napi::Env env = info.Env();
+  const std::string usage = std::string(apply ? "apply" : "verify") +
+                            "PrivateDirectorySync expects one absolute directory path";
+  if (info.Length() != 1 || !info[0].IsString()) {
+    throw Napi::TypeError::New(env, usage);
+  }
+#ifdef _WIN32
+  const std::wstring path = AbsoluteWindowsPath(info[0].As<Napi::String>().Utf8Value());
+  if (path.empty()) {
+    throw Napi::TypeError::New(env, usage);
+  }
+  PrivateSecurity security(kPrivateDirectoryAceFlags);
+  if (!security.Ready()) {
+    ThrowCoded(env, "The current user's identity is unavailable", "ERR_PRIVATE_DIRECTORY");
+  }
+  ACCESS_MASK access = READ_CONTROL | FILE_READ_ATTRIBUTES;
+  if (apply) access |= WRITE_DAC | WRITE_OWNER;
+  PrivateHandle directory(CreateFileW(path.c_str(), access,
+                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                      nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+  if (directory.Get() == kInvalidHandle) {
+    ThrowWindowsError(env, "Private directory open failed", GetLastError());
+  }
+  FILE_BASIC_INFO basic{};
+  if (!GetFileInformationByHandleEx(directory.Get(), FileBasicInfo, &basic, sizeof(basic))) {
+    ThrowWindowsError(env, "Private directory attributes are unreadable", GetLastError());
+  }
+  if ((basic.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+    ThrowCoded(env, "Private directory path is not a directory", "ENOTDIR");
+  }
+  PrivateVerdict verdict = PrivateVerdict::kAclMismatch;
+  DWORD result = security.Inspect(directory.Get(), &verdict);
+  if (result != ERROR_SUCCESS) {
+    ThrowWindowsError(env, "Private directory security is unreadable", result);
+  }
+  if (apply && verdict != PrivateVerdict::kForeignOwner) {
+    result = SetSecurityInfo(
+        directory.Get(), SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+            PROTECTED_DACL_SECURITY_INFORMATION,
+        security.Sid(), nullptr, security.Acl(), nullptr);
+    if (result != ERROR_SUCCESS) {
+      ThrowWindowsError(env, "Private directory security write failed", result);
+    }
+    result = security.Inspect(directory.Get(), &verdict);
+    if (result != ERROR_SUCCESS) {
+      ThrowWindowsError(env, "Private directory security is unreadable", result);
+    }
+  }
+  if (!directory.Close()) {
+    ThrowWindowsError(env, "Private directory close failed", GetLastError());
+  }
+  if (!apply) {
+    Napi::Object verdict_object = Napi::Object::New(env);
+    verdict_object.Set("status", VerdictName(verdict));
+    return verdict_object;
+  }
+  if (verdict != PrivateVerdict::kPrivate) {
+    const auto error = Napi::Error::New(
+        env, verdict == PrivateVerdict::kForeignOwner
+                 ? "Private directory belongs to another user"
+                 : "Private directory DACL does not grant only its owner full control");
+    error.Value().Set("code", "ERR_PRIVATE_DIRECTORY_VERDICT");
+    error.Value().Set("verdict", VerdictName(verdict));
+    throw error;
+  }
+  return env.Undefined();
+#else
+  ThrowCoded(env, "Windows private directory ACLs are unavailable on this platform", "ENOTSUP");
+#endif
+}
+
+Napi::Value VerifyPrivateDirectorySync(const Napi::CallbackInfo& info) {
+  return PrivateDirectory(info, false);
+}
+
+Napi::Value ApplyPrivateDirectorySync(const Napi::CallbackInfo& info) {
+  return PrivateDirectory(info, true);
+}
+
 // Caller owns both paths and performs its authority checks before each call.
 // This primitive performs one atomic replacement, with no deletion or retry.
 Napi::Value ReplaceFileSync(const Napi::CallbackInfo& info) {
@@ -1445,16 +1606,7 @@ Napi::Value ReplaceFileSync(const Napi::CallbackInfo& info) {
     throw Napi::TypeError::New(env, "replaceFileSync requires distinct files in one directory");
   }
   const auto fail = [&](DWORD code) {
-    const auto error = Napi::Error::New(env, "Atomic file replacement failed (Windows " +
-                                           std::to_string(code) + ")");
-    const char* name = "EIO";
-    if (code == ERROR_ACCESS_DENIED) name = "EACCES";
-    else if (code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION) name = "EBUSY";
-    else if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) name = "ENOENT";
-    else if (code == ERROR_NOT_SUPPORTED || code == ERROR_INVALID_PARAMETER) name = "ENOTSUP";
-    error.Value().Set("code", name);
-    error.Value().Set("win32Code", Napi::Number::New(env, code));
-    throw error;
+    ThrowWindowsError(env, "Atomic file replacement failed", code);
   };
   const auto wide_source = Utf8ToWide(source);
   PrivateHandle file(CreateFileW(wide_source.c_str(), DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
@@ -1480,6 +1632,8 @@ Napi::Value ReplaceFileSync(const Napi::CallbackInfo& info) {
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
   exports.Set("tryExclusiveFlock", Napi::Function::New(env, TryExclusiveFlock));
   exports.Set("replaceFileSync", Napi::Function::New(env, ReplaceFileSync));
+  exports.Set("applyPrivateDirectorySync", Napi::Function::New(env, ApplyPrivateDirectorySync));
+  exports.Set("verifyPrivateDirectorySync", Napi::Function::New(env, VerifyPrivateDirectorySync));
   return SecureRoot::Init(env, exports);
 }
 

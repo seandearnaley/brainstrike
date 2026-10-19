@@ -41,6 +41,19 @@ serialization. Accepted operations pin before queueing.
 Privacy is checked again around I/O, but this does not protect against an
 unrestricted malicious process with the same user identity mutating files/ACLs.
 
+## Private directories (Windows)
+
+`verifyPrivateDirectorySync` and `applyPrivateDirectorySync` check and set a
+directory's privacy in-process, so host start and every lease check start no
+process (BST-2237). Each opens the directory once, following reparse points,
+with `FILE_FLAG_BACKUP_SEMANTICS`, and reads (and, for apply, writes) its owner
+and DACL on that handle. Private means the current user owns it and its
+protected DACL holds exactly one ACE: an explicit Allow of `FILE_ALL_ACCESS` to
+that user, inherited by containers and objects. That is the private file rule
+with directory inheritance, compared ACE for ACE. Apply refuses a directory
+another principal owns without writing, never takes ownership, and throws unless
+it reads back private. Both throw typed errors, and `ENOTSUP` on POSIX.
+
 Root establishment distinguishes genuine `ENOENT` from `ERR_SECURE_FS_ROOT`.
 `tryExclusiveFlock` is POSIX-only; inherited descriptors share its open-file lock,
 so close the owned descriptor rather than unlocking the shared lock. Windows

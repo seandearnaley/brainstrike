@@ -17,7 +17,7 @@ import { readHostRecord } from './record-file.js';
 import { HOST_LEASE_CLOSING, HOST_LEASE_CONNECTION_CLOSED } from './refusal.js';
 import type { HostLifetime, HostStartOptions } from './runtime.js';
 import { RootContentionError } from './startup-failure.js';
-import { windowsPrivateAcl } from './windows-acl.js';
+import { verifyWindowsPrivateDirectory } from './windows-acl.js';
 /**
  * A host a starter started, still owned by the launch that asked for it
  * (BST-2167). The launch settles it exactly once: `release` once it attached,
@@ -80,8 +80,10 @@ async function liveLease(root: string): Promise<LockOwner | null> {
     return null;
   }
   if (process.platform === 'win32') {
+    // BST-2237: read in this process from one directory handle. A PowerShell
+    // verify here cost each check a process start, and timed out at 5 s.
     try {
-      await windowsPrivateAcl(root, 'directory', 'verify');
+      verifyWindowsPrivateDirectory(root);
     } catch (cause) {
       throw new LiveHostUnavailableError(lease.pid, cause);
     }
