@@ -28,6 +28,11 @@ visible document stays unisolated because it frames the Canvas and MCP App shell
 The visible renderer starts no duplicate embedding worker. Query and document
 inference share the hidden runtime's physical owner and serialization.
 
+No Node-side desktop context loads Transformers.js or `onnxruntime-node`, and the
+packaged app leaves `onnxruntime-node` out (`build.files`): 1.24.1+ ships no
+darwin-x64 binding (BST-2148). `apps/desktop/scripts/build-main.mjs` refuses a
+build whose emitted entries, or the workers they name, reach either package.
+
 ## Model identity
 
 Resolve the selected profile through the existing catalog/plan and credential

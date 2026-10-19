@@ -20,6 +20,10 @@ import {
   MAIN_PROCESS_BUILD_OPTIONS,
 } from './build-main-config.mjs';
 import {
+  assertNoNodeInferenceImports,
+  findNodeInferenceImports,
+} from './node-inference-boundary.mjs';
+import {
   assertPreloadBundleRequires,
   PRELOAD_BUNDLE_ENTRY_NAMES,
 } from './preload-bundle-contract.mjs';
@@ -57,7 +61,25 @@ async function assertPreloadBundlesAreSandboxSafe() {
   }
 }
 
+/**
+ * Every emitted Node-side file is an entry Main, a utility process or a worker
+ * loads. None may reach Transformers.js or onnxruntime-node, which the packaged
+ * app leaves out (BST-2148). The renderer is a browser bundle and stays out.
+ */
+async function assertNodeEntriesLoadNoLocalInference() {
+  const entries = await readdir(path.join(appRoot, 'dist'), { withFileTypes: true });
+  assertNoNodeInferenceImports(
+    await findNodeInferenceImports({
+      absWorkingDir: appRoot,
+      entryPoints: entries
+        .filter((entry) => entry.isFile() && /\.(?:c|m)?js$/u.test(entry.name))
+        .map((entry) => `dist/${entry.name}`),
+    })
+  );
+}
+
 await cleanMainProcessOutputs();
 await build(MAIN_PROCESS_BUILD_OPTIONS);
 await build(AGENT_HOST_PLATFORM_BUILD_OPTIONS);
 await assertPreloadBundlesAreSandboxSafe();
+await assertNodeEntriesLoadNoLocalInference();
