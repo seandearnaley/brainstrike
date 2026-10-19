@@ -18,7 +18,8 @@ type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
  * the code can touch and the domains it asks for, each ticked by hand. Don't
  * allow is first, primary and autofocused, as on the legacy escalation. Grants
  * appear only when the policy also asked to approve the run, and they remember
- * that approval, never the network: every networked call asks again.
+ * that approval, never the network: every networked call asks again. A consent
+ * that names a browser origin is CommittedOriginConsent's (BST-1178).
  */
 export function CommittedNetworkConsent({
   decisionRef,
@@ -34,7 +35,8 @@ export function CommittedNetworkConsent({
   const approval = tool.approval;
   if (
     !(approval && approval.approved === undefined && approval.resolution === undefined) ||
-    facts?.['interactionKind'] !== 'network'
+    facts?.['interactionKind'] !== 'network' ||
+    typeof facts['origin'] === 'string'
   ) {
     return null;
   }

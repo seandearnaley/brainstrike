@@ -4,7 +4,8 @@
 // call forks the real egress utility, routes the agent partition, answers the
 // proxy credential and gets the proxy's refusal back as a typed failure. The
 // user's own tab is never touched, and only the agent partition is proxied,
-// loopback included.
+// loopback included. The first call to the host asks a person (BST-1178),
+// answered here with Allow once.
 import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
@@ -74,6 +75,10 @@ test('the agent opens its own proxied tab and never drives the user tab (BST-123
   const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
   await panel.getByRole('textbox', { name: 'Message input' }).fill('Open the proof page.');
   await panel.getByRole('button', { exact: true, name: 'Send' }).click();
+  await panel
+    .getByRole('group', { name: `Open https://${UNRESOLVABLE}` })
+    .getByRole('button', { name: 'Allow once' })
+    .click({ timeout: 60_000 });
   await expect(panel.getByText('Agent browsing proof complete.', { exact: true })).toBeVisible({
     timeout: 60_000,
   });

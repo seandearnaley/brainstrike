@@ -10,6 +10,7 @@ import { createLogger } from '@brainstrike/logging';
 import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import { toBoundaryResponseError } from './boundary-wire.js';
+import { bindHostBrowserOriginMethods } from './browser-origin-answers.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.js';
@@ -277,6 +278,7 @@ export function bindHostConnection(
   bindHostMcpContentMethods(handle, mcpContent, origin);
   bindHostHookTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
+  bindHostBrowserOriginMethods(handle, core.store, origin);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('ledger/read', () => core.readLedger());

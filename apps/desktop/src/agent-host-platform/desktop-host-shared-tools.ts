@@ -2,18 +2,31 @@ import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { HostTool } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
   createSharedNativeHostTools,
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
 import { Schema } from 'effect';
 import { getEditDiagnostics } from '../assistant-server/lsp-diagnostics';
+import { agentNavigationTarget } from '../browser/browser-url';
 import {
   desktopHostToolExecutors,
   type HostAppPaths,
   isHostExecutedNativeToolId,
 } from './host-executed-tools';
 import type { PlatformSelection } from './platform-wire';
+
+/**
+ * BST-1178: the origin a browserNavigate call opens, through the same target
+ * Main's runner loads; a URL the runner refuses names none.
+ */
+function browserNavigateOrigin(input: unknown): string | undefined {
+  const url =
+    typeof input === 'object' && input !== null ? (input as { url?: unknown }).url : undefined;
+  const target = agentNavigationTarget(typeof url === 'string' ? url : undefined);
+  return 'origin' in target ? target.origin : undefined;
+}
 /**
  * The admitted shared native tools, executed in this host process with Core's
  * edit tracker and thread state. Their descriptors must match these
@@ -81,7 +94,14 @@ export function desktopHostSharedTools(options: {
       if (!tool || tool.identity !== descriptor.identity || tool.risk !== descriptor.risk) {
         throw new Error('A host-executed native tool differs from its admitted descriptor');
       }
-      return [[name, tool]];
+      return [
+        [
+          name,
+          descriptor.permissionToolId === NATIVE_TOOL_ID.browserNavigate
+            ? { ...tool, browserOrigin: browserNavigateOrigin }
+            : tool,
+        ],
+      ];
     })
   );
 }

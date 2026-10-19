@@ -26,6 +26,8 @@
  * unit-testable without a live Electron window.
  */
 
+import { isNavigableUrl, normalizeUrl } from './browser-url';
+
 export interface PaneRect {
   readonly height: number;
   readonly width: number;
@@ -458,50 +460,4 @@ export class BrowserViewManager {
   private emitTabs(): void {
     this.deps.onTabsChanged(this.listTabs());
   }
-}
-
-/** Explicit `scheme://authority` at the START of the string (not a substring). */
-const HIERARCHICAL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
-/** `about:` / `data:` a user may type; NO `file:`/`devtools:`/`chrome:`/`blob:`. */
-const PRESERVED_SCHEME = /^(about|data):/i;
-/** A bare host: a dotted name, `localhost`, or an explicit `host:port`. */
-const BARE_HOST = /^(localhost|[^\s/]+\.[^\s/]+|[^\s/]+:\d+)(\/|$|\?|#)/i;
-/** DuckDuckGo query fallback for input that is neither a URL nor a host. */
-const SEARCH_PREFIX = 'https://duckduckgo.com/?q=';
-
-/**
- * Normalize URL-bar / popup input to a loadable URL:
- * - blank → `about:blank`
- * - explicit `scheme://…` or `about:`/`data:` → preserved
- * - a bare host (`example.com`, `localhost:3000`) → `https://…`
- * - anything else (`what is rust`) → a search query
- *
- * Dangerous schemes (`file:`, `devtools:`, `chrome:`, `blob:`, `view-source:`)
- * are deliberately NOT preserved — {@link isNavigableUrl} is the final gate.
- */
-export function normalizeUrl(url: string | undefined): string {
-  const trimmed = url?.trim();
-  if (!trimmed) {
-    return 'about:blank';
-  }
-  if (HIERARCHICAL_SCHEME.test(trimmed) || PRESERVED_SCHEME.test(trimmed)) {
-    return trimmed;
-  }
-  if (BARE_HOST.test(trimmed)) {
-    return `https://${trimmed}`;
-  }
-  return `${SEARCH_PREFIX}${encodeURIComponent(trimmed)}`;
-}
-
-/** Schemes the pane will actually load — everything else is refused. */
-const NAVIGABLE_SCHEME = /^(https?|about|data):/i;
-
-/**
- * Final navigation gate (also applied to attacker-controlled popup urls). Only
- * http/https/about/data reach the web engine; `file:`, `devtools:`, `chrome:`,
- * `blob:`, `chrome-extension:` and anything else are refused, so a page can
- * never pivot the pane into reading the local filesystem or privileged UIs.
- */
-export function isNavigableUrl(url: string): boolean {
-  return NAVIGABLE_SCHEME.test(url.trim());
 }
