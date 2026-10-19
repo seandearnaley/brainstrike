@@ -3,8 +3,11 @@
 `.github/workflows/release.yml` builds, verifies and publishes the desktop
 downloads. It runs only on a stable tag `v<major>.<minor>.<patch>` that matches
 `apps/desktop/package.json`'s version, or on `workflow_dispatch` as a dry run
-(build, smoke test and hash; nothing is published). Starting either, and
-providing its signing and publishing secrets, is the owner's decision.
+(build, smoke test and hash). Only the tag push publishes; a dispatch never
+does, even on a tag ref. A dispatch with `unsigned` builds the unsigned macOS
+posture even when signing secrets are configured, so a proof run signs and
+notarizes nothing. Starting either, and providing its signing and publishing
+secrets, is the owner's decision.
 
 ## Publication pipeline
 
@@ -13,6 +16,17 @@ providing its signing and publishing secrets, is the owner's decision.
 2. Build on each target operating system. Emit only architectures the matrix
    actually built; never derive architecture claims from electron-builder
    package targets.
+
+   **macOS builds each arch natively (BST-2148).** The arm64 DMG builds on
+   `macos-15` and the x64 DMG on `macos-15-intel`, the Native Package Matrix's
+   darwin targets in `scripts/native-package-targets.mjs`. pnpm installs only
+   the host's platform packages and node-gyp compiles the workspace addons for
+   the host, so a leg first asserts its runner is its target. Each leg then
+   runs its own signing-evidence gate and smoke test, including
+   `scripts/verify-macos-addon-archs.mjs`: every Mach-O addon in the app must
+   carry the DMG's arch, or name the other darwin arch with its target sibling
+   present. `scripts/__tests__/release-workflow-contract.test.mjs` pins this
+   shape.
 3. Sign the final macOS DMGs' apps and notarize them; Windows ships unsigned
    until Authenticode (Azure Trusted Signing) lands; Linux publishes a SHA-256
    digest. Once signing credentials are configured, the pipeline fails if
@@ -26,10 +40,12 @@ providing its signing and publishing secrets, is the owner's decision.
    signature and its entitlements, has a stapled notarization ticket, and is
    assessed by `spctl` as `source=Notarized Developer ID`. The DMG container
    itself is not signed (electron-builder default; Gatekeeper assesses the
-   stapled app inside). Without `CSC_LINK` the workflow builds the documented
-   unsigned posture, with `CSC_IDENTITY_AUTO_DISCOVERY=false` so nothing is
-   half-signed, and the download surface must present the unsigned caveat
-   honestly. See `apps/desktop/SECURITY.md` for the signing details.
+   stapled app inside). Without `CSC_LINK`, or on an `unsigned` dispatch, the
+   workflow builds the documented unsigned posture: no signing or notarization
+   secret reaches the build, `CSC_IDENTITY_AUTO_DISCOVERY=false` so nothing is
+   half-signed, and the gate asserts no Developer ID signature is present. The
+   download surface must present the unsigned caveat honestly. See
+   `apps/desktop/SECURITY.md` for the signing details.
 4. Smoke-test each packaged application on its target OS, then calculate byte
    size and SHA-256 from the final artifact.
 5. Upload immutable, versioned assets first, with `SHA256SUMS`.
@@ -53,15 +69,18 @@ detached-signature field, a pinned public key with a rotation policy, and
 verification before a consumer may trust it; do not relabel the current schema
 as signed.
 
-## Pending
+## Download surface
 
 The product site that was to serve the download chooser (#2186) was closed
-without merging, so no site consumes the manifest yet. When a download surface
-lands, it reads the published `release-manifest.json` (or a manifest PR step is
-reinstated) and validates it with its own production schema before rendering
-links.
+without merging. The owner accepted (19 Oct 2026) the release's
+`release-manifest.json` asset as the published download surface. A download
+chooser that lands later reads that asset and validates it with its own
+production schema before rendering links.
 
-BST-2148: the x64 macOS DMG built on the arm64 runner ships arm64-only native
-addons. The smoke step's `scripts/verify-macos-addon-archs.mjs` fails the job
-on it, so x64 cannot ship until the owner picks an Intel runner leg, a
-cross-arch install and rebuild, or an arm64-only macOS release.
+## Open: x64 macOS and onnxruntime-node (BST-2148)
+
+`onnxruntime-node` 1.30.0, which `@huggingface/transformers` 4.3.1 pins, ships
+no `darwin/x64` binding (1.23.0 shipped one; 1.24.1 and 1.30.0 do not). A
+native x64 install still packages only its `darwin/arm64` binding, so the addon
+gate fails the x64 leg on it until the owner decides how x64 macOS treats that
+package.

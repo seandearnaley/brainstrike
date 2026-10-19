@@ -11,13 +11,20 @@ name: Release
 #
 # Trigger with a stable tag `v<major>.<minor>.<patch>` that matches
 # apps/desktop/package.json's version, or workflow_dispatch for a dry run
-# (build + smoke + hash, no publish).
+# (build + smoke + hash, no publish). Only a tag PUSH publishes: a dispatch,
+# even on a tag ref, never does. The `unsigned` input builds the unsigned macOS
+# posture although signing secrets exist, so a proof run signs nothing.
 #
 # Runner placement: Linux packaging runs on Ubicloud per the repo's cost
 # direction. Ubicloud offers Linux (x64/arm64) only, so the macOS and Windows
 # legs stay on GitHub-hosted runners — there is no Ubicloud option for them.
 # The Ubicloud runner contract test (scripts/__tests__/
 # ubicloud-runner-contract.test.mjs) deliberately constrains test.yml only.
+# Each macOS arch builds on a runner of that arch, the Native Package Matrix's
+# darwin targets (BST-2148): pnpm installs only the host's platform packages
+# and node-gyp compiles for the host, so a cross-built x64 DMG shipped
+# arm64-only addons. scripts/__tests__/release-workflow-contract.test.mjs pins
+# the legs to scripts/native-package-targets.mjs.
 #
 # Publication ordering (deliberate, do not reorder):
 #   1. build + smoke-test + hash on every target OS
@@ -27,7 +34,7 @@ name: Release
 #   5. publish the manifest LAST, as the release's release-manifest.json
 # The manifest can never name an asset that is not already reachable.
 #
-# macOS code signing + notarization (BST-1627): the build-macos job signs
+# macOS code signing + notarization (BST-1627): each build-macos leg signs
 # with the Developer ID Application identity in CSC_LINK (base64 .p12) +
 # CSC_KEY_PASSWORD and notarizes through an App Store Connect API key
 # (APPLE_API_KEY = .p8 contents, APPLE_API_KEY_ID, APPLE_API_ISSUER). The
@@ -47,6 +54,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      unsigned:
+        description: Build the unsigned macOS posture even if signing secrets exist (a dispatch never publishes)
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -62,7 +74,7 @@ env:
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
   # Default-deny for every step in this file: nothing may pick up a signing
-  # identity by ambient keychain discovery. The `Package DMGs` step overrides
+  # identity by ambient keychain discovery. The `Package DMG` step overrides
   # this with the resolved posture, so a new macOS packaging step added later
   # inherits "never half-signed" rather than auto-discovery (#2960 review).
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -84,7 +96,8 @@ jobs:
         id: resolve
         run: |
           PKG_VERSION=$(node -p "require('./apps/desktop/package.json').version")
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          # The event, not only the ref: a dispatch on a tag ref is still a dry run.
+          if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
             if [[ "${TAG}" != "v${PKG_VERSION}" ]]; then
               echo "::error::Tag ${TAG} does not match apps/desktop/package.json version ${PKG_VERSION}. One authoritative version, no exceptions."
@@ -99,14 +112,26 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
   build-macos:
-    name: Build macOS (arm64 + x64)
+    name: Build macOS (${{ matrix.arch }})
     needs: [context]
-    runs-on: macos-latest
+    # One leg per arch, each on a runner OF that arch (BST-2148): the Native
+    # Package Matrix's darwin targets (scripts/native-package-targets.mjs).
+    runs-on: ${{ matrix.os }}
     # Build (~20 min) plus notarization, which now happens INSIDE this job. A
     # warm Team ID notarizes in minutes, but Apple's in-depth-analysis path can
     # take far longer, and macOS runners bill at 10x — so this bounds a stalled
     # `notarytool` wait rather than inheriting the 6-hour default (#2960 review).
     timeout-minutes: 90
+    strategy:
+      # Each leg's signing and addon evidence is its own verdict; one failing
+      # leg must not cancel the other mid-notarization. Publish needs both.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-15
+          - arch: x64
+            os: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -116,6 +141,17 @@ jobs:
         with:
           turbo-cache: 'true'
 
+      # As in the Native Package Matrix: the install above fetched this host's
+      # platform packages and compiled the workspace addons for it, so the
+      # host must be the DMG's target.
+      - name: Assert the runner is the target
+        env:
+          TARGET: darwin-${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          node -p "process.platform + '-' + process.arch + ' | node ' + process.version"
+          test "$(node -p process.platform)-$(node -p process.arch)" = "$TARGET"
+
       - name: Build desktop dependency graph
         run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
 
@@ -123,9 +159,13 @@ jobs:
         id: signing
         env:
           HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}
+          UNSIGNED_REQUESTED: ${{ inputs.unsigned == true }}
         run: |
           set -euo pipefail
-          if [[ "$HAS_CSC_LINK" == "true" ]]; then
+          if [[ "$UNSIGNED_REQUESTED" == "true" ]]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Unsigned proof run (workflow_dispatch input): building the UNSIGNED macOS posture; no signing secret reaches the build."
+          elif [[ "$HAS_CSC_LINK" == "true" ]]; then
             echo "signed=true" >> "$GITHUB_OUTPUT"
             echo "Signing posture: Developer ID + notarization (CSC_LINK present)"
           else
@@ -148,22 +188,25 @@ jobs:
           umask 077
           printf '%s\n' "$APPLE_API_KEY_CONTENTS" > "$KEY_FILE"
           # notarytool wants a PATH, but the secret holds the .p8 CONTENTS, so
-          # APPLE_API_KEY reaches Package DMGs through GITHUB_ENV as a path.
+          # APPLE_API_KEY reaches Package DMG through GITHUB_ENV as a path.
           # Do NOT "fix" the inconsistency by adding
           # `APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}` to that step's env —
           # that passes the contents where a path is expected and fails only
           # after a full build, with an opaque notarization error (#2960 review).
           echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
-      - name: Package DMGs
+      - name: Package DMG
         env:
+          ARCH: ${{ matrix.arch }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.signed }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm --filter @brainstrike/desktop run dist --mac dmg --arm64 --x64 --publish never
+          # Credentials reach only a signed build, so an unsigned proof run on a
+          # repository that has them configured signs and notarizes nothing.
+          CSC_LINK: ${{ steps.signing.outputs.signed == 'true' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ steps.signing.outputs.signed == 'true' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_TEAM_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_TEAM_ID || '' }}
+        run: pnpm --filter @brainstrike/desktop run dist --mac dmg --"$ARCH" --publish never
 
       - name: Remove the notarization key
         if: always() && steps.signing.outputs.signed == 'true'
@@ -171,6 +214,7 @@ jobs:
 
       - name: Verify signing evidence
         env:
+          ARCH: ${{ matrix.arch }}
           SIGNED: ${{ steps.signing.outputs.signed }}
           VERSION: ${{ needs.context.outputs.version }}
         run: |
@@ -193,135 +237,133 @@ jobs:
 
           fail() { echo "::error::$1"; exit 1; }
 
-          for ARCH in arm64 x64; do
-            DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
-            [[ -f "$DMG" ]] || fail "missing ${DMG}"
+          DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
+          [[ -f "$DMG" ]] || fail "missing ${DMG}"
 
-            # `| awk '…exit'` and `| head -1` both close the pipe early, which
-            # under `set -o pipefail` can kill the job on SIGPIPE with no
-            # diagnostic — an intermittent failure, since it is a race (#2960
-            # review). Capture first, then parse; -print -quit needs no pipe.
-            ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
-            MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
-            [[ -n "$MOUNT" ]] || fail "${DMG}: hdiutil attach reported no /Volumes mount point"
-            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)
-            [[ -n "$APP" ]] || fail "${DMG}: no .app found at the root of the mounted image"
+          # `| awk '…exit'` and `| head -1` both close the pipe early, which
+          # under `set -o pipefail` can kill the job on SIGPIPE with no
+          # diagnostic — an intermittent failure, since it is a race (#2960
+          # review). Capture first, then parse; -print -quit needs no pipe.
+          ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
+          MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
+          [[ -n "$MOUNT" ]] || fail "${DMG}: hdiutil attach reported no /Volumes mount point"
+          APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)
+          [[ -n "$APP" ]] || fail "${DMG}: no .app found at the root of the mounted image"
 
-            if [[ "$SIGNED" == "true" ]]; then
-              echo "== ${DMG}: signing evidence"
-              codesign --verify --deep --strict --verbose=2 "$APP"
-              codesign -dvv "$APP" 2>&1 | grep -E '^Authority=Developer ID Application:' \
-                || fail "${DMG}: app is not signed with a Developer ID Application identity"
+          if [[ "$SIGNED" == "true" ]]; then
+            echo "== ${DMG}: signing evidence"
+            codesign --verify --deep --strict --verbose=2 "$APP"
+            codesign -dvv "$APP" 2>&1 | grep -E '^Authority=Developer ID Application:' \
+              || fail "${DMG}: app is not signed with a Developer ID Application identity"
 
-              # Hardened runtime is the `runtime` CODE-SIGNING FLAG, not an
-              # entitlement. The previous check grepped the entitlements for
-              # `disable-library-validation`, which an app signed WITHOUT
-              # hardened runtime also carries — verified: such a binary reports
-              # flags=0x0(none) and passed the old check (#2960 review).
-              codesign -dvv "$APP" 2>&1 | grep -qE '^CodeDirectory .*flags=0x[0-9a-f]*10000( |\()' \
-                || fail "${DMG}: hardened runtime is not enabled (no 'runtime' flag in the code signature)"
+            # Hardened runtime is the `runtime` CODE-SIGNING FLAG, not an
+            # entitlement. The previous check grepped the entitlements for
+            # `disable-library-validation`, which an app signed WITHOUT
+            # hardened runtime also carries — verified: such a binary reports
+            # flags=0x0(none) and passed the old check (#2960 review).
+            codesign -dvv "$APP" 2>&1 | grep -qE '^CodeDirectory .*flags=0x[0-9a-f]*10000( |\()' \
+              || fail "${DMG}: hardened runtime is not enabled (no 'runtime' flag in the code signature)"
 
-              # Prove entitlements were APPLIED at all: a misconfigured
-              # `entitlementsInherit` signs a runnable-looking app with none,
-              # and Electron then dies on first JIT. `allow-jit` is the right
-              # probe because removing it breaks the app, so it can never be a
-              # deliberate future improvement — unlike the weakening
-              # `disable-library-validation` this step used to REQUIRE (#2960
-              # review). The exact set is pinned by the desktop package's own
-              # tests, not re-pinned here, so the plist stays free to change.
-              # `--entitlements -` already emits XML (`--xml` is redundant on
-              # current codesign); stderr is kept so a failed invocation is
-              # distinguishable from "entitlement absent".
-              ENTITLEMENTS=$(codesign -d --entitlements - "$APP" 2>&1) \
-                || fail "${DMG}: could not read entitlements from the signed app"
-              grep -q 'com\.apple\.security\.cs\.allow-jit' <<<"$ENTITLEMENTS" \
-                || fail "${DMG}: signed app carries no allow-jit entitlement, so entitlements were not applied"
+            # Prove entitlements were APPLIED at all: a misconfigured
+            # `entitlementsInherit` signs a runnable-looking app with none,
+            # and Electron then dies on first JIT. `allow-jit` is the right
+            # probe because removing it breaks the app, so it can never be a
+            # deliberate future improvement — unlike the weakening
+            # `disable-library-validation` this step used to REQUIRE (#2960
+            # review). The exact set is pinned by the desktop package's own
+            # tests, not re-pinned here, so the plist stays free to change.
+            # `--entitlements -` already emits XML (`--xml` is redundant on
+            # current codesign); stderr is kept so a failed invocation is
+            # distinguishable from "entitlement absent".
+            ENTITLEMENTS=$(codesign -d --entitlements - "$APP" 2>&1) \
+              || fail "${DMG}: could not read entitlements from the signed app"
+            grep -q 'com\.apple\.security\.cs\.allow-jit' <<<"$ENTITLEMENTS" \
+              || fail "${DMG}: signed app carries no allow-jit entitlement, so entitlements were not applied"
 
-              xcrun stapler validate "$APP" || fail "${DMG}: notarization ticket is not stapled to the app"
-              ASSESS=$(spctl -a -t exec -vv "$APP" 2>&1 || true)
-              echo "$ASSESS"
-              grep -q 'source=Notarized Developer ID' <<<"$ASSESS" \
-                || fail "${DMG}: Gatekeeper does not report a notarized Developer ID app"
-            else
-              echo "== ${DMG}: UNSIGNED posture (no CSC_LINK); asserting no half-signed identity"
-              if codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Developer ID'; then
-                fail "${DMG}: app carries a Developer ID signature although CSC_LINK is absent; posture is inconsistent"
-              fi
+            xcrun stapler validate "$APP" || fail "${DMG}: notarization ticket is not stapled to the app"
+            ASSESS=$(spctl -a -t exec -vv "$APP" 2>&1 || true)
+            echo "$ASSESS"
+            grep -q 'source=Notarized Developer ID' <<<"$ASSESS" \
+              || fail "${DMG}: Gatekeeper does not report a notarized Developer ID app"
+          else
+            echo "== ${DMG}: UNSIGNED posture; asserting no half-signed identity"
+            if codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Developer ID'; then
+              fail "${DMG}: app carries a Developer ID signature although the posture is unsigned; posture is inconsistent"
             fi
-            cleanup
-          done
+          fi
 
-      - name: Smoke-test packaged apps
+      - name: Smoke-test the packaged app
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ needs.context.outputs.version }}"
           cd apps/desktop/release
           ls -la ./*.dmg
-          for ARCH in arm64 x64; do
-            DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
-            [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
-            # The volume is "BrainStrike Desktop <version>": every path below
-            # is quoted or passed as a value, never word-split.
-            ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
-            MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
-            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)
-            [[ -n "$APP" ]] || { echo "::error::${DMG}: no .app at the root of the mounted image"; hdiutil detach "$MOUNT" -force; exit 1; }
-            BIN="$APP/Contents/MacOS/$(defaults read "$APP/Contents/Info" CFBundleExecutable)"
-            # The Electron shell binary matches the requested arch by
-            # construction (per-arch dist download). The real cross-arch risk
-            # on this arm64 runner is the native addons in an x64 DMG: every
-            # addon the app can load must carry the DMG's arch.
-            # Capture, then match: `| grep -q` under pipefail can die on SIGPIPE.
-            BIN_ARCHS=$(lipo -archs "$BIN")
-            if [[ " ${BIN_ARCHS} " != *" ${ARCH/x64/x86_64} "* ]] \
-              || ! node ../scripts/verify-macos-addon-archs.mjs "$APP" "$ARCH"; then
-              echo "::error::${DMG}: the app or a native addon is not ${ARCH}"
-              hdiutil detach "$MOUNT" -force
-              exit 1
-            fi
-            if [[ "$ARCH" == "arm64" ]]; then
-              # main-bootstrap.ts handles --version explicitly (packaged
-              # Electron apps have no default handler) and exits before any
-              # GUI or host work.
-              OUT=$("$BIN" --version 2>/dev/null | tail -1 || true)
-              echo "${DMG} --version => ${OUT}"
-              [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::${DMG} did not report version ${VERSION}"; hdiutil detach "$MOUNT" -force; exit 1; }
-            fi
+          DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
+          [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
+          # The volume is "BrainStrike Desktop <version>": every path below
+          # is quoted or passed as a value, never word-split.
+          ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
+          MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
+          APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)
+          [[ -n "$APP" ]] || { echo "::error::${DMG}: no .app at the root of the mounted image"; hdiutil detach "$MOUNT" -force; exit 1; }
+          BIN="$APP/Contents/MacOS/$(defaults read "$APP/Contents/Info" CFBundleExecutable)"
+          # The Electron shell binary matches the requested arch by
+          # construction (per-arch dist download). The native addons come from
+          # this runner's install, so every addon the app can load must carry
+          # the DMG's arch (BST-2148).
+          # Capture, then match: `| grep -q` under pipefail can die on SIGPIPE.
+          BIN_ARCHS=$(lipo -archs "$BIN")
+          if [[ " ${BIN_ARCHS} " != *" ${ARCH/x64/x86_64} "* ]] \
+            || ! node ../scripts/verify-macos-addon-archs.mjs "$APP" "$ARCH"; then
+            echo "::error::${DMG}: the app or a native addon is not ${ARCH}"
             hdiutil detach "$MOUNT" -force
-          done
+            exit 1
+          fi
+          # Every leg runs on its own arch, so every DMG answers natively.
+          # main-bootstrap.ts handles --version explicitly (packaged Electron
+          # apps have no default handler) and exits before any GUI or host work.
+          OUT=$("$BIN" --version 2>/dev/null | tail -1 || true)
+          echo "${DMG} --version => ${OUT}"
+          [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::${DMG} did not report version ${VERSION}"; hdiutil detach "$MOUNT" -force; exit 1; }
+          hdiutil detach "$MOUNT" -force
 
       - name: Record asset metadata
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ needs.context.outputs.version }}"
           mkdir -p release-records
+          # One record file per leg: the publish job merges every build
+          # artifact into one directory, where a shared name would overwrite.
+          # shellcheck disable=SC2016 # node -e source: JS template literals, not shell
           node -e '
             const { createHash } = require("node:crypto");
             const { readFileSync, statSync, writeFileSync } = require("node:fs");
-            const version = process.argv[1];
-            const records = ["arm64", "x64"].map((arch) => {
-              const name = `Brainstrike-${version}-macos-${arch}.dmg`;
-              const file = `apps/desktop/release/${name}`;
-              return {
-                name,
-                sizeBytes: statSync(file).size,
-                sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
-                platform: "macos",
-                architecture: arch,
-                package: "dmg",
-              };
-            });
-            writeFileSync("release-records/macos.json", JSON.stringify(records, null, 2));
+            const [version, arch] = process.argv.slice(1);
+            const name = `Brainstrike-${version}-macos-${arch}.dmg`;
+            const file = `apps/desktop/release/${name}`;
+            const records = [{
+              name,
+              sizeBytes: statSync(file).size,
+              sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+              platform: "macos",
+              architecture: arch,
+              package: "dmg",
+            }];
+            writeFileSync(`release-records/macos-${arch}.json`, JSON.stringify(records, null, 2));
             console.log(JSON.stringify(records, null, 2));
-          ' "$VERSION"
+          ' "$VERSION" "$ARCH"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: release-macos
+          name: release-macos-${{ matrix.arch }}
           path: |
             apps/desktop/release/*.dmg
-            release-records/macos.json
+            release-records/macos-${{ matrix.arch }}.json
           retention-days: 3
           if-no-files-found: error
 
@@ -365,6 +407,7 @@ jobs:
           set -euo pipefail
           VERSION="${{ needs.context.outputs.version }}"
           mkdir -p release-records
+          # shellcheck disable=SC2016 # node -e source: JS template literals, not shell
           node -e '
             const { createHash } = require("node:crypto");
             const { readFileSync, statSync, writeFileSync } = require("node:fs");
@@ -434,6 +477,7 @@ jobs:
           set -euo pipefail
           VERSION="${{ needs.context.outputs.version }}"
           mkdir -p release-records
+          # shellcheck disable=SC2016 # node -e source: JS template literals, not shell
           node -e '
             const { createHash } = require("node:crypto");
             const { readFileSync, statSync, writeFileSync } = require("node:fs");
@@ -504,6 +548,7 @@ jobs:
           # The manifest digests come from the build runners' records; the
           # published SHA256SUMS comes from the staged files. They must agree,
           # or an artifact was corrupted in the upload/download round-trip.
+          # shellcheck disable=SC2016 # node -e source: JS template literals, not shell
           node -e '
             const { readFileSync, readdirSync } = require("node:fs");
             const sums = new Map(

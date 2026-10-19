@@ -535,12 +535,14 @@ download offline. The DMG container itself is deliberately unsigned
   `RUNNER_TEMP` only for the packaging step and removed afterwards; locally
   `APPLE_KEYCHAIN_PROFILE` (a `notarytool store-credentials` profile) is used
   instead so no key file exists on disk.
-- **Evidence gate.** The release workflow fails the macOS job unless the
+- **Evidence gate.** The release workflow fails each macOS leg (arm64 and
+  x64, each on its own native runner) unless the
   packaged app passes `codesign --verify --deep --strict`, reports a
   `Developer ID Application` authority, carries the entitlements above, has a
   stapled ticket (`xcrun stapler validate`), and is assessed by `spctl -a -t
-  exec` as `source=Notarized Developer ID`. When `CSC_LINK` is absent the
-  workflow builds the documented unsigned posture instead and asserts no
+  exec` as `source=Notarized Developer ID`. When `CSC_LINK` is absent, or a
+  dispatch asks for `unsigned`, the workflow passes no signing or notarization
+  secret to the build, builds the documented unsigned posture, and asserts no
   Developer ID signature is present, so a build is never half-signed.
 
 ## Development vs Production
