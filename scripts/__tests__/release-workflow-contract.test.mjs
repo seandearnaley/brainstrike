@@ -23,6 +23,13 @@
  * one takes the newest all-green main commit. The rule itself is tested in
  * release-sha-resolution.test.mjs.
  *
+ * The release builds one leg per Native Package Matrix target
+ * (scripts/native-package-targets.mjs), Linux arm64 included, and every leg's
+ * asset and record reach the manifest: the legs' real record steps feed the
+ * publish job's real staging step and scripts/generate-release-manifest.mjs.
+ * Each Linux leg runs on a Ubicloud runner of its own arch, as macOS does on
+ * GitHub's.
+ *
  * Those checks EXECUTE the workflow's own `run:` scripts, since a regex cannot
  * see what bash decides.
  * Every check is a function over the workflow text, so each CONTROL test
@@ -33,7 +40,9 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
+  globSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -546,6 +555,261 @@ test('CONTROL: a leg on the triggering ref or a manifest naming GITHUB_SHA fails
     `Source commit: ${shellVar('GITHUB_SHA')}`
   );
   assert.throws(() => assertBuildsOnlyTheResolvedSha(githubSha), /never the triggering commit/u);
+});
+
+// --- One release leg per Native Package Matrix target, each in the manifest --
+
+const MANIFEST_PLATFORM = { darwin: 'macos', linux: 'linux', win32: 'windows' };
+const ASSET_EXTENSION = { darwin: 'dmg', linux: 'AppImage', win32: 'exe' };
+const BUILD_JOB = { darwin: 'build-macos', linux: 'build-linux', win32: 'build-windows' };
+const RELEASE_VERSION = '1.2.3';
+const targetKey = ({ arch, platform }) => `${platform}-${arch}`;
+const assetName = ({ arch, platform }) =>
+  `Brainstrike-${RELEASE_VERSION}-${MANIFEST_PLATFORM[platform]}-${arch}.${ASSET_EXTENSION[platform]}`;
+
+/** release.yml's build legs: one per matrix entry, or one for a job without a matrix. */
+function releaseLegs(source) {
+  const { jobs } = parseYaml(source);
+  return Object.entries(BUILD_JOB).flatMap(([platform, id]) => {
+    const job = jobs?.[id];
+    assert.ok(job, `release.yml must define ${id}`);
+    const include = job.strategy?.matrix?.include;
+    if (include !== undefined) {
+      return include.map((matrix) => ({ arch: matrix.arch, id, job, matrix, platform }));
+    }
+    // A job without a matrix builds the one arch its packaging command names.
+    const arch = (job.steps ?? [])
+      .map(({ run = '' }) => /run dist --\w+ \w+ --(\w+) --publish never/u.exec(run)?.[1])
+      .find(Boolean);
+    return [{ arch, id, job, matrix: {}, platform }];
+  });
+}
+
+const legStep = (leg, name) => {
+  const found = (leg.job.steps ?? []).find((candidate) => candidate.name === name);
+  assert.ok(found, `${leg.id} must have a "${name}" step`);
+  return found;
+};
+
+/** Substitutes the `${{ }}` expressions a step uses; an unknown one fails the check. */
+function renderExpressions(text, values) {
+  return String(text).replace(/\$\{\{\s*(.+?)\s*\}\}/gu, (_, expression) => {
+    assert.ok(Object.hasOwn(values, expression), `no test value for the expression ${expression}`);
+    return values[expression];
+  });
+}
+
+function legValues(leg) {
+  return {
+    'needs.context.outputs.version': RELEASE_VERSION,
+    ...Object.fromEntries(
+      Object.entries(leg.matrix).map(([key, value]) => [`matrix.${key}`, String(value)])
+    ),
+  };
+}
+
+/** Runs a leg's step with its expressions and env rendered for that leg. */
+function runLegStep(leg, name, cwd, extraEnv = {}) {
+  const found = legStep(leg, name);
+  const values = legValues(leg);
+  const env = Object.fromEntries(
+    Object.entries(found.env ?? {}).map(([key, value]) => [key, renderExpressions(value, values)])
+  );
+  return spawnSync('bash', ['-e', '-c', renderExpressions(found.run, values)], {
+    cwd,
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, ...env, ...extraEnv },
+  });
+}
+
+/**
+ * Every Native Package Matrix target is one release leg. Each leg records and
+ * uploads its own asset; download-artifact's merge-multiple puts every leg's
+ * upload in one tree, where a shared path would keep only one copy. The publish
+ * job's staging step and scripts/generate-release-manifest.mjs then run on that
+ * tree, and the manifest must name one asset per target.
+ */
+function assertEveryTargetIsReleased(source) {
+  const legs = releaseLegs(source);
+  const targets = selectNativePackageTargets().include;
+  assert.deepEqual(
+    legs.map(targetKey).sort(),
+    targets.map(targetKey).sort(),
+    'release.yml must build one leg per Native Package Matrix target'
+  );
+  const dir = mkdtempSync(path.join(tmpdir(), 'release-legs-'));
+  try {
+    const publish = path.join(dir, 'publish');
+    for (const leg of legs) {
+      const label = `${leg.id} (${leg.arch})`;
+      const work = path.join(dir, targetKey(leg));
+      const release = path.join(work, 'apps', 'desktop', 'release');
+      mkdirSync(release, { recursive: true });
+      writeFileSync(path.join(release, assetName(leg)), `${label} bytes`);
+      const record = runLegStep(leg, 'Record asset metadata', work);
+      assert.equal(record.status, 0, `${label} must record ${assetName(leg)}: ${record.stderr}`);
+      const upload = legStep(leg, 'Upload artifacts');
+      const patterns = renderExpressions(upload.with?.path, legValues(leg))
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      for (const pattern of patterns) {
+        const files = globSync(pattern, { cwd: work });
+        assert.ok(files.length > 0, `${label} uploads nothing for ${pattern}`);
+        for (const file of files) {
+          const merged = path.join(publish, 'staging', file);
+          assert.ok(
+            !existsSync(merged),
+            `${label} uploads ${file}, which another leg also uploads; the merged download keeps only one`
+          );
+          mkdirSync(path.dirname(merged), { recursive: true });
+          copyFileSync(path.join(work, file), merged);
+        }
+      }
+    }
+    const stage = runStep(publishStep(source, 'Stage assets and checksums').run, {}, publish);
+    assert.equal(stage.status, 0, `publish must stage one asset per target: ${stage.stdout}`);
+    const generated = spawnSync(
+      process.execPath,
+      [
+        path.join(repoRoot, 'scripts', 'generate-release-manifest.mjs'),
+        ...['--tag', `v${RELEASE_VERSION}`, '--source-commit', 'a'.repeat(40)],
+        ...['--records-dir', 'release-records', '--out', 'release-manifest.json'],
+      ],
+      { cwd: publish, encoding: 'utf8' }
+    );
+    assert.equal(generated.status, 0, generated.stderr);
+    const manifest = JSON.parse(readFileSync(path.join(publish, 'release-manifest.json'), 'utf8'));
+    assert.deepEqual(
+      manifest.latest.assets
+        .map(({ architecture, name, platform }) => `${platform} ${architecture} ${name}`)
+        .sort(),
+      targets
+        .map(
+          (target) => `${MANIFEST_PLATFORM[target.platform]} ${target.arch} ${assetName(target)}`
+        )
+        .sort(),
+      'the manifest must name one asset per target'
+    );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+/** Runs a leg's packaging step with a `pnpm` stub and returns the argv it received. */
+function packagingArgv(leg, name) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'release-pack-'));
+  try {
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin);
+    const record = path.join(dir, 'argv.json');
+    writeFileSync(
+      path.join(bin, 'pnpm'),
+      `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\n`
+    );
+    chmodSync(path.join(bin, 'pnpm'), 0o755);
+    const result = runLegStep(leg, name, dir, {
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(readFileSync(record, 'utf8'));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Each Linux leg runs on a Ubicloud runner of its own arch (the header's
+ * placement), asserts that runner is its target before building, and packages
+ * an AppImage named for its arch: linux.artifactName pins the x64 literal,
+ * because electron-builder's ${arch} macro names an x64 AppImage x86_64.
+ */
+function assertNativeLinuxLegs(source) {
+  const legs = releaseLegs(source).filter(({ platform }) => platform === 'linux');
+  const job = legs[0]?.job;
+  assert.ok(job?.strategy?.matrix?.include, 'build-linux must build one matrix leg per arch');
+  assert.equal(job['runs-on'], actions('matrix.runner'), 'each Linux leg runs on its own runner');
+  assert.equal(job.strategy['fail-fast'], false, 'one failing Linux leg must not cancel the other');
+  for (const leg of legs) {
+    const arm = leg.arch === 'arm64';
+    assert.match(
+      leg.matrix.runner ?? '',
+      arm ? /^ubicloud-standard-\d+-arm$/u : /^ubicloud-standard-\d+$/u,
+      `the ${leg.arch} Linux leg must run on a Ubicloud ${leg.arch} runner`
+    );
+  }
+  const names = job.steps.map((candidate) => candidate.name);
+  const check = names.indexOf('Assert the runner is the target');
+  assert.ok(
+    names.indexOf('Setup workspace') < check &&
+      check < names.indexOf('Build desktop dependency graph'),
+    'the Linux runner check must follow the install and precede the build'
+  );
+  const runnerCheck = legStep(legs[0], 'Assert the runner is the target');
+  assert.equal(runnerCheck.env?.TARGET, `linux-${actions('matrix.arch')}`);
+  const host = `${process.platform}-${process.arch}`;
+  assert.equal(runStep(runnerCheck.run, { TARGET: host }).status, 0, 'the host is its own target');
+  assert.notEqual(
+    runStep(runnerCheck.run, { TARGET: `${host}-other` }).status,
+    0,
+    'a Linux runner that is not the target must fail the leg'
+  );
+  for (const leg of legs) {
+    const argv = packagingArgv(leg, 'Package AppImage');
+    assert.ok(argv.includes(`--${leg.arch}`), `the ${leg.arch} leg must package ${leg.arch}`);
+    const override = argv.find((arg) => arg.startsWith('--config.linux.artifactName='));
+    assert.ok(override, `the ${leg.arch} leg must name its AppImage for its arch`);
+    const expanded = override
+      .slice('--config.linux.artifactName='.length)
+      .replaceAll(`${'$'}{version}`, RELEASE_VERSION)
+      .replaceAll(`${'$'}{ext}`, 'AppImage');
+    assert.equal(expanded, assetName(leg), `the ${leg.arch} leg must package the asset it records`);
+    assert.equal(legStep(leg, 'Smoke-test AppImage').env?.ARCH, actions('matrix.arch'));
+    assert.match(
+      legStep(leg, 'Smoke-test AppImage').run,
+      /APPIMAGE="apps\/desktop\/release\/Brainstrike-\$\{VERSION\}-linux-\$\{ARCH\}\.AppImage"/u
+    );
+  }
+}
+
+test('the release builds one leg per Native Package Matrix target, and the manifest names each asset', () => {
+  assertEveryTargetIsReleased(readRelease());
+});
+
+test('each Linux AppImage builds on a Ubicloud runner of its own arch and is named for it', () => {
+  assertNativeLinuxLegs(readRelease());
+});
+
+test('CONTROL: a dropped Linux arm64 leg or a shared record name fails the every-target check', () => {
+  const source = readRelease();
+  const noArm = mutate(source, /\n {10}- arch: arm64\n {12}runner: [^\n]*/u, '');
+  assert.throws(
+    () => assertEveryTargetIsReleased(noArm),
+    /one leg per Native Package Matrix target/u
+  );
+  const sharedUpload = mutate(
+    source,
+    /release-records\/linux-\$\{\{ matrix\.arch \}\}\.json/u,
+    'release-records/linux.json'
+  );
+  const shared = mutate(
+    sharedUpload,
+    /release-records\/linux-\$\{arch\}\.json/u,
+    'release-records/linux.json'
+  );
+  assert.throws(() => assertEveryTargetIsReleased(shared), /another leg also uploads/u);
+});
+
+test('CONTROL: an AppImage not named for its arch or a cross-arch runner fails the Linux-leg check', () => {
+  const source = readRelease();
+  const pinned = mutate(
+    source,
+    /'Brainstrike-\$\{version\}-linux-'"\$ARCH"'\.\$\{ext\}'/u,
+    `'Brainstrike-${'$'}{version}-linux-x64.${'$'}{ext}'`
+  );
+  assert.throws(() => assertNativeLinuxLegs(pinned), /must package the asset it records/u);
+  const onX64 = mutate(source, 'runner: ubicloud-standard-4-arm', 'runner: ubicloud-standard-4');
+  assert.throws(() => assertNativeLinuxLegs(onX64), /Ubicloud arm64 runner/u);
 });
 
 test('CONTROL: a cross-built leg or a leg that skips a gate fails the native-leg check', () => {

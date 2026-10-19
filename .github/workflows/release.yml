@@ -33,8 +33,9 @@ name: Release
 # Each macOS arch builds on a runner of that arch, the Native Package Matrix's
 # darwin targets (BST-2148): pnpm installs only the host's platform packages
 # and node-gyp compiles for the host, so a cross-built x64 DMG shipped
-# arm64-only addons. scripts/__tests__/release-workflow-contract.test.mjs pins
-# the legs to scripts/native-package-targets.mjs.
+# arm64-only addons. Linux x64 and arm64 do the same on Ubicloud runners of
+# their arch (BST-2190). scripts/__tests__/release-workflow-contract.test.mjs
+# pins the legs, one per target, to scripts/native-package-targets.mjs.
 #
 # Publication ordering (deliberate, do not reorder):
 #   1. build + smoke-test + hash on every target OS
@@ -500,10 +501,25 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    name: Build Linux (x64)
+    name: Build Linux (${{ matrix.arch }})
     needs: [resolve, context]
-    runs-on: ubicloud-standard-4
+    # One leg per arch, each on a Ubicloud runner OF that arch, the Native
+    # Package Matrix's linux targets (scripts/native-package-targets.mjs): as on
+    # macOS, pnpm installs only the host's platform packages and node-gyp
+    # compiles for the host. ubicloud-standard-4-arm is the 4-vCPU/12-GB Arm
+    # shape; the 2-vCPU one has 6 GB (docs/superpowers/research/
+    # 2026-08-28-ubicloud-github-actions-runners.md).
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
+    strategy:
+      # Each leg's smoke and addons are its own verdict. Publish needs both.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubicloud-standard-4
+          - arch: arm64
+            runner: ubicloud-standard-4-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -515,21 +531,36 @@ jobs:
         with:
           turbo-cache: 'true'
 
+      - name: Assert the runner is the target
+        env:
+          TARGET: linux-${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          node -p "process.platform + '-' + process.arch + ' | node ' + process.version"
+          test "$(node -p process.platform)-$(node -p process.arch)" = "$TARGET"
+
       - name: Build desktop dependency graph
         run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
 
+      # linux.artifactName pins the x64 literal: electron-builder's ${arch}
+      # macro names an x64 AppImage x86_64 (builder-util getArtifactArchName).
+      # Each leg overrides it with its own arch; ${version} and ${ext} stay
+      # electron-builder macros (pnpm quotes the forwarded argument).
       - name: Package AppImage
-        run: pnpm --filter @brainstrike/desktop run dist --linux AppImage --x64 --publish never
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          # shellcheck disable=SC2016 # electron-builder macros, not shell
+          pnpm --filter @brainstrike/desktop run dist --linux AppImage --"$ARCH" --publish never \
+            --config.linux.artifactName='Brainstrike-${version}-linux-'"$ARCH"'.${ext}'
 
       - name: Smoke-test AppImage
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ needs.context.outputs.version }}"
-          # linux.artifactName pins the x64 literal: electron-builder's
-          # ${arch} macro rewrites x64 -> x86_64 for AppImage names
-          # (builder-util getArtifactArchName), which would break both this
-          # check and the record step.
-          APPIMAGE="apps/desktop/release/Brainstrike-${VERSION}-linux-x64.AppImage"
+          APPIMAGE="apps/desktop/release/Brainstrike-${VERSION}-linux-${ARCH}.AppImage"
           [[ -f "$APPIMAGE" ]] || { echo "::error::missing ${APPIMAGE}"; exit 1; }
           chmod +x "$APPIMAGE"
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
@@ -538,36 +569,40 @@ jobs:
           [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::AppImage did not report version ${VERSION}"; exit 1; }
 
       - name: Record asset metadata
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ needs.context.outputs.version }}"
           mkdir -p release-records
+          # One record file per leg: the publish job merges every build
+          # artifact into one directory, where a shared name would overwrite.
           # shellcheck disable=SC2016 # node -e source: JS template literals, not shell
           node -e '
             const { createHash } = require("node:crypto");
             const { readFileSync, statSync, writeFileSync } = require("node:fs");
-            const version = process.argv[1];
-            const name = `Brainstrike-${version}-linux-x64.AppImage`;
+            const [version, arch] = process.argv.slice(1);
+            const name = `Brainstrike-${version}-linux-${arch}.AppImage`;
             const file = `apps/desktop/release/${name}`;
             const records = [{
               name,
               sizeBytes: statSync(file).size,
               sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
               platform: "linux",
-              architecture: "x64",
+              architecture: arch,
               package: "appimage",
             }];
-            writeFileSync("release-records/linux.json", JSON.stringify(records, null, 2));
+            writeFileSync(`release-records/linux-${arch}.json`, JSON.stringify(records, null, 2));
             console.log(JSON.stringify(records, null, 2));
-          ' "$VERSION"
+          ' "$VERSION" "$ARCH"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: release-linux
+          name: release-linux-${{ matrix.arch }}
           path: |
             apps/desktop/release/*.AppImage
-            release-records/linux.json
+            release-records/linux-${{ matrix.arch }}.json
           retention-days: 3
           if-no-files-found: error
 
@@ -606,7 +641,7 @@ jobs:
           find staging -name '*.json' -path '*release-records*' -exec mv -n {} release-records/ \;
           ls -la assets release-records
           ASSET_COUNT=$(find assets -type f | wc -l)
-          [[ "$ASSET_COUNT" -eq 4 ]] || { echo "::error::expected 4 assets (2 DMG, 1 EXE, 1 AppImage), found ${ASSET_COUNT}"; exit 1; }
+          [[ "$ASSET_COUNT" -eq 5 ]] || { echo "::error::expected 5 assets (2 DMG, 1 EXE, 2 AppImage), found ${ASSET_COUNT}"; exit 1; }
           cd assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
 
       - name: Cross-check staged digests against build records
@@ -656,7 +691,7 @@ jobs:
             || gh release create "$TAG" \
               --repo seandearnaley/brainstrike-releases \
               --title "Brainstrike ${VERSION}" \
-              --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${SOURCE_COMMIT}."
+              --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (arm64/x64 AppImage); verify with SHA256SUMS. Source commit: ${SOURCE_COMMIT}."
 
       - name: Upload assets not yet published
         env:

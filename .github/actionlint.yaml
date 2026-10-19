@@ -4,6 +4,7 @@ self-hosted-runner:
   labels:
     - ubicloud-standard-2
     - ubicloud-standard-4
+    - ubicloud-standard-4-arm
 
 paths:
   .github/workflows/test.yml:
