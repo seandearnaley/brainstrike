@@ -217,3 +217,29 @@ export function readNightlyTestResults({ reportsDir, repoRoot }) {
   }
   return { parts, problems, tests };
 }
+
+const RESULTS_ARTIFACT_PREFIX = 'nightly-results--';
+const RESULTS_JOB = /^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*$/u;
+
+/**
+ * The actions/download-artifact `pattern` for the results of `jobs` alone: each
+ * job uploads `nightly-results--<job>`, or `nightly-results--<job>--<part>` per
+ * part (BST-2189). Every workflow nightly.yml calls shares that run's artifacts
+ * (BST-2233), so a pattern over every `nightly-results--*` would file another
+ * workflow's tests as this one's. download-artifact matches with minimatch,
+ * which reads a one-element brace set literally, so each job gives two.
+ * @param {string[]} jobs
+ */
+export function resultsArtifactPattern(jobs) {
+  if (jobs.length === 0) {
+    throw new Error('Name at least one results job.');
+  }
+  for (const job of jobs) {
+    // `--` separates a job from its part in the artifact name.
+    if (!RESULTS_JOB.test(job)) {
+      throw new Error(`results job ${JSON.stringify(job)} is not a plain artifact name segment.`);
+    }
+  }
+  const names = jobs.flatMap((job) => [job, `${job}--*`]);
+  return `${RESULTS_ARTIFACT_PREFIX}{${names.join(',')}}`;
+}

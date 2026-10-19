@@ -4,12 +4,14 @@ import { test } from 'node:test';
 
 const workflow = readFileSync('.github/workflows/test.yml', 'utf8');
 
-test('test.yml runs on its nightly schedule and dispatch, never per PR or per push', () => {
-  // BST-2066: per-PR hosted CI is off, so admission now only ever sees
-  // schedule and workflow_dispatch events, which it admits immediately.
+test('test.yml runs when called (nightly or merge queue) and on dispatch, never per PR or per push', () => {
+  // BST-2066: per-PR hosted CI is off, so admission never sees a pull_request
+  // event and admits every run immediately. BST-2233: the scheduled nightly.yml
+  // calls it, so it has no schedule of its own.
   const triggers = workflow.slice(0, workflow.indexOf('\nconcurrency:'));
-  assert.match(triggers, /^ {2}schedule:$/m);
+  assert.match(triggers, /^ {2}workflow_call:$/m);
   assert.match(triggers, /^ {2}workflow_dispatch:$/m);
+  assert.doesNotMatch(triggers, /^ {2}schedule:$/m);
   assert.doesNotMatch(triggers, /pull_request|^ {2}push:|ready_for_review/m);
 });
 

@@ -9,7 +9,8 @@ import { parse as parseYaml } from 'yaml';
  * BST-1301, revised by BST-2066: a red `main` must announce itself.
  *
  * Per-PR and push CI are off (owner decision 2026-10-17), so test.yml's
- * scheduled run is the check that re-evaluates `main` after merges. Its verdict
+ * nightly run (a call from the scheduled nightly.yml, BST-2233) is the check
+ * that re-evaluates `main` after merges. Its verdict
  * goes to Linear through the shared nightly-linear-alert.yml workflow. The
  * push-only `main-broken` GitHub issue notifier is gone: Linear `nightly-alert`
  * is the one tracker for a red `main`.
@@ -25,10 +26,16 @@ const ALERT_WORKFLOW = './.github/workflows/nightly-linear-alert.yml';
 /** The deterministic verdicts BST-1301 watched; a red one is always real. */
 const WATCHED_JOBS = ['static', 'unit', 'build'];
 
-function assertNightlyMainCheck(source) {
+/** BST-2233: test.yml runs each night as one of the workflows nightly.yml's schedule calls. */
+function assertNightlyMainCheck(source, nightlySource) {
   const { on } = parseYaml(source);
-  assert.equal(on?.schedule?.length, 1, 'test.yml must re-check main on a schedule.');
   assert.equal(on.push, undefined, 'test.yml must not run on push.');
+  const nightly = parseYaml(nightlySource);
+  assert.equal(nightly.on?.schedule?.length, 1, 'test.yml must re-check main on a schedule.');
+  assert.ok(
+    Object.values(nightly.jobs ?? {}).some((job) => job.uses === './.github/workflows/test.yml'),
+    'test.yml must re-check main on a schedule: the scheduled nightly.yml must call it.'
+  );
 }
 
 function assertLinearNotifier(source) {
@@ -60,7 +67,7 @@ function assertNoPushNotifier(file, source) {
 const workflowFiles = () => readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
 
 test('test.yml re-checks main every night', () => {
-  assertNightlyMainCheck(readWorkflow('test.yml'));
+  assertNightlyMainCheck(readWorkflow('test.yml'), readWorkflow('nightly.yml'));
 });
 
 test('test.yml files its nightly verdict through the shared Linear alert', () => {
@@ -79,13 +86,22 @@ function mutate(source, from, to) {
   return mutated;
 }
 
-test('CONTROL: dropping the schedule FAILS this contract', () => {
-  const mutated = mutate(
-    readWorkflow('test.yml'),
-    / {2}schedule:\n {4}- cron: '[^']+'\n/u,
-    '  push:\n    branches: [main]\n'
+test('CONTROL: dropping the schedule, the call or adding push FAILS this contract', () => {
+  const testSource = readWorkflow('test.yml');
+  const nightly = readWorkflow('nightly.yml');
+  const unscheduled = mutate(nightly, / {2}schedule:\n {4}- cron: '[^']+'\n/u, '');
+  assert.throws(
+    () => assertNightlyMainCheck(testSource, unscheduled),
+    /re-check main on a schedule/u
   );
-  assert.throws(() => assertNightlyMainCheck(mutated), /re-check main on a schedule/u);
+  const uncalled = mutate(
+    nightly,
+    'uses: ./.github/workflows/test.yml',
+    'uses: ./.github/workflows/web-e2e.yml'
+  );
+  assert.throws(() => assertNightlyMainCheck(testSource, uncalled), /nightly\.yml must call it/u);
+  const pushed = mutate(testSource, '\non:\n', '\non:\n  push:\n    branches: [main]\n');
+  assert.throws(() => assertNightlyMainCheck(pushed, nightly), /must not run on push/u);
 });
 
 test('CONTROL: a notifier that stops watching Static FAILS this contract', () => {

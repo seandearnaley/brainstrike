@@ -1,0 +1,139 @@
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
+
+name: Nightly
+
+# BST-2233 (owner decision 2026-10-19): one scheduled run calls the six required
+# nightly workflows, so every job of the night builds one github.sha and a
+# release (BST-2190) can find a commit on which all of them passed. None of the
+# six has a schedule of its own; each keeps workflow_dispatch for a manual run.
+# Each files its own red jobs and tests to Linear from inside its call.
+# scripts/__tests__/nightly-caller-contract.test.mjs pins the calls, their
+# permissions and secrets, the concurrency groups and the verdict.
+on:
+  # 07:53 UTC: of the six's former slots, :53 had the shortest schedule delay,
+  # a median of 4 min over 34 nights against 6 at :37, 10 at :23, 17 at :17
+  # and 14 to 32 at :03 (2 nights). GitHub delays schedules most at the start
+  # of each hour.
+  schedule:
+    - cron: '53 7 * * *'
+  workflow_dispatch:
+
+# One night per ref at a time, never cancelled. A called workflow's
+# github.workflow is this workflow's name, so each of the six adds its own file
+# name to its group and none shares this group or a sibling's.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# A called workflow can only narrow what its caller grants, so each call grants
+# what its workflow and the workflows it calls ask for, and nothing else does.
+permissions: {}
+
+# Every call starts at once and passes only the secrets its workflow declares.
+# Measured on 18 and 19 Oct, the six together peak at 28 GitHub-hosted jobs (4
+# macOS, 4 Windows) and 10 Ubicloud runners (40 vCPU): within the Pro plan's 40
+# jobs and 5 macOS, and the smallest default Ubicloud x64 quota (128 vCPU).
+# Jobs past a limit wait in the queue, so no call waits on another.
+jobs:
+  test:
+    name: Test
+    if: github.repository == 'seandearnaley/brainstrike'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/test.yml
+    with:
+      merge-queue: false
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+  nightly-coverage:
+    name: Nightly Coverage
+    if: github.repository == 'seandearnaley/brainstrike'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/nightly-coverage.yml
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+  performance:
+    name: Performance E2E
+    if: github.repository == 'seandearnaley/brainstrike'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/performance.yml
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+
+  # The fix agent (BST-2189) reads the run, pushes its branch and opens the PR.
+  desktop-e2e:
+    name: Desktop E2E
+    if: github.repository == 'seandearnaley/brainstrike'
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/desktop-e2e.yml
+    with:
+      suite: full
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+  web-e2e:
+    name: Web E2E
+    if: github.repository == 'seandearnaley/brainstrike'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/web-e2e.yml
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+  native-package-matrix:
+    name: Native Package Matrix
+    if: github.repository == 'seandearnaley/brainstrike'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/native-package-matrix.yml
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+
+  # The night is green only when every call succeeded: a failed, cancelled or
+  # skipped call fails this job and with it the run, which is what a release
+  # resolves a commit by. The summary lists each workflow's result.
+  verdict:
+    name: Nightly verdict
+    if: github.repository == 'seandearnaley/brainstrike' && always()
+    needs: [test, nightly-coverage, performance, desktop-e2e, web-e2e, native-package-matrix]
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Judge every called workflow
+        env:
+          RESULT_TEST: ${{ needs.test.result }}
+          RESULT_NIGHTLY_COVERAGE: ${{ needs.nightly-coverage.result }}
+          RESULT_PERFORMANCE: ${{ needs.performance.result }}
+          RESULT_DESKTOP_E2E: ${{ needs.desktop-e2e.result }}
+          RESULT_WEB_E2E: ${{ needs.web-e2e.result }}
+          RESULT_NATIVE_PACKAGE_MATRIX: ${{ needs.native-package-matrix.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          printf '| Called workflow | Result |\n| --- | --- |\n' >> "$GITHUB_STEP_SUMMARY"
+          for lane in "${!RESULT_@}"; do
+            call="${lane#RESULT_}"
+            result="${!lane}"
+            echo "${call}: ${result:-missing}"
+            printf '| %s | %s |\n' "$call" "${result:-missing}" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" != success ]; then
+              echo "::error::${call} was ${result:-missing}, expected success"
+              failed=1
+            fi
+          done
+          exit "$failed"

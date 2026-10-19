@@ -27,6 +27,14 @@ test('desktop workflow dispatches the full suite or the foreground-latency bench
     required: true,
     type: 'choice',
   });
+  // BST-2233: in a call, `inputs` holds only workflow_call inputs. nightly.yml
+  // passes suite=full, so a dispatched nightly (event workflow_dispatch) runs
+  // the full regression instead of silently skipping it.
+  assert.deepEqual(workflow.on?.workflow_call?.inputs?.suite, {
+    description: 'Desktop E2E suite to run',
+    required: true,
+    type: 'string',
+  });
 
   const fullRegression = workflow.jobs?.['desktop-full-regression'];
   assert.equal(

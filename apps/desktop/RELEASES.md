@@ -12,7 +12,9 @@ secrets, is the owner's decision.
 ## Release commit (BST-2190)
 
 A release builds only a commit on which every required nightly workflow
-passed. `scripts/release-required-workflows.mjs` names that set, and
+passed. `scripts/release-required-workflows.mjs` names that set: the scheduled
+`nightly.yml`, whose one run calls the six required workflows on one commit
+and succeeds only when every call did (BST-2233).
 `scripts/resolve-release-sha.mjs` judges a commit from the Actions API: for
 each required workflow, the latest completed scheduled run on the commit must
 have succeeded. A run in progress, or no scheduled run, counts as missing.
