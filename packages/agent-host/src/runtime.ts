@@ -126,6 +126,7 @@ export async function startAgentHost(
     | 'mcpPresentation'
     | 'mcpSettings'
     | 'providers'
+    | 'resolveMemoryEmbedder'
     | 'searchState'
     | 'searchStateVectors'
     | 'searchWorkspace'
@@ -154,6 +155,9 @@ export async function startAgentHost(
     ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
+    ...(platform?.resolveMemoryEmbedder
+      ? { resolveMemoryEmbedder: platform.resolveMemoryEmbedder }
+      : {}),
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
     ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
