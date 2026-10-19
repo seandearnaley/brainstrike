@@ -110,8 +110,34 @@ jobs:
       - name: Build web
         run: pnpm run build --filter @brainstrike/web
 
+      # The lane sequence writes each lane's JSON report to <dir>/<lane>.json for
+      # Notify Linear (BST-2189), and <lane>.unreported for a lane that failed
+      # without one; the directory is <results job>/<part>.
       - name: Run full web regression
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_DIR: ${{ runner.temp }}/nightly-results/web-full-regression/main
         run: pnpm --filter @brainstrike/web run test:e2e:lane:full-regression
+
+      # Every run, green, red or cancelled: a green night's flaky tests and passes
+      # are what Notify Linear files and recovers per test, and a red part with
+      # no failing test is filed from its job status.
+      - name: Record the nightly job status
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PART_DIR: ${{ runner.temp }}/nightly-results/web-full-regression/main
+        run: |
+          mkdir -p "$PART_DIR"
+          printf '%s\n' "$JOB_STATUS" > "$PART_DIR/job.status"
+
+      - name: Upload nightly test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--web-full-regression
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Upload web traces
         if: failure()

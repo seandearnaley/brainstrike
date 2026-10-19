@@ -348,7 +348,12 @@ allowBuilds:
   esbuild: false
   lefthook: true
   node-pty: true
-  onnxruntime-node: true
+  # BST-2229: DENIED. The package bundles its CPU runtime for every platform;
+  # its postinstall only downloads the optional CUDA 12 provider on Linux x64
+  # from nuget.org, which nothing here uses. It ran in every install that
+  # lacked ONNXRUNTIME_NODE_INSTALL_CUDA=skip, including Vercel's own function
+  # builder install, and failed a web build when nuget.org timed out.
+  onnxruntime-node: false
   oxc-resolver: true
   protobufjs: true
   puppeteer: true

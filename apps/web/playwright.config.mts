@@ -156,9 +156,16 @@ export default defineConfig({
         },
       ],
 
-  // Reporter configuration
+  // Reporter configuration. The JSON report is each nightly test's verdict for
+  // scripts/notify-linear-nightly.mjs (BST-2189); a nightly step points
+  // PLAYWRIGHT_JSON_OUTPUT_FILE (or, for a lane sequence, PLAYWRIGHT_JSON_OUTPUT_DIR)
+  // at its results directory, which overrides this path.
   reporter: config.isCI
-    ? [['blob', { outputDir: 'blob-report' }], ['list']]
+    ? [
+        ['blob', { outputDir: 'blob-report' }],
+        ['json', { outputFile: 'test-results/results.json' }],
+        ['list'],
+      ]
     : [['html', { open: 'never' }], ['list']],
 
   // Retry strategy based on environment

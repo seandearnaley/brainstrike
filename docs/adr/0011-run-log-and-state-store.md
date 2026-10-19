@@ -175,6 +175,29 @@ official build. The web app does not run on it yet. Through 3.53.x, a failed
 `opfs-sahpool` init removes the whole pool (the vendor's `removeVfs()`), and the
 owner gated shipping on the fix (upstream check-in ad1bbfc2bd, 3.54).
 
+## Amendment (2026-10-19): memory recall telemetry
+
+Owner decision 3 on BST-2194 (18 Oct) makes semantic-recall diagnostics live
+telemetry, not log rows (BST-2225). When a run's Memory makes a recall, Core
+sends one uncommitted `run/telemetry` chunk to the thread's subscribers on the
+run's stream (no `toolCallId`). Its type is `brainstrike.memory.recall`, and it
+carries:
+
+- the messages recall returned (each hit with its configured message range);
+- `topK`, when the configuration sets it;
+- the scope (`thread`, or `resource` for every thread);
+- the latency, including the query's embedding.
+
+Memory recalls on every model step of a run, so the log would gain a row per
+step for a diagnostic. The recalled turns themselves reach the provider request
+from committed history, so nothing is lost by not committing the count. This
+chunk is never replayed: Memory recalls before the step it prepares opens, so
+the open step's text ring has not started, and a view that subscribes later
+sees the next recall. A hosted recall embedder's spend is a different matter:
+it is billing, so BST-2226 records it as a committed fact. The Developer memory
+panel shows the last recall its view received, labelled live; a reload clears
+it.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers
