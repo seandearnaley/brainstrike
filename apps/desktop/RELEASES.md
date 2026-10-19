@@ -9,6 +9,22 @@ posture even when signing secrets are configured, so a proof run signs and
 notarizes nothing. Starting either, and providing its signing and publishing
 secrets, is the owner's decision.
 
+## Release commit (BST-2190)
+
+A release builds only a commit on which every required nightly workflow
+passed. `scripts/release-required-workflows.mjs` names that set, and
+`scripts/resolve-release-sha.mjs` judges a commit from the Actions API: for
+each required workflow, the latest completed scheduled run on the commit must
+have succeeded. A run in progress, or no scheduled run, counts as missing.
+
+The workflow's first job resolves the commit, and every other job checks it
+out instead of the triggering ref. A tag push judges the tagged commit, and a
+dispatch judges its `sha` input when one is given. If any required workflow is
+red or missing, the run refuses and names each one; it never builds another
+commit instead. A dispatch without `sha` builds the newest all-green `main`
+commit from the last 14 days of scheduled runs, or fails and says how far back
+it searched.
+
 ## Publication pipeline
 
 1. One authoritative application version: the tag, the packaged application

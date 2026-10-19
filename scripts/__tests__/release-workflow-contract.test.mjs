@@ -15,8 +15,16 @@
  * replaced (PR #3870 review, P1): a rerun's re-signed DMGs differ in bytes, and
  * `--clobber` would swap them under a live manifest that names the old digests.
  * Publishing keeps identical assets, uploads missing ones and refuses different
- * ones, through scripts/release-asset-plan.mjs. Those checks EXECUTE the
- * workflow's own `run:` scripts, since a regex cannot see what bash decides.
+ * ones, through scripts/release-asset-plan.mjs.
+ *
+ * BST-2190: the `resolve` job runs first and every job that checks out code
+ * builds the commit it resolves, never the triggering ref. A tag push judges
+ * the tagged commit and a dispatch its `sha` input as given; a dispatch without
+ * one takes the newest all-green main commit. The rule itself is tested in
+ * release-sha-resolution.test.mjs.
+ *
+ * Those checks EXECUTE the workflow's own `run:` scripts, since a regex cannot
+ * see what bash decides.
  * Every check is a function over the workflow text, so each CONTROL test
  * mutates the real file and watches the check fail.
  */
@@ -71,12 +79,12 @@ function stepIndex(job, name) {
 const step = (job, name) => job.steps[stepIndex(job, name)];
 
 /** Runs a workflow step's `run:` script and returns its exit status and outputs. */
-function runStep(script, env) {
+function runStep(script, env, cwd = repoRoot) {
   const dir = mkdtempSync(path.join(tmpdir(), 'release-contract-'));
   try {
     const output = path.join(dir, 'github-output');
     const result = spawnSync('bash', ['-e', '-c', script], {
-      cwd: repoRoot,
+      cwd,
       encoding: 'utf8',
       env: { PATH: process.env.PATH, ...env, GITHUB_OUTPUT: output },
     });
@@ -379,6 +387,166 @@ function mutate(source, from, to) {
   assert.notEqual(mutated, source, `control mutation ${String(from)} matched nothing`);
   return mutated;
 }
+
+// --- BST-2190: the release builds only a commit every required nightly passed
+
+const RESOLVED_SHA = actions('needs.resolve.outputs.sha');
+const RESOLVER_SHA = 'e'.repeat(40);
+const needsOf = (job) => [job.needs ?? []].flat();
+
+/**
+ * Runs the resolve step's real `run:` script in a scratch workspace whose
+ * scripts/resolve-release-sha.mjs records its arguments, then prints
+ * `sha=RESOLVER_SHA`, prints `prints` instead, or exits with `exit`.
+ */
+function runResolveStep(script, env, { exit, prints = `sha=${RESOLVER_SHA}\n` } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'release-resolve-'));
+  try {
+    mkdirSync(path.join(dir, 'scripts'));
+    const record = path.join(dir, 'argv.json');
+    writeFileSync(
+      path.join(dir, 'scripts', 'resolve-release-sha.mjs'),
+      [
+        "import { writeFileSync } from 'node:fs';",
+        `writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));`,
+        exit === undefined
+          ? `process.stdout.write(${JSON.stringify(prints)});`
+          : `process.exit(${exit});`,
+      ].join('\n')
+    );
+    const result = runStep(script, env, dir);
+    const argv = existsSync(record) ? JSON.parse(readFileSync(record, 'utf8')) : undefined;
+    return { ...result, argv };
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+function assertResolvesTheReleaseSha(source) {
+  const workflow = parseYaml(source);
+  const input = workflow.on?.workflow_dispatch?.inputs?.sha;
+  assert.equal(input?.type, 'string', 'workflow_dispatch must offer the optional sha input');
+  assert.equal(input?.required, false, 'the sha input is optional');
+  assert.equal(input?.default, '', 'an empty sha applies the newest-green rule');
+
+  const resolve = workflow.jobs?.resolve;
+  assert.ok(resolve, 'release.yml must define the resolve job');
+  assert.deepEqual(needsOf(resolve), [], 'resolve runs first');
+  assert.deepEqual(resolve.permissions, { actions: 'read', contents: 'read' });
+  assert.equal(resolve.outputs?.sha, actions('steps.resolve.outputs.sha'));
+  const resolveStep = (resolve.steps ?? []).find((candidate) => candidate.id === 'resolve');
+  assert.ok(resolveStep, 'resolve must have a step with id resolve');
+  assert.equal(resolveStep.env?.GIVEN_SHA, actions('inputs.sha'));
+  assert.equal(resolveStep.env?.GITHUB_TOKEN, actions('github.token'));
+
+  const tag = 'refs/tags/v1.2.3';
+  const given = 'f'.repeat(40);
+  const push = { GITHUB_EVENT_NAME: 'push', GITHUB_REF: tag };
+  const dispatch = (sha) => ({
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/main',
+    GIVEN_SHA: sha,
+  });
+  const pushed = runResolveStep(resolveStep.run, push);
+  assert.deepEqual(pushed.argv, ['--given', tag], 'a tag push judges the tagged commit as given');
+  assert.equal(pushed.outputs.sha, RESOLVER_SHA, pushed.stderr);
+  assert.deepEqual(runResolveStep(resolveStep.run, dispatch(given)).argv, ['--given', given]);
+  assert.deepEqual(
+    runResolveStep(resolveStep.run, dispatch('')).argv,
+    ['--newest-green', '--lookback-days', '14'],
+    'a dispatch without sha takes the newest all-green main commit'
+  );
+  assert.notEqual(
+    runResolveStep(resolveStep.run, { GITHUB_EVENT_NAME: 'schedule', GITHUB_REF: tag }).status,
+    0,
+    'any other event fails'
+  );
+  const refused = runResolveStep(resolveStep.run, push, { exit: 1 });
+  assert.notEqual(refused.status, 0, 'a refusal fails the release');
+  assert.equal(refused.outputs.sha, undefined, 'and resolves no SHA');
+  const silent = runResolveStep(resolveStep.run, push, { prints: '' });
+  assert.notEqual(
+    silent.status,
+    0,
+    'a resolver that printed no SHA must fail, or every checkout would build the triggering ref'
+  );
+  assert.equal(silent.outputs.sha, undefined);
+}
+
+function assertBuildsOnlyTheResolvedSha(source) {
+  const { jobs } = parseYaml(source);
+  for (const [id, job] of Object.entries(jobs)) {
+    const checkouts = (job.steps ?? []).filter((candidate) =>
+      /^actions\/checkout@/u.test(candidate.uses ?? '')
+    );
+    if (id === 'resolve' || checkouts.length === 0) {
+      continue;
+    }
+    assert.ok(needsOf(job).includes('resolve'), `${id} must need resolve to read the resolved SHA`);
+    for (const checkout of checkouts) {
+      assert.equal(
+        checkout.with?.ref,
+        RESOLVED_SHA,
+        `${id} must check out the resolved SHA, never the triggering ref`
+      );
+    }
+  }
+  for (const name of [
+    'Create release in the public binaries repo',
+    'Generate manifest from upload records',
+  ]) {
+    assert.equal(publishStep(source, name).env?.SOURCE_COMMIT, RESOLVED_SHA, name);
+  }
+  assert.match(
+    publishStep(source, 'Generate manifest from upload records').run,
+    /--source-commit "\$\{SOURCE_COMMIT\}"/u
+  );
+  assert.doesNotMatch(
+    source,
+    /GITHUB_SHA|github\.sha/u,
+    'release.yml must record the resolved SHA, never the triggering commit'
+  );
+}
+
+test('the release resolves its commit first: a tag or sha is judged as given, else the newest all-green main commit', () => {
+  assertResolvesTheReleaseSha(readRelease());
+});
+
+test('every job that checks out code builds the resolved SHA and records it as the source commit', () => {
+  assertBuildsOnlyTheResolvedSha(readRelease());
+});
+
+test('CONTROL: a tag judged by the default rule or an unvalidated resolver output fails the resolve check', () => {
+  const source = readRelease();
+  const tagByDefault = mutate(
+    source,
+    /push\) ARGS=\(--given "\$\{GITHUB_REF\}"\) ;;/u,
+    'push) ARGS=(--newest-green --lookback-days 14) ;;'
+  );
+  assert.throws(() => assertResolvesTheReleaseSha(tagByDefault), /judges the tagged commit/u);
+  const unvalidated = mutate(source, /\n *\[\[ "\$RESOLVED" =~ [^\n]*\n/u, '\n');
+  assert.throws(() => assertResolvesTheReleaseSha(unvalidated), /printed no SHA must fail/u);
+});
+
+test('CONTROL: a leg on the triggering ref or a manifest naming GITHUB_SHA fails the resolved-SHA check', () => {
+  const source = readRelease();
+  const triggering = mutate(
+    source,
+    /(name: Build Windows \(x64\)[\s\S]*?uses: actions\/checkout@v6\n) {8}with:\n {10}ref: [^\n]*\n/u,
+    '$1'
+  );
+  assert.throws(
+    () => assertBuildsOnlyTheResolvedSha(triggering),
+    /build-windows must check out the resolved SHA/u
+  );
+  const shellVar = (name) => `${'$'}{${name}}`;
+  const githubSha = mutate(
+    source,
+    `Source commit: ${shellVar('SOURCE_COMMIT')}`,
+    `Source commit: ${shellVar('GITHUB_SHA')}`
+  );
+  assert.throws(() => assertBuildsOnlyTheResolvedSha(githubSha), /never the triggering commit/u);
+});
 
 test('CONTROL: a cross-built leg or a leg that skips a gate fails the native-leg check', () => {
   const source = readRelease();

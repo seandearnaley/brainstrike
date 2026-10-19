@@ -15,6 +15,16 @@ name: Release
 # even on a tag ref, never does. The `unsigned` input builds the unsigned macOS
 # posture although signing secrets exist, so a proof run signs nothing.
 #
+# Release commit (BST-2190): the `resolve` job runs first and every other job
+# checks out the commit it resolves, never the triggering ref. A commit is
+# releasable when, for every workflow in scripts/release-required-workflows.mjs,
+# the latest completed scheduled run on it succeeded
+# (scripts/resolve-release-sha.mjs reads that from the Actions API). A tag push
+# judges the tagged commit, and a dispatch the `sha` input when given: a red or
+# missing required workflow refuses the run and names each one, with no other
+# commit tried. A dispatch with no `sha` builds the newest all-green main commit
+# of the last 14 days, or fails saying so.
+#
 # Runner placement: Linux packaging runs on Ubicloud per the repo's cost
 # direction. Ubicloud offers Linux (x64/arm64) only, so the macOS and Windows
 # legs stay on GitHub-hosted runners — there is no Ubicloud option for them.
@@ -55,6 +65,11 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      sha:
+        description: Full commit SHA to build; it must have every required nightly green. Empty builds the newest all-green main commit.
+        type: string
+        required: false
+        default: ''
       unsigned:
         description: Build the unsigned macOS posture even if signing secrets exist (a dispatch never publishes)
         type: boolean
@@ -80,8 +95,49 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
+  resolve:
+    name: Resolve the release commit
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    # Listing workflow runs needs actions:read; this job writes nothing.
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      # The workflow's own ref: the resolver that judges a commit comes from
+      # this definition, not from the commit it judges.
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve the commit every required nightly passed
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GIVEN_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          case "${GITHUB_EVENT_NAME}" in
+            push) ARGS=(--given "${GITHUB_REF}") ;;
+            workflow_dispatch)
+              if [[ -n "${GIVEN_SHA}" ]]; then
+                ARGS=(--given "${GIVEN_SHA}")
+              else
+                ARGS=(--newest-green --lookback-days 14)
+              fi
+              ;;
+            *) echo "::error::No release commit rule for event ${GITHUB_EVENT_NAME}."; exit 1 ;;
+          esac
+          RESOLVED=$(node scripts/resolve-release-sha.mjs "${ARGS[@]}")
+          # An empty sha output would make every checkout below build the
+          # triggering ref instead, so anything but one full SHA fails here.
+          [[ "$RESOLVED" =~ ^sha=[0-9a-f]{40}$ ]] || { echo "::error::The resolver printed no commit SHA."; exit 1; }
+          echo "$RESOLVED" >> "$GITHUB_OUTPUT"
+
   context:
     name: Release context
+    needs: [resolve]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     outputs:
@@ -89,8 +145,11 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       publish: ${{ steps.resolve.outputs.publish }}
     steps:
+      # The version is the resolved commit's: the one the legs package.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Resolve and assert the authoritative version
         id: resolve
@@ -113,7 +172,7 @@ jobs:
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
-    needs: [context]
+    needs: [resolve, context]
     # One leg per arch, each on a runner OF that arch (BST-2148): the Native
     # Package Matrix's darwin targets (scripts/native-package-targets.mjs).
     runs-on: ${{ matrix.os }}
@@ -135,6 +194,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -369,12 +430,14 @@ jobs:
 
   build-windows:
     name: Build Windows (x64)
-    needs: [context]
+    needs: [resolve, context]
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -438,12 +501,14 @@ jobs:
 
   build-linux:
     name: Build Linux (x64)
-    needs: [context]
+    needs: [resolve, context]
     runs-on: ubicloud-standard-4
     timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -508,13 +573,15 @@ jobs:
 
   publish:
     name: Publish release + manifest
-    needs: [context, build-macos, build-windows, build-linux]
+    needs: [resolve, context, build-macos, build-windows, build-linux]
     if: needs.context.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -577,6 +644,7 @@ jobs:
       - name: Create release in the public binaries repo
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.sha }}
           TAG: ${{ needs.context.outputs.tag }}
           VERSION: ${{ needs.context.outputs.version }}
         run: |
@@ -588,7 +656,7 @@ jobs:
             || gh release create "$TAG" \
               --repo seandearnaley/brainstrike-releases \
               --title "Brainstrike ${VERSION}" \
-              --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${GITHUB_SHA}."
+              --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${SOURCE_COMMIT}."
 
       - name: Upload assets not yet published
         env:
@@ -626,10 +694,12 @@ jobs:
           done
 
       - name: Generate manifest from upload records
+        env:
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.sha }}
         run: |
           node scripts/generate-release-manifest.mjs \
             --tag "${{ needs.context.outputs.tag }}" \
-            --source-commit "${GITHUB_SHA}" \
+            --source-commit "${SOURCE_COMMIT}" \
             --records-dir release-records \
             --out release-manifest.json
           cat release-manifest.json
