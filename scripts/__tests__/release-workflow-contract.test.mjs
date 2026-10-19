@@ -11,14 +11,28 @@
  *
  * The same file pins the owner-safe proof run: a dispatch with `unsigned`
  * builds the unsigned posture even when signing secrets exist, and no dispatch
- * ever publishes. Those checks EXECUTE the workflow's own `run:` scripts, since
- * a regex cannot see what bash decides. Every check is a function over the
- * workflow text, so each CONTROL test mutates the real file and watches the
- * check fail.
+ * ever publishes. It also pins that a published release asset is never
+ * replaced (PR #3870 review, P1): a rerun's re-signed DMGs differ in bytes, and
+ * `--clobber` would swap them under a live manifest that names the old digests.
+ * Publishing keeps identical assets, uploads missing ones and refuses different
+ * ones, through scripts/release-asset-plan.mjs. Those checks EXECUTE the
+ * workflow's own `run:` scripts, since a regex cannot see what bash decides.
+ * Every check is a function over the workflow text, so each CONTROL test
+ * mutates the real file and watches the check fail.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -174,6 +188,179 @@ function assertDispatchNeverPublishes(source) {
   assert.notEqual(run('push', 'refs/tags/v0.0.0-mismatch').status, 0, 'a wrong tag fails');
   assert.equal(workflow.jobs.publish.if, "needs.context.outputs.publish == 'true'");
 }
+
+const REPLACES_OR_DELETES =
+  /--clobber|delete-asset|gh release delete|-X\s*DELETE|--method[\s=]+DELETE/iu;
+const UPLOAD_STEP = 'Upload assets not yet published';
+const MANIFEST_STEP = 'Publish the manifest last';
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+const publishedAsset = (name, text) => ({
+  digest: `sha256:${sha256(text)}`,
+  name,
+  state: 'uploaded',
+});
+
+function publishStep(source, name) {
+  const found = (parseYaml(source).jobs?.publish?.steps ?? []).find((step) => step.name === name);
+  assert.ok(found, `publish must have a "${name}" step`);
+  return found;
+}
+
+/**
+ * Runs a publish step's real `run:` script in a scratch workspace whose `gh`
+ * answers `gh api` with the given published assets and records every upload.
+ */
+function runPublishStep(script, { files, published }) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'release-publish-'));
+  try {
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin);
+    mkdirSync(path.join(dir, 'assets'));
+    mkdirSync(path.join(dir, 'tmp'));
+    symlinkSync(path.join(repoRoot, 'scripts'), path.join(dir, 'scripts'));
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(path.join(dir, name), text);
+    }
+    writeFileSync(path.join(dir, 'published.json'), JSON.stringify(published));
+    const uploads = path.join(dir, 'uploads');
+    writeFileSync(
+      path.join(bin, 'gh'),
+      [
+        '#!/usr/bin/env bash',
+        'case "$1 $2" in',
+        `  "api "*) cat "${path.join(dir, 'published.json')}" ;;`,
+        `  "release upload") shift 2; printf '%s\\n' "$*" >> "${uploads}" ;;`,
+        '  *) echo "unexpected gh $*" >&2; exit 64 ;;',
+        'esac',
+      ].join('\n')
+    );
+    chmodSync(path.join(bin, 'gh'), 0o755);
+    const result = spawnSync('bash', ['-e', '-c', script], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        GH_TOKEN: 'fake-token-for-a-stub',
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        RUNNER_TEMP: path.join(dir, 'tmp'),
+        TAG: 'v0.1.0',
+      },
+    });
+    // One entry per `gh release upload`: its tag, sorted files and trailing flags.
+    const uploaded = (existsSync(uploads) ? readFileSync(uploads, 'utf8') : '')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [tag, ...args] = line.split(' ');
+        const flags = args.slice(args.indexOf('--repo'));
+        const uploadedFiles = args.slice(0, args.indexOf('--repo')).sort();
+        return [tag, ...uploadedFiles, ...flags].join(' ');
+      });
+    return { status: result.status, stderr: result.stderr, uploaded };
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+function assertNeverReplacesPublishedAssets(source) {
+  assert.doesNotMatch(
+    source,
+    REPLACES_OR_DELETES,
+    'release.yml must never replace or delete a published release asset'
+  );
+  const { publish } = parseYaml(source).jobs;
+  for (const { name, run = '' } of publish.steps) {
+    if (/gh release upload/u.test(run)) {
+      assert.match(
+        run,
+        /node scripts\/release-asset-plan\.mjs --remote /u,
+        `${name} must upload only what release-asset-plan.mjs plans`
+      );
+    }
+  }
+  const names = publish.steps.map((candidate) => candidate.name);
+  assert.ok(
+    names.indexOf(UPLOAD_STEP) < names.indexOf('Verify every public asset URL'),
+    'assets are uploaded before their URLs are verified'
+  );
+  assert.equal(names.at(-1), MANIFEST_STEP, 'the manifest is published last');
+
+  const upload = publishStep(source, UPLOAD_STEP).run;
+  const files = { 'assets/a.dmg': 'A', 'assets/b.exe': 'B', 'assets/SHA256SUMS': 'sums' };
+  const fresh = runPublishStep(upload, { files, published: [] });
+  assert.equal(fresh.status, 0, fresh.stderr);
+  assert.deepEqual(
+    fresh.uploaded,
+    [
+      'v0.1.0 assets/SHA256SUMS assets/a.dmg assets/b.exe --repo seandearnaley/brainstrike-releases',
+    ],
+    'a first publish uploads every asset once'
+  );
+  const identical = Object.entries(files).map(([name, text]) =>
+    publishedAsset(path.basename(name), text)
+  );
+  const rerun = runPublishStep(upload, { files, published: identical });
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.deepEqual(rerun.uploaded, [], 'identical published assets are kept, not re-uploaded');
+  const partial = runPublishStep(upload, {
+    files,
+    published: identical.filter((asset) => asset.name !== 'SHA256SUMS'),
+  });
+  assert.deepEqual(
+    partial.uploaded,
+    ['v0.1.0 assets/SHA256SUMS --repo seandearnaley/brainstrike-releases'],
+    'a resumed publish uploads only the missing assets'
+  );
+  const rebuilt = runPublishStep(upload, {
+    files: { ...files, 'assets/a.dmg': 'A, re-signed' },
+    published: identical,
+  });
+  assert.notEqual(rebuilt.status, 0, 'different published bytes must fail the publish');
+  assert.deepEqual(rebuilt.uploaded, [], 'and nothing is uploaded');
+  assert.match(rebuilt.stderr, /new version tag/u);
+
+  const manifest = publishStep(source, MANIFEST_STEP).run;
+  const manifestFiles = { 'release-manifest.json': '{"v":2}' };
+  const first = runPublishStep(manifest, { files: manifestFiles, published: identical });
+  assert.equal(first.status, 0, first.stderr);
+  assert.deepEqual(first.uploaded, [
+    'v0.1.0 release-manifest.json --repo seandearnaley/brainstrike-releases',
+  ]);
+  const replaced = runPublishStep(manifest, {
+    files: manifestFiles,
+    published: [...identical, publishedAsset('release-manifest.json', '{"v":1}')],
+  });
+  assert.notEqual(replaced.status, 0, 'a published manifest is never replaced');
+  assert.deepEqual(replaced.uploaded, []);
+}
+
+test('publishing never replaces or deletes a published asset: identical is kept, different refuses', () => {
+  assertNeverReplacesPublishedAssets(readRelease());
+});
+
+test('CONTROL: --clobber, a delete or an unplanned upload fails the never-replace check', () => {
+  const source = readRelease();
+  const clobber = mutate(
+    source,
+    /gh release upload "\$TAG" "\$\{FILES\[@\]\}" --repo seandearnaley\/brainstrike-releases/u,
+    '$& --clobber'
+  );
+  assert.throws(() => assertNeverReplacesPublishedAssets(clobber), /never replace or delete/u);
+  const deletes = mutate(
+    source,
+    /(\n {10}set -euo pipefail\n)(?= {10}# A published asset)/u,
+    '$1          gh release delete-asset "$TAG" a.dmg --yes\n'
+  );
+  assert.throws(() => assertNeverReplacesPublishedAssets(deletes), /never replace or delete/u);
+  const unplanned = mutate(
+    source,
+    /UPLOAD=\$\(node scripts\/release-asset-plan\.mjs --remote "\$PUBLISHED" assets\/\*\)/u,
+    'UPLOAD=$(printf "%s\\n" assets/*)'
+  );
+  assert.throws(
+    () => assertNeverReplacesPublishedAssets(unplanned),
+    /must upload only what release-asset-plan\.mjs plans/u
+  );
+});
 
 test('each macOS DMG builds, signs and is gated on a runner of its own arch', () => {
   assertNativeMacosLegs(readRelease());

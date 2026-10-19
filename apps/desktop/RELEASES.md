@@ -48,7 +48,13 @@ secrets, is the owner's decision.
    `apps/desktop/SECURITY.md` for the signing details.
 4. Smoke-test each packaged application on its target OS, then calculate byte
    size and SHA-256 from the final artifact.
-5. Upload immutable, versioned assets first, with `SHA256SUMS`.
+5. Upload immutable, versioned assets first, with `SHA256SUMS`. A published
+   asset, the manifest included, is never replaced or deleted
+   (`scripts/release-asset-plan.mjs`). A rerun keeps each asset whose
+   published sha256 equals the run's and uploads only the missing ones. If any
+   published asset holds different bytes, as a full rerun's re-signed DMGs do,
+   the job fails before uploading anything; publishing those bytes needs a new
+   version tag.
 6. Verify every public URL, then generate manifest v2
    (`scripts/generate-release-manifest.mjs`) from the uploaded artifact records
    rather than handwritten filenames, and publish it last as the release's

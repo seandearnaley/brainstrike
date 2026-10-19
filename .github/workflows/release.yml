@@ -577,21 +577,41 @@ jobs:
       - name: Create release in the public binaries repo
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TAG: ${{ needs.context.outputs.tag }}
+          VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          TAG="${{ needs.context.outputs.tag }}"
-          VERSION="${{ needs.context.outputs.version }}"
-          # view-or-create + upload --clobber keeps this job resumable: any
-          # downstream step (URL probe, manifest) can fail on its own, and a
-          # re-run must retry rather than die on an existing release. Assets
-          # are immutable in content (cross-checked against build records
-          # above); re-uploading identical bytes is not a mutation.
+          # view-or-create keeps this job resumable: any downstream step (URL
+          # probe, manifest) can fail on its own, and a rerun must retry rather
+          # than die on an existing release.
           gh release view "$TAG" --repo seandearnaley/brainstrike-releases >/dev/null 2>&1 \
             || gh release create "$TAG" \
               --repo seandearnaley/brainstrike-releases \
               --title "Brainstrike ${VERSION}" \
               --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${GITHUB_SHA}."
-          gh release upload "$TAG" assets/* --repo seandearnaley/brainstrike-releases --clobber
+
+      - name: Upload assets not yet published
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TAG: ${{ needs.context.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A published asset is never replaced or deleted. A full rerun
+          # re-signs the DMGs, so their bytes differ from the digests the live
+          # manifest names. release-asset-plan.mjs keeps an asset whose published
+          # sha256 equals this run's (a rerun after a partial failure resumes),
+          # lists the missing ones, and fails before any upload when a published
+          # asset holds different bytes: those need a new version tag.
+          PUBLISHED="$RUNNER_TEMP/published-assets.json"
+          gh api "repos/seandearnaley/brainstrike-releases/releases/tags/${TAG}" --jq '.assets' > "$PUBLISHED"
+          UPLOAD=$(node scripts/release-asset-plan.mjs --remote "$PUBLISHED" assets/*)
+          if [[ -z "$UPLOAD" ]]; then
+            echo "Every asset is already published with this run's bytes."
+            exit 0
+          fi
+          FILES=()
+          while IFS= read -r FILE; do FILES+=("$FILE"); done <<<"$UPLOAD"
+          gh release upload "$TAG" "${FILES[@]}" --repo seandearnaley/brainstrike-releases
 
       - name: Verify every public asset URL
         run: |
@@ -622,7 +642,16 @@ jobs:
         # production schema before rendering links.
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TAG: ${{ needs.context.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release upload "${{ needs.context.outputs.tag }}" release-manifest.json \
-            --repo seandearnaley/brainstrike-releases --clobber
+          # The assets' rule applies: a published manifest is never replaced.
+          # It carries publishedAt, so publishing this tag again refuses here.
+          PUBLISHED="$RUNNER_TEMP/published-assets.json"
+          gh api "repos/seandearnaley/brainstrike-releases/releases/tags/${TAG}" --jq '.assets' > "$PUBLISHED"
+          UPLOAD=$(node scripts/release-asset-plan.mjs --remote "$PUBLISHED" release-manifest.json)
+          if [[ -z "$UPLOAD" ]]; then
+            echo "release-manifest.json is already published with these bytes."
+            exit 0
+          fi
+          gh release upload "$TAG" release-manifest.json --repo seandearnaley/brainstrike-releases
