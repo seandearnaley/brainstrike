@@ -281,6 +281,8 @@ export interface McpConfigInfo {
   exists: boolean;
   /** Current config file path */
   path: string;
+  /** Why the config file watcher cannot run; saving or reloading the config retries it */
+  watchError?: string;
 }
 
 export interface McpConfigTextDocument {

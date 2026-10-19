@@ -268,17 +268,45 @@ describe('MCP catalog install', () => {
 
   it('keeps the stored token the written config references when the commit fails afterwards', async () => {
     const h = await started();
-    const watchFailure = new Error('watch failed');
-    vi.mocked(h.configFile.watch).mockRejectedValueOnce(watchFailure);
+    const reloadFailure = new Error('runtime refused the config');
+    h.replaceResolvedConfig.mockRejectedValueOnce(reloadFailure);
 
     await expect(
       h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
-    ).rejects.toBe(watchFailure);
+    ).rejects.toBe(reloadFailure);
     expect(h.bearer.writer.delete).not.toHaveBeenCalled();
     expect(h.bearer.stored.size).toBe(1);
     const [id] = h.bearer.stored.keys();
     expect(id).toBeDefined();
     expect(await readFile(h.configPath, 'utf8')).toContain(`"id": "${id}"`);
+  });
+
+  it('installs, keeps its token and reports watchError when the watcher cannot restart', async () => {
+    const h = await started();
+    vi.mocked(h.configFile.watch).mockRejectedValueOnce(new Error('watch failed'));
+
+    const result = await h.authority.installCatalogServer({
+      access: 'read-write',
+      catalogId: 'github',
+      token: TOKEN,
+    });
+
+    const text = await readFile(h.configPath, 'utf8');
+    expect(result).toEqual({
+      path: h.configPath,
+      revision: mcpConfigRevision(text),
+      success: true,
+    });
+    expect(h.bearer.writer.delete).not.toHaveBeenCalled();
+    const [id] = h.bearer.stored.keys();
+    expect(text).toContain(`"id": "${id}"`);
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'github' })],
+    });
+    expect(h.events.findLast(({ type }) => type === 'config')).toEqual({
+      config: expect.objectContaining({ watchError: 'watch failed' }),
+      type: 'config',
+    });
   });
 
   it('reports both failures when the token cannot be removed after a failed write', async () => {
@@ -354,25 +382,25 @@ describe('MCP catalog install', () => {
     expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);
   });
 
-  it('removes the token of a refused write when the watcher then cannot restart, reporting both', async () => {
+  it('removes the token of a refused write and reloads the changed file when the watcher then cannot restart', async () => {
     const h = await started();
     editWhileStoringToken(h);
-    const watchFailure = new Error('watch failed');
-    vi.mocked(h.configFile.watch).mockRejectedValueOnce(watchFailure);
+    vi.mocked(h.configFile.watch).mockRejectedValueOnce(new Error('watch failed'));
 
-    const failure = await h.authority
-      .installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
-      .then(
-        () => undefined,
-        (error: unknown) => error
-      );
-
-    expect(failure).toMatchObject({
-      message: `${GITHUB_CONFLICT}; the MCP config watcher could not restart: watch failed; the stored GitHub token was removed`,
+    await expect(
+      h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
+    ).resolves.toEqual({
+      conflict: true,
+      error: GITHUB_CONFLICT,
+      path: h.configPath,
+      success: false,
     });
-    expect((failure as Error).cause).toBe(watchFailure);
     expect(h.bearer.writer.delete).toHaveBeenCalledOnce();
     expect(h.bearer.stored.size).toBe(0);
     expect(await readFile(h.configPath, 'utf8')).toBe(EXTERNAL);
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({ watchError: 'watch failed' });
   });
 });

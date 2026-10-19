@@ -24,6 +24,11 @@ const CONFIG_FORMATTING: FormattingOptions = { eol: '\n', insertSpaces: true, ta
  * The settings authority's config write on its current lifecycle: writes
  * `content` while the file still has `baseRevision`, then syncs the runtime.
  * `conflictMessage` words a stale base.
+ *
+ * It rejects only when nothing was written, and returns every failure after a
+ * write as `syncFailure` beside the write's result. A config watcher that
+ * cannot restart is neither: it is config status's `watchError`. The install's
+ * token rollback depends on this, since a rejection deletes the token.
  */
 export type McpConfigCommit = (
   content: string,
@@ -98,10 +103,10 @@ export async function installCatalogServerWith({
 }
 
 /**
- * Commits an install's config text. The stored token stays only once the
- * file that references it was written (`writeText` resolved success): a
- * refused or failed write, or a `writeText` that throws, removes the token
- * and reports a failed removal.
+ * Commits an install's config text. The stored token stays only once the file
+ * that references it was written (`commit` resolved a successful result): a
+ * refused or failed write, or a `commit` that rejects because nothing was
+ * written, removes the token and reports a failed removal.
  */
 async function commitInstallText(
   { bearerCredentials, commit }: Pick<McpCatalogInstall, 'bearerCredentials' | 'commit'>,

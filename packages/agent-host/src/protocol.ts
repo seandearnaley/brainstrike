@@ -112,6 +112,7 @@ export * from './workspace-wire.js';
 // content). `mcp/config/write` requires `baseRevision` and refuses a stale base with
 // `conflict: true` instead of overwriting. Write and catalog-install successes return the new
 // `revision`. The required parameter is why this is a version bump and not a v11 addition.
+// Config status carries `watchError` while the config file watcher cannot run.
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));

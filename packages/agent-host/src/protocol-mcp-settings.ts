@@ -47,6 +47,8 @@ export const McpConfigStatusSchema = Schema.Struct({
       )
     )
   ),
+  /** Why the config file watcher cannot run; a later save or reload retries it. */
+  watchError: Schema.optional(Schema.String),
 });
 export type McpConfigStatus = (typeof McpConfigStatusSchema)['Type'];
 /** The config text and its `revision`, the SHA-256 a write names as its base. */

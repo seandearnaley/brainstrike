@@ -75,7 +75,12 @@ interface CapturedToolsOperations {
   createSampleConfig: () => Promise<{ error?: string; path: string; success: boolean }>;
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
-  getMcpConfigInfo: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
+  getMcpConfigInfo: () => Promise<{
+    error?: string;
+    exists: boolean;
+    path: string;
+    watchError?: string;
+  } | null>;
   getMcpConfigPath?: () => Promise<string>;
   getMcpExtensionPreferences?: () => Promise<McpExtensionEnablement>;
   getMcpPrompt?: (request: unknown) => Promise<unknown>;
@@ -657,6 +662,23 @@ describe('desktop SettingsPageContent tool operations', () => {
     };
     await expect(operations.controlMcpServer(request)).resolves.toEqual(hostSnapshot.servers[0]);
     expect(settings.request).toHaveBeenCalledWith('mcp/server/control', request);
+  });
+
+  it("carries the config watcher's failure from the host's config status", async () => {
+    const operations = await renderOperations();
+    const settings = requireSettings();
+    settings.request.mockResolvedValueOnce({
+      exists: true,
+      path: '/tmp/mcp.json',
+      watchError: 'EMFILE: too many open files, watch',
+    });
+
+    await expect(operations.getMcpConfigInfo()).resolves.toEqual({
+      exists: true,
+      path: '/tmp/mcp.json',
+      watchError: 'EMFILE: too many open files, watch',
+    });
+    expect(settings.request).toHaveBeenLastCalledWith('mcp/config/status', {});
   });
 
   it('hears config and tools changes from the host settings stream', async () => {

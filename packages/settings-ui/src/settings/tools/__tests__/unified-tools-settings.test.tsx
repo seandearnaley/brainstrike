@@ -2122,6 +2122,30 @@ describe('UnifiedToolsSettings', () => {
       );
     });
 
+    it('says the config watcher cannot run until a config event without watchError', async () => {
+      let publishConfig: ((info: McpConfigInfo) => void) | undefined;
+      const operations = createMockOperations();
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({
+        exists: true,
+        path: '/test/mcp.json',
+        watchError: 'EMFILE: too many open files, watch',
+      });
+      operations.subscribeMcpConfig = vi.fn((listener) => {
+        publishConfig = listener;
+        return vi.fn();
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const notice = await screen.findByTestId('mcp-config-watch-error');
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(notice.textContent).toBe(
+        "BrainStrike can't watch the MCP config file for outside edits: EMFILE: too many open files, watch. Saving or reloading the config retries."
+      );
+      act(() => publishConfig?.({ exists: true, path: '/test/mcp.json' }));
+      expect(screen.queryByTestId('mcp-config-watch-error')).not.toBeInTheDocument();
+    });
+
     it('does not publish a rejection from a config read superseded by a watch event', async () => {
       const staleRead = Promise.withResolvers<McpConfigInfo | null>();
       let publishConfig: ((info: McpConfigInfo) => void) | undefined;

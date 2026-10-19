@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { McpConfigPanel } from './mcp-config-panel';
+import { McpConfigWatchNotice } from './mcp-config-watch-notice';
 import { McpExtensionSettings } from './mcp-extension-settings';
 import { McpServerStatusRow } from './mcp-server-status-row';
 import { McpSupportMatrix } from './mcp-support-status';
@@ -606,6 +607,7 @@ export function UnifiedToolsSettings({
 
   return (
     <div className="space-y-4" data-testid="unified-tools-settings">
+      <McpConfigWatchNotice watchError={mcpConfigInfo?.watchError} />
       {mcpAvailable ? (
         <Tabs
           onValueChange={(value) =>

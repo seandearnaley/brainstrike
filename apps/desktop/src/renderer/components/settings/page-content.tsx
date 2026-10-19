@@ -408,6 +408,7 @@ export default function SettingsPageContent() {
           exists: config.exists,
           path: config.path,
           ...(config.error ? { error: config.error } : {}),
+          ...(config.watchError === undefined ? {} : { watchError: config.watchError }),
         };
       },
     };

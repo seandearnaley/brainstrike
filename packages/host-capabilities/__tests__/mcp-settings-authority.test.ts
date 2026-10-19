@@ -292,23 +292,31 @@ describe('MCP settings authority config text and path', () => {
     });
   });
 
-  it('reports a refused write first when the watcher then cannot restart', async () => {
+  it('keeps a refused write and reloads the changed file when the watcher then cannot restart', async () => {
     const h = await setup();
     await h.writeConfig([stdioServer('before')]);
     await h.authority.start();
     const { revision } = await h.authority.readConfigText();
     await h.writeConfig([stdioServer('external')]);
-    const watchFailure = new Error('watch failed');
-    vi.mocked(h.configFile.watch).mockRejectedValueOnce(watchFailure);
+    vi.mocked(h.configFile.watch).mockRejectedValueOnce(new Error('watch failed'));
 
     await expect(
       h.authority.writeConfigText({
         baseRevision: revision,
         content: JSON.stringify({ servers: [stdioServer('mine')] }),
       })
-    ).rejects.toMatchObject({
-      cause: watchFailure,
-      message: `${CONFLICT}; the MCP config watcher could not restart: watch failed`,
+    ).resolves.toEqual({ conflict: true, error: CONFLICT, path: h.configPath, success: false });
+
+    expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
+      servers: [expect.objectContaining({ name: 'external' })],
+    });
+    expect(h.events.findLast(({ type }) => type === 'config')).toEqual({
+      config: expect.objectContaining({ watchError: 'watch failed' }),
+      type: 'config',
+    });
+    await expect(h.authority.configStatus()).resolves.toMatchObject({
+      servers: [{ name: 'external', protocol: 'legacy', transport: 'stdio' }],
+      watchError: 'watch failed',
     });
   });
 
