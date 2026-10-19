@@ -318,7 +318,10 @@
         "@brainstrike/db",
         // No direct source import, but vitest.config.mts:118 aliases it to __mocks__/embeddings.ts so
         // transitive imports of the heavy embeddings runtime stay mocked in app-shell tests
-        "@brainstrike/embeddings"
+        "@brainstrike/embeddings",
+        // threads-panel and changed-files-tree tests vi.mock it; without app-shell's
+        // own copy the mock misses @brainstrike/ui TreeTable's import (4 tests fail).
+        "@tanstack/react-virtual"
       ],
       "typescript": {
         "config": "tsconfig.json"
