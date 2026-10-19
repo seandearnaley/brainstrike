@@ -17,15 +17,47 @@ export interface SnapshotStartupMaintenanceDeps {
   readonly workspaceRoots: WorkspaceRootPort;
 }
 
+/** The running startup pass, which the graceful shutdown stops and joins (BST-1859). */
+export interface SnapshotStartupMaintenance {
+  /**
+   * Ends the pass at its next stage boundary (after the roots read, after the
+   * orphan sweep, between GC roots) and resolves once the stage in flight has
+   * settled. Every stage is idempotent, so the next launch's pass does the rest.
+   */
+  stop(): Promise<void>;
+}
+
 /** Start non-blocking maintenance after main publishes the app-ready service. */
-export function startSnapshotStartupMaintenance({
-  workspaceRoots,
-  logger,
-  readHostThreadIds,
-  readHostThreadRows,
-  snapshotService,
-  snapshotsBaseDir,
-}: SnapshotStartupMaintenanceDeps): void {
+export function startSnapshotStartupMaintenance(
+  deps: SnapshotStartupMaintenanceDeps
+): SnapshotStartupMaintenance {
+  const controller = new AbortController();
+  // Never rejects: every failure is logged inside, so the join cannot fail shutdown.
+  const running = runSnapshotStartupMaintenance(deps, controller.signal);
+  return {
+    stop: () => {
+      controller.abort();
+      return running;
+    },
+  };
+}
+
+async function runSnapshotStartupMaintenance(
+  {
+    workspaceRoots,
+    logger,
+    readHostThreadIds,
+    readHostThreadRows,
+    snapshotService,
+    snapshotsBaseDir,
+  }: SnapshotStartupMaintenanceDeps,
+  signal: AbortSignal
+): Promise<void> {
+  const stopped = (before: 'orphan sweep' | 'startup GC'): void => {
+    logger.info('Workspace snapshot startup maintenance stopped: the app is quitting', {
+      before,
+    });
+  };
   // Startup orphan sweep: remove shadow repos whose workspace root row no
   // longer EXISTS at all. Deliberately keyed on every `roots` row (any
   // status), NOT on `status = 'live'`: disconnect ≠ delete (the row is
@@ -33,43 +65,55 @@ export function startSnapshotStartupMaintenance({
   // here would irreversibly destroy its snapshot history. Fire-and-forget
   // so startup never blocks on it; failures are logged visibly, never
   // swallowed.
-  void (async () => {
-    try {
-      const { roots } = await workspaceRoots.workspaceRoots({ operation: 'list' });
-      const result = await snapshotService.sweepOrphans(
-        snapshotsBaseDir,
-        roots.map((row) => row.id)
-      );
-      logger.info('Workspace snapshot orphan sweep completed', {
-        kept: result.kept.length,
-        removed: result.removed,
-        snapshotsBaseDir,
+  try {
+    const { roots } = await workspaceRoots.workspaceRoots({ operation: 'list' });
+    if (signal.aborted) {
+      stopped('orphan sweep');
+      return;
+    }
+    const result = await snapshotService.sweepOrphans(
+      snapshotsBaseDir,
+      roots.map((row) => row.id)
+    );
+    logger.info('Workspace snapshot orphan sweep completed', {
+      kept: result.kept.length,
+      removed: result.removed,
+      snapshotsBaseDir,
+    });
+    // T4 startup GC (after the orphan sweep so vanished-root repos are
+    // already gone): dead-thread rows + refs, ref-only residue, the
+    // 50-turn retention ring, and shallow-cut history reclamation.
+    // Same fire-and-forget block — logged, non-blocking, failures
+    // visible per item.
+    if (signal.aborted) {
+      stopped('startup GC');
+      return;
+    }
+    const gcReport = await runSnapshotStartupGc({
+      liveRoots: roots.map((row) => ({ path: row.path, rootId: row.id })),
+      readHostThreadIds,
+      readHostThreadRows,
+      // Host chains are trimmed from the shadow repo itself, never the host's log.
+      readThreadChain: (handle, threadId) =>
+        listThreadSnapshotChain(execFileSnapshotGitRunner, handle, threadId),
+      signal,
+      snapshotService,
+    });
+    for (const failure of gcReport.failures) {
+      logger.error('Workspace snapshot GC item failed', { failure });
+    }
+    if (gcReport.skippedInaccessibleRoots.length > 0) {
+      // Expected condition (deleted directory / unmounted volume), so a
+      // single warn — not one error per boot forever.
+      logger.warn('Workspace snapshot GC skipped inaccessible roots', {
+        roots: gcReport.skippedInaccessibleRoots,
       });
-      // T4 startup GC (after the orphan sweep so vanished-root repos are
-      // already gone): dead-thread rows + refs, ref-only residue, the
-      // 50-turn retention ring, and shallow-cut history reclamation.
-      // Same fire-and-forget block — logged, non-blocking, failures
-      // visible per item.
-      const gcReport = await runSnapshotStartupGc({
-        liveRoots: roots.map((row) => ({ path: row.path, rootId: row.id })),
-        readHostThreadIds,
-        readHostThreadRows,
-        // Host chains are trimmed from the shadow repo itself, never the host's log.
-        readThreadChain: (handle, threadId) =>
-          listThreadSnapshotChain(execFileSnapshotGitRunner, handle, threadId),
-        snapshotService,
-      });
-      for (const failure of gcReport.failures) {
-        logger.error('Workspace snapshot GC item failed', { failure });
-      }
-      if (gcReport.skippedInaccessibleRoots.length > 0) {
-        // Expected condition (deleted directory / unmounted volume), so a
-        // single warn — not one error per boot forever.
-        logger.warn('Workspace snapshot GC skipped inaccessible roots', {
-          roots: gcReport.skippedInaccessibleRoots,
-        });
-      }
-      logger.info('Workspace snapshot startup GC completed', {
+    }
+    logger.info(
+      gcReport.stopped
+        ? 'Workspace snapshot startup GC stopped: the app is quitting'
+        : 'Workspace snapshot startup GC completed',
+      {
         deadThreadsPruned: gcReport.deadThreadsPruned.length,
         failures: gcReport.failures.length,
         historyPrunedRoots: gcReport.historyPrunedRoots,
@@ -77,15 +121,15 @@ export function startSnapshotStartupMaintenance({
         refOnlyPruned: gcReport.refOnlyPruned.length,
         ringTrimmed: gcReport.ringTrimmed,
         skippedInaccessibleRoots: gcReport.skippedInaccessibleRoots.length,
-      });
-    } catch (error) {
-      if (isExpectedShutdownRefusal(error)) {
-        logger.info('Workspace snapshot orphan sweep stopped: the app is quitting', {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-        return;
       }
-      logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });
+    );
+  } catch (error) {
+    if (isExpectedShutdownRefusal(error)) {
+      logger.info('Workspace snapshot orphan sweep stopped: the app is quitting', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return;
     }
-  })();
+    logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });
+  }
 }

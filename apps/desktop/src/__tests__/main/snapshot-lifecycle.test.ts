@@ -63,7 +63,7 @@ describe('snapshot startup lifecycle', () => {
       workspaceRoots: workspaceRoots as never,
     });
 
-    expect(returned).toBeUndefined();
+    expect(returned).toEqual({ stop: expect.any(Function) });
     expect(mocks.gc).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(events).toEqual(['roots', 'sweep', 'gc']));
     expect(workspaceRoots.workspaceRoots).toHaveBeenCalledWith({ operation: 'list' });
@@ -73,6 +73,7 @@ describe('snapshot startup lifecycle', () => {
       readHostThreadIds,
       readHostThreadRows,
       readThreadChain: expect.any(Function),
+      signal: expect.any(AbortSignal),
       snapshotService: service,
     });
     expect(mocks.createRepository).not.toHaveBeenCalled();
@@ -156,4 +157,127 @@ describe('snapshot startup lifecycle', () => {
       }
     }
   );
+
+  // BST-1859: the graceful shutdown stops the pass and joins the stage in flight
+  // before the agent host, the database and git retire under it.
+  it.each([
+    ['roots', 'orphan sweep'],
+    ['sweep', 'startup GC'],
+  ] as const)(
+    'a stop during the %s stage joins it and starts no later stage',
+    async (stage, before) => {
+      const { workspaceRoots, events, logger, service } = setup();
+      const held = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      if (stage === 'roots') {
+        workspaceRoots.workspaceRoots.mockImplementation(async () => {
+          events.push('roots');
+          entered.resolve();
+          await held.promise;
+          return { roots: [{ id: 'root-1', path: '/workspace' }] };
+        });
+      } else {
+        vi.mocked(service.sweepOrphans).mockImplementation(async () => {
+          events.push('sweep');
+          entered.resolve();
+          await held.promise;
+          return { kept: ['root-1'], removed: [] };
+        });
+      }
+      const maintenance = startSnapshotStartupMaintenance({
+        logger,
+        readHostThreadIds,
+        readHostThreadRows,
+        snapshotService: service,
+        snapshotsBaseDir,
+        workspaceRoots: workspaceRoots as never,
+      });
+      await entered.promise;
+
+      let joined = false;
+      const stopping = maintenance.stop().then(() => {
+        joined = true;
+      });
+      await Promise.resolve();
+      expect(joined).toBe(false);
+      held.resolve();
+      await stopping;
+
+      expect(events).toEqual(stage === 'roots' ? ['roots'] : ['roots', 'sweep']);
+      expect(mocks.gc).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        'Workspace snapshot startup maintenance stopped: the app is quitting',
+        { before }
+      );
+      expect(logger.error).not.toHaveBeenCalled();
+    }
+  );
+
+  it('a stop during GC aborts its signal, joins it, and logs the pass as stopped', async () => {
+    const { workspaceRoots, logger, service } = setup();
+    const held = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<AbortSignal>();
+    mocks.gc.mockImplementation(async ({ signal }: { signal: AbortSignal }) => {
+      entered.resolve(signal);
+      await held.promise;
+      return {
+        deadThreadsPruned: [],
+        failures: [],
+        historyPrunedRoots: [],
+        hostRingTrimmed: [],
+        refOnlyPruned: [],
+        ringTrimmed: [],
+        skippedInaccessibleRoots: [],
+        stopped: signal.aborted,
+      };
+    });
+    const maintenance = startSnapshotStartupMaintenance({
+      logger,
+      readHostThreadIds,
+      readHostThreadRows,
+      snapshotService: service,
+      snapshotsBaseDir,
+      workspaceRoots: workspaceRoots as never,
+    });
+    const signal = await entered.promise;
+    expect(signal.aborted).toBe(false);
+
+    let joined = false;
+    const stopping = maintenance.stop().then(() => {
+      joined = true;
+    });
+    expect(signal.aborted).toBe(true);
+    await Promise.resolve();
+    expect(joined).toBe(false);
+    held.resolve();
+    await stopping;
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Workspace snapshot startup GC stopped: the app is quitting',
+      expect.objectContaining({ failures: 0 })
+    );
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Workspace snapshot startup GC completed',
+      expect.anything()
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('a stop after the pass finished resolves at once', async () => {
+    const { workspaceRoots, events, logger, service } = setup();
+    const maintenance = startSnapshotStartupMaintenance({
+      logger,
+      readHostThreadIds,
+      readHostThreadRows,
+      snapshotService: service,
+      snapshotsBaseDir,
+      workspaceRoots: workspaceRoots as never,
+    });
+    await vi.waitFor(() => expect(events).toEqual(['roots', 'sweep', 'gc']));
+    await expect(maintenance.stop()).resolves.toBeUndefined();
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Workspace snapshot startup maintenance stopped: the app is quitting',
+      expect.anything()
+    );
+  });
 });
