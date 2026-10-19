@@ -130,19 +130,25 @@ jobs:
 
       # The AI Tools smoke specs are excluded from the regression project, so
       # exactly one shard runs their nightly lane. It runs only after the regression
-      # step passes: both write apps/desktop/blob-report/, which Playwright clears
-      # at start, so running it after a failure would erase the failure's traces.
+      # step passes: both write apps/desktop/test-results/ and blob-report/, which
+      # every Playwright run clears, so running it after a failure would erase the
+      # failure's traces.
       - name: Run desktop AI Tools nightly lane
         if: matrix.shard == 1
         working-directory: apps/desktop
         run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
 
+      # test-results/ holds each failed test's raw trace, screenshots, video,
+      # error context and spec diagnostics; blob-report/ holds the report zip
+      # (with copies of the attachments) for `playwright merge-reports`.
       - name: Upload desktop traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-full-regression-shard-${{ matrix.shard }}-test-results
-          path: apps/desktop/blob-report/
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
 
@@ -250,7 +256,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-embedding-e2e-test-results
-          path: apps/desktop/blob-report/
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
 
@@ -322,7 +330,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-foreground-latency-test-results
-          path: apps/desktop/blob-report/
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
 

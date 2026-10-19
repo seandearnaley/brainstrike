@@ -768,7 +768,7 @@ test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', 
   const uploadStep = steps[laneIndex + 1];
   assert.equal(uploadStep?.name, 'Upload packaged MCP test diagnostics');
   assert.equal(uploadStep?.uses, 'actions/upload-artifact@v7');
-  assert.equal(uploadStep?.with?.path, 'apps/desktop/blob-report');
+  assert.equal(uploadStep?.with?.path, 'apps/desktop/test-results/\napps/desktop/blob-report/\n');
   assert.match(String(uploadStep?.if), /failure\(\)/u);
 });
 

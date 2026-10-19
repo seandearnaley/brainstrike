@@ -37,8 +37,10 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Global timeout based on environment
   globalTimeout: config.globalTimeout,
 
-  // Output directory for test artifacts
-  outputDir: 'blob-report/',
+  // Per-test artifacts (traces, screenshots, videos, error context). Keep this
+  // apart from the blob reporter's folder: that reporter deletes its folder
+  // before it zips these attachments into the report (BST-2208).
+  outputDir: 'test-results/',
 
   // Projects for selective test execution
   projects: [
