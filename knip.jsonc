@@ -70,13 +70,12 @@
     // Define workspaces based on the Turborepo setup
     "apps/web": {
       "entry": [
-        // Production: index.html's module script, which imports
-        // ./configure-browser-runtime and ./main. knip's Vite plugin derives
-        // the same entry from index.html; it is listed so the entry is visible
-        // here. The old "index.html" and "src/main.tsx" entries are dropped:
-        // knip has no HTML compiler (only the Vite plugin reads index.html's
-        // module scripts), and entry.ts reaches main.tsx.
-        "src/entry.ts!",
+        // Production: index.html's module script src/entry.ts, which imports
+        // ./configure-browser-runtime and ./main. knip's Vite plugin reads
+        // index.html and adds that script as a production entry, so it is not
+        // listed (knip hints a listed copy is redundant). The old "index.html"
+        // and "src/main.tsx" entries are dropped: knip has no HTML compiler,
+        // and entry.ts reaches main.tsx.
         // Production: the Vercel functions (vercel.json `functions: api/**/*.ts`).
         // They import src/app/api/assistant/route.ts and status/route.ts, so
         // those two are no longer listed as entries.
@@ -161,10 +160,12 @@
     "apps/desktop": {
       // Production entries (`!`) are the esbuild entries in
       // scripts/build-main-config.mjs (MAIN_PROCESS_ENTRY_POINTS, plus the
-      // agent-host platform and windows-command builds) and the renderer that
-      // index.html loads. Each esbuild entry ships as its own dist/*.js that
-      // Electron, utilityProcess.fork or worker_threads loads BY FILE NAME, so
-      // nothing in the module graph imports it.
+      // agent-host platform and windows-command builds). Each ships as its own
+      // dist/*.js that Electron, utilityProcess.fork or worker_threads loads BY
+      // FILE NAME, so nothing in the module graph imports it. The renderer,
+      // index.html's module script src/renderer/main.tsx, is a production entry
+      // through knip's Vite plugin; its listed copy was redundant (knip hinted
+      // so) and is dropped.
       "entry": [
         "src/main-bootstrap.ts!", // dist/main.js, package.json "main"
         "src/main.ts!", // Electron main process (dist/main-runtime.js)
@@ -177,7 +178,6 @@
         "src/agent-host-platform-entry.ts!", // AGENT_HOST_PLATFORM_BUILD_OPTIONS
         "src/preload.ts!", // Electron preload script
         "src/hidden-preload.ts!",
-        "src/renderer/main.tsx!", // Renderer entry point (index.html's module script)
         // Freeze-watchdog worker_threads target. A REAL esbuild entry
         // (scripts/build-main-config.mjs MAIN_PROCESS_ENTRY_POINTS), shipped as
         // the flat `dist/main-watchdog-worker.js` that apps/desktop/package.json
