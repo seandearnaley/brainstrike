@@ -42,7 +42,7 @@ const STAYS_DISABLED = [
   'local-desktop-e2e.yml',
   'react-doctor.yml',
 ];
-const REUSABLE = ['nightly-linear-alert.yml'];
+const REUSABLE = ['nightly-fix-agent.yml', 'nightly-linear-alert.yml'];
 
 const POLICY_LINE =
   '# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.';
@@ -143,8 +143,13 @@ function assertLinearFiling(file, source) {
       }
     }
   }
+  // A job after notify-linear (the BST-2189 fix agent) acts on what it filed.
+  const afterNotify = (id) => needsOf(jobs[id]).includes('notify-linear');
   for (const id of Object.keys(jobs)) {
-    assert.ok(id === 'notify-linear' || judged.has(id), `${file} › ${id} never reaches Linear`);
+    assert.ok(
+      id === 'notify-linear' || judged.has(id) || afterNotify(id),
+      `${file} › ${id} never reaches Linear`
+    );
   }
 }
 

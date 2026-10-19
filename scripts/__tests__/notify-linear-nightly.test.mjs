@@ -239,23 +239,33 @@ async function run(args, linear, { env = { LINEAR_API_KEY: API_KEY } } = {}) {
   linear.reset();
   const dir = temporaryDir('notify-linear-');
   const stepSummaryPath = path.join(dir, 'summary.md');
+  const githubOutputPath = path.join(dir, 'github-output');
   const stdout = sink();
   const stderr = sink();
   const exitCode = await main({
     argv: args,
     env,
     fetchImpl: linear.fetchImpl,
+    githubOutputPath,
     stderr,
     stdout,
     stepSummaryPath,
   });
-  let summary = '';
-  try {
-    summary = readFileSync(stepSummaryPath, 'utf8');
-  } catch {
-    // No summary line was written; asserted by the tests that care.
-  }
-  return { exitCode, stderr: stderr.text, stdout: stdout.text, summary };
+  const readIfWritten = (file) => {
+    try {
+      return readFileSync(file, 'utf8');
+    } catch {
+      // Not written; asserted by the tests that care.
+      return '';
+    }
+  };
+  return {
+    exitCode,
+    githubOutput: readIfWritten(githubOutputPath),
+    stderr: stderr.text,
+    stdout: stdout.text,
+    summary: readIfWritten(stepSummaryPath),
+  };
 }
 
 const createdInputs = (linear) =>
@@ -548,6 +558,31 @@ test('a green night recovers every open issue of its workflow, once', async () =
   const again = await run(argv(GREEN, reportsDir()), linear);
   assert.equal(again.exitCode, 0, again.stderr);
   assert.equal(linear.mutations().length, 0, 'a second green night adds nothing');
+});
+
+test('fix_issues lists tonight’s failing and flaky tests’ issues, never the workflow-level one', async () => {
+  const linear = fakeLinear();
+  const night1 = reportsDir(gateReport(failing('sends a message'), passing('renders history')));
+  const first = await run(argv(`${GATE}=failure,${EMBEDDING}=failure`, night1), linear);
+  assert.equal(first.exitCode, 0, first.stderr);
+  assert.deepEqual(
+    linear.issues.map((issue) => issue.title.split(' › ')[0]),
+    ['Nightly red: Desktop E2E', 'Nightly red: Desktop E2E'],
+    'one test issue and the workflow-level issue'
+  );
+  assert.equal(first.githubOutput, 'fix_issues=["BST-3000"]\n');
+
+  const night2 = reportsDir(gateReport(failing('sends a message'), flaky('renders history')));
+  const second = await run(argv(`${GATE}=failure,${EMBEDDING}=success`, night2), linear);
+  assert.equal(second.exitCode, 0, second.stderr);
+  assert.equal(
+    second.githubOutput,
+    'fix_issues=["BST-3000","BST-3002"]\n',
+    'commented and created'
+  );
+
+  const green = await run(argv(GREEN, reportsDir(gateReport(passing('sends a message')))), linear);
+  assert.equal(green.githubOutput, 'fix_issues=[]\n', 'recoveries are not fix work');
 });
 
 test('green with no open issue makes no mutation and exits 0', async () => {
