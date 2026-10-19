@@ -23,6 +23,12 @@ export const ASSISTANT_RUN_USAGE_KINDS = [
   'compaction-summary',
   'om-observation',
   'om-reflection',
+  // BST-2226: a hosted memory embedder's provider-reported tokens. Only the
+  // agent host's ledger produces it. Web's PGlite run-usage table never
+  // receives one (web has no memory), so its CHECK constraint leaves it out:
+  // changing that DDL would change the schema key and refuse every existing
+  // web profile.
+  'memory-embedding',
 ] as const;
 
 export type AssistantRunUsageKind = (typeof ASSISTANT_RUN_USAGE_KINDS)[number];

@@ -312,6 +312,12 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
    */
   executionNotes?: LocalExecutionNotes;
   pooling?: 'mean' | 'cls';
+  /**
+   * A hosted embedder's list price per million input tokens, from the
+   * provider's own pricing page; embeddings bill no output (BST-2226). Absent
+   * where no official price was found: its usage then reads "cost unavailable".
+   */
+  pricing?: { inputPerMTok: number };
   prompts?: { document: string; query: string };
   /**
    * The local execution Settings recommends this model for, and why. Settings

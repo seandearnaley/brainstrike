@@ -49,7 +49,10 @@ started the cycle, how it ended (`completed`, `failed`, or `cancelled` by Stop),
 how long it took, and the usage it reported. A failed cycle also records its
 typed `memory.*` code and the reference its cause is logged under. A buffered
 cycle's failure reaches only its end hook, so this fact is where it first
-appears. Spend is billed from `memory.usage` alone.
+appears. Spend is billed from `memory.usage` alone. A semantic recall's
+diagnostics (messages returned, `topK`, scope, latency) are live `run/telemetry`,
+never a fact ([ADR-0011](../adr/0011-run-log-and-state-store.md) amendment of
+2026-10-19).
 
 Keep observations within the selected chat provider's privacy boundary under
 [ADR-0013](../adr/0013-observational-memory.md), with concrete resolved models and

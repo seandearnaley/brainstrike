@@ -165,6 +165,8 @@ const EmbeddingModelSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.optional(Schema.String),
   pooling: Schema.optional(Schema.Literals(['mean', 'cls'])),
+  /** A hosted embedder's list price per million input tokens (BST-2226). */
+  pricing: Schema.optional(Schema.Struct({ inputPerMTok: Schema.Finite })),
   prompts: Schema.optional(Schema.Struct({ document: Schema.String, query: Schema.String })),
   recommendedExecution: Schema.optional(
     Schema.Struct({

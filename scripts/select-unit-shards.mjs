@@ -45,14 +45,18 @@ export function hasUnitTasks(summary) {
   return hasTests;
 }
 
+// A pull request and a merge-queue group (BST-2188) test only what their change
+// affects, against an exact base; every other event runs the complete matrix.
+const AFFECTED_EVENTS = ['pull_request', 'merge_group'];
+
 export function selectUnitShards(matrix, eventName, preview) {
   if (!Array.isArray(matrix?.include) || matrix.include.length === 0) {
     throw new Error('Missing full Unit matrix');
   }
-  if (!['pull_request', 'push', 'schedule', 'workflow_dispatch'].includes(eventName)) {
+  if (![...AFFECTED_EVENTS, 'push', 'schedule', 'workflow_dispatch'].includes(eventName)) {
     throw new Error(`Unsupported Unit event: ${eventName}`);
   }
-  if (eventName !== 'pull_request') {
+  if (!AFFECTED_EVENTS.includes(eventName)) {
     return matrix;
   }
   const selections = new Map();
@@ -71,10 +75,10 @@ export function selectUnitShards(matrix, eventName, preview) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (
-    process.env.EVENT_NAME === 'pull_request' &&
+    AFFECTED_EVENTS.includes(process.env.EVENT_NAME) &&
     !(process.env.TURBO_SCM_BASE && process.env.TURBO_SCM_HEAD)
   ) {
-    throw new Error('Exact PR base and tested head are required for Unit selection');
+    throw new Error('Exact base and tested head are required for affected Unit selection');
   }
   const matrix = selectUnitShards(
     JSON.parse(process.env.UNIT_MATRIX),

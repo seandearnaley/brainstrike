@@ -700,7 +700,8 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('memory.usage'),
         ...RunFields,
-        kind: Schema.Literals(['observation', 'reflection']),
+        // BST-2226: `embedding` is a hosted memory embedder's provider-reported tokens.
+        kind: Schema.Literals(['observation', 'reflection', 'embedding']),
         modelId: Id,
         usage: json(),
       }),

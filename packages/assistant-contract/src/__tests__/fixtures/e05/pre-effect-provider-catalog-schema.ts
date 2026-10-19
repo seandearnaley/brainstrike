@@ -176,6 +176,7 @@ const EmbeddingModelSchema = z.strictObject({
   id: z.string(),
   label: z.string().optional(),
   pooling: z.enum(['mean', 'cls']).optional(),
+  pricing: z.strictObject({ inputPerMTok: z.number() }).optional(),
   prompts: z.strictObject({ document: z.string(), query: z.string() }).optional(),
   recommendedExecution: z
     .strictObject({

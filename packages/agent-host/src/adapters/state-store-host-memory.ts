@@ -146,6 +146,8 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly providerContext: ProviderRequestContext | undefined,
     private readonly semanticRecall: boolean,
     private readonly resourceRecall: boolean,
+    /** Recall's configured `topK`; absent when Mastra's default applies. */
+    private readonly recallTopK: number | undefined,
     private readonly vectorBridge: StateStoreMemoryVector | undefined,
     private readonly released: (() => void) | undefined
   ) {}
@@ -275,6 +277,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       providerContext,
       semanticRecall,
       resourceRecall,
+      typeof recall === 'object' ? recall.topK : undefined,
       vectorBridge,
       options.released
     );
@@ -379,10 +382,18 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
     // Public getContext has no semantic query argument. Use the library's
     // recall primitive; it resolves returned IDs through committed storage.
+    const started = performance.now();
     const { messages } = await this.memory.recall({
       resourceId: this.identity.resourceId,
       threadConfig: { lastMessages: false },
       vectorSearchString: query,
+    });
+    // BST-2225: a live diagnostic of what recall found, never committed.
+    this.identity.recordRecall?.({
+      latencyMs: Math.max(0, Math.round(performance.now() - started)),
+      messages: messages.length,
+      scope: this.resourceRecall ? 'resource' : 'thread',
+      ...(this.recallTopK === undefined ? {} : { topK: this.recallTopK }),
     });
     return new Set(messages.map((message) => message.id));
   }

@@ -51,8 +51,10 @@ test.each([
     };
     let store = await StateStore.open(root, writerOptions);
     const owners: StateStoreHostMemory[] = [];
-    const receipts: { readonly kind: 'observation' | 'reflection'; readonly modelId: string }[] =
-      [];
+    const receipts: {
+      readonly kind: 'observation' | 'reflection' | 'embedding';
+      readonly modelId: string;
+    }[] = [];
     const prepared: unknown[] = [];
     const hostPreparedMessages: unknown[] = [];
     const admissions: { readonly runId: string; readonly startedAt: number; readyAt?: number }[] =
