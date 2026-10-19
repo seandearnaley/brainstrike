@@ -27,7 +27,7 @@ const CONFIG_FORMATTING: FormattingOptions = { eol: '\n', insertSpaces: true, ta
  *
  * It rejects only when nothing was written, and returns every failure after a
  * write as `syncFailure` beside the write's result. A config watcher that
- * cannot restart is neither: it is config status's `watchError`. The install's
+ * cannot stop or restart is neither: it is config status's `watchError`. The install's
  * token rollback depends on this, since a rejection deletes the token.
  */
 export type McpConfigCommit = (
@@ -106,7 +106,8 @@ export async function installCatalogServerWith({
  * Commits an install's config text. The stored token stays only once the file
  * that references it was written (`commit` resolved a successful result): a
  * refused or failed write, or a `commit` that rejects because nothing was
- * written, removes the token and reports a failed removal.
+ * written, removes the token and reports a failed removal. A written file that
+ * then cannot be reloaded rejects as a partial success: the server was added.
  */
 async function commitInstallText(
   { bearerCredentials, commit }: Pick<McpCatalogInstall, 'bearerCredentials' | 'commit'>,
@@ -127,11 +128,21 @@ async function commitInstallText(
       throw error;
     }
     const removalFailure = await removeUnwrittenToken(bearerCredentials, entry, credential);
-    const removal = removalFailure ?? `the stored ${entry.name} token was removed`;
-    throw new Error(`${errorMessage(error)}; ${removal}`, { cause: error });
+    throw new Error(`${errorMessage(error)}; ${tokenRemovalNote(entry, removalFailure)}`, {
+      cause: error,
+    });
   }
   const { result, syncFailure } = committed;
-  if (result.success || credential === undefined) {
+  if (result.success) {
+    if (syncFailure === undefined) {
+      return result;
+    }
+    throw new Error(
+      `${entry.name} was added to the MCP config, but ${syncFailure.step}: ${errorMessage(syncFailure.error)}`,
+      { cause: syncFailure.error }
+    );
+  }
+  if (credential === undefined) {
     if (syncFailure !== undefined) {
       throw syncFailureError(result, syncFailure);
     }
@@ -139,12 +150,16 @@ async function commitInstallText(
   }
   const removalFailure = await removeUnwrittenToken(bearerCredentials, entry, credential);
   if (syncFailure !== undefined) {
-    const removal = removalFailure ?? `the stored ${entry.name} token was removed`;
-    throw syncFailureError(result, syncFailure, removal);
+    throw syncFailureError(result, syncFailure, tokenRemovalNote(entry, removalFailure));
   }
   return removalFailure === undefined
     ? result
     : { ...result, error: `${result.error}; ${removalFailure}` };
+}
+
+/** How removing the stored token went, for a failure that reports it. */
+function tokenRemovalNote(entry: McpCatalogEntry, removalFailure: string | undefined): string {
+  return removalFailure ?? `the stored ${entry.name} token was removed`;
 }
 
 /** Removes a token no written config references: `undefined`, or why it could not be. */

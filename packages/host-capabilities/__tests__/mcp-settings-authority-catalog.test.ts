@@ -266,14 +266,19 @@ describe('MCP catalog install', () => {
     });
   });
 
-  it('keeps the stored token the written config references when the commit fails afterwards', async () => {
+  it('keeps the stored token and says it was added when the written config cannot be reloaded', async () => {
     const h = await started();
-    const reloadFailure = new Error('runtime refused the config');
-    h.replaceResolvedConfig.mockRejectedValueOnce(reloadFailure);
+    const reloadFailure = new Error('EIO: i/o error, read');
+    vi.spyOn(h.configFile, 'load').mockRejectedValueOnce(reloadFailure);
 
     await expect(
       h.authority.installCatalogServer({ access: 'read-write', catalogId: 'github', token: TOKEN })
-    ).rejects.toBe(reloadFailure);
+    ).rejects.toMatchObject({
+      cause: reloadFailure,
+      message:
+        'GitHub was added to the MCP config, but the MCP config could not be reloaded: EIO: i/o error, read',
+    });
+    expect(h.configFile.load).toHaveBeenCalledOnce();
     expect(h.bearer.writer.delete).not.toHaveBeenCalled();
     expect(h.bearer.stored.size).toBe(1);
     const [id] = h.bearer.stored.keys();
