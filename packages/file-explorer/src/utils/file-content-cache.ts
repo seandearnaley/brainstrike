@@ -2,6 +2,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { CacheStats } from '@brainstrike/types';
 
 const logger = createLogger('FileContentCache');
+/** @internal Test seam: file-content-cache.test.ts spies on its warnings. */
 export const fileContentCacheLogger = logger;
 
 /**

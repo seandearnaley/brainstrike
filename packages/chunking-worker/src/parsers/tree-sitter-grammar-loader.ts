@@ -166,6 +166,7 @@ export async function loadLanguage(language: TreeSitterLanguage): Promise<Langua
 /**
  * Reset the loader's caches. Test-only helper — production code should
  * never call this. Useful when tests want to exercise the cold-init path.
+ * @internal Test seam: tree-sitter-grammar-loader.test.ts.
  */
 export function resetLoaderForTests(): void {
   parserInitPromise = null;

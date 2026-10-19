@@ -145,7 +145,7 @@ export default defineConfig({
       '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
       '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
       '@brainstrike/db-explorer', // Uses file-import which has worker
-      '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
+      '@brainstrike/file-import', // Resolves the chunking worker URL (chunking-worker-context) - must not be pre-bundled
       '@brainstrike/token-cache',
       '@brainstrike/token-cache/cache-runtime',
       '@brainstrike/token-cache/background-indexer',
