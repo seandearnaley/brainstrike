@@ -96,11 +96,6 @@ const matchesOptions = guardFor(chunkingRequestOptions)<ChunkingRequestOptions>(
 const matchesRequest = guardFor(chunkRequest)<ChunkRequest>();
 const matchesBatch = guardFor(chunkBatchRequest)<ChunkBatchRequest>();
 
-/**
- * @internal Test seam: message-validation.test.ts exercises the options schema
- * through it. It is also the one reader of `matchesOptions`, whose type
- * arguments are the options drift check.
- */
 export function isChunkingRequestOptions(value: unknown): value is ChunkingRequestOptions {
   return matchesOptions(value);
 }
