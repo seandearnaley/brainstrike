@@ -5,6 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { CLAIM_LIFETIME_MINUTES } from '../nightly-fix-issue.mjs';
 
 /**
  * BST-2189 Part 2: a fix agent per nightly issue. These are its guardrails:
@@ -127,6 +128,16 @@ function assertSecretsStayScoped(source) {
   }
 }
 
+/** A bot claim may go stale only once no run that made it can still be alive. */
+function assertClaimOutlivesRuns(source) {
+  const { jobs } = parseYaml(source);
+  const longestRun = jobs.fix['timeout-minutes'] + jobs.publish['timeout-minutes'];
+  assert.ok(
+    CLAIM_LIFETIME_MINUTES > longestRun,
+    `CLAIM_LIFETIME_MINUTES (${CLAIM_LIFETIME_MINUTES}) must exceed the fix and publish timeouts (${longestRun})`
+  );
+}
+
 function assertPublishJob(source) {
   const publish = parseYaml(source).jobs.publish;
   assert.deepEqual(publish.needs, ['fix']);
@@ -223,6 +234,21 @@ test('only the Linear script sees LINEAR_API_KEY, and no provider key exists', (
 
 test('a deterministic job publishes the branch and PR, and nothing merges', () => {
   assertPublishJob(read(AGENT));
+});
+
+test('a bot claim outlives every run that could hold it', () => {
+  assertClaimOutlivesRuns(read(AGENT));
+});
+
+test('the agent is told which run’s artifacts are tonight’s evidence', () => {
+  const agent = agentStep(parseYaml(read(AGENT)).jobs.fix);
+  assert.equal(agent.env.NIGHTLY_FIX_RUN_ID, expression('github.run_id'));
+  assert.match(read(SKILL), /\$NIGHTLY_FIX_RUN_ID/u);
+});
+
+test('CONTROL: a fix job timeout past the claim lifetime FAILS', () => {
+  const mutated = mutate(read(AGENT), 'timeout-minutes: 120', 'timeout-minutes: 175');
+  assert.throws(() => assertClaimOutlivesRuns(mutated), /must exceed/u);
 });
 
 test('a missing credential fails the job visibly before any claim', () => {

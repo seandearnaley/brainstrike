@@ -64,7 +64,8 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # The claim is the lock: an issue someone already started skips this run.
+      # The claim is the lock: an issue someone holds skips this run. issue.md
+      # leads with tonight's failure, from this run, not the run that filed it.
       - name: Claim the issue
         id: claim
         env:
@@ -97,6 +98,8 @@ jobs:
         uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1.0.253
         env:
           NIGHTLY_FIX_OUT: ${{ runner.temp }}/nightly-fix
+          # This run failed the test tonight: its artifacts are the evidence.
+          NIGHTLY_FIX_RUN_ID: ${{ github.run_id }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -196,11 +199,10 @@ jobs:
           url=$(gh pr create --base main --head "$branch" --title "$title" --body-file "$dir/pr-body.md")
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
+      # The link marks the claim as handed to review, so it never goes stale.
       - name: Link the pull request on Linear
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           ISSUE: ${{ inputs.issue }}
           PR_URL: ${{ steps.pr.outputs.url }}
-        run: |
-          printf 'Fix PR opened for review: %s\n' "$PR_URL" > "$RUNNER_TEMP/nightly-fix/pr-comment.md"
-          node scripts/nightly-fix-issue.mjs comment --issue "$ISSUE" --body-file "$RUNNER_TEMP/nightly-fix/pr-comment.md"
+        run: node scripts/nightly-fix-issue.mjs link-pr --issue "$ISSUE" --pr-url "$PR_URL"

@@ -62,8 +62,14 @@ lanes' own runner.
 
 - `fix` holds a read-only `GITHUB_TOKEN` and no provider keys. It fails first,
   with `::error`, when `CLAUDE_CODE_OAUTH_TOKEN` is missing. It then claims the
-  issue with `scripts/nightly-fix-issue.mjs`: the claim is the lock, and an issue
-  already started, done or canceled skips the run. Next it runs
+  issue with `scripts/nightly-fix-issue.mjs`. The claim is the lock, and its
+  last write (In Progress plus assignee) takes it, so a failed claim never
+  strands an issue. A started, done or canceled issue skips the run, except a
+  bot claim older than 180 minutes (longer than the fix and publish jobs can
+  live) with no fix PR after it, which a later run reclaims. The claim writes
+  `issue.md` with tonight's failure first and the agent gets
+  `NIGHTLY_FIX_RUN_ID`, so it reads this run's artifacts, not the filing run's
+  (Codex review on #3990). Next it runs
   `anthropics/claude-code-action`, pinned by SHA, with `/fix-nightly <issue>`
   (`.claude/skills/fix-nightly/SKILL.md`). It hands the commits off as a bundle
   artifact and posts the agent's evidence to the issue.
