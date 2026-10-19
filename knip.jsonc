@@ -257,6 +257,34 @@
         "src/__tests__/fixtures/build-*.mjs"
       ]
     },
+    "packages/canonical-ingestion": {
+      // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
+      "ignoreDependencies": ["@brainstrike/config"]
+    },
+    "packages/web-state-store": {
+      // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
+      "ignoreDependencies": ["@brainstrike/config"]
+    },
+    "packages/host-lease": {
+      // Loaded as `execArgv: ['--import', 'tsx']` by the processes the integration
+      // suites fork, never imported. Same class as packages/state-store.
+      "ignoreDependencies": ["tsx"]
+    },
+    "packages/host-capabilities": {
+      // Recorders run by hand (`node <file>`) to regenerate the committed
+      // test-utils fixtures committed-host-hook-blocked.json and
+      // committed-host-hooks-skipped.json, which agent-host, assistant-ui and
+      // desktop suites read.
+      "entry": ["__tests__/fixtures/record-*-log.mjs"]
+    },
+    "packages/indexer": {
+      // scoped-electron.integration.test.ts launches the Electron main fixture by
+      // path; it starts the utility fixture with `utilityProcess.fork(path)`.
+      "entry": [
+        "__tests__/fixtures/scoped-electron-main.cjs",
+        "__tests__/fixtures/scoped-electron-utility.cjs"
+      ]
+    },
     "packages/web-writer": {
       // vitest.config.mts's worker-realm plugin prepends an import of this file,
       // by resolved path, to every worker module under test.
