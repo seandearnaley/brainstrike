@@ -566,6 +566,24 @@ describe('guardToolExecution inactivity budget (BST-1779)', () => {
     }
   });
 
+  it('a silent call ended by a total shorter than its window is told it was silent, not chatty', async () => {
+    vi.useFakeTimers(FAKE);
+    try {
+      const guarded = guardToolExecution(hangingTool().tool, {
+        activity: { maxTotalMs: 600 },
+        timeoutMs: 900,
+        toolName: 'demo',
+      });
+      const result = guarded.execute({}, { toolCallId: 'call-1' });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(result).resolves.toMatchObject({
+        error: { code: 'tool_timeout', message: formatToolInactivityMessage(600, 600) },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps a flat guard flat: activity never extends it', async () => {
     vi.useFakeTimers(FAKE);
     try {

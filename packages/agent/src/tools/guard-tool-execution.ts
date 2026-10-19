@@ -135,18 +135,18 @@ function resolveCallBudget(timeout: ToolGuardTimeout, args: readonly unknown[]):
 }
 
 function timeoutMessage(
-  total: boolean,
+  ended: 'idle' | 'total',
   grantedMs: number,
-  guardMs: number,
+  idleMs: number,
   maxTotalMs: number | undefined,
   declaredMaxMs: number | undefined
 ): string {
   if (maxTotalMs === undefined) {
     return formatToolTimeoutMessage(grantedMs, declaredMaxMs);
   }
-  return total
+  return ended === 'total'
     ? formatToolTotalBudgetMessage(maxTotalMs)
-    : formatToolInactivityMessage(guardMs, maxTotalMs);
+    : formatToolInactivityMessage(idleMs, maxTotalMs);
 }
 
 /**
@@ -183,10 +183,16 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     const deadline = new AbortController();
     // Bound once the budget resolves; activity before that has nothing to re-arm.
     let rearm: (() => void) | undefined;
+    let reported = false;
     const releaseDeadline = registerToolGuardDeadlineSignal(
       executionArgs,
       deadline.signal,
-      options.activity ? () => rearm?.() : undefined
+      options.activity
+        ? () => {
+            reported = true;
+            rearm?.();
+          }
+        : undefined
     );
     // Measured around the REAL execution, so a suspended-then-approved call is
     // billed for the work rather than the wait. Started here, before budget
@@ -209,6 +215,9 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       const timeout = new Promise<GuardedToolError>((resolve) => {
         const expire = (total: boolean): void => {
           const exceededMs = total && maxTotalMs !== undefined ? maxTotalMs : guardMs;
+          // A window at least as long as the total ends a call at the total
+          // before any progress arrives; that call went silent, not chatty.
+          const ended = total && reported ? 'total' : 'idle';
           // Abort BEFORE resolving so cancellation is ordered ahead of the
           // model-facing answer rather than racing it.
           deadline.abort(
@@ -216,14 +225,20 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
           );
           logger?.error('Tool execution timed out', {
             grantedMs,
-            ...(maxTotalMs === undefined ? {} : { ended: total ? 'total' : 'idle', maxTotalMs }),
+            ...(maxTotalMs === undefined ? {} : { ended, maxTotalMs }),
             timeoutMs: guardMs,
             toolName,
           });
           resolve({
             error: {
               code: 'tool_timeout',
-              message: timeoutMessage(total, grantedMs, guardMs, maxTotalMs, options.declaredMaxMs),
+              message: timeoutMessage(
+                ended,
+                grantedMs,
+                exceededMs,
+                maxTotalMs,
+                options.declaredMaxMs
+              ),
               toolName,
             },
             ok: false,
