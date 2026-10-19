@@ -19,10 +19,7 @@ import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data'
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
-import {
-  configureModelRuntimeServices,
-  EMBEDDING_MODEL_DOWNLOAD_TEXT,
-} from '@brainstrike/settings-ui/settings/models/model-runtime-services';
+import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import {
   ModelCatalogHeaderActions,
   ModelSelectionPage,
@@ -50,28 +47,11 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
+import { downloadWebEmbeddingModel } from '../../settings-model-download';
 
 configureModelRuntimeServices({
-  // BST-2230: the embedding worker loads the model as web search and indexing
-  // do, into the cache they read; the page itself loads none.
-  downloadEmbeddingModel: async (modelId, options) => {
-    const modelConfig = options?.modelConfig;
-    if (!modelConfig) {
-      throw new Error(`Downloading ${modelId} needs its catalog model configuration.`);
-    }
-    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
-    const service = new SimpleEmbeddingService();
-    try {
-      await service.initializeWithModel(
-        modelConfig,
-        undefined,
-        useVectorPreferencesStore.getState().devicePref
-      );
-      await service.generateQueryEmbedding(EMBEDDING_MODEL_DOWNLOAD_TEXT);
-    } finally {
-      await service.dispose();
-    }
-  },
+  downloadEmbeddingModel: (model) =>
+    downloadWebEmbeddingModel(model, useVectorPreferencesStore.getState().devicePref),
 });
 
 /**

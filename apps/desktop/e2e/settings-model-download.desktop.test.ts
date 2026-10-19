@@ -81,6 +81,7 @@ test('an on-device embedding model downloads through the hidden embedding host',
   await expect(catalog.getByRole('img', { name: `${MODEL_NAME} downloaded` })).toBeVisible({
     timeout: 180_000,
   });
-  // The hidden embedding host ran the model, on the saved device.
-  expect(await hiddenHostWorker(page)).toMatchObject({ device: 'wasm' });
+  // The hidden embedding host ran the catalog plan on the saved device: the
+  // unpinned dtype for a 384-dimension model on WASM.
+  expect(await hiddenHostWorker(page)).toMatchObject({ device: 'wasm', dtype: 'q4' });
 });

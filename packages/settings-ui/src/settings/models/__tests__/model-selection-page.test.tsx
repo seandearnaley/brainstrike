@@ -14,6 +14,10 @@ import { usePGliteDatabase } from '@brainstrike/db/react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelCatalogProps } from '../model-catalog';
+import {
+  configureModelRuntimeServices,
+  type ModelRuntimeServices,
+} from '../model-runtime-services';
 import { ModelCatalogHeaderActions, ModelSelectionPage } from '../model-selection-page';
 import { installCatalogDomStubs } from './catalog-dom-harness';
 
@@ -171,6 +175,63 @@ describe('ModelSelectionPage', () => {
       title: 'Could not download model',
       variant: 'destructive',
     });
+  });
+
+  it('downloads the decoded catalog row and claims no percentage the realm cannot report', async () => {
+    const downloadEmbeddingModel = vi.fn<ModelRuntimeServices['downloadEmbeddingModel']>();
+    const settle = Promise.withResolvers<void>();
+    downloadEmbeddingModel.mockReturnValue(settle.promise);
+    configureModelRuntimeServices({ downloadEmbeddingModel });
+    act(() => {
+      useModelRegistryStore.setState({
+        models: [
+          {
+            bestFor: null,
+            capabilities: {
+              defaultDimension: 384,
+              pooling: 'cls',
+              prompts: { document: '', query: '' },
+              type: 'embedding',
+            },
+            description: null,
+            icon: null,
+            id: 'granite',
+            isEnabled: true,
+            name: 'Granite',
+            parameters: {
+              execution: { wasm: 'q8', webgpu: 'fp16' },
+              revision: '0123456789abcdef0123456789abcdef01234567',
+            },
+            providerId: 'local',
+            sortOrder: 1,
+            tagline: null,
+          },
+        ],
+      });
+    });
+    render(<ModelSelectionPage />);
+
+    act(() => {
+      catalogProps.current?.onDownload('granite');
+    });
+
+    expect(downloadEmbeddingModel).toHaveBeenCalledWith({
+      dimensions: 384,
+      execution: { wasm: 'q8', webgpu: 'fp16' },
+      id: 'granite',
+      pooling: 'cls',
+      prompts: { document: '', query: '' },
+      revision: '0123456789abcdef0123456789abcdef01234567',
+    });
+    expect(useModelRegistryStore.getState().isDownloading['granite']).toBe(true);
+    // No realm reports byte progress, so the row stays indeterminate, never "0%".
+    expect(useModelRegistryStore.getState().downloadProgress['granite']).toBeUndefined();
+    await act(async () => {
+      settle.resolve();
+      await settle.promise;
+    });
+    expect(useModelRegistryStore.getState().downloadedModels['granite']).toBe(true);
+    configureModelRuntimeServices(null);
   });
 
   it('shows the registry error with Retry instead of the catalog', () => {

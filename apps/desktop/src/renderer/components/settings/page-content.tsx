@@ -11,6 +11,7 @@ import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/
 import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
   McpExtensionEnablement,
   McpHostControlRequest,
@@ -21,10 +22,7 @@ import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data'
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { LocalExecutionCapability } from '@brainstrike/indexing-contract';
-import {
-  configureModelRuntimeServices,
-  EMBEDDING_MODEL_DOWNLOAD_TEXT,
-} from '@brainstrike/settings-ui/settings/models/model-runtime-services';
+import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import {
   ModelCatalogHeaderActions,
   ModelSelectionPage,
@@ -68,7 +66,10 @@ import {
   resolveDesktopMcpContent,
 } from '../../host-mcp-settings';
 import { createIpcCapability } from '../../ipc-capability';
-import { generateDesktopQueryEmbedding } from '../../query-embeddings';
+import {
+  downloadDesktopEmbeddingModel,
+  resolveModelDownloadDevice,
+} from '../../settings-model-download';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
 
@@ -76,17 +77,17 @@ const refuseWithoutHost = (): Promise<never> =>
   Promise.reject(new Error('The agent host provider reads are unavailable.'));
 
 configureModelRuntimeServices({
-  // BST-2230: the hidden embedding host loads the model with its catalog plan,
-  // into the cache indexing reads (ADR-0007); the visible renderer loads none.
-  downloadEmbeddingModel: async (modelId, options) => {
-    const dimensions = options?.modelConfig?.dimensions;
-    if (dimensions === undefined) {
-      throw new Error(`Downloading ${modelId} needs its catalog dimensions.`);
+  // BST-2230: the hidden embedding host loads the model's catalog plan on the
+  // device the host's rule picks, into the cache indexing reads (ADR-0007).
+  downloadEmbeddingModel: async (model) => {
+    const execution = visibleLocalExecution();
+    if (!execution) {
+      throw new Error('The embedding host is unavailable.');
     }
-    await generateDesktopQueryEmbedding(
-      { dimensions, modelId, modelKey: `local::${modelId}`, query: EMBEDDING_MODEL_DOWNLOAD_TEXT },
-      { signal: new AbortController().signal }
+    const device = await resolveModelDownloadDevice(await ensureVectorPreferencesHydrated(), () =>
+      execution.webgpuAdapter()
     );
+    await downloadDesktopEmbeddingModel(model, device, new AbortController().signal);
   },
 });
 
