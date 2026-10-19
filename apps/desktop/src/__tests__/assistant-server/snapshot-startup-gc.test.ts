@@ -313,6 +313,31 @@ describe('host-owned startup snapshot retention', () => {
     expect(f.service.ensureShadowRepo).not.toHaveBeenCalled();
     expect(f.pruned).toEqual([]);
   });
+  it('finishes the root in flight when stopped, and leaves later roots to the next pass (BST-1859)', async () => {
+    const f = fixture({ refs: { 'root-1': ['dead-1'], 'root-2': ['dead-2'] } });
+    const stop = new AbortController();
+    f.service.pruneThread.mockImplementationOnce(async (handle, threadId) => {
+      // The graceful shutdown stops the pass while root-1 is being reconciled.
+      stop.abort();
+      f.pruned.push({ rootId: handle.rootId, threadId });
+      return { deleted: true };
+    });
+    const report = await runSnapshotStartupGc({
+      ...f.deps,
+      liveRoots: [ROOT, { path: '/tmp/root-2', rootId: 'root-2' }],
+      signal: stop.signal,
+    });
+    expect(report.stopped).toBe(true);
+    expect(f.pruned).toEqual([{ rootId: 'root-1', threadId: 'dead-1' }]);
+    expect(f.service.ensureShadowRepo).toHaveBeenCalledTimes(1);
+    expect(report.failures).toEqual([]);
+  });
+  it('reports a pass that reached every root as not stopped', async () => {
+    const f = fixture({ refs: { 'root-1': ['dead'] } });
+    const report = await runSnapshotStartupGc({ ...f.deps, signal: new AbortController().signal });
+    expect(report.stopped).toBe(false);
+    expect(f.pruned).toEqual([{ rootId: 'root-1', threadId: 'dead' }]);
+  });
   it('continues to independent roots after a shadow repository failure', async () => {
     const f = fixture({ refs: { 'root-2': ['dead'] } });
     f.service.ensureShadowRepo.mockRejectedValueOnce(new Error('root vanished'));

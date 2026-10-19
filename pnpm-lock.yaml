@@ -1387,9 +1387,6 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
-      '@huggingface/transformers':
-        specifier: 'catalog:'
-        version: 4.3.1(patch_hash=c72e645938ae767c79a557fa85c3a9f3d71e197a3b45203693aadea57c5d017b)(@types/node@24.19.2)
       '@mastra/core':
         specifier: 1.78.0
         version: 1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)

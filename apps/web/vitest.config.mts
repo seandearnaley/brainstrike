@@ -17,7 +17,6 @@ export default defineConfig({
     // ONNX Runtime's WASM, as vite.config.mts serves it (BST-2003).
     transformersOnnxRuntimeWasmUrlsPlugin([
       resolve(import.meta.dirname, '../../packages/embedding-worker'),
-      resolve(import.meta.dirname, '../../packages/agent'),
     ]),
   ],
   resolve: {

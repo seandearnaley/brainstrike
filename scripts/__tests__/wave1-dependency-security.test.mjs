@@ -15,7 +15,11 @@ const coreRequire = createRequire(agentRequire.resolve('@mastra/core'));
 const expressRequire = createRequire(coreRequire.resolve('express'));
 const concurrentlyRequire = createRequire(desktopRequire.resolve('concurrently'));
 const memoryRequire = createRequire(agentHostRequire.resolve('@mastra/memory'));
-const transformersRequire = createRequire(agentRequire.resolve('@huggingface/transformers'));
+const transformersRequire = createRequire(
+  createRequire(path.join(root, 'packages/embedding-worker/package.json')).resolve(
+    '@huggingface/transformers'
+  )
+);
 const mermaidRequire = createRequire(uiRequire.resolve('mermaid'));
 
 // GHSA-jqcg-44mw-7w3h: exercise the copy Express actually loads, including

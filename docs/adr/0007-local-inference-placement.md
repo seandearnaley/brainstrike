@@ -12,6 +12,11 @@
 > anticipated ("this rule mainly binds the embedding path"). Nothing here needs
 > re-deciding; the chat placement it also covered has no subject left.
 
+> **2026-10-19 (BST-2148).** The packaged desktop app ships no `onnxruntime-node`,
+> so the native Intel macOS DMG can ship: its 1.24.1+ releases have no darwin-x64
+> binding. The optional `onnxruntime-node` CLI embedder below was never built and
+> would need that packaging decision reopened first.
+
 ## Context
 
 Transformers.js needs Web Workers. In Electron main or plain Node it falls back to
