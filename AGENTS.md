@@ -40,9 +40,10 @@ user-facing changes through the actual app flow. Documentation edits do not need
 an application regression campaign. Follow [validation guidance](docs/agents/ci-quality.md).
 
 Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
-nightly on main and files failures to Linear (`nightly-alert`). Main requires a
-merge queue: enqueue with `gh pr merge --squash --auto --match-head-commit <sha>`,
-and the PR lands only when `Merge Queue Gate` passes on its merge group. Do not enable
+nightly on main and files failures to Linear (`nightly-alert`). Main lands only
+through Mergify's merge queue: enqueue with
+`gh pr comment <number> --body '@mergifyio queue'`, and the PR is squashed onto
+main only when `Merge Queue Gate` passes on its batch. Do not enable
 workflows, dispatch hosted checks, request automated reviews, sign or publish
 without the owner's authorization. Report actual checks, failures and omitted coverage; never
 describe a partial run as a full pass. Use normal hooks and preserve failing tests.

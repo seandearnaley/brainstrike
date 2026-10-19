@@ -3,8 +3,8 @@
 Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
 nightly on main and files failures to Linear (`nightly-alert`). Treat an open
 `nightly-alert` issue as a red main: fix main first, before merging other work
-onto it. Merges go through the merge queue, whose fast tier runs on each merge
-group (see [Merge through the queue](#merge-through-the-queue)). Enabling or
+onto it. Merges go through Mergify's merge queue, whose fast tier runs on each
+batch (see [Merge through the queue](#merge-through-the-queue)). Enabling or
 dispatching other workflows, and automated reviews, require
 explicit owner authorization; the disabled per-PR workflows' YAML is reference
 material, not a request to run them.
@@ -95,26 +95,34 @@ they are not additional gates or mandatory reading.
 
 ## Merge through the queue
 
-Main requires a merge queue. Enqueue with
-`gh pr merge --squash --auto --match-head-commit <sha>`, where `<sha>` is the
-head you validated; GitHub refuses the request if the head has moved. GitHub puts
-the PR on top of main and the entries ahead of it in a merge group, runs
-`.github/workflows/merge-queue.yml` on that commit, and lands it only when
-`Merge Queue Gate` is green. Do not bypass the queue with `--admin`.
+Main lands only through [Mergify's merge queue](https://docs.mergify.com/merge-queue/),
+configured in `.mergify.yml`. After you validate the head, enqueue it:
 
-That workflow also triggers on `pull_request`, but skip-only: every job skips,
-so the PR head shows `Merge Queue Gate` as skipped, which GitHub counts as
-passing for queue entry, and no runner starts. A skipped gate on a PR is not a
-test result; per-push PR CI stays off.
+```sh
+gh pr comment <number> --body '@mergifyio queue'
+```
+
+Use the same command to requeue after a fix, and `@mergifyio dequeue` to pull a
+PR out. Follow the PR's `Mergify Merge Queue` check and Mergify's status
+comments. Do not use `gh pr merge`, with or without `--auto`: `Merge Queue Gate`
+never reports on a PR head, so the ruleset blocks every merge but Mergify's.
+
+Mergify batches up to five queued PRs, one batch under test at a time. It builds
+each batch on main, pushes it to a `mergify/merge-queue/` branch and opens a
+draft PR for it. That push runs `.github/workflows/merge-queue.yml`; no pull
+request starts it, so per-push PR CI stays off. When `Merge Queue Gate` passes on
+the batch, Mergify squashes each of its PRs onto main. A push to a queued PR
+resets its batch, and the queue tests the new head, so what lands is always
+tested, but it may not be the head you validated: revalidate before you push.
 
 The fast tier is `test.yml` itself, called with `merge-queue: true`. It tests
-the merge group's merged commit with Static, Unit tests for what the change
-affects, Build, and the web and desktop smoke E2E lanes. Native Windows, Native
-Electron, Browser tests and the full regression suites stay nightly, so local
-validation still owns the risk the tier does not cover. A red merge group files
-nothing to Linear.
+the batch commit with Static, Unit tests for what the batch changes against the
+main commit it was built on, Build, and the web and desktop smoke E2E lanes.
+Native Windows, Native Electron, Browser tests and the full regression suites
+stay nightly, so local validation still owns the risk the tier does not cover. A
+red batch files nothing to Linear.
 
-A red gate removes the PR from the queue, and the entries behind it rebuild
-without it. Read the failed lane, fix the cause, revalidate and enqueue again.
+A red batch is split until Mergify finds the PR that fails, and that PR leaves
+the queue. Read the failed lane, fix the cause, revalidate and enqueue again.
 Re-enqueueing to retry a failure is not a fix; a flaky lane needs the same
 diagnosis as any other failure.
