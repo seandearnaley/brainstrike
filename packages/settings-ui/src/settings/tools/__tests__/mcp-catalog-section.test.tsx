@@ -140,6 +140,66 @@ describe('MCP catalog section', () => {
     expect(p.onInstalled).not.toHaveBeenCalled();
   });
 
+  it('keeps a successful OAuth install a success and reports a failed Settings refresh apart', async () => {
+    const p = props({
+      onInstalled: vi.fn(async () => {
+        throw new Error('refresh failed');
+      }),
+    });
+    render(<McpCatalogSection {...p} />);
+
+    fireEvent.click(await card('atlassian').findByRole('button', { name: 'Install' }));
+
+    expect(await screen.findByTestId('mcp-catalog-refresh-error')).toHaveTextContent(
+      'Atlassian was installed, but Settings could not refresh: refresh failed'
+    );
+    expect(screen.getByTestId('mcp-catalog-refresh-error')).toHaveAttribute('role', 'alert');
+    expect(p.installMcpCatalogServer).toHaveBeenCalledExactlyOnceWith({
+      access: 'read-write',
+      catalogId: 'atlassian',
+    });
+    expect(screen.queryByTestId('mcp-catalog-error-atlassian')).not.toBeInTheDocument();
+  });
+
+  it('closes the GitHub token dialog when the install succeeded but the Settings refresh failed', async () => {
+    const p = props({
+      onInstalled: vi.fn(async () => {
+        throw new Error('refresh failed');
+      }),
+    });
+    render(<McpCatalogSection {...p} />);
+
+    fireEvent.click(await card('github').findByRole('button', { name: 'Install' }));
+    fireEvent.change(await screen.findByLabelText('Fine-grained personal access token'), {
+      target: { value: 'github_pat_fixture' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByTestId('mcp-catalog-refresh-error')).toHaveTextContent(
+      'GitHub was installed, but Settings could not refresh: refresh failed'
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByLabelText('Fine-grained personal access token')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mcp-catalog-error-github')).not.toBeInTheDocument();
+  });
+
+  it('clears the Settings refresh failure when a later install starts', async () => {
+    const p = props({
+      onInstalled: vi
+        .fn<(serverName: string) => Promise<void>>()
+        .mockRejectedValueOnce(new Error('refresh failed'))
+        .mockResolvedValue(undefined),
+    });
+    render(<McpCatalogSection {...p} />);
+
+    fireEvent.click(await card('atlassian').findByRole('button', { name: 'Install' }));
+    expect(await screen.findByTestId('mcp-catalog-refresh-error')).toBeInTheDocument();
+    fireEvent.click(card('gitlab').getByRole('button', { name: 'Install' }));
+
+    await waitFor(() => expect(p.onInstalled).toHaveBeenLastCalledWith('GitLab'));
+    expect(screen.queryByTestId('mcp-catalog-refresh-error')).not.toBeInTheDocument();
+  });
+
   it('blocks installs while the config editor holds unsaved text', async () => {
     render(
       <McpCatalogSection

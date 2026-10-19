@@ -58,11 +58,23 @@ export function McpCatalogSection({
   installMcpCatalogServer,
   onInstalled,
 }: McpCatalogSectionProps) {
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  // The host result is the install outcome: once the config and token are committed, a failed
+  // Settings refresh is reported on its own instead of turning the install into a failure.
   const install = useCallback(
     async (entry: McpCatalogEntry, request: McpCatalogInstallRequest): Promise<InstallResult> => {
+      setRefreshError(null);
       const result = await installMcpCatalogServer(request);
-      if (result.success) {
+      if (!result.success) {
+        return result;
+      }
+      try {
         await onInstalled(entry.name);
+      } catch (cause) {
+        setRefreshError(
+          `${entry.name} was installed, but Settings could not refresh: ${errorText(cause)}`
+        );
       }
       return result;
     },
@@ -81,6 +93,15 @@ export function McpCatalogSection({
         {blockedReason ? (
           <p className="text-muted-foreground text-sm" data-testid="mcp-catalog-blocked">
             {blockedReason}
+          </p>
+        ) : null}
+        {refreshError ? (
+          <p
+            className="text-destructive text-sm"
+            data-testid="mcp-catalog-refresh-error"
+            role="alert"
+          >
+            {refreshError}
           </p>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
