@@ -99,7 +99,7 @@ const flaky = (title, file = 'chat.desktop.test.ts') => ({
   title,
 });
 
-function argv(results, reports) {
+function argv(results, reports, parts) {
   return [
     '--workflow',
     WORKFLOW,
@@ -107,6 +107,7 @@ function argv(results, reports) {
     results,
     '--reports',
     reports,
+    ...(parts ? ['--parts', parts] : []),
     '--run-url',
     RUN_URL,
     '--sha',
@@ -116,9 +117,30 @@ function argv(results, reports) {
 
 const RED_GATE = `${GATE}=failure,${EMBEDDING}=success`;
 const GREEN = `${GATE}=success,${EMBEDDING}=success`;
-const gateReport = (...tests) => ({
-  [`nightly-results--${GATE}--shard-1/${GATE}/regression.json`]: playwrightReport(tests),
-});
+const SHARDS = `${GATE}=shard-1 shard-2`;
+
+/**
+ * One part of a results job, as its artifact holds it:
+ * nightly-results--<job>--<part>/<job>/<part>/{<report>.json, job.status}.
+ * A part that ran tests records `failure` when any of them failed.
+ */
+function part(job, name, { reports = {}, status, unreported = {} } = {}) {
+  const dir = `nightly-results--${job}--${name}/${job}/${name}`;
+  const files = {};
+  let failed = false;
+  for (const [report, tests] of Object.entries(reports)) {
+    files[`${dir}/${report}.json`] = playwrightReport(tests);
+    failed ||= tests.some((t) => t.status === 'unexpected');
+  }
+  for (const [lane, exit] of Object.entries(unreported)) {
+    files[`${dir}/${lane}.unreported`] = `${exit}\n`;
+  }
+  if (status !== null) {
+    files[`${dir}/job.status`] = `${status ?? (failed ? 'failure' : 'success')}\n`;
+  }
+  return files;
+}
+const gateReport = (...tests) => part(GATE, 'main', { reports: { regression: tests } });
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status });
@@ -445,6 +467,105 @@ test('RED-FIRST: a red workflow with no parseable results files one workflow-lev
   assert.ok(!comment.includes(EMBEDDING), 'only tonight’s unexplained jobs are listed');
 });
 
+test('RED-FIRST: a shard red with no report beside a shard with a failing test files both', async () => {
+  const linear = fakeLinear();
+  const reports = reportsDir({
+    ...part(GATE, 'shard-1', { reports: { regression: [failing('sends a message')] } }),
+    ...part(GATE, 'shard-2', { status: 'failure' }),
+  });
+  const result = await run(argv(RED_GATE, reports, SHARDS), linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const created = createdInputs(linear);
+  assert.deepEqual(
+    created.map((input) => input.title),
+    [
+      'Nightly red: Desktop E2E › chat.desktop.test.ts › [regression] › Suite › sends a message',
+      'Nightly red: Desktop E2E',
+    ],
+    'the explained shard does not hide its sibling'
+  );
+  assert.ok(
+    created[1].description.includes(
+      `\`${GATE}\` part \`shard-2\` is failure, but its test results show no failing test.`
+    )
+  );
+  assert.ok(!created[1].description.includes('`shard-1`'), 'only the unexplained shard is listed');
+});
+
+test('RED-FIRST: a shard that uploaded nothing is a gap even when a sibling explains the job', async () => {
+  const linear = fakeLinear();
+  const reports = reportsDir(
+    part(GATE, 'shard-1', { reports: { regression: [failing('sends a message')] } })
+  );
+  const result = await run(argv(RED_GATE, reports, SHARDS), linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const [, workflowIssue] = createdInputs(linear);
+  assert.ok(
+    workflowIssue?.description.includes(
+      `\`${GATE}\` part \`shard-2\` uploaded no test results (\`${GATE}\` is failure).`
+    ),
+    'a missing shard is never assumed green'
+  );
+});
+
+test('RED-FIRST: every shard explained or green files no workflow-level issue', async () => {
+  const linear = fakeLinear();
+  const reports = reportsDir({
+    ...part(GATE, 'shard-1', { reports: { regression: [failing('sends a message')] } }),
+    ...part(GATE, 'shard-2', { reports: { regression: [failing('renders history')] } }),
+  });
+  const result = await run(argv(RED_GATE, reports, SHARDS), linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.deepEqual(
+    createdInputs(linear).map((input) => input.title.startsWith('Nightly red: Desktop E2E ›')),
+    [true, true]
+  );
+
+  const green = fakeLinear();
+  const passingSibling = reportsDir({
+    ...part(GATE, 'shard-1', { reports: { regression: [failing('sends a message')] } }),
+    ...part(GATE, 'shard-2', { reports: { regression: [passing('renders history')] } }),
+  });
+  assert.equal((await run(argv(RED_GATE, passingSibling, SHARDS), green)).exitCode, 0);
+  assert.equal(createdInputs(green).length, 1, 'a green shard needs no explanation');
+});
+
+test('a lane that failed without writing its report is a gap inside an explained part', async () => {
+  const linear = fakeLinear();
+  const reports = reportsDir(
+    part(GATE, 'main', {
+      reports: { 'broad-regression': [failing('sends a message')] },
+      unreported: { 'db-startup': 'exited 1' },
+    })
+  );
+  const result = await run(argv(RED_GATE, reports), linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const [, workflowIssue] = createdInputs(linear);
+  assert.ok(
+    workflowIssue?.description.includes('lane `db-startup` exited 1 without writing its report'),
+    'the lane sequence’s record reaches Linear'
+  );
+});
+
+test('a red job whose parts all report success is still a gap', async () => {
+  const linear = fakeLinear();
+  const reports = reportsDir({
+    ...part(GATE, 'shard-1', { reports: { regression: [passing('a')] } }),
+    ...part(GATE, 'shard-2', { reports: { regression: [passing('b')] } }),
+  });
+  const result = await run(argv(RED_GATE, reports, SHARDS), linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const [workflowIssue] = createdInputs(linear);
+  assert.ok(
+    workflowIssue.description.includes(`\`${GATE}\` is failure, but every part reports success.`)
+  );
+});
+
 test('a red job beside an explained one still reaches the workflow-level issue', async () => {
   const linear = fakeLinear();
   const reports = reportsDir(gateReport(failing('sends a message')));
@@ -463,16 +584,22 @@ test('a red job beside an explained one still reaches the workflow-level issue',
 test('unreadable reports and run errors are filed, never skipped', async () => {
   const linear = fakeLinear();
   const reports = reportsDir({
-    [`a/${GATE}/regression.json`]: playwrightReport([passing('sends a message')], {
+    [`a/${GATE}/main/regression.json`]: playwrightReport([passing('sends a message')], {
       errors: [{ message: 'Timed out waiting 1800s for the test suite to run' }],
     }),
-    [`b/${EMBEDDING}/embedding.json`]: '{ "truncated": ',
-    [`c/${EMBEDDING}/other.json`]: { not: 'a playwright report' },
-    'd/desktop-unknown-job/x.json': playwrightReport([passing('x')]),
-    'loose.json': playwrightReport([]),
-    [`e/${EMBEDDING}/elsewhere.json`]: playwrightReport([passing('x')], {
+    [`a/${GATE}/main/job.status`]: 'failure\n',
+    [`b/${EMBEDDING}/main/embedding.json`]: '{ "truncated": ',
+    [`b/${EMBEDDING}/main/other.json`]: { not: 'a playwright report' },
+    [`b/${EMBEDDING}/main/elsewhere.json`]: playwrightReport([passing('x')], {
       rootDir: '/nowhere/absent-e2e',
     }),
+    [`b/${EMBEDDING}/main/job.status`]: 'failure\n',
+    'd/desktop-unknown-job/main/x.json': playwrightReport([passing('x')]),
+    [`e/${GATE}/shard-9/x.json`]: playwrightReport([passing('x')]),
+    [`b/${EMBEDDING}/main/notes.txt`]: 'stray',
+    [`f/${EMBEDDING}/main/again.json`]: playwrightReport([passing('x')]),
+    [`g/${EMBEDDING}/other-part/job.status`]: 'sideways\n',
+    'loose.json': playwrightReport([]),
   });
   const result = await run(argv(`${GATE}=failure,${EMBEDDING}=failure`, reports), linear);
 
@@ -484,8 +611,12 @@ test('unreadable reports and run errors are filed, never skipped', async () => {
     'reports a run error: Timed out waiting 1800s for the test suite to run',
     'is not valid JSON',
     'is not a Playwright JSON report',
-    'Results directory `desktop-unknown-job` names no job in --results.',
-    '`loose.json` is not inside a job directory.',
+    'Results part `desktop-unknown-job/main` names no job and part in --results and --parts.',
+    `Results part \`${GATE}/shard-9\` names no job and part in --results and --parts.`,
+    'is not a nightly results file',
+    `repeats part ${EMBEDDING}/main, already uploaded by another artifact`,
+    'records the unknown job status "sideways"',
+    '`loose.json` is not inside a <job>/<part> directory.',
     'names rootDir /nowhere/absent-e2e, which is not a directory of this checkout',
   ]) {
     assert.ok(workflowIssue.description.includes(expected), `missing: ${expected}`);
@@ -496,7 +627,7 @@ test('the recorded Playwright 1.64.1 JSON report parses into failed, flaky and p
   // Recorded from a real run (four tests: pass, fail, pass-on-retry, skip) with
   // the host's paths rewritten to the hosted runner's workspace layout.
   const reports = reportsDir({
-    [`${GATE}/regression.json`]: readFileSync(RECORDED_REPORT, 'utf8'),
+    [`${GATE}/main/regression.json`]: readFileSync(RECORDED_REPORT, 'utf8'),
   });
   const { problems, tests } = readNightlyTestResults({ repoRoot: REPO_ROOT, reportsDir: reports });
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +31,13 @@ export function laneSpawnInvocation(lane, platform = process.platform) {
  * PLAYWRIGHT_JSON_OUTPUT_DIR set each lane writes its own <lane>.json there
  * (BST-2189); one PLAYWRIGHT_JSON_OUTPUT_FILE would keep only the last lane's.
  */
+function laneReportPath(lane, env, extension) {
+  const reportDirectory = env.PLAYWRIGHT_JSON_OUTPUT_DIR;
+  return reportDirectory
+    ? path.join(reportDirectory, `${lane.slice(LANE_PREFIX.length)}${extension}`)
+    : undefined;
+}
+
 export function laneEnvironment(lane, env) {
   assertValidLaneName(lane);
   if (env.PLAYWRIGHT_JSON_OUTPUT_FILE) {
@@ -38,12 +45,20 @@ export function laneEnvironment(lane, env) {
       'PLAYWRIGHT_JSON_OUTPUT_FILE would hold only the last lane; set PLAYWRIGHT_JSON_OUTPUT_DIR.'
     );
   }
-  const reportDirectory = env.PLAYWRIGHT_JSON_OUTPUT_DIR;
-  if (!reportDirectory) {
-    return env;
+  const reportFile = laneReportPath(lane, env, '.json');
+  return reportFile ? { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: reportFile } : env;
+}
+
+/**
+ * A failed lane that left no JSON report would leave the nightly notifier
+ * nothing to file for it, hidden behind any other lane's failing test. Record
+ * how it failed as <lane>.unreported beside the reports (BST-2189).
+ */
+export function recordUnreportedLane(lane, how, env) {
+  const reportFile = laneReportPath(lane, env, '.json');
+  if (reportFile && !existsSync(reportFile)) {
+    writeFileSync(laneReportPath(lane, env, '.unreported'), `${how}\n`);
   }
-  const reportFile = path.join(reportDirectory, `${lane.slice(LANE_PREFIX.length)}.json`);
-  return { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: reportFile };
 }
 
 function defaultRunLane(lane) {
@@ -72,30 +87,32 @@ function assertValidLanes(lanes) {
 
 export function runE2eLaneSequence(
   lanes,
-  { log = console.log, logError = console.error, runLane = defaultRunLane } = {}
+  { env = process.env, log = console.log, logError = console.error, runLane = defaultRunLane } = {}
 ) {
   assertValidLanes(lanes);
 
   const failures = [];
+  const fail = (lane, reason, how) => {
+    failures.push({ lane, reason });
+    logError(`[e2e-lanes] ${lane}: FAIL (${reason})`);
+    recordUnreportedLane(lane, how, env);
+  };
   for (const [index, lane] of lanes.entries()) {
     log(`[e2e-lanes] ${lane}: START (${index + 1}/${lanes.length})`);
     const result = runLane(lane);
 
     if (result.error) {
       const message = result.error instanceof Error ? result.error.message : String(result.error);
-      failures.push({ lane, reason: message });
-      logError(`[e2e-lanes] ${lane}: FAIL (${message})`);
+      fail(lane, message, `failed to start (${message})`);
       continue;
     }
     if (result.signal) {
-      failures.push({ lane, reason: `signal ${result.signal}` });
-      logError(`[e2e-lanes] ${lane}: FAIL (signal ${result.signal})`);
+      fail(lane, `signal ${result.signal}`, `was killed by ${result.signal}`);
       continue;
     }
     if (result.status !== 0) {
       const status = result.status ?? 'unknown';
-      failures.push({ lane, reason: `status ${status}` });
-      logError(`[e2e-lanes] ${lane}: FAIL (status ${status})`);
+      fail(lane, `status ${status}`, `exited ${status}`);
       continue;
     }
 

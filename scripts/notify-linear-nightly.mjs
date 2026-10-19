@@ -6,20 +6,24 @@
 // identity marker in its description (workflow, spec path and full title), never
 // by its title. A further red night comments on that issue, and the first night
 // the test passes comments `Recovered:` on it alone. A test that passed only on
-// retry gets the `flaky` label and its own issue. A red job with no failing test
-// to show for it, or a report that cannot be read, goes to one workflow-level
-// issue instead of being dropped. The script never closes or reopens an issue.
-// Zero dependencies: Node's native fetch.
+// retry gets the `flaky` label and its own issue. A red job is judged part by
+// part (each shard on its own): a red part with no failing test to show for
+// it, a part that uploaded nothing, or a report that cannot be read goes to one
+// workflow-level issue instead of being dropped. The script never closes or
+// reopens an issue. Zero dependencies: Node's native fetch.
 //
 //   node scripts/notify-linear-nightly.mjs --workflow <name> \
-//     --results <job=result,...> --reports <dir> --run-url <url> --sha <sha>
+//     --results <job=result,...> --reports <dir> [--parts <job=part part,...>] \
+//     --run-url <url> --sha <sha>
 //
 // Green means every result is exactly `success`. `cancelled` is red: on
 // `schedule` a timeout is reported as `cancelled` and must alert. --reports
-// holds the Playwright JSON reports the workflow uploaded, laid out as
-// scripts/lib/nightly-test-results.mjs describes. In GitHub Actions the step
-// output `fix_issues` lists, as JSON, the failing and flaky tests' issues this
-// run filed or commented on: the nightly fix agent's queue.
+// holds the results the workflow uploaded, laid out as
+// scripts/lib/nightly-test-results.mjs describes. --parts names each job's
+// parts when it has more than one (a shard matrix); every other job has the one
+// part `main`. In GitHub Actions the step output `fix_issues` lists, as JSON,
+// the failing and flaky tests' issues this run filed or commented on: the
+// nightly fix agent's queue.
 
 import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
@@ -47,6 +51,7 @@ const TITLE_LIMIT = 200;
 const MARKER_DIGEST_LENGTH = 24;
 const IDENTITY_MARKER = /nightly-identity:[0-9a-f]{24}/gu;
 const OUTCOME_RANK = { failed: 2, flaky: 1, passed: 0 };
+const SINGLE_PART = 'main';
 const TEST_LIFECYCLE =
   'Stays open until a human closes it. Each further night this test fails or passes only on retry adds a comment; the first night it passes adds a recovered comment; a failure after you close it opens a new issue.';
 const FLAKY_POLICY = 'A flaky test stays in the gate until this issue decides otherwise.';
@@ -108,11 +113,34 @@ function parseResults(raw) {
   });
 }
 
+/** `job=part part,job=part` into a Map of each job's parts; a job may appear once. */
+function parseParts(raw, results) {
+  const parts = new Map();
+  for (const entry of raw.split(',').filter((text) => text.trim())) {
+    const separator = entry.indexOf('=');
+    const job = entry.slice(0, separator).trim();
+    const names = entry
+      .slice(separator + 1)
+      .trim()
+      .split(/\s+/u)
+      .filter(Boolean);
+    if (separator < 1 || names.length === 0) {
+      throw new Error(`--parts entry "${entry}" is not job=part part ….`);
+    }
+    if (!results.some((result) => result.job === job) || parts.has(job)) {
+      throw new Error(`--parts names ${job}, which is not exactly one --results job.`);
+    }
+    parts.set(job, names);
+  }
+  return parts;
+}
+
 function parseCli(argv) {
   const { values } = parseArgs({
     allowPositionals: false,
     args: argv,
     options: {
+      parts: { type: 'string' },
       reports: { type: 'string' },
       results: { type: 'string' },
       'run-url': { type: 'string' },
@@ -125,9 +153,11 @@ function parseCli(argv) {
   if (missing.length > 0) {
     throw new Error(`Missing required argument(s): ${missing.map((f) => `--${f}`).join(', ')}.`);
   }
+  const results = parseResults(values.results);
   return {
+    parts: parseParts(values.parts ?? '', results),
     reportsDir: values.reports,
-    results: parseResults(values.results),
+    results,
     runUrl: values['run-url'],
     sha: values.sha,
     workflow: values.workflow,
@@ -165,23 +195,54 @@ function testsByIdentity(workflow, tests) {
   return byIdentity;
 }
 
-/** Red jobs no failing test explains, and every report that could not be read. */
-function findGaps(results, { jobsWithReports, problems, tests }) {
-  const failingJobs = new Set(tests.filter((t) => t.outcome === 'failed').map((t) => t.job));
-  const knownJobs = new Set(results.map(({ job }) => job));
+/**
+ * Every red part no failing test of its own explains, every part that should
+ * have reported and did not, and every report that could not be read. A part
+ * is judged alone: a sibling shard's failing test never explains it.
+ */
+function findGaps(results, declaredParts, { parts, problems, tests }) {
+  const failingParts = new Set(
+    tests.filter((t) => t.outcome === 'failed').map((t) => `${t.job}/${t.part}`)
+  );
+  const expected = new Set();
   const gaps = [];
   for (const { job, result } of results) {
-    if (result === SUCCESS || failingJobs.has(job)) {
+    const declared = declaredParts.get(job);
+    const names = declared ?? [SINGLE_PART];
+    for (const name of names) {
+      expected.add(`${job}/${name}`);
+    }
+    if (result === SUCCESS) {
       continue;
     }
-    const why = jobsWithReports.has(job)
-      ? 'its test results show no failing test'
-      : 'it uploaded no test results';
-    gaps.push(`\`${job}\` is ${result || '(no result)'}, but ${why}.`);
+    const verdict = `${result || '(no result)'}`;
+    const who = (name) => (declared ? `\`${job}\` part \`${name}\`` : `\`${job}\``);
+    let allGreen = true;
+    for (const name of names) {
+      const part = parts.get(`${job}/${name}`);
+      if (part?.status === SUCCESS) {
+        continue;
+      }
+      allGreen = false;
+      if (!part) {
+        gaps.push(
+          declared
+            ? `${who(name)} uploaded no test results (\`${job}\` is ${verdict}).`
+            : `\`${job}\` is ${verdict}, but it uploaded no test results.`
+        );
+      } else if (!part.status) {
+        gaps.push(`${who(name)} recorded no job status (\`${job}\` is ${verdict}).`);
+      } else if (!failingParts.has(`${job}/${name}`)) {
+        gaps.push(`${who(name)} is ${part.status}, but its test results show no failing test.`);
+      }
+    }
+    if (allGreen) {
+      gaps.push(`\`${job}\` is ${verdict}, but every part reports success.`);
+    }
   }
-  for (const job of jobsWithReports) {
-    if (!knownJobs.has(job)) {
-      gaps.push(`Results directory \`${job}\` names no job in --results.`);
+  for (const key of parts.keys()) {
+    if (!expected.has(key)) {
+      gaps.push(`Results part \`${key}\` names no job and part in --results and --parts.`);
     }
   }
   for (const { file, reason } of problems) {
@@ -443,10 +504,10 @@ function planNight({ gaps, isGreen, night, open, tonight }) {
   return plan;
 }
 
-async function reportNightly({ linear, reports, results, runUrl, sha, workflow }) {
+async function reportNightly({ linear, parts, reports, results, runUrl, sha, workflow }) {
   const night = { runUrl, sha, workflow };
   const tonight = testsByIdentity(workflow, reports.tests);
-  const gaps = findGaps(results, reports);
+  const gaps = findGaps(results, parts, reports);
   const isGreen = results.every(({ result }) => result === SUCCESS);
   const open = await openIssuesByIdentity(linear, workflow);
   const plan = planNight({ gaps, isGreen, night, open, tonight });

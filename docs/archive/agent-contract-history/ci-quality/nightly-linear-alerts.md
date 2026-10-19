@@ -19,10 +19,14 @@ nowhere, so a red nightly in either went unseen.
 BST-2189 replaced one issue per workflow with one issue per failing test.
 
 - Each nightly Playwright run writes a JSON report to
-  `$RUNNER_TEMP/nightly-results/<results job>/`, and its job uploads that
-  directory as `nightly-results--<job>[--<part>]` on every finished run, green or
-  red. Notify Linear downloads them and `scripts/lib/nightly-test-results.mjs`
-  reads them into tests: workflow, repository spec path and full title.
+  `$RUNNER_TEMP/nightly-results/<results job>/<part>/`. A part is one job
+  instance: each Desktop regression shard (`shard-N`, declared to Notify Linear
+  through its `parts` input), otherwise `main`. An `always()` step records the
+  job's own `job.status` there, and the job uploads the directory as
+  `nightly-results--<job>[--<part>]` on every run. The web lane sequence also
+  writes `<lane>.unreported` for a lane that failed without a report. Notify
+  Linear downloads them, and `scripts/lib/nightly-test-results.mjs` reads them
+  into tests: workflow, repository spec path and full title.
 - A failing test gets its own issue, `Nightly red: <workflow> › <spec> › <title>`.
   A test that passed only on retry gets `Nightly flaky: …` and the `flaky` label,
   and stays in the gate. Both are labelled `nightly-alert`, `area-ci`,
@@ -34,10 +38,13 @@ BST-2189 replaced one issue per workflow with one issue per failing test.
   test passes comments `Recovered: <run URL>` on that issue alone, once until its
   next red night. A green workflow recovers every open issue it owns; a test that
   did not run on a red night is left alone.
-- A red job that shows no failing test (setup failed, nothing uploaded, a run
-  error such as a global timeout) and any report that cannot be read go to one
-  workflow-level issue, `Nightly red: <workflow>`, listing each. It recovers the
-  first night without one.
+- A red job is judged part by part, so a sibling shard's failing test never
+  explains another shard. These go to one workflow-level issue,
+  `Nightly red: <workflow>`, which lists each: a red part with no failing test
+  of its own, an expected part that uploaded nothing or recorded no status, a red
+  job whose parts all report success, an unreported lane, a run error such as a
+  global timeout, and any report that cannot be read. It recovers the first
+  night without one (Codex review on #3989).
 - Workflows that upload no results (Test, Nightly Coverage, Knip and the rest)
   file every red night on their workflow-level issue.
 - The script never closes or reopens an issue. A human closes it, and a failure
