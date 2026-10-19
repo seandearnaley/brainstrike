@@ -21,7 +21,6 @@
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "catalog:",
     "@mastra/core": "1.78.0",
     "@mastra/memory": "1.38.0",
     "@mastra/schema-compat": "catalog:",

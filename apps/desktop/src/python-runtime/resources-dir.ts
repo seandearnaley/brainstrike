@@ -2,9 +2,9 @@ import path from 'node:path';
 import { resolveBundledModuleDir } from '../bundled-sibling-path';
 
 /**
- * The bundled CPython archive's directory, from the launching app's facts.
- * Electron-free: Main passes `app.isPackaged` and `process.resourcesPath`, the
- * desktop agent host passes the same values from its launch options.
+ * The bundled CPython's manifest directory, from the launching app's facts.
+ * Electron-free: the desktop agent host passes `app.isPackaged` and
+ * `process.resourcesPath` from its launch options.
  */
 export function resolveDesktopPythonRuntimeResourcesDir(
   isPackaged: boolean,
@@ -47,4 +47,29 @@ export function resolveDesktopPythonRuntimeResourcesDir(
     );
   }
   return path.join(path.dirname(distDir), 'resources', 'python-runtime');
+}
+
+/**
+ * BST-1627: where the build-time-unpacked interpreter tree lives.
+ *
+ * Packaged: `build.{mac,linux}.extraResources` copies the target's unpack
+ * straight into `<Resources>/python-runtime`, the directory the manifest lands
+ * in, so the install dir IS the resources dir. Development: the per-target
+ * directory `scripts/fetch-python-runtime.mjs` unpacks into.
+ *
+ * Deliberately no platform/arch validation here: this only derives a path.
+ * `resolvePythonBinary` classifies platform/arch FIRST and rejects an
+ * unsupported one with the typed `python_unsupported_platform`; a guard here
+ * would turn that typed rejection into an untyped synchronous throw.
+ */
+export function resolveDesktopPythonRuntimeInstallDir(
+  isPackaged: boolean,
+  resourcesDir: string,
+  platform: string,
+  arch: string
+): string {
+  if (isPackaged) {
+    return resourcesDir;
+  }
+  return path.join(resourcesDir, 'unpacked', `${platform}-${arch}`);
 }

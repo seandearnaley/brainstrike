@@ -49,10 +49,50 @@ test('published snapshot factory waits for the authoritative catalog before open
     snapshotsBaseDir: f.snapshotsBaseDir,
     workspaceRoots: { workspaceRoots: () => catalog.promise },
   });
-  expect(returned).toBeUndefined();
+  expect(returned).toEqual({ stop: expect.any(Function) });
   expect(ensure).not.toHaveBeenCalled();
   catalog.resolve(f.roots);
   await vi.waitFor(() => expect(f.logger.info).toHaveBeenCalledTimes(2));
+  expect(ensure).toHaveBeenCalledExactlyOnceWith({ path: f.rootPath, rootId: 'root-1' });
+  expect(f.logger.error).not.toHaveBeenCalled();
+});
+
+test('a pass the shutdown stops during its catalog read opens no root, and the next launch does the work (BST-1859)', async () => {
+  const f = await fixture();
+  const catalog = Promise.withResolvers<WorkspaceRootReply>();
+  const ensure = vi.spyOn(f.service, 'ensureShadowRepo');
+  const quitting = startSnapshotStartupMaintenance({
+    logger: f.logger,
+    readHostThreadIds: async () => new Set(),
+    readHostThreadRows: async () => [],
+    snapshotService: f.service,
+    snapshotsBaseDir: f.snapshotsBaseDir,
+    workspaceRoots: { workspaceRoots: () => catalog.promise },
+  });
+  const stopped = quitting.stop();
+  catalog.resolve(f.roots);
+  await stopped;
+  expect(ensure).not.toHaveBeenCalled();
+  expect(f.logger.info).toHaveBeenCalledExactlyOnceWith(
+    'Workspace snapshot startup maintenance stopped: the app is quitting',
+    { before: 'orphan sweep' }
+  );
+
+  const nextLaunch = startSnapshotStartupMaintenance({
+    logger: f.logger,
+    readHostThreadIds: async () => new Set(),
+    readHostThreadRows: async () => [],
+    snapshotService: f.service,
+    snapshotsBaseDir: f.snapshotsBaseDir,
+    workspaceRoots: { workspaceRoots: async () => f.roots },
+  });
+  await vi.waitFor(() =>
+    expect(f.logger.info).toHaveBeenCalledWith(
+      'Workspace snapshot startup GC completed',
+      expect.objectContaining({ failures: 0 })
+    )
+  );
+  await nextLaunch.stop();
   expect(ensure).toHaveBeenCalledExactlyOnceWith({ path: f.rootPath, rootId: 'root-1' });
   expect(f.logger.error).not.toHaveBeenCalled();
 });

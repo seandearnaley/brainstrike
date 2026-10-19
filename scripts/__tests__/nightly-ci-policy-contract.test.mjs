@@ -41,6 +41,7 @@ const STAYS_DISABLED = [
   'coverage.yml',
   'local-desktop-e2e.yml',
   'react-doctor.yml',
+  'release.yml',
 ];
 const REUSABLE = ['nightly-fix-agent.yml', 'nightly-linear-alert.yml'];
 // BST-2188: the merge queue's fast tier. merge-queue-contract.test.mjs owns its

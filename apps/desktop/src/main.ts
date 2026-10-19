@@ -164,7 +164,10 @@ import {
   readConsoleLevelOverride,
 } from './main/logging-preferences';
 import { installShutdownSignalHandlers } from './main/shutdown-signals';
-import { startSnapshotStartupMaintenance } from './main/snapshot-lifecycle';
+import {
+  type SnapshotStartupMaintenance,
+  startSnapshotStartupMaintenance,
+} from './main/snapshot-lifecycle';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
@@ -189,7 +192,6 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
-import { warmDesktopPythonRuntime } from './python-runtime';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -377,6 +379,7 @@ let worktreeService: ReturnType<typeof createWorktreeService> | null = null;
 // load, before construction. There is exactly one instance; T2/T3 consume it
 // through the injected seams, never by constructing a second service.
 let snapshotService: SnapshotService | null = null;
+let snapshotMaintenance: SnapshotStartupMaintenance | undefined;
 let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
@@ -509,6 +512,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
             chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
         );
       },
+      // Stops between its stages and joins the one in flight, before the agent host,
+      // the database or git that it reads retire; the next launch runs it again.
+      'snapshot-maintenance': () => snapshotMaintenance?.stop(),
     },
   };
 }
@@ -1339,7 +1345,7 @@ if (singleInstanceLockAcquired) {
         snapshotsBaseDir,
       });
       snapshotService = constructedSnapshotService;
-      startSnapshotStartupMaintenance({
+      snapshotMaintenance = startSnapshotStartupMaintenance({
         logger,
         readHostThreadIds: async () =>
           new Set(
@@ -1704,9 +1710,6 @@ if (singleInstanceLockAcquired) {
 
       await rebuildApplicationMenu();
 
-      // Unpack the bundled CPython once at boot: the first python3 skill script
-      // the agent host runs then reuses it (the host resolves the same userData path).
-      warmDesktopPythonRuntime();
       if (quitAfterBootMeasurement) {
         // The boot-measurement harness stops at agent-host ready, before any window work.
         await nativeIndexActivation.acquireProfile();

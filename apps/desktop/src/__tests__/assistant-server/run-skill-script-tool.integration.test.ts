@@ -260,10 +260,12 @@ describe('brainstrike.runSkillScript', () => {
   it('runs the python3 runtime through the injected bundled-Python resolver', async () => {
     const fixture = await createFixture();
     // The running Node executable stands in for the interpreter and prints
-    // its script argv, proving execution uses the resolver rather than PATH python3.
+    // its script argv, proving execution uses the resolver rather than PATH
+    // python3, and the bundled-runtime env that keeps bytecode out of the
+    // shipped tree (BST-1627).
     await fsPromises.writeFile(
       path.join(fixture.scriptsDir, 'inspect.mjs'),
-      'console.log(process.argv[1]);',
+      'console.log(process.argv[1]); console.log("bytecode=" + process.env.PYTHONDONTWRITEBYTECODE);',
       'utf8'
     );
     const resolvePythonExecutable = async () => process.execPath;
@@ -282,6 +284,7 @@ describe('brainstrike.runSkillScript', () => {
     });
     expect(result).toMatchObject({ exitCode: 0, runtime: 'python3', timedOut: false });
     expect(result.stdout.trim()).toContain(path.join('scripts', 'inspect.mjs'));
+    expect(result.stdout).toContain('bytecode=1');
   });
 
   it('propagates a typed bundled-Python failure instead of falling back to PATH python3', async () => {
