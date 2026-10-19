@@ -818,6 +818,16 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         kind: Schema.Literals(['agentic', 'deterministic']),
         modelId: Schema.optional(Id),
         reason: Schema.Literals(['pre-request', 'context-overflow']),
+        /**
+         * A deterministic fallback's reason: the agentic summarizer's typed
+         * failure code, and the reference its cause is logged under (BST-2204).
+         */
+        summarizerFailure: Schema.optional(
+          Schema.Struct({
+            code: Id,
+            correlationId: Schema.optional(Schema.String.check(Schema.isUUID())),
+          })
+        ),
         summary: Schema.String.check(Schema.isMinCodePoints(1)),
         usage: Schema.optional(json()),
       }),

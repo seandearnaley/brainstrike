@@ -15,6 +15,9 @@ export interface CompactionSummaryCardProps {
   readonly fallbackKind: CompactionSummaryPayload['fallbackKind'];
 }
 
+/** The agent host's code for a summary outside the required five sections. */
+const SUMMARY_INVALID_CODE = 'compaction.summary-invalid';
+
 const REASON_LABELS: Record<CompactionSummaryDetails['reason'], string> = {
   'context-overflow': 'After the provider reported a context overflow',
   'pre-request': 'Before the request, to keep it inside the context budget',
@@ -27,7 +30,14 @@ function kindLabel(
   if (fallbackKind === 'agentic') {
     return 'AI-generated summary';
   }
-  // A deterministic fallback with a receipt: the summarizer ran, and its answer was refused.
+  const failure = details?.summarizerFailure;
+  if (failure?.code === SUMMARY_INVALID_CODE) {
+    return 'Deterministic compaction (the summarizer’s answer did not match the required format)';
+  }
+  if (failure) {
+    return 'Deterministic compaction (the summarizer failed)';
+  }
+  // A fallback committed before its failure was recorded: a receipt means the answer was refused.
   return details?.modelId === undefined
     ? 'Deterministic compaction (no summarization model ran)'
     : 'Deterministic compaction (the summarizer’s answer did not match the required format)';
@@ -44,6 +54,18 @@ function CompactionDetails({ details }: { readonly details: CompactionSummaryDet
     ...(details.modelId === undefined
       ? []
       : [{ id: 'model', label: 'Summarizer', value: details.modelId }]),
+    ...(details.summarizerFailure === undefined
+      ? []
+      : [
+          {
+            id: 'summarizer-failure',
+            label: 'Summarizer failure',
+            value:
+              details.summarizerFailure.correlationId === undefined
+                ? details.summarizerFailure.code
+                : `${details.summarizerFailure.code} · Reference: ${details.summarizerFailure.correlationId}`,
+          },
+        ]),
     ...(details.usage === undefined
       ? []
       : [

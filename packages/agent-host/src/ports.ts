@@ -188,6 +188,30 @@ export interface HostRunContext {
    */
   readonly workingMemory?: false;
 }
+/** One step's request as the run's Memory selected it. */
+export interface HostPreparedStep {
+  /**
+   * The earlier committed turns (their run ids) whose messages this request
+   * holds, from the branch or recalled. Pre-request compaction measures this
+   * request, and only this thread's branch turns among them can leave it
+   * (ADR-0013): a turn recalled from another thread is that thread's history.
+   */
+  readonly historyRunIds: ReadonlySet<string>;
+  readonly messages: ModelMessage[];
+  /**
+   * The same step's request reassembled from the committed log after Core
+   * committed a compaction, so the compacted turns leave it. Memory's own step
+   * preparation and recall do not run again.
+   */
+  rebuild(): Promise<HostPreparedStep>;
+  /**
+   * The committed tool-output rewrites the provider request applies to these
+   * messages, from every thread the request reads (resource-wide with
+   * resource-scoped recall), so the request is measured as it is sent.
+   */
+  readonly rewrites: ReadonlyMap<string, HostProjectionRewrite>;
+  readonly system?: string;
+}
 /** Fence new work and join every provider, memory, storage and hook tail. */
 export interface HostRunOwner {
   close(): Promise<void>;
@@ -206,7 +230,7 @@ export interface HostRunOwner {
   prepareHostStep?(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
-  }): Promise<{ readonly messages: ModelMessage[]; readonly system?: string }>;
+  }): Promise<HostPreparedStep>;
 }
 
 /** Trusted run configuration; credential resolution stays inside the adapter. */

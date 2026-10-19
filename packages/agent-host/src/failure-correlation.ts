@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { BoundaryFailure } from '@brainstrike/assistant-contract';
 
 const ids = new WeakMap<object, string>();
 
@@ -18,4 +19,11 @@ export function correlationIdFor(cause: unknown): string {
   const id = randomUUID();
   ids.set(cause, id);
   return id;
+}
+
+/** A fault names the correlation id its cause is logged under; a refusal needs none. */
+export function correlatedFailure(failure: BoundaryFailure, cause: unknown): BoundaryFailure {
+  return failure.kind === 'fault' && failure.correlationId === undefined
+    ? { ...failure, correlationId: correlationIdFor(cause) }
+    : failure;
 }

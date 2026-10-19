@@ -20,11 +20,26 @@ describe('readHostContextCompaction', () => {
     expect(readHostContextCompaction(part)).toEqual(part);
   });
 
+  it('reads the summarizer failure a deterministic fallback recorded (BST-2204)', () => {
+    const fallback = {
+      kind: 'deterministic',
+      reason: 'pre-request',
+      summarizerFailure: {
+        code: 'provider.auth-failed',
+        correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
+      },
+      summary: 'Deterministic fallback: dropped 2 earlier turns.',
+      turnsCompacted: 2,
+    } as const;
+    expect(readHostContextCompaction(fallback)).toEqual(fallback);
+  });
+
   it.each([
     ['without its reason', { ...part, reason: undefined }],
     ['with no compacted turns', { ...part, turnsCompacted: 0 }],
     ['with an empty summarizer model', { ...part, modelId: '' }],
     ['with usage missing its tokens', { ...part, usage: { inputTokens: 10 } }],
+    ['with a summarizer failure missing its code', { ...part, summarizerFailure: {} }],
   ])('refuses a part %s', (_label, data) => {
     expect(() => readHostContextCompaction(data)).toThrow(Error);
   });
