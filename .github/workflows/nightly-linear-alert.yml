@@ -17,6 +17,10 @@ on:
     secrets:
       LINEAR_API_KEY:
         required: true
+    outputs:
+      fix_issues:
+        description: JSON array of the failing and flaky tests' issues this run filed or commented on, the nightly fix agent's queue (BST-2189).
+        value: ${{ jobs.notify.outputs.fix_issues }}
 
 permissions:
   contents: read
@@ -26,6 +30,8 @@ jobs:
     name: Notify Linear
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      fix_issues: ${{ steps.file.outputs.fix_issues }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -46,6 +52,7 @@ jobs:
           pattern: nightly-results--*
           path: ${{ runner.temp }}/nightly-results
       - name: File or update the Linear issues
+        id: file
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           WORKFLOW_NAME: ${{ inputs.workflow_name }}

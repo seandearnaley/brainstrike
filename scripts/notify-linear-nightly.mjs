@@ -21,17 +21,25 @@
 // holds the results the workflow uploaded, laid out as
 // scripts/lib/nightly-test-results.mjs describes. --parts names each job's
 // parts when it has more than one (a shard matrix); every other job has the one
-// part `main`.
+// part `main`. In GitHub Actions the step output `fix_issues` lists, as JSON,
+// the failing and flaky tests' issues this run filed or commented on: the
+// nightly fix agent's queue.
 
 import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import {
+  allPages,
+  assertSucceeded,
+  createLinearClient,
+  exactlyOne,
+  nodesOf,
+} from './lib/linear-api.mjs';
 import { readNightlyTestResults } from './lib/nightly-test-results.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const LINEAR_ENDPOINT = 'https://api.linear.app/graphql';
 const SUCCESS = 'success';
 const RECOVERED_PREFIX = 'Recovered:';
 const HIGH_PRIORITY = 2;
@@ -39,7 +47,6 @@ const ALERT_LABEL = { color: '#E5484D', name: 'nightly-alert' };
 const FLAKY_LABEL = { color: '#F2994A', name: 'flaky' };
 const REQUIRED_LABEL_NAMES = ['area-ci', 'needs-human'];
 const REQUIRED_FLAGS = ['workflow', 'results', 'reports', 'run-url', 'sha'];
-const ERROR_BODY_LIMIT = 500;
 const TITLE_LIMIT = 200;
 const MARKER_DIGEST_LENGTH = 24;
 const IDENTITY_MARKER = /nightly-identity:[0-9a-f]{24}/gu;
@@ -95,73 +102,6 @@ const COMMENT_CREATE_MUTATION = `mutation ($input: CommentCreateInput!) {
 const ADD_LABEL_MUTATION = `mutation ($id: String!, $labelId: String!) {
   issueAddLabel(id: $id, labelId: $labelId) { success }
 }`;
-
-function createLinearClient(fetchImpl, apiKey) {
-  return async function request(query, variables = {}) {
-    // Personal API keys are sent raw: no `Bearer` prefix.
-    const response = await fetchImpl(LINEAR_ENDPOINT, {
-      body: JSON.stringify({ query, variables }),
-      headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
-      method: 'POST',
-    });
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, ERROR_BODY_LIMIT);
-      throw new Error(`Linear API returned HTTP ${response.status}: ${detail}`);
-    }
-    const payload = await response.json();
-    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
-      const messages = payload.errors.map((error) => error?.message ?? 'unknown error');
-      throw new Error(`Linear API returned errors: ${messages.join('; ')}`);
-    }
-    if (typeof payload.data !== 'object' || payload.data === null) {
-      throw new Error('Linear API response carried no data.');
-    }
-    return payload.data;
-  };
-}
-
-function nodesOf(data, field) {
-  const nodes = data[field]?.nodes;
-  if (!Array.isArray(nodes)) {
-    throw new Error(`Linear API response is missing ${field}.nodes.`);
-  }
-  return nodes;
-}
-
-function exactlyOne(nodes, description) {
-  if (nodes.length === 0) {
-    throw new Error(`Linear has no ${description}.`);
-  }
-  if (nodes.length > 1) {
-    throw new Error(`Linear has ${nodes.length} ${description}; expected exactly one.`);
-  }
-  return nodes[0];
-}
-
-function assertSucceeded(payload, field) {
-  if (payload[field]?.success !== true) {
-    throw new Error(`Linear ${field} did not report success.`);
-  }
-  return payload[field];
-}
-
-/** Follows a connection's pages; `pageOf` returns `{ nodes, pageInfo }` or undefined. */
-async function allPages(fetchPage, pageOf, what) {
-  const nodes = [];
-  let cursor = null;
-  do {
-    const page = pageOf(await fetchPage(cursor));
-    if (!(Array.isArray(page?.nodes) && page.pageInfo)) {
-      throw new Error(`Linear API response is missing ${what}.`);
-    }
-    nodes.push(...page.nodes);
-    if (page.pageInfo.hasNextPage && !page.pageInfo.endCursor) {
-      throw new Error(`Linear reported more ${what} but no cursor.`);
-    }
-    cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
-  } while (cursor);
-  return nodes;
-}
 
 function parseResults(raw) {
   return raw.split(',').map((entry) => {
@@ -530,10 +470,11 @@ function planNight({ gaps, isGreen, night, open, tonight }) {
         ? {
             addFlaky: test.outcome === 'flaky' && !hasLabel(issue, FLAKY_LABEL.name),
             body: testComment(test, night),
+            fixable: true,
             issue,
             kind: 'comment',
           }
-        : { filing: describeTestIssue(test, night), kind: 'create' }
+        : { filing: describeTestIssue(test, night), fixable: true, kind: 'create' }
     );
   }
   const workflowLevel = workflowIdentity(night.workflow);
@@ -585,7 +526,8 @@ async function reportNightly({ linear, parts, reports, results, runUrl, sha, wor
   const outcomes = [];
   for (const step of plan) {
     if (step.kind === 'create') {
-      outcomes.push({ action: 'created', issue: await createIssue(linear, filing, step.filing) });
+      const issue = await createIssue(linear, filing, step.filing);
+      outcomes.push({ action: 'created', fixable: step.fixable, issue });
     } else if (step.kind === 'comment') {
       await addComment(linear, step.issue.id, step.body);
       if (step.addFlaky) {
@@ -594,7 +536,7 @@ async function reportNightly({ linear, parts, reports, results, runUrl, sha, wor
           'issueAddLabel'
         );
       }
-      outcomes.push({ action: 'commented', issue: step.issue });
+      outcomes.push({ action: 'commented', fixable: step.fixable, issue: step.issue });
     } else if (step.kind === 'recover') {
       await addComment(linear, step.issue.id, `${RECOVERED_PREFIX} ${runUrl}`);
       outcomes.push({ action: 'recovered', issue: step.issue });
@@ -617,12 +559,21 @@ function summaryLines(workflow, outcomes) {
 }
 
 /**
+ * The issues a fix agent may take tonight (BST-2189): every failing or flaky
+ * test's issue this run filed or commented on, never the workflow-level one.
+ */
+function fixIssues(outcomes) {
+  return outcomes.filter((outcome) => outcome.fixable).map(({ issue }) => issue.identifier);
+}
+
+/**
  * @returns {Promise<number>} the process exit code: 0, or 1 on any failure.
  */
 export async function main({
   argv = process.argv.slice(2),
   env = process.env,
   fetchImpl = globalThis.fetch,
+  githubOutputPath = env.GITHUB_OUTPUT,
   repoRoot = REPO_ROOT,
   stepSummaryPath = env.GITHUB_STEP_SUMMARY,
   stdout = process.stdout,
@@ -643,6 +594,9 @@ export async function main({
     stdout.write(text);
     if (stepSummaryPath) {
       appendFileSync(stepSummaryPath, text);
+    }
+    if (githubOutputPath) {
+      appendFileSync(githubOutputPath, `fix_issues=${JSON.stringify(fixIssues(outcomes))}\n`);
     }
     return 0;
   } catch (error) {

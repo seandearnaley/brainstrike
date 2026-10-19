@@ -28,9 +28,17 @@
     //
     // The root workspace genuinely owns only the repo-root config files. Keep
     // these patterns at depth 1 — widening to `**` reinstates the fallback.
+    //
+    // `project` does not bound PLUGIN entries, though: the root's Vitest and
+    // Node.js test-runner plugins add `**/*.test.*` and `**/test/**` (knip 6.41),
+    // which still reach the spikes' own tests and grade their imports against
+    // this repo's manifests — `ai` and `zod` in
+    // spikes/m0-a1-qualification/original/s-dur/test/helpers.ts are declared in
+    // spikes/m0-a1-qualification/package.json. Hence the `spikes/**` ignore.
     ".": {
       "entry": ["*.{js,mjs,cjs,ts,mts,cts}"],
       "project": ["*.{js,mjs,cjs,ts,mts,cts}"],
+      "ignore": ["spikes/**"],
       "ignoreDependencies": [
         // scripts/react-compiler-inventory.mjs imports transformSync directly.
         // CLI scripts are outside the root graph; keep the exception root-only.
@@ -43,8 +51,18 @@
         "index.html", // Entry for the web app
         "src/main.tsx", // Main entry point
         "src/app/api/assistant/route.ts", // Assistant API route
-        "src/app/api/assistant/status/route.ts" // Assistant status API route
+        "src/app/api/assistant/status/route.ts", // Assistant status API route
+        // Statically analysed instead of loaded; see the `playwright` block below.
+        "playwright.config.mts"
       ],
+      // playwright.config.mts throws at import unless BRAINSTRIKE_WEB_CHROMIUM_DIR
+      // names a provisioned Chromium, and a config load error makes knip exit 2
+      // whatever it finds. Skip loading it (knip known-issues: override `config`)
+      // and name the specs its testDir/testMatch/testIgnore select.
+      "playwright": {
+        "config": [],
+        "entry": ["e2e/**/*.test.ts", "!e2e/**/__tests__/**"]
+      },
       "project": [
         "src/**/*.{ts,tsx}" // Source files
       ],
@@ -123,7 +141,6 @@
         // This workspace's production graph excludes tests; keep ownership local.
         "@tanstack/react-virtual",
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
-        "@effect/language-service", // Effect language-service plugin name, not a package; see packages/effect-kit
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
         "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
@@ -201,11 +218,13 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/assistant-contract": {
-      "ignoreDependencies": [
-        // Effect language-service plugin name, not a package; see packages/effect-kit.
-        "@effect/language-service"
-      ]
+    "packages/agent-evals": {
+      // The eval corpus, not package source. src/task.ts loads tasks/<id>/ as
+      // data and src/sandbox.ts copies repo/ into a sandbox workspace, then
+      // verify/ into <workspace>/.verify/, so a verifier's `../src/x.ts`
+      // resolves inside the sandbox — some targets are files the agent must
+      // create. tsconfig.json and vitest.config.mts exclude tasks/ likewise.
+      "ignore": ["tasks/**"]
     },
     "packages/assistant-data": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -452,9 +471,7 @@
         // test lane needs no built dist of @brainstrike/config. knip resolves that
         // to a file, not to the package name, so it cannot credit the declaration.
         // The declaration still states the real workspace dependency; do not drop it.
-        "@brainstrike/config",
-        // Effect language-service plugin name, not a package; see packages/effect-kit.
-        "@effect/language-service"
+        "@brainstrike/config"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -485,13 +502,6 @@
     "packages/effect-kit": {
       "project": ["src/**/*.ts"],
       "ignore": ["**/__tests__/**", "**/*.test.ts"],
-      "ignoreDependencies": [
-        // The Effect language-service tsconfig plugin NAME, not a package: the
-        // pinned `@effect/tsgo` binary resolves it in its dedicated diagnostics
-        // mode (docs/agents/effect-boundary.md § "Decoding and tooling"). Every
-        // Effect package carries the same entry.
-        "@effect/language-service"
-      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -526,9 +536,7 @@
       ],
       "ignoreDependencies": [
         // Bundled via tsup.config.ts noExternal; wasm subpath declared in src/types/wasm.d.ts
-        "tiktoken",
-        // Effect language-service plugin name, not a package; see packages/effect-kit.
-        "@effect/language-service"
+        "tiktoken"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -622,7 +630,14 @@
     "yauzl", // Satisfies @puppeteer/browsers' optional yauzl peer (reached only via @mermaid-js/mermaid-cli -> puppeteer) so Chrome extraction without `unzip` doesn't fall back to the hoisted yauzl@2.10.0, whose read streams never close (thejoshwolfe/yauzl#169)
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
     "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
-    "react-doctor" // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
+    "react-doctor", // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
+    // The Effect language-service tsconfig plugin NAME, not a package: knip's
+    // TypeScript plugin reads every `compilerOptions.plugins[].name` as a
+    // dependency, but the pinned `@effect/tsgo` binary embeds the service and
+    // reads this entry by name (its README "Plugin Options"); nothing installs
+    // or imports a package of this name. scripts/__tests__/effect-boundary-contract.test.mjs
+    // asserts every Effect consumer declares `@effect/tsgo` and resolves the plugin.
+    "@effect/language-service"
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
