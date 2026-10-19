@@ -131,6 +131,22 @@ async function mainLogRecords(page: Page): Promise<readonly MainLogRecord[]> {
   });
 }
 
+/** BST-2226: every committed hosted-embedder spend receipt, across the app's threads. */
+async function embeddingReceipts(page: Page): Promise<readonly unknown[]> {
+  const userData = await page.evaluate(() => globalThis.window.electronAPI!.getUserDataPath());
+  return await withAppHost(userData, async (client) => {
+    const { threads } = await client.request('thread/list', {});
+    const read = await Promise.all(
+      threads.map(({ threadId }) => client.request('thread/read', { fromSeq: 0, threadId }))
+    );
+    return read
+      .flatMap((thread) => thread.rows)
+      .flatMap(({ event }) =>
+        event.type === 'memory.usage' && event.kind === 'embedding' ? [event] : []
+      );
+  });
+}
+
 async function finishedOutcomes(page: Page): Promise<readonly unknown[]> {
   const userData = await page.evaluate(() => globalThis.window.electronAPI!.getUserDataPath());
   return await withAppHost(userData, async (client) => {
@@ -178,8 +194,20 @@ test('a hosted embedder recalls from the first send, with observations on', asyn
     / messages? · top \d+ · (all threads|this thread) · [\d,]+ ms/u,
     { timeout: 30_000 }
   );
+  // BST-2226: the embedder's provider-reported tokens are this thread's spend.
+  await expect(page.getByTestId('context-usage-source-memory-embedding')).toContainText(
+    'Memory embeddings',
+    { timeout: 30_000 }
+  );
   await startNewThread(page);
   expect(await finishedOutcomes(page)).toEqual(['completed']);
+  expect(await embeddingReceipts(page)).toContainEqual(
+    expect.objectContaining({
+      kind: 'embedding',
+      modelId: 'openai::text-embedding-3-small',
+      usage: expect.objectContaining({ outputTokens: 0 }),
+    })
+  );
   expect(modelProvider.refusals()).toEqual([]);
 });
 

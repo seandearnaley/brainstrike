@@ -68,7 +68,9 @@ async function vectorHost(
   const embedder: Extract<MastraEmbeddingModel<string>, { specificationVersion: 'v3' }> = {
     doEmbed: async ({ values }) => {
       embedded.push(...values);
-      return { embeddings: values.map(embedding), warnings: [] };
+      // A hosted embedder reports its tokens (BST-2226): one per word here.
+      const tokens = values.reduce((total, value) => total + value.split(/\s+/u).length, 0);
+      return { embeddings: values.map(embedding), usage: { tokens }, warnings: [] };
     },
     maxEmbeddingsPerCall: 16,
     modelId: profile.modelId,
@@ -135,6 +137,7 @@ async function vectorHost(
       )
       .toBe(true);
     return {
+      events,
       finished: events.find(
         (event): event is Extract<HostEvent, { type: 'run.finished' }> =>
           event.type === 'run.finished' && event.runId === runId
@@ -187,8 +190,19 @@ test('semantic recall writes vectors to the host state index and recalls them on
     [writer, reader]
   );
   try {
-    expect((await host.run('The capital of France is Paris.')).finished?.outcome).toBe('completed');
+    const written = await host.run('The capital of France is Paris.');
+    expect(written.finished?.outcome).toBe('completed');
     expect(host.storedVectors()).toBeGreaterThan(0);
+    // BST-2226: each embed call commits its provider-reported tokens under the embedder's catalog id.
+    const embeddingUsage = (events: readonly HostEvent[]) =>
+      events.filter((event) => event.type === 'memory.usage' && event.kind === 'embedding');
+    expect(embeddingUsage(written.events)).toContainEqual(
+      expect.objectContaining({
+        kind: 'embedding',
+        modelId: 'openai::fixture-embedder-8',
+        usage: expect.objectContaining({ inputTokens: 6, outputTokens: 0, totalTokens: 6 }),
+      })
+    );
     // BST-2225: a view subscribed to the reading thread receives its recall live.
     const { threadId } = await host.client.request('thread/start', { commandId: randomUUID() });
     await host.client.request('log/subscribe', { fromSeq: 0, threadId });
@@ -198,13 +212,20 @@ test('semantic recall writes vectors to the host state index and recalls them on
         recalls.push(telemetry.chunk);
       }
     });
+    let read: Awaited<ReturnType<typeof host.run>>;
     try {
-      expect((await host.run('Which city did I mention?', threadId)).finished?.outcome).toBe(
-        'completed'
-      );
+      read = await host.run('Which city did I mention?', threadId);
+      expect(read.finished?.outcome).toBe('completed');
     } finally {
       release();
     }
+    // The reading run's query embedding is its own spend.
+    expect(embeddingUsage(read.events)).toContainEqual(
+      expect.objectContaining({
+        modelId: 'openai::fixture-embedder-8',
+        usage: expect.objectContaining({ inputTokens: 5 }),
+      })
+    );
     // The recalled earlier turn from another thread reaches the provider request.
     expect(prompt(reader)).toContain('The capital of France is Paris.');
     expect(host.embedded).toContain('Which city did I mention?');

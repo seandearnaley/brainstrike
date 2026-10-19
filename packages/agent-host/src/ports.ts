@@ -177,7 +177,7 @@ export interface HostRunContext {
   recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */
   recordObserverUsage?(receipt: {
-    readonly kind: 'observation' | 'reflection';
+    readonly kind: 'observation' | 'reflection' | 'embedding';
     readonly modelId: string;
     readonly usage: LanguageModelUsage;
   }): Promise<void>;
