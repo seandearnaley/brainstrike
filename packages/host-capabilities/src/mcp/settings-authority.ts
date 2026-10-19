@@ -16,25 +16,15 @@ import {
   parseMcpExtensionEnablement,
   refusal,
 } from '@brainstrike/assistant-contract';
-import {
-  findMcpCatalogEntry,
-  type McpCatalogEntry,
-  mcpCatalogInstallRefusal,
-  mcpCatalogServerInput,
-} from '@brainstrike/assistant-contract/mcp-catalog';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
-import { applyEdits, type FormattingOptions, modify } from 'jsonc-parser';
+import type { McpBearerCredentialWriter } from './bearer-credential.js';
+import { installCatalogServerWith } from './catalog-install.js';
 import type {
-  McpBearerCredentialReference,
-  McpBearerCredentialWriter,
-} from './bearer-credential.js';
-import {
-  type LoadedMcpConfig,
-  type McpConfigFile,
-  type McpConfigWriteResult,
-  parseMcpConfig,
-  type ResolvedMcpConfig,
+  LoadedMcpConfig,
+  McpConfigFile,
+  McpConfigWriteResult,
+  ResolvedMcpConfig,
 } from './config-file.js';
 import { toMcpConfigStatus } from './config-status.js';
 import { type McpConfigWriteSync, syncFailureError } from './config-sync.js';
@@ -58,11 +48,6 @@ import type { McpDiscoveredTool } from './types.js';
 
 const logger = createLogger('McpSettingsAuthority');
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
-const CONFIG_FORMATTING: FormattingOptions = { eol: '\n', insertSpaces: true, tabSize: 2 };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** A reset or shutdown retired the settings lifecycle: requests are refused, not failed. */
 const MCP_SETTINGS_CLOSED = refusal({
@@ -261,119 +246,19 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     });
   }
 
-  /**
-   * Appends one catalog server to the config (spec 2026-10-18 §4.2) on the
-   * revision it read. A token entry stores its token first and removes it
-   * again unless the config file was written, since a written file references it.
-   */
+  /** Appends one catalog server to the config: `installCatalogServerWith`, on this lifecycle. */
   installCatalogServer(
     request: HostParams<'mcp/config/install'>
   ): Promise<HostResults['mcp/config/install']> {
-    return this.#trackOperation(async (lifecycleEpoch) => {
-      const configPath = await this.options.configFile.path();
-      const refuse = (error: string): McpConfigWriteResult => ({
-        error,
-        path: configPath,
-        success: false,
-      });
-      const entry = findMcpCatalogEntry(request.catalogId);
-      if (!entry) {
-        return refuse(`Unknown MCP catalog entry "${request.catalogId}".`);
-      }
-      const mismatch = mcpCatalogInstallRefusal(entry, {
-        access: request.access,
-        hasToken: request.token !== undefined,
-      });
-      if (mismatch !== undefined) {
-        return refuse(mismatch);
-      }
-      const document = await this.options.configFile.readText(true);
-      if (document.error !== undefined) {
-        return refuse(`Fix the MCP config before installing ${entry.name}: ${document.error}`);
-      }
-      if (parseMcpConfig(document.content).servers.some(({ name }) => name === entry.id)) {
-        return refuse(`An MCP server named "${entry.id}" is already configured.`);
-      }
-      let credential: McpBearerCredentialReference | undefined;
-      if (request.token !== undefined) {
-        try {
-          credential = await this.options.bearerCredentials.create(request.token);
-        } catch (error) {
-          return refuse(`${entry.name} token was not stored: ${errorMessage(error)}`);
-        }
-      }
-      const server = mcpCatalogServerInput(entry, request.access, credential);
-      const content = applyEdits(
-        document.content,
-        modify(document.content, ['servers', -1], server, { formattingOptions: CONFIG_FORMATTING })
-      );
-      return await this.#commitInstallText(
-        entry,
-        credential,
-        content,
-        document.revision,
-        lifecycleEpoch
-      );
-    });
-  }
-
-  /**
-   * Commits an install's config text. The stored token stays only once the
-   * file that references it was written (`writeText` resolved success): a
-   * refused or failed write, or a `writeText` that throws, removes the token
-   * and reports a failed removal.
-   */
-  async #commitInstallText(
-    entry: McpCatalogEntry,
-    credential: McpBearerCredentialReference | undefined,
-    content: string,
-    baseRevision: string,
-    lifecycleEpoch: number
-  ): Promise<McpConfigWriteResult> {
-    let committed: McpConfigWriteSync;
-    try {
-      committed = await this.#writeAndSync(
-        content,
-        baseRevision,
-        lifecycleEpoch,
-        `The MCP config changed while installing ${entry.name}; nothing was installed. Try again.`
-      );
-    } catch (error) {
-      if (credential === undefined) {
-        throw error;
-      }
-      const removalFailure = await this.#removeUnwrittenToken(entry, credential);
-      const removal = removalFailure ?? `the stored ${entry.name} token was removed`;
-      throw new Error(`${errorMessage(error)}; ${removal}`, { cause: error });
-    }
-    const { result, syncFailure } = committed;
-    if (result.success || credential === undefined) {
-      if (syncFailure !== undefined) {
-        throw syncFailureError(result, syncFailure);
-      }
-      return result;
-    }
-    const removalFailure = await this.#removeUnwrittenToken(entry, credential);
-    if (syncFailure !== undefined) {
-      const removal = removalFailure ?? `the stored ${entry.name} token was removed`;
-      throw syncFailureError(result, syncFailure, removal);
-    }
-    return removalFailure === undefined
-      ? result
-      : { ...result, error: `${result.error}; ${removalFailure}` };
-  }
-
-  /** Removes a token no written config references: `undefined`, or why it could not be. */
-  async #removeUnwrittenToken(
-    entry: McpCatalogEntry,
-    credential: McpBearerCredentialReference
-  ): Promise<string | undefined> {
-    try {
-      await this.options.bearerCredentials.delete(credential);
-      return undefined;
-    } catch (error) {
-      return `the stored ${entry.name} token could not be removed: ${errorMessage(error)}`;
-    }
+    return this.#trackOperation((lifecycleEpoch) =>
+      installCatalogServerWith({
+        bearerCredentials: this.options.bearerCredentials,
+        commit: (content, baseRevision, conflictMessage) =>
+          this.#writeAndSync(content, baseRevision, lifecycleEpoch, conflictMessage),
+        configFile: this.options.configFile,
+        request,
+      })
+    );
   }
 
   createSampleConfig(): Promise<HostResults['mcp/config/sample']> {

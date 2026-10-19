@@ -311,7 +311,8 @@ export function getDefaultMcpConfigTemplate(): string {
   return DEFAULT_MCP_CONFIG_TEMPLATE;
 }
 
-function errorMessage(error: unknown): string {
+/** A caught value's message: an `Error`'s own message, else the value as a string. */
+export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 

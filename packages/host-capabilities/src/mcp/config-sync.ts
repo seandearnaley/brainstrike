@@ -1,8 +1,4 @@
-import type { McpConfigWriteResult } from './config-file.js';
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { errorMessage, type McpConfigWriteResult } from './config-file.js';
 
 /** A step after a config write that threw: which one, and why. */
 export interface McpConfigSyncFailure {
