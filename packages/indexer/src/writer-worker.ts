@@ -36,15 +36,6 @@ try {
     : undefined;
   writer = new IndexWriter(options, openDesktopIndex(options, projection), projection);
   port.postMessage({ kind: 'ready', value: writer.info });
-  // BST-2239 proof only: what persisting this writer's compile cache costs once it is ready.
-  {
-    const startedAt = Date.now();
-    flushCompileCache();
-    proofWriterTiming('BST-2239 nested writer compile cache flushed after ready', {
-      compileCache: getCompileCacheDir() ?? null,
-      elapsedMs: Date.now() - startedAt,
-    });
-  }
   port.on('message', (input: unknown) => {
     let id: number | undefined;
     let closing = false;

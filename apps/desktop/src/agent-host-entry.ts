@@ -91,16 +91,6 @@ async function main(): Promise<void> {
           retained = message.ownership === 'retained';
         }
         parent.postMessage(message);
-        if (message.event === 'ready') {
-          // BST-2239 proof only: what persisting the host's compile cache costs once it is ready.
-          setImmediate(() => {
-            const startedAt = Date.now();
-            flushCompileCache();
-            proofEntryTiming('BST-2239 host compile cache flushed after ready', {
-              elapsedMs: Date.now() - startedAt,
-            });
-          });
-        }
       },
       started: (acquired) => {
         host = acquired;

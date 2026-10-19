@@ -41,16 +41,6 @@ port.once('message', (input: unknown) => {
     },
     send: (value) => {
       port.postMessage(value);
-      if ((value as { kind?: unknown }).kind === 'ready') {
-        // BST-2239 proof only: what persisting this worker's compile cache costs once it is ready.
-        setImmediate(() => {
-          const startedAt = Date.now();
-          flushCompileCache();
-          proofTiming('BST-2239 state-index worker compile cache flushed after ready', {
-            elapsedMs: Date.now() - startedAt,
-          });
-        });
-      }
     },
   }).catch((error: unknown) => {
     process.stderr.write(
