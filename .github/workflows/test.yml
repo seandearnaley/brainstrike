@@ -869,7 +869,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: mcp-packaged-core-${{ github.sha }}
-          path: apps/desktop/blob-report
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
           if-no-files-found: warn
 
   browser-tests:
@@ -1205,7 +1207,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-smoke-main-test-results
-          path: apps/desktop/blob-report/
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
 
@@ -1281,7 +1285,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-smoke-delegated-test-results
-          path: apps/desktop/blob-report/
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
 
