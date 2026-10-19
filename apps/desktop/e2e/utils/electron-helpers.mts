@@ -547,6 +547,9 @@ function createLaunchOptions(
       // BST-2239 proof: the diagnostics knob keeps Main's INFO file log and logs at info.
       ...(shutdownDiagnosticsEnabled
         ? {
+            // The lane script exports BRAINSTRIKE_DISABLE_FILE_LOGS=1; Main reads only '1'.
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            BRAINSTRIKE_DISABLE_FILE_LOGS: '0',
             // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
             LOG_LEVEL: 'info',
           }
