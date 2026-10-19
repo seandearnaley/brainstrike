@@ -15,7 +15,7 @@ import { readHostBrowserOrigins } from '../src/browser-origin-answers.js';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostTool } from '../src/ports.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
-import { scriptedToolSequence } from './fixtures/scripted-model.js';
+import { scriptedToolSequence, scriptedToolSteps } from './fixtures/scripted-model.js';
 
 type Requested = Extract<HostEvent, { type: 'interaction.requested' }>;
 type Posture = ReturnType<HostPlatform['readPermissionPolicy']>;
@@ -49,7 +49,8 @@ function navigateTool(opened: string[]): HostTool {
   };
 }
 
-async function openHost(posture: Posture, urls: readonly string[]) {
+/** Each step's urls, opened by parallel calls in one model response. */
+async function openHost(posture: Posture, urls: readonly (string | readonly string[])[]) {
   const root = await mkdtemp(join(tmpdir(), 'bs-bst-1178-origin-consent-'));
   const opened: string[] = [];
   const platform: HostPlatform = {
@@ -57,7 +58,14 @@ async function openHost(posture: Posture, urls: readonly string[]) {
     maxSteps: urls.length + 1,
     readPermissionPolicy: () => posture,
     resolveModel: async () =>
-      scriptedToolSequence(urls.map((url) => ({ input: { url }, toolId: 'navigate' }))),
+      scriptedToolSteps(
+        urls.map((step) =>
+          (typeof step === 'string' ? [step] : step).map((url) => ({
+            input: { url },
+            toolId: 'navigate',
+          }))
+        )
+      ),
     tools: { navigate: navigateTool(opened) },
   };
   let store = await StateStore.open(root);
@@ -244,6 +252,77 @@ test('under an asking read policy the origin card also approves the call, and ma
   const log = await finished(host.core, threadId);
   expect(log.filter((event) => event.type === 'permission.granted')).toHaveLength(1);
   expect(host.opened).toEqual([`${EXAMPLE}/a`]);
+});
+
+test.each([
+  ['deny', [], 2],
+  ['allow', [`${EXAMPLE}/a`, `${EXAMPLE}/b`], 0],
+] as const)(
+  'a saved %s answers the other cards for that origin in the same step, by policy',
+  async (action, opened, denials) => {
+    const host = await openHost(ALLOWING, [[`${EXAMPLE}/a`, `${EXAMPLE}/b`]]);
+    const { runId, threadId } = await start(host.core);
+
+    const second = await requested(host.core, threadId, 2);
+    await host.core.resume({
+      commandId: randomUUID(),
+      interactionId: second.interactionId,
+      resumeData: { action, remember: true },
+      runId,
+      threadId,
+    });
+
+    const log = await finished(host.core, threadId);
+    const answers = log.filter((event) => event.type === 'interaction.responded');
+    expect(answers).toEqual([
+      expect.objectContaining({
+        interactionId: second.interactionId,
+        resumeData: { action, remember: true },
+      }),
+      expect.objectContaining({ by: 'policy', resumeData: { action } }),
+    ]);
+    expect([...host.opened].sort()).toEqual(opened);
+    await expect(readHostBrowserOrigins(host.store)).resolves.toEqual({ [EXAMPLE]: action });
+    const reason = `The user doesn't allow opening ${EXAMPLE}.`;
+    expect(JSON.stringify(log).split(reason).length - 1 >= denials).toBe(true);
+  }
+);
+
+test('a saved Always allow leaves a card that also approves the call for a person', async () => {
+  const host = await openHost(
+    { policies: { ...DEFAULT_PERMISSION_POLICIES, read: 'ask' }, yolo: false },
+    [[`${EXAMPLE}/a`, `${EXAMPLE}/b`]]
+  );
+  const { runId, threadId } = await start(host.core);
+
+  const second = await requested(host.core, threadId, 2);
+  await host.core.resume({
+    commandId: randomUUID(),
+    interactionId: second.interactionId,
+    resumeData: { action: 'allow', remember: true },
+    runId,
+    threadId,
+  });
+  // The other card still asks to approve its call, so it is left to a person.
+  const answered = async () =>
+    (await events(host.core, threadId)).filter((event) => event.type === 'interaction.responded');
+  await expect.poll(async () => (await answered()).length).toBe(1);
+  const first = (await events(host.core, threadId)).find(
+    (event): event is Requested =>
+      event.type === 'interaction.requested' && event.interactionId !== second.interactionId
+  );
+  if (!first) {
+    throw new Error('Expected the first card');
+  }
+  await host.core.resume({
+    commandId: randomUUID(),
+    interactionId: first.interactionId,
+    resumeData: { action: 'allow' },
+    runId,
+    threadId,
+  });
+  await finished(host.core, threadId);
+  expect([...host.opened].sort()).toEqual([`${EXAMPLE}/a`, `${EXAMPLE}/b`]);
 });
 
 test('a call that names no origin it could open is left to its tool, unasked', async () => {

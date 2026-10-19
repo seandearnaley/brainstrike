@@ -781,6 +781,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
             Schema.Struct({
               type: Schema.Literal('interaction.responded'),
               ...RunFields,
+              by: Schema.optional(Schema.Literal('policy')),
               interactionId: Id,
               resumeData: json(),
             }),

@@ -79,23 +79,42 @@ function refusedHostOrigin(pending: PendingInteraction): string | undefined {
   }
   return decodeNetworkConsent(pending.resumeData).action === 'deny' ? event.origin : undefined;
 }
+/** A card the policy answers with a person's saved origin answer. */
+interface HostOriginPolicyAnswer {
+  readonly pending: PendingInteraction;
+  readonly resumeData: { readonly action: 'allow' | 'deny' };
+}
 /**
  * BST-1178: Always allow or Don't allow on a browser origin is saved before
  * the answer is accepted, so a save that fails refuses the answer rather than
- * losing it.
+ * losing it. The run's other cards for that origin (parallel calls in one
+ * step) take the saved answer by policy: Don't allow settles each, Always
+ * allow each that does not also stand in for an approval the policy asks for.
  */
-async function saveRememberedHostOrigin(
+async function rememberHostOrigin(
   origins: HostBrowserOriginStore,
+  run: Run,
   pending: PendingInteraction,
   resumed: unknown
-): Promise<void> {
-  if (pending.event.kind !== 'network' || pending.event.origin === undefined) {
-    return;
+): Promise<readonly HostOriginPolicyAnswer[]> {
+  const origin = pending.event.kind === 'network' ? pending.event.origin : undefined;
+  if (origin === undefined) {
+    return [];
   }
   const { action, remember } = decodeNetworkConsent(resumed);
-  if (remember) {
-    await saveHostBrowserOrigin(origins, pending.event.origin, action);
+  if (!remember) {
+    return [];
   }
+  await saveHostBrowserOrigin(origins, origin, action);
+  return [...run.approvals.values()].flatMap((other) =>
+    other !== pending &&
+    other.event.kind === 'network' &&
+    other.event.origin === origin &&
+    !hasHostInteractionResponse(other) &&
+    (action === 'deny' || other.event.risk === undefined)
+      ? [{ pending: other, resumeData: { action } }]
+      : []
+  );
 }
 /** Core supplies the original append, boundary sync and fold, in that order. */
 export async function commitHostModelMessages(
@@ -192,9 +211,7 @@ export async function commitHostInteractionResponse(
   const grant = approval
     ? answeredGrant(run, pending, params.grant, params.decision)
     : resumedGrant(run, pending, params.grant, resumed);
-  if (!approval) {
-    await saveRememberedHostOrigin(origins, pending, resumed);
-  }
+  const settled = approval ? [] : await rememberHostOrigin(origins, run, pending, resumed);
   await accept([
     ...(grant ? [{ grant, runId: run.id, type: 'permission.granted' as const }] : []),
     approval
@@ -210,6 +227,13 @@ export async function commitHostInteractionResponse(
           runId: run.id,
           type: 'interaction.responded',
         },
+    ...settled.map(({ pending: other, resumeData }) => ({
+      by: 'policy' as const,
+      interactionId: other.event.interactionId,
+      resumeData,
+      runId: run.id,
+      type: 'interaction.responded' as const,
+    })),
   ]);
   if (grant) {
     applyHostPermissionGrant(run, grant);
@@ -218,6 +242,9 @@ export async function commitHostInteractionResponse(
     pending.decision = params.decision;
   } else {
     pending.resumeData = params.resumeData;
+  }
+  for (const { pending: other, resumeData } of settled) {
+    other.resumeData = resumeData;
   }
   run.task = (run.task ?? Promise.resolve()).then(continueRun);
   run.task.catch(() => undefined);
