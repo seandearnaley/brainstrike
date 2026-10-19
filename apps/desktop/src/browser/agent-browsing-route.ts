@@ -13,6 +13,11 @@ import type { EgressRefusal } from './agent-egress/egress-proxy';
 import { type RefusedAgentResponse, routeAgentBrowserSession } from './browser-session';
 
 export interface AgentBrowsingRoute {
+  /**
+   * BST-1178: the loopback servers agent tabs may reach from now on (each
+   * `host:port`), replacing the last set, once the proxy admits them.
+   */
+  admitLoopback(authorities: readonly string[]): Promise<void>;
   /** Start (or restart) the proxy and route the agent partition through it. */
   prepare(onRefused: (response: RefusedAgentResponse) => void): Promise<void>;
   /** Take the proxy's fresh refusal of `host`, to name a tunnel failure (once). */
@@ -20,7 +25,7 @@ export interface AgentBrowsingRoute {
 }
 
 /** The proxy a route uses: by default the egress utility process. */
-export type AgentEgressSource = Pick<AgentEgressHost, 'ensure' | 'takeRefusal'>;
+export type AgentEgressSource = Pick<AgentEgressHost, 'admitLoopback' | 'ensure' | 'takeRefusal'>;
 
 function forkEgressHost(): AgentEgressHost {
   return new AgentEgressHost(() =>
@@ -38,6 +43,7 @@ export function createAgentBrowsingRoute(
   let current: AgentEgress | null = null;
   let answering = false;
   return {
+    admitLoopback: (authorities) => egress.admitLoopback(authorities),
     async prepare(onRefused) {
       const proxy = await egress.ensure();
       current = proxy;

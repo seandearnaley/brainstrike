@@ -103,8 +103,12 @@ export interface BrowserPaneHost {
   /** Agent-facing CDP driver for the active tab (BST-1176). */
   readonly driver: BrowserDriver;
   readonly manager: BrowserViewManager;
-  /** Start the egress proxy and route agent tabs through it; call before opening one. */
-  prepareAgentBrowsing(): Promise<void>;
+  /**
+   * Start the egress proxy and route agent tabs through it; call before
+   * opening one. BST-1178: `loopback` is the one loopback server (`host:port`)
+   * the navigation about to open may reach; none closes loopback again.
+   */
+  prepareAgentBrowsing(loopback?: string): Promise<void>;
 }
 
 /**
@@ -312,6 +316,9 @@ export function createBrowserPaneHost(
     },
     driver,
     manager,
-    prepareAgentBrowsing: () => agentRoute.prepare(recordRefusedResponse),
+    prepareAgentBrowsing: async (loopback) => {
+      await agentRoute.prepare(recordRefusedResponse);
+      await agentRoute.admitLoopback(loopback === undefined ? [] : [loopback]);
+    },
   };
 }

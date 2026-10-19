@@ -52,21 +52,57 @@ export function isNavigableUrl(url: string): boolean {
   return NAVIGABLE_SCHEME.test(url.trim());
 }
 
-/** An agent navigation's target: the URL its tab loads and that URL's origin, or why it may not. */
+/**
+ * The loopback hosts a person may approve the agent opening (BST-1178), each
+ * at one exact port: a local dev server. Only these literals: a name that
+ * merely resolves to loopback, another 127/8 address, the LAN and link-local
+ * stay refused.
+ */
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * An agent navigation's target: the URL its tab loads and that URL's origin,
+ * with the `host:port` the egress proxy must admit when it is a loopback
+ * server, or why the agent may not open it.
+ */
 export type AgentNavigationTarget =
-  | { readonly origin: string; readonly url: string }
+  | { readonly loopback?: string; readonly origin: string; readonly url: string }
   | { readonly refusal: string };
+
+/** A loopback literal's `host:port`, as the proxy keys a CONNECT or absolute-form target. */
+function loopbackAuthority(url: URL): string | undefined {
+  if (
+    !LOOPBACK_HOSTS.has(url.hostname) ||
+    (url.protocol !== 'http:' && url.protocol !== 'https:')
+  ) {
+    return;
+  }
+  const port = url.port === '' ? (url.protocol === 'https:' ? '443' : '80') : url.port;
+  return `${url.hostname.replace(/^\[(.*)\]$/, '$1')}:${port}`;
+}
 
 /**
  * Where the agent's own navigation goes. It gets webExtract's host guard, not
- * just the pane's scheme gate: only public http(s) pages. Normalized first, so
- * the guard and the consent see exactly what the pane would load, the search
- * fallback included. The user's own URL bar is unaffected.
+ * just the pane's scheme gate: public http(s) pages, and a loopback server
+ * (named by {@link LOOPBACK_HOSTS}) that the agent host asked a person about.
+ * Normalized first, so the guard and the consent see exactly what the pane
+ * would load, the search fallback included. The user's own URL bar is
+ * unaffected.
  */
 export function agentNavigationTarget(url: string | undefined): AgentNavigationTarget {
   const normalized = normalizeUrl(url);
-  const refusal = isNavigableUrl(normalized)
-    ? refuseExtractUrl(normalized)
-    : `refused: only http(s) pages can be opened by the agent (got "${normalized}")`;
+  if (!isNavigableUrl(normalized)) {
+    return {
+      refusal: `refused: only http(s) pages can be opened by the agent (got "${normalized}")`,
+    };
+  }
+  const parsed = URL.canParse(normalized) ? new URL(normalized) : undefined;
+  const loopback = parsed === undefined ? undefined : loopbackAuthority(parsed);
+  if (parsed !== undefined && loopback !== undefined) {
+    return parsed.username || parsed.password
+      ? { refusal: 'refused: URLs with embedded credentials are never opened by the agent' }
+      : { loopback, origin: parsed.origin, url: normalized };
+  }
+  const refusal = refuseExtractUrl(normalized);
   return refusal ? { refusal } : { origin: new URL(normalized).origin, url: normalized };
 }

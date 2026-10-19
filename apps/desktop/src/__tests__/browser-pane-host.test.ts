@@ -315,6 +315,7 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
     let onRefused: ((response: unknown) => void) | undefined;
     const refusals = new Map<string, unknown>();
     const route = {
+      admitLoopback: vi.fn((_authorities: readonly string[]) => Promise.resolve()),
       prepare: vi.fn((listener: (response: unknown) => void) => {
         onRefused = listener;
         return Promise.resolve();
@@ -347,6 +348,10 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
     const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
     await host.prepareAgentBrowsing();
     expect(route.prepare).toHaveBeenCalledOnce();
+    // BST-1178: a public navigation closes loopback; an approved one admits its server.
+    expect(route.admitLoopback).toHaveBeenLastCalledWith([]);
+    await host.prepareAgentBrowsing('localhost:5173');
+    expect(route.admitLoopback).toHaveBeenLastCalledWith(['localhost:5173']);
     const tabId = host.manager.createTab('http://public.test/', 'agent');
     const webContentsId = createdViews[0]?.webContents.id;
     // A subresource refusal does not fail the page.

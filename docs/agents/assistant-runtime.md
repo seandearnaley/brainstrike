@@ -48,7 +48,9 @@ factory reset) before the answer commits, and answer every later call; Core
 settles a denied call unrun, with a reason the model reads. Settings →
 Permissions lists and removes them. Consent sees the requested URL only: a
 page can still redirect or load elsewhere, through the egress proxy
-([ADR-0025](../adr/0025-agent-browsing-egress-proxy.md)).
+([ADR-0025](../adr/0025-agent-browsing-egress-proxy.md)). A `localhost`,
+`127.0.0.1` or `[::1]` dev server is answered on the same card, and the proxy
+admits only that navigation's exact host and port.
 
 ## Hooks and plan mode
 

@@ -134,6 +134,18 @@ describe('runBrowserNavigate', () => {
     });
     await runBrowserNavigate({ url: 'https://e.test' }, host, { pollMs: 1 });
     expect(order).toEqual(['prepare', 'createTab']);
+    // A public page admits no loopback server.
+    expect(host.prepareAgentBrowsing).toHaveBeenCalledWith(undefined);
+  });
+
+  it('opens an approved loopback dev server, admitting only its host and port (BST-1178)', async () => {
+    const host = fakeHost({
+      tabsSequence: [[], [tab({ title: 'Dev', url: 'http://localhost:5173/' })]],
+    });
+    const result = await runBrowserNavigate({ url: 'http://localhost:5173/' }, host, { pollMs: 1 });
+    expect(host.prepareAgentBrowsing).toHaveBeenCalledExactlyOnceWith('localhost:5173');
+    expect(host.manager.createTab).toHaveBeenCalledWith('http://localhost:5173/', 'agent');
+    expect(result).toEqual({ ok: true, title: 'Dev', url: 'http://localhost:5173/' });
   });
 
   it('fails visibly, opening nothing, when the egress route cannot start', async () => {
@@ -188,7 +200,9 @@ describe('runBrowserNavigate', () => {
       'file:///etc/passwd',
       'http://169.254.169.254/latest/meta-data/',
       'http://192.168.1.1/admin',
-      'http://localhost:3000',
+      'http://127.0.0.2:3000',
+      'http://app.localhost:3000',
+      'http://user:pass@localhost:3000',
       'https://user:pass@example.com/',
       'about:blank',
     ]) {

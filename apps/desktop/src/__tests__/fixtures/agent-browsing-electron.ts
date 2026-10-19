@@ -5,6 +5,8 @@
 // local "public" site. Each of the site's pages tries to reach a loopback
 // "secret" server; the proof is that none of them can, while a user tab can.
 // It also forks the real egress utility entry and has it refuse a literal.
+// BST-1178: then the agent opens the secret server as an approved loopback
+// origin, which reaches only that port and closes at the next navigation.
 import { lookup } from 'node:dns/promises';
 import { createServer, type Server } from 'node:http';
 import { connect } from 'node:net';
@@ -47,8 +49,14 @@ async function main(): Promise<void> {
   }
   await app.whenReady();
   const secretHits: string[] = [];
+  let sitePort = 0;
   const secret = createServer((request, response) => {
     secretHits.push(request.url ?? '');
+    if (request.url === '/hop') {
+      // An approved dev server redirecting to another loopback port.
+      response.writeHead(302, { location: `http://127.0.0.1:${sitePort}/ok` }).end();
+      return;
+    }
     response.end(`<title>Secret</title>${SECRET}`);
   });
   const secretPort = await listen(secret);
@@ -75,7 +83,7 @@ async function main(): Promise<void> {
     }
     response.writeHead(200, { 'content-type': 'text/html' }).end(pages[path] ?? 'not found');
   });
-  const sitePort = await listen(site);
+  sitePort = await listen(site);
 
   const refusals = new Map<string, EgressRefusal>();
   const password = 'per-launch-test-secret';
@@ -97,6 +105,7 @@ async function main(): Promise<void> {
           })),
   });
   const route = createAgentBrowsingRoute({
+    admitLoopback: async (authorities) => proxy.admitLoopback(authorities),
     ensure: () => Promise.resolve({ password, port: proxy.port, username: 'agent' }),
     takeRefusal: (host) => {
       const refusal = refusals.get(host.toLowerCase());
@@ -167,6 +176,27 @@ async function main(): Promise<void> {
   }
   report('secret-hits-agent', secretHits.length);
 
+  // BST-1178: an approved loopback origin opens, at its port only.
+  report('loopback-approved', {
+    navigate: await runBrowserNavigate({ url: secretUrl }, pane, options),
+    text: await pageText(),
+  });
+  report('loopback-other-port', {
+    navigate: await runBrowserNavigate(
+      { url: `http://127.0.0.1:${secretPort}/hop` },
+      pane,
+      options
+    ),
+  });
+  // The next, public navigation closes loopback again: its client redirect to
+  // the server opened a moment ago is refused.
+  await runBrowserNavigate({ url: 'http://public.test/location' }, pane, options);
+  const afterPublic = activeAgentTab();
+  report('loopback-after-public', {
+    failure: afterPublic ? await laterFailure(afterPublic.tabId) : 'no agent tab',
+  });
+  const approvedHits = secretHits.length;
+
   // The real utility entry: a literal loopback CONNECT is refused and reported.
   const egress = new AgentEgressHost(() =>
     utilityProcess.fork(egressEntry, [], {
@@ -189,18 +219,38 @@ async function main(): Promise<void> {
   });
   await settle(100);
   report('utility', { refusal: egress.takeRefusal('127.0.0.1') ?? null, status });
+  const connectStatus = (authority: string) =>
+    new Promise<string>((resolve, reject) => {
+      const socket = connect({ host: '127.0.0.1', port: running.port }, () => {
+        const credential = Buffer.from(`${running.username}:${running.password}`).toString(
+          'base64'
+        );
+        socket.write(
+          `CONNECT ${authority} HTTP/1.1\r\nProxy-Authorization: Basic ${credential}\r\n\r\n`
+        );
+      });
+      socket.once('data', (chunk) => {
+        resolve(chunk.toString('latin1').split('\r\n')[0] ?? '');
+        socket.destroy();
+      });
+      socket.once('error', reject);
+    });
+  await egress.admitLoopback([`127.0.0.1:${secretPort}`]);
+  const admitted = await connectStatus(`127.0.0.1:${secretPort}`);
+  await egress.admitLoopback([]);
+  report('utility-loopback', { admitted, closed: await connectStatus(`127.0.0.1:${secretPort}`) });
   await egress.close();
 
   // Control: the user's own tab is unaffected and reaches the secret server,
   // so the zero hits above are the boundary, not an unreachable server.
   const userTab = pane.manager.createTab(secretUrl);
-  for (let waited = 0; waited < 5000 && secretHits.length === 0; waited += 100) {
+  for (let waited = 0; waited < 5000 && secretHits.length === approvedHits; waited += 100) {
     await settle(100);
   }
   report('user-tab', {
     error: pane.manager.getNavigationError(userTab),
     owner: pane.manager.listTabs().find((tab) => tab.tabId === userTab)?.owner ?? null,
-    secretHits: secretHits.length,
+    secretHits: secretHits.length - approvedHits,
   });
   pane.dispose();
   await proxy.close();

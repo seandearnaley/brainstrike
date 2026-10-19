@@ -38,7 +38,7 @@ export interface BrowserPaneHostLike {
     navigate(tabId: string, url: string): boolean;
     selectTab(tabId: string): boolean;
   };
-  prepareAgentBrowsing(): Promise<void>;
+  prepareAgentBrowsing(loopback?: string): Promise<void>;
 }
 
 export interface BrowserToolFailure {
@@ -160,7 +160,8 @@ export async function runBrowserNavigate(
 
   // An unguarded navigate could read cloud metadata, RFC1918 or loopback in
   // one turn. The agent host asked a person about this target's origin before
-  // the call reached here (BST-1178); BST-1175 adds approved dev-server paths.
+  // the call reached here (BST-1178), so a loopback target is a dev server
+  // they approved: the proxy admits its exact host:port for this navigation.
   const target = agentNavigationTarget(input.url);
   if ('refusal' in target) {
     return { error: 'blocked_url', hint: target.refusal, ok: false };
@@ -171,7 +172,7 @@ export async function runBrowserNavigate(
   // connect only through the egress proxy, which checks every connection's
   // resolved address, redirects and popups included (BST-1238).
   try {
-    await host.prepareAgentBrowsing();
+    await host.prepareAgentBrowsing(target.loopback);
   } catch (error) {
     return {
       error: 'browser_unavailable',
