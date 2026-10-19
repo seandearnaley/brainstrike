@@ -6,6 +6,7 @@ import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assis
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { HostToolExecutionContext } from '../host-tool-definition';
+import { DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS } from '../mcp/client-policy';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
 import {
@@ -54,6 +55,24 @@ async function readFixtureState(stateFile: string): Promise<ProgressFixtureState
 }
 
 /**
+ * The host's request timeouts for a `tools/call` (core-server-features): a call
+ * whose guard owns inactivity keeps only the total; any other keeps the SDK's
+ * idle timeout, which `sdkIdleTimeoutMs` scales down from its 60 s default.
+ */
+function requestTimeouts(
+  options: Parameters<McpHostPort['invoke']>[1],
+  sdkIdleTimeoutMs: number | undefined
+): { readonly maxTotalTimeout?: number; readonly timeout?: number } {
+  if (options?.callerGuardsInactivity) {
+    return {
+      maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+      timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+    };
+  }
+  return sdkIdleTimeoutMs === undefined ? {} : { timeout: sdkIdleTimeoutMs };
+}
+
+/**
  * The stdio slice of the desktop host's `tools/call` contract: `onprogress`,
  * the merged signal, and `resetTimeoutOnProgress: true` — the flag that makes
  * an abandoned progress-emitting call outlive its guard.
@@ -61,7 +80,8 @@ async function readFixtureState(stateFile: string): Promise<ProgressFixtureState
 function createStdioMcpHost(
   name: string,
   args: readonly string[],
-  env: Record<string, string>
+  env: Record<string, string>,
+  sdkIdleTimeoutMs?: number
 ): McpHostPort {
   const configuredServerId = parseConfiguredMcpServerId(name);
   const client = new ExplicitStdioMcpClient({ args, command: process.execPath, env, name });
@@ -117,7 +137,11 @@ function createStdioMcpHost(
             ...(operation.arguments ? { arguments: operation.arguments } : {}),
             name: operation.toolName,
           },
-          { ...requestOptions, resetTimeoutOnProgress: true }
+          {
+            ...requestOptions,
+            ...requestTimeouts(options, sdkIdleTimeoutMs),
+            resetTimeoutOnProgress: true,
+          }
         ),
         type: operation.type,
       });
@@ -283,15 +307,21 @@ describe('MCP inactivity budget over a real stdio transport (BST-1779)', () => {
   async function runGuarded(
     env: Record<string, string>,
     maxTotalMs: number,
-    awaitCancellation = false
+    awaitCancellation = false,
+    sdkIdleTimeoutMs?: number
   ): Promise<{ readonly result: unknown }> {
     const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'agent-mcp-inactivity-'));
     const stateFile = path.join(directory, 'state.json');
-    const host = createStdioMcpHost('progress', [progressServerEntrypoint], {
-      BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '50',
-      BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: stateFile,
-      ...env,
-    });
+    const host = createStdioMcpHost(
+      'progress',
+      [progressServerEntrypoint],
+      {
+        BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '50',
+        BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: stateFile,
+        ...env,
+      },
+      sdkIdleTimeoutMs
+    );
     const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
     try {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
@@ -346,6 +376,28 @@ describe('MCP inactivity budget over a real stdio transport (BST-1779)', () => {
       },
       10_000,
       true
+    );
+    expect(result).toMatchObject({
+      error: {
+        code: 'tool_timeout',
+        message: expect.stringContaining('reported no progress for 400 ms'),
+      },
+      ok: false,
+    });
+  }, 30_000);
+
+  it('ends a call that goes silent mid-work at its guard window, not the SDK request timeout', async () => {
+    // The SDK's idle timeout equals the guard window, as in production (60 s
+    // each), and re-arms on progress before the guard does: unless it stands
+    // back, it ends the call first, as a failure the model cannot read.
+    const { result } = await runGuarded(
+      {
+        BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '5000',
+        BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS: '600',
+      },
+      10_000,
+      true,
+      GUARD_TIMEOUT_MS
     );
     expect(result).toMatchObject({
       error: {

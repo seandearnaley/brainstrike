@@ -55,6 +55,18 @@ export function reportToolGuardActivity(executionContext: unknown): void {
 }
 
 /**
+ * BST-1779: whether this call's guard ends it on inactivity, so a request's
+ * own idle timeout must not race that guard.
+ */
+export function toolGuardOwnsInactivity(executionContext: unknown): boolean {
+  return (
+    typeof executionContext === 'object' &&
+    executionContext !== null &&
+    deadlineSignals.get(executionContext)?.onActivity !== undefined
+  );
+}
+
+/**
  * The signal a cancellable tool must honour: its execution signal (user Stop,
  * run abort) folded with the guard's deadline for this call.
  *

@@ -12,7 +12,8 @@
 // BST-1779: `BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS` makes the call answer
 // once it has streamed progress that long, and `BRAINSTRIKE_STDIO_PROGRESS_SILENT=1`
 // makes it send no progress at all, so a test can tell an inactivity budget
-// from a wall-clock one.
+// from a wall-clock one. `BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS` stops the
+// progress that long into the call: a server that went quiet mid-work.
 import { rename, writeFile } from 'node:fs/promises';
 import { Server } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
@@ -33,6 +34,11 @@ if (finishAfterMs !== undefined && !(Number.isSafeInteger(finishAfterMs) && fini
   throw new Error('BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS must be a positive safe integer');
 }
 const silent = process.env['BRAINSTRIKE_STDIO_PROGRESS_SILENT'] === '1';
+const rawSilentAfterMs = process.env['BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS'];
+const silentAfterMs = rawSilentAfterMs === undefined ? undefined : Number(rawSilentAfterMs);
+if (silentAfterMs !== undefined && !(Number.isSafeInteger(silentAfterMs) && silentAfterMs > 0)) {
+  throw new Error('BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS must be a positive safe integer');
+}
 
 const state = { cancelled: false, progressSent: 0 };
 
@@ -74,7 +80,7 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
         resolve({ content: [{ text: 'finished', type: 'text' }] });
         return;
       }
-      if (silent) {
+      if (silent || (silentAfterMs !== undefined && Date.now() - startedAt >= silentAfterMs)) {
         return;
       }
       state.progressSent += 1;

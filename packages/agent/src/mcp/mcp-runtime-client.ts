@@ -1,6 +1,7 @@
 import {
   reportToolGuardActivity,
   resolveGuardedToolSignal,
+  toolGuardOwnsInactivity,
 } from '@brainstrike/agent/tool-guard-deadline';
 import {
   type McpHostExecution,
@@ -77,6 +78,7 @@ export interface McpRuntimeClient {
 
 /** A host invocation carries its execution capability; it never reaches the server request. */
 type HostCallToolOptions = ExplicitHttpMcpRequestOptions & {
+  readonly callerGuardsInactivity?: true;
   readonly execution?: McpHostExecution;
 };
 
@@ -135,6 +137,7 @@ function createHostClient(
   }
   let closed = false;
   const requestOptions = (options?: HostCallToolOptions) => ({
+    ...(options?.callerGuardsInactivity ? { callerGuardsInactivity: true as const } : {}),
     ...(options?.execution ? { execution: options.execution } : {}),
     ...(options?.onprogress ? { onProgress: options.onprogress } : {}),
     signal: options?.signal ? AbortSignal.any([lease.signal, options.signal]) : lease.signal,
@@ -455,6 +458,7 @@ async function executeMcpTool(
       },
       {
         ...host,
+        ...(toolGuardOwnsInactivity(context) ? { callerGuardsInactivity: true as const } : {}),
         ...(callSignal ? { signal: callSignal } : {}),
         onprogress,
       }

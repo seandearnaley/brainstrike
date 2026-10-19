@@ -4,4 +4,5 @@ export {
   registerToolGuardDeadlineSignal,
   reportToolGuardActivity,
   resolveGuardedToolSignal,
+  toolGuardOwnsInactivity,
 } from './tools/tool-guard-deadline';

@@ -18,6 +18,7 @@ import {
   readToolGuardDeadlineSignal,
   reportToolGuardActivity,
   resolveGuardedToolSignal,
+  toolGuardOwnsInactivity,
 } from '../tools/tool-guard-deadline';
 
 function makeTool(execute: (...args: unknown[]) => unknown) {
@@ -529,6 +530,7 @@ describe('guardToolExecution inactivity budget (BST-1779)', () => {
       }
       // 800 ms in, no window ever went 300 ms silent: still running.
       expect(settled).toBeUndefined();
+      expect(toolGuardOwnsInactivity(seen.context)).toBe(true);
       const deadline = readToolGuardDeadlineSignal(seen.context);
       await vi.advanceTimersByTimeAsync(200);
       await expect(result).resolves.toEqual({
@@ -591,6 +593,7 @@ describe('guardToolExecution inactivity budget (BST-1779)', () => {
       const guarded = guardToolExecution(tool, { timeoutMs: 300, toolName: 'demo' });
       const result = guarded.execute({}, { toolCallId: 'call-1' });
       await vi.advanceTimersByTimeAsync(200);
+      expect(toolGuardOwnsInactivity(seen.context)).toBe(false);
       reportToolGuardActivity(seen.context);
       await vi.advanceTimersByTimeAsync(100);
       await expect(result).resolves.toMatchObject({
