@@ -11,9 +11,18 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME = 'assistant-memory-preferences.v1' as const;
 
 const STORE_VERSION = 2;
-const MIN_TOKEN_THRESHOLD = 1000;
-const MAX_SEMANTIC_TOP_K = 50;
-const MAX_MESSAGE_RANGE = 20;
+/**
+ * The whole-number ranges the memory settings accept. Settings validates input
+ * against them visibly; the store normalizes persisted values into them.
+ */
+export const ASSISTANT_MEMORY_NUMBER_LIMITS = {
+  messageRange: { max: 20, min: 0 },
+  tokenThreshold: { max: Number.MAX_SAFE_INTEGER, min: 1000 },
+  topK: { max: 50, min: 1 },
+} as const;
+const MIN_TOKEN_THRESHOLD = ASSISTANT_MEMORY_NUMBER_LIMITS.tokenThreshold.min;
+const MAX_SEMANTIC_TOP_K = ASSISTANT_MEMORY_NUMBER_LIMITS.topK.max;
+const MAX_MESSAGE_RANGE = ASSISTANT_MEMORY_NUMBER_LIMITS.messageRange.max;
 
 // Remap `provider/model` memory targets that were dropped in the 2026 frontier
 // refresh so observational memory never runs against a removed model ID.

@@ -78,7 +78,12 @@ export {
   type ContextMapLinkValue,
   useContextMapLink,
 } from './context-map-link-context';
-export type { OmAwaitingObserverReason, OmMeterState } from './context-usage-meter';
+export type {
+  MemoryModelsDisplay,
+  OmAwaitingObserverReason,
+  OmMeterState,
+  OmRecordLifecycle,
+} from './context-usage-meter';
 export { CumulativeUsageSection, type CumulativeUsageSectionProps } from './context-usage-popover';
 export {
   resetContextUsageStore,

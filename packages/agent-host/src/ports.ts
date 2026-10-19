@@ -46,6 +46,7 @@ import type {
   HostHookSkip,
   HostLoginCredential,
   HostLogRow,
+  HostMemoryModels,
   HostObservationalMemoryState,
   HostParams,
   HostResults,
@@ -336,6 +337,8 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
+  /** The observer and embedder this admission's memory uses, for `thread/memory/read`. */
+  readonly memoryModels?: HostMemoryModels;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the

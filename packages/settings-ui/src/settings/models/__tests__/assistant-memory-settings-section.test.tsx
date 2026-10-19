@@ -7,6 +7,7 @@ import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -291,6 +292,7 @@ describe('AssistantMemorySettingsSection', () => {
     );
     await user.clear(screen.getByRole('spinbutton', { name: /observe messages after/i }));
     await user.type(screen.getByRole('spinbutton', { name: /observe messages after/i }), '18000');
+    await user.tab();
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory).toMatchObject({
       messageTokens: 18_000,
@@ -332,11 +334,153 @@ describe('AssistantMemorySettingsSection', () => {
     renderMemorySettings([]);
 
     expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeDisabled();
-    expect(
-      screen.getByText(
-        /Configured semantic recall embedder openai\/text-embedding-3-small is not available/
-      )
-    ).toBeInTheDocument();
+    // Nothing uses the embedder while recall and vector observation retrieval are off.
+    expect(screen.queryByText(/Configured semantic recall embedder/)).toBeNull();
+  });
+
+  it('alerts about an unavailable embedder only while recall or vector observation retrieval uses it', () => {
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      observationalMemory: { ...state.observationalMemory, retrievalMode: 'vector' },
+    }));
+    const { unmount } = renderMemorySettings([]);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Configured semantic recall embedder openai/text-embedding-3-small is not available. Choose an enabled OpenAI, Google, or local embedding model, or turn off semantic recall and semantic observation recall.'
+    );
+    unmount();
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      observationalMemory: { ...state.observationalMemory, enabled: false },
+    }));
+    renderMemorySettings([]);
+    expect(screen.queryByText(/Configured semantic recall embedder/)).toBeNull();
+  });
+
+  it('describes what a send does without an embedder, and never a keyless local observer', () => {
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      observationalMemory: {
+        ...state.observationalMemory,
+        enabled: false,
+        modelTarget: 'anthropic/claude-haiku-4-5',
+      },
+    }));
+    renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
+
+    const section = screen.getByTestId('assistant-memory-settings-section');
+    expect(section).not.toHaveTextContent(/assistant startup fails/i);
+    expect(section).not.toHaveTextContent(/local observer/i);
+    expect(screen.getByTestId('assistant-memory-retrieval-note')).toHaveTextContent(
+      'Semantic observation recall embeds observations with the semantic recall embedding model, even with semantic recall turned off. Until that model is available, the composer stays disabled and says why.'
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Configure its API key in Settings → Providers, choose an observer whose provider has a key, or turn observations off.'
+    );
+  });
+
+  describe('number inputs', () => {
+    // An entry out of range is refused under its field when committed and saves
+    // nothing; the old setters clamped it to the nearest bound and saved that.
+    it.each([
+      ['Observe messages after', '500', 'Enter a whole number of at least 1,000.'],
+      ['Reflect observations after', '1500.5', 'Enter a whole number of at least 1,000.'],
+      ['Semantic matches', '60', 'Enter a whole number from 1 to 50.'],
+      ['Semantic matches', '', 'Enter a whole number from 1 to 50.'],
+      ['Surrounding messages', '-1', 'Enter a whole number from 0 to 20.'],
+      // Empty is not zero, even where zero is allowed.
+      ['Surrounding messages', '', 'Enter a whole number from 0 to 20.'],
+    ])('%s refuses %j visibly and saves nothing', async (name, typed, message) => {
+      const user = userEvent.setup();
+      const before = useAssistantMemoryPreferencesStore.getState();
+      renderMemorySettings();
+
+      const input = screen.getByRole('spinbutton', { name });
+      await user.clear(input);
+      if (typed) {
+        await user.type(input, typed);
+      }
+      await user.keyboard('{Enter}');
+
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(input).toHaveAccessibleDescription(message);
+      expect(screen.getByRole('alert')).toHaveTextContent(message);
+      const after = useAssistantMemoryPreferencesStore.getState();
+      expect(after.observationalMemory).toEqual(before.observationalMemory);
+      expect(after.semanticRecall).toEqual(before.semanticRecall);
+    });
+
+    it('saves a valid value on blur, never the keystrokes on the way, and clears the error', async () => {
+      const user = userEvent.setup();
+      renderMemorySettings();
+      const before = useAssistantMemoryPreferencesStore.getState().semanticRecall.topK;
+
+      const input = screen.getByRole('spinbutton', { name: 'Semantic matches' });
+      await user.clear(input);
+      await user.type(input, '70');
+      await user.keyboard('{Enter}');
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      // Typing "70" passed through "7"; a draft is not a value.
+      expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.topK).toBe(before);
+      await user.clear(input);
+      await user.type(input, '7');
+      await user.tab();
+
+      expect(input).not.toHaveAttribute('aria-invalid');
+      expect(input).not.toHaveAccessibleDescription();
+      expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.topK).toBe(7);
+    });
+  });
+
+  describe('on-device embedding device', () => {
+    beforeEach(() => {
+      useVectorPreferencesStore.setState({
+        devicePref: 'webgpu',
+        devicePrefConfigured: false,
+        hasHydrated: true,
+      });
+    });
+
+    it('is offered only where the host provides on-device recall', () => {
+      renderMemorySettings();
+      expect(screen.queryByRole('combobox', { name: 'On-device embedding device' })).toBeNull();
+    });
+
+    it('shows automatic detection until a device is chosen, and saves the choice to the shared preference', async () => {
+      const user = userEvent.setup();
+      render(
+        <AssistantMemorySettingsSection
+          assistantMemoryBackendAvailable={true}
+          onDeviceEmbedding={true}
+          providerKeySources={hostedProviderKeySources}
+        />
+      );
+
+      const select = screen.getByRole('combobox', { name: 'On-device embedding device' });
+      expect(select).toHaveValue('');
+      expect(within(select).getByRole('option', { name: /Automatic/ })).toBeInTheDocument();
+      await user.selectOptions(select, 'wasm');
+
+      expect(useVectorPreferencesStore.getState()).toMatchObject({
+        devicePref: 'wasm',
+        devicePrefConfigured: true,
+      });
+      expect(select).toHaveValue('wasm');
+      // A chosen device no longer offers automatic detection.
+      expect(within(select).queryByRole('option', { name: /Automatic/ })).toBeNull();
+    });
+
+    it('waits for the saved preference before showing one', () => {
+      useVectorPreferencesStore.setState({ hasHydrated: false });
+      render(
+        <AssistantMemorySettingsSection
+          assistantMemoryBackendAvailable={true}
+          onDeviceEmbedding={true}
+          providerKeySources={hostedProviderKeySources}
+        />
+      );
+
+      const select = screen.getByRole('combobox', { name: 'On-device embedding device' });
+      expect(select).toBeDisabled();
+      expect(within(select).getByRole('option', { name: /Loading/ })).toBeInTheDocument();
+    });
   });
 
   it('warns and allows disabling semantic recall when a persisted embedder is unsupported', async () => {
@@ -408,19 +552,17 @@ describe('AssistantMemorySettingsSection', () => {
       );
     });
 
-    it('exempts an on-device observer instead of pushing the user off it', () => {
-      // `local` is a first-class manual target (OBSERVATIONAL_MEMORY_PROVIDER_IDS)
-      // that runs in the hidden host with no API key and no egress. Copy that
-      // lumped it in with hosted providers would describe a local observer as
-      // sending the conversation somewhere, and nudge a privacy-conscious user
-      // OFF the on-device option onto a hosted one — recommending more egress
-      // in the name of less.
+    it('promises no on-device observer, since every observer is hosted', () => {
+      // The built-in on-device chat model that once observed is retired: a
+      // persisted `local/...` target is unavailable, never an egress-free option.
       chooseObserver('local/onnx-community/gemma-4');
       renderMemorySettings();
 
       const note = screen.getByTestId('assistant-memory-manual-observer-note');
-      expect(note).toHaveTextContent(/local/i);
-      expect(note).toHaveTextContent(/runs on this device and sends nothing/i);
+      expect(note).not.toHaveTextContent(/this device/i);
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Configured observational memory model local/onnx-community/gemma-4 is not available'
+      );
     });
   });
 });
