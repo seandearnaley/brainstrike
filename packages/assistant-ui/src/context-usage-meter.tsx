@@ -140,6 +140,21 @@ export interface MemoryCycleDisplay {
   };
 }
 
+/**
+ * The last semantic recall this view saw live (structural mirror of the host's
+ * recall telemetry, BST-2225): never committed, so a reload clears it.
+ */
+export interface MemoryRecallDisplay {
+  /** When this view received it (epoch ms). */
+  readonly at: number;
+  readonly latencyMs: number;
+  /** The messages recall returned: each hit with its message range. */
+  readonly messages: number;
+  readonly scope: 'resource' | 'thread';
+  /** Absent when the configuration leaves it to Mastra's default. */
+  readonly topK?: number;
+}
+
 /** The thread's last committed cycle of each kind; absent before its first. */
 export interface MemoryCyclesDisplay {
   readonly observation?: MemoryCycleDisplay;
@@ -177,6 +192,8 @@ export type OmMeterState = (
   readonly cycles?: MemoryCyclesDisplay;
   /** The models the read named, where the host reports them (Developer panel). */
   readonly models?: MemoryModelsDisplay;
+  /** The last semantic recall this view saw live (Developer panel). */
+  readonly recall?: MemoryRecallDisplay;
   /** When the host read this state (epoch ms): the record's flags hold as of then. */
   readonly readAt?: number;
 };

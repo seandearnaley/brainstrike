@@ -382,6 +382,54 @@ test('native observer Stop aborts immediately and joins a late leaf and held ori
   }
 });
 
+test('an embed call’s provider-reported tokens become a spend receipt; an unreported call says so (BST-2226)', async () => {
+  const receipts: unknown[] = [];
+  let unreported = 0;
+  const lifetime = new MemoryProviderLifetime(
+    new AbortController().signal,
+    async (receipt) => {
+      receipts.push(receipt);
+    },
+    () => {
+      unreported += 1;
+    }
+  );
+  const embedder = (usage?: { tokens: number }) =>
+    lifetime.embedding({
+      doEmbed: async ({ values }) => ({
+        embeddings: values.map(() => [1, 0]),
+        ...(usage ? { usage } : {}),
+        warnings: [],
+      }),
+      maxEmbeddingsPerCall: 8,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai.embedding',
+      specificationVersion: 'v3',
+      supportsParallelCalls: false,
+    });
+  const hosted = embedder({ tokens: 7 });
+  if (hosted.specificationVersion !== 'v3') {
+    throw new Error('The enclosure keeps the model’s specification');
+  }
+  await hosted.doEmbed({ values: ['Which city did I mention?'] });
+  expect(receipts).toEqual([
+    {
+      kind: 'embedding',
+      modelId: 'text-embedding-3-small',
+      usage: expect.objectContaining({ inputTokens: 7, outputTokens: 0, totalTokens: 7 }),
+    },
+  ]);
+  expect(unreported).toBe(0);
+  const silent = embedder();
+  if (silent.specificationVersion !== 'v3') {
+    throw new Error('The enclosure keeps the model’s specification');
+  }
+  await silent.doEmbed({ values: ['Which city did I mention?'] });
+  expect(receipts).toHaveLength(1);
+  expect(unreported).toBe(1);
+  await lifetime.join();
+});
+
 test('actual SDK provider AbortError is expected while original cancel AbortError remains a failure', async () => {
   const controller = new AbortController();
   const entered = Promise.withResolvers<void>();

@@ -319,8 +319,13 @@ async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown
 export function openHostRunOwner(
   platform: HostPlatform,
   run: HostRunState,
-  append: Parameters<typeof createHostRunContext>[1],
-  readCommittedRows: Parameters<typeof createHostRunContext>[2]
+  sources: {
+    /** Core's sole writer, for the run's receipts. */
+    readonly append: Parameters<typeof createHostRunContext>[1];
+    readonly readCommittedRows: Parameters<typeof createHostRunContext>[2];
+    /** Core's live telemetry, for the run's uncommitted diagnostics. */
+    readonly telemetry: Parameters<typeof createHostRunContext>[3];
+  }
 ): Promise<HostRunOwner | undefined> {
   if (run.ownerClose !== undefined) {
     return Promise.reject(new Error('The run owner is already closed'));
@@ -328,7 +333,7 @@ export function openHostRunOwner(
   run.owner ??= ensureHostRunAdmission(platform, run).then((admission) => {
     const open = admission.openRun ?? platform.openRun?.bind(platform);
     return open?.({
-      ...createHostRunContext(run, append, readCommittedRows),
+      ...createHostRunContext(run, sources.append, sources.readCommittedRows, sources.telemetry),
       ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
     });
   });

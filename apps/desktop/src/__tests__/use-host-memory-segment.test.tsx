@@ -8,6 +8,7 @@ import {
   type HostMethod,
   type HostParams,
   type HostResults,
+  type HostRunTelemetry,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import {
@@ -66,11 +67,22 @@ class RowSource implements HostMemoryRowSource {
     readonly rows: readonly HostLogRow[];
   } = { rows: [] };
   private readonly listeners = new Set<() => void>();
+  private readonly telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   readonly getSnapshot = () => this.snapshot;
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+  readonly onTelemetry = (listener: (telemetry: HostRunTelemetry) => void) => {
+    this.telemetryListeners.add(listener);
+    return () => this.telemetryListeners.delete(listener);
+  };
+  /** One uncommitted chunk, as the thread view delivers its live telemetry. */
+  live(chunk: HostRunTelemetry['chunk']): void {
+    for (const listener of this.telemetryListeners) {
+      listener({ chunk, runId: STARTED_RUN_ID, threadId: started?.threadId ?? THREAD });
+    }
+  }
   commit(row: HostLogRow): void {
     this.snapshot = { rows: [...this.snapshot.rows, row] };
     for (const listener of this.listeners) {
@@ -430,6 +442,42 @@ describe('the meter reads the host memory state the next send would admit', () =
       )
     );
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  });
+  test('the last recall the thread delivers live joins the segment; another thread starts empty (BST-2225)', async () => {
+    const { client } = hostClient(ACTIVE, ACTIVE);
+    const first = new RowSource();
+    const { result, rerender } = renderHook(
+      ({ source }: { source: RowSource }) =>
+        useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source }),
+      { initialProps: { source: first } }
+    );
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    expect(result.current.omSegment?.recall).toBeUndefined();
+    // A chunk of any other kind is not a recall.
+    act(() => first.live({ delta: 'Paris', id: 'text-1', type: 'text-delta' }));
+    expect(result.current.omSegment?.recall).toBeUndefined();
+    const before = Date.now();
+    act(() =>
+      first.live({
+        latencyMs: 85,
+        messages: 2,
+        scope: 'thread',
+        topK: 4,
+        type: 'brainstrike.memory.recall',
+      })
+    );
+    expect(result.current.omSegment?.recall).toEqual({
+      at: expect.any(Number),
+      latencyMs: 85,
+      messages: 2,
+      scope: 'thread',
+      topK: 4,
+    });
+    expect(result.current.omSegment?.recall?.at).toBeGreaterThanOrEqual(before);
+    // The recall was never committed: the next thread's view has none.
+    rerender({ source: new RowSource() });
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    expect(result.current.omSegment?.recall).toBeUndefined();
   });
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);

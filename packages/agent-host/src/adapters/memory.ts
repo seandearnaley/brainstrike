@@ -33,6 +33,18 @@ type CycleStart = Parameters<NonNullable<CycleHooks['onObservationStart']>>[0];
 type CycleEnd = Parameters<NonNullable<CycleHooks['onObservationEnd']>>[0];
 
 const logger = createLogger('AgentHostMemory');
+/** Embedders already named as unbilled in this process, by reason. */
+const unbilledEmbedders = new Set<string>();
+
+/** An embedder whose spend cannot be recorded, named once per model and reason. */
+function warnUnbilledEmbedding(modelId: string, reason: string): void {
+  const key = `${reason}\u0000${modelId}`;
+  if (unbilledEmbedders.has(key)) {
+    return;
+  }
+  unbilledEmbedders.add(key);
+  logger.warn(reason, { modelId });
+}
 
 /** The lifecycle hooks the host installs to commit each cycle (BST-2224). */
 const CYCLE_HOOKS = [
@@ -84,11 +96,14 @@ export interface HostMemoryCapabilities {
    * documented lifecycle hooks. Without it no cycle hooks are installed.
    */
   recordMemoryCycle?(identity: HostMemoryIdentity, cycle: HostMemoryCycle): Promise<void>;
-  /** Actual observer/reflector usage and model identity, for the existing usage ledger. */
+  /**
+   * Actual observer, reflector and hosted embedder usage (BST-2226) with the
+   * catalog model it is priced under, for the existing usage ledger.
+   */
   recordObserverUsage(
     identity: HostMemoryIdentity,
     receipt: {
-      readonly kind: 'observation' | 'reflection';
+      readonly kind: 'observation' | 'reflection' | 'embedding';
       readonly modelId: string;
       readonly usage: LanguageModelUsage;
     }
@@ -223,8 +238,10 @@ export class HostMemory implements HostRunOwner {
     private readonly capabilities: HostMemoryCapabilities
   ) {
     this.observerModelId = capabilities.observerModelId;
-    this.providers = new MemoryProviderLifetime(identity.signal, (receipt) =>
-      this.recordObserverUsage(receipt)
+    this.providers = new MemoryProviderLifetime(
+      identity.signal,
+      (receipt) => this.recordObserverUsage(receipt),
+      () => this.unreportedEmbedding()
     );
     let native = capabilities.native;
     if (native.embedder && typeof native.embedder === 'object') {
@@ -607,7 +624,20 @@ export class HostMemory implements HostRunOwner {
     if (this.joined) {
       return Promise.reject(new Error('Host memory lifetime is already joined'));
     }
-    const modelId = this.observerModelId;
+    // An embed call is priced under its embedder's catalog id (BST-2226). A
+    // host composed without one (production always names its vectors'
+    // embedder) cannot attribute it: say so once, as for unreported usage.
+    if (receipt.kind === 'embedding' && !this.capabilities.embedderIdentity) {
+      warnUnbilledEmbedding(
+        receipt.modelId,
+        'Memory embedding usage has no embedder catalog identity; its spend is not recorded'
+      );
+      return Promise.resolve();
+    }
+    const modelId =
+      receipt.kind === 'embedding'
+        ? this.capabilities.embedderIdentity?.modelId
+        : this.observerModelId;
     if (!modelId) {
       return Promise.reject(
         new Error('Observer usage arrived without an observer catalog model id')
@@ -616,6 +646,22 @@ export class HostMemory implements HostRunOwner {
     // The SDK reports its own model id; the ledger prices the catalog id.
     return this.track('accounting', () =>
       this.capabilities.recordObserverUsage(this.identity, { ...receipt, modelId })
+    );
+  }
+
+  /**
+   * A hosted embedder whose provider reports no tokens (Google's, through the
+   * AI SDK) cannot be billed: say so once per model, instead of costing nothing
+   * silently. An on-device embedder has no spend to report.
+   */
+  private unreportedEmbedding(): void {
+    const modelId = this.capabilities.embedderIdentity?.modelId;
+    if (modelId === undefined || modelId.startsWith('local::')) {
+      return;
+    }
+    warnUnbilledEmbedding(
+      modelId,
+      'Memory embedder reported no token usage; its spend is not recorded'
     );
   }
 

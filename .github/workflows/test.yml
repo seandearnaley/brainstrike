@@ -8,6 +8,58 @@ on:
   schedule:
     - cron: '3 7 * * *'
   workflow_dispatch:
+  # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
+  # on each merge group, so the queue's fast tier is these jobs, not a copy.
+  # With `merge-queue: true`, Native Windows, Native Electron and Browser tests
+  # skip, and the smoke E2E lanes also run on a manual dispatch. Notify Linear
+  # stays schedule-only. Nightly and manual runs carry no `merge-queue` input,
+  # so every condition on it reads false for them and they are unchanged.
+  # Inside a called run, `github.workflow` and `github.event_name` are the
+  # caller's, which keeps its concurrency group apart from this workflow's.
+  # scripts/__tests__/merge-queue-contract.test.mjs pins the call.
+  workflow_call:
+    inputs:
+      merge-queue:
+        description: Run as the merge queue's fast tier.
+        type: boolean
+        required: true
+    secrets:
+      TURBO_TOKEN:
+        required: true
+      # Read only by Notify Linear, which never runs in a called run; the queue
+      # does not pass it.
+      LINEAR_API_KEY:
+        required: false
+    # Merge Queue Gate judges every job by these results.
+    outputs:
+      admission-result:
+        value: ${{ jobs.admission.result }}
+      static-result:
+        value: ${{ jobs.static.result }}
+      unit-shard-result:
+        value: ${{ jobs.unit-shard.result }}
+      unit-result:
+        value: ${{ jobs.unit.result }}
+      build-result:
+        value: ${{ jobs.build.result }}
+      native-windows-result:
+        value: ${{ jobs.native-windows.result }}
+      native-electron-result:
+        value: ${{ jobs.native-electron.result }}
+      browser-tests-result:
+        value: ${{ jobs.browser-tests.result }}
+      web-e2e-result:
+        value: ${{ jobs.web-e2e.result }}
+      desktop-e2e-smoke-result:
+        value: ${{ jobs.desktop-e2e-smoke.result }}
+      desktop-e2e-delegated-result:
+        value: ${{ jobs.desktop-e2e-delegated.result }}
+      desktop-e2e-result:
+        value: ${{ jobs.desktop-e2e.result }}
+      notify-linear-result:
+        value: ${{ jobs.notify-linear.result }}
+      unit-shard-count:
+        value: ${{ jobs.static.outputs.unit-shard-count }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
@@ -220,8 +272,8 @@ jobs:
               ]
             }
           EVENT_NAME: ${{ github.event_name }}
-          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TURBO_SCM_HEAD: ${{ github.event.merge_group.head_sha || github.sha }}
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
@@ -407,11 +459,11 @@ jobs:
       # coverage). turbo.jsonc keeps COVERAGE in `passThroughEnv` (out of the
       # cache key), so PR and push runs still share cache entries — and now
       # also genuinely run the same uninstrumented workload.
-      - name: Pull request affected unit tests
-        if: github.event_name == 'pull_request'
+      - name: Affected unit tests
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
-          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TURBO_SCM_HEAD: ${{ github.event.merge_group.head_sha || github.sha }}
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
@@ -422,11 +474,11 @@ jobs:
           TURBO_TEST_MODE: unit
         run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
 
-      - name: Pull request affected integration tests
-        if: github.event_name == 'pull_request'
+      - name: Affected integration tests
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
-          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TURBO_SCM_HEAD: ${{ github.event.merge_group.head_sha || github.sha }}
           # The desktop test host above installed bubblewrap/socat/ripgrep, so
           # the real-fence suites must RUN here. Set, a missing dependency is a
           # lane defect that fails collection instead of a host quirk the
@@ -468,7 +520,7 @@ jobs:
       # `test:models` via vitest.models.config.mts) — not by this package
       # filter — so dropping the filter cannot pull model downloads into CI.
       - name: Push and manual unit tests
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         env:
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
@@ -481,7 +533,7 @@ jobs:
         run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         env:
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
@@ -617,7 +669,7 @@ jobs:
           fi
 
       - name: Upload build artifacts
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' || inputs.merge-queue
         uses: actions/upload-artifact@v7
         with:
           name: build-artifacts
@@ -630,7 +682,7 @@ jobs:
 
   native-windows:
     name: Native Windows
-    if: needs.admission.outputs.admitted == 'true'
+    if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue
     needs: [admission]
     runs-on: windows-latest
     # BST-1712: 20 -> 30. A retry the job timeout guillotines is not a retry.
@@ -772,7 +824,7 @@ jobs:
 
   native-electron:
     name: Native Electron Package
-    if: needs.admission.outputs.admitted == 'true'
+    if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue
     needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
@@ -884,7 +936,7 @@ jobs:
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     # Not (yet) a required check: branch protection is Sean's call; this lane
     # must first prove itself deterministic.
-    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true') && !inputs.merge-queue
     needs: [admission]
     # Cost-first runner migration (2026-08-28): this lane used 1,928 rounded
     # GitHub Linux minutes in the 7.76-day audit. The same pinned Playwright
@@ -1009,7 +1061,7 @@ jobs:
       (
         needs.admission.result != 'success' ||
         (
-          github.event_name != 'workflow_dispatch' &&
+          (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
           needs.admission.outputs.admitted == 'true' &&
           needs.build.result == 'success'
         )
@@ -1121,7 +1173,7 @@ jobs:
       (
         needs.admission.result != 'success' ||
         (
-          github.event_name != 'workflow_dispatch' &&
+          (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
           needs.admission.outputs.admitted == 'true' &&
           needs.build.result == 'success'
         )
@@ -1222,7 +1274,7 @@ jobs:
       (
         needs.admission.result != 'success' ||
         (
-          github.event_name != 'workflow_dispatch' &&
+          (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
           needs.admission.outputs.admitted == 'true' &&
           needs.build.result == 'success'
         )
@@ -1303,7 +1355,7 @@ jobs:
       (
         needs.admission.result != 'success' ||
         (
-          github.event_name != 'workflow_dispatch' &&
+          (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
           needs.admission.outputs.admitted == 'true' &&
           needs.build.result == 'success'
         )

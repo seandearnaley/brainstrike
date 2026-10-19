@@ -32,8 +32,9 @@
  * census which packages launch Electron, which would go dark when one more
  * does; like the host step, the X server comes with every lane on the host.
  *
- * The host action itself must install xvfb and provision the cache under an X
- * server. The fence half of the same action is pinned by
+ * The host action itself must install xvfb, install the Electron binary before
+ * anything launches it (BST-2221), and provision the cache under an X server.
+ * The fence half of the same action is pinned by
  * linux-fence-lane-contract.test.mjs, and its apt ordering by
  * apt-source-guard-contract.test.mjs.
  *
@@ -305,6 +306,35 @@ function assertHostActionProvidesTheDisplayAndCache(source = hostActionSource())
   );
 }
 
+/**
+ * BST-2221: Electron 44 has no install lifecycle, so its first
+ * `require('electron')` downloads the binary synchronously. Unprovisioned, that
+ * download ran inside the first test that asked, and indexer's scoped-electron
+ * proof timed out blocked on it. The host installs it once, before the model
+ * cache step launches Electron and before any lane runs.
+ */
+function assertHostActionProvisionsTheElectronBinary(source = hostActionSource()) {
+  const steps = parseYaml(source)?.runs?.steps ?? [];
+  const index = steps.findIndex((step) => /\binstall-electron\b/u.test(step?.run ?? ''));
+  assert.notEqual(
+    index,
+    -1,
+    'the host must install the Electron binary; otherwise the first test that resolves `electron` downloads it inside its own budget'
+  );
+  const install = steps[index];
+  assert.equal(install.if, undefined, 'the Electron binary step must not be conditional');
+  assert.equal(
+    install.run.trim(),
+    'timeout 300 pnpm --filter @brainstrike/desktop exec install-electron',
+    "the host must run Electron's own installer, bounded, for the Electron every lane resolves"
+  );
+  const cache = steps.findIndex((step) => /provision:test-model-cache/u.test(step?.run ?? ''));
+  assert.ok(
+    cache > index,
+    'the Electron binary must be installed before the model cache step launches Electron'
+  );
+}
+
 function mutate(file, from, to) {
   const sources = runnableWorkflowSources();
   const original = sources.get(file);
@@ -325,6 +355,10 @@ test('every integration lane on the shared host runs under its X server', () => 
 
 test('the shared host installs the X server and provisions the model cache under it', () => {
   assertHostActionProvidesTheDisplayAndCache();
+});
+
+test('the shared host installs the Electron binary before anything launches it', () => {
+  assertHostActionProvisionsTheElectronBinary();
 });
 
 test('CONTROL: a Unit lane without the host step turns the guard red', () => {
@@ -416,6 +450,48 @@ test('CONTROL: a model cache provisioned without an X server turns the host guar
   );
   assert.notEqual(mutated, hostActionSource(), 'the control mutation did not apply');
   assert.throws(() => assertHostActionProvidesTheDisplayAndCache(mutated), /needs the X server/u);
+});
+
+const ELECTRON_STEP =
+  /( {4}- name: Provision the Electron binary\n {6}shell: bash\n {6}run: timeout 300 pnpm --filter @brainstrike\/desktop exec install-electron\n)/u;
+
+function mutateHost(from, to) {
+  const mutated = hostActionSource().replace(from, to);
+  assert.notEqual(mutated, hostActionSource(), 'the control mutation did not apply');
+  return mutated;
+}
+
+test('CONTROL: a host that leaves the Electron download to the tests turns the guard red', () => {
+  assert.throws(
+    () => assertHostActionProvisionsTheElectronBinary(mutateHost(ELECTRON_STEP, '')),
+    /must install the Electron binary/u
+  );
+});
+
+test('CONTROL: a conditional Electron binary step turns the guard red', () => {
+  const mutated = mutateHost(
+    ELECTRON_STEP,
+    `$1      if: ${'$'}{{ inputs.model-cache == 'true' }}\n`
+  );
+  assert.throws(
+    () => assertHostActionProvisionsTheElectronBinary(mutated),
+    /must not be conditional/u
+  );
+});
+
+test('CONTROL: an unbounded Electron install turns the guard red', () => {
+  const mutated = mutateHost('run: timeout 300 pnpm', 'run: pnpm');
+  assert.throws(() => assertHostActionProvisionsTheElectronBinary(mutated), /bounded/u);
+});
+
+test('CONTROL: installing Electron after the model cache step turns the guard red', () => {
+  const removed = mutateHost(ELECTRON_STEP, '');
+  const step = ELECTRON_STEP.exec(hostActionSource())[1];
+  const mutated = `${removed.trimEnd()}\n\n${step}`;
+  assert.throws(
+    () => assertHostActionProvisionsTheElectronBinary(mutated),
+    /before the model cache step/u
+  );
 });
 
 test('the renderer refuses a matrix expression shape it does not know', () => {
