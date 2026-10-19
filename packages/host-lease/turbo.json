@@ -1,6 +1,22 @@
 {
   "extends": ["//"],
   "tasks": {
+    "test": {
+      // The unit suites load native addons. secure-fs-native loads at import,
+      // via launcher -> record-file. windows-job-native loads on Windows, when
+      // processStartTime reads a start time. Each addon's `build` is an uncached
+      // `node-gyp rebuild`, which first removes build/. Without these edges, a
+      // run that schedules that rebuild runs it alongside this task, and the
+      // suites fail with "Could not locate the bindings file" (merge-queue gate
+      // run 39335264149). This is the same edge as packages/state-store's
+      // `test`. Package configs REPLACE array fields, so `topo` comes via
+      // $TURBO_EXTENDS$.
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "@brainstrike/secure-fs-native#build",
+        "@brainstrike/windows-job-native#build"
+      ]
+    },
     "test:integration": {
       // Real host, client and contender processes run outside Vitest's source
       // aliases. They resolve @brainstrike/* through package exports to dist,
