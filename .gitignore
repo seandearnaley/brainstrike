@@ -173,7 +173,13 @@ apps/desktop/resources/python-runtime/*
 packages/mcp-test-lab/artifacts/
 packages/agent-evals/results/
 
-.claude
+# Local Claude Code state stays untracked. The one versioned skill is the
+# nightly fix agent's prompt (BST-2189), which CI runs from the checkout.
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/fix-nightly/
+/*/**/.claude
 .impeccable/
 
 # Per-session scratch artifacts (other Claude sessions may hold these)

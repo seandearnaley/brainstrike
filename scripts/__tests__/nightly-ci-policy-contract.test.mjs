@@ -43,7 +43,7 @@ const STAYS_DISABLED = [
   'react-doctor.yml',
   'release.yml',
 ];
-const REUSABLE = ['nightly-linear-alert.yml'];
+const REUSABLE = ['nightly-fix-agent.yml', 'nightly-linear-alert.yml'];
 // BST-2188: the merge queue's fast tier. merge-queue-contract.test.mjs owns its
 // triggers, its call into test.yml, its gate and .mergify.yml; a red batch
 // removes the PR from Mergify's queue, so it files nothing to Linear.
@@ -157,8 +157,13 @@ function assertLinearFiling(file, source) {
       }
     }
   }
+  // A job after notify-linear (the BST-2189 fix agent) acts on what it filed.
+  const afterNotify = (id) => needsOf(jobs[id]).includes('notify-linear');
   for (const id of Object.keys(jobs)) {
-    assert.ok(id === 'notify-linear' || judged.has(id), `${file} › ${id} never reaches Linear`);
+    assert.ok(
+      id === 'notify-linear' || judged.has(id) || afterNotify(id),
+      `${file} › ${id} never reaches Linear`
+    );
   }
 }
 
