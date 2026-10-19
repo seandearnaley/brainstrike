@@ -1,9 +1,9 @@
-import { mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { canonicalRoot, processStartTime, RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { attachHost, type HostAttachment } from '../src/client.js';
 import { decodeHostRecord, PROTOCOL_VERSION } from '../src/record.js';
@@ -174,7 +174,7 @@ test('an attached client observes host termination without another protocol requ
 
 test('failure after record rename rolls back the published record and releases its root lease', async () => {
   const root = await freshRoot();
-  const canonicalRoot = await realpath(root);
+  const recordedRoot = canonicalRoot(root);
   const fs = createRequire(import.meta.url)(
     'node:fs/promises'
   ) as typeof import('node:fs/promises');
@@ -182,7 +182,7 @@ test('failure after record rename rolls back the published record and releases i
   let failed = false;
   const patched: typeof original = async (path, target) => {
     await original(path, target);
-    if (String(target) === join(canonicalRoot, 'host.json') && !failed) {
+    if (String(target) === join(recordedRoot, 'host.json') && !failed) {
       failed = true;
       throw new Error('metadata rename acknowledgement failed');
     }

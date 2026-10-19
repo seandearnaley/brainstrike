@@ -1,7 +1,10 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
+  canonicalRoot,
   ForeignLockError,
   processStartTime,
   RootLock,
@@ -14,6 +17,15 @@ import { HOST_VERSION, PROTOCOL_VERSION } from '../src/record.js';
 import { type HostRuntime, startHost } from '../src/runtime.js';
 import { windowsPrivateAcl } from '../src/windows-acl.js';
 
+/** Whether the temp directory's file system ignores case: macOS and Windows by default, not Linux. */
+const tmpFoldsCase = ((): boolean => {
+  const probe = mkdtempSync(join(tmpdir(), 'bs-refuse-case-'));
+  try {
+    return existsSync(join(dirname(probe), basename(probe).toUpperCase()));
+  } finally {
+    rmSync(probe, { recursive: true });
+  }
+})();
 const roots: string[] = [];
 const hosts: HostRuntime[] = [];
 const clients: HostAttachment[] = [];
@@ -35,7 +47,7 @@ test('a foreign-host lease refuses before attach, spawn or mutation', async () =
   const owner = {
     host: `foreign-${hostname()}`,
     pid: process.pid,
-    root: await realpath(root),
+    root: canonicalRoot(root),
     start: processStartTime(process.pid),
     token: 'foreign-owner',
   };
@@ -78,6 +90,52 @@ test('a live lease without a published record names its owner and refuses withou
   }
 });
 
+// BST-2234: hosted windows-2025 reached its data root through the 8.3 short temp path (RUNNER~1). The lock recorded
+// that spelling, the launcher derived the long one, and it refused its own host as foreign. Acquire and launch
+// through a second spelling of `root`: the lock must record the one canonical root, and the launcher must find its
+// own live owner there.
+async function launchesOwnRootThrough(root: string, spelling: string): Promise<void> {
+  const lease = await RootLock.acquire(spelling);
+  try {
+    expect(lease.owner.root).toBe(canonicalRoot(root));
+    await expect(
+      launchHost(spelling, {
+        lifetime: 'cli',
+        spawn: async () => {
+          throw new Error('This launch must not start a host');
+        },
+        startupTimeoutMs: 50,
+      })
+    ).rejects.toThrow(new RegExp(`Live host pid ${process.pid}`));
+  } finally {
+    lease.release();
+  }
+}
+
+test.skipIf(!tmpFoldsCase)(
+  'a live lease taken through another case of the root is judged this root, not a foreign one',
+  async () => {
+    const root = await freshRoot();
+    await launchesOwnRootThrough(root, join(dirname(root), basename(root).toUpperCase()));
+  }
+);
+
+test.runIf(process.platform === 'win32')(
+  'a live lease taken through the 8.3 short name of the root is judged this root, not a foreign one',
+  async (ctx) => {
+    const root = await freshRoot();
+    const short = execSync(`cmd /c for %I in ("${root}") do @echo %~sI`, {
+      encoding: 'utf8',
+    }).trim();
+    if (short.toLowerCase() === root.toLowerCase()) {
+      ctx.skip(
+        `no 8.3 name for ${root}: \`fsutil 8dot3name query\` reports whether the volume creates them`
+      );
+    }
+    await launchesOwnRootThrough(root, short);
+  }
+);
+
 test('a reused PID with a different start identity is stale even though that PID is alive', async () => {
   const root = await freshRoot();
   await mkdir(join(root, 'lock'));
@@ -87,7 +145,7 @@ test('a reused PID with a different start identity is stale even though that PID
     JSON.stringify({
       host: hostname(),
       pid: process.pid,
-      root: await realpath(root),
+      root: canonicalRoot(root),
       start,
       token: 'reused-pid',
     })
