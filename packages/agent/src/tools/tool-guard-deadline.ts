@@ -7,24 +7,30 @@ import { readToolCallId } from './read-tool-call-id';
  * before answering a timeout, and releases this entry in finally. The caller's
  * abortSignal stays untouched because raw MCP result retention uses its identity.
  */
-const deadlineSignals = new WeakMap<object, AbortSignal>();
+interface ToolGuardDeadline {
+  /** BST-1779: re-arms an inactivity budget; absent for a flat wall-clock guard. */
+  readonly onActivity?: () => void;
+  readonly signal: AbortSignal;
+}
+const deadlineSignals = new WeakMap<object, ToolGuardDeadline>();
 
 /** Publish one invocation's deadline; calls without host identity publish nothing. */
 export function registerToolGuardDeadlineSignal(
   args: readonly unknown[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  onActivity?: () => void
 ): () => void {
   const context = args[1];
   if (typeof context !== 'object' || context === null || !readToolCallId(args)) {
     return () => undefined;
   }
   const existing = deadlineSignals.get(context);
-  if (existing && existing !== signal) {
+  if (existing && existing.signal !== signal) {
     throw new Error('Tool execution context already owns a guard deadline');
   }
-  deadlineSignals.set(context, signal);
+  deadlineSignals.set(context, { ...(onActivity ? { onActivity } : {}), signal });
   return (): void => {
-    if (deadlineSignals.get(context) === signal) {
+    if (deadlineSignals.get(context)?.signal === signal) {
       deadlineSignals.delete(context);
     }
   };
@@ -33,8 +39,19 @@ export function registerToolGuardDeadlineSignal(
 /** The guard deadline for this exact invocation, never a lookup by provider ID. */
 export function readToolGuardDeadlineSignal(executionContext: unknown): AbortSignal | undefined {
   return typeof executionContext === 'object' && executionContext !== null
-    ? deadlineSignals.get(executionContext)
+    ? deadlineSignals.get(executionContext)?.signal
     : undefined;
+}
+
+/**
+ * BST-1779: the tool reports that its work is progressing (an MCP server's
+ * progress notification). A guard with an inactivity budget restarts its
+ * window; a flat guard, or a call with no guard, ignores it.
+ */
+export function reportToolGuardActivity(executionContext: unknown): void {
+  if (typeof executionContext === 'object' && executionContext !== null) {
+    deadlineSignals.get(executionContext)?.onActivity?.();
+  }
 }
 
 /**

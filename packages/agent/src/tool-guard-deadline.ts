@@ -2,5 +2,6 @@
 export {
   readToolGuardDeadlineSignal,
   registerToolGuardDeadlineSignal,
+  reportToolGuardActivity,
   resolveGuardedToolSignal,
 } from './tools/tool-guard-deadline';

@@ -1,4 +1,7 @@
-import { resolveGuardedToolSignal } from '@brainstrike/agent/tool-guard-deadline';
+import {
+  reportToolGuardActivity,
+  resolveGuardedToolSignal,
+} from '@brainstrike/agent/tool-guard-deadline';
 import {
   type McpHostExecution,
   type McpHostPort,
@@ -392,33 +395,35 @@ async function executeMcpTool(
   let lastProgress = Number.NEGATIVE_INFINITY;
   const toolCallId = readToolCallId([undefined, context]);
   const writer = context?.writer;
-  const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> | undefined =
-    toolCallId && writer
-      ? (progress): void => {
-          if (
-            typeof progress.progress !== 'number' ||
-            !Number.isFinite(progress.progress) ||
-            progress.progress < lastProgress
-          ) {
-            return;
-          }
-          lastProgress = progress.progress;
-          progressWrites = progressWrites
-            .then(() =>
-              writer.custom({
-                progress: progress.progress,
-                toolCallId,
-                toolName: `${serverName}.${toolName}`,
-                type: MCP_PROGRESS_STREAM_PART_TYPE,
-                ...(progress.message === undefined ? {} : { message: progress.message }),
-                ...(progress.total === undefined ? {} : { total: progress.total }),
-              })
-            )
-            .catch((error: unknown) => {
-              progressDeliveryError ??= error;
-            });
-        }
-      : undefined;
+  const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> = (progress): void => {
+    if (
+      typeof progress.progress !== 'number' ||
+      !Number.isFinite(progress.progress) ||
+      progress.progress < lastProgress
+    ) {
+      return;
+    }
+    lastProgress = progress.progress;
+    // BST-1779: progress is activity, so the call's inactivity window restarts.
+    reportToolGuardActivity(context);
+    if (!(toolCallId && writer)) {
+      return;
+    }
+    progressWrites = progressWrites
+      .then(() =>
+        writer.custom({
+          progress: progress.progress,
+          toolCallId,
+          toolName: `${serverName}.${toolName}`,
+          type: MCP_PROGRESS_STREAM_PART_TYPE,
+          ...(progress.message === undefined ? {} : { message: progress.message }),
+          ...(progress.total === undefined ? {} : { total: progress.total }),
+        })
+      )
+      .catch((error: unknown) => {
+        progressDeliveryError ??= error;
+      });
+  };
 
   const finishProgressDelivery = async (): Promise<void> => {
     await progressWrites;
@@ -451,7 +456,7 @@ async function executeMcpTool(
       {
         ...host,
         ...(callSignal ? { signal: callSignal } : {}),
-        ...(onprogress ? { onprogress } : {}),
+        onprogress,
       }
     );
   } catch (error) {
