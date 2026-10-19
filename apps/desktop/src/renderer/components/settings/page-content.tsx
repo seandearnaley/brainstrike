@@ -16,6 +16,7 @@ import type {
   McpHostControlRequest,
   McpHostWatchEvent,
 } from '@brainstrike/assistant-contract';
+import type { McpCatalogInstallRequest } from '@brainstrike/assistant-contract/mcp-catalog';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -32,6 +33,7 @@ import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settin
 import {
   createToolsSettingsCategory,
   type McpCompleteRequest,
+  type McpConfigInfo,
   type McpGetPromptRequest,
   type McpReadResourceRequest,
   type ToolDisplayMetadata,
@@ -361,9 +363,7 @@ export default function SettingsPageContent() {
         useNativeToolPreferencesStore.getState().resetTools();
         await mcpSettings?.request('mcp/tools/reset', {});
       },
-      subscribeMcpConfig: (
-        listener: (info: { error?: string; exists: boolean; path: string }) => void
-      ) => {
+      subscribeMcpConfig: (listener: (info: McpConfigInfo) => void) => {
         if (!mcpSettings) {
           throw new Error('MCP settings need the desktop agent host');
         }
@@ -385,12 +385,14 @@ export default function SettingsPageContent() {
       },
       ...(mcpSettings && {
         getMcpConfigPath: async () => (await mcpSettings.request('mcp/config/path', {})).path,
+        installMcpCatalogServer: async (request: McpCatalogInstallRequest) =>
+          await mcpSettings.request('mcp/config/install', request),
         readMcpConfigText: async () => await mcpSettings.request('mcp/config/read', {}),
         setMcpConfigPath: async (configPath: string | null) => {
           await mcpSettings.request('mcp/config/path/set', { path: configPath });
         },
-        writeMcpConfigText: async (content: string) =>
-          await mcpSettings.request('mcp/config/write', { content }),
+        writeMcpConfigText: async (content: string, baseRevision: string) =>
+          await mcpSettings.request('mcp/config/write', { baseRevision, content }),
       }),
       createSampleConfig: async () => {
         if (!mcpSettings) {
@@ -407,6 +409,7 @@ export default function SettingsPageContent() {
           exists: config.exists,
           path: config.path,
           ...(config.error ? { error: config.error } : {}),
+          ...(config.watchError === undefined ? {} : { watchError: config.watchError }),
         };
       },
     };

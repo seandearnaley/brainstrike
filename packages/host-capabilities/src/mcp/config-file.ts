@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -271,11 +272,17 @@ export interface McpConfigTextDocument {
   error?: string;
   exists: boolean;
   path: string;
+  /** `mcpConfigRevision` of `content`, which is `''` when the file does not exist. */
+  revision: string;
 }
 
+/** A write refused because the file no longer holds the text its base revision names. */
+const MCP_CONFIG_CONFLICT =
+  'The MCP config changed on disk since it was read. Reload it, then save again.';
+
 export type McpConfigWriteResult =
-  | { path: string; success: true }
-  | { error: string; path: string; success: false };
+  | { path: string; revision: string; success: true }
+  | { conflict?: true; error: string; path: string; success: false };
 
 export interface McpWatcher {
   close: () => void;
@@ -290,16 +297,42 @@ export interface McpConfigFile {
   path(): Promise<string>;
   readText(createIfMissing?: boolean): Promise<McpConfigTextDocument>;
   setCustomPath(configPath: string | null): Promise<void>;
-  watch(onChange: (config: LoadedMcpConfig) => Promise<void> | void): Promise<McpWatcher>;
-  writeText(content: string): Promise<McpConfigWriteResult>;
+  /**
+   * Watches the config file. A watcher that fails while running closes itself
+   * and reports why to `onError`, once; it delivers no change after that.
+   */
+  watch(
+    onChange: (config: LoadedMcpConfig) => Promise<void> | void,
+    onError: (error: unknown) => void
+  ): Promise<McpWatcher>;
+  /** Writes valid text only while the file still has `baseRevision`; otherwise a conflict. */
+  writeText(content: string, baseRevision: string): Promise<McpConfigWriteResult>;
+}
+
+/** The revision of config text: the lowercase hex SHA-256 of its UTF-8 bytes. An absent file has the revision of `''`. */
+export function mcpConfigRevision(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 export function getDefaultMcpConfigTemplate(): string {
   return DEFAULT_MCP_CONFIG_TEMPLATE;
 }
 
-function errorMessage(error: unknown): string {
+/** A caught value's message: an `Error`'s own message, else the value as a string. */
+export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The file's text, or `''` when it does not exist. */
+async function readTextOrEmpty(target: string): Promise<string> {
+  try {
+    return await fsp.readFile(target, 'utf-8');
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'ENOENT') {
+      return '';
+    }
+    throw error;
+  }
 }
 
 function normalizeCustomConfigPath(configPath: string | null): string | null {
@@ -479,6 +512,7 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
           created: false,
           exists: false,
           path: ensured.path,
+          revision: mcpConfigRevision(''),
         };
       }
 
@@ -495,6 +529,7 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
         ...(validationError === undefined ? {} : { error: validationError }),
         exists: true,
         path: ensured.path,
+        revision: mcpConfigRevision(content),
       };
     },
     async setCustomPath(next) {
@@ -503,7 +538,7 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
       cache.initialized = true;
       await saveCustomConfigPath(normalizedPath);
     },
-    async watch(onChange) {
+    async watch(onChange, onError) {
       const p = await configPath();
       // Ensure the directory exists to avoid immediate watch errors.
       await fsp.mkdir(path.dirname(p), { recursive: true });
@@ -545,19 +580,30 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
           }
         }, 100);
       });
-      return {
-        close: () => {
-          closed = true;
-          changeEpoch += 1;
-          if (timer) {
-            clearTimeout(timer);
-            timer = null;
-          }
-          watcher.close();
-        },
+      const close = (): void => {
+        closed = true;
+        changeEpoch += 1;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        watcher.close();
       };
+      // Without a listener an fs watcher's `error` is thrown, and the watcher dies unseen.
+      watcher.on('error', (error: unknown) => {
+        if (closed) {
+          return;
+        }
+        logger.error('MCP config watcher failed', { error });
+        try {
+          close();
+        } finally {
+          onError(error);
+        }
+      });
+      return { close };
     },
-    async writeText(content) {
+    async writeText(content, baseRevision) {
       const target = await configPath();
 
       try {
@@ -567,9 +613,16 @@ export function createMcpConfigFile(userDataDir: string): McpConfigFile {
       }
 
       try {
+        // The check and the write are adjacent, and the settings authority
+        // serializes every write in this process, but a writer outside it can
+        // still change the file between them. That window is acceptable for
+        // an editor file.
+        if (mcpConfigRevision(await readTextOrEmpty(target)) !== baseRevision) {
+          return { conflict: true, error: MCP_CONFIG_CONFLICT, path: target, success: false };
+        }
         await fsp.mkdir(path.dirname(target), { recursive: true });
         await fsp.writeFile(target, content, 'utf-8');
-        return { path: target, success: true };
+        return { path: target, revision: mcpConfigRevision(content), success: true };
       } catch (error) {
         return { error: errorMessage(error), path: target, success: false };
       }

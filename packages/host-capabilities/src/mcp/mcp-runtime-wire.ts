@@ -27,6 +27,7 @@ export const McpDiagnosticScopeSchema = Schema.Literals([
   'DesktopMcpHostConnection',
   'DesktopNodeMcpHost',
   'McpConfigFile',
+  'McpConfigWatch',
   'McpContentService',
   'McpDesktopTaskHost',
   'McpHostRuntime',

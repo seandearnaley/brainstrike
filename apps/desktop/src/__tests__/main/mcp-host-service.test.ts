@@ -144,6 +144,7 @@ describe('McpHostService', () => {
     const joined = deferred<McpHostCloseReport>();
     const { host, publisher, records } = setup([joined.promise]);
     const authority = new McpSettingsAuthority({
+      bearerCredentials: { create: vi.fn(), delete: vi.fn() },
       configFile: createMcpConfigFile(userDataDir),
       extensionStore: {
         deleteSetting: vi.fn(async () => false),

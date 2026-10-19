@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "methods": [
     "auth/cancel",
     "auth/clear",
@@ -24,6 +24,7 @@
     "log/unsubscribe",
     "mcp/app/admit",
     "mcp/app/call",
+    "mcp/config/install",
     "mcp/config/path",
     "mcp/config/path/set",
     "mcp/config/read",
