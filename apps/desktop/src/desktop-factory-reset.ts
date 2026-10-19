@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
+import { canonicalRoot } from '@brainstrike/state-store';
 import {
   recordDesktopResetCompleted,
   recordDesktopResetFailed,
@@ -187,12 +188,13 @@ export async function resetDesktopApplicationData({
       }
     }
     const protectedPaths = requestedProtectedPaths.map((protectedPath) =>
-      realpathSync(protectedPath)
+      canonicalRoot(protectedPath)
     );
-    // RootLock owns a canonical path; compare against the same namespace even
-    // when Electron's userData path reaches it through a filesystem alias.
+    // RootLock records its root's canonical path; compare in that same spelling
+    // even when Electron's userData path reaches it through another one, such as
+    // a symlink, another case or a Windows 8.3 short name (BST-2234).
     const canonicalUserDataPath =
-      protectedPaths.length === 0 ? userDataPath : realpathSync(userDataPath);
+      protectedPaths.length === 0 ? userDataPath : canonicalRoot(userDataPath);
     const containsProtectedPath = (target: string): boolean =>
       protectedPaths.some((protectedPath) => {
         const relative = path.relative(target, protectedPath);
