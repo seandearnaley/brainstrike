@@ -8,6 +8,7 @@ import {
   type HostMethod,
   type HostParams,
   type HostResults,
+  type HostRunTelemetry,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import {
@@ -59,16 +60,29 @@ const observerCall = Schema.decodeUnknownSync(HostLogRowSchema, {
   seq: 1000,
   threadId: started.threadId,
 });
+/** The recorded run whose memory cycles the BST-2224 case commits. */
+const STARTED_RUN_ID = started.event.runId;
 class RowSource implements HostMemoryRowSource {
   private snapshot: {
     readonly rows: readonly HostLogRow[];
   } = { rows: [] };
   private readonly listeners = new Set<() => void>();
+  private readonly telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   readonly getSnapshot = () => this.snapshot;
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+  readonly onTelemetry = (listener: (telemetry: HostRunTelemetry) => void) => {
+    this.telemetryListeners.add(listener);
+    return () => this.telemetryListeners.delete(listener);
+  };
+  /** One uncommitted chunk, as the thread view delivers its live telemetry. */
+  live(chunk: HostRunTelemetry['chunk']): void {
+    for (const listener of this.telemetryListeners) {
+      listener({ chunk, runId: STARTED_RUN_ID, threadId: started?.threadId ?? THREAD });
+    }
+  }
   commit(row: HostLogRow): void {
     this.snapshot = { rows: [...this.snapshot.rows, row] };
     for (const listener of this.listeners) {
@@ -339,6 +353,131 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     act(() => source.commit(finished));
     await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+  });
+  test('each kind’s last committed memory cycle joins the segment, and a cycle re-reads (BST-2224)', async () => {
+    const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE, ACTIVE);
+    const source = new RowSource();
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    const cycle = (seq: number, event: Record<string, unknown>): HostLogRow =>
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+        event: { runId: STARTED_RUN_ID, type: 'memory.cycle', ...event },
+        seq,
+        threadId: started.threadId,
+        ts: Date.UTC(2026, 9, 19, 9, 0, seq - 1000),
+      });
+    const failed = {
+      durationMs: 3200,
+      failure: {
+        code: 'memory.observer-failed',
+        correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
+      },
+      kind: 'observation',
+      outcome: 'failed',
+      trigger: 'async-buffer',
+    };
+    act(() => source.commit(cycle(1001, failed)));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current.omSegment?.cycles).toEqual({
+        observation: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 1),
+          durationMs: 3200,
+          failure: failed.failure,
+          outcome: 'failed',
+          trigger: 'async-buffer',
+        },
+      })
+    );
+    act(() =>
+      source.commit(cycle(1002, { kind: 'reflection', outcome: 'completed', trigger: 'turn-sync' }))
+    );
+    act(() =>
+      source.commit(
+        cycle(1003, {
+          kind: 'observation',
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+        })
+      )
+    );
+    // The later observation replaces the failed one; the reflection stays.
+    await waitFor(() =>
+      expect(result.current.omSegment?.cycles).toEqual({
+        observation: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 3),
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+        },
+        reflection: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 2),
+          outcome: 'completed',
+          trigger: 'turn-sync',
+        },
+      })
+    );
+  });
+  test('a failed memory settlement re-reads, so the panel drops the buffering flag its cycle saw', async () => {
+    const { client, request } = hostClient(ACTIVE, ACTIVE);
+    const source = new RowSource();
+    renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    act(() =>
+      source.commit(
+        Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+          event: {
+            detail: 'Memory observe failed because its observer model failed.',
+            runId: STARTED_RUN_ID,
+            type: 'memory.settlement.failed',
+          },
+          seq: 1001,
+          threadId: started.threadId,
+        })
+      )
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  });
+  test('the last recall the thread delivers live joins the segment; another thread starts empty (BST-2225)', async () => {
+    const { client } = hostClient(ACTIVE, ACTIVE);
+    const first = new RowSource();
+    const { result, rerender } = renderHook(
+      ({ source }: { source: RowSource }) =>
+        useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source }),
+      { initialProps: { source: first } }
+    );
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    expect(result.current.omSegment?.recall).toBeUndefined();
+    // A chunk of any other kind is not a recall.
+    act(() => first.live({ delta: 'Paris', id: 'text-1', type: 'text-delta' }));
+    expect(result.current.omSegment?.recall).toBeUndefined();
+    const before = Date.now();
+    act(() =>
+      first.live({
+        latencyMs: 85,
+        messages: 2,
+        scope: 'thread',
+        topK: 4,
+        type: 'brainstrike.memory.recall',
+      })
+    );
+    expect(result.current.omSegment?.recall).toEqual({
+      at: expect.any(Number),
+      latencyMs: 85,
+      messages: 2,
+      scope: 'thread',
+      topK: 4,
+    });
+    expect(result.current.omSegment?.recall?.at).toBeGreaterThanOrEqual(before);
+    // The recall was never committed: the next thread's view has none.
+    rerender({ source: new RowSource() });
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    expect(result.current.omSegment?.recall).toBeUndefined();
   });
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);

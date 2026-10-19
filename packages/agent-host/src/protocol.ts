@@ -32,7 +32,11 @@ import {
   MCP_SETTINGS_METHOD_SCHEMAS,
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.js';
-import { HostMemoryModelsSchema, HostObservationalMemoryStateSchema } from './protocol-memory.js';
+import {
+  HostMemoryCycleEventSchema,
+  HostMemoryModelsSchema,
+  HostObservationalMemoryStateSchema,
+} from './protocol-memory.js';
 import {
   HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
@@ -696,10 +700,12 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('memory.usage'),
         ...RunFields,
-        kind: Schema.Literals(['observation', 'reflection']),
+        // BST-2226: `embedding` is a hosted memory embedder's provider-reported tokens.
+        kind: Schema.Literals(['observation', 'reflection', 'embedding']),
         modelId: Id,
         usage: json(),
       }),
+      HostMemoryCycleEventSchema,
       Schema.Struct({
         type: Schema.Literal('memory.observation.withheld'),
         ...RunFields,
@@ -818,6 +824,16 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         kind: Schema.Literals(['agentic', 'deterministic']),
         modelId: Schema.optional(Id),
         reason: Schema.Literals(['pre-request', 'context-overflow']),
+        /**
+         * A deterministic fallback's reason: the agentic summarizer's typed
+         * failure code, and the reference its cause is logged under (BST-2204).
+         */
+        summarizerFailure: Schema.optional(
+          Schema.Struct({
+            code: Id,
+            correlationId: Schema.optional(Schema.String.check(Schema.isUUID())),
+          })
+        ),
         summary: Schema.String.check(Schema.isMinCodePoints(1)),
         usage: Schema.optional(json()),
       }),

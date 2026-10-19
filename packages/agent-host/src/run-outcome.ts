@@ -15,11 +15,7 @@ import {
   StreamStalledError,
   ToolCallInputStreamingTimeoutError,
 } from '@brainstrike/agent/provider-runtime';
-import {
-  type BoundaryFailure,
-  BoundaryFailureError,
-  describeBoundaryFailure,
-} from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, describeBoundaryFailure } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
   APICallError,
@@ -28,7 +24,7 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
-import { correlationIdFor } from './failure-correlation.js';
+import { correlatedFailure } from './failure-correlation.js';
 import type { HostEvent } from './protocol.js';
 
 const logger = createLogger('AgentHost');
@@ -54,13 +50,6 @@ function isContextOverflow(cause: unknown): boolean {
     (!(cause instanceof BoundaryFailureError) &&
       isContextOverflowProviderErrorCode(extractProviderRunError(cause).code))
   );
-}
-
-/** A fault names the correlation id its cause is logged under; a refusal needs none. */
-function correlated(failure: BoundaryFailure, cause: unknown): BoundaryFailure {
-  return failure.kind === 'fault' && failure.correlationId === undefined
-    ? { ...failure, correlationId: correlationIdFor(cause) }
-    : failure;
 }
 
 /** A provider-classified transient failure; typed host refusals are never retryable. */
@@ -168,7 +157,7 @@ export class HostRunOutcome {
     // BST-2202: a fault's detail names the correlation id this one record holds its cause under.
     const failure = timed
       ? undefined
-      : correlated(resolveProviderError(cause, this.configuration).failure, cause);
+      : correlatedFailure(resolveProviderError(cause, this.configuration).failure, cause);
     logger.error('Assistant model attempt failed', {
       cause,
       ...(failure

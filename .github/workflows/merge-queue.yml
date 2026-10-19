@@ -1,0 +1,94 @@
+# Runs the fast tier on each merge-queue group for main (BST-2188).
+# Per-push PR CI stays off: pull_request runs start no runner.
+
+name: Merge Queue
+
+# scripts/__tests__/merge-queue-contract.test.mjs pins these triggers, the
+# call and the gate.
+on:
+  # Skip-only (BST-2188, owner decision 2026-10-19). GitHub admits a PR to the
+  # queue only once the required checks pass on its head, so Merge Queue Gate
+  # must report there too. Every job below skips on pull_request, and GitHub
+  # reports a job skipped by its condition as success to required checks.
+  # `edited` covers a stacked PR retargeted to main, whose head never ran here.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
+  workflow_dispatch:
+
+# A called workflow can only narrow these, and test.yml asks for both.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # The fast tier is test.yml itself: Static, Unit (affected against the merge
+  # group's base), Build and the three smoke E2E lanes. Its nightly-only jobs
+  # skip under `merge-queue: true`. A dispatch runs every Unit shard. Check
+  # names read "Test / Static", "Test / Unit (db-1)" and so on.
+  test:
+    name: Test
+    if: github.repository == 'seandearnaley/brainstrike' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/test.yml
+    with:
+      merge-queue: true
+    secrets:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+  # The one check the ruleset requires; keep its name exact. It passes only
+  # when the call succeeded, every fast-tier job succeeded and every
+  # nightly-only job skipped. Static owns Unit selection, so the Unit matrix
+  # may skip only when Static succeeded and selected no affected shard; a Unit
+  # skipped because Static failed, or any other skipped, failed or cancelled
+  # job, fails the gate.
+  merge-queue-gate:
+    name: Merge Queue Gate
+    if: github.repository == 'seandearnaley/brainstrike' && github.event_name != 'pull_request' && always()
+    needs: [test]
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Judge every job
+        env:
+          NIGHTLY_ONLY: NATIVE_WINDOWS NATIVE_ELECTRON BROWSER_TESTS NOTIFY_LINEAR
+          UNIT_SHARD_COUNT: ${{ needs.test.outputs.unit-shard-count }}
+          RESULT_TEST: ${{ needs.test.result }}
+          RESULT_ADMISSION: ${{ needs.test.outputs.admission-result }}
+          RESULT_STATIC: ${{ needs.test.outputs.static-result }}
+          RESULT_UNIT_SHARD: ${{ needs.test.outputs.unit-shard-result }}
+          RESULT_UNIT: ${{ needs.test.outputs.unit-result }}
+          RESULT_BUILD: ${{ needs.test.outputs.build-result }}
+          RESULT_NATIVE_WINDOWS: ${{ needs.test.outputs.native-windows-result }}
+          RESULT_NATIVE_ELECTRON: ${{ needs.test.outputs.native-electron-result }}
+          RESULT_BROWSER_TESTS: ${{ needs.test.outputs.browser-tests-result }}
+          RESULT_WEB_E2E: ${{ needs.test.outputs.web-e2e-result }}
+          RESULT_DESKTOP_E2E_SMOKE: ${{ needs.test.outputs.desktop-e2e-smoke-result }}
+          RESULT_DESKTOP_E2E_DELEGATED: ${{ needs.test.outputs.desktop-e2e-delegated-result }}
+          RESULT_DESKTOP_E2E: ${{ needs.test.outputs.desktop-e2e-result }}
+          RESULT_NOTIFY_LINEAR: ${{ needs.test.outputs.notify-linear-result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for lane in "${!RESULT_@}"; do
+            job="${lane#RESULT_}"
+            result="${!lane}"
+            expected=success
+            case " ${NIGHTLY_ONLY} " in
+              *" ${job} "*) expected=skipped ;;
+            esac
+            echo "${job}: ${result} (expected ${expected})"
+            if [ "$result" = "$expected" ]; then
+              continue
+            fi
+            if [ "$job" = UNIT_SHARD ] && [ "$result" = skipped ] &&
+              [ "$RESULT_STATIC" = success ] && [ "$UNIT_SHARD_COUNT" = 0 ]; then
+              echo "Static succeeded and selected no affected Unit shard."
+              continue
+            fi
+            echo "::error::${job} was ${result:-missing}, expected ${expected}"
+            failed=1
+          done
+          exit "$failed"

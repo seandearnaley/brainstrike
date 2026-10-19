@@ -224,6 +224,26 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
       outputTokens: 130,
     });
   });
+  test('a hosted embedder’s usage is a memory-embedding source under its catalog model (BST-2226)', () => {
+    const embedding = {
+      kind: 'embedding',
+      modelId: 'openai::text-embedding-3-small',
+      runId,
+      type: 'memory.usage',
+      usage: { inputTokens: 120, outputTokens: 0, totalTokens: 120 },
+    };
+    const { perModel } = folded(insertAfterStart(embedding));
+    expect(perModel).toMatchObject([
+      {
+        inputTokens: 120,
+        model: 'text-embedding-3-small',
+        outputTokens: 0,
+        provider: 'openai',
+        runKind: 'memory-embedding',
+      },
+      { runKind: 'chat' },
+    ]);
+  });
 });
 describe("the Task Ledger's and cost views' share of a host run", () => {
   const hash = (digit: string): string => digit.repeat(64);

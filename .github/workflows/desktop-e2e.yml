@@ -124,8 +124,14 @@ jobs:
       # matrix (the total must equal the matrix length; a script contract checks). pnpm
       # appends the flag to the lane script, which must therefore end in the
       # playwright command.
+      # Each Playwright run writes its JSON report under
+      # nightly-results/<results job>/<part>/, outside test-results/, which the AI
+      # Tools run below clears (BST-2189). Each shard is its own part, so a red
+      # shard is judged on its own results.
       - name: Run full desktop regression
         working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/shard-${{ matrix.shard }}/regression.json
         run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/4
 
       # The AI Tools smoke specs are excluded from the regression project, so
@@ -136,7 +142,30 @@ jobs:
       - name: Run desktop AI Tools nightly lane
         if: matrix.shard == 1
         working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/shard-${{ matrix.shard }}/tools-settings-nightly.json
         run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
+
+      # Every run, green, red or cancelled: a green night's flaky tests and passes
+      # are what Notify Linear files and recovers per test, and a red part with
+      # no failing test is filed from its job status.
+      - name: Record the nightly job status
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PART_DIR: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/shard-${{ matrix.shard }}
+        run: |
+          mkdir -p "$PART_DIR"
+          printf '%s\n' "$JOB_STATUS" > "$PART_DIR/job.status"
+
+      - name: Upload nightly test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--desktop-full-regression-gate--shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: warn
 
       # test-results/ holds each failed test's raw trace, screenshots, video,
       # error context and spec diagnostics; blob-report/ holds the report zip
@@ -234,6 +263,8 @@ jobs:
       # budget cannot also hold (BST-2090, run 39062126583).
       - name: Run desktop embedding regression
         working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-embedding-e2e/main/embedding.json
         run: |
           unset NO_COLOR
           BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
@@ -250,6 +281,24 @@ jobs:
             --max-failures=0 \
             --global-timeout=3000000 \
             --grep="@desktop-embedding-"
+
+      - name: Record the nightly job status
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PART_DIR: ${{ runner.temp }}/nightly-results/desktop-embedding-e2e/main
+        run: |
+          mkdir -p "$PART_DIR"
+          printf '%s\n' "$JOB_STATUS" > "$PART_DIR/job.status"
+
+      - name: Upload nightly test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--desktop-embedding-e2e
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Upload desktop embedding traces
         if: failure()
@@ -314,7 +363,26 @@ jobs:
           BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_DEVICE: wasm
           BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_FILES: '60'
           BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH: ${{ runner.temp }}/foreground-latency/foreground-latency-under-index-build.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-foreground-latency/main/foreground-latency.json
         run: dbus-run-session -- pnpm run test:e2e:lane:foreground-latency
+
+      - name: Record the nightly job status
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PART_DIR: ${{ runner.temp }}/nightly-results/desktop-foreground-latency/main
+        run: |
+          mkdir -p "$PART_DIR"
+          printf '%s\n' "$JOB_STATUS" > "$PART_DIR/job.status"
+
+      - name: Upload nightly test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--desktop-foreground-latency
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Upload foreground latency evidence
         if: always()
@@ -343,6 +411,8 @@ jobs:
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}
+      # Each shard is one part of the gate: a red shard needs its own failing test.
+      parts: desktop-full-regression-gate=shard-1 shard-2 shard-3 shard-4
       results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }},desktop-foreground-latency=${{ needs.desktop-foreground-latency.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

@@ -43,6 +43,7 @@ function costLabel(cost: CostEstimate): string {
 const SOURCE_LABELS: Record<AssistantRunUsageKind, string> = {
   chat: 'Chat',
   'compaction-summary': 'Compaction summaries',
+  'memory-embedding': 'Memory embeddings',
   'om-observation': 'Memory observer (est.)',
   'om-reflection': 'Memory reflection (est.)',
   subagent: 'Subagents',

@@ -220,7 +220,7 @@ test('resource-mismatch process proof runs in the required desktop integration l
   assert.ok(include.some((glob) => minimatch(relativeTestPath, glob)));
 
   const workflow = parseYaml(readRepoFile('.github/workflows/test.yml'));
-  const step = findStep(workflow, 'unit-shard', 'Pull request affected integration tests');
+  const step = findStep(workflow, 'unit-shard', 'Affected integration tests');
   assert.match(step.run, /pnpm turbo run test:integration/u);
   assert.equal(step['continue-on-error'], undefined);
 });

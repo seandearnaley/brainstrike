@@ -175,6 +175,12 @@ const usageOf =
   ({ event }: HostLogRow): boolean =>
     event.type === 'memory.usage' && event.runId === runId && event.kind === 'observation';
 
+/** BST-2224: the run's committed observation cycle. */
+const cycleOf =
+  (runId: string) =>
+  ({ event }: HostLogRow): boolean =>
+    event.type === 'memory.cycle' && event.runId === runId && event.kind === 'observation';
+
 test('run.finished commits while a step-time observation is still buffering', async () => {
   const observer = heldObserver();
   const host = await settlementHost(observer.model);
@@ -190,6 +196,22 @@ test('run.finished commits while a step-time observation is still buffering', as
     const usage = await host.committed(usageOf(runId));
     expect(usage.seq).toBeGreaterThan(finished.seq);
     expect(usage.event).toMatchObject({ modelId: 'openai::gpt-4.1-mini', runId });
+    // BST-2224: the buffered cycle commits its own facts beside its spend.
+    const cycle = await host.committed(cycleOf(runId));
+    expect(cycle.seq).toBeGreaterThan(finished.seq);
+    expect(cycle.event).toEqual({
+      durationMs: expect.any(Number),
+      kind: 'observation',
+      outcome: 'completed',
+      runId,
+      trigger: 'async-buffer',
+      type: 'memory.cycle',
+      usage: {
+        inputTokens: expect.any(Number),
+        outputTokens: expect.any(Number),
+        totalTokens: expect.any(Number),
+      },
+    });
     expect(fetch).not.toHaveBeenCalled();
   } finally {
     observer.release();
@@ -326,6 +348,18 @@ test('a buffered observation that fails after run.finished is its own committed 
       cause: 'Recorded buffered observer failure',
       code: 'memory.observer-failed',
       step: 'observe',
+    });
+    // BST-2224: Mastra reports the buffered failure only to its end hook; the
+    // cycle commits it, under the same code and reference as the settlement.
+    const cycle = await host.committed(cycleOf(first.runId));
+    expect(cycle.event).toEqual({
+      durationMs: expect.any(Number),
+      failure: { code: 'memory.observer-failed', correlationId: reference },
+      kind: 'observation',
+      outcome: 'failed',
+      runId: first.runId,
+      trigger: 'async-buffer',
+      type: 'memory.cycle',
     });
     // The run's own outcome is unchanged, and the thread accepts its next run.
     const finished = (await host.rows()).filter(

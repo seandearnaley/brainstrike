@@ -120,6 +120,47 @@ export interface MemoryModelsDisplay {
   readonly observer?: string;
 }
 
+/**
+ * One committed observation or reflection cycle (structural mirror of the
+ * host's `memory.cycle`, BST-2224), with when it committed.
+ */
+export interface MemoryCycleDisplay {
+  /** When the cycle committed (epoch ms), where the host reported it. */
+  readonly at?: number;
+  /** Absent when the host did not see the cycle start. */
+  readonly durationMs?: number;
+  readonly failure?: { readonly code: string; readonly correlationId?: string };
+  readonly outcome: 'completed' | 'failed' | 'cancelled';
+  /** What started it: `manual`, `turn-sync` or `async-buffer`. */
+  readonly trigger?: string;
+  readonly usage?: {
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly totalTokens?: number;
+  };
+}
+
+/**
+ * The last semantic recall this view saw live (structural mirror of the host's
+ * recall telemetry, BST-2225): never committed, so a reload clears it.
+ */
+export interface MemoryRecallDisplay {
+  /** When this view received it (epoch ms). */
+  readonly at: number;
+  readonly latencyMs: number;
+  /** The messages recall returned: each hit with its message range. */
+  readonly messages: number;
+  readonly scope: 'resource' | 'thread';
+  /** Absent when the configuration leaves it to Mastra's default. */
+  readonly topK?: number;
+}
+
+/** The thread's last committed cycle of each kind; absent before its first. */
+export interface MemoryCyclesDisplay {
+  readonly observation?: MemoryCycleDisplay;
+  readonly reflection?: MemoryCycleDisplay;
+}
+
 export type OmMeterState = (
   | { readonly kind: 'chat-only' }
   | { readonly kind: 'inactive' }
@@ -147,8 +188,12 @@ export type OmMeterState = (
       readonly pendingMessageTokens: number;
     }
 ) & {
+  /** The thread's last observation and reflection cycles (Developer panel). */
+  readonly cycles?: MemoryCyclesDisplay;
   /** The models the read named, where the host reports them (Developer panel). */
   readonly models?: MemoryModelsDisplay;
+  /** The last semantic recall this view saw live (Developer panel). */
+  readonly recall?: MemoryRecallDisplay;
   /** When the host read this state (epoch ms): the record's flags hold as of then. */
   readonly readAt?: number;
 };

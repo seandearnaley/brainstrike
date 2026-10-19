@@ -39,7 +39,10 @@ import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index
 import type { WorktreeToolCapability } from '../assistant-server/worktree-tools';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
-import { resolveDesktopPythonRuntimeResourcesDir } from '../python-runtime/resources-dir';
+import {
+  resolveDesktopPythonRuntimeInstallDir,
+  resolveDesktopPythonRuntimeResourcesDir,
+} from '../python-runtime/resources-dir';
 import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
 import { hostIndexSearch, hostQueryEmbedding, hostRetrievalStore } from './host-retrieval-clients';
 import { hostCommandSessionManager } from './host-tool-process';
@@ -224,18 +227,25 @@ export interface HostAppPaths {
   readonly userDataPath: string;
 }
 
-/** The same bundled interpreter and sandbox helper Main resolves, from the launch facts. */
+/** The bundled interpreter and sandbox helper the launching app ships, from its launch facts. */
 function hostCodeExecution(appPaths: HostAppPaths): CodeExecutionHost {
   return {
-    resolvePythonExecutable: (signal) =>
-      resolvePythonBinary({
-        resourcesDir: resolveDesktopPythonRuntimeResourcesDir(
+    resolvePythonExecutable: async (signal) => {
+      const manifestDir = resolveDesktopPythonRuntimeResourcesDir(
+        appPaths.isPackaged,
+        appPaths.resourcesPath
+      );
+      return await resolvePythonBinary({
+        installDir: resolveDesktopPythonRuntimeInstallDir(
           appPaths.isPackaged,
-          appPaths.resourcesPath
+          manifestDir,
+          process.platform,
+          process.arch
         ),
+        manifestDir,
         signal,
-        userDataDir: appPaths.userDataPath,
-      }),
+      });
+    },
     resolveSeccompApplyPath: () =>
       resolveDesktopSeccompApplyPath(appPaths.isPackaged, appPaths.resourcesPath),
   };

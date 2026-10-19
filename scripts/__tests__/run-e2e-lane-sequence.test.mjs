@@ -9,7 +9,9 @@ import { parse as parseYaml } from 'yaml';
 
 import {
   laneCommandArguments,
+  laneEnvironment,
   laneSpawnInvocation,
+  recordUnreportedLane,
   runE2eLaneSequence,
 } from '../run-e2e-lane-sequence.mjs';
 
@@ -90,6 +92,63 @@ test('each lane gets an isolated Playwright output directory', () => {
     () => laneCommandArguments('test:e2e:lane:../../escape'),
     /Invalid E2E lane script name/
   );
+});
+
+test('each lane writes its own JSON report into PLAYWRIGHT_JSON_OUTPUT_DIR', () => {
+  const env = { KEEP: '1', PLAYWRIGHT_JSON_OUTPUT_DIR: '/tmp/nightly-results/web-full-regression' };
+  const reports = EXPECTED_LANES.map(
+    (lane) => laneEnvironment(lane, env).PLAYWRIGHT_JSON_OUTPUT_FILE
+  );
+
+  assert.equal(reports[1], '/tmp/nightly-results/web-full-regression/assistant-state.json');
+  assert.equal(new Set(reports).size, EXPECTED_LANES.length, 'no lane overwrites another');
+  assert.equal(laneEnvironment(EXPECTED_LANES[0], env).KEEP, '1');
+  assert.equal(
+    laneEnvironment(EXPECTED_LANES[0], { KEEP: '1' }).PLAYWRIGHT_JSON_OUTPUT_FILE,
+    undefined
+  );
+  assert.throws(
+    () => laneEnvironment(EXPECTED_LANES[0], { PLAYWRIGHT_JSON_OUTPUT_FILE: '/tmp/one.json' }),
+    /only the last lane; set PLAYWRIGHT_JSON_OUTPUT_DIR/u
+  );
+});
+
+test('RED-FIRST: a failed lane with no JSON report is recorded as unreported, never dropped', () => {
+  const reportDirectory = mkdtempSync(path.join(tmpdir(), 'e2e-lane-reports-'));
+  try {
+    const env = { PLAYWRIGHT_JSON_OUTPUT_DIR: reportDirectory };
+    const lanes = ['test:e2e:lane:reported', 'test:e2e:lane:silent', 'test:e2e:lane:killed'];
+    const status = runE2eLaneSequence(lanes, {
+      env,
+      log: () => {},
+      logError: () => {},
+      runLane: (lane) => {
+        if (lane.endsWith(':reported')) {
+          writeFileSync(path.join(reportDirectory, 'reported.json'), '{}');
+          return { status: 1 };
+        }
+        return lane.endsWith(':killed') ? { signal: 'SIGKILL', status: null } : { status: 2 };
+      },
+    });
+
+    assert.equal(status, 1);
+    assert.equal(
+      readFileSync(path.join(reportDirectory, 'silent.unreported'), 'utf8'),
+      'exited 2\n'
+    );
+    assert.equal(
+      readFileSync(path.join(reportDirectory, 'killed.unreported'), 'utf8'),
+      'was killed by SIGKILL\n'
+    );
+    assert.throws(
+      () => readFileSync(path.join(reportDirectory, 'reported.unreported')),
+      /ENOENT/u,
+      'a lane with its own report needs no record'
+    );
+    recordUnreportedLane('test:e2e:lane:other', 'exited 1', {});
+  } finally {
+    rmSync(reportDirectory, { force: true, recursive: true });
+  }
 });
 
 test('MONEY TEST: pnpm forwards the output flag without a literal delimiter', () => {

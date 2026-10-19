@@ -163,6 +163,132 @@ test('adapter drives the public OM turn and foreground observation without vendo
   }
 });
 
+/** An observer and reflector that always answer with one observation, and report 42/9 tokens. */
+function observationModel(): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async () => ({
+      stream: simulateReadableStream({
+        chunkDelayInMs: null,
+        chunks: [
+          { type: 'stream-start', warnings: [] },
+          { id: 'observation-text', type: 'text-start' },
+          {
+            delta: '<observations>\n- The user asked about Paris weather.\n</observations>',
+            id: 'observation-text',
+            type: 'text-delta',
+          },
+          { id: 'observation-text', type: 'text-end' },
+          {
+            finishReason: { raw: 'stop', unified: 'stop' },
+            type: 'finish',
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 42, total: 42 },
+              outputTokens: { reasoning: 0, text: 9, total: 9 },
+            },
+          },
+        ],
+        initialDelayInMs: null,
+      }),
+    }),
+  });
+}
+
+test('each observation and reflection cycle reports its trigger, outcome, duration and usage once (BST-2224)', async () => {
+  const cycles: Parameters<NonNullable<HostMemoryCapabilities['recordMemoryCycle']>>[1][] = [];
+  const f = await fixture(
+    {
+      recordMemoryCycle: async (_identity, cycle) => {
+        cycles.push(cycle);
+      },
+    },
+    {
+      observationalMemory: {
+        model: observationModel(),
+        observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
+        reflection: { observationTokens: 1 },
+      },
+      semanticRecall: false,
+    }
+  );
+  try {
+    const user = message(f.identity, 'user');
+    user.content.parts = [{ text: 'Paris weather. '.repeat(60), type: 'text' }];
+    await f.adapter.commitStep([user]);
+    await f.adapter.beginTurn([user]);
+    await f.adapter.prepareStep(0);
+    await f.adapter.prepareStep(1);
+  } finally {
+    await f.adapter.close();
+    await f.storage.close();
+  }
+  const facts = { durationMs: expect.any(Number), outcome: 'completed', trigger: 'turn-sync' };
+  // The reflection runs inside the observation's cycle, so it ends first. Its
+  // usage sums every reflector attempt (Mastra retries an uncompressed answer).
+  expect(cycles).toEqual([
+    {
+      ...facts,
+      kind: 'reflection',
+      usage: {
+        inputTokens: expect.any(Number),
+        outputTokens: expect.any(Number),
+        totalTokens: expect.any(Number),
+      },
+    },
+    { ...facts, kind: 'observation', usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 } },
+  ]);
+});
+
+test('a configuration that sets its own lifecycle hook is refused; its transform hooks are kept (BST-2224)', async () => {
+  await expect(
+    fixture(
+      { recordMemoryCycle: async () => undefined },
+      {
+        observationalMemory: {
+          hooks: { onObservationEnd: () => undefined },
+          model: observationModel(),
+          observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
+          reflection: { observationTokens: 50_000 },
+        },
+        semanticRecall: false,
+      }
+    )
+  ).rejects.toMatchObject({ code: 'memory.configuration-invalid' });
+  const transformed: string[] = [];
+  const cycles: unknown[] = [];
+  const f = await fixture(
+    {
+      recordMemoryCycle: async (_identity, cycle) => {
+        cycles.push(cycle);
+      },
+    },
+    {
+      observationalMemory: {
+        hooks: {
+          beforeObservation: ({ messages }) => {
+            transformed.push(...messages.map((item) => item.id));
+          },
+        },
+        model: observationModel(),
+        observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
+        reflection: { observationTokens: 50_000 },
+      },
+      semanticRecall: false,
+    }
+  );
+  try {
+    const user = message(f.identity, 'user');
+    user.content.parts = [{ text: 'Paris weather. '.repeat(60), type: 'text' }];
+    await f.adapter.commitStep([user]);
+    await f.adapter.beginTurn([user]);
+    await f.adapter.prepareStep(0);
+    expect(transformed).toContain(user.id);
+  } finally {
+    await f.adapter.close();
+    await f.storage.close();
+  }
+  expect(cycles).toEqual([expect.objectContaining({ kind: 'observation', outcome: 'completed' })]);
+});
+
 test('explicitly disabled OM needs no concrete models and preserves ordinary recall', async () => {
   const f = await fixture({}, { observationalMemory: { enabled: false }, semanticRecall: false });
   try {
@@ -200,8 +326,13 @@ test('native observer Stop aborts immediately and joins a late leaf and held ori
       };
     },
   });
+  const cycles: Parameters<NonNullable<HostMemoryCapabilities['recordMemoryCycle']>>[1][] = [];
   const f = await fixture(
-    {},
+    {
+      recordMemoryCycle: async (_identity, cycle) => {
+        cycles.push(cycle);
+      },
+    },
     {
       observationalMemory: {
         model,
@@ -234,12 +365,69 @@ test('native observer Stop aborts immediately and joins a late leaf and held ori
     releaseCancel.resolve();
     await preparing.catch(() => undefined);
     await expect(closing).resolves.toBeUndefined();
+    // BST-2224: Stop ended the cycle; it is cancelled, not a failure.
+    expect(cycles).toEqual([
+      {
+        durationMs: expect.any(Number),
+        kind: 'observation',
+        outcome: 'cancelled',
+        trigger: 'turn-sync',
+      },
+    ]);
   } finally {
     releaseLeaf.resolve();
     releaseCancel.resolve();
     await f.adapter.close().catch(() => undefined);
     await f.storage.close();
   }
+});
+
+test('an embed call’s provider-reported tokens become a spend receipt; an unreported call says so (BST-2226)', async () => {
+  const receipts: unknown[] = [];
+  let unreported = 0;
+  const lifetime = new MemoryProviderLifetime(
+    new AbortController().signal,
+    async (receipt) => {
+      receipts.push(receipt);
+    },
+    () => {
+      unreported += 1;
+    }
+  );
+  const embedder = (usage?: { tokens: number }) =>
+    lifetime.embedding({
+      doEmbed: async ({ values }) => ({
+        embeddings: values.map(() => [1, 0]),
+        ...(usage ? { usage } : {}),
+        warnings: [],
+      }),
+      maxEmbeddingsPerCall: 8,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai.embedding',
+      specificationVersion: 'v3',
+      supportsParallelCalls: false,
+    });
+  const hosted = embedder({ tokens: 7 });
+  if (hosted.specificationVersion !== 'v3') {
+    throw new Error('The enclosure keeps the model’s specification');
+  }
+  await hosted.doEmbed({ values: ['Which city did I mention?'] });
+  expect(receipts).toEqual([
+    {
+      kind: 'embedding',
+      modelId: 'text-embedding-3-small',
+      usage: expect.objectContaining({ inputTokens: 7, outputTokens: 0, totalTokens: 7 }),
+    },
+  ]);
+  expect(unreported).toBe(0);
+  const silent = embedder();
+  if (silent.specificationVersion !== 'v3') {
+    throw new Error('The enclosure keeps the model’s specification');
+  }
+  await silent.doEmbed({ values: ['Which city did I mention?'] });
+  expect(receipts).toHaveLength(1);
+  expect(unreported).toBe(1);
+  await lifetime.join();
 });
 
 test('actual SDK provider AbortError is expected while original cancel AbortError remains a failure', async () => {

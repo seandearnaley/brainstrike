@@ -113,6 +113,7 @@ describe('desktop graceful shutdown', () => {
   it('pins the documented order: a reset in flight first, the database drain last, no log-sink step', () => {
     expect(DESKTOP_SHUTDOWN_STEP_ORDER).toEqual([
       'factory-reset',
+      'snapshot-maintenance',
       'renderers',
       'child-processes',
       'native-index',

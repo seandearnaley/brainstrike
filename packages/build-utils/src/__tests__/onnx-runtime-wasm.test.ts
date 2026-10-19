@@ -13,7 +13,7 @@ import {
 
 const packagesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const embeddingWorker = path.join(packagesDir, 'embedding-worker');
-const agent = path.join(packagesDir, 'agent');
+const embeddings = path.join(packagesDir, 'embeddings');
 const temporary: string[] = [];
 
 afterEach(() => {
@@ -64,7 +64,7 @@ describe('ONNX Runtime WASM from Transformers.js own dependency (BST-2003)', () 
   );
 
   it('resolves the files the installed Transformers.js loads, for every consumer alike', () => {
-    const files = resolveTransformersOnnxRuntimeWasmFiles([embeddingWorker, agent]);
+    const files = resolveTransformersOnnxRuntimeWasmFiles([embeddingWorker, embeddings]);
     const requireFromTransformers = createRequire(
       realpathSync(
         path.join(embeddingWorker, 'node_modules/@huggingface/transformers/package.json')

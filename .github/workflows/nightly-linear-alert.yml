@@ -9,6 +9,11 @@ on:
       results:
         required: true
         type: string
+      # job=part part,...: the parts (shards) of a results job with more than one.
+      parts:
+        required: false
+        type: string
+        default: ''
     secrets:
       LINEAR_API_KEY:
         required: true
@@ -28,16 +33,31 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-      - name: File or update the Linear issue
+      # Each test job uploads its Playwright JSON reports and job status as
+      # nightly-results--<job>[--<part>], laid out <job>/<part>/
+      # (scripts/lib/nightly-test-results.mjs). A workflow with no such artifact
+      # leaves the directory empty: every red job is then filed on the
+      # workflow-level issue.
+      - name: Create the test results directory
+        run: mkdir -p "$RUNNER_TEMP/nightly-results"
+      - name: Download nightly test results
+        uses: actions/download-artifact@v8
+        with:
+          pattern: nightly-results--*
+          path: ${{ runner.temp }}/nightly-results
+      - name: File or update the Linear issues
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           WORKFLOW_NAME: ${{ inputs.workflow_name }}
           RESULTS: ${{ inputs.results }}
+          PARTS: ${{ inputs.parts }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HEAD_SHA: ${{ github.sha }}
         run: >-
           node scripts/notify-linear-nightly.mjs
           --workflow "$WORKFLOW_NAME"
           --results "$RESULTS"
+          --reports "$RUNNER_TEMP/nightly-results"
+          --parts "$PARTS"
           --run-url "$RUN_URL"
           --sha "$HEAD_SHA"

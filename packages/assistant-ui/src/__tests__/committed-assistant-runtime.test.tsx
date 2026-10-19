@@ -352,6 +352,24 @@ describe('production external store binding', () => {
         },
         { text: 'Answer after fallback', type: 'text' },
       ]),
+      // The summarizer's provider call failed: the fallback names its code and reference.
+      viewMessage('failed', [
+        {
+          data: {
+            kind: 'deterministic',
+            reason: 'pre-request',
+            summarizerFailure: {
+              code: 'provider.auth-failed',
+              correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
+            },
+            summary: 'Deterministic fallback: dropped 2 earlier turns.',
+            turnsCompacted: 2,
+          },
+          name: HOST_CONTEXT_COMPACTED_DATA_NAME,
+          type: 'data',
+        },
+        { text: 'Answer after failed summary', type: 'text' },
+      ]),
     ]);
     render(
       <TooltipProvider>
@@ -362,10 +380,18 @@ describe('production external store binding', () => {
         />
       </TooltipProvider>
     );
-    const [overflow, budget, refused] = await screen.findAllByTestId('compaction-summary-card');
-    if (!(overflow && budget && refused)) {
-      throw new Error('Expected three compaction cards');
+    const [overflow, budget, refused, failed] =
+      await screen.findAllByTestId('compaction-summary-card');
+    if (!(overflow && budget && refused && failed)) {
+      throw new Error('Expected four compaction cards');
     }
+    expect(failed).toHaveTextContent('Deterministic compaction (the summarizer failed)');
+    expect(within(failed).getByTestId('compaction-summary-summarizer-failure')).toHaveTextContent(
+      'provider.auth-failed · Reference: 0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11'
+    );
+    expect(
+      within(overflow).queryByTestId('compaction-summary-summarizer-failure')
+    ).not.toBeInTheDocument();
     expect(overflow).toHaveTextContent('Deterministic compaction (no summarization model ran)');
     expect(refused).toHaveTextContent(
       'Deterministic compaction (the summarizer’s answer did not match the required format)'

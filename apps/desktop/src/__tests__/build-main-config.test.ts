@@ -5,6 +5,8 @@ import {
   AGENT_HOST_PLATFORM_BUILD_OPTIONS,
   MAIN_PROCESS_BUILD_OPTIONS,
   MAIN_PROCESS_ENTRY_POINTS,
+  NODE_BUILDS,
+  WINDOWS_COMMAND_BUILD_OPTIONS,
 } from '../../scripts/build-main-config.mjs';
 
 interface DesktopPackageConfig {
@@ -19,6 +21,7 @@ interface DesktopPackageConfig {
     };
   };
   dependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
 }
 
 function packagedTypeScriptServerViolations(packageJson: DesktopPackageConfig): string[] {
@@ -84,6 +87,30 @@ describe('main-process bundle config', () => {
     });
   });
 
+  it('emits every Node entry from build-main.mjs, so its inference gate scans them all', () => {
+    // BST-2148: a step after build-main.mjs would emit an entry the gate never sees.
+    expect(NODE_BUILDS).toEqual([
+      MAIN_PROCESS_BUILD_OPTIONS,
+      AGENT_HOST_PLATFORM_BUILD_OPTIONS,
+      WINDOWS_COMMAND_BUILD_OPTIONS,
+    ]);
+    expect(readDesktopPackageConfig().scripts?.['build:main']).toBe('node scripts/build-main.mjs');
+  });
+
+  it('builds the Windows command wrapper self-contained but for its native Job addon', () => {
+    expect(WINDOWS_COMMAND_BUILD_OPTIONS).toMatchObject({
+      bundle: true,
+      entryPoints: { 'windows-command-entry': 'src/windows-command-entry.ts' },
+      external: ['@brainstrike/windows-job-native'],
+      format: 'cjs',
+      packages: 'bundle',
+      platform: 'node',
+      target: 'node24',
+      tsconfigRaw: '{}',
+    });
+    expect(WINDOWS_COMMAND_BUILD_OPTIONS.outdir).toBe(MAIN_PROCESS_BUILD_OPTIONS.outdir);
+  });
+
   it('unpacks worker-thread entries for plain packaged-worker paths', () => {
     const packageJson = readDesktopPackageConfig();
 
@@ -92,14 +119,21 @@ describe('main-process bundle config', () => {
     );
   });
 
-  it('packages the bundled Python manifest and only Darwin archives as macOS resources', () => {
+  it('packages the bundled Python manifest plus the per-arch build-time unpack as macOS resources', () => {
     const packageJson = readDesktopPackageConfig();
 
-    expect(packageJson.build?.mac?.extraResources).toContainEqual({
-      filter: ['manifest.json', '*-apple-darwin-install_only.tar.gz'],
-      from: 'resources/python-runtime',
-      to: 'python-runtime',
-    });
+    // BST-1627: the tarballs themselves must NOT ship. Apple's notarization
+    // service scans inside archives and rejects python-build-standalone's
+    // ad-hoc-signed Mach-O files, so the interpreter is unpacked at build
+    // time and copied as loose files that osx-sign signs with our identity.
+    expect(packageJson.build?.mac?.extraResources).toEqual([
+      { filter: ['manifest.json'], from: 'resources/python-runtime', to: 'python-runtime' },
+      {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder macro, expanded by its FileMatcher
+        from: 'resources/python-runtime/unpacked/darwin-${arch}',
+        to: 'python-runtime',
+      },
+    ]);
     expect(
       fs.existsSync(
         path.resolve(import.meta.dirname, '../../resources/python-runtime/manifest.json')

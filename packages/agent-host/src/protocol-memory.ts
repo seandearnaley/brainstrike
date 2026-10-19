@@ -77,3 +77,34 @@ export const HostMemoryModelsSchema = Schema.Struct({
   observer: Schema.optional(Id),
 });
 export type HostMemoryModels = (typeof HostMemoryModelsSchema)['Type'];
+const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+/**
+ * One observation or reflection cycle (BST-2224), from Mastra's documented
+ * lifecycle hooks: what started it (Mastra's `ObserveTrigger`), how it ended
+ * (`cancelled` when the run's Stop ended it), how long it ran (absent when its
+ * start was not seen), the model usage the cycle reports, and a failure's typed
+ * code and the reference its cause is logged under. Spend is billed from
+ * `memory.usage` alone.
+ */
+export const HostMemoryCycleEventSchema = Schema.Struct({
+  durationMs: Schema.optional(NonNegativeInt),
+  failure: Schema.optional(
+    Schema.Struct({
+      code: Id,
+      correlationId: Schema.optional(Schema.String.check(Schema.isUUID())),
+    })
+  ),
+  kind: Schema.Literals(['observation', 'reflection']),
+  outcome: Schema.Literals(['completed', 'failed', 'cancelled']),
+  runId: Id,
+  trigger: Schema.optional(Schema.Literals(['manual', 'turn-sync', 'async-buffer'])),
+  type: Schema.Literal('memory.cycle'),
+  usage: Schema.optional(
+    Schema.Struct({
+      inputTokens: Schema.optional(NonNegativeInt),
+      outputTokens: Schema.optional(NonNegativeInt),
+      totalTokens: Schema.optional(NonNegativeInt),
+    })
+  ),
+});
+export type HostMemoryCycleEvent = (typeof HostMemoryCycleEventSchema)['Type'];

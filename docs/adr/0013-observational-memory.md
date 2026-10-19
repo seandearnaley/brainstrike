@@ -18,7 +18,11 @@ In the spikes OM wrote no transcript messages, so it is not a second writer.
 - The observer runs inside the user's selected chat provider. The built-in local Gemma
   is not a candidate.
 - OM tokens are billed at the observer model's registry rate and flow into the
-  daily-spend guardrail, cross-root usage and ledger analytics.
+  daily-spend guardrail, cross-root usage and ledger analytics. A hosted memory
+  embedder's tokens are billed the same way (BST-2226, owner decision 4 on BST-2194):
+  each embed call for recall, history indexing or vector observation commits its
+  provider-reported tokens as `memory.usage` (`embedding`), priced at the embedder's
+  catalog rate (input only).
 - OM residue survives a rewind tombstone. A tombstone is not a deletion and writes no
   `mind_ops` row.
 
@@ -30,8 +34,14 @@ In the spikes OM wrote no transcript messages, so it is not a second writer.
 - Scrubbing observation text after a rewind would be guesswork, so it is not done.
 - Mastra's wording for presenting observations cannot be configured, so the host
   builds a coding-specific prompt. Stop also cancels an in-flight observation.
-- Compaction today ignores OM: it measured 37,599 estimated tokens of history against
-  7,523 actually sent and still fired. It is ported as is and is the first fix to make.
+- Compaction was ported ignoring OM: it measured 37,599 estimated tokens of history
+  against 7,523 actually sent and still fired. BST-2204 fixed this: the trigger now
+  measures the request Memory builds, and compacts only turns that request holds.
+- An embedder whose provider reports no tokens cannot be billed. Today that means
+  Google's, through the AI SDK, and the on-device embedder, which has no spend. The
+  host commits no receipt for these and warns once per hosted model, so a hosted gap
+  is visible. An embedder without an official catalog price (`gemini-embedding-001`)
+  reads "cost unavailable", never $0.
 - On the lighter web version, memory features are desktop-only.
 
 ## Sources

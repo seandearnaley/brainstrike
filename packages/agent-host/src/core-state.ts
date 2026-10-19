@@ -1,5 +1,6 @@
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
+import { MEMORY_RECALL_TELEMETRY_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { ModelMessage, Tool } from 'ai';
 import { Schema } from 'effect';
 import { recordRawToolInputs } from './approval-input.js';
@@ -18,6 +19,7 @@ import {
   HostPromptBreakdownSchema,
   HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
+  type HostRunTelemetry,
 } from './protocol.js';
 /**
  * HostCore alone folds and writes accepted command records. The committed
@@ -590,10 +592,19 @@ export function foldHostRunMessages(
 export function createHostRunContext(
   run: HostRunState,
   publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>,
-  readCommittedRows: HostRunContext['readCommittedRows']
+  readCommittedRows: HostRunContext['readCommittedRows'],
+  /** Core's live telemetry: uncommitted, on the run's stream (ADR-0011 amendment). */
+  telemetry: (telemetry: HostRunTelemetry) => void
 ): HostRunContext {
   return {
     readCommittedRows,
+    recordMemoryCycle: async (cycle) => {
+      // A buffered cycle settles after the run's end; it is still the run's.
+      if (run.ownerJoined) {
+        throw new Error('Memory cycle arrived after the run lifetime joined');
+      }
+      await publish(run.threadId, [{ ...cycle, runId: run.id, type: 'memory.cycle' }]);
+    },
     recordObservationWithheld: async (reason) => {
       await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
     },
@@ -633,6 +644,13 @@ export function createHostRunContext(
           type: 'provider.request.prepared',
         },
       ]);
+    },
+    recordRecall: (recall) => {
+      telemetry({
+        chunk: { ...recall, type: MEMORY_RECALL_TELEMETRY_TYPE },
+        runId: run.id,
+        threadId: run.threadId,
+      });
     },
     runId: run.id,
     signal: run.controller.signal,

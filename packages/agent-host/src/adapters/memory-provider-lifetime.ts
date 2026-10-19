@@ -9,9 +9,12 @@ type Model = ReturnType<typeof wrapLanguageModel>;
 type StreamResult = Awaited<ReturnType<Model['doStream']>>;
 type Part = StreamResult['stream'] extends ReadableStream<infer Value> ? Value : never;
 type Usage = Awaited<ReturnType<Model['doGenerate']>>['usage'];
-type Kind = 'observation' | 'reflection';
+/** The memory models a run encloses. */
+type ModelKind = 'observation' | 'reflection';
+/** What a usage receipt was spent on: a memory model, or the embedder (BST-2226). */
+type Kind = ModelKind | 'embedding';
 
-const KIND_COMPONENTS: Readonly<Record<Kind, MemoryComponent>> = {
+const KIND_COMPONENTS: Readonly<Record<ModelKind, MemoryComponent>> = {
   observation: 'observer',
   reflection: 'reflector',
 };
@@ -53,7 +56,9 @@ export class MemoryProviderLifetime {
       readonly kind: Kind;
       readonly modelId: string;
       readonly usage: LanguageModelUsage;
-    }) => Promise<void>
+    }) => Promise<void>,
+    /** An embed call whose provider reported no tokens, so its spend is not recorded. */
+    private readonly unreported: () => void = () => undefined
   ) {}
 
   private observeAbort(): void {
@@ -209,6 +214,23 @@ export class MemoryProviderLifetime {
     );
   }
 
+  /**
+   * One embed call, then its provider-reported tokens as a spend receipt
+   * (BST-2226), joined like an observer call's usage.
+   */
+  private async embedded<Value>(modelId: string, call: Promise<Value>): Promise<Value> {
+    const result = await call;
+    const tokens = reportedTokens(result);
+    if (tokens === undefined) {
+      this.unreported();
+    } else {
+      await this.capture(
+        this.recordUsage({ kind: 'embedding', modelId, usage: embeddingUsage(tokens) })
+      );
+    }
+    return result;
+  }
+
   private embeddingProxy<Model extends object>(model: Model, doEmbed: unknown): Model {
     return new Proxy(model, {
       get: (target, key) => (key === 'doEmbed' ? doEmbed : Reflect.get(target, key, target)),
@@ -219,20 +241,29 @@ export class MemoryProviderLifetime {
     switch (model.specificationVersion) {
       case 'v1':
         return this.embeddingProxy(model, (params: Parameters<typeof model.doEmbed>[0]) =>
-          this.embeddingCall(params.abortSignal, (abortSignal) =>
-            model.doEmbed({ ...params, abortSignal })
+          this.embedded(
+            model.modelId,
+            this.embeddingCall(params.abortSignal, (abortSignal) =>
+              model.doEmbed({ ...params, abortSignal })
+            )
           )
         );
       case 'v2':
         return this.embeddingProxy(model, (params: Parameters<typeof model.doEmbed>[0]) =>
-          this.embeddingCall(params.abortSignal, (abortSignal) =>
-            model.doEmbed({ ...params, abortSignal })
+          this.embedded(
+            model.modelId,
+            this.embeddingCall(params.abortSignal, (abortSignal) =>
+              model.doEmbed({ ...params, abortSignal })
+            )
           )
         );
       case 'v3':
         return this.embeddingProxy(model, (params: Parameters<typeof model.doEmbed>[0]) =>
-          this.embeddingCall(params.abortSignal, (abortSignal) =>
-            model.doEmbed({ ...params, abortSignal })
+          this.embedded(
+            model.modelId,
+            this.embeddingCall(params.abortSignal, (abortSignal) =>
+              model.doEmbed({ ...params, abortSignal })
+            )
           )
         );
     }
@@ -275,13 +306,13 @@ export class MemoryProviderLifetime {
   }
 
   /** A memory model's own failure, attributed to its observer or reflector. */
-  private providerFailure(kind: Kind, cause: unknown): unknown {
+  private providerFailure(kind: ModelKind, cause: unknown): unknown {
     const failure = this.normalizeProviderAbort(cause);
     this.attribute(KIND_COMPONENTS[kind], failure);
     return failure;
   }
 
-  model(kind: Kind, model: MemoryLanguageModel): Model {
+  model(kind: ModelKind, model: MemoryLanguageModel): Model {
     return wrapLanguageModel({
       middleware: {
         specificationVersion: 'v4',
@@ -331,7 +362,11 @@ export class MemoryProviderLifetime {
     });
   }
 
-  private source(stream: ReadableStream<Part>, kind: Kind, modelId: string): ReadableStream<Part> {
+  private source(
+    stream: ReadableStream<Part>,
+    kind: ModelKind,
+    modelId: string
+  ): ReadableStream<Part> {
     const reader = stream.getReader();
     const done = Promise.withResolvers<void>();
     done.promise.catch(() => undefined);
@@ -411,6 +446,34 @@ export class MemoryProviderLifetime {
     })();
     return this.closing;
   }
+}
+
+/** An embed result's provider-reported token count; absent when it reported none. */
+function reportedTokens(result: unknown): number | undefined {
+  if (typeof result !== 'object' || result === null) {
+    return;
+  }
+  const reported: unknown = Reflect.get(result, 'usage');
+  const tokens: unknown =
+    typeof reported === 'object' && reported !== null ? Reflect.get(reported, 'tokens') : undefined;
+  return typeof tokens === 'number' && Number.isSafeInteger(tokens) && tokens >= 0
+    ? tokens
+    : undefined;
+}
+
+/** An embed call's tokens as usage: all input, no output. */
+function embeddingUsage(tokens: number): LanguageModelUsage {
+  return {
+    inputTokenDetails: {
+      cacheReadTokens: undefined,
+      cacheWriteTokens: undefined,
+      noCacheTokens: tokens,
+    },
+    inputTokens: tokens,
+    outputTokenDetails: { reasoningTokens: undefined, textTokens: undefined },
+    outputTokens: 0,
+    totalTokens: tokens,
+  };
 }
 
 /** Preserve provider-reported totals/details; missing totals stay unknown. */

@@ -47,7 +47,8 @@ async function enableModel(page: Page): Promise<void> {
  * shows what the host's memory read reports — the record's live buffering
  * flag while Mastra's background observer is still out, the observer that
  * runs it, both thresholds against the current tokens — then the buffered
- * observation once the observer answers, and the idle record on the next read.
+ * observation once the observer answers, with its committed cycle (BST-2224),
+ * and the idle record on the next read.
  */
 test('the Developer memory panel shows the observer buffering live, then its buffered observation', async ({
   modelProvider,
@@ -143,6 +144,10 @@ test('the Developer memory panel shows the observer buffering live, then its buf
     ).toHaveCount(1, { timeout: 30_000 });
     await expect(memory.getByTestId('context-usage-memory-read-at').locator('time')).toHaveCount(1);
     await expect(page.getByTestId('context-usage-om-buffered')).toContainText('Buffered OM');
+    // BST-2224: the buffered observation committed its cycle, which the panel shows.
+    const cycle = memory.getByTestId('context-usage-memory-last-observation-cycle');
+    await expect(cycle).toContainText('Completed · async-buffer', { timeout: 30_000 });
+    await expect(cycle).toContainText(/ in \/ [\d,]+ out/u);
 
     // The thread's next read, when it reopens, finds the record idle again.
     await page.reload();
@@ -156,6 +161,10 @@ test('the Developer memory panel shows the observer buffering live, then its buf
     await expect(
       memory.getByTestId('context-usage-memory-last-buffered').locator('time')
     ).toHaveCount(1);
+    // The cycle is a committed fact: the reopened thread still shows it.
+    await expect(memory.getByTestId('context-usage-memory-last-observation-cycle')).toContainText(
+      'Completed · async-buffer'
+    );
     await testInfo.attach('memory-panel-buffered', {
       body: await page.screenshot(),
       contentType: 'image/png',

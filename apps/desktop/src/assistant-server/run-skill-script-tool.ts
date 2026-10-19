@@ -23,6 +23,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
+import { BUNDLED_PYTHON_ENV } from '../python-runtime/resolve-python-binary';
 import { resolveWindowsGitBash } from './windows-git-bash';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
@@ -107,15 +108,16 @@ async function resolveRuntime(
     // BST-1061: python3 means the BUNDLED CPython, resolved through the
     // injected capability — never a PATH `python`/`python3` fallback. An
     // unusable bundled runtime surfaces as a typed PythonRuntimeError from
-    // the resolver. `signal` (PR #2205 review) lets a cold first-run unpack
-    // — the only slow part of resolution — actually be interrupted by the
-    // caller's timeout/Stop budget; see `resolveRuntimeTimeoutSignal`.
+    // the resolver, which only validates the build-time unpack (BST-1627);
+    // `signal` still bounds it by the caller's timeout/Stop budget (see
+    // `createRuntimeResolveSignal`). BUNDLED_PYTHON_ENV keeps an unfenced
+    // script from writing bytecode into the shipped tree.
     if (!resolvePythonExecutable) {
       throw new Error(
         'The python3 skill-script runtime requires the bundled-Python resolver, and none was injected.'
       );
     }
-    return { executable: await resolvePythonExecutable(signal) };
+    return { env: { ...BUNDLED_PYTHON_ENV }, executable: await resolvePythonExecutable(signal) };
   }
   if (process.platform === 'win32') {
     return { executable: await resolveWindowsGitBash() };
@@ -126,12 +128,10 @@ async function resolveRuntime(
 /**
  * Bounds `resolveRuntime` by the SAME `timeoutMs` budget the model asked for
  * on the whole tool call, combined with the caller's own cancellation
- * (`options.signal`, e.g. a user Stop) — PR #2205 review. Without this, a
- * cold `python3` resolve (sha256 over a ~25MB archive, then `tar -xzf` of a
- * ~250MB CPython tree) ran entirely BEFORE `startedAt` was captured and
- * before `input.timeoutMs` had anything to bound: a tool call the model
- * capped at 30s could silently block for a minute or more, and Stop could
- * not reach an in-flight extraction.
+ * (`options.signal`, e.g. a user Stop) — PR #2205 review. Runtime resolution
+ * and workspace admission run BEFORE `startedAt` is captured, so without this
+ * nothing would bound them: a tool call the model capped at 30s could block
+ * past it, and Stop could not reach the preparation.
  */
 function createRuntimeResolveSignal(
   timeoutMs: number,

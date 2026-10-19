@@ -685,11 +685,7 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
   // shapes most likely to defeat a naive extractor — a `${{ … }}` matrix
   // expression right after the task name, and a `dbus-run-session --` wrapper
   // in front of pnpm.
-  assert.ok(
-    gateInvocations(ciRunStep('unit-shard › Pull request affected unit tests')).has(
-      'turbo-task:test'
-    )
-  );
+  assert.ok(gateInvocations(ciRunStep('unit-shard › Affected unit tests')).has('turbo-task:test'));
   assert.ok(
     gateInvocations(ciRunStep('desktop-e2e-smoke › Run desktop smoke')).has(
       'pnpm-script:test:e2e:lane:smoke'

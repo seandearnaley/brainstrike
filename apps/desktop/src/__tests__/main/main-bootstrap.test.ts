@@ -34,6 +34,7 @@ vi.mock('electron', () => ({
     exit: state.exit,
     getAppPath: vi.fn(() => resolve('/mock/app')),
     getPath: vi.fn(() => '/mock/user-data'),
+    getVersion: vi.fn(() => '0.1.0'),
     isPackaged: false,
     on: (event: string, handler: (event: { preventDefault(): void }) => void) =>
       state.handlers.set(event, handler),
@@ -193,4 +194,23 @@ it('quits a rejected second launch without importing Main or starting a host', a
   expect(state.quit).toHaveBeenCalledOnce();
   expect(runtime.profile.acquire).not.toHaveBeenCalled();
   expect(bootstrapEvents).toEqual(['environment']);
+});
+
+it('answers the release smoke --version and exits before any environment, lock or host work', async () => {
+  const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+  const argv = process.argv;
+  process.argv = [...argv, '--version'];
+  try {
+    appReady.current.resolve();
+    await import('../../main-bootstrap');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(write).toHaveBeenCalledWith('0.1.0\n');
+    expect(state.exit).toHaveBeenCalledExactlyOnceWith(0);
+    expect(bootstrapEvents).toEqual([]);
+    expect(runtime.profile.acquire).not.toHaveBeenCalled();
+    expect(state.handlers.size).toBe(0);
+  } finally {
+    process.argv = argv;
+    write.mockRestore();
+  }
 });

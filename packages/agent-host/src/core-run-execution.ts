@@ -1,4 +1,7 @@
-import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
+import {
+  resolveAssistantResilienceConfig,
+  resolveProviderError,
+} from '@brainstrike/agent/provider-runtime';
 import { wouldTruncateMcpModelOutput } from '@brainstrike/agent/tool-runtime';
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
 import { isToolTelemetryStreamPart } from '@brainstrike/assistant-contract/tool-telemetry';
@@ -22,7 +25,13 @@ import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
 import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.js';
-import type { HostPlatform, HostRunAdmission, HostRunOwner, HostTool } from './ports.js';
+import type {
+  HostPlatform,
+  HostPreparedStep,
+  HostRunAdmission,
+  HostRunOwner,
+  HostTool,
+} from './ports.js';
 import {
   applyProjectionRewrites,
   type HostProjectionRewrites,
@@ -363,22 +372,37 @@ export async function recoverHostContextOverflow(
 /**
  * The run's first request context: heal interrupted history, apply committed
  * tool-output rewrites (and the policy's new ones), then the compaction
- * overlay (and a new compaction past the trigger), in the legacy order.
+ * overlay (and a new compaction past the trigger), in the legacy order. With
+ * Memory, the trigger measures the request Memory builds (ADR-0013), and that
+ * request is the first step's.
  */
 async function prepareRunContext(
   ports: HostRunExecutionPorts,
   run: Run,
   ancestors: readonly Run[],
   admission: HostRunAdmission,
-  messages: readonly ModelMessage[]
-): Promise<{ readonly messages: ModelMessage[]; readonly note?: string }> {
+  messages: readonly ModelMessage[],
+  owner: HostRunOwner | undefined
+): Promise<{
+  readonly messages: ModelMessage[];
+  readonly note?: string;
+  readonly step?: HostPreparedStep;
+}> {
   const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
   const rewritten = await rewriteRunContext(ports, run, ancestors, healed);
+  const prepareStep = owner?.prepareHostStep?.bind(owner);
   return await prepareCompactedContext({
     chain: [...ancestors, run],
+    classify: (cause) => resolveProviderError(cause, admission.configuration).failure,
     commit: (event) => commitContextEvent(ports, run, event),
     compactions: ports.compactions.read(run.threadId),
     inputTokenLimit: admission.inputTokenLimit,
+    ...(prepareStep
+      ? {
+          prepareStep: (overlaid: readonly ModelMessage[]) =>
+            prepareStep({ messages: overlaid, stepNumber: run.steps }),
+        }
+      : {}),
     messages: rewritten,
     signal: run.controller.signal,
     summarize: (transcript) =>
@@ -567,22 +591,30 @@ async function runHostSdkAttempt(
           await ports.commitMessages(run, messages.slice(recordedInputLength));
           recordedInputLength = messages.length;
         }
-        let prepared = messages;
+        let prepared: ModelMessage[];
+        let memory: HostPreparedStep | undefined;
         if (historyPrepared) {
           // Stale reads and old outputs are rewritten within the run, as legacy
           // rewrote them after each tracked tool.
           prepared = await rewriteRunContext(ports, run, ancestors, messages);
+          memory = await owner?.prepareHostStep?.({
+            messages: prepared,
+            stepNumber: run.steps,
+          });
         } else {
           historyPrepared = true;
-          const overlay = await prepareRunContext(ports, run, ancestors, admission, messages);
+          const overlay = await prepareRunContext(
+            ports,
+            run,
+            ancestors,
+            admission,
+            messages,
+            owner
+          );
           prepared = overlay.messages;
           compactionNote = overlay.note;
-          recordedInputLength = prepared.length;
+          memory = overlay.step;
         }
-        const memory = await owner?.prepareHostStep?.({
-          messages: prepared,
-          stepNumber: run.steps,
-        });
         recordedInputLength = memory?.messages.length ?? prepared.length;
         // Per-step notes from committed thread state (the legacy task-list note).
         const notes = hostContextNotes(hostRunTools(run), ports.records.stateView(run.threadId));

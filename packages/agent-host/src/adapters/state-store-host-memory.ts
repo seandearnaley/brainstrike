@@ -36,7 +36,12 @@ import {
   committedThreadBranches,
 } from '../committed-identities.js';
 import { compactedRunIds } from '../context-compaction.js';
-import type { HostProjectionRewrite, HostRunContext, HostRunOwner } from '../ports.js';
+import type {
+  HostPreparedStep,
+  HostProjectionRewrite,
+  HostRunContext,
+  HostRunOwner,
+} from '../ports.js';
 import { committedRewrites } from '../projection-rewrites.js';
 import type { HostLogRow } from '../protocol.js';
 import { HostRunOwnerCleanupError } from '../run-admission.js';
@@ -141,6 +146,8 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly providerContext: ProviderRequestContext | undefined,
     private readonly semanticRecall: boolean,
     private readonly resourceRecall: boolean,
+    /** Recall's configured `topK`; absent when Mastra's default applies. */
+    private readonly recallTopK: number | undefined,
     private readonly vectorBridge: StateStoreMemoryVector | undefined,
     private readonly released: (() => void) | undefined
   ) {}
@@ -246,6 +253,12 @@ export class StateStoreHostMemory implements HostRunOwner {
       ...(options.observerModelId === undefined
         ? {}
         : { observerModelId: options.observerModelId }),
+      recordMemoryCycle: async (_current, cycle) => {
+        if (!context.recordMemoryCycle) {
+          throw new Error('Public Memory requires the host-owned memory cycle writer');
+        }
+        await context.recordMemoryCycle(cycle);
+      },
       recordObserverUsage: async (current, receipt) => {
         if (!context.recordObserverUsage) {
           throw new Error('Public Memory requires the host-owned usage receipt writer');
@@ -264,6 +277,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       providerContext,
       semanticRecall,
       resourceRecall,
+      typeof recall === 'object' ? recall.topK : undefined,
       vectorBridge,
       options.released
     );
@@ -368,10 +382,18 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
     // Public getContext has no semantic query argument. Use the library's
     // recall primitive; it resolves returned IDs through committed storage.
+    const started = performance.now();
     const { messages } = await this.memory.recall({
       resourceId: this.identity.resourceId,
       threadConfig: { lastMessages: false },
       vectorSearchString: query,
+    });
+    // BST-2225: a live diagnostic of what recall found, never committed.
+    this.identity.recordRecall?.({
+      latencyMs: Math.max(0, Math.round(performance.now() - started)),
+      messages: messages.length,
+      scope: this.resourceRecall ? 'resource' : 'thread',
+      ...(this.recallTopK === undefined ? {} : { topK: this.recallTopK }),
     });
     return new Set(messages.map((message) => message.id));
   }
@@ -379,7 +401,7 @@ export class StateStoreHostMemory implements HostRunOwner {
   async prepareHostStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
-  }): Promise<{ messages: ModelMessage[]; system?: string }> {
+  }): Promise<HostPreparedStep> {
     try {
       return await this.selectStep(request);
     } catch (cause) {
@@ -395,7 +417,7 @@ export class StateStoreHostMemory implements HostRunOwner {
   private async selectStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
-  }): Promise<{ messages: ModelMessage[]; system?: string }> {
+  }): Promise<HostPreparedStep> {
     this.preparedProviderHistory = undefined;
     const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
     const current = request.messages[currentUser];
@@ -412,9 +434,46 @@ export class StateStoreHostMemory implements HostRunOwner {
     for (const id of recalled) {
       selected.add(id);
     }
+    // Active SDK messages retain their actual validated approval/runtime objects.
+    // Public Memory selects previous committed turns, never reconstructs an
+    // active call or changes the existing host approval occurrence.
+    const system = [step.context.systemMessage, step.context.otherThreadsContext]
+      .filter((part) => part !== undefined && part.length > 0)
+      .join('\n\n');
+    const continuation = new MessageList({
+      resourceId: this.identity.resourceId,
+      threadId: this.identity.threadId,
+    });
+    if (step.context.continuationMessage) {
+      continuation.add([step.context.continuationMessage], 'memory');
+    }
+    return await this.assembleStep({
+      active: request.messages.slice(currentUser),
+      continuation,
+      recalled,
+      selected,
+      system,
+    });
+  }
+
+  /**
+   * The step's request from the committed log, over Memory's native selection
+   * and recall. Core rebuilds it after committing a compaction (ADR-0013), so
+   * the compacted turns leave it without Memory preparing its step again.
+   */
+  private async assembleStep(native: {
+    readonly active: readonly ModelMessage[];
+    readonly continuation: MessageList;
+    readonly recalled: ReadonlySet<string>;
+    readonly selected: ReadonlySet<string>;
+    readonly system: string;
+  }): Promise<HostPreparedStep> {
+    const { recalled, selected } = native;
+    this.preparedProviderHistory = undefined;
     const rows = await this.readRows(this.historyThreads());
     const historical: ModelMessage[] = [];
     const historicalIds = new Set<string>();
+    const historyRunIds = new Set<string>();
     // In this thread only the selected branch is history: a sibling branch's
     // turns never enter the request, even when native Memory selects them.
     const path = new Set(committedRunAncestors(rows, this.identity.runId));
@@ -465,6 +524,7 @@ export class StateStoreHostMemory implements HostRunOwner {
         )
       );
       historicalIds.add(previous.userMessageId);
+      historyRunIds.add(previousRunId);
       if (
         !rows.some(
           (row) =>
@@ -511,26 +571,23 @@ export class StateStoreHostMemory implements HostRunOwner {
         historical.push(...occurrence);
       }
     }
-    // Active SDK messages retain their actual validated approval/runtime objects.
-    // Public Memory selects previous committed turns, never reconstructs an
-    // active call or changes the existing host approval occurrence.
-    const system = [step.context.systemMessage, step.context.otherThreadsContext]
-      .filter((part) => part !== undefined && part.length > 0)
-      .join('\n\n');
-    const continuation = new MessageList({
-      resourceId: this.identity.resourceId,
-      threadId: this.identity.threadId,
-    });
-    if (step.context.continuationMessage) {
-      continuation.add([step.context.continuationMessage], 'memory');
-    }
+    const { continuation, system } = native;
     this.captureProviderHistory(rows, historicalIds, continuation.get.all.db());
     return {
+      historyRunIds,
       messages: [
         ...historical,
         ...continuation.get.all.aiV5.model().map((message) => modelMessageSchema.parse(message)),
-        ...request.messages.slice(currentUser),
+        ...native.active,
       ],
+      rebuild: async () => {
+        try {
+          return await this.assembleStep(native);
+        } catch (cause) {
+          throw this.stepFailure('context', cause);
+        }
+      },
+      rewrites: this.preparedRewrites,
       ...(system ? { system } : {}),
     };
   }

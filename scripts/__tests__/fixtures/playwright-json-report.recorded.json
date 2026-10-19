@@ -1,0 +1,384 @@
+{
+  "config": {
+    "argv": [
+      "/usr/local/bin/node",
+      "/home/runner/work/brainstrike/brainstrike/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/cli.js",
+      "test",
+      "--config",
+      "playwright.config.mjs"
+    ],
+    "configFile": "/home/runner/work/brainstrike/brainstrike/apps/desktop/playwright.config.mjs",
+    "rootDir": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/runner/work/brainstrike/brainstrike/apps/desktop/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "regression",
+        "name": "regression",
+        "testDir": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/home/runner/work/brainstrike/brainstrike/apps/desktop/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "regression",
+        "testDir": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e",
+        "snapshotDir": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e",
+        "testIgnore": [],
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 30000,
+        "use": {},
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "regression"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "out/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "nightly-fixture.desktop.test.ts",
+      "file": "nightly-fixture.desktop.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Nightly fixture",
+          "file": "nightly-fixture.desktop.test.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "passes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-19T14:45:38.102Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "af8482aa46d6d7aacdd0-7ae8836012de237ac3ed",
+              "file": "nightly-fixture.desktop.test.ts",
+              "line": 4,
+              "column": 7
+            },
+            {
+              "title": "fails every attempt",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 1,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts:9:15",
+                        "location": {
+                          "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                          "column": 15,
+                          "line": 9
+                        },
+                        "snippet": "   7 |\n   8 |   test('fails every attempt', () => {\n>  9 |     expect(1).toBe(2);\n     |               ^\n  10 |   });\n  11 |\n  12 |   test('passes only on retry', ({}, testInfo) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                            "column": 15,
+                            "line": 9
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n   7 |\n   8 |   test('fails every attempt', () => {\n>  9 |     expect(1).toBe(2);\n     |               ^\n  10 |   });\n  11 |\n  12 |   test('passes only on retry', ({}, testInfo) => {\n    at /home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts:9:15"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-19T14:45:38.119Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/runner/work/brainstrike/brainstrike/apps/desktop/test-results/nightly-fixture.desktop-Nightly-fixture-fails-every-attempt-regression/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                        "column": 15,
+                        "line": 9
+                      }
+                    },
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts:9:15",
+                        "location": {
+                          "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                          "column": 15,
+                          "line": 9
+                        },
+                        "snippet": "   7 |\n   8 |   test('fails every attempt', () => {\n>  9 |     expect(1).toBe(2);\n     |               ^\n  10 |   });\n  11 |\n  12 |   test('passes only on retry', ({}, testInfo) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                            "column": 15,
+                            "line": 9
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n   7 |\n   8 |   test('fails every attempt', () => {\n>  9 |     expect(1).toBe(2);\n     |               ^\n  10 |   });\n  11 |\n  12 |   test('passes only on retry', ({}, testInfo) => {\n    at /home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts:9:15"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 1,
+                      "startTime": "2026-10-19T14:45:38.296Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/runner/work/brainstrike/brainstrike/apps/desktop/test-results/nightly-fixture.desktop-Nightly-fixture-fails-every-attempt-regression-retry1/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                        "column": 15,
+                        "line": 9
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "af8482aa46d6d7aacdd0-c3af6feb57fd95d88d45",
+              "file": "nightly-fixture.desktop.test.ts",
+              "line": 8,
+              "column": 7
+            },
+            {
+              "title": "passes only on retry",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n    at /home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts:13:28",
+                        "location": {
+                          "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                          "column": 28,
+                          "line": 13
+                        },
+                        "snippet": "  11 |\n  12 |   test('passes only on retry', ({}, testInfo) => {\n> 13 |     expect(testInfo.retry).toBe(1);\n     |                            ^\n  14 |   });\n  15 |\n  16 |   test.skip('is skipped', () => {});"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                            "column": 28,
+                            "line": 13
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\n  11 |\n  12 |   test('passes only on retry', ({}, testInfo) => {\n> 13 |     expect(testInfo.retry).toBe(1);\n     |                            ^\n  14 |   });\n  15 |\n  16 |   test.skip('is skipped', () => {});\n    at /home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts:13:28"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-19T14:45:38.474Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/runner/work/brainstrike/brainstrike/apps/desktop/test-results/nightly-fixture.desktop-Nightly-fixture-passes-only-on-retry-regression/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                        "column": 28,
+                        "line": 13
+                      }
+                    },
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 1,
+                      "startTime": "2026-10-19T14:45:38.657Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "flaky"
+                }
+              ],
+              "id": "af8482aa46d6d7aacdd0-52ace2ccbce0030ebf2c",
+              "file": "nightly-fixture.desktop.test.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "is skipped",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                        "line": 16,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-19T14:45:38.674Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/home/runner/work/brainstrike/brainstrike/apps/desktop/e2e/nightly-fixture.desktop.test.ts",
+                            "line": 16,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "af8482aa46d6d7aacdd0-9e3418125e635d6250e2",
+              "file": "nightly-fixture.desktop.test.ts",
+              "line": 16,
+              "column": 8
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-19T14:45:37.886Z",
+    "duration": 793.8489999999999,
+    "expected": 1,
+    "skipped": 1,
+    "unexpected": 1,
+    "flaky": 1
+  }
+}
