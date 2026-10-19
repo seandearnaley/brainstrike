@@ -247,6 +247,16 @@
         "__tests__/fixtures/record-*-log.mjs"
       ]
     },
+    "packages/sqlite-query": {
+      "entry": [
+        // The Node query host: src/process.ts forks the built file with
+        // `new URL(transport === 'node' ? './query-host.js' : ..., import.meta.url)`,
+        // a conditional knip cannot follow.
+        "src/query-host.ts",
+        // Index builders the integration suites and test/run-integration.mjs run by path.
+        "src/__tests__/fixtures/build-*.mjs"
+      ]
+    },
     "packages/agent-evals": {
       // The eval corpus, not package source. src/task.ts loads tasks/<id>/ as
       // data and src/sandbox.ts copies repo/ into a sandbox workspace, then
