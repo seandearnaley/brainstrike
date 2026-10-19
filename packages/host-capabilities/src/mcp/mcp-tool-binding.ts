@@ -1,4 +1,7 @@
-import type { McpDiscoverySkip } from '@brainstrike/agent/mcp-client';
+import {
+  DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+  type McpDiscoverySkip,
+} from '@brainstrike/agent/mcp-client';
 import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import { guardToolExecution, type ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
@@ -70,7 +73,11 @@ export function bindMcpTool(options: {
     bindings: { [canonicalId]: { identity, risk: 'mcp' } },
     resolvedToolResultBudget: options.resolvedToolResultBudget,
     tools: {
+      // BST-1779: an MCP call's progress restarts its window (an inactivity
+      // budget), bounded by the transport's own total budget; a silent server
+      // still ends at `toolTimeoutMs`.
       [canonicalId]: guardToolExecution(source, {
+        activity: { maxTotalMs: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS },
         timeoutMs: options.toolTimeoutMs,
         toolName: canonicalId,
       }),

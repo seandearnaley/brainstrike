@@ -4,7 +4,10 @@ import type {
   McpClientExtensionRegistry,
   McpServerFeatureEventHandlers,
 } from '@brainstrike/agent/mcp-client';
-import { MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT } from '@brainstrike/agent/mcp-client';
+import {
+  DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+  MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+} from '@brainstrike/agent/mcp-client';
 import {
   MCP_HOST_LISTED_CATALOG_SECTIONS,
   type McpHostCatalog,
@@ -279,6 +282,14 @@ export class McpCoreServerFeatures {
     const callOptions: ToolCallRequestOptions = {
       ...(options.onProgress === undefined ? {} : { onprogress: options.onProgress }),
       resetTimeoutOnProgress: true,
+      // A guarded call's silence is its guard's to end (BST-1779); the
+      // request keeps only the total as its own bound.
+      ...(options.callerGuardsInactivity
+        ? {
+            maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+            timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+          }
+        : {}),
       ...normalizedOptions,
     };
     if (this.tasksRegistered() && serverAdvertisesTasks(this.client)) {
