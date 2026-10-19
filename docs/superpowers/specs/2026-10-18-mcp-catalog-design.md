@@ -163,7 +163,9 @@ reported first. An install the host committed stays a success when the
 later Settings refresh fails; that failure gets its own alert. A watcher that
 cannot run shows as `watchError` in config status and Settings until a save,
 install or config read restarts it; a restart reloads the runtime first, so
-edits made while it was down are applied.
+edits made while it was down are applied. If that reload fails, the watcher goes
+back down and `watchError` reads "the MCP config could not be reloaded after its
+watcher restarted: <cause>" until a later reload succeeds.
 
 ## 5. Error handling
 
