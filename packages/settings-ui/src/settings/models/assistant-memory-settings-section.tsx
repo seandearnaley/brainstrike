@@ -1,5 +1,8 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
-import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import {
+  ASSISTANT_MEMORY_NUMBER_LIMITS,
+  useAssistantMemoryPreferencesStore,
+} from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type {
@@ -8,9 +11,10 @@ import type {
 } from '@brainstrike/assistant-contract/memory-settings';
 import { OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET } from '@brainstrike/assistant-contract/memory-settings';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
+import { Badge, Card, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
+import { MemoryNumberField, OnDeviceEmbeddingDeviceField } from './assistant-memory-fields';
 import {
   formatMemoryScopeLabel,
   listObservationalMemoryModelOptions,
@@ -39,15 +43,10 @@ function retrievalModeLabel(mode: RuntimeAssistantMemoryRetrievalMode): string {
   }
 }
 
-function parseNumberInput(value: string): number {
-  if (value.trim().length === 0) {
-    return Number.NaN;
-  }
-  return Number(value);
-}
-
 export interface AssistantMemorySettingsSectionProps {
   readonly assistantMemoryBackendAvailable: boolean;
+  /** The host runs local embedders in its embedding host, whose device the user may choose. */
+  readonly onDeviceEmbedding?: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
@@ -107,10 +106,8 @@ function ObservationalMemoryModelField({
           The target identifies a provider/model such as{' '}
           <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
           before constructing the observer. Unlike Auto, a manual target is NOT tied to your chat
-          provider: whenever observations run on a chat using a different HOSTED provider, that
-          conversation reaches the observer's provider as well. A{' '}
-          <span className="font-mono">local</span> observer is the exception — it runs on this
-          device and sends nothing.
+          provider: whenever observations run on a chat using a different provider, that
+          conversation reaches the observer's provider as well.
         </p>
       )}
       {hasUnavailableObservationModel && (
@@ -123,8 +120,8 @@ function ObservationalMemoryModelField({
           role={observationalMemoryEnabled ? 'alert' : 'status'}
         >
           Configured observational memory model {modelTarget} is not available with the current
-          provider credentials. Configure its API key in Settings → Providers, choose a keyless
-          local observer, or turn observations off.
+          provider credentials. Configure its API key in Settings → Providers, choose an observer
+          whose provider has a key, or turn observations off.
         </p>
       )}
     </div>
@@ -133,6 +130,7 @@ function ObservationalMemoryModelField({
 
 export function AssistantMemorySettingsSection({
   assistantMemoryBackendAvailable,
+  onDeviceEmbedding = false,
   providerKeySources,
 }: AssistantMemorySettingsSectionProps) {
   useEnsureModelRegistry();
@@ -195,9 +193,14 @@ export function AssistantMemorySettingsSection({
   const hasEmbeddingModel =
     semanticRecall.embeddingModelTarget !== null &&
     embeddingOptions.some((option) => option.target === semanticRecall.embeddingModelTarget);
+  // Recall embeds, and so does vector observation retrieval, even with recall off.
+  const embedderInUse =
+    semanticRecall.enabled ||
+    (observationalMemory.enabled && observationalMemory.retrievalMode === 'vector');
   const hasUnavailableEmbeddingModel =
     providerKeySources !== undefined &&
     hasLoaded &&
+    embedderInUse &&
     semanticRecall.embeddingModelTarget !== null &&
     !hasEmbeddingModel;
   const hasUnavailableObservationModel =
@@ -264,33 +267,23 @@ export function AssistantMemorySettingsSection({
           </p>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="assistant-memory-message-tokens">Observe messages after</Label>
-          <Input
-            aria-label="Observe messages after"
-            defaultValue={observationalMemory.messageTokens}
-            id="assistant-memory-message-tokens"
-            min={1000}
-            onChange={(event) => setObservationMessageTokens(parseNumberInput(event.target.value))}
-            step={1000}
-            type="number"
-          />
-        </div>
+        <MemoryNumberField
+          id="assistant-memory-message-tokens"
+          label="Observe messages after"
+          {...ASSISTANT_MEMORY_NUMBER_LIMITS.tokenThreshold}
+          onValidChange={setObservationMessageTokens}
+          step={1000}
+          value={observationalMemory.messageTokens}
+        />
 
-        <div className="space-y-2">
-          <Label htmlFor="assistant-memory-observation-tokens">Reflect observations after</Label>
-          <Input
-            aria-label="Reflect observations after"
-            defaultValue={observationalMemory.observationTokens}
-            id="assistant-memory-observation-tokens"
-            min={1000}
-            onChange={(event) =>
-              setReflectionObservationTokens(parseNumberInput(event.target.value))
-            }
-            step={1000}
-            type="number"
-          />
-        </div>
+        <MemoryNumberField
+          id="assistant-memory-observation-tokens"
+          label="Reflect observations after"
+          {...ASSISTANT_MEMORY_NUMBER_LIMITS.tokenThreshold}
+          onValidChange={setReflectionObservationTokens}
+          step={1000}
+          value={observationalMemory.observationTokens}
+        />
 
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="assistant-memory-retrieval-mode">Observation retrieval mode</Label>
@@ -311,9 +304,13 @@ export function AssistantMemorySettingsSection({
               </option>
             ))}
           </select>
-          <p className="text-muted-foreground text-xs">
-            Vector retrieval requires semantic recall and an embedder. If enabled before the
-            embedder bridge is configured, assistant startup fails explicitly.
+          <p
+            className="text-muted-foreground text-xs"
+            data-testid="assistant-memory-retrieval-note"
+          >
+            Semantic observation recall embeds observations with the semantic recall embedding
+            model, even with semantic recall turned off. Until that model is available, the composer
+            stays disabled and says why.
           </p>
         </div>
       </div>
@@ -363,11 +360,13 @@ export function AssistantMemorySettingsSection({
             {hasUnavailableEmbeddingModel && (
               <p className="text-destructive text-xs" role="alert">
                 Configured semantic recall embedder {semanticRecall.embeddingModelTarget} is not
-                available for Mastra semantic recall. Choose an enabled OpenAI, Google, or local
-                embedding model, or turn semantic recall off.
+                available. Choose an enabled OpenAI, Google, or local embedding model, or turn off
+                semantic recall and semantic observation recall.
               </p>
             )}
           </div>
+
+          {onDeviceEmbedding && <OnDeviceEmbeddingDeviceField />}
 
           <div className="space-y-2">
             <Label htmlFor="assistant-memory-semantic-scope">Semantic recall scope</Label>
@@ -388,33 +387,21 @@ export function AssistantMemorySettingsSection({
             </select>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="assistant-memory-semantic-top-k">Semantic matches</Label>
-            <Input
-              aria-label="Semantic matches"
-              defaultValue={semanticRecall.topK}
-              id="assistant-memory-semantic-top-k"
-              max={50}
-              min={1}
-              onChange={(event) => setSemanticRecallTopK(parseNumberInput(event.target.value))}
-              type="number"
-            />
-          </div>
+          <MemoryNumberField
+            id="assistant-memory-semantic-top-k"
+            label="Semantic matches"
+            {...ASSISTANT_MEMORY_NUMBER_LIMITS.topK}
+            onValidChange={setSemanticRecallTopK}
+            value={semanticRecall.topK}
+          />
 
-          <div className="space-y-2">
-            <Label htmlFor="assistant-memory-semantic-message-range">Surrounding messages</Label>
-            <Input
-              aria-label="Surrounding messages"
-              defaultValue={semanticRecall.messageRange}
-              id="assistant-memory-semantic-message-range"
-              max={20}
-              min={0}
-              onChange={(event) =>
-                setSemanticRecallMessageRange(parseNumberInput(event.target.value))
-              }
-              type="number"
-            />
-          </div>
+          <MemoryNumberField
+            id="assistant-memory-semantic-message-range"
+            label="Surrounding messages"
+            {...ASSISTANT_MEMORY_NUMBER_LIMITS.messageRange}
+            onValidChange={setSemanticRecallMessageRange}
+            value={semanticRecall.messageRange}
+          />
         </div>
       </div>
     </Card>

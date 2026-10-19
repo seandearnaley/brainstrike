@@ -159,7 +159,7 @@ describe('committed host run resilience is visible in the thread', () => {
       .repository.messages.find(({ message: item }) => item.id === runId)?.message;
     expect(message?.content.slice(0, 1)).toEqual([
       {
-        data: { kind: 'deterministic', summary },
+        data: { kind: 'deterministic', reason: 'context-overflow', summary, turnsCompacted: 1 },
         name: 'brainstrike.context-compacted',
         type: 'data',
       },

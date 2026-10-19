@@ -7,7 +7,7 @@ import { expect, test, vi } from 'vitest';
 import { attachAgentHost } from '../dist/client.js';
 import {
   createProductionHostPlatform,
-  type HostMemoryPreconditions,
+  type HostMemoryReadiness,
   type ProductionHostPlatformOptions,
 } from '../dist/production-platform.js';
 import { startAgentHost } from '../dist/runtime.js';
@@ -18,7 +18,7 @@ import type { HostMcpRuntime } from '../src/ports.js';
  * Every acquisition entry point (the full selection, MCP discovery and so the
  * model warmup that follows it) is counted and must stay at zero.
  */
-async function readThroughProductionHost(preconditions: HostMemoryPreconditions) {
+async function readThroughProductionHost(preconditions: HostMemoryReadiness) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-production-memory-read-')));
   const readConfiguration = vi.fn<ProductionHostPlatformOptions['readConfiguration']>(async () => {
     throw new Error('A memory read must not acquire a selection');
@@ -62,12 +62,25 @@ async function readThroughProductionHost(preconditions: HostMemoryPreconditions)
 }
 
 test('a memory read runs only the preconditions: no selection, MCP discovery or warmup', async () => {
+  const models = {
+    embedder: {
+      dimensions: 384,
+      distance: 'cosine' as const,
+      dtype: 'fp16' as const,
+      modelId: 'mini',
+      provider: 'local',
+    },
+    observer: 'google::gemini-2.5-flash',
+  };
   const read = await readThroughProductionHost({
+    models,
     observation: { resourceId: 'workspace', scope: 'thread', state: 'on' },
     ready: true,
   });
+  // The models the preconditions resolved travel with the observation.
   expect(read.result).toEqual({
     admission: { ready: true },
+    models,
     observational: { record: null, state: 'active' },
   });
   expect(read.readMemoryPreconditions).toHaveBeenCalledTimes(1);

@@ -10,7 +10,7 @@ import {
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { Schema } from 'effect';
@@ -121,6 +121,42 @@ const ACTIVE: MemoryRead = {
     state: 'active',
   },
 };
+const OBSERVED_AT = Date.UTC(2026, 9, 18, 21, 30);
+// BST-2201: a host that reports the record's lifecycle and the run's models.
+const LIVE: MemoryRead = {
+  admission: { ready: true },
+  models: {
+    embedder: {
+      dimensions: 384,
+      distance: 'cosine',
+      dtype: 'fp16',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      provider: 'local',
+    },
+    observer: 'openai::gpt-5-mini',
+  },
+  observational: {
+    record: {
+      bufferedObservationTokens: 120,
+      lifecycle: {
+        generationCount: 2,
+        isBufferingObservation: true,
+        isBufferingReflection: false,
+        isObserving: false,
+        isReflecting: false,
+        lastBufferedAtTime: null,
+        lastObservedAt: OBSERVED_AT,
+        originType: 'reflection',
+        reflectionTokenThreshold: 40_000,
+      },
+      messageTokenThreshold: 30_000,
+      observationTokenCount: 900,
+      pendingMessageTokens: 4000,
+      totalTokensObserved: 5900,
+    },
+    state: 'active',
+  },
+};
 const NOT_READY: MemoryRead = {
   admission: { ready: false, reason: 'Semantic recall needs its embedding model downloaded.' },
 };
@@ -147,6 +183,70 @@ describe('the meter reads the host memory state the next send would admit', () =
       observationTokens: 900,
       pendingMessageTokens: 4000,
     });
+  });
+  test('a reported record lifecycle reaches the meter whole', () => {
+    if (!('observational' in LIVE)) {
+      throw new Error('LIVE is a ready read');
+    }
+    expect(hostOmMeterState(LIVE.observational)).toEqual({
+      bufferedObservationTokens: 120,
+      compactionSavedTokens: 5000,
+      kind: 'stats',
+      lifecycle: {
+        generationCount: 2,
+        isBufferingObservation: true,
+        isBufferingReflection: false,
+        isObserving: false,
+        isReflecting: false,
+        lastBufferedAtTime: null,
+        lastObservedAt: OBSERVED_AT,
+        originType: 'reflection',
+        reflectionTokenThreshold: 40_000,
+      },
+      messageTokenThreshold: 30_000,
+      observationTokens: 900,
+      pendingMessageTokens: 4000,
+    });
+  });
+  test('a ready read carries the models its memory uses and when it was read onto the segment', async () => {
+    const { client } = hostClient(LIVE);
+    const before = Date.now();
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source: undefined })
+    );
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    // Mastra's flags are the record's as of this read; no row marks their end.
+    expect(result.current.omSegment?.readAt).toBeGreaterThanOrEqual(before);
+    expect(result.current.omSegment?.models).toEqual({
+      embedder: {
+        dimensions: 384,
+        distance: 'cosine',
+        dtype: 'fp16',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        provider: 'local',
+      },
+      observer: 'openai::gpt-5-mini',
+    });
+  });
+  test('a typed refusal is the segment error with its code', async () => {
+    const client = memoryClient(async () => {
+      throw refusalError(
+        'configuration',
+        'memory.embedder-device-unavailable',
+        'The on-device memory embedder has no execution device.'
+      );
+    });
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source: undefined })
+    );
+    await waitFor(() =>
+      expect(result.current.omSegment).toEqual({
+        code: 'memory.embedder-device-unavailable',
+        kind: 'error',
+        readAt: expect.any(Number),
+        reason: 'The on-device memory embedder has no execution device.',
+      })
+    );
   });
   test('a memory precondition gates the send after any notice that already gates it', () => {
     const refused = { admissionReason: 'Semantic recall needs its embedding model downloaded.' };
@@ -293,13 +393,17 @@ describe('the meter reads the host memory state the next send would admit', () =
     act(() => source.commit(finished));
     await waitFor(() =>
       expect(result.current.omSegment).toEqual({
+        code: INTERNAL_FAULT.code,
         kind: 'error',
+        readAt: expect.any(Number),
         reason: INTERNAL_FAULT.message,
       })
     );
     await act(async () => answerFirst(ACTIVE));
     expect(result.current.omSegment).toEqual({
+      code: INTERNAL_FAULT.code,
       kind: 'error',
+      readAt: expect.any(Number),
       reason: INTERNAL_FAULT.message,
     });
   });
