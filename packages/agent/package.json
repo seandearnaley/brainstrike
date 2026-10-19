@@ -23,7 +23,6 @@
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "catalog:",
     "@mastra/core": "1.78.0",
-    "@mastra/memory": "1.38.0",
     "@mastra/schema-compat": "catalog:",
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/core": "catalog:",

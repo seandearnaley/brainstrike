@@ -7,12 +7,14 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const agentRequire = createRequire(path.join(root, 'packages/agent/package.json'));
+// agent-host imports @mastra/memory; resolve the copy it loads.
+const agentHostRequire = createRequire(path.join(root, 'packages/agent-host/package.json'));
 const desktopRequire = createRequire(path.join(root, 'apps/desktop/package.json'));
 const uiRequire = createRequire(path.join(root, 'packages/ui/package.json'));
 const coreRequire = createRequire(agentRequire.resolve('@mastra/core'));
 const expressRequire = createRequire(coreRequire.resolve('express'));
 const concurrentlyRequire = createRequire(desktopRequire.resolve('concurrently'));
-const memoryRequire = createRequire(agentRequire.resolve('@mastra/memory'));
+const memoryRequire = createRequire(agentHostRequire.resolve('@mastra/memory'));
 const transformersRequire = createRequire(agentRequire.resolve('@huggingface/transformers'));
 const mermaidRequire = createRequire(uiRequire.resolve('mermaid'));
 
