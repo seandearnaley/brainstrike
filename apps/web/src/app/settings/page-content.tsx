@@ -14,11 +14,15 @@ import {
 } from '@brainstrike/app-shell/diagnostics';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
-import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
+import {
+  configureModelRuntimeServices,
+  EMBEDDING_MODEL_DOWNLOAD_TEXT,
+} from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import {
   ModelCatalogHeaderActions,
   ModelSelectionPage,
@@ -48,10 +52,25 @@ import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 
 configureModelRuntimeServices({
+  // BST-2230: the embedding worker loads the model as web search and indexing
+  // do, into the cache they read; the page itself loads none.
   downloadEmbeddingModel: async (modelId, options) => {
+    const modelConfig = options?.modelConfig;
+    if (!modelConfig) {
+      throw new Error(`Downloading ${modelId} needs its catalog model configuration.`);
+    }
     const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
     const service = new SimpleEmbeddingService();
-    await service.downloadModel(modelId, options);
+    try {
+      await service.initializeWithModel(
+        modelConfig,
+        undefined,
+        useVectorPreferencesStore.getState().devicePref
+      );
+      await service.generateQueryEmbedding(EMBEDDING_MODEL_DOWNLOAD_TEXT);
+    } finally {
+      await service.dispose();
+    }
   },
 });
 

@@ -1,3 +1,4 @@
+export * from './browser-bare-dynamic-import.js';
 export * from './build-id.js';
 export * from './onnx-runtime-wasm.js';
 export * from './vite.js';

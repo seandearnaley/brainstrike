@@ -55,6 +55,7 @@ const {
   isZustandModule,
   preserveWorkerEntryPlugin,
   transformersOnnxRuntimeWasmUrlsPlugin,
+  browserBareDynamicImportGuardPlugin,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
@@ -195,6 +196,8 @@ export default defineConfig({
     },
   },
   plugins: [
+    // A bare dynamic import fails in the page at runtime, never at build (BST-2230).
+    browserBareDynamicImportGuardPlugin(),
     // ONNX Runtime's WASM, emitted same-origin from the onnxruntime-web Transformers.js
     // itself depends on (BST-2003).
     transformersOnnxRuntimeWasmUrlsPlugin([
@@ -407,7 +410,11 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [preserveWorkerEntryPlugin(), browserWorkerProcessExitCodePlugin()],
+    plugins: () => [
+      preserveWorkerEntryPlugin(),
+      browserWorkerProcessExitCodePlugin(),
+      browserBareDynamicImportGuardPlugin(),
+    ],
   },
 });
 
