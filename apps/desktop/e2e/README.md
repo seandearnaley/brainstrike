@@ -18,6 +18,18 @@ From `apps/desktop`, run a focused spec:
 pnpm test:e2e e2e/workspace-bar.desktop.test.ts --project=regression
 ```
 
+To run the same specs against the packaged app, package it the way
+[`native-package-matrix.yml`](../../../.github/workflows/native-package-matrix.yml)
+does (with `CSC_IDENTITY_AUTO_DISCOVERY=false` locally), then:
+
+```sh
+BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged pnpm --filter @brainstrike/desktop test:e2e:lane:smoke
+```
+
+The harness then launches the `release/` executable instead of `dist/main.js`. A
+missing executable, an unpackaged process or any other value fails the run; it
+never falls back to the dev build.
+
 `pnpm test:e2e:ui` opens the test UI; `pnpm test:e2e:debug` enables debugging.
 Smoke, full regression, packaged and stress scripts live in
 [`package.json`](../package.json). Choose the affected lane; performance and

@@ -7,6 +7,11 @@ import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
+  assertLaunchedDesktopTarget,
+  type DesktopE2eTarget,
+  resolveDesktopE2eTarget,
+} from './desktop-e2e-target.ts';
+import {
   closeModelProviderShimWithProcess,
   type ModelProviderShim,
   resolveProviderEgressEnvironment,
@@ -210,11 +215,16 @@ function verboseError(...args: unknown[]): void {
 async function attemptElectronLaunch(
   launchOptions: Parameters<typeof electron.launch>[0],
   firstWindowTimeout: number,
+  target: DesktopE2eTarget,
   onAppAcquired?: (app: ElectronApplication) => void
 ): Promise<ElectronAppContext> {
   const app = await startElectron(launchOptions, onAppAcquired);
 
   try {
+    assertLaunchedDesktopTarget(
+      target,
+      await app.evaluate(({ app: electronApp }) => electronApp.isPackaged)
+    );
     verboseLog('⏳ Waiting for first window...');
     const window = await app.firstWindow({ timeout: firstWindowTimeout });
     await window.waitForLoadState('domcontentloaded');
@@ -286,17 +296,55 @@ export async function launchElectronAppWithOptions(
   }
 }
 
+type DesktopLaunchMode = NonNullable<LaunchElectronAppOptions['launchMode']>;
+
+/** BST-2190: the dev build, or the packaged app BRAINSTRIKE_E2E_DESKTOP_TARGET names. */
+function resolveLaunchTarget(launchMode: DesktopLaunchMode): {
+  readonly electronPath: string;
+  readonly mainPath: string;
+  readonly target: DesktopE2eTarget;
+} {
+  const target = resolveDesktopE2eTarget();
+  const mainPath = path.resolve(import.meta.dirname, '..', '..', 'dist', 'main.js');
+  if (target.kind === 'packaged') {
+    if (launchMode !== 'test-built') {
+      throw new Error(
+        `Launch mode "${launchMode}" names a dev build; the packaged target cannot honor it.`
+      );
+    }
+    // A packaged run never resolves the workspace Electron: its binary need not exist there.
+    return { electronPath: target.executablePath, mainPath, target };
+  }
+  if (!fs.existsSync(mainPath)) {
+    throw new Error(`Desktop E2E main entry is missing at ${mainPath}`);
+  }
+  return { electronPath: require('electron'), mainPath, target };
+}
+
+/**
+ * What selects the build. The dev Electron takes the entry script and launch
+ * mode; the packaged executable loads its own app.asar and resolves its own
+ * launch mode, as it does when shipped.
+ */
+function desktopEntryLaunchOptions(
+  target: DesktopE2eTarget,
+  mainPath: string,
+  launchMode: DesktopLaunchMode
+): {
+  readonly args: readonly string[];
+  readonly launch: { readonly executablePath?: string };
+} {
+  return target.kind === 'packaged'
+    ? { args: [], launch: { executablePath: target.executablePath } }
+    : { args: [mainPath, `--brainstrike-desktop-launch-mode=${launchMode}`], launch: {} };
+}
+
 async function launchElectronAppWithBoundary(
   options: LaunchElectronAppOptions,
   modelProvider: ModelProviderShim
 ): Promise<ElectronAppContext> {
-  const electronPath = require('electron');
-  const mainPath = path.resolve(import.meta.dirname, '..', '..', 'dist', 'main.js');
-  if (!fs.existsSync(mainPath)) {
-    throw new Error(`Desktop E2E main entry is missing at ${mainPath}`);
-  }
-
   const launchMode = options.launchMode ?? 'test-built';
+  const { electronPath, mainPath, target } = resolveLaunchTarget(launchMode);
   const userDataDir = options.userDataDir;
   if (!userDataDir) {
     throw new Error('Desktop E2E launches must provide an isolated userDataDir.');
@@ -324,7 +372,7 @@ async function launchElectronAppWithBoundary(
     verboseLog(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
 
     const launchOptions = createLaunchOptions(
-      electronPath,
+      target,
       mainPath,
       undefined,
       userDataDir,
@@ -337,7 +385,12 @@ async function launchElectronAppWithBoundary(
     );
 
     try {
-      return await attemptElectronLaunch(launchOptions, firstWindowTimeout, options.onAppAcquired);
+      return await attemptElectronLaunch(
+        launchOptions,
+        firstWindowTimeout,
+        target,
+        options.onAppAcquired
+      );
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`❌ Launch attempt ${attempt} failed:`, lastError.message);
@@ -383,7 +436,7 @@ function e2eShowInactive(baseEnv: NodeJS.ProcessEnv): string {
 }
 
 function createLaunchOptions(
-  _electronPath: string,
+  target: DesktopE2eTarget,
   mainPath: string,
   _debugPort: number | undefined,
   userDataDir: string | undefined,
@@ -402,15 +455,15 @@ function createLaunchOptions(
     process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
   const shouldSerializePGliteInit =
     process.env['CI'] === 'true' && process.env['GITHUB_ACTIONS'] === 'true';
+  const entry = desktopEntryLaunchOptions(target, mainPath, launchMode);
   const baseArgs = [
-    mainPath,
+    ...entry.args,
     '--test-mode',
     '--js-flags=--expose-gc',
     // Without this flag Chromium quantizes performance.memory.usedJSHeapSize
     // AND caches it for 20 minutes, so within a single test every heap read
     // returns the identical value and the memory ceilings can never bind.
     '--enable-precise-memory-info',
-    `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.
     // Playwright manages its own CDP connection via electron.launch().
@@ -532,6 +585,8 @@ function createLaunchOptions(
           { DISPLAY: ':99' }
         : {}),
     },
+    // No executablePath for the dev build: Playwright launches the workspace Electron.
+    ...entry.launch,
     // Let Playwright manage the CDP connection - don't override
     timeout: launchTimeoutMs ?? 150_000, // Increased to 150s for CI stability
   };
