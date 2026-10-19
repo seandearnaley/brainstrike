@@ -7,6 +7,8 @@ export {
   type StartedHost,
 } from './launcher.js';
 export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.js';
+// BST-2239 proof only.
+export { proofTiming } from './proof-timing.js';
 export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.js';
 export {
   HOST_LEASE_CLOSING,

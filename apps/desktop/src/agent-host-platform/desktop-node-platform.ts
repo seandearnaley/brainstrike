@@ -33,6 +33,7 @@ import {
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
+import { proofTiming } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
@@ -324,7 +325,7 @@ export async function createDesktopHostConfiguration(
         try {
           return await run();
         } finally {
-          logger.info('BST-2239 host platform close phase settled', {
+          proofTiming('BST-2239 host platform close phase settled', {
             elapsedMs: Date.now() - startedAt,
             phase,
           });

@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import {
   decodeStartOptions,
   type HostStartOptions,
+  proofTiming,
   type StartupMessage,
 } from '@brainstrike/host-lease';
 import { configureLogger } from '@brainstrike/logging';
@@ -141,9 +142,7 @@ export async function runAgentHostProcess(
   let ready = false;
   const stop = (): void => {
     // BST-2239 proof only.
-    process.stderr.write(
-      `${JSON.stringify({ level: 30, msg: 'BST-2239 host stop requested', time: Date.now() })}\n`
-    );
+    proofTiming('BST-2239 host stop requested');
     controller.abort(new Error('Host process cancelled'));
     void host?.close().catch((cause: unknown) => {
       process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
@@ -245,9 +244,9 @@ export async function runAgentHostProcess(
       await tracing?.shutdown().catch((cause: unknown) => {
         failures.push(cause);
       });
-      process.stderr.write(
-        `${JSON.stringify({ elapsedMs: Date.now() - tracingStartedAt, level: 30, msg: 'BST-2239 host tracing shutdown settled', time: Date.now() })}\n`
-      );
+      proofTiming('BST-2239 host tracing shutdown settled', {
+        elapsedMs: Date.now() - tracingStartedAt,
+      });
       const owner = root ? RootLock.inspect(root)?.owner : undefined;
       if (!(owner && !owner.released && owner.pid === process.pid)) {
         releaseParent?.();
@@ -258,6 +257,7 @@ export async function runAgentHostProcess(
       }
     }
   }
+  proofTiming('BST-2239 host process failures reported', { failures: failures.length });
   await reportProcessFailures(failures, root, publish);
 }
 if (isProcessEntrypoint(import.meta.url)) {

@@ -2,10 +2,10 @@ import { createRequire } from 'node:module';
 import {
   type HostRuntime,
   type HostStartOptions,
+  proofTiming,
   ResourceOwner,
   startHost,
 } from '@brainstrike/host-lease';
-import { createLogger } from '@brainstrike/logging';
 import {
   type ClearContentResult,
   StateStore,
@@ -26,17 +26,13 @@ import type { HostClientOrigin, HostPlatform } from './ports.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
 
 // BST-2239 proof only: the host's own close phases.
-const timingLogger = createLogger('AgentHostShutdownTiming');
 async function timed<T>(phase: string, run: () => Promise<T>): Promise<T> {
   const startedAt = Date.now();
-  timingLogger.info('BST-2239 host close phase started', { phase });
+  proofTiming('BST-2239 host close phase started', { phase });
   try {
     return await run();
   } finally {
-    timingLogger.info('BST-2239 host close phase settled', {
-      elapsedMs: Date.now() - startedAt,
-      phase,
-    });
+    proofTiming('BST-2239 host close phase settled', { elapsedMs: Date.now() - startedAt, phase });
   }
 }
 
@@ -363,6 +359,7 @@ export async function startAgentHost(
           };
         },
         beginClose: () => {
+          proofTiming('BST-2239 host beginClose');
           closing = true;
           // The Root finalizer below joins this exact idempotent Core promise.
           // Observe early rejection without consuming it or releasing the store.

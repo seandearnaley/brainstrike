@@ -1,8 +1,20 @@
 import './agent-host-compile-cache';
+import { appendFileSync } from 'node:fs';
 import { flushCompileCache } from 'node:module';
+import { join } from 'node:path';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
+
+/** BST-2239 proof only: the packaged Windows utility's stderr never reaches the harness. */
+function proofEntryTiming(msg: string, fields: Record<string, unknown> = {}): void {
+  const line = JSON.stringify({ ...fields, msg, pid: process.pid, time: new Date().toISOString() });
+  process.stderr.write(`${line}\n`);
+  const userData = process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
+  if (userData) {
+    appendFileSync(join(userData, 'logs', 'agent-host-timing.ndjson'), `${line}\n`);
+  }
+}
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
 async function main(): Promise<void> {
@@ -90,11 +102,12 @@ async function main(): Promise<void> {
     }
     // BST-2239 proof only: the exit flushes Node's compile cache anyway; flushing it here first
     // times that same write, so the exit itself has nothing left to persist.
+    proofEntryTiming('BST-2239 host kernel returned; flushing compile cache');
     const flushStartedAt = Date.now();
     flushCompileCache();
-    process.stderr.write(
-      `${JSON.stringify({ elapsedMs: Date.now() - flushStartedAt, level: 30, msg: 'BST-2239 host compile cache flushed; utility exiting', time: Date.now() })}\n`
-    );
+    proofEntryTiming('BST-2239 host compile cache flushed; utility exiting', {
+      elapsedMs: Date.now() - flushStartedAt,
+    });
     process.exit(0);
   } catch (cause) {
     const failure = kernelStarted ? cause : (controlFailure ?? cause);

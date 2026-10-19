@@ -115,6 +115,8 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void)
     exitCode: undefined,
     exited: completion.promise,
     exitListener: (code) => {
+      // BST-2239 proof only.
+      timingLogger.info('BST-2239 host utility exit observed', { closing: child.closing, code });
       child.exitCode = code;
       completion.resolve(code);
       if (!child.closing) {

@@ -441,11 +441,20 @@ export function serveDesktopPlatform(
   });
   // The host keeps its Root when this fails, so the failure is logged here with
   // every inner cause, under the correlation id the host's fault carries (BST-2192).
-  connection.onRequest('platform/close', () =>
-    close().catch((cause: unknown) => {
-      throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
-    })
-  );
+  connection.onRequest('platform/close', () => {
+    // BST-2239 proof only.
+    const startedAt = Date.now();
+    logger.info('BST-2239 platform/close received', {});
+    return close().then(
+      () => {
+        logger.info('BST-2239 platform/close settled', { elapsedMs: Date.now() - startedAt });
+      },
+      (cause: unknown) => {
+        logger.info('BST-2239 platform/close failed', { elapsedMs: Date.now() - startedAt });
+        throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
+      }
+    );
+  });
   connection.listen();
   return {
     close: disconnect,

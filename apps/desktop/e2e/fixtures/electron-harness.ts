@@ -198,7 +198,8 @@ export class ElectronHarness {
 
   private async closeContext(context: Pick<ElectronAppContext, 'app'>): Promise<void> {
     const mainProcess = context.app.process();
-    if (shutdownDiagnosticsEnabled) {
+    if (shutdownDiagnosticsEnabled && !hasExited(mainProcess)) {
+      await this.measureBeforeClose(context.app);
       markHarnessEvent(this.processOutputPath(), 'intentional close begins');
     }
     this.exitGuard.beginIntentionalClose(mainProcess);
@@ -222,6 +223,45 @@ export class ElectronHarness {
     } finally {
       mainProcess.off('exit', onExit);
     }
+  }
+
+  /**
+   * BST-2239 proof only, before the close deadline starts: how responsive Main is, and how long a
+   * screenshot of each page takes (Playwright screenshots every page of a closing context).
+   */
+  private async measureBeforeClose(app: ElectronApplication): Promise<void> {
+    const output = this.processOutputPath();
+    const pages = app.context().pages();
+    markHarnessEvent(
+      output,
+      `pre-close: ${pages.length} page(s): ${pages.map((page) => page.url()).join(' ')}`
+    );
+    const evaluateStartedAt = Date.now();
+    const evaluated = await app
+      .evaluate(() => Date.now())
+      .then(
+        () => 'ok',
+        (error: unknown) => `failed: ${String(error).split('\n')[0]}`
+      );
+    markHarnessEvent(
+      output,
+      `pre-close: Main evaluate round trip ${Date.now() - evaluateStartedAt}ms ${evaluated}`
+    );
+    await Promise.all(
+      pages.map(async (page, index) => {
+        const startedAt = Date.now();
+        const outcome = await page
+          .screenshot({ path: this.testInfo.outputPath(`pre-close-${index}.png`), timeout: 5000 })
+          .then(
+            () => 'ok',
+            (error: unknown) => `failed: ${String(error).split('\n')[0]}`
+          );
+        markHarnessEvent(
+          output,
+          `pre-close: screenshot page ${index} (${page.url()}) ${Date.now() - startedAt}ms ${outcome}`
+        );
+      })
+    );
   }
 
   private processOutputPath(): string {

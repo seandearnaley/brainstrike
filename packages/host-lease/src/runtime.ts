@@ -7,6 +7,7 @@ import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { assertNotSyncedRoot, processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { destroySocket, receiveFrames, sendFrame } from './frames.js';
+import { proofTiming } from './proof-timing.js';
 import {
   decodeRequest,
   HOST_VERSION,
@@ -135,6 +136,11 @@ export async function startHost(
   let graceElapsed = false;
   const close = (cause?: unknown): Promise<void> => {
     if (!closing) {
+      // BST-2239 proof only.
+      const closeStartedAt = Date.now();
+      proofTiming('BST-2239 host runtime close begins', {
+        cause: cause === undefined ? null : String(cause),
+      });
       // BST-1977: fence Core before metadata/ACL and transport finalizers.
       // Latch first: retirement can synchronously release a run or reenter close.
       closing = completion.promise;
@@ -156,6 +162,14 @@ export async function startHost(
           }
           throw failure;
         }
+      );
+      rootClosing.then(
+        () => proofTiming('BST-2239 host owner closed', { elapsedMs: Date.now() - closeStartedAt }),
+        (failure: unknown) =>
+          proofTiming('BST-2239 host owner close failed', {
+            elapsedMs: Date.now() - closeStartedAt,
+            failure: String(failure),
+          })
       );
       rootClosing.then(rootJoined.resolve, rootJoined.reject);
       void (async () => {
@@ -346,9 +360,7 @@ export async function startHost(
         // BST-2239 proof only.
         const serverCloseStartedAt = Date.now();
         const timing = (msg: string): void => {
-          process.stderr.write(
-            `${JSON.stringify({ elapsedMs: Date.now() - serverCloseStartedAt, level: 30, msg, sockets: sockets.size, time: Date.now() })}\n`
-          );
+          proofTiming(msg, { elapsedMs: Date.now() - serverCloseStartedAt, sockets: sockets.size });
         };
         timing('BST-2239 host server close started');
         serverClosing = new Promise<void>((resolve, reject) =>
@@ -389,9 +401,7 @@ export async function startHost(
         try {
           await removeOwnHostRecord(canonicalRoot, value);
         } finally {
-          process.stderr.write(
-            `${JSON.stringify({ elapsedMs: Date.now() - removeStartedAt, level: 30, msg: 'BST-2239 host record removed', time: Date.now() })}\n`
-          );
+          proofTiming('BST-2239 host record removed', { elapsedMs: Date.now() - removeStartedAt });
         }
       }
     );
