@@ -18,6 +18,7 @@ import { bindHostHookTrustMethods } from './hook-trust.js';
 import { bindHostMcpContentMethods } from './mcp-content-connection.js';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
+import { probeHostMemoryEmbedder } from './memory-embedder-probe.js';
 import { bindHostPermissionPolicyMethods } from './permission-policy.js';
 import type {
   HostAuthService,
@@ -67,6 +68,8 @@ export interface HostConnectionOptions {
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
+  /** BST-2227: the embedder `memory/embedder/probe` tests, where the host has a composer. */
+  readonly resolveMemoryEmbedder?: HostPlatform['resolveMemoryEmbedder'];
   /** The transport's retirement: each in-flight request's signal aborts as `host.closing`. */
   readonly retiring?: AbortSignal;
   /** Gap 10: the platform's state index search, where the host owns one. */
@@ -110,6 +113,7 @@ export function bindHostConnection(
     mcpSettings,
     origin = 'public-socket',
     providers,
+    resolveMemoryEmbedder,
     retiring,
     searchState,
     searchStateVectors,
@@ -287,6 +291,9 @@ export function bindHostConnection(
   handle('thread/delete', (params) => core.deleteThread(params));
   handle('thread/update', (params) => core.updateThread(params));
   handle('thread/memory/read', (params) => core.readThreadMemory(params, origin));
+  handle('memory/embedder/probe', (params, signal) =>
+    probeHostMemoryEmbedder(resolveMemoryEmbedder, params, origin, signal)
+  );
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));

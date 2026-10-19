@@ -6,6 +6,10 @@ name: Nightly Fix Agent
 # issue, publish the branch and pull request, and comment on Linear. The fix
 # job fails, visibly and before claiming, until the owner adds the
 # CLAUDE_CODE_OAUTH_TOKEN secret.
+#
+# BST-2235: nightly-fix.yml calls it after the night, so the github context is
+# that run's: its run id, and main's head as GITHUB_SHA. The night's run and
+# commit come in as inputs, and the agent builds on the commit the night tested.
 
 on:
   workflow_call:
@@ -16,6 +20,14 @@ on:
         type: string
       runs_on:
         description: The failing lane's runner label.
+        required: true
+        type: string
+      nightly_run_id:
+        description: The Nightly run that failed the test; its artifacts are the evidence.
+        required: true
+        type: string
+      head_sha:
+        description: The commit that Nightly run tested; the fix builds on it.
         required: true
         type: string
     secrets:
@@ -57,6 +69,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.head_sha }}
           persist-credentials: false
 
       - name: Setup Node
@@ -65,18 +78,19 @@ jobs:
           node-version-file: .nvmrc
 
       # The claim is the lock: an issue someone holds skips this run. issue.md
-      # leads with tonight's failure, from this run, not the run that filed it.
+      # leads with tonight's failure, from the night's run, not the run that
+      # filed it.
       - name: Claim the issue
         id: claim
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           ISSUE: ${{ inputs.issue }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NIGHTLY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.nightly_run_id }}
         run: |
           mkdir -p "$RUNNER_TEMP/nightly-fix"
           set +e
           node scripts/nightly-fix-issue.mjs claim --issue "$ISSUE" \
-            --claimant "github-run:$GITHUB_RUN_ID" --run-url "$RUN_URL" \
+            --claimant "github-run:$GITHUB_RUN_ID" --run-url "$NIGHTLY_RUN_URL" \
             --issue-file "$RUNNER_TEMP/nightly-fix/issue.md"
           status=$?
           set -e
@@ -98,8 +112,8 @@ jobs:
         uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1.0.253
         env:
           NIGHTLY_FIX_OUT: ${{ runner.temp }}/nightly-fix
-          # This run failed the test tonight: its artifacts are the evidence.
-          NIGHTLY_FIX_RUN_ID: ${{ github.run_id }}
+          # The night's run failed the test: its artifacts are the evidence.
+          NIGHTLY_FIX_RUN_ID: ${{ inputs.nightly_run_id }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -114,7 +128,7 @@ jobs:
         id: handoff
         if: ${{ always() && steps.claim.outputs.claimed == 'true' }}
         env:
-          BASE_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ inputs.head_sha }}
         run: |
           commits=$(git rev-list --count "$BASE_SHA..HEAD")
           echo "commits=$commits" >> "$GITHUB_OUTPUT"
@@ -143,6 +157,7 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           ISSUE: ${{ inputs.issue }}
           AGENT_OUTCOME: ${{ steps.agent.outcome }}
+          # This run, whose log holds the agent's session.
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           evidence="$RUNNER_TEMP/nightly-fix/evidence.md"
@@ -163,8 +178,11 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # The bundle builds on the night's commit, which a fetch of it needs.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.head_sha }}
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -182,7 +200,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue }}
-          BASE_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ inputs.head_sha }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/nightly-fix"

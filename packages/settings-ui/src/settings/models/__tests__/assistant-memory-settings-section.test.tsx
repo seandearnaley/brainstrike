@@ -8,7 +8,8 @@ import {
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
-import { render, screen, within } from '@testing-library/react';
+import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -588,6 +589,174 @@ describe('AssistantMemorySettingsSection', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(
         'Configured observational memory model local/onnx-community/gemma-4 is not available'
       );
+    });
+  });
+
+  // BST-2227: the host embeds one test text with the selected hosted embedder.
+  describe('Test embedder', () => {
+    const PASSED = { dimensions: 1536, latencyMs: 212, modelId: 'openai::text-embedding-3-small' };
+
+    function renderWithTest(
+      testEmbedder: NonNullable<AssistantMemorySettingsSectionProps['testEmbedder']>
+    ) {
+      return render(
+        <AssistantMemorySettingsSection
+          assistantMemoryBackendAvailable={true}
+          providerKeySources={hostedProviderKeySources}
+          testEmbedder={testEmbedder}
+        />
+      );
+    }
+
+    it('tests the selected hosted embedder with the saved settings and shows its result', async () => {
+      const user = userEvent.setup();
+      const testEmbedder = vi.fn(async () => PASSED);
+      renderWithTest(testEmbedder);
+
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+
+      expect(await screen.findByTestId('assistant-memory-embedder-test-result')).toHaveTextContent(
+        'openai::text-embedding-3-small embedded the test text in 212 ms: 1536 dimensions.'
+      );
+      expect(testEmbedder).toHaveBeenCalledWith(
+        useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings()
+      );
+    });
+
+    it('shows the embedder’s typed failure: its message, provider evidence, remedy and reference', async () => {
+      const user = userEvent.setup();
+      renderWithTest(async () => {
+        throw new BoundaryFailureError(
+          fault({
+            category: 'authorization',
+            code: 'memory.embedder-failed',
+            correlationId: '6f1c2a34-7d2b-4c1e-9a55-0b1d2c3e4f50',
+            message:
+              'Memory embedder test failed because its embedding model (OpenAI text-embedding-3-small) failed: Embedding provider openai refused the request (HTTP 401).',
+            providerEvidence: 'OpenAI returned HTTP 401.',
+            remedy: 'Check the OpenAI API key in Settings → Providers.',
+          })
+        );
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+
+      const failure = await screen.findByTestId('assistant-memory-embedder-test-failure');
+      expect(failure).toHaveAttribute('role', 'alert');
+      expect(failure).toHaveTextContent(
+        'Memory embedder test failed because its embedding model (OpenAI text-embedding-3-small) failed: Embedding provider openai refused the request (HTTP 401).OpenAI returned HTTP 401.Check the OpenAI API key in Settings → Providers.Reference: 6f1c2a34-7d2b-4c1e-9a55-0b1d2c3e4f50'
+      );
+    });
+
+    it('shows an untyped failure as the generic fault, never its raw text', async () => {
+      const user = userEvent.setup();
+      renderWithTest(async () => {
+        throw new Error('raw transport detail');
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+
+      expect(await screen.findByTestId('assistant-memory-embedder-test-failure')).toHaveTextContent(
+        'Something went wrong. The details were recorded in the diagnostic log.'
+      );
+      expect(screen.queryByText(/raw transport detail/)).toBeNull();
+    });
+
+    it('hides a result once another embedder is selected', async () => {
+      const user = userEvent.setup();
+      renderWithTest(async () => PASSED);
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+      await screen.findByTestId('assistant-memory-embedder-test-result');
+
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: /semantic recall embedding model/i }),
+        'local/Xenova/all-MiniLM-L6-v2'
+      );
+
+      expect(screen.queryByTestId('assistant-memory-embedder-test-result')).toBeNull();
+    });
+
+    it('never lets a slower answer for an earlier embedder replace a newer result', async () => {
+      const user = userEvent.setup();
+      useModelRegistryStore.setState((state) => ({
+        models: [
+          ...state.models,
+          {
+            bestFor: null,
+            capabilities: { defaultDimension: 3072, type: 'embedding' },
+            description: null,
+            icon: null,
+            id: 'gemini-embedding-2',
+            isEnabled: true,
+            name: 'Gemini Embedding 2',
+            parameters: null,
+            providerId: 'google',
+            sortOrder: 3,
+            tagline: null,
+          },
+        ],
+        providers: [
+          ...state.providers,
+          { icon: null, id: 'google', isEnabled: true, name: 'Google', sortOrder: 6 },
+        ],
+      }));
+      const earlier = Promise.withResolvers<typeof PASSED>();
+      const testEmbedder = vi
+        .fn<NonNullable<AssistantMemorySettingsSectionProps['testEmbedder']>>()
+        .mockImplementationOnce(() => earlier.promise)
+        .mockResolvedValueOnce({
+          dimensions: 3072,
+          latencyMs: 90,
+          modelId: 'google::gemini-embedding-2',
+        });
+      render(
+        <AssistantMemorySettingsSection
+          assistantMemoryBackendAvailable={true}
+          providerKeySources={[
+            ...hostedProviderKeySources,
+            { provider: 'google', source: 'stored' },
+          ]}
+          testEmbedder={testEmbedder}
+        />
+      );
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: /semantic recall embedding model/i }),
+        'google/gemini-embedding-2'
+      );
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+      const result = await screen.findByTestId('assistant-memory-embedder-test-result');
+      expect(result).toHaveTextContent('google::gemini-embedding-2');
+
+      // The earlier embedder answers last; React applies whatever it settles.
+      await act(async () => {
+        earlier.resolve(PASSED);
+        await earlier.promise;
+      });
+
+      expect(screen.getByTestId('assistant-memory-embedder-test-result')).toHaveTextContent(
+        'google::gemini-embedding-2 embedded the test text in 90 ms: 3072 dimensions.'
+      );
+    });
+
+    it('offers no test for an on-device embedder and says why', () => {
+      useAssistantMemoryPreferencesStore
+        .getState()
+        .setSemanticRecallEmbeddingModelTarget('local/Xenova/all-MiniLM-L6-v2');
+      renderWithTest(vi.fn());
+
+      expect(screen.getByRole('button', { name: 'Test embedder' })).toBeDisabled();
+      expect(
+        screen.getByText(
+          'Select a hosted embedding model to test it. On-device models are checked when recall first uses them.'
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('is absent where the host has no embedder test', () => {
+      renderMemorySettings();
+
+      expect(screen.queryByRole('button', { name: 'Test embedder' })).toBeNull();
     });
   });
 });
