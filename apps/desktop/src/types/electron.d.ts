@@ -203,8 +203,7 @@ declare global {
      * capability-check `window.platform`.
      *
      * ⚠️ MUST stay in sync with `PlatformBridge` in
-     * `packages/app-shell/src/platform-bridge.ts` (the ambient module shims in
-     * `app-shell-shims.d.ts` keep this file from importing the type directly).
+     * `packages/app-shell/src/platform-bridge.ts`.
      * `resolvePlatformBridge()` rejects a bridge missing any method, so a
      * method declared here but absent from the preload — or vice versa —
      * disables shell actions AND markdown preview at runtime.

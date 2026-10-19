@@ -33,6 +33,11 @@ export interface SnapshotStartupGcDeps {
     handle: ShadowRepoHandle,
     threadId: string
   ) => Promise<readonly SnapshotChainEntry[]>;
+  /**
+   * Ends the pass between roots (BST-1859): a root's reconciliation runs whole, and
+   * the roots after it wait for the next launch's pass.
+   */
+  readonly signal?: AbortSignal | undefined;
   readonly snapshotService: SnapshotService;
   /** Ring override for tests; production uses the default. */
   readonly turnRing?: number | undefined;
@@ -60,6 +65,8 @@ export interface SnapshotStartupGcReport {
     readonly path: string;
     readonly rootId: string;
   }[];
+  /** True when `signal` ended the pass before every live root was reconciled. */
+  readonly stopped: boolean;
 }
 
 interface GcAccumulator {
@@ -290,7 +297,12 @@ export async function runSnapshotStartupGc(
     }
     return read;
   }
+  let stopped = false;
   for (const root of deps.liveRoots) {
+    if (deps.signal?.aborted) {
+      stopped = true;
+      break;
+    }
     await reconcileRootRepo(
       deps,
       accumulator,
@@ -311,5 +323,6 @@ export async function runSnapshotStartupGc(
     refOnlyPruned: accumulator.refOnlyPruned,
     ringTrimmed: accumulator.ringTrimmed,
     skippedInaccessibleRoots: accumulator.skippedInaccessibleRoots,
+    stopped,
   };
 }

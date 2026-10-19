@@ -166,11 +166,9 @@ export default defineConfig({
   plugins: [
     rendererIsolationPlugin(),
     // ONNX Runtime's WASM, emitted from the onnxruntime-web Transformers.js itself depends
-    // on, for both realms that run it: the embedding worker and the local-model host
-    // (BST-2003).
+    // on, for the one realm that runs it: the embedding worker (BST-2003, BST-2231).
     transformersOnnxRuntimeWasmUrlsPlugin([
       path.resolve(__dirname, '../../packages/embedding-worker'),
-      path.resolve(__dirname, '../../packages/agent'),
     ]),
     // __BRAINSTRIKE_BUILD_ID__: the packaged app is one build per version.
     buildIdPlugin([
