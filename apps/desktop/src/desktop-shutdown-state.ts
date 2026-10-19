@@ -2,6 +2,7 @@ import { isConnectionLoss } from '@brainstrike/agent-host/boundary-wire';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { IndexerError } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
+import { SqliteQueryProcessExitedError } from '@brainstrike/sqlite-query';
 
 /**
  * Process-wide "is the desktop app shutting down" flag.
@@ -49,15 +50,18 @@ export function isHostLeaseClosed(error: unknown): boolean {
 
 /**
  * Work refused because its owner retired: a closed native index, a host
- * connection that closed or was lost, an indexer process that exited under the
- * call, a closed host lease owner, or a reset reopen cancelled by quit.
+ * connection that closed or was lost, an indexer or SQLite query process that
+ * exited under the call, a closed host lease owner, or a reset reopen cancelled
+ * by quit.
  */
 export function isRetirementRefusal(error: unknown): boolean {
   return (
     (error instanceof NativeIndexRefusalError && error.refusal.kind === 'closed') ||
     isConnectionLoss(error) ||
-    // BST-2192: a signal to Main's process group ends the indexer under in-flight calls.
+    // BST-2192: a signal to Main's process group ends the indexer and the SQLite query
+    // process under in-flight calls.
     (error instanceof IndexerError && error.code === 'indexer-exited') ||
+    error instanceof SqliteQueryProcessExitedError ||
     isHostLeaseClosed(error) ||
     (error instanceof BoundaryFailureError &&
       error.failure.kind === 'refusal' &&

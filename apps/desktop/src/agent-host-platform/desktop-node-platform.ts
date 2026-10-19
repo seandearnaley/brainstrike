@@ -52,6 +52,7 @@ import {
   desktopMemoryModels,
 } from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
+import { resolveDesktopMemoryEmbedderProbe } from './memory-vector-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
@@ -296,8 +297,9 @@ export async function createDesktopHostConfiguration(
   }
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
+  const admissionReads = mainAdmissionReads(request);
   const runAdmission = createDesktopRunAdmission(
-    mainAdmissionReads(request),
+    admissionReads,
     async () => {
       const saved = await readHostPermissionPolicy(startup.store);
       return saved ? hostPermissionGate(saved) : undefined;
@@ -466,6 +468,14 @@ export async function createDesktopHostConfiguration(
     },
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),
+    // BST-2227: Settings' Test embedder, resolved as a run's admission resolves its embedder.
+    resolveMemoryEmbedder: ({ memorySettings, origin, signal }) =>
+      resolveDesktopMemoryEmbedderProbe(
+        memorySettings,
+        admissionReads.memoryVectors,
+        (provider) => host.auth.resolveProviderAuth(provider, origin),
+        signal
+      ),
     resolveProviderAuth: async () => {
       throw refusalError(
         'authorization',

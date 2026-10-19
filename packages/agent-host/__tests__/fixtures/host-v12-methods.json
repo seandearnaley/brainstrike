@@ -52,6 +52,7 @@
     "mcp/tools/server/set",
     "mcp/tools/set",
     "mcp/tools/stats",
+    "memory/embedder/probe",
     "permissions/origins/read",
     "permissions/origins/remove",
     "permissions/policy/read",

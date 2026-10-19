@@ -4,6 +4,7 @@ export {
   SqliteQueryClient,
   SqliteQueryDeadlineError,
   SqliteQueryInputError,
+  SqliteQueryProcessExitedError,
   SqliteQueryStartupCleanupError,
 } from './client.js';
 export {
