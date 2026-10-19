@@ -8,13 +8,14 @@ on:
   # night, with `merge-queue: false`, beside the other required nightlies.
   workflow_dispatch:
   # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
-  # on each merge group, so the queue's fast tier is these jobs, not a copy.
-  # With `merge-queue: true`, Native Windows, Native Electron and Browser tests
-  # skip, and the smoke E2E lanes also run on a manual dispatch. Notify Linear
-  # stays schedule-only. Nightly and manual runs carry no `merge-queue` input,
-  # so every condition on it reads false for them and they are unchanged.
-  # Inside a called run, `github.workflow` and `github.event_name` are the
-  # caller's, which keeps its concurrency group apart from this workflow's.
+  # on each Mergify merge-queue batch, so the queue's fast tier is these jobs,
+  # not a copy. With `merge-queue: true`, Native Windows, Native Electron and
+  # Browser tests skip, and the smoke E2E lanes also run on a manual dispatch.
+  # Notify Linear stays schedule-only. Nightly runs pass `merge-queue: false`
+  # and manual runs carry no input, so every condition on it reads false for
+  # them and they are unchanged. Inside a called run, `github.workflow` and
+  # `github.event_name` are the caller's: a batch is the caller's push of a
+  # queue branch, which keeps its concurrency group apart from this workflow's.
   # scripts/__tests__/merge-queue-contract.test.mjs pins the call.
   workflow_call:
     inputs:
@@ -149,6 +150,7 @@ jobs:
   static:
     name: Static
     outputs:
+      affected-base: ${{ steps.affected-base.outputs.sha }}
       unit-matrix: ${{ steps.unit-shards.outputs.matrix }}
       unit-shard-count: ${{ steps.unit-shards.outputs.count }}
     if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
@@ -198,9 +200,22 @@ jobs:
         with:
           turbo-cache: 'true'
 
+      # BST-2188: a merge-queue batch is a branch Mergify builds on main's tip,
+      # one merge per queued PR on top, and pushes. With one batch under test
+      # at a time (.mergify.yml), that main commit is the merge base of the
+      # batch and main, even if main moves while the batch runs. Unit selection
+      # and both affected Unit phases diff the batch against it.
+      - name: Resolve the batch base
+        id: affected-base
+        if: inputs.merge-queue && github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          base="$(git merge-base HEAD refs/remotes/origin/main)"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
       # Preview exactly the Unit task/filter selection before allocating any
       # shard runner. Reuse Static's installation; no additional runner or
-      # package/command registry. Push and manual runs retain every row.
+      # package/command registry. Nightly and manual runs retain every row.
       - name: Select affected Unit shards
         id: unit-shards
         env:
@@ -272,9 +287,9 @@ jobs:
                 }
               ]
             }
-          EVENT_NAME: ${{ github.event_name }}
-          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          TURBO_SCM_HEAD: ${{ github.event.merge_group.head_sha || github.sha }}
+          UNIT_SELECTION: ${{ inputs.merge-queue && github.event_name == 'push' && 'affected' || 'complete' }}
+          TURBO_SCM_BASE: ${{ steps.affected-base.outputs.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
@@ -415,11 +430,12 @@ jobs:
       # against stale dist. The Build job below still exercises the full build.
 
       # Native task-aware affected selection intersects each package partition
-      # with the exact base/checkout pair. Explicit SCM refs avoid Turbo's
-      # inferred main~1 range, including on stacked PRs and merge commits.
+      # with the exact base/checkout pair: for a merge-queue batch (BST-2188),
+      # the main commit Static resolved and the batch commit Mergify pushed.
+      # Explicit SCM refs avoid Turbo's inferred main~1 range.
       # Cross-package inputs select their actual readers without making every
       # document a global cache dependency.
-      # Push/manual and local checks continue to execute the complete suite.
+      # Nightly/manual runs and local checks execute the complete suite.
       #
       # TURBO_TEST_MODE=unit and TEST_TIMEOUT_MULTIPLIER=2 are set EXPLICITLY
       # here so the `test` task cache key (both are in turbo.jsonc `test.env`)
@@ -461,10 +477,10 @@ jobs:
       # cache key), so PR and push runs still share cache entries — and now
       # also genuinely run the same uninstrumented workload.
       - name: Affected unit tests
-        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        if: inputs.merge-queue && github.event_name == 'push'
         env:
-          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          TURBO_SCM_HEAD: ${{ github.event.merge_group.head_sha || github.sha }}
+          TURBO_SCM_BASE: ${{ needs.static.outputs.affected-base }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
@@ -476,10 +492,10 @@ jobs:
         run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
 
       - name: Affected integration tests
-        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        if: inputs.merge-queue && github.event_name == 'push'
         env:
-          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          TURBO_SCM_HEAD: ${{ github.event.merge_group.head_sha || github.sha }}
+          TURBO_SCM_BASE: ${{ needs.static.outputs.affected-base }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
           # The desktop test host above installed bubblewrap/socat/ripgrep, so
           # the real-fence suites must RUN here. Set, a missing dependency is a
           # lane defect that fails collection instead of a host quirk the
@@ -502,7 +518,8 @@ jobs:
         # a filter list.
         run: xvfb-run --auto-servernum node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
-      # Push (main) + workflow_dispatch: full non-affected suite routed through
+      # Every run but a merge-queue batch (nightly and manual; the names predate
+      # the retired push-to-main runs): full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
       # workflow `env:` block) covers these runs too, and so push and PR runs
       # share cache entries. TURBO_TEST_MODE=unit (below) keeps the `test` task
@@ -521,7 +538,7 @@ jobs:
       # `test:models` via vitest.models.config.mts) — not by this package
       # filter — so dropping the filter cannot pull model downloads into CI.
       - name: Push and manual unit tests
-        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
+        if: github.event_name != 'push' || !inputs.merge-queue
         env:
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
@@ -534,7 +551,7 @@ jobs:
         run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
-        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
+        if: github.event_name != 'push' || !inputs.merge-queue
         env:
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
