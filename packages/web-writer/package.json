@@ -26,7 +26,6 @@
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@sqlite.org/sqlite-wasm": "catalog:",
-    "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",

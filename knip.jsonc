@@ -257,6 +257,13 @@
         "src/__tests__/fixtures/build-*.mjs"
       ]
     },
+    "packages/web-writer": {
+      // vitest.config.mts's worker-realm plugin prepends an import of this file,
+      // by resolved path, to every worker module under test.
+      "entry": ["src/__tests__/fixtures/vitest-worker-realm.ts"],
+      // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
+      "ignoreDependencies": ["@brainstrike/config"]
+    },
     "packages/agent-evals": {
       // The eval corpus, not package source. src/task.ts loads tasks/<id>/ as
       // data and src/sandbox.ts copies repo/ into a sandbox workspace, then
