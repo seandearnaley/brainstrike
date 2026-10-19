@@ -85,6 +85,39 @@ function freshDirectory() {
   inspectAcl(path, 'user-owner');
   return path;
 }
+/**
+ * The privileges enabled in this process's token, as whoami reads them from the
+ * copy of that token a child process inherits.
+ */
+function enabledPrivileges() {
+  const output = execFileSync('whoami', ['/priv', '/fo', 'csv', '/nh'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const enabled = new Set();
+  for (const row of output.split(/\r?\n/).filter(Boolean)) {
+    const match = /^"([^"]+)","[^"]*","([^"]+)"$/.exec(row);
+    if (!(match && ['Enabled', 'Disabled'].includes(match[2]))) {
+      throw new Error(`Unrecognized whoami /priv row: ${row}`);
+    }
+    if (match[2] === 'Enabled') {
+      enabled.add(match[1]);
+    }
+  }
+  return enabled;
+}
+const elevated = windows && inspectAcl(tmpdir()).elevated === true;
+// Writing the owner needs WRITE_OWNER. Owning the directory implies only
+// READ_CONTROL and WRITE_DAC, and Administrators membership grants nothing a
+// DACL naming only the user does not. An enabled SeTakeOwnershipPrivilege grants
+// WRITE_OWNER, and so does an enabled SeRestorePrivilege on this
+// FILE_FLAG_BACKUP_SEMANTICS open. Most privileges are disabled by default, so
+// this reads the token rather than inferring them from elevation.
+const writeOwnerPrivileges = windows
+  ? [...enabledPrivileges()].filter(
+      (name) => name === 'SeTakeOwnershipPrivilege' || name === 'SeRestorePrivilege'
+    )
+  : [];
 function assertPrivate(path) {
   const actual = inspectAcl(path);
   assert.deepEqual(actual, {
@@ -161,16 +194,27 @@ for (const mutation of ['everyone-read', 'users-read', 'wrong-inheritance', 'unp
   });
 }
 
-test('verify reports insufficient-rights, and apply cannot take back WRITE_OWNER', {
+test('verify reports insufficient-rights, and apply repairs it only with WRITE_OWNER', {
   skip: WINDOWS_ONLY,
-}, () => {
-  // An owner keeps READ_CONTROL and WRITE_DAC implicitly, never WRITE_OWNER;
-  // setting the owner needs it, as the PowerShell set's write did.
+}, (t) => {
+  t.diagnostic(
+    `elevated: ${elevated}; enabled WRITE_OWNER privileges: ${writeOwnerPrivileges.join(', ') || 'none'}`
+  );
   const path = freshDirectory();
   applyPrivateDirectorySync(path);
   const mutated = inspectAcl(path, 'insufficient-rights');
   assert.deepEqual(verifyPrivateDirectorySync(path), { status: 'acl-mismatch' });
-  assert.throws(() => applyPrivateDirectorySync(path), { code: 'EACCES' });
+  assert.deepEqual(inspectAcl(path), mutated);
+  if (writeOwnerPrivileges.length > 0) {
+    applyPrivateDirectorySync(path);
+    assertPrivate(path);
+    return;
+  }
+  assert.throws(
+    () => applyPrivateDirectorySync(path),
+    { code: 'EACCES' },
+    `With no enabled ownership privilege (elevated: ${elevated}), the user lacks WRITE_OWNER`
+  );
   assert.deepEqual(inspectAcl(path), mutated);
 });
 
@@ -181,7 +225,6 @@ test('verify reports another owner', { skip: WINDOWS_ONLY }, () => {
   assert.deepEqual(verifyPrivateDirectorySync(systemRoot), { status: 'foreign-owner' });
 });
 
-const elevated = windows && inspectAcl(tmpdir()).elevated === true;
 test('apply refuses another owner and changes nothing', {
   skip:
     WINDOWS_ONLY ||
@@ -189,6 +232,8 @@ test('apply refuses another owner and changes nothing', {
       ? false
       : 'needs an elevated token, the only one that may assign Administrators as owner'),
 }, () => {
+  // The owner check runs before any write, so it refuses even a token whose
+  // enabled SeRestorePrivilege would let it assign any owner.
   const path = freshDirectory();
   const before = inspectAcl(path, 'administrators-owner');
   assert.throws(() => applyPrivateDirectorySync(path), {
