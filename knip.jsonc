@@ -102,7 +102,18 @@
         "!src/csp-utils.ts!",
         "!src/server/assistant-api-middleware.ts!",
         "!src/server/web-assistant-local-boundary.ts!",
-        "!src/assistant-stream-helpers.ts!"
+        "!src/assistant-stream-helpers.ts!",
+        // STAGED HOSTED WEB MODULES, kept on purpose (owner decision, 19 Oct;
+        // production mode only). #3754 is "step 5B" of web chat on the shared
+        // log (BST-1940): its thread host is not mounted until the browser
+        // writer ships with sqlite-wasm 3.54, so nothing in production constructs
+        // these four files yet. The other two are the browser writer workers
+        // (packages/web-state-store and packages/web-writer blocks). knip 6.41
+        // ignores the `!` suffix on `ignoreFiles` (measured: all four were still
+        // reported), so each workspace negates its files from the production
+        // project, the mechanism the production-mode docs give.
+        "!src/web-thread-host.ts!",
+        "!src/web-host-thread.tsx!"
       ],
       "ignore": [
         // Keep specific ignores relevant to this app
@@ -117,6 +128,11 @@
       // (vercel.json). The suffix `!` limits this to production mode.
       "ignoreBinaries": ["vite!"],
       "ignoreDependencies": [
+        // Production mode only (`!`): imported only by the staged Hosted Web
+        // modules (STAGED HOSTED WEB MODULES below), web-thread-host.ts and
+        // web-host-thread.tsx.
+        "@brainstrike/host-conversation!",
+        "@brainstrike/web-writer!",
         // Imported by src/app/globals.css via @import; CSS imports are not followed
         // by this workspace's TS/TSX project glob (knip 6.32.2).
         "@brainstrike/mcp-app-host-ui",
@@ -331,7 +347,12 @@
       "ignoreDependencies": ["@brainstrike/config"]
     },
     "packages/web-state-store": {
-      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
+      "project": [
+        "**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!",
+        "!**/__tests__/**!",
+        // Staged Hosted Web module; see STAGED HOSTED WEB MODULES in apps/web.
+        "!src/web-state-worker.ts!"
+      ],
       // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
       "ignoreDependencies": ["@brainstrike/config"]
     },
@@ -360,7 +381,12 @@
       ]
     },
     "packages/web-writer": {
-      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
+      "project": [
+        "**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!",
+        "!**/__tests__/**!",
+        // Staged Hosted Web module; see STAGED HOSTED WEB MODULES in apps/web.
+        "!src/web-writer-worker.ts!"
+      ],
       // vitest.config.mts's worker-realm plugin prepends an import of this file,
       // by resolved path, to every worker module under test.
       "entry": ["src/__tests__/fixtures/vitest-worker-realm.ts"],
