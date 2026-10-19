@@ -1,0 +1,33 @@
+# Mergify's merge queue lands every pull request on main (BST-2188, owner
+# decision 2026-10-19). Enqueue a PR by commenting `@mergifyio queue` on it.
+#
+# Mergify builds each batch on main, pushes it to a branch under
+# queue_branch_prefix and opens a draft PR for it. That push runs
+# .github/workflows/merge-queue.yml, and the batch's PRs are squashed onto main
+# only when its Merge Queue Gate succeeded. The ruleset on main requires the
+# same gate and lets only Mergify bypass it, so nothing lands any other way.
+# scripts/__tests__/merge-queue-contract.test.mjs pins every key here.
+
+merge_queue:
+  # One batch under test at a time. Each batch is then built on main itself,
+  # the base its affected Unit selection diffs from, and a red batch costs one
+  # run, not a stack of speculative ones.
+  max_parallel_checks: 1
+
+queue_rules:
+  - name: default
+    queue_conditions:
+      - base = main
+    merge_conditions:
+      - check-success = @github-actions/Merge Queue Gate
+    # The ruleset's required Merge Queue Gate never reports on a PR head, so
+    # Mergify must judge it on the batch only, not at queue entry.
+    branch_protection_injection_mode: merge
+    batch_size: 5
+    merge_method: squash
+    # merge-queue.yml triggers on pushes under this prefix.
+    queue_branch_prefix: mergify/merge-queue/
+    # Above the slowest full-tier run measured for BST-2188 (47.6 min), and
+    # equal to the longest chain of job timeouts ahead of the gate: admission
+    # 5, Static 20, a Unit shard 30 and Unit 5 minutes.
+    checks_timeout: 60 min

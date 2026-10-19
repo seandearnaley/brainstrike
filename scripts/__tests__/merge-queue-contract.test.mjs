@@ -1,22 +1,26 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 /**
- * BST-2188: nothing lands on main untested. GitHub's merge queue runs
- * merge-queue.yml on each merge group. That workflow calls test.yml with
- * `merge-queue: true`, so the fast tier is the nightly's own Static, Unit,
- * Build and smoke E2E jobs, not a copy of them. Its one gate job is the check
- * the ruleset requires.
+ * BST-2188 (owner decision 2026-10-19): Mergify's merge queue lands every pull
+ * request on main. Mergify tests each batch on a branch it pushes under the
+ * queue_branch_prefix in .mergify.yml, and merge-queue.yml runs on exactly
+ * those pushes. It calls test.yml with `merge-queue: true`, so the fast tier is
+ * the nightly's own Static, Unit, Build and smoke E2E jobs, not a copy of them.
+ * Its one gate job is the merge condition in .mergify.yml and the check the
+ * ruleset on main requires.
  *
- * GitHub requires that check to pass on a PR before the PR may enter the queue,
- * so the workflow also triggers on pull_request, skip-only (owner decision
- * 2026-10-19): every job skips on that event, which GitHub reports to required
- * checks as success, and no runner starts. It never triggers on push.
+ * No pull request starts merge-queue.yml. GitHub reports a job skipped by its
+ * condition as success to required checks, so a skip-only pull_request trigger
+ * would satisfy the gate on every PR head; a workflow its branch filter never
+ * starts leaves the check pending, and only Mergify, which bypasses the
+ * ruleset, can merge.
  *
  * Each check is a function over source text, so the CONTROL tests can mutate
  * the real files and watch the check fail.
@@ -25,6 +29,7 @@ import { parse as parseYaml } from 'yaml';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const workflowsDir = path.join(repoRoot, '.github', 'workflows');
 const readWorkflow = (file) => readFileSync(path.join(workflowsDir, file), 'utf8');
+const readMergify = () => readFileSync(path.join(repoRoot, '.mergify.yml'), 'utf8');
 const MERGE_QUEUE = 'merge-queue.yml';
 const NIGHTLY = 'test.yml';
 
@@ -33,14 +38,21 @@ const GATE = 'merge-queue-gate';
 const GATE_NAME = 'Merge Queue Gate';
 const JUDGE_STEP = 'Judge every job';
 const FORK_GUARD = "github.repository == 'seandearnaley/brainstrike'";
-const SKIPS_PULL_REQUEST = "github.event_name != 'pull_request'";
+// Deleting a branch fires push too, with the SHA reverted to the default
+// branch; Mergify deletes each queue branch once its batch is done.
+const SKIPS_DELETION = '!github.event.deleted';
 const SCHEDULE_ONLY = "github.event_name == 'schedule'";
 const OUTSIDE_THE_QUEUE = '!inputs.merge-queue';
+const QUEUE_PREFIX = 'mergify/merge-queue/';
+const QUEUE_BATCH = "inputs.merge-queue && github.event_name == 'push'";
+const COMPLETE_RUN = "github.event_name != 'push' || !inputs.merge-queue";
+const BATCH_BASE = 'affected-base';
 const actions = (body) => `${'$'}{{ ${body} }}`;
-const AFFECTED_BASE = actions(
-  'github.event.pull_request.base.sha || github.event.merge_group.base_sha'
-);
-const AFFECTED_HEAD = actions('github.event.merge_group.head_sha || github.sha');
+const UNIT_SELECTION = actions(`${QUEUE_BATCH} && 'affected' || 'complete'`);
+const STATIC_BASE = actions(`steps.${BATCH_BASE}.outputs.sha`);
+const SHARD_BASE = actions(`needs.static.outputs.${BATCH_BASE}`);
+const BATCH_HEAD = actions('github.sha');
+const GATE_CONDITION = `check-success = @github-actions/${GATE_NAME}`;
 
 const normalize = (text) =>
   String(text ?? '')
@@ -81,26 +93,73 @@ const envName = (jobId) => jobId.toUpperCase().replaceAll('-', '_');
 
 function assertTriggers(source) {
   const { on, jobs } = parseYaml(source);
-  const triggers = Object.keys(on).sort();
   assert.deepEqual(
-    triggers.filter((name) => name !== 'pull_request'),
-    ['merge_group', 'workflow_dispatch'],
-    'merge-queue.yml must run on merge groups and manual dispatch, never on push or a schedule'
+    Object.keys(on).sort(),
+    ['push', 'workflow_dispatch'],
+    'merge-queue.yml must run on Mergify queue branches and manual dispatch, never on pull_request, merge_group or a schedule'
   );
   assert.deepEqual(
-    on.merge_group,
-    { branches: ['main'], types: ['checks_requested'] },
-    'merge-queue.yml must run on every merge group for main'
+    on.push,
+    { branches: [`${QUEUE_PREFIX}**`] },
+    'merge-queue.yml may run on push only for the branches Mergify pushes its batches to'
   );
-  if (!triggers.includes('pull_request')) {
-    return;
-  }
   for (const [id, job] of Object.entries(jobs)) {
     assert.ok(
-      conjuncts(job.if)?.includes(SKIPS_PULL_REQUEST),
-      `merge-queue.yml › ${id} must skip on pull_request: its if: needs a top-level "&& ${SKIPS_PULL_REQUEST}" and no "||"`
+      conjuncts(job.if)?.includes(SKIPS_DELETION),
+      `merge-queue.yml › ${id} must skip a queue branch's deletion: its if: needs a top-level "&& ${SKIPS_DELETION}" and no "||"`
     );
   }
+}
+
+/** The queue lands only through this gate, on the branches the workflow runs on. */
+function assertMergify(mergifySource) {
+  const config = parseYaml(mergifySource);
+  assert.deepEqual(
+    Object.keys(config).sort(),
+    ['merge_queue', 'queue_rules'],
+    'Mergify bypasses the ruleset, so it may merge only through this queue: no pull_request_rules merge, no auto-merge'
+  );
+  assert.deepEqual(
+    config.merge_queue,
+    { max_parallel_checks: 1 },
+    'one batch under test at a time, so each batch is built on main itself'
+  );
+  assert.equal(config.queue_rules.length, 1, '.mergify.yml must define one queue');
+  const [rule] = config.queue_rules;
+  assert.deepEqual(
+    Object.keys(rule).sort(),
+    [
+      'batch_size',
+      'branch_protection_injection_mode',
+      'checks_timeout',
+      'merge_conditions',
+      'merge_method',
+      'name',
+      'queue_branch_prefix',
+      'queue_conditions',
+    ],
+    'every queue option is pinned here'
+  );
+  assert.deepEqual(
+    rule.merge_conditions,
+    [GATE_CONDITION],
+    `a batch may merge only when GitHub Actions reported ${GATE_NAME} success on it`
+  );
+  assert.equal(
+    rule.queue_branch_prefix,
+    QUEUE_PREFIX,
+    'merge-queue.yml runs on pushes under this prefix'
+  );
+  assert.deepEqual(rule.queue_conditions, ['base = main'], 'the queue lands on main only');
+  assert.equal(
+    rule.branch_protection_injection_mode,
+    'merge',
+    'the required gate never reports on a PR head, so it must gate the merge, not queue entry'
+  );
+  assert.equal(rule.merge_method, 'squash', 'squash keeps main linear');
+  assert.equal(rule.batch_size, 5);
+  assert.equal(rule.checks_timeout, '60 min');
+  assert.equal(rule.name, 'default');
 }
 
 /** The fast tier is test.yml itself, with only the secret it needs. */
@@ -162,7 +221,7 @@ function assertSecrets(mergeQueueSource, nightlySource) {
   }
 }
 
-/** A red merge group never files to Linear: filing is schedule-only and the queue has no schedule. */
+/** A red batch never files to Linear: filing is schedule-only and the queue has no schedule. */
 function assertNoLinearFromTheQueue(mergeQueueSource, nightlySource) {
   assert.equal(
     parseYaml(mergeQueueSource).on.schedule,
@@ -187,7 +246,7 @@ function assertNoLinearFromTheQueue(mergeQueueSource, nightlySource) {
   }
 }
 
-/** A merge group neither cancels nor is cancelled by a nightly or manual Test run. */
+/** A batch neither cancels nor is cancelled by a nightly or manual Test run. */
 function assertConcurrency(mergeQueueSource, nightlySource) {
   const queue = parseYaml(mergeQueueSource);
   const nightly = parseYaml(nightlySource);
@@ -209,25 +268,93 @@ function assertConcurrency(mergeQueueSource, nightlySource) {
   );
 }
 
-/** Affected selection and the affected Unit phases run against the merge group's exact commits. */
+function batchBaseStep(nightlySource) {
+  const step = parseYaml(nightlySource).jobs.static.steps.find(({ id }) => id === BATCH_BASE);
+  assert.ok(step, `test.yml › static must have the "${BATCH_BASE}" step`);
+  return step;
+}
+
+/**
+ * A batch selects and runs affected Unit work against the main commit it was
+ * built on and the exact commit Mergify pushed; every other run is complete.
+ */
 function assertExactAffectedRange(nightlySource) {
-  const jobs = parseYaml(nightlySource).jobs;
-  const steps = [
-    jobs.static.steps.find(({ id }) => id === 'unit-shards'),
-    ...jobs['unit-shard'].steps.filter(({ run }) => / --affected /u.test(run ?? '')),
-  ];
-  assert.equal(steps.length, 3, 'expected the selection and two affected Unit phases');
-  for (const step of steps) {
-    assert.equal(step.env?.TURBO_SCM_BASE, AFFECTED_BASE, `${step.name} base`);
-    assert.equal(step.env?.TURBO_SCM_HEAD, AFFECTED_HEAD, `${step.name} head`);
+  const { jobs } = parseYaml(nightlySource);
+  const steps = jobs.static.steps;
+  const base = batchBaseStep(nightlySource);
+  const selection = steps.find(({ id }) => id === 'unit-shards');
+  assert.ok(
+    steps.indexOf(base) < steps.indexOf(selection),
+    'Static resolves the batch base before it selects Unit shards'
+  );
+  assert.equal(expression(base.if), QUEUE_BATCH, 'the base resolves exactly for a queue batch');
+  assert.equal(jobs.static.outputs?.[BATCH_BASE], STATIC_BASE, 'Static exports the batch base');
+  assert.equal(selection.env?.UNIT_SELECTION, UNIT_SELECTION, 'only a queue batch is affected');
+  assert.equal(selection.env?.TURBO_SCM_BASE, STATIC_BASE, 'selection base');
+  assert.equal(selection.env?.TURBO_SCM_HEAD, BATCH_HEAD, 'selection head');
+  const shardSteps = jobs['unit-shard'].steps;
+  const affected = shardSteps.filter(({ run }) => / --affected /u.test(run ?? ''));
+  const complete = shardSteps.filter(({ run }) => /matrix\.push_filters/u.test(run ?? ''));
+  assert.equal(affected.length, 2, 'expected the two affected Unit phases');
+  assert.equal(complete.length, 2, 'expected the two complete Unit phases');
+  for (const step of affected) {
+    assert.equal(expression(step.if), QUEUE_BATCH, `${step.name} must run exactly for a batch`);
+    assert.equal(step.env?.TURBO_SCM_BASE, SHARD_BASE, `${step.name} base`);
+    assert.equal(step.env?.TURBO_SCM_HEAD, BATCH_HEAD, `${step.name} head`);
   }
-  for (const step of steps.slice(1)) {
-    assert.equal(
-      expression(step.if),
-      "github.event_name == 'pull_request' || github.event_name == 'merge_group'",
-      `${step.name} must run for a merge group`
-    );
+  for (const step of complete) {
+    assert.equal(expression(step.if), COMPLETE_RUN, `${step.name} must run for every other run`);
   }
+}
+
+/** Runs the base step's script in a repository shaped like a Mergify queue branch. */
+function runBaseStep(nightlySource, t) {
+  const repo = mkdtempSync(path.join(tmpdir(), 'merge-queue-base-'));
+  t.after(() => rmSync(repo, { force: true, recursive: true }));
+  const git = (...args) =>
+    execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-C', repo, ...args], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: '2026-10-19T00:00:00Z',
+        GIT_AUTHOR_EMAIL: 'test@example.com',
+        GIT_AUTHOR_NAME: 'test',
+        GIT_COMMITTER_DATE: '2026-10-19T00:00:00Z',
+        GIT_COMMITTER_EMAIL: 'test@example.com',
+        GIT_COMMITTER_NAME: 'test',
+      },
+    }).trim();
+  const commit = (message) => {
+    writeFileSync(path.join(repo, 'file.txt'), `${message}\n`);
+    git('add', 'file.txt');
+    git('commit', '--quiet', '--no-gpg-sign', '-m', message);
+    return git('rev-parse', 'HEAD');
+  };
+  git('init', '--quiet', '--initial-branch=main');
+  const older = commit('older main');
+  // A queued pull request branched from an older main.
+  git('switch', '--quiet', '-c', 'feature');
+  writeFileSync(path.join(repo, 'feature.txt'), 'feature\n');
+  git('add', 'feature.txt');
+  git('commit', '--quiet', '--no-gpg-sign', '-m', 'feature');
+  git('switch', '--quiet', 'main');
+  const built = commit('main the batch is built on');
+  // Mergify's queue branch: main plus a merge of each queued pull request.
+  git('switch', '--quiet', '-c', 'mergify/merge-queue/0123456789');
+  git('merge', '--quiet', '--no-ff', '--no-gpg-sign', '-m', 'Merge of #1', 'feature');
+  // main moves on while the batch runs; the base must not follow it.
+  git('switch', '--quiet', 'main');
+  commit('main after the batch was built');
+  git('update-ref', 'refs/remotes/origin/main', 'main');
+  git('switch', '--quiet', '--detach', 'mergify/merge-queue/0123456789');
+  const output = path.join(repo, 'github-output');
+  writeFileSync(output, '');
+  const result = spawnSync('bash', ['-c', batchBaseStep(nightlySource).run], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { GITHUB_OUTPUT: output, PATH: process.env.PATH },
+  });
+  return { built, older, output: readFileSync(output, 'utf8'), result };
 }
 
 function judgeStep(source) {
@@ -242,11 +369,11 @@ function assertGate(mergeQueueSource, nightlySource) {
   const nightly = parseYaml(nightlySource);
   const gate = jobs[GATE];
   assert.ok(gate, `merge-queue.yml must define ${GATE}`);
-  assert.equal(gate.name, GATE_NAME, 'the ruleset requires the gate by this exact name');
+  assert.equal(gate.name, GATE_NAME, '.mergify.yml and the ruleset require the gate by this name');
   assert.equal(
     expression(gate.if),
-    `${FORK_GUARD} && ${SKIPS_PULL_REQUEST} && always()`,
-    'the gate must report on every merge group, even when a job fails'
+    `${FORK_GUARD} && ${SKIPS_DELETION} && always()`,
+    'the gate must report on every batch, even when a job fails'
   );
   assert.deepEqual([gate.needs ?? []].flat(), [CALL], 'the gate waits for the call');
 
@@ -307,8 +434,12 @@ function runJudge(source, overrides = {}) {
   });
 }
 
-test('the merge queue runs on merge groups and dispatch, and skips every job on pull_request', () => {
+test('the merge queue runs only on Mergify queue branches and dispatch, never for a pull request', () => {
   assertTriggers(readWorkflow(MERGE_QUEUE));
+});
+
+test('.mergify.yml lands each batch only on Merge Queue Gate success, squashed onto main', () => {
+  assertMergify(readMergify());
 });
 
 test('the fast tier is test.yml itself, passed only TURBO_TOKEN', () => {
@@ -316,16 +447,23 @@ test('the fast tier is test.yml itself, passed only TURBO_TOKEN', () => {
   assertSecrets(readWorkflow(MERGE_QUEUE), readWorkflow(NIGHTLY));
 });
 
-test('a merge group never files to Linear', () => {
+test('a queue batch never files to Linear', () => {
   assertNoLinearFromTheQueue(readWorkflow(MERGE_QUEUE), readWorkflow(NIGHTLY));
 });
 
-test('a merge group shares no concurrency group with a nightly or manual run', () => {
+test('a queue batch shares no concurrency group with a nightly or manual run', () => {
   assertConcurrency(readWorkflow(MERGE_QUEUE), readWorkflow(NIGHTLY));
 });
 
-test('affected Unit selection uses the merge group’s exact base and head', () => {
+test('affected Unit selection uses the batch’s main base and its exact head', () => {
   assertExactAffectedRange(readWorkflow(NIGHTLY));
+});
+
+test('the batch base is the main commit the batch was built on, even after main moves', (t) => {
+  const { built, older, output, result } = runBaseStep(readWorkflow(NIGHTLY), t);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.notEqual(built, older);
+  assert.equal(output, `sha=${built}\n`);
 });
 
 test('the gate judges the call and every job of test.yml', () => {
@@ -366,27 +504,54 @@ function mutate(source, from, to) {
   return mutated;
 }
 
-test('CONTROL: a push or schedule trigger, or a job that runs on pull_request, fails the trigger check', () => {
+test('CONTROL: a pull request, merge group or schedule trigger, a wider push or a deletion run fails the trigger check', () => {
   const source = readWorkflow(MERGE_QUEUE);
-  for (const trigger of ['push:\n    branches: [main]\n', "schedule:\n    - cron: '0 0 * * *'\n"]) {
+  for (const trigger of [
+    'pull_request:\n    branches: [main]\n',
+    'merge_group:\n    types: [checks_requested]\n',
+    "schedule:\n    - cron: '0 0 * * *'\n",
+  ]) {
     const mutated = mutate(source, '\non:\n', `\non:\n  ${trigger}`);
-    assert.throws(() => assertTriggers(mutated), /never on push or a schedule/u);
+    assert.throws(
+      () => assertTriggers(mutated),
+      /never on pull_request, merge_group or a schedule/u
+    );
   }
-  const unguardedCall = mutate(
+  for (const branches of ["['**']", '[main]', "['mergify/**']"]) {
+    const widened = mutate(source, `branches: ['${QUEUE_PREFIX}**']`, `branches: ${branches}`);
+    assert.throws(() => assertTriggers(widened), /only for the branches Mergify pushes/u);
+  }
+  const onDeletion = mutate(
     source,
-    `    if: ${FORK_GUARD} && ${SKIPS_PULL_REQUEST}\n    uses:`,
-    `    if: ${FORK_GUARD}\n    uses:`
+    `${FORK_GUARD} && ${SKIPS_DELETION}\n    uses:`,
+    `${FORK_GUARD}\n    uses:`
   );
-  assert.throws(() => assertTriggers(unguardedCall), /test must skip on pull_request/u);
-  const gateOnPullRequests = mutate(
+  assert.throws(() => assertTriggers(onDeletion), /test must skip a queue branch's deletion/u);
+});
+
+test('CONTROL: a missing or loosened merge condition, or another way to merge, fails the Mergify check', () => {
+  const source = readMergify();
+  const conditionLine = `      - ${GATE_CONDITION}\n`;
+  const missing = mutate(source, conditionLine, '');
+  assert.throws(() => assertMergify(missing), /only when GitHub Actions reported/u);
+  const anyApp = mutate(source, conditionLine, `      - check-success = ${GATE_NAME}\n`);
+  assert.throws(() => assertMergify(anyApp), /only when GitHub Actions reported/u);
+  const extra = mutate(source, conditionLine, `${conditionLine}      - label = urgent\n`);
+  assert.throws(() => assertMergify(extra), /only when GitHub Actions reported/u);
+  const autoMerge = `${source}\npull_request_rules:\n  - name: merge\n    conditions: []\n    actions:\n      merge:\n`;
+  assert.throws(() => assertMergify(autoMerge), /may merge only through this queue/u);
+  const elsewhere = mutate(
     source,
-    `${SKIPS_PULL_REQUEST} && always()`,
-    `(${SKIPS_PULL_REQUEST} || always())`
+    `queue_branch_prefix: ${QUEUE_PREFIX}`,
+    'queue_branch_prefix: mq/'
   );
-  assert.throws(
-    () => assertTriggers(gateOnPullRequests),
-    /merge-queue-gate must skip on pull_request/u
+  assert.throws(() => assertMergify(elsewhere), /runs on pushes under this prefix/u);
+  const queueEntry = mutate(
+    source,
+    'branch_protection_injection_mode: merge',
+    'branch_protection_injection_mode: queue'
   );
+  assert.throws(() => assertMergify(queueEntry), /gate the merge, not queue entry/u);
 });
 
 test('CONTROL: an inherited or extra secret, or an unskipped reader, fails the secrets check', () => {
@@ -416,7 +581,7 @@ test('CONTROL: a scheduled queue, a second caller or an unscheduled Linear job f
   );
 });
 
-test('CONTROL: a shared group or a wrong affected range fails its check', () => {
+test('CONTROL: a shared group, a wrong affected range or a moving base fails its check', (t) => {
   const source = readWorkflow(MERGE_QUEUE);
   const nightly = readWorkflow(NIGHTLY);
   const grouped = mutate(
@@ -427,8 +592,18 @@ test('CONTROL: a shared group or a wrong affected range fails its check', () => 
   assert.throws(() => assertConcurrency(grouped, nightly), /owns the run/u);
   const renamed = mutate(source, 'name: Merge Queue\n', 'name: Test\n');
   assert.throws(() => assertConcurrency(renamed, nightly), /distinct workflow names/u);
-  const headless = mutate(nightly, AFFECTED_HEAD, actions('github.sha'));
-  assert.throws(() => assertExactAffectedRange(headless), /head/u);
+  const complete = mutate(nightly, `${QUEUE_BATCH} && 'affected'`, `${QUEUE_BATCH} && 'complete'`);
+  assert.throws(() => assertExactAffectedRange(complete), /only a queue batch is affected/u);
+  const shardBase = mutate(nightly, `TURBO_SCM_BASE: ${SHARD_BASE}`, 'TURBO_SCM_BASE: origin/main');
+  assert.throws(() => assertExactAffectedRange(shardBase), /base/u);
+  const tip = mutate(
+    nightly,
+    'git merge-base HEAD refs/remotes/origin/main',
+    'git rev-parse refs/remotes/origin/main'
+  );
+  const moved = runBaseStep(tip, t);
+  assert.equal(moved.result.status, 0, moved.result.stderr);
+  assert.notEqual(moved.output, `sha=${moved.built}\n`, 'the main tip is not the batch base');
 });
 
 test('CONTROL: a job the gate does not judge, or a wrong skip list, fails the gate check', () => {
