@@ -1,11 +1,14 @@
 'use strict';
 
-const { writeFile } = require('node:fs/promises');
+const { realpath, writeFile } = require('node:fs/promises');
 const path = require('node:path');
 const { setTimeout: delay } = require('node:timers/promises');
 
 /** Observe native readiness, then prove one exact create within the same 5s budget. */
-async function probePackagedWatcher(watcher, root, backend, options = {}) {
+async function probePackagedWatcher(watcher, requestedRoot, backend, options = {}) {
+  // Native backends report real paths: macOS FSEvents resolves /var/folders to
+  // /private/var/folders. Watch and write under that identity (BST-2223).
+  const root = await realpath(requestedRoot);
   const timeoutMs = options.timeoutMs ?? 5000;
   const write = options.writeFile ?? writeFile;
   const readinessPath = path.join(root, '.watcher-readiness');

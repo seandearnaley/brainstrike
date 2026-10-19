@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { probePackagedWatcher } from '../../packages/file-system/test/parcel-watch-probe.cjs';
 
-const root = path.resolve('disposable-probe-root');
+// The probe resolves its root, so the fixture root is a real, canonical directory.
+const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'bst-probe-root-')));
+after(() => rmSync(root, { force: true, recursive: true }));
 
 test('joins native readiness before requiring exactly one create of the asserted probe', async () => {
   let callback;
@@ -191,4 +195,35 @@ test('retains a native backend failure and joins unsubscribe', async () => {
     (error) => error === failure
   );
   assert.equal(unsubscribed, true);
+});
+
+test('a symlinked root is watched at the real path its backend reports (BST-2223)', async (t) => {
+  // macOS: os.tmpdir() is /var/folders/…, a symlink to /private/var/folders/…,
+  // and FSEvents reports the real path.
+  const real = realpathSync(mkdtempSync(path.join(tmpdir(), 'bst2223-real-')));
+  const linked = `${real}-link`;
+  symlinkSync(real, linked, 'dir');
+  t.after(() => {
+    rmSync(linked, { force: true });
+    rmSync(real, { force: true, recursive: true });
+  });
+  let callback;
+  let watched;
+  const watcher = {
+    async subscribe(directory, listener) {
+      watched = directory;
+      callback = listener;
+      return { async unsubscribe() {} };
+    },
+  };
+  const reported = (file) =>
+    file.startsWith(`${linked}${path.sep}`) ? path.join(real, path.relative(linked, file)) : file;
+  const proof = await probePackagedWatcher(watcher, linked, 'fs-events', {
+    timeoutMs: 500,
+    async writeFile(file) {
+      callback(null, [{ path: reported(file), type: 'create' }]);
+    },
+  });
+  assert.equal(watched, real);
+  assert.deepEqual(proof, { eventType: 'create', proofWrites: 1, readinessWrites: 1 });
 });
