@@ -12,8 +12,9 @@ name: Native Package Matrix
 # and a vec0 table round-trips.
 #
 # BST-2190: legs with `desktopSmoke` also run the desktop smoke E2E lane against
-# that same packaged app: today macOS arm64. scripts/native-package-targets.mjs
-# names every excluded target with its Linear issue (Windows x64: BST-2234).
+# that same packaged app: today macOS arm64 and Windows x64 (BST-2234).
+# scripts/native-package-targets.mjs names every excluded target with its
+# Linear issue.
 #
 # Adapted from the native-index-sqlite spike. NOT a required check: failures on
 # the nightly run go to Linear (rule 7).
