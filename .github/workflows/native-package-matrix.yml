@@ -11,6 +11,10 @@ name: Native Package Matrix
 # `vec0.*` from `app.asar.unpacked`, the packaged tree has no node-gyp output,
 # and a vec0 table round-trips.
 #
+# BST-2190: legs with `desktopSmoke` also run the desktop smoke E2E lane against
+# that same packaged app: today macOS arm64. scripts/native-package-targets.mjs
+# names every excluded target with its Linear issue (Windows x64: BST-2234).
+#
 # Adapted from the native-index-sqlite spike. NOT a required check: failures on
 # the nightly run go to Linear (rule 7).
 #
@@ -169,6 +173,32 @@ jobs:
           path: |
             ${{ runner.temp }}/sqlite-native-smoke-packaged-*.json
             ${{ runner.temp }}/electron-builder.log
+          if-no-files-found: warn
+
+      # BST-2190: `desktopSmoke` legs run the desktop smoke lane against the app
+      # this leg just packaged (and, on macOS, signed). Excluded targets, each
+      # with its Linear issue, are in scripts/native-package-targets.mjs. BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged makes the
+      # shared Electron harness launch apps/desktop/release's executable instead
+      # of dist/main.js; a missing executable fails the lane, never the dev build.
+      # Each test gets a disposable profile and the loopback provider shim, so no
+      # provider is called and no credential is read.
+      - name: Packaged desktop smoke E2E
+        if: ${{ matrix.desktopSmoke }}
+        env:
+          BRAINSTRIKE_E2E_DESKTOP_TARGET: packaged
+        run: pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke
+
+      # test-results/ holds each failed test's trace, screenshots, video and error
+      # context; blob-report/ holds the report zip for `playwright merge-reports`.
+      - name: Upload packaged desktop smoke traces
+        if: ${{ failure() && matrix.desktopSmoke }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-desktop-smoke-${{ matrix.os }}-test-results
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/blob-report/
+          retention-days: 1
           if-no-files-found: warn
 
       # Same guards as native-windows: a key that lacked the resolved Node

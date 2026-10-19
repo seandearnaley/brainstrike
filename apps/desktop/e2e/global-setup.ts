@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { FullConfig } from '@playwright/test';
+import { resolveDesktopE2eTarget } from './utils/desktop-e2e-target';
 import { E2E_CREDENTIAL_ENV_NAMES } from './utils/model-provider-shim';
 
 const execFileAsync = promisify(execFile);
@@ -33,6 +34,15 @@ function scrubInheritedProviderCredentials(): void {
 async function globalSetup(_config: FullConfig) {
   verboseLog('🔧 Setting up Electron E2E tests...');
   scrubInheritedProviderCredentials();
+
+  // BST-2190: a packaged run qualifies the electron-builder output as it is, so
+  // it neither builds nor reads `dist/`; a missing executable fails here, before
+  // any spec starts.
+  const target = resolveDesktopE2eTarget();
+  if (target.kind === 'packaged') {
+    console.log(`🚀 Desktop E2E launches the packaged app: ${target.executablePath}`);
+    return;
+  }
 
   // Build the Electron app before running tests (skip in CI since it's already built)
   if (process.env['CI']) {
