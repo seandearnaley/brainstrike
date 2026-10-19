@@ -20,17 +20,20 @@ const UPSTREAM_ARCHIVE = `cpython-3.13.14+20260728-${LINUX_TARGET}-install_only.
 const LINUX_ARCHIVE = `cpython-3.13.14+20260728-${LINUX_TARGET}-brainstrike-no-dbm-v1.tar.gz`;
 
 interface ResourceRule {
-  filter: string[];
+  filter?: string[];
   from: string;
   to: string;
 }
-function pythonRule(platform: string, destination = 'python-runtime'): ResourceRule | undefined {
-  return packageJson.build[platform]?.extraResources?.find(
+function pythonRules(platform: string, destination = 'python-runtime'): ResourceRule[] {
+  return (packageJson.build[platform]?.extraResources ?? []).filter(
     (rule: ResourceRule) => rule.to === destination
   );
 }
+function pythonRule(platform: string, destination = 'python-runtime'): ResourceRule | undefined {
+  return pythonRules(platform, destination)[0];
+}
 function includes(rule: ResourceRule | undefined, filename: string): boolean {
-  return rule?.filter.some((pattern) => minimatch(filename, pattern)) ?? false;
+  return rule?.filter?.some((pattern) => minimatch(filename, pattern)) ?? false;
 }
 
 describe('bundled Python resource packaging', () => {
@@ -63,18 +66,25 @@ describe('bundled Python resource packaging', () => {
     expect(manifest.variant).toBe('install_only');
   });
 
-  it('copies the manifest and Linux archive outside asar while excluding Darwin archives', () => {
-    const rule = pythonRule('linux');
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands this literal architecture macro.
-    expect(rule?.from).toBe('resources/python-runtime/linux/${arch}');
-    expect(includes(rule, 'manifest.json')).toBe(true);
-    expect(includes(rule, LINUX_ARCHIVE)).toBe(true);
-    expect(includes(rule, UPSTREAM_ARCHIVE)).toBe(false);
+  it('copies the manifest and the Linux build-time unpack outside asar, and never an archive', () => {
+    const [manifestRule, treeRule] = pythonRules('linux');
+    expect(pythonRules('linux')).toHaveLength(2);
+    expect(manifestRule?.from).toBe('resources/python-runtime');
+    expect(manifestRule?.filter).toEqual(['manifest.json']);
+    for (const archive of [
+      LINUX_ARCHIVE,
+      UPSTREAM_ARCHIVE,
+      'cpython-3.13.14+20260728-aarch64-apple-darwin-install_only.tar.gz',
+    ]) {
+      expect(includes(manifestRule, archive), archive).toBe(false);
+    }
+    // BST-1627: the derived archive is unpacked at build time; its tree ships loose.
+    expect(treeRule).toEqual({
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands this literal architecture macro.
+      from: 'resources/python-runtime/unpacked/linux-${arch}',
+      to: 'python-runtime',
+    });
     expect(manifest.targets[LINUX_TARGET]?.derived?.archiveFileName).toBe(LINUX_ARCHIVE);
-    expect(
-      includes(rule, 'cpython-3.13.14+20260728-aarch64-apple-darwin-install_only.tar.gz')
-    ).toBe(false);
-    expect(includes(rule, `${LINUX_ARCHIVE}.download-123`)).toBe(false);
   });
 
   it.each(['x64', 'arm64'])(
@@ -109,15 +119,19 @@ describe('bundled Python resource packaging', () => {
     }
   );
 
-  it('keeps Linux payloads out of macOS packages and leaves Windows unsupported', () => {
-    const rule = pythonRule('mac');
-    expect(includes(rule, LINUX_ARCHIVE)).toBe(false);
+  it('keeps Linux payloads and every archive out of macOS packages, and leaves Windows unsupported', () => {
+    const [manifestRule, treeRule] = pythonRules('mac');
+    expect(pythonRules('mac')).toHaveLength(2);
+    expect(manifestRule?.filter).toEqual(['manifest.json']);
+    expect(includes(manifestRule, LINUX_ARCHIVE)).toBe(false);
     expect(
-      includes(rule, 'cpython-3.13.14+20260728-aarch64-apple-darwin-install_only.tar.gz')
-    ).toBe(true);
-    expect(includes(rule, 'cpython-3.13.14+20260728-x86_64-apple-darwin-install_only.tar.gz')).toBe(
-      true
-    );
+      includes(manifestRule, 'cpython-3.13.14+20260728-aarch64-apple-darwin-install_only.tar.gz')
+    ).toBe(false);
+    expect(treeRule).toEqual({
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands this literal architecture macro.
+      from: 'resources/python-runtime/unpacked/darwin-${arch}',
+      to: 'python-runtime',
+    });
     expect(pythonRule('win')).toBeUndefined();
   });
 });

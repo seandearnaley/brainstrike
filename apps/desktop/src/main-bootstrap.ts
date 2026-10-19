@@ -17,65 +17,76 @@ function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown
   }
 }
 
-try {
-  initializeDesktopEnvironment({
-    appRoot: app.getAppPath(),
-    argv: process.argv,
-    env: process.env,
-    isPackaged: app.isPackaged,
-    userDataPath: app.getPath('userData'),
-  });
-  const runtime = getDesktopBootstrapRuntime();
-  if (runtime.singleInstanceLockAcquired) {
-    const earlyQuit = (event: Electron.Event): void => {
-      event.preventDefault();
-      if (isDesktopShuttingDown()) {
-        return;
-      }
-      markDesktopShuttingDown();
-      void runtime.profile.retire().then(() => {
-        app.removeListener('before-quit', earlyQuit);
-        app.quit();
-      }, reportBootstrapFailure);
-    };
-    app.on('before-quit', earlyQuit);
-    void app
-      .whenReady()
-      .then(async () => {
+// Release smoke-test contract (.github/workflows/release.yml): packaged
+// Electron apps have no built-in --version handling (that lives in Electron's
+// default_app, absent from packaged bundles), so without this the release smoke
+// run would boot the GUI, take the single-instance lock and start the agent
+// host. Handled first, and app.exit does not stop this module's evaluation, so
+// the bootstrap below sits in the other branch.
+if (process.argv.includes('--version')) {
+  process.stdout.write(`${app.getVersion()}\n`);
+  app.exit(0);
+} else {
+  try {
+    initializeDesktopEnvironment({
+      appRoot: app.getAppPath(),
+      argv: process.argv,
+      env: process.env,
+      isPackaged: app.isPackaged,
+      userDataPath: app.getPath('userData'),
+    });
+    const runtime = getDesktopBootstrapRuntime();
+    if (runtime.singleInstanceLockAcquired) {
+      const earlyQuit = (event: Electron.Event): void => {
+        event.preventDefault();
         if (isDesktopShuttingDown()) {
           return;
         }
-        // Fork with the existing owner before evaluating Main. The private platform
-        // port queues until Main binds it; host publication joins that binding.
-        const starting = runtime.profile.acquire();
-        const started = Promise.allSettled([starting]);
-        try {
-          // A host-start refusal still reaches the existing Main error/retry UI.
-          // Its original rejection is reported below after Main installs that path.
-          await Promise.allSettled([runtime.waitForProfileLaunch(starting)]);
+        markDesktopShuttingDown();
+        void runtime.profile.retire().then(() => {
+          app.removeListener('before-quit', earlyQuit);
+          app.quit();
+        }, reportBootstrapFailure);
+      };
+      app.on('before-quit', earlyQuit);
+      void app
+        .whenReady()
+        .then(async () => {
           if (isDesktopShuttingDown()) {
             return;
           }
-          const main = await import('./main');
-          app.removeListener('before-quit', earlyQuit);
-          void starting.catch(main.reportAgentHostStartupFailure);
-        } catch (cause) {
-          const quitting = isDesktopShuttingDown();
-          markDesktopShuttingDown();
+          // Fork with the existing owner before evaluating Main. The private platform
+          // port queues until Main binds it; host publication joins that binding.
+          const starting = runtime.profile.acquire();
+          const started = Promise.allSettled([starting]);
           try {
-            await runtime.profile.retire();
-            await started;
-          } catch (retirementFailure) {
-            reportBootstrapFailure(retirementFailure, quitting);
-            return;
+            // A host-start refusal still reaches the existing Main error/retry UI.
+            // Its original rejection is reported below after Main installs that path.
+            await Promise.allSettled([runtime.waitForProfileLaunch(starting)]);
+            if (isDesktopShuttingDown()) {
+              return;
+            }
+            const main = await import('./main');
+            app.removeListener('before-quit', earlyQuit);
+            void starting.catch(main.reportAgentHostStartupFailure);
+          } catch (cause) {
+            const quitting = isDesktopShuttingDown();
+            markDesktopShuttingDown();
+            try {
+              await runtime.profile.retire();
+              await started;
+            } catch (retirementFailure) {
+              reportBootstrapFailure(retirementFailure, quitting);
+              return;
+            }
+            reportBootstrapFailure(cause, quitting);
           }
-          reportBootstrapFailure(cause, quitting);
-        }
-      })
-      .catch(reportBootstrapFailure);
-  } else {
-    app.quit();
+        })
+        .catch(reportBootstrapFailure);
+    } else {
+      app.quit();
+    }
+  } catch (error) {
+    reportBootstrapFailure(error);
   }
-} catch (error) {
-  reportBootstrapFailure(error);
 }
