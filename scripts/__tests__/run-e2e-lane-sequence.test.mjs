@@ -9,6 +9,7 @@ import { parse as parseYaml } from 'yaml';
 
 import {
   laneCommandArguments,
+  laneEnvironment,
   laneSpawnInvocation,
   runE2eLaneSequence,
 } from '../run-e2e-lane-sequence.mjs';
@@ -89,6 +90,25 @@ test('each lane gets an isolated Playwright output directory', () => {
   assert.throws(
     () => laneCommandArguments('test:e2e:lane:../../escape'),
     /Invalid E2E lane script name/
+  );
+});
+
+test('each lane writes its own JSON report into PLAYWRIGHT_JSON_OUTPUT_DIR', () => {
+  const env = { KEEP: '1', PLAYWRIGHT_JSON_OUTPUT_DIR: '/tmp/nightly-results/web-full-regression' };
+  const reports = EXPECTED_LANES.map(
+    (lane) => laneEnvironment(lane, env).PLAYWRIGHT_JSON_OUTPUT_FILE
+  );
+
+  assert.equal(reports[1], '/tmp/nightly-results/web-full-regression/assistant-state.json');
+  assert.equal(new Set(reports).size, EXPECTED_LANES.length, 'no lane overwrites another');
+  assert.equal(laneEnvironment(EXPECTED_LANES[0], env).KEEP, '1');
+  assert.equal(
+    laneEnvironment(EXPECTED_LANES[0], { KEEP: '1' }).PLAYWRIGHT_JSON_OUTPUT_FILE,
+    undefined
+  );
+  assert.throws(
+    () => laneEnvironment(EXPECTED_LANES[0], { PLAYWRIGHT_JSON_OUTPUT_FILE: '/tmp/one.json' }),
+    /only the last lane; set PLAYWRIGHT_JSON_OUTPUT_DIR/u
   );
 });
 

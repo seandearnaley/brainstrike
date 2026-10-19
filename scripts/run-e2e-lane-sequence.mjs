@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createSpawnInvocation } from './spawn-command.mjs';
@@ -25,10 +26,30 @@ export function laneSpawnInvocation(lane, platform = process.platform) {
   return createSpawnInvocation('pnpm', laneCommandArguments(lane), platform);
 }
 
+/**
+ * A lane's environment. Playwright writes one JSON report per run, so with
+ * PLAYWRIGHT_JSON_OUTPUT_DIR set each lane writes its own <lane>.json there
+ * (BST-2189); one PLAYWRIGHT_JSON_OUTPUT_FILE would keep only the last lane's.
+ */
+export function laneEnvironment(lane, env) {
+  assertValidLaneName(lane);
+  if (env.PLAYWRIGHT_JSON_OUTPUT_FILE) {
+    throw new Error(
+      'PLAYWRIGHT_JSON_OUTPUT_FILE would hold only the last lane; set PLAYWRIGHT_JSON_OUTPUT_DIR.'
+    );
+  }
+  const reportDirectory = env.PLAYWRIGHT_JSON_OUTPUT_DIR;
+  if (!reportDirectory) {
+    return env;
+  }
+  const reportFile = path.join(reportDirectory, `${lane.slice(LANE_PREFIX.length)}.json`);
+  return { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: reportFile };
+}
+
 function defaultRunLane(lane) {
   const invocation = laneSpawnInvocation(lane);
   return spawnSync(invocation.command, invocation.args, {
-    env: process.env,
+    env: laneEnvironment(lane, process.env),
     shell: invocation.shell,
     stdio: 'inherit',
   });

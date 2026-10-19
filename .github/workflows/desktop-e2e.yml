@@ -124,8 +124,12 @@ jobs:
       # matrix (the total must equal the matrix length; a script contract checks). pnpm
       # appends the flag to the lane script, which must therefore end in the
       # playwright command.
+      # Each Playwright run writes its JSON report under nightly-results/<results job>/,
+      # outside test-results/, which the AI Tools run below clears (BST-2189).
       - name: Run full desktop regression
         working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/regression.json
         run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/4
 
       # The AI Tools smoke specs are excluded from the regression project, so
@@ -136,7 +140,20 @@ jobs:
       - name: Run desktop AI Tools nightly lane
         if: matrix.shard == 1
         working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/tools-settings-nightly.json
         run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
+
+      # Every finished run, green or red: a green night's flaky tests and passes
+      # are what Notify Linear files and recovers per test.
+      - name: Upload nightly test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--desktop-full-regression-gate--shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: warn
 
       # test-results/ holds each failed test's raw trace, screenshots, video,
       # error context and spec diagnostics; blob-report/ holds the report zip
@@ -234,6 +251,8 @@ jobs:
       # budget cannot also hold (BST-2090, run 39062126583).
       - name: Run desktop embedding regression
         working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-embedding-e2e/embedding.json
         run: |
           unset NO_COLOR
           BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
@@ -250,6 +269,15 @@ jobs:
             --max-failures=0 \
             --global-timeout=3000000 \
             --grep="@desktop-embedding-"
+
+      - name: Upload nightly test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--desktop-embedding-e2e
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Upload desktop embedding traces
         if: failure()
@@ -314,7 +342,17 @@ jobs:
           BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_DEVICE: wasm
           BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_FILES: '60'
           BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH: ${{ runner.temp }}/foreground-latency/foreground-latency-under-index-build.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-foreground-latency/foreground-latency.json
         run: dbus-run-session -- pnpm run test:e2e:lane:foreground-latency
+
+      - name: Upload nightly test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--desktop-foreground-latency
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Upload foreground latency evidence
         if: always()
