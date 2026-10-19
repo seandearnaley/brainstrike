@@ -255,6 +255,16 @@
       // create. tsconfig.json and vitest.config.mts exclude tasks/ likewise.
       "ignore": ["tasks/**"]
     },
+    "packages/assistant-service": {
+      // Child processes the integration suites spawn by path
+      // (`path.join(import.meta.dirname, 'fixtures/<file>')`); each imports
+      // fixture-result.mjs.
+      "entry": [
+        "src/__tests__/fixtures/node-native-text-services.mjs",
+        "src/__tests__/fixtures/node-workspace-native-child.mjs",
+        "src/__tests__/fixtures/node-workspace-root-identity-child.mjs"
+      ]
+    },
     "packages/assistant-data": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
