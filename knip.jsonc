@@ -132,7 +132,18 @@
         // Official MCP conformance child-process entry. Like the watchdog, this
         // is a real build-main-config entry invoked by file name from the root
         // driver rather than imported by the desktop module graph.
-        "src/official-conformance-client-entry.ts"
+        "src/official-conformance-client-entry.ts",
+        // Utility-process targets, also MAIN_PROCESS_ENTRY_POINTS; each is forked
+        // by its built file name, never imported. The forking module:
+        "src/agent-egress-entry.ts", // src/browser/agent-browsing-route.ts
+        "src/agent-host-entry.ts", // src/host-lease-manager.ts
+        "src/host-lease-entry.ts", // src/host-lease-manager.ts
+        "src/indexer-host-entry.ts", // src/indexer-host-manager.ts
+        "src/sqlite-query-host-entry.ts", // src/sqlite-query-host-manager.ts
+        // The Windows command wrapper, built by build-main-config.mjs's own
+        // windows-command build and launched by file name from
+        // src/assistant-server/run-skill-script-tool.ts.
+        "src/windows-command-entry.ts"
       ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
@@ -141,6 +152,13 @@
         // This workspace's production graph excludes tests; keep ownership local.
         "@tanstack/react-virtual",
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
+        // Resolved at run time by src/assistant-server/lsp-diagnostics.ts through
+        // `resolveLspModule` (a createRequire(...).resolve knip cannot follow) and
+        // unpacked from app.asar by package.json `asarUnpack`.
+        "typescript-language-server",
+        // e2e/mcp-apps-production-lifecycle.desktop.test.ts resolves it from this
+        // app with createRequire(import.meta.url).resolve, which knip cannot follow.
+        "@modelcontextprotocol/ext-apps",
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
         "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
@@ -218,6 +236,66 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/agent-host": {
+      "entry": [
+        // Worker thread: src/host-state-index.ts starts the built file with
+        // `new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST))`.
+        "src/host-state-index-worker.ts",
+        // The Windows `--platform` module the integration suites hand the CLI by
+        // path (a platform-conditional knip cannot follow); it imports the
+        // children platform.
+        "__tests__/fixtures/process-platform-cooperative.mjs",
+        // Recorders run by hand (`node <file> [output.json]`) to regenerate the
+        // committed host-log fixtures the agent-host, assistant-ui and desktop
+        // suites read.
+        "__tests__/fixtures/record-*-log.mjs"
+      ]
+    },
+    "packages/sqlite-query": {
+      "entry": [
+        // The Node query host: src/process.ts forks the built file with
+        // `new URL(transport === 'node' ? './query-host.js' : ..., import.meta.url)`,
+        // a conditional knip cannot follow.
+        "src/query-host.ts",
+        // Index builders the integration suites and test/run-integration.mjs run by path.
+        "src/__tests__/fixtures/build-*.mjs"
+      ]
+    },
+    "packages/canonical-ingestion": {
+      // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
+      "ignoreDependencies": ["@brainstrike/config"]
+    },
+    "packages/web-state-store": {
+      // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
+      "ignoreDependencies": ["@brainstrike/config"]
+    },
+    "packages/host-lease": {
+      // Loaded as `execArgv: ['--import', 'tsx']` by the processes the integration
+      // suites fork, never imported. Same class as packages/state-store.
+      "ignoreDependencies": ["tsx"]
+    },
+    "packages/host-capabilities": {
+      // Recorders run by hand (`node <file>`) to regenerate the committed
+      // test-utils fixtures committed-host-hook-blocked.json and
+      // committed-host-hooks-skipped.json, which agent-host, assistant-ui and
+      // desktop suites read.
+      "entry": ["__tests__/fixtures/record-*-log.mjs"]
+    },
+    "packages/indexer": {
+      // scoped-electron.integration.test.ts launches the Electron main fixture by
+      // path; it starts the utility fixture with `utilityProcess.fork(path)`.
+      "entry": [
+        "__tests__/fixtures/scoped-electron-main.cjs",
+        "__tests__/fixtures/scoped-electron-utility.cjs"
+      ]
+    },
+    "packages/web-writer": {
+      // vitest.config.mts's worker-realm plugin prepends an import of this file,
+      // by resolved path, to every worker module under test.
+      "entry": ["src/__tests__/fixtures/vitest-worker-realm.ts"],
+      // See packages/db: vitest.config.mts imports `../config/src/vitest-browser.ts`.
+      "ignoreDependencies": ["@brainstrike/config"]
+    },
     "packages/agent-evals": {
       // The eval corpus, not package source. src/task.ts loads tasks/<id>/ as
       // data and src/sandbox.ts copies repo/ into a sandbox workspace, then
@@ -225,6 +303,16 @@
       // resolves inside the sandbox — some targets are files the agent must
       // create. tsconfig.json and vitest.config.mts exclude tasks/ likewise.
       "ignore": ["tasks/**"]
+    },
+    "packages/assistant-service": {
+      // Child processes the integration suites spawn by path
+      // (`path.join(import.meta.dirname, 'fixtures/<file>')`); each imports
+      // fixture-result.mjs.
+      "entry": [
+        "src/__tests__/fixtures/node-native-text-services.mjs",
+        "src/__tests__/fixtures/node-workspace-native-child.mjs",
+        "src/__tests__/fixtures/node-workspace-root-identity-child.mjs"
+      ]
     },
     "packages/assistant-data": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -279,7 +367,10 @@
         "@brainstrike/db",
         // No direct source import, but vitest.config.mts:118 aliases it to __mocks__/embeddings.ts so
         // transitive imports of the heavy embeddings runtime stay mocked in app-shell tests
-        "@brainstrike/embeddings"
+        "@brainstrike/embeddings",
+        // threads-panel and changed-files-tree tests vi.mock it; without app-shell's
+        // own copy the mock misses @brainstrike/ui TreeTable's import (4 tests fail).
+        "@tanstack/react-virtual"
       ],
       "typescript": {
         "config": "tsconfig.json"

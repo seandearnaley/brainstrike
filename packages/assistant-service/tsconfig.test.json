@@ -36,9 +36,6 @@
       "path": "../file-system"
     },
     {
-      "path": "../host-lease"
-    },
-    {
       "path": "../indexer"
     },
     {
@@ -58,9 +55,6 @@
     },
     {
       "path": "../types"
-    },
-    {
-      "path": "../utils"
     }
   ]
 }
