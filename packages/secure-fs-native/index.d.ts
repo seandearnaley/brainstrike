@@ -50,3 +50,54 @@ export function tryExclusiveFlock(fd: number): boolean;
 
 /** Windows atomic same-directory replacement; existing readers retain old bytes. No retries or ACL bypass. */
 export function replaceFileSync(source: string, target: string): void;
+
+/**
+ * A Windows directory's owner and DACL against the private grant. `private`:
+ * the current user owns it, and its DACL is protected and holds exactly one ACE,
+ * an explicit Allow of FILE_ALL_ACCESS to that user, inherited by containers and
+ * objects. `foreign-owner`: another principal owns it. `acl-mismatch`: the user
+ * owns it, but its DACL is anything else.
+ */
+export interface PrivateDirectoryVerdict {
+  readonly status: 'private' | 'foreign-owner' | 'acl-mismatch';
+}
+
+/**
+ * Codes the private-directory calls throw with, beside a `TypeError` for an
+ * argument that is not one absolute path. Win32 failures carry `win32Code`.
+ * - `ENOENT`, `EACCES`, `EBUSY`, `ENOTSUP`, `EIO`: the open, read or write failed.
+ * - `ENOTDIR`: the path names something other than a directory.
+ * - `ERR_PRIVATE_DIRECTORY`: the current user's identity is unavailable.
+ * - `ERR_PRIVATE_DIRECTORY_VERDICT` (apply only): the directory is not private
+ *   afterwards; `verdict` says why. Apply wrote nothing when it is `foreign-owner`.
+ * - `ENOTSUP` on POSIX, where neither call is available.
+ */
+export interface PrivateDirectoryError extends Error {
+  readonly code:
+    | 'EACCES'
+    | 'EBUSY'
+    | 'EIO'
+    | 'ENOENT'
+    | 'ENOTDIR'
+    | 'ENOTSUP'
+    | 'ERR_PRIVATE_DIRECTORY'
+    | 'ERR_PRIVATE_DIRECTORY_VERDICT';
+  readonly verdict?: Exclude<PrivateDirectoryVerdict['status'], 'private'>;
+  readonly win32Code?: number;
+}
+
+/**
+ * Windows only. Opens the directory once (following reparse points, with
+ * FILE_FLAG_BACKUP_SEMANTICS) and reads its owner and DACL from that handle.
+ * Starts no process. Throws a `PrivateDirectoryError`; on POSIX, `ENOTSUP`.
+ */
+export function verifyPrivateDirectorySync(absolutePath: string): PrivateDirectoryVerdict;
+
+/**
+ * Windows only. Makes a directory the current user owns private: on one handle,
+ * writes the user as owner and the protected one-ACE DACL the verdict describes,
+ * then reads it back, and throws `ERR_PRIVATE_DIRECTORY_VERDICT` unless it is
+ * `private`. Refuses a directory another principal owns without writing to it,
+ * and never takes ownership. Starts no process; on POSIX, throws `ENOTSUP`.
+ */
+export function applyPrivateDirectorySync(absolutePath: string): void;

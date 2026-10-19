@@ -1,9 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { SecureRoot } from '@brainstrike/secure-fs-native';
+import { applyPrivateDirectorySync, SecureRoot } from '@brainstrike/secure-fs-native';
 import { decodeHostRecord, HOST_RECORD_FILE, type HostRecord, tokensEqual } from './record.js';
-import { windowsPrivateAcl } from './windows-acl.js';
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
@@ -11,7 +10,9 @@ function isMissing(error: unknown): boolean {
 export async function secureDirectory(root: string): Promise<void> {
   await mkdir(root, { mode: 0o700, recursive: true });
   if (process.platform === 'win32') {
-    await windowsPrivateAcl(root, 'directory', 'set');
+    // BST-2237: owner and protected DACL written and read back on one handle,
+    // in this process. Host start starts no PowerShell.
+    applyPrivateDirectorySync(root);
     return;
   }
   const info = await stat(root);
