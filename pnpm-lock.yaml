@@ -2370,9 +2370,6 @@ importers:
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
-      '@brainstrike/tokenization':
-        specifier: workspace:*
-        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2407,6 +2404,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@effect/tsgo':
         specifier: 'catalog:'
         version: 0.53.3

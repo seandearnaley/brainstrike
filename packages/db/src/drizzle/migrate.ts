@@ -505,6 +505,8 @@ export async function runMigrations(
 
 /**
  * Gets the current migration status
+ * @internal Test inspector: drizzle-migrate.test.ts and
+ * browser-first-run-bootstrap.integration.test.ts verify migrations with it.
  */
 export async function getMigrationStatus(db: PGlite): Promise<{
   total: number;
@@ -541,21 +543,4 @@ export async function getMigrationStatus(db: PGlite): Promise<{
   }
 }
 
-/**
- * Resets all migrations (for development/testing only)
- * WARNING: This will drop all tables!
- */
-export async function resetMigrations(db: PGlite): Promise<void> {
-  // Get all tables except the migrations table
-  const tables = await db.query<{ tablename: string }>(`
-    SELECT tablename FROM pg_tables
-    WHERE schemaname = 'public'
-  `);
-
-  // Drop all tables (CASCADE to handle foreign keys)
-  for (const { tablename } of tables.rows) {
-    await db.query(`DROP TABLE IF EXISTS "${tablename}" CASCADE`);
-  }
-}
-
-export type { DrizzleMigration as Migration, MigrationResult };
+export type { MigrationResult };

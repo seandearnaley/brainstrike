@@ -183,6 +183,8 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
  * because nothing but Mastra's own vector store and workflow storage creates
  * them. The reset-coverage sweep uses this to tell a legitimately-absent
  * relation from a registry name that has rotted.
+ * @internal Test inspector: reset-table-coverage and table-durability-registry
+ * integration tests compare it with the live schema.
  */
 export function getLazyMastraResetTables(): readonly MastraResetTable[] {
   return [MASTRA_VECTOR_TABLE, MASTRA_WORKFLOW_TABLE];
