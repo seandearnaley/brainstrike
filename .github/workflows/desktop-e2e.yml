@@ -416,3 +416,26 @@ jobs:
       results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }},desktop-foreground-latency=${{ needs.desktop-foreground-latency.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+
+  # BST-2189: one fix agent per failing or flaky test's issue that Notify Linear
+  # filed or commented on tonight, on the runner image the lanes above use.
+  fix-nightly:
+    name: Fix nightly test
+    needs: [notify-linear]
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && needs.notify-linear.outputs.fix_issues != '[]' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        issue: ${{ fromJSON(needs.notify-linear.outputs.fix_issues) }}
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/nightly-fix-agent.yml
+    with:
+      issue: ${{ matrix.issue }}
+      runs_on: ubuntu-latest
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

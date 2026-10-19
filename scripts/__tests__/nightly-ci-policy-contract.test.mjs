@@ -43,19 +43,20 @@ const STAYS_DISABLED = [
   'react-doctor.yml',
   'release.yml',
 ];
-const REUSABLE = ['nightly-linear-alert.yml'];
+const REUSABLE = ['nightly-fix-agent.yml', 'nightly-linear-alert.yml'];
 // BST-2188: the merge queue's fast tier. merge-queue-contract.test.mjs owns its
-// triggers, its call into test.yml and its gate; a red merge group removes the
-// PR from the queue, so it files nothing to Linear.
+// triggers, its call into test.yml, its gate and .mergify.yml; a red batch
+// removes the PR from Mergify's queue, so it files nothing to Linear.
 const MERGE_QUEUE = ['merge-queue.yml'];
-// Narrow allowances, both BST-2188 (owner decision 2026-10-19), each proven by
+// Narrow allowances, both BST-2188 (owner decisions 2026-10-19), each proven by
 // merge-queue-contract.test.mjs:
 // - test.yml may also be called (`workflow_call`), only by merge-queue.yml, so
 //   the queue runs the nightly's own jobs rather than copies of them;
-// - merge-queue.yml may trigger on pull_request, skip-only: every job skips on
-//   that event, so its required gate reports on PR heads and no runner starts.
+// - merge-queue.yml may trigger on push, only for the branches Mergify pushes
+//   each queue batch to. No pull request starts it, so its required gate never
+//   reports on a PR head and no runner starts for one.
 const CALLED_BY = new Map([['test.yml', 'merge-queue.yml']]);
-const SKIP_ONLY_PULL_REQUEST = ['merge-queue.yml'];
+const QUEUE_PUSH = new Map([['merge-queue.yml', { branches: ['mergify/merge-queue/**'] }]]);
 
 const POLICY_LINE =
   '# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.';
@@ -156,8 +157,13 @@ function assertLinearFiling(file, source) {
       }
     }
   }
+  // A job after notify-linear (the BST-2189 fix agent) acts on what it filed.
+  const afterNotify = (id) => needsOf(jobs[id]).includes('notify-linear');
   for (const id of Object.keys(jobs)) {
-    assert.ok(id === 'notify-linear' || judged.has(id), `${file} › ${id} never reaches Linear`);
+    assert.ok(
+      id === 'notify-linear' || judged.has(id) || afterNotify(id),
+      `${file} › ${id} never reaches Linear`
+    );
   }
 }
 
@@ -235,17 +241,36 @@ test('PR, bot and manual workflows keep their triggers and say they stay disable
 const workflowFiles = () => readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
 const allWorkflows = () => new Map(workflowFiles().map((file) => [file, readWorkflow(file)]));
 const DISABLED_PULL_REQUEST = ['claude-code-review.yml', 'coverage.yml', 'react-doctor.yml'];
+// react-doctor.yml on pushes to main; release.yml on the owner's release tags.
+const DISABLED_PUSH = ['react-doctor.yml', 'release.yml'];
 
-function assertPullRequestTriggers(sources) {
-  const prTriggered = [...sources]
-    .filter(([, source]) => parseYaml(source).on?.pull_request !== undefined)
+const triggeredBy = (sources, event) =>
+  [...sources]
+    .filter(([, source]) => parseYaml(source).on?.[event] !== undefined)
     .map(([file]) => file)
     .sort();
+
+function assertPullRequestTriggers(sources) {
   assert.deepEqual(
-    prTriggered,
-    [...DISABLED_PULL_REQUEST, ...SKIP_ONLY_PULL_REQUEST].sort(),
+    triggeredBy(sources, 'pull_request'),
+    DISABLED_PULL_REQUEST,
     'a new pull_request trigger needs its own owner decision'
   );
+}
+
+function assertPushTriggers(sources) {
+  assert.deepEqual(
+    triggeredBy(sources, 'push'),
+    [...DISABLED_PUSH, ...QUEUE_PUSH.keys()].sort(),
+    'a new push trigger needs its own owner decision'
+  );
+  for (const [file, push] of QUEUE_PUSH) {
+    assert.deepEqual(
+      parseYaml(sources.get(file)).on.push,
+      push,
+      `${file} may run on push only for Mergify queue branches`
+    );
+  }
 }
 
 function assertCallers(sources) {
@@ -261,8 +286,12 @@ function assertCallers(sources) {
   }
 }
 
-test('beside the disabled PR workflows, only the skip-only merge queue triggers on pull_request', () => {
+test('only the disabled PR workflows trigger on pull_request', () => {
   assertPullRequestTriggers(allWorkflows());
+});
+
+test('beside the disabled workflows, only the merge queue triggers on push, for its queue branches', () => {
+  assertPushTriggers(allWorkflows());
 });
 
 test('test.yml is called only by the merge queue', () => {
@@ -353,12 +382,29 @@ test('CONTROL: the retired AGENTS.md sentence fails the policy check', () => {
   assert.throws(() => assertPolicyText(retired, ciQuality), /nightly policy/u);
 });
 
-test('CONTROL: another pull_request trigger, caller or workflow_call fails its allowance check', () => {
+test('CONTROL: another pull_request or push trigger, caller or workflow_call fails its allowance check', () => {
   const sources = allWorkflows();
-  const knip = mutate(sources.get('knip.yml'), '\non:\n', '\non:\n  pull_request:\n');
+  for (const file of ['knip.yml', 'merge-queue.yml']) {
+    const triggered = mutate(sources.get(file), '\non:\n', '\non:\n  pull_request:\n');
+    assert.throws(
+      () => assertPullRequestTriggers(new Map([...sources, [file, triggered]])),
+      /pull_request trigger needs its own owner decision/u,
+      file
+    );
+  }
+  const knipPush = mutate(sources.get('knip.yml'), '\non:\n', '\non:\n  push:\n');
   assert.throws(
-    () => assertPullRequestTriggers(new Map([...sources, ['knip.yml', knip]])),
-    /its own owner decision/u
+    () => assertPushTriggers(new Map([...sources, ['knip.yml', knipPush]])),
+    /push trigger needs its own owner decision/u
+  );
+  const mainPush = mutate(
+    sources.get('merge-queue.yml'),
+    "branches: ['mergify/merge-queue/**']",
+    'branches: [main]'
+  );
+  assert.throws(
+    () => assertPushTriggers(new Map([...sources, ['merge-queue.yml', mainPush]])),
+    /only for Mergify queue branches/u
   );
   const caller = `${sources.get('knip.yml')}  extra:\n    uses: ./.github/workflows/test.yml\n`;
   assert.throws(

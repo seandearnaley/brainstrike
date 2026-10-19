@@ -65,6 +65,7 @@ const PROVISIONING_STEPS = new Set([
   'admission › Wait for pull request activity to settle',
   'static › Require successful admission',
   // Native affected selection only avoids empty runners; local tests stay full.
+  'static › Resolve the batch base',
   'static › Select affected Unit shards',
   'unit-shard › Require successful admission',
   'unit › Require successful admission',

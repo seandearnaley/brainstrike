@@ -53,9 +53,49 @@ BST-2189 replaced one issue per workflow with one issue per failing test.
 - Issues filed before BST-2189 carry no marker and are not found again; close
   them by hand.
 
+## Fix agent
+
+BST-2189 Part 2. Notify Linear's `fix_issues` output lists tonight's failing and
+flaky tests' issues. Desktop E2E's `fix-nightly` job calls
+`nightly-fix-agent.yml` once per issue, two at a time, on `ubuntu-latest`, the
+lanes' own runner.
+
+- `fix` holds a read-only `GITHUB_TOKEN` and no provider keys. It fails first,
+  with `::error`, when `CLAUDE_CODE_OAUTH_TOKEN` is missing. It then claims the
+  issue with `scripts/nightly-fix-issue.mjs`. The claim is the lock, and its
+  last write (In Progress plus assignee) takes it, so a failed claim never
+  strands an issue. A started, done or canceled issue skips the run, except a
+  bot claim older than 180 minutes (longer than the fix and publish jobs can
+  live) with no fix PR after it, which a later run reclaims. The claim writes
+  `issue.md` with tonight's failure first and the agent gets
+  `NIGHTLY_FIX_RUN_ID`, so it reads this run's artifacts, not the filing run's
+  (Codex review on #3990). Next it runs
+  `anthropics/claude-code-action`, pinned by SHA, with `/fix-nightly <issue>`
+  (`.claude/skills/fix-nightly/SKILL.md`). It hands the commits off as a bundle
+  artifact and posts the agent's evidence to the issue.
+- `publish` pushes only `nightly-fix/<issue>-<run id>`, opens the PR with
+  `Fixes <issue>` and links it on Linear. Nothing merges.
+- The `ANTHROPIC_API_KEY` form of the action's credential is deliberately unused:
+  the desktop app reads `ANTHROPIC_API_KEY` as a provider key
+  (`apps/desktop/src/agent-client-loader.ts`), so app runs during a
+  reproduction could make paid calls.
+- Web E2E has no fix job yet. Its lane runs in a pinned Playwright container,
+  and GitHub's docs do not define an empty `container:` for a shared job.
+
 ## Owner-only setup
 
 `gh secret set LINEAR_API_KEY` with a Linear personal API key (read and write).
 Agents never set or read it. Scheduled workflows run from the default branch,
 so this takes effect when the integration branch lands on `main`; the first
 scheduled run after the secret is set is the live check.
+
+The fix agent also needs:
+
+- `gh secret set CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token` on a Claude
+  subscription. Until it exists, every `fix-nightly` run fails at its first step
+  and claims nothing.
+- Settings → Actions → General → Workflow permissions: allow GitHub Actions to
+  create and approve pull requests, so `publish` can open the PR with
+  `GITHUB_TOKEN`. That job never approves.
+- No GitHub App: the agent authenticates with the job's `GITHUB_TOKEN`, not the
+  Claude GitHub App.
