@@ -7,9 +7,10 @@
  * the host this launch started, attaches within what the launch's one
  * deadline has left (BST-2142).
  */
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
@@ -124,7 +125,8 @@ async function lateOwner(root: string): Promise<LateOwner> {
   const record = decodeHostRecord({
     endpoint:
       process.platform === 'win32'
-        ? String.raw`\\.\pipe\brainstrike-late-${basename(root)}`
+        ? // The record schema admits only `brainstrike-<hex>` pipe names.
+          String.raw`\\.\pipe\brainstrike-${randomBytes(12).toString('hex')}`
         : join(root, 'late.sock'),
     hostVersion: HOST_VERSION,
     pid: lease.pid,
@@ -217,7 +219,11 @@ test('a start race winner that publishes late is attached within what the launch
     lifetime: 'cli',
     // This starter loses the race to an owner that took the root first.
     spawn: async () => {
-      const winner = await lateOwner(root);
+      const winner = await lateOwner(root).catch((cause: unknown) => {
+        // A fixture that cannot take the root fails the test now, not at its timeout.
+        lost.reject(cause);
+        throw cause;
+      });
       lost.resolve(winner);
       throw new RootLockedError(winner.lease);
     },
