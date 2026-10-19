@@ -63,7 +63,7 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
     let closing: Promise<void> | undefined;
     const ensureOpen = (): void => {
       options.startup.signal.throwIfAborted();
-      if (closing) {
+      if (closing !== undefined) {
         throw new AgentHostAdapterClosedError();
       }
     };

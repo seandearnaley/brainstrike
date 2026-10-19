@@ -1,4 +1,5 @@
 import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
+import { IndexerError } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it } from 'vitest';
 import {
@@ -20,14 +21,23 @@ const retirements = {
   'a lost host connection': new BoundaryFailureError(
     fault({ category: 'availability', code: 'host.connection-lost', message: 'Lost.' })
   ),
+  // BST-2192: a signal to Main's process group ends the indexer under an in-flight call.
+  'an indexer process that exited': new IndexerError('indexer-exited', 'Indexer process exited.'),
   'the reset reopen cancelled by quit': new BoundaryFailureError(RESET_REOPEN_CANCELLED),
 };
 const unrelated = {
   'a plain failure': new Error('Native index activation is closed for terminal retirement.'),
   'a plain failure with the closing message': new Error('Desktop host lease owner is closing'),
+  'a plain failure with the exit code': Object.assign(new Error('Indexer process exited.'), {
+    code: 'indexer-exited',
+  }),
   'an indexer still transitioning': new NativeIndexRefusalError(
     { kind: 'transitioning' },
     'Native index is transitioning.'
+  ),
+  'another indexer failure with the exit message': new IndexerError(
+    'indexer-failed',
+    'Indexer process exited.'
   ),
   'another refusal': new BoundaryFailureError(
     refusal({ category: 'availability', code: 'host.busy', message: 'Busy.' })

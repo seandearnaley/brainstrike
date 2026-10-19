@@ -50,12 +50,10 @@ describe('delivery schemas', () => {
       truncated: false,
     };
     expect(
-      Schema.decodeUnknownSync(ReadDeliverySchema, { errors: 'all', onExcessProperty: 'error' })(
-        read
-      )
+      Schema.decodeSync(ReadDeliverySchema, { errors: 'all', onExcessProperty: 'error' })(read)
     ).toEqual(read);
     expect(
-      Schema.decodeUnknownResult(StringReplaceDeliverySchema, {
+      Schema.decodeResult(StringReplaceDeliverySchema, {
         errors: 'all',
         onExcessProperty: 'error',
       })({ path: 'src/a.ts', replaced: true, rootId: 'r' })._tag === 'Success'

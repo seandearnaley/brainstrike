@@ -452,9 +452,8 @@ export const ThreadMessagesRegion = ({
      * being a child of the scroller, and it publishes the pinned state that
      * scopes `overflow-anchor` on the static tier.
      *
-     * The viewport's className is ONLY "aui-thread-viewport" — no Tailwind
-     * classes. The @assistant-ui library applies its own classes via @apply,
-     * and layout constraints live in overrides.css (with !important) instead.
+     * Viewport geometry is owned by overrides.css so both rendering tiers
+     * share the same bounded scroll box.
      */
     <ThreadScrollRegion>
       <div
@@ -471,8 +470,7 @@ export const ThreadMessagesRegion = ({
         // (and its auto-scroll/viewport-store machinery) is deliberately out
         // of the loop on BOTH tiers — tier 1 scrolling is owned by the repo's
         // follow engine (thread-scroll-follow.tsx), tier 2 by the
-        // virtualizer. The class stays `aui-thread-viewport` so the library's
-        // stylesheet and overrides.css keep applying unchanged.
+        // virtualizer. Both tiers share the app-owned viewport style.
         className="aui-thread-viewport"
         data-testid="assistant-ui-viewport"
         data-thread-message-count={messageCount}

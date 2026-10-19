@@ -65,8 +65,13 @@ function chip(region: Locator): Locator {
   return region.getByTestId('workspace-bar-folder-chip');
 }
 
-/** Open a thread folder's submenu in the chip. */
+/**
+ * Open a thread folder's submenu in the chip. A previous menu selection is
+ * still dismissing (exit animation, then focus returns to its trigger); a
+ * reopen inside that window is closed by the returning focus, so wait for it.
+ */
 async function openRootMenu(page: Page, region: Locator, rootId: string): Promise<Locator> {
+  await expect(page.getByRole('menu')).toHaveCount(0);
   await chip(region).click();
   const row = page.getByTestId(`workspace-bar-root-${rootId}`);
   await row.click();

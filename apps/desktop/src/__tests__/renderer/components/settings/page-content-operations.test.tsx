@@ -330,6 +330,10 @@ vi.mock('../../../../renderer/host-mcp-settings', () => ({
   resolveDesktopMcpContent: () => hostMcpContent.current,
 }));
 
+vi.mock('../../../../renderer/host-browser-origins', () => ({
+  resolveDesktopHostBrowserOrigins: () => null,
+}));
+
 vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
   DesktopLoggingSettings: () => <div data-testid="logging-settings" />,
 }));
@@ -793,8 +797,10 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     render(<SettingsPageContent />);
 
+    // Desktop runs local recall embedders in its embedding host, so its device is offered.
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenCalledWith({
       assistantMemoryBackendAvailable: true,
+      onDeviceEmbedding: true,
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
     });
     // The Model Catalog page no longer carries the memory settings.
@@ -810,6 +816,7 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenLastCalledWith({
       assistantMemoryBackendAvailable: expect.any(Boolean),
+      onDeviceEmbedding: true,
     });
   });
 

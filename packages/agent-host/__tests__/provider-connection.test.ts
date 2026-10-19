@@ -1,19 +1,23 @@
+import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { ResponseError } from 'vscode-jsonrpc';
-import type { HostMethodHandler } from '../src/auth-connection.js';
 import type { HostProviderService } from '../src/ports.js';
 import type { HostMethod } from '../src/protocol.js';
 import { bindHostProviderMethods } from '../src/provider-connection.js';
 
+type Bound = (params: unknown, signal?: AbortSignal) => unknown;
 function bound(
   providers: HostProviderService | undefined,
   origin: 'desktop-ui' | 'public-socket'
-): Map<HostMethod, (params: unknown) => unknown> {
-  const handlers = new Map<HostMethod, (params: unknown) => unknown>();
-  const handle: HostMethodHandler = (method, request) => {
-    handlers.set(method, request as (params: unknown) => unknown);
-  };
-  bindHostProviderMethods(handle, providers, origin);
+): Map<HostMethod, Bound> {
+  const handlers = new Map<HostMethod, Bound>();
+  bindHostProviderMethods(
+    (method, request) => {
+      handlers.set(method, request as Bound);
+    },
+    providers,
+    origin
+  );
   return handlers;
 }
 
@@ -34,10 +38,36 @@ describe('host provider methods', () => {
       enabled: true,
       providers: ['local'],
     });
-    await expect(handlers.get('providers/verify')?.({ provider: 'openai' })).resolves.toBe(
+    const { signal } = new AbortController();
+    await expect(handlers.get('providers/verify')?.({ provider: 'openai' }, signal)).resolves.toBe(
       snapshot
     );
-    expect(providers.verify).toHaveBeenCalledWith('openai', 'public-socket');
+    expect(providers.verify).toHaveBeenCalledWith('openai', 'public-socket', signal);
+  });
+
+  it("keeps a typed failure's type: a request cancelled as closing answers host.closing", async () => {
+    const closing = new BoundaryFailureError(
+      fault({ category: 'availability', code: 'host.closing', message: 'Closing.' })
+    );
+    const providers: HostProviderService = {
+      openRouterModel: vi.fn(async () => {
+        throw closing;
+      }),
+      status: vi.fn(),
+      verify: vi.fn(async () => {
+        throw closing;
+      }),
+    };
+    const handlers = bound(providers, 'public-socket');
+    const { signal } = new AbortController();
+
+    await expect(handlers.get('providers/verify')?.({ provider: 'openai' }, signal)).rejects.toBe(
+      closing
+    );
+    await expect(
+      handlers.get('providers/openrouter-model')?.({ model: 'openai/gpt-5.4-mini' }, signal)
+    ).rejects.toBe(closing);
+    expect(providers.openRouterModel).toHaveBeenCalledWith('openai/gpt-5.4-mini', signal);
   });
 
   it('crosses a failure as its own text, without the transport prefix', async () => {

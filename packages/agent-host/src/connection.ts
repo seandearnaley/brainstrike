@@ -10,6 +10,7 @@ import { createLogger } from '@brainstrike/logging';
 import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import { toBoundaryResponseError } from './boundary-wire.js';
+import { bindHostBrowserOriginMethods } from './browser-origin-answers.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.js';
@@ -66,6 +67,8 @@ export interface HostConnectionOptions {
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
+  /** The transport's retirement: each in-flight request's signal aborts as `host.closing`. */
+  readonly retiring?: AbortSignal;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
   /** The semantic arm's index operations, where the host owns a state index. */
@@ -86,7 +89,7 @@ const HOST_CLEANUP_FAILED = fault({
   code: 'host.cleanup-failed',
   message: 'Host cleanup failed, so the agent host kept its Root.',
 });
-const HOST_CLOSING = fault({
+const HOST_CLOSING = refusal({
   category: 'availability',
   code: 'host.closing',
   message: 'The agent host is closing.',
@@ -107,6 +110,7 @@ export function bindHostConnection(
     mcpSettings,
     origin = 'public-socket',
     providers,
+    retiring,
     searchState,
     searchStateVectors,
     searchWorkspace,
@@ -160,6 +164,9 @@ export function bindHostConnection(
         const cancelled = token.onCancellationRequested(() =>
           controller.abort(new Error('The client cancelled the request'))
         );
+        // BST-2174: retirement cancels the work that reads this signal, then joins it.
+        const retire = (): void => controller.abort(new BoundaryFailureError(HOST_CLOSING));
+        retiring?.addEventListener('abort', retire, { once: true });
         try {
           if (disposed || (!initialized && method !== 'initialize')) {
             throw new BoundaryFailureError(UNAUTHENTICATED);
@@ -183,6 +190,7 @@ export function bindHostConnection(
             : response;
         } finally {
           cancelled.dispose();
+          retiring?.removeEventListener('abort', retire);
         }
       })
     );
@@ -226,13 +234,14 @@ export function bindHostConnection(
     // asynchronous resource registration so a second initialize cannot enter.
     initialized = true;
     await options.bindCatalog?.({
-      onRequest: ((method: string, handler: (input: unknown) => Promise<unknown>) =>
-        connection.onRequest(method, async (input: unknown) => {
+      onRequest: ((method: string, handler: (input: unknown) => Promise<unknown>) => {
+        let retired = false;
+        const subscription = connection.onRequest(method, async (input: unknown) => {
           try {
             if (!initialized || disposed) {
               throw new BoundaryFailureError(UNAUTHENTICATED);
             }
-            if (lifecycle?.closing) {
+            if (retired || lifecycle?.closing) {
               throw new BoundaryFailureError(HOST_CLOSING);
             }
             return await handler(input);
@@ -241,7 +250,18 @@ export function bindHostConnection(
               logger.error(message, { ...fields, method })
             );
           }
-        })) as MessageConnection['onRequest'],
+        });
+        // The catalog retires before the transport's admitted replies drain.
+        // Keep its typed refusal on that still-live socket; removing the wire
+        // handler early turns a shutdown read into an untyped MethodNotFound.
+        // The connection remains the physical owner of this registration.
+        disposables.push(subscription);
+        return {
+          dispose: () => {
+            retired = true;
+          },
+        };
+      }) as MessageConnection['onRequest'],
     });
     attached();
     return {
@@ -258,6 +278,7 @@ export function bindHostConnection(
   bindHostMcpContentMethods(handle, mcpContent, origin);
   bindHostHookTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
+  bindHostBrowserOriginMethods(handle, core.store, origin);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('ledger/read', () => core.readLedger());

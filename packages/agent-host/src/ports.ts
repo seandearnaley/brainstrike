@@ -46,6 +46,7 @@ import type {
   HostHookSkip,
   HostLoginCredential,
   HostLogRow,
+  HostMemoryModels,
   HostObservationalMemoryState,
   HostParams,
   HostResults,
@@ -336,6 +337,8 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
+  /** The observer and embedder this admission's memory uses, for `thread/memory/read`. */
+  readonly memoryModels?: HostMemoryModels;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
@@ -486,6 +489,13 @@ export interface HostTool {
    */
   readonly approvalTarget?: (input: unknown) => HostApprovalTargetRoot | undefined;
   /**
+   * BST-1178: the web origin this call opens. A person answers the first call
+   * to each origin; their Always allow or Don't allow is saved by the host and
+   * answers every later call to it. Undefined where the call names no origin
+   * it could open (its execute refuses the URL).
+   */
+  readonly browserOrigin?: (input: unknown) => string | undefined;
+  /**
    * Whether this call's own input asks for network a person must allow, per
    * call, before it executes (run_python's requested domains). Never remembered
    * and never answered by a grant or policy.
@@ -524,11 +534,16 @@ export interface HostTool {
  * OpenRouter model metadata. Keys resolve inside the host and never cross.
  */
 export interface HostProviderService {
-  openRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** `signal` is the request's: its abort cancels this caller's network wait with its reason. */
+  openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
   /** The availability payload Settings and the assistant panel gate on. */
   status(): Promise<Readonly<Record<string, unknown>>>;
   /** A subscription probe needs the desktop origin, like a subscription run. */
-  verify(provider: string, origin: HostClientOrigin): Promise<ProviderVerificationSnapshot>;
+  verify(
+    provider: string,
+    origin: HostClientOrigin,
+    signal: AbortSignal
+  ): Promise<ProviderVerificationSnapshot>;
 }
 
 /**

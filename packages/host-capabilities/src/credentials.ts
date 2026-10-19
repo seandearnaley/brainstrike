@@ -71,7 +71,7 @@ export function createHostCredentials(options: HostCredentialsOptions): HostCred
   let secrets: SecretsService | undefined;
   let closing: Promise<void> | undefined;
   const open = (): KeyringCredentialStore => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new HostCredentialsClosedError();
     }
     const selection = options.selection;

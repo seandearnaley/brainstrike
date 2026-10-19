@@ -80,12 +80,6 @@ export interface NativeToolPorts {
 
 /** What one request hands every shared executor entry. */
 export interface NativeToolBuildContext {
-  /**
-   * True when the request targets the built-in on-device provider. The
-   * entries that omit themselves for it (task list, suspending tools, canvas)
-   * say why beside their own gate.
-   */
-  readonly isLocalProvider: boolean;
   readonly ports: NativeToolPorts;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   /** The live per-call domain budget, falling back to the request's resolved one. */
@@ -314,8 +308,6 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
     id: NATIVE_TOOL_ID.renameWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
   }),
-  // `localProvider: 'unregistered'`: no fold builds it for the built-in local
-  // provider (same WebGPU-prefill reasoning as the task-list tool).
   [NATIVE_TOOL_ID.manageCanvas]: ({ ports }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas],
     execute: async (input: ToolExecuteInput<ManageCanvasInput>) => {
@@ -338,18 +330,9 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
   // The two SUSPENDING native tools are registered as the factory-returned
   // Mastra Tool objects DIRECTLY (not re-wrapped in the registry's
   // { description, execute, id, inputSchema } literal shape): re-wrapping
-  // would drop suspendSchema/resumeSchema and break suspension. Both are
-  // `localProvider: 'unregistered'`: the built-in local provider has no
-  // suspend/resume, so no fold builds them for it.
+  // would drop suspendSchema/resumeSchema and break suspension.
   [NATIVE_TOOL_ID.askUser]: () => createAskUserTool(),
   [NATIVE_TOOL_ID.submitPlan]: () => createSubmitPlanTool(),
-  // `localProvider: 'unregistered'` — the built-in local model never gets the
-  // task-list tool: its persisted plan
-  // is never re-injected into local instructions either (see
-  // readThreadTaskListForTurn in assistant-server/agent-stream-init.ts and the provider gate on
-  // buildCurrentTaskListNote in agent-runtime.ts), and the tiny on-device
-  // model's WebGPU prefill budget cannot afford advertising a tool whose state
-  // it will never see reflected back.
   [NATIVE_TOOL_ID.manageTaskList]: ({ ports }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
     execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {

@@ -57,7 +57,7 @@ const insertAfterStart = (...events: Record<string, unknown>[]): HostLogRow[] =>
 };
 /** The recording with its first run's start replaced by `event`'s fields. */
 const startedWith = (event: Record<string, unknown>): HostLogRow[] => {
-  const replaced = Schema.decodeUnknownSync(HostLogRowSchema, {
+  const replaced = Schema.decodeSync(HostLogRowSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({ ...first, event: { ...first.event, ...event } });
@@ -381,10 +381,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     // An SDK model id, as rows committed before BST-1929 carry, names no
     // provider: it is not costed, though it matches the run's resolved target.
     expect(costedSources('gpt-4.1-mini')).toEqual([
-      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
-    ]);
-    // The built-in local observer bills nothing.
-    expect(costedSources('local::gemma-4-e2b-it')).toEqual([
       ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
     ]);
   });

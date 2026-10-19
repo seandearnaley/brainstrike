@@ -1,5 +1,4 @@
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 
 export function hasDesktopRuntimeBridge(): boolean {
@@ -31,9 +30,7 @@ interface AssistantExecutionControls {
   readonly togglePlanMode: () => void;
 }
 
-export function useAssistantExecutionControls(
-  selectedProvider: SupportedProvider | null
-): AssistantExecutionControls {
+export function useAssistantExecutionControls(): AssistantExecutionControls {
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   // Is DESKTOP's own assistant server behind this panel? Every panel streams
   // over the same data-stream transport, but only the desktop server runs the
@@ -47,10 +44,7 @@ export function useAssistantExecutionControls(
   const planModeEnabledPref = useAssistantPreferencesStore((state) => state.planModeEnabled);
   const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
   const setPlanModeEnabled = useAssistantPreferencesStore((state) => state.setPlanModeEnabled);
-  // Plan mode is never offered for the built-in local provider (its server gate
-  // ignores planMode — see O3), so the composer toggle is hidden there rather
-  // than silently no-opping.
-  const planModeAvailable = assistantServerAvailable && selectedProvider !== 'local';
+  const planModeAvailable = assistantServerAvailable;
   const planMode = planModeEnabledPref && planModeAvailable;
   return {
     assistantServerAvailable,

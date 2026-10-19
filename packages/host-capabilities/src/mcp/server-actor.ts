@@ -189,8 +189,13 @@ function mapMcpOperationError(error: unknown): MappedMcpOperationError {
         return { category: 'protocol', code: 'mcp-invalid-result' };
       case SdkErrorCode.ListPaginationExceeded:
         return { category: 'operation', code: 'mcp-list-pagination-exceeded' };
+      // The SDK client's own check, raised before any request is sent: the
+      // CALLER asked for a capability the server never advertised. That is
+      // this call's fault, not the connection's, so it costs the generation
+      // nothing (BST-1632). A server that answers -32021 is still a protocol
+      // failure above.
       case SdkErrorCode.CapabilityNotSupported:
-        return { category: 'protocol', code: 'mcp-capability-missing' };
+        return { category: 'operation', code: 'mcp-capability-missing' };
       case SdkErrorCode.MethodNotSupportedByProtocolVersion:
         return { category: 'protocol', code: 'mcp-era-mismatch' };
       case SdkErrorCode.RequestTimeout:
@@ -318,7 +323,7 @@ export class McpServerActor {
       attempt.abort(new DOMException('MCP connection disconnected', 'AbortError'));
     }
     const pendingClient = this.clientPromise;
-    if (pendingClient) {
+    if (pendingClient !== undefined) {
       await Promise.allSettled([pendingClient]);
     }
     const report = await this.closeClient(false);
@@ -341,7 +346,7 @@ export class McpServerActor {
     return this.snapshot();
   }
   close(): Promise<McpHostCloseReport> {
-    if (this.closePromise) {
+    if (this.closePromise !== undefined) {
       return this.closePromise;
     }
     this.closePromise = Promise.resolve().then(() => this.closeAfterDrain());
@@ -422,7 +427,7 @@ export class McpServerActor {
     if (this.client) {
       return Promise.resolve(this.client);
     }
-    if (this.clientPromise) {
+    if (this.clientPromise !== undefined) {
       if (interactiveAuthorization && !this.connectAttemptInteractive) {
         // Reuse a successful refresh. Only an explicit Connect may continue a
         // completed background auth failure with a fresh interactive provider.
@@ -748,7 +753,7 @@ export class McpServerActor {
   }
 
   private closeClient(memoizeFailure = true): Promise<McpHostCloseReport> {
-    if (this.clientClosePromise) {
+    if (this.clientClosePromise !== undefined) {
       return this.clientClosePromise;
     }
     const client = this.client;

@@ -118,7 +118,7 @@ test('a read evaluates run/start’s request with the pure preconditions and adm
       const configuration = { memorySettings: { semanticRecall: { enabled: true } } };
       const result = await core.readThreadMemory({ configuration, modelId: MODEL, threadId });
       expect(
-        Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/memory/read'], {
+        Schema.decodeSync(HOST_RESULT_SCHEMAS['thread/memory/read'], {
           errors: 'all',
           onExcessProperty: 'error',
         })(result)
@@ -187,6 +187,42 @@ test('during an active run the read answers from that run’s own admission', as
       expect(admitted).toHaveBeenCalledTimes(1);
       expect(readObservation).toHaveBeenCalledWith(threadId);
       expect(readMemoryReadiness).not.toHaveBeenCalled();
+    })
+  );
+});
+test('during an active run the read names the models that run’s memory uses', async () => {
+  const memoryModels = {
+    embedder: {
+      dimensions: 8,
+      distance: 'cosine' as const,
+      modelId: 'embed-8',
+      provider: 'openai',
+    },
+    observer: 'openai::gpt-5-mini',
+  };
+  const host = platform({
+    admitRun: async () =>
+      pausingAdmission({
+        memoryModels,
+        readObservation: async () => ({ record: null, state: 'active' as const }),
+      }),
+  });
+  await withStore((root) =>
+    withCore(root, host, async (core) => {
+      const { threadId } = await core.startThread({ commandId: randomUUID() });
+      await core.startRun({ commandId: randomUUID(), modelId: MODEL, prompt: 'Write', threadId });
+      await committed(core, threadId, 'interaction.requested');
+      const result = await core.readThreadMemory({ modelId: MODEL, threadId });
+      expect(
+        Schema.decodeSync(HOST_RESULT_SCHEMAS['thread/memory/read'], {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(result)
+      ).toEqual({
+        admission: { ready: true },
+        models: memoryModels,
+        observational: { record: null, state: 'active' },
+      });
     })
   );
 });

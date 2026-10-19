@@ -8,7 +8,7 @@ import { expect, test, vi } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
 import { BrainstrikeDataStreamRuntimeAdapter } from '../data-stream-runtime';
-import { Harness, runEventPart } from './assistant-activity-timeline-fixtures';
+import { Harness, HostHistoryHarness, runEventPart } from './assistant-activity-timeline-fixtures';
 
 const request = {
   args: { action: 'create', content: '<main>Review</main>', title: 'Review canvas' },
@@ -346,12 +346,11 @@ test.each(
 );
 
 test('a reused surface call on another host remains animated beside the addressed canvas history', async () => {
-  const run = vi.fn<ChatModelAdapter['run']>(async () => {
+  const run = vi.fn(async () => {
     throw new Error('No decision has been submitted.');
   });
   render(
-    <Harness
-      adapter={{ run }}
+    <HostHistoryHarness
       initialMessages={[
         {
           content: separateNoticeContent(),
@@ -378,6 +377,7 @@ test('a reused surface call on another host remains animated beside the addresse
           role: 'assistant',
         },
       ]}
+      onNew={run}
     >
       {(children) => (
         <AnsweredApprovalsProvider>
@@ -386,7 +386,7 @@ test('a reused surface call on another host remains animated beside the addresse
           {children}
         </AnsweredApprovalsProvider>
       )}
-    </Harness>
+    </HostHistoryHarness>
   );
   await screen.findByRole('button', { name: `Approve ${request.toolName}` });
   const [owned, sibling] = screen.getAllByTestId('timeline');

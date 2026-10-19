@@ -230,7 +230,7 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Built-in subagent personas the supervisor may delegate to (server-set,
    * agent-only). Threaded through on both the initial turn
    * and the approval-resume path so the rebuilt supervisor keeps its `agent-<id>`
-   * delegation tools. Skipped for the built-in local provider (agent-side, D10).
+   * delegation tools.
    */
   personas?: readonly AssistantPersonaDefinition[];
   /**
@@ -241,8 +241,7 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    */
   providerOptions?: RuntimeProviderOptions;
   /**
-   * Server-injected Agent Skills engine (desktop). When present (and the
-   * provider is not the built-in local model), the runtime folds Mastra's
+   * Server-injected Agent Skills engine (desktop). When present, the runtime folds Mastra's
    * `skill`/`skill_read`/`skill_search` tools into the local tool map BEFORE
    * guards/hooks/plan-mode/permission, and composes a `SkillsProcessor` into
    * the per-call input processors so available-skills metadata reaches the

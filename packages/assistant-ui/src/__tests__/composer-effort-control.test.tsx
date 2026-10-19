@@ -181,15 +181,16 @@ describe('ComposerEffortControl', () => {
       const slider = within(popover).getByTestId('composer-effort-slider');
       expect(within(popover).getByTestId('composer-effort-value')).toHaveTextContent('Auto');
 
+      // GPT-5.6 Terra's documented ladder (BST-1709): it offers None and Max,
+      // and not the family default's Minimal, which its model page omits.
       const rowText = within(popover).getByTestId('composer-effort-row').textContent ?? '';
-      expect(rowText).toContain('Minimal');
+      expect(rowText).toContain('None');
       expect(rowText).toContain('Extra');
-      // `max` is only valid where a model declares it, so it must not appear
-      // on the default OpenAI-family track.
-      expect(rowText).not.toContain('Max');
+      expect(rowText).toContain('Max');
+      expect(rowText).not.toContain('Minimal');
 
-      // Track is [Auto, Minimal, Low, Medium, High, Extra]; index 4 is High.
-      expect(slider).toHaveAttribute('max', '5');
+      // Track is [Auto, None, Low, Medium, High, Extra, Max]; index 4 is High.
+      expect(slider).toHaveAttribute('max', '6');
       fireEvent.change(slider, { target: { value: '4' } });
       expect(onProviderSettingsChange).toHaveBeenCalledWith('openai', { reasoningEffort: 'high' });
       // The popover stays open across slider changes (no menu-dismiss friction).

@@ -1,3 +1,4 @@
+import { waitForPopupAnimations } from '@brainstrike/e2e-test-utils/popup-animations';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { resetAppState } from './utils/app-state';
@@ -364,6 +365,7 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
       })
       .toBeGreaterThan(0);
 
+    await waitForPopupAnimations(indexingPopover);
     const popoverBeforePause = await requireBoundingBox(indexingPopover);
     await indexingPopover.getByRole('button', { name: 'Pause workspace index' }).click();
     await expect(indexingTrigger).toContainText('Paused', { timeout: 15_000 });

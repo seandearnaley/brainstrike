@@ -72,14 +72,13 @@ export type McpTaskActionResult =
       readonly ok: false;
     };
 /** A card action's outcome, as a client outside the task host's process receives it. */
-export const McpTaskActionResultSchema: Schema.ConstraintDecoder<McpTaskActionResult> =
-  Schema.Union(
-    [
-      Schema.Struct({ ok: Schema.Literal(true), task: McpTaskPresentationSchema }),
-      Schema.Struct({ diagnostic: McpTaskDiagnosticSchema, ok: Schema.Literal(false) }),
-    ],
-    { mode: 'oneOf' }
-  );
+export const McpTaskActionResultSchema = Schema.Union(
+  [
+    Schema.Struct({ ok: Schema.Literal(true), task: McpTaskPresentationSchema }),
+    Schema.Struct({ diagnostic: McpTaskDiagnosticSchema, ok: Schema.Literal(false) }),
+  ],
+  { mode: 'oneOf' }
+) satisfies Schema.ConstraintDecoder<McpTaskActionResult>;
 export interface McpTaskPresentationControllerPort {
   act(request: McpTaskActionRequest): Promise<McpTaskActionResult>;
 }

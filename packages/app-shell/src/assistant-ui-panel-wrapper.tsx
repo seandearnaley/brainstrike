@@ -74,7 +74,6 @@ import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
-import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { ThreadSearchMessageNavigation } from './thread-search-message-navigation';
 import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-adapter';
@@ -418,7 +417,7 @@ export function AssistantUiPanelWrapper({
     planModeEnabledPref,
     setPlanModeEnabled,
     togglePlanMode,
-  } = useAssistantExecutionControls(selectedProvider);
+  } = useAssistantExecutionControls();
   const {
     delegatedPanelBinding,
     ensureResourceThreads,
@@ -531,8 +530,6 @@ export function AssistantUiPanelWrapper({
   const workspaceInstructionsOversizedOptIns = useWorkspaceInstructionsPreferencesStore(
     (state) => state.oversizedOptInByRootId
   );
-  // Subagent persona availability (desktop data-stream only; undefined at defaults).
-  const subagentPersonasRequest = useSubagentPersonasRequest(assistantServerAvailable);
 
   const workspaceInstructionsPreference = useMemo(() => {
     if (!assistantServerAvailable) {
@@ -580,6 +577,7 @@ export function AssistantUiPanelWrapper({
 
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,
+    assistantServerAvailable,
     ...(assistantServerAvailable && threadRootBinding
       ? { boundWorkspaceRootId: threadRootBinding.rootId }
       : {}),
@@ -598,7 +596,6 @@ export function AssistantUiPanelWrapper({
     selectionData,
     semanticRecallSettings,
     skillsPreference,
-    subagentPersonasRequest,
     workspaceIndex,
     workspaceInstructionsPreference,
     workspaceRootPath,

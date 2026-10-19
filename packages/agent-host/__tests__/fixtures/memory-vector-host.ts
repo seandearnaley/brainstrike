@@ -30,6 +30,7 @@ import { StateStoreHostMemory } from '../../src/adapters/state-store-host-memory
 import { HostCore } from '../../src/core.js';
 import type { HostPlatform, HostRunContext } from '../../src/ports.js';
 import type { HostEvent } from '../../src/protocol.js';
+import { REAL_INDEXER_DEADLINES } from './real-indexer-deadlines.js';
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 import { scriptedModel } from './scripted-model.js';
 
@@ -134,7 +135,7 @@ export async function memoryVectorHost(options: {
     stateResources: [{ resourceId, rootId: root }],
     stateRoot: root,
   } as const;
-  const indexerDeadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+  const indexerDeadlines = REAL_INDEXER_DEADLINES;
   let indexer = options.realIndexer
     ? await openIndexer(indexerOptions, indexerDeadlines)
     : undefined;

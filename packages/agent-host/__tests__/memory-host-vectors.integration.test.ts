@@ -273,6 +273,88 @@ test('vector observational retrieval indexes observations in the host state inde
   }
 });
 
+test('a memory read during a run names its admission’s observer and embedder beside the live record', async () => {
+  const answer = scriptedToolSequence([]);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  // The run's model holds its first step, so the run is active when Memory is read.
+  const held = new MockLanguageModelV4({
+    doStream: async (options) => {
+      entered.resolve();
+      await release.promise;
+      return await answer.doStream(options);
+    },
+  });
+  const observer = scriptedToolSequence([]);
+  const host = await vectorHost(
+    {
+      lastMessages: 4,
+      observationalMemory: {
+        model: observer,
+        observation: { bufferTokens: false, messageTokens: 30_000 },
+        reflection: { observationTokens: 40_000 },
+        scope: 'thread',
+      },
+      semanticRecall: { messageRange: 0, scope: 'resource', topK: 1 },
+      workingMemory: { enabled: false },
+    },
+    [held]
+  );
+  try {
+    const { threadId } = await host.client.request('thread/start', { commandId: randomUUID() });
+    await host.client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: `openai::${modelId}`,
+      prompt: 'The capital of France is Paris.',
+      threadId,
+    });
+    await entered.promise;
+    const read = await host.client.request('thread/memory/read', {
+      modelId: `openai::${modelId}`,
+      threadId,
+    });
+    release.resolve();
+    await expect
+      .poll(
+        async () =>
+          (await host.client.request('thread/read', { fromSeq: 0, threadId })).rows.some(
+            ({ event }) => event.type === 'run.finished'
+          ),
+        { timeout: 30_000 }
+      )
+      .toBe(true);
+    expect(read).toMatchObject({
+      admission: { ready: true },
+      models: {
+        embedder: {
+          dimensions: profile.dimensions,
+          distance: 'cosine',
+          modelId: profile.modelId,
+          provider: 'openai',
+        },
+        observer: 'openai::gpt-4.1-mini',
+      },
+      // Mastra created the thread's record before the step: its first generation, idle.
+      observational: {
+        record: {
+          lifecycle: {
+            generationCount: 0,
+            isObserving: false,
+            isReflecting: false,
+            originType: 'initial',
+            reflectionTokenThreshold: 40_000,
+          },
+          messageTokenThreshold: 30_000,
+        },
+        state: 'active',
+      },
+    });
+  } finally {
+    release.resolve();
+    await host.close();
+  }
+});
+
 test('a host state index opened before memory grants is rebuilt once from the state log', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-host-index-rebuild-')));
   const store = await StateStore.open(root, {

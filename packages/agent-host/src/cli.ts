@@ -357,7 +357,7 @@ function threadSearchParams(values: HostCliArguments['values']): HostParams<'thr
   if (problems.length > 0) {
     throw new Error(problems.join('\n'));
   }
-  return Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['thread/search'], {
+  return Schema.decodeSync(HOST_METHOD_SCHEMAS['thread/search'], {
     errors: 'all',
     onExcessProperty: 'error',
   })({
@@ -487,8 +487,13 @@ Run signals stop and join its execution; attach signals detach.
             'Starting a host requires --platform <module>; this entry composes no default platform'
           );
         }
-        await createAgentHostSpawner(platformModule, launchSelection(values))(options, signal);
+        const started = await createAgentHostSpawner(platformModule, launchSelection(values))(
+          options,
+          signal
+        );
         spawned = true;
+        // BST-2167: the launch settles the host it started (release or retire).
+        return started;
       },
     }
   );

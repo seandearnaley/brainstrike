@@ -136,7 +136,8 @@
     "src/sqlite-query-host-entry.ts",
     "src/sqlite-query-host-manager.ts",
     "src/agent-host-entry.ts",
-    "src/agent-host-platform-entry.ts"
+    "src/agent-host-platform-entry.ts",
+    "src/agent-egress-entry.ts"
   ],
   "exclude": [
     "node_modules",

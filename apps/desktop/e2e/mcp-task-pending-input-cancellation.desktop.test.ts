@@ -5,57 +5,20 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
-import { SettingsPage } from './page-objects/settings-page';
 import { readCommittedMcpTasks } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { getBufferedElectronOutput } from './utils/electron-helpers.mts';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startPendingInputFixture } from './utils/mcp-pending-input-fixture';
+import {
+  beginPendingInputTask,
+  configurePendingInputServer,
+  PENDING_INPUT_TOOL_NAME,
+} from './utils/mcp-task-flow';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
-const SERVER_ID = 'pending-input';
-const TOOL_NAME = 'pending-input_start_task';
 const FINAL_TEXT = 'The task observation has returned.';
-
-async function configureServer(page: Page, url: string): Promise<void> {
-  await new HomePage(page).openSettings();
-  const settings = new SettingsPage(page);
-  await settings.openCategory(/AI Tools/i, 'ai-tools');
-  await page.getByRole('tab', { name: 'MCP Config' }).click();
-  const editor = page.getByTestId('mcp-config-editor');
-  await expect(editor).toBeVisible();
-  await editor.fill(
-    JSON.stringify({
-      servers: [{ name: SERVER_ID, protocol: '2026-07-28', transport: 'streamable-http', url }],
-    })
-  );
-  await page.getByTestId('mcp-config-save').click();
-  await expect(page.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
-  await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
-  const row = page.getByTestId(`mcp-server-row-${SERVER_ID}`);
-  await expect(row).toContainText(/Connected/i, { timeout: 60_000 });
-  await expect(row).toContainText('2026-07-28');
-  await settings.openCategory(/Permissions/i, 'permissions');
-  const permission = page.getByRole('combobox', { name: 'MCP permission' });
-  await permission.selectOption('ask');
-  await expect(permission).toHaveValue('ask');
-  await page.keyboard.press('Escape');
-}
-
-async function beginTask(page: Page, prompt: string): Promise<void> {
-  await page.getByRole('textbox', { name: 'Message input' }).fill(prompt);
-  await page.getByRole('button', { exact: true, name: 'Send' }).click();
-  await page
-    .getByRole('button', { exact: true, name: `Approve ${SERVER_ID}.start_task` })
-    .click({ timeout: 45_000 });
-  const dialog = page.getByTestId('mcp-elicitation-dialog');
-  await expect(dialog).toBeVisible({ timeout: 30_000 });
-  await expect(dialog).toContainText('Approve the reference task?');
-  await expect(dialog).toContainText(`Configured server "${SERVER_ID}"`);
-  await expect(dialog.getByRole('button', { name: /^Decline/u })).toBeFocused();
-}
 
 async function buildIdentity(): Promise<Readonly<Record<string, string>>> {
   const sha256 = async (file: string): Promise<string> =>
@@ -80,7 +43,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
   const provider = await startModelProviderShim({
     deferredTool: true,
     finalText: FINAL_TEXT,
-    toolCall: { arguments: {}, name: TOOL_NAME },
+    toolCall: { arguments: {}, name: PENDING_INPUT_TOOL_NAME },
   });
   const capture = async (page: Page, label: string): Promise<void> => {
     await testInfo.attach(label, {
@@ -123,7 +86,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
     },
     run: async (page) => {
       await ensureMockWorkspaceOpen(page);
-      await configureServer(page, server.url);
+      await configurePendingInputServer(page, server.url);
       await configureAssistantProvider(page, {
         apiKey: 'test-key-bst1948',
         compositeModelKey: 'openrouter::openai/gpt-5.4',
@@ -131,7 +94,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
       });
       await enableAssistantCatalogModel(page, 'openrouter::openai/gpt-5.4');
       await ensureAssistantShellVisible(page);
-      await beginTask(page, 'Start the task whose pending input I will cancel.');
+      await beginPendingInputTask(page, 'Start the task whose pending input I will cancel.');
       // The task-bound input is visible; its card projection updates only after
       // the interaction handler returns. Do not require that card to lead the modal.
       const pending = await readTasks();
@@ -176,7 +139,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
       // Positive control: the same provider/transport/presenter really delivers
       // a later answer for a different task. Absence of a cancelled-task update
       // must not be explained by a broken observer or disabled input delivery.
-      await beginTask(page, 'Start a fresh task and accept its input as a control.');
+      await beginPendingInputTask(page, 'Start a fresh task and accept its input as a control.');
       await dialog.getByRole('checkbox', { name: /approved/i }).check();
       await dialog.getByRole('button', { name: /^Accept and send input/u }).click();
       await expect

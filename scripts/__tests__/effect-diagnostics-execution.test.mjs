@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { runTsc } from '../verify-test-tsconfig-program.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const consumer = path.join(root, 'packages/effect-kit');
@@ -14,6 +15,12 @@ const checker = path.join(consumer, 'node_modules/@effect/tsgo/dist/effect-tsgo.
 // inherited test configuration. No replacement plugin configuration can make
 // an excluded test or a disabled production rule pass this contract.
 const cases = [
+  [
+    'preferTypedSchemaDecoder',
+    'producer.ts',
+    "import { Schema } from 'effect'; export const value = Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String }))({ name: 'Ada' });",
+    "import { Schema } from 'effect'; export const value = Schema.decodeSync(Schema.Struct({ name: Schema.String }))({ name: 'Ada' });",
+  ],
   ['floatingEffect', 'floating.ts', 'Effect.succeed(1);', 'export const work = Effect.succeed(1);'],
   [
     'floatingEffectInVitest',
@@ -160,6 +167,61 @@ test('the same inherited program accepts the corrected positive controls', (t) =
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.summary.errors, 0);
   assert.equal(result.summary.warnings, 0);
+});
+
+test('the actual shared schema rejects wrong Encoded fields without erasing unknown receivers', (t) => {
+  // Ignored by repository scans, on the same drive as the imported owning source.
+  const cache = path.join(root, 'node_modules/.cache');
+  mkdirSync(cache, { recursive: true });
+  const directory = mkdtempSync(path.join(cache, 'brainstrike-schema-encoded-'));
+  t.after(() => rmSync(directory, { force: true, recursive: true }));
+  const owner = path.join(root, 'packages/assistant-contract');
+  symlinkSync(path.join(owner, 'node_modules'), path.join(directory, 'node_modules'), 'junction');
+  writeFileSync(path.join(directory, 'package.json'), '{"type":"module"}');
+  const project = path.join(directory, 'tsconfig.json');
+  writeFileSync(
+    project,
+    JSON.stringify({
+      compilerOptions: {
+        composite: false,
+        declaration: false,
+        declarationMap: false,
+        incremental: false,
+        noEmit: true,
+        rootDir: root,
+      },
+      extends: path.join(owner, 'tsconfig.test.json'),
+      files: ['probe.ts'],
+      include: [],
+      references: [],
+    })
+  );
+  const imports = `import { Schema } from 'effect';\nimport { McpHostErrorSchema } from ${JSON.stringify(path.join(owner, 'src/mcp-host.js'))};\n`;
+  const check = (source) => {
+    writeFileSync(path.join(directory, 'probe.ts'), imports + source);
+    const result = runTsc(['--noEmit', '--incremental', 'false', '--project', project]);
+    assert.ifError(result.error);
+    assert.equal(result.signal, null, result.stderr);
+    return result;
+  };
+  const invalid = check(
+    "export const value = Schema.decodeSync(McpHostErrorSchema)({ category: 'configuration', code: 123, message: 'refused' });"
+  );
+  assert.equal(invalid.status, 1, 'the actual schema must retain its Encoded field types');
+  assert.match(invalid.stdout, /TS2322/u);
+  assert.match(invalid.stdout, /probe\.ts/u);
+  const valid = check(
+    "export const value = Schema.decodeSync(McpHostErrorSchema)({ category: 'configuration', code: 'refused', message: 'refused' });"
+  );
+  assert.equal(valid.status, 0, valid.stdout || valid.stderr);
+  const unknown = check(
+    "const wire: unknown = { category: 'configuration', code: 123, message: 'refused' }; export const value = Schema.decodeUnknownResult(McpHostErrorSchema)(wire);"
+  );
+  assert.equal(unknown.status, 0, unknown.stdout || unknown.stderr);
+  const erased = check(
+    "const erased: Schema.ConstraintDecoder<(typeof McpHostErrorSchema)['Type']> = McpHostErrorSchema; export const value = Schema.decodeSync(erased)({ category: 'configuration', code: 123, message: 'refused' });"
+  );
+  assert.equal(erased.status, 0, 'a decoder name alone cannot prove typed input after erasure');
 });
 
 test('the diagnostics package stays on the qualified release', () => {

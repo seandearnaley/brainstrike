@@ -80,7 +80,6 @@ const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
   'anthropic',
   'google',
   'openrouter',
-  'local',
 ]);
 
 function resolveLocalRuntimeBaseUrl(
@@ -400,10 +399,9 @@ export function createLanguageModelProvider(
       detail: `Persistent memory does not support provider: ${provider}`,
     });
   }
-  // Registry-derived (PR #2513 review, finding 7): within the persistent-
-  // memory allowlist above, `local` is the only `authType: 'none'` member
-  // (ollama/lmstudio are excluded from persistent memory entirely), so this
-  // is behavior-identical to the previous `provider !== 'local'` check.
+  // Registry-derived (PR #2513 review, finding 7), never a provider-id branch:
+  // a keyless provider would skip it, and ollama/lmstudio are excluded from
+  // persistent memory entirely.
   if (providerAuthType(provider) !== 'none' && !apiKey?.trim()) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
       context: { provider },

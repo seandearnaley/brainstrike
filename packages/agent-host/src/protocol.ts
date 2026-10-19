@@ -32,7 +32,9 @@ import {
   MCP_SETTINGS_METHOD_SCHEMAS,
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.js';
+import { HostMemoryModelsSchema, HostObservationalMemoryStateSchema } from './protocol-memory.js';
 import {
+  HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
   PERMISSION_POLICY_RESULT_SCHEMAS,
 } from './protocol-permission-policy.js';
@@ -69,6 +71,7 @@ export * from './mcp-authority-wire.js';
 export * from './protocol-mcp-content.js';
 export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
+export * from './protocol-memory.js';
 export * from './protocol-permission-policy.js';
 export * from './protocol-rewind.js';
 export * from './protocol-search.js';
@@ -106,8 +109,10 @@ export * from './workspace-wire.js';
 // (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning thread's policy, and
 // `worktree.created` (a worktree a call's shell command made, which the desktop adopted), and a
 // provider request's tool calls (the breakdown's `toolCallsTokens` and `toolCallsByTool`, and the
-// request's `toolCallWindow`), and `state/health/read` (BST-1880). These additions are optional
-// fields, new variants and new methods, so a v11 reader that uses none of them sees nothing new.
+// request's `toolCallWindow`), `state/health/read` (BST-1880), and `thread/memory/read`'s
+// observation lifecycle, reflection threshold and memory models (BST-2201). These additions are
+// optional fields, new variants and new methods, so a v11 reader that uses none of them sees
+// nothing new.
 // v12 (2026-10-18): `mcp/config/read` returns the config text's `revision` (a SHA-256 of its
 // content). `mcp/config/write` requires `baseRevision` and refuses a stale base with
 // `conflict: true` instead of overwriting. Write and catalog-install successes return the new
@@ -175,13 +180,6 @@ const PermissionGrant = Schema.Union(
   { mode: 'oneOf' }
 );
 export type HostPermissionGrant = (typeof PermissionGrant)['Type'];
-/**
- * The answer to a `network` interaction: allow lets this one call reach its
- * requested domains; deny settles it unrun (run_python's `network_denied`).
- */
-export const HostNetworkConsentSchema = Schema.Struct({
-  action: Schema.Literals(['allow', 'deny']),
-});
 const McpInput = { ...Run, interactionId: Id };
 /** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
 const McpAppCall = {
@@ -340,42 +338,6 @@ export const HostHookTrustSchema = Schema.Struct({
   sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
 });
 export type HostHookTrust = (typeof HostHookTrustSchema)['Type'];
-/** Why observational memory waits for an observer it can run. */
-export const HOST_OBSERVER_AWAITING_REASONS = [
-  'keys-unknown',
-  'model-not-eligible',
-  'no-backend',
-  'no-hosted-chat-provider',
-] as const;
-export type HostObserverAwaitingReason = (typeof HOST_OBSERVER_AWAITING_REASONS)[number];
-const ObservationTokens = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
-/**
- * Observational memory as a run admission configures it. `active` carries the
- * thread's committed observation record, or null before the first observation.
- */
-export const HostObservationalMemoryStateSchema = Schema.Union(
-  [
-    Schema.Struct({ state: Schema.Literal('off') }),
-    Schema.Struct({
-      reason: Schema.Literals(HOST_OBSERVER_AWAITING_REASONS),
-      state: Schema.Literal('awaiting-observer'),
-    }),
-    Schema.Struct({
-      record: Schema.NullOr(
-        Schema.Struct({
-          bufferedObservationTokens: ObservationTokens,
-          messageTokenThreshold: Schema.Int.check(Schema.isGreaterThan(0)),
-          observationTokenCount: ObservationTokens,
-          pendingMessageTokens: ObservationTokens,
-          totalTokensObserved: ObservationTokens,
-        })
-      ),
-      state: Schema.Literal('active'),
-    }),
-  ],
-  { mode: 'oneOf' }
-);
-export type HostObservationalMemoryState = (typeof HostObservationalMemoryStateSchema)['Type'];
 export const HOST_METHOD_SCHEMAS = {
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -763,6 +725,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         executionContext: Schema.optional(json()),
         interactionId: Id,
         kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
+        origin: Schema.optional(HostBrowserOriginSchema),
         risk: Schema.optional(RiskCategory),
         targetRoot: Schema.optional(HostApprovalTargetRootSchema),
       }),
@@ -781,6 +744,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
             Schema.Struct({
               type: Schema.Literal('interaction.responded'),
               ...RunFields,
+              by: Schema.optional(Schema.Literal('policy')),
               interactionId: Id,
               resumeData: json(),
             }),
@@ -1051,6 +1015,7 @@ export const HOST_RESULT_SCHEMAS = {
   'thread/memory/read': Schema.Union([
     Schema.Struct({
       admission: Schema.Struct({ ready: Schema.Literal(true) }),
+      models: Schema.optional(HostMemoryModelsSchema),
       observational: HostObservationalMemoryStateSchema,
     }),
     Schema.Struct({

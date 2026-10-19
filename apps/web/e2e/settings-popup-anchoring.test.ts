@@ -1,3 +1,4 @@
+import { waitForPopupAnimations } from '@brainstrike/e2e-test-utils/popup-animations';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
@@ -101,6 +102,10 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
     const listbox = page.locator(SELECT_LISTBOX);
     await expect(listbox).toBeVisible({ timeout: 15_000 });
     await waitForFloatingLayerStack(page, SELECT_LISTBOX);
+    // Layer registration admits input while the entrance zoom is still running.
+    // Join that physical animation before measuring the final content bounds;
+    // a wrongly measured anchor stays wrong after this animation finishes.
+    await waitForPopupAnimations(listbox);
 
     const geometry = await page.evaluate((selector) => {
       const content = document.querySelector(selector);

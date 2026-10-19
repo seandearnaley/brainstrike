@@ -2,8 +2,6 @@ import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   DESKTOP_NATIVE_TOOL_IDS,
-  LOCAL_DESKTOP_NATIVE_TOOL_IDS,
-  LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
   NATIVE_TOOL_IDS,
   NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS,
@@ -123,30 +121,6 @@ describe('NATIVE_TOOLS catalog', () => {
       DESKTOP_CATALOG.filter((tool) => tool.surfaces.includes('web')).map((tool) => tool.id)
     );
     expect(WEB_NATIVE_TOOL_IDS).toHaveLength(22);
-    expect(LOCAL_DESKTOP_NATIVE_TOOL_IDS).toEqual([
-      'brainstrike.executeCommand',
-      'brainstrike.globWorkspace',
-      'brainstrike.grepSearch',
-      'brainstrike.readWorkspaceFile',
-      'brainstrike.stringReplaceWorkspaceFile',
-    ]);
-    expect([...LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS]).toEqual(
-      DESKTOP_CATALOG.filter((tool) => tool.localProvider === 'unregistered').map((tool) => tool.id)
-    );
-    expect([...LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS].sort()).toEqual([
-      'brainstrike.askUser',
-      'brainstrike.browserGetPageText',
-      'brainstrike.browserNavigate',
-      'brainstrike.browserReadPage',
-      'brainstrike.inspectCommandSessions',
-      'brainstrike.listWorktrees',
-      'brainstrike.manageCanvas',
-      'brainstrike.manageCommandSession',
-      'brainstrike.manageTaskList',
-      'brainstrike.manageWorktree',
-      'brainstrike.runPython',
-      'brainstrike.submitPlan',
-    ]);
     expect(NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS).toEqual([
       'brainstrike.inspectCommandSessions',
       'brainstrike.manageCommandSession',
@@ -220,7 +194,6 @@ const throwawayTool = defineNativeTool({
     Schema.Struct({ probe: Schema.String.annotate({ description: 'Probe input' }) })
   ),
   kind: 'desktop',
-  localProvider: 'offered',
   nonDurableOutput: true,
   returns: 'Nothing useful.',
   surfaces: ['desktop', 'web'],
@@ -239,8 +212,6 @@ describe('deriveNativeToolRegistries', () => {
     expect(registries.ids.desktop).toContain(id);
     expect(registries.ids.skill).not.toContain(id);
     expect(registries.ids.web).toContain(id);
-    expect(registries.ids.local).toContain(id);
-    expect(registries.ids.localUnregistered).not.toContain(id);
     expect(registries.ids.nonDurableOutput).toContain(id);
     expect(registries.ids.recencyPrunable).toContain(id);
     expect(registries.ids.staleReplayable).toContain(id);

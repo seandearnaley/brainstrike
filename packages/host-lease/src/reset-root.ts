@@ -54,7 +54,7 @@ export async function acquireProfileResetLease(root: string): Promise<ProfileRes
       return lock.isReleased;
     },
     release(): void {
-      if (clearing) {
+      if (clearing !== undefined) {
         throw new Error('Cannot release profile reset lease while clearing');
       }
       if (lock.isReleased) {

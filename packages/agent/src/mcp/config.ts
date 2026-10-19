@@ -56,7 +56,7 @@ export function parseMcpServerValue(value: unknown): typeof McpServerSchema.Type
 }
 export function parseMcpConfigValue(value: unknown): ReturnType<typeof parseSharedMcpConfigValue> {
   const parsed = parseSharedMcpConfigValue(value);
-  const capabilityScoped = Schema.decodeUnknownResult(McpConfigSchema, {
+  const capabilityScoped = Schema.decodeResult(McpConfigSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(parsed.config);

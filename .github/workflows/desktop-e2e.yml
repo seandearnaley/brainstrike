@@ -40,14 +40,16 @@ jobs:
     name: Desktop Full Regression (shard ${{ matrix.shard }})
     if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
     runs-on: ubuntu-latest
-    # Each shard runs half of the regression project under the lane's own 30m
-    # --global-timeout; shard 1 also runs the 2m AI Tools nightly lane.
-    # Setup/build headroom included.
+    # Each shard runs a quarter of the regression project under the lane's own
+    # 30m --global-timeout; shard 1 also runs the 2m AI Tools nightly lane.
+    # Setup/build headroom included. Two shards hit the 30m bound on run
+    # 39109422803 (132 and 123 specs ran, 20 never did: about 64 min of work);
+    # four give about 16 min each, inside the bound on a runner 1.7x slower.
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -118,12 +120,13 @@ jobs:
       # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
       # Failed to connect to the bus` for every process. dbus-run-session
       # is provided by the `dbus` package (pre-installed on ubuntu-latest).
-      # Playwright's own --shard splits the regression project in two. pnpm
+      # Playwright's own --shard splits the regression project across the
+      # matrix (the total must equal the matrix length; a script contract checks). pnpm
       # appends the flag to the lane script, which must therefore end in the
       # playwright command.
       - name: Run full desktop regression
         working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/2
+        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/4
 
       # The AI Tools smoke specs are excluded from the regression project, so
       # exactly one shard runs their nightly lane. It runs only after the regression

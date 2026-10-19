@@ -689,9 +689,10 @@ export function decoder<S extends Schema.ConstraintDecoder<unknown>>(
 export class IndexerError extends Error {
   constructor(
     readonly code: string,
-    message: string
+    message: string,
+    options?: ErrorOptions
   ) {
-    super(message);
+    super(message, options);
     this.name = 'IndexerError';
   }
 }

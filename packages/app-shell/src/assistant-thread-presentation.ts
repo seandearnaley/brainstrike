@@ -352,6 +352,25 @@ export function getAssistantThreadColorSurface(
  */
 export type ThreadRowStatusState = 'done-unseen' | 'failed-unseen' | 'needs-you' | 'running';
 
+/** The row control and its status glyph announce the same thread identity. */
+export function getThreadRowAccessibleName(
+  state: ThreadRowStatusState | null,
+  title: string
+): string {
+  switch (state) {
+    case 'running':
+      return `${title} is active`;
+    case 'needs-you':
+      return `${title} needs your approval`;
+    case 'failed-unseen':
+      return `${title} failed`;
+    case 'done-unseen':
+      return `${title} has unseen activity`;
+    default:
+      return title;
+  }
+}
+
 export interface ThreadRowStatusInputs {
   /** The thread's latest run failed and the user has not looked since. */
   readonly failedUnseen: boolean;

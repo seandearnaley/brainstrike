@@ -5,6 +5,8 @@ import {
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
 import {
+  type HostMemoryModels,
+  hostMemoryModels,
   materializeHostProviderModel,
   type ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
@@ -48,6 +50,30 @@ async function createObserverModel(
   );
 }
 
+/** The observer's catalog `provider::model`: its usage is priced under it, like a run's own model. */
+function observerCatalogModelId(
+  target: ReturnType<typeof parseObservationalMemoryModelTarget>
+): string {
+  return `${target.provider}::${target.model}`;
+}
+
+/**
+ * thread/memory/read (BST-2201): the observer and embedder an admission with
+ * this Memory selection uses. Observations name an observer only once it
+ * resolved; a waiting or disabled observer has none.
+ */
+export function desktopMemoryModels(
+  memory: (typeof PlatformSelectionSchema)['Type']['memory']
+): HostMemoryModels {
+  const observation = memory.settings.observationalMemory;
+  return hostMemoryModels(
+    observation.enabled
+      ? observerCatalogModelId(parseObservationalMemoryModelTarget(observation.modelTarget))
+      : undefined,
+    memory.vectorProfile
+  );
+}
+
 /** Materialize public Memory options from the admitted, non-secret selection. */
 export async function createDesktopHostMemoryConfiguration(
   selection: Pick<(typeof PlatformSelectionSchema)['Type'], 'memory' | 'resourceId'>,
@@ -67,8 +93,7 @@ export async function createDesktopHostMemoryConfiguration(
   let observerModelId: string | undefined;
   if (observation.enabled) {
     const target = parseObservationalMemoryModelTarget(observation.modelTarget);
-    // The catalog id its usage is priced under, like a run's own model.
-    observerModelId = `${target.provider}::${target.model}`;
+    observerModelId = observerCatalogModelId(target);
     observationalMemory = {
       model: await createObserverModel(target, resolveProviderAuth),
       scope: observation.scope,

@@ -22,6 +22,7 @@ import { attachAgentHost, type HostClient } from '../../src/client.js';
 import type { HostPlatform, HostRunContext } from '../../src/ports.js';
 import type { AgentHost } from '../../src/runtime.js';
 import { deterministicEmbedding, failureReceipt } from './memory-vector-host.js';
+import { REAL_INDEXER_DEADLINES } from './real-indexer-deadlines.js';
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 import { scriptedModel } from './scripted-model.js';
 
@@ -149,7 +150,7 @@ export async function observationHostLifecycle(
           stateResources: [{ resourceId, rootId: root }],
           stateRoot: root,
         },
-        { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+        REAL_INDEXER_DEADLINES
       );
       const writer = indexer;
       const port: StateMessageVectorPort & StateObservationVectorPort = {

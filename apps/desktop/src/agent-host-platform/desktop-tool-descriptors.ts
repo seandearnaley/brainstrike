@@ -8,7 +8,6 @@ import { canonicalToolInputJsonSchema, type HostTool } from '@brainstrike/agent-
 import {
   DESKTOP_NATIVE_TOOLS,
   isDesktopNativeToolId,
-  LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
   resolveToolRiskCategory,
   SKILL_NATIVE_TOOL_IDS,
@@ -28,8 +27,6 @@ export type DesktopToolDescriptor = (typeof PlatformSelectionSchema)['Encoded'][
 /** What an admission decided that changes which tools exist. */
 export interface DesktopToolAdmission {
   readonly enabledNativeToolIds: readonly string[];
-  /** The built-in on-device provider: its `unregistered` tools have no executor. */
-  readonly localProvider: boolean;
   /** The run's scanned workspace skills: the skill tools and runSkillScript exist only with them. */
   readonly skills: boolean;
   /** Main's worktree service: without it the worktree tools cannot run. */
@@ -53,9 +50,6 @@ const INTERACTIONS: Readonly<
 };
 
 function admitted(id: string, admission: DesktopToolAdmission): boolean {
-  if (admission.localProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(id)) {
-    return false;
-  }
   if (id === NATIVE_TOOL_ID.runSkillScript) {
     return admission.skills;
   }

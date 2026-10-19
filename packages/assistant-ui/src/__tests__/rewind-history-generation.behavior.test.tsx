@@ -49,7 +49,6 @@ vi.mock('../assistant-message-text', () => ({
 vi.mock('../user-message-text', () => ({
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
-vi.mock('@assistant-ui/styles/index.css', () => ({}));
 
 import { AssistantUiPanel } from '../assistant-ui-panel';
 import { useRewindComposerStore } from '../rewind-composer-store';

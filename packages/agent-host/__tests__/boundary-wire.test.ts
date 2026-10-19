@@ -1,4 +1,4 @@
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 import {
   BoundaryFailureError,
   fault,
@@ -15,8 +15,10 @@ import {
 } from 'vscode-jsonrpc/node';
 import {
   fromBoundaryResponseError,
+  isConnectionLoss,
   isUnsentRequest,
   toBoundaryResponseError,
+  watchPeerReset,
 } from '../src/boundary-wire.js';
 
 const RAW = 'ENOENT: no such file or directory, lstat /Users/someone/project/missing.ts';
@@ -129,6 +131,71 @@ describe('boundary failures on a JSON-RPC connection', () => {
       kind: 'fault',
       message: 'The connection closed before the request was answered.',
     });
+  });
+
+  it('reads a write onto a transport its peer reset as a lost connection, and any other write failure as the logged internal fault (BST-2192)', async () => {
+    const connect = (failure?: Error) => {
+      const connection = createMessageConnection(
+        new StreamMessageReader(new PassThrough()),
+        new StreamMessageWriter(new Writable({ write: (_chunk, _encoding, done) => done(failure) }))
+      );
+      watchPeerReset(connection);
+      connection.listen();
+      return connection;
+    };
+    const send = (connection: ReturnType<typeof connect>, params: object) =>
+      connection.sendRequest('catalog/read', params).catch((cause: unknown) => cause);
+    const log = vi.fn();
+    const reset = connect(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+    const live = connect();
+    try {
+      const unwritten = await send(reset, {});
+      expect(unwritten).toMatchObject({ code: ErrorCodes.MessageWriteError });
+      expect(isConnectionLoss(fromBoundaryResponseError(unwritten, log, reset))).toBe(true);
+      expect(log).not.toHaveBeenCalled();
+      // vscode-jsonrpc rejects params JSON cannot encode with the same code. On a
+      // live transport that is a defect to log, not a lost connection.
+      const unencodable = await send(live, { size: 1n });
+      expect(unencodable).toMatchObject({ code: ErrorCodes.MessageWriteError });
+      const read = fromBoundaryResponseError(unencodable, log, live);
+      expect((read as BoundaryFailureError).failure).toEqual(INTERNAL_FAULT);
+      expect(log).toHaveBeenCalledOnce();
+    } finally {
+      reset.dispose();
+      live.dispose();
+    }
+  });
+
+  it('takes a peer reset as the cause of only the write it failed, never a later one (BST-2192)', async () => {
+    // Every write onto this transport meets the peer's reset; the second request
+    // never reaches it, because JSON cannot encode its params.
+    const connection = createMessageConnection(
+      new StreamMessageReader(new PassThrough()),
+      new StreamMessageWriter(
+        new Writable({
+          write: (_chunk, _encoding, done) =>
+            done(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })),
+        })
+      )
+    );
+    watchPeerReset(connection);
+    connection.listen();
+    const log = vi.fn();
+    try {
+      // Both are admitted before the reset closes the connection.
+      const [reset, unencodable] = await Promise.all([
+        connection.sendRequest('catalog/read', {}).catch((cause: unknown) => cause),
+        connection.sendRequest('catalog/read', { size: 1n }).catch((cause: unknown) => cause),
+      ]);
+      expect(isConnectionLoss(fromBoundaryResponseError(reset, log, connection))).toBe(true);
+      expect(log).not.toHaveBeenCalled();
+      expect(unencodable).toMatchObject({ code: ErrorCodes.MessageWriteError });
+      const read = fromBoundaryResponseError(unencodable, log, connection);
+      expect((read as BoundaryFailureError).failure).toEqual(INTERNAL_FAULT);
+      expect(log).toHaveBeenCalledOnce();
+    } finally {
+      connection.dispose();
+    }
   });
 
   it('reads a request a disposed connection refused to send as unsent, a refusal nothing logs', async () => {

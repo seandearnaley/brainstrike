@@ -28,6 +28,7 @@ import {
   stream,
   toolCall,
 } from './fixtures/child-run-host.js';
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -79,7 +80,7 @@ async function openHost(root: string) {
       },
       stateRoot: root,
     },
-    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+    REAL_INDEXER_DEADLINES
   );
   const store = await StateStore.open(root, { indexer: createStateStoreIndexer(native) });
   const close = async (core?: HostCore): Promise<void> => {

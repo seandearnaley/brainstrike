@@ -137,4 +137,25 @@ describe('treeSitterAdapter Python extraction (Phase 3)', () => {
     expect(root.type).toBeDefined();
     expect(root.end).toBe(content.length);
   });
+
+  it.each(['{"outer": {"inner" 1}}', '{"outer": {"inner": [1,,2]}}'])(
+    'preserves surrounding definitions and exact UTF-16 ranges after malformed nested Python: %s',
+    async (expression) => {
+      const before = 'def before():\n    return "café 🧠"';
+      const after = 'def after():\n    return "after 🌳"';
+      const content = `${before}\n\nsettings = ${expression}\n\n${after}\n`;
+      const root = await treeSitterAdapter('python').parse(content, baseOptions);
+      const definitions = children(root);
+
+      expect(definitions.map((node) => node['name'])).toEqual(['before', 'after']);
+      expect(definitions.map((node) => ({ end: node.end, start: node.start }))).toEqual([
+        { end: before.length, start: 0 },
+        { end: content.indexOf(after) + after.length, start: content.indexOf(after) },
+      ]);
+      expect(definitions.map((node) => content.slice(node.start, node.end))).toEqual([
+        before,
+        after,
+      ]);
+    }
+  );
 });

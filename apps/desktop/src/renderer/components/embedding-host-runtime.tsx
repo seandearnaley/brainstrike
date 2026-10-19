@@ -55,10 +55,14 @@ import {
   createBackendMismatchError,
   createEmbeddingRuntimeMetadata,
   embeddingHostDevice,
-  withResolvedHostDevice,
+  resolveEmbeddingHostDevice,
+  withEmbeddingHostDevice,
 } from './embedding-host-runtime-metadata';
 import { answerWebGpuAdapterRequest } from './embedding-host-webgpu';
-import { resolveHydratedVectorDevicePreference } from './embedding-host-worker-preferences';
+import {
+  readSavedVectorDevicePreference,
+  resolveHydratedVectorDevicePreference,
+} from './embedding-host-worker-preferences';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 
 const logger = createLogger('EmbeddingHostRuntime');
@@ -643,6 +647,8 @@ export function EmbeddingHostRuntime(): null {
 
   useEffect(() => {
     let disposed = false;
+    // Resolutions apply in order, so the last reflects the latest saved preference.
+    let deviceResolution = Promise.resolve();
     const unsubscribe = getEmbeddingHostBridge()?.onCommand?.(
       createEmbeddingHostCommandHandler({
         getRuntimeId: () => runtimeIdRef.current,
@@ -667,20 +673,28 @@ export function EmbeddingHostRuntime(): null {
           }
           await controls.reset(nextRuntimeId);
         },
-        resolveDevice: async () => {
-          const current = embeddingRuntimeRef.current;
-          // Only the device an unpinned load uses; the worker keeps its own until restart.
-          const next = current
-            ? await withResolvedHostDevice(current, resolveHydratedVectorDevicePreference)
-            : null;
-          if (next && !disposed && embeddingRuntimeRef.current === current) {
-            embeddingRuntimeRef.current = next;
-            reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
-              active: activeRef.current,
-              embeddingRuntime: next,
+        // Only the device an unpinned load (memory recall) uses; a pinned plan carries
+        // its own, and the worker keeps its device until restart. The host chooses none
+        // at start, so this also resolves the first one (BST-2193). A Stop or reset
+        // since the command retired its runtime, so that runtime's device is dropped.
+        resolveDevice: (runtimeId) =>
+          (deviceResolution = deviceResolution.then(async () => {
+            const device = await resolveEmbeddingHostDevice(resolveHydratedVectorDevicePreference);
+            if (disposed || stoppedByCommandRef.current || runtimeIdRef.current !== runtimeId) {
+              return;
+            }
+            embeddingRuntimeRef.current = withEmbeddingHostDevice(
+              embeddingRuntimeRef.current,
+              device,
+              readSavedVectorDevicePreference
+            );
+            reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeId, 'running', {
+              active:
+                activeRef.current ||
+                (queryEmbeddingOwnerRef.current?.activeCountRef.current ?? 0) > 0,
+              embeddingRuntime: embeddingRuntimeRef.current,
             });
-          }
-        },
+          })),
         startBackground: async () => {
           const controls = controlsRef.current;
           if (!controls) {

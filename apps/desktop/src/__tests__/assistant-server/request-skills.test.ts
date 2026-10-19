@@ -117,13 +117,6 @@ describe('prepareRequestSkills', () => {
     expect(names).toEqual(['global-skill']);
   });
 
-  it('returns no engine for the built-in local provider', () => {
-    const { workspaceSkills } = prepareRequestSkills(
-      makeParams({ provider: 'local', workspaceRoots: ROOTS })
-    );
-    expect(workspaceSkills).toBeUndefined();
-  });
-
   it('drops a malformed preference with a warn and applies the fail-safe default', async () => {
     const { records, stop } = captureLogs();
     try {

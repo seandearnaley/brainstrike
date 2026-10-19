@@ -7,6 +7,7 @@ import { readPrivateCredentialFile } from '@brainstrike/agent-host/file-credenti
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
+import { REAL_PROCESS_WAIT } from './fixtures/real-bin.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const roots: string[] = [];
@@ -67,8 +68,10 @@ async function storedSecrets(dataRoot: string): Promise<Record<string, string>> 
 async function expectRootReleased(dataRoot: string): Promise<void> {
   const owner = RootLock.inspect(dataRoot)?.owner;
   if (owner) {
-    await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
-    await expect.poll(() => processStartTime(owner.pid)).toBeNull();
+    await expect
+      .poll(() => RootLock.inspect(dataRoot)?.owner.released, REAL_PROCESS_WAIT)
+      .toBe(true);
+    await expect.poll(() => processStartTime(owner.pid), REAL_PROCESS_WAIT).toBeNull();
   }
 }
 

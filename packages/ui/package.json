@@ -52,6 +52,7 @@
     "remark-math": "^6.0.0",
     "shiki": "catalog:",
     "tailwind-merge": "^3.7.0",
+    "tw-animate-css": "catalog:",
     "yaml": "catalog:"
   },
   "devDependencies": {

@@ -407,7 +407,7 @@ export async function createHostPlatform(
       });
       return {
         configuration,
-        delegation: resolveHostDelegation({ subagents }, provider, workspaceRoots, false),
+        delegation: resolveHostDelegation({ subagents }, workspaceRoots, false),
         durableConfiguration: {
           capabilities,
           intent,

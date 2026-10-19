@@ -28,7 +28,10 @@ export {
 // `RuntimeData.requestedReasoningEffort` against it, and deriving the wire enum
 // from the same declaration that types the field is the whole point — a
 // hand-listed copy is free to accept more or less than the type admits.
-export { OPENAI_REASONING_EFFORT_VALUES } from '@brainstrike/assistant-contract/runtime-data';
+export {
+  OPENAI_REASONING_EFFORT_VALUES,
+  RUNTIME_WORKSPACE_INDEX_STATUS_STATES,
+} from '@brainstrike/assistant-contract/runtime-data';
 export type {
   AssistantToolApprovalAction,
   AssistantToolApprovalDecision,

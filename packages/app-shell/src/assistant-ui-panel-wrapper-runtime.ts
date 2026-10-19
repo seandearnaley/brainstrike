@@ -629,11 +629,13 @@ export function buildAssistantRequestData(args: {
   skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
-   * Per-child subagent budgets (Settings → Subagents → Subagent budgets).
-   * REQUIRED and sent on every request: the defaults are a real value, and the host
-   * validates whatever arrives (`parseRuntimeSubagentSettings`).
+   * Per-child subagent budgets (Settings → Subagents → Subagent budgets), for
+   * the desktop assistant host only. There it rides every request: the
+   * defaults are a real value, and the host validates whatever arrives
+   * (`parseRuntimeSubagentSettings`). Web has no subagents, and its server
+   * rejects the field, so it stays off web requests.
    */
-  subagentSettings: RuntimeSubagentSettings;
+  subagentSettings?: RuntimeSubagentSettings;
   /**
    * Opt-in workspace instructions preference; only set on the desktop
    * data-stream transport (web has no injection path). A preference, not a
@@ -700,9 +702,11 @@ export function buildAssistantRequestData(args: {
   if (args.modelSettings) {
     data['modelSettings'] = args.modelSettings;
   }
-  // Always sent: the defaults are a real value, and the host validates
-  // whatever arrives (`parseRuntimeSubagentSettings`) rather than assuming.
-  data['subagentSettings'] = args.subagentSettings;
+  // Sent on every desktop host request: the defaults are a real value, and the
+  // host validates whatever arrives (`parseRuntimeSubagentSettings`).
+  if (args.subagentSettings) {
+    data['subagentSettings'] = args.subagentSettings;
+  }
   if (args.providerOptions) {
     data['providerOptions'] = args.providerOptions;
   }
@@ -1256,6 +1260,11 @@ function openRouterLookupReason(
  * the lookup loads the send waits, so provider options are never built from
  * details that have not arrived. A chosen reasoning effort the model does not
  * support is a notice here, never a throw while the composer renders.
+ *
+ * When the details fail to load, the run budgets on the built-in catalog row,
+ * so the same input-budget check runs against it (BST-1810): a persisted
+ * output limit that row cannot fit is named here, never thrown by
+ * `buildAgentLoopSettings` during render.
  */
 export function resolveOpenRouterMetadataDisabledReason(
   providerId: string | null | undefined,
@@ -1268,12 +1277,24 @@ export function resolveOpenRouterMetadataDisabledReason(
     return;
   }
   const lookupReason = openRouterLookupReason(lookup, settings?.reasoningEffort, modelId);
-  if (lookupReason !== undefined || lookup.state !== 'resolved') {
+  if (lookupReason !== undefined || lookup.state === 'loading') {
     return lookupReason;
   }
   const configuredOutput = buildPositiveIntegerSetting(
     modelSettings?.maxOutputTokens ?? settings?.maxOutputTokens
   );
+  if (lookup.state === 'error') {
+    const catalogModel = modelId ? findLlmModelDefinition('openrouter', modelId) : undefined;
+    return catalogModel
+      ? openRouterInputBudgetReason(
+          settings,
+          configuredOutput,
+          catalogModel,
+          catalogModel.contextWindow,
+          'built-in catalog'
+        )
+      : undefined;
+  }
   const metadata = lookup.snapshot.metadata;
   const maximum = metadata.maxOutputTokens;
   const provenance = lookup.snapshot.freshness === 'stale-cache' ? 'cached' : 'live';
@@ -1291,11 +1312,29 @@ export function resolveOpenRouterMetadataDisabledReason(
         : 'OpenRouter Auto reasoning profile is invalid.';
     }
   }
+  return openRouterInputBudgetReason(
+    settings,
+    configuredOutput,
+    profileModel,
+    metadata.contextWindow,
+    provenance
+  );
+}
 
-  // Reserve the same window the run will actually send (BST-1170): an
-  // active-reasoning request on a model with a vendor-documented completion
-  // window reserves that window, not the coding ceiling — otherwise the input
-  // validation promises context the run cannot use.
+/**
+ * Why the window cannot hold the output the run reserves plus the configured
+ * input limit, or undefined. The reservation is the window the run actually
+ * sends (BST-1170): an active-reasoning request on a model with a
+ * vendor-documented completion window reserves that window, not the coding
+ * ceiling — otherwise the input validation promises context the run cannot use.
+ */
+function openRouterInputBudgetReason(
+  settings: AssistantProviderSettings | undefined,
+  configuredOutput: number | undefined,
+  profileModel: OpenRouterAutoProfileModel,
+  contextWindow: number,
+  provenance: string
+): string | undefined {
   const outputReservation =
     configuredOutput ??
     resolveOpenRouterOutputWindow(
@@ -1304,9 +1343,9 @@ export function resolveOpenRouterMetadataDisabledReason(
     );
   let effectiveInputBudget: number;
   try {
-    effectiveInputBudget = deriveEffectiveInputBudget(metadata.contextWindow, outputReservation);
+    effectiveInputBudget = deriveEffectiveInputBudget(contextWindow, outputReservation);
   } catch {
-    return `Configured output limit ${openRouterLimitFormatter.format(outputReservation)} cannot fit within the OpenRouter ${provenance} context window ${openRouterLimitFormatter.format(metadata.contextWindow)} plus its safety margin.`;
+    return `Configured output limit ${openRouterLimitFormatter.format(outputReservation)} cannot fit within the OpenRouter ${provenance} context window ${openRouterLimitFormatter.format(contextWindow)} plus its safety margin.`;
   }
 
   const configuredInput = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
@@ -1604,8 +1643,7 @@ function buildBedrockOptions(
   modelName: string | undefined,
   settings: AssistantProviderSettings
 ): BedrockProviderOptions | undefined {
-  const effort = settings.bedrockEffort;
-  if (!(modelName && effort)) {
+  if (!modelName) {
     return;
   }
   // Keyed on the UNPREFIXED catalog id, which is all this seam can receive:
@@ -1614,8 +1652,29 @@ function buildBedrockOptions(
   // inside packages/agent. The agent-side capability lookup resolves a routed
   // id back to its catalog row for the same reason; if a prefixed id ever
   // reaches HERE, that invariant has already broken upstream.
-  const dialect = findLlmModelDefinition('bedrock', modelName)?.bedrockReasoning;
-  if (!(dialect && BEDROCK_REASONING_EFFORTS[dialect].includes(effort))) {
+  const definition = findLlmModelDefinition('bedrock', modelName);
+  const dialect = definition?.bedrockReasoning;
+  const effort = settings.bedrockEffort;
+  const offered =
+    dialect !== undefined && effort !== undefined
+      ? BEDROCK_REASONING_EFFORTS[dialect].includes(effort)
+      : false;
+  if (dialect === 'adaptive' && definition?.bedrockReasoningMandatory) {
+    // BST-1807, as BST-1804 did for the direct rows: an always-thinking route
+    // gets adaptive thinking at EVERY effort, Auto included. Its `display`
+    // defaults to `omitted`, so leaving the config out hides the
+    // show-reasoning preference, and on Opus 5.5 the between-tool-call
+    // progress text it returns as thinking. Auto, or an effort this route
+    // does not offer, sends no effort: the vendor default applies.
+    return {
+      reasoningConfig: {
+        display: resolveBedrockReasoningDisplay(settings),
+        ...(offered && effort !== undefined ? { maxReasoningEffort: effort } : {}),
+        type: 'adaptive',
+      },
+    };
+  }
+  if (!(dialect && effort && offered)) {
     return;
   }
   if (dialect === 'adaptive') {
@@ -1760,6 +1819,27 @@ export function buildProviderOptionsWhenReady(
  * with no registry row there is no ladder to judge against, and that route
  * shows no effort control to lie with.
  */
+/**
+ * Direct-OpenAI counterpart (BST-1709). The rows declare their own ladders,
+ * and those differ: the Pro rows take only medium, high and xhigh, while the
+ * GPT-5.6 rows add none and max. So a provider-wide effort chosen on one model
+ * can be one the next model rejects. Clear it on the switch so the controls
+ * show what the request sends. An undeclared or uncatalogued model is left
+ * alone: there is no ladder to judge against.
+ */
+function reconcileOpenAiSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const effort = settings.reasoningEffort;
+  const ladder = effort ? findLlmModelDefinition('openai', modelName)?.reasoning : undefined;
+  if (!(effort && ladder) || ladder.supportedEfforts.includes(effort)) {
+    return settings;
+  }
+  const { reasoningEffort: _unsupportedReasoningEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
 function reconcileBedrockSettingsForModel(
   modelName: string,
   settings: AssistantProviderSettings
@@ -1837,6 +1917,9 @@ export function reconcileProviderSettingsForModel(
   }
   if (providerId === 'bedrock' && settings) {
     return reconcileBedrockSettingsForModel(modelName, settings);
+  }
+  if (providerId === 'openai' && settings) {
+    return reconcileOpenAiSettingsForModel(modelName, settings);
   }
   if (!(providerId === 'openrouter' && settings)) {
     return settings;

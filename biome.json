@@ -19,7 +19,24 @@
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
+      "packages/web-writer/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/canonical-ingestion/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/assistant-service/src/__tests__/node-workspace-services*/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-lease/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/src/mcp/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/{src/provider-auth,__tests__/provider-auth,__tests__/credentials}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/indexer/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/src/native-tools/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/__tests__/file-approval-target.test.ts",
+      "apps/desktop/src/__tests__/assistant-server/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/isolated/agent-quality-lint*.{mts,mjs}",
+      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}",
       "**/e2e/**/*.{ts,tsx}",
       "!!spikes/m0-a1-qualification/original",
       "!!.muse/worktrees",
@@ -711,6 +728,149 @@
     },
     {
       "includes": ["packages/chunking-worker/src/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-capabilities/src/native-tools/**",
+        "packages/host-capabilities/__tests__/file-approval-target.test.ts",
+        "apps/desktop/src/__tests__/secure-file-write.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/string-replace-workspace-file-guards.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/read-workspace-file-model-projection.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/agent-ignore-guard.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/agent-ignore-boundary-holes.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/workspace-file-walk-agent-layers.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/agent-ignore-mutation-boundary.integration.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/native-tool-error-causes.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/agent-quality-lint*/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/indexer/src/**",
+        "packages/indexer/__tests__/**",
+        "apps/desktop/src/__tests__/native-index-lifecycle.test.ts",
+        "apps/desktop/src/__tests__/native-index-retry.test.ts",
+        "apps/desktop/src/__tests__/platform/native-refusal-boundary.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-capabilities/src/credentials.ts",
+        "packages/host-capabilities/src/openrouter-model-metadata.ts",
+        "packages/host-capabilities/src/provider-*.ts",
+        "packages/host-capabilities/src/provider-auth/**",
+        "packages/host-capabilities/__tests__/provider-services.test.ts",
+        "packages/host-capabilities/__tests__/provider-auth/**",
+        "packages/host-capabilities/__tests__/credentials/**",
+        "apps/desktop/src/__tests__/assistant-server/openrouter-model-metadata.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/provider-verification.test.ts",
+        "packages/host-capabilities/src/shared-flight*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-capabilities/src/mcp/**",
+        "packages/host-capabilities/__tests__/mcp-host-services-readiness.test.ts",
+        "packages/host-capabilities/__tests__/mcp-settings-authority.test.ts",
+        "packages/host-capabilities/__tests__/mcp-oauth-config.test.ts",
+        "packages/host-capabilities/__tests__/mcp-presentation-service.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-host-service.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-server-actor.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-elicitation-presenter.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-oauth-loopback-callback.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-oauth-client-provider.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-lease/src/**",
+        "packages/host-lease/__tests__/**",
+        "packages/assistant-service/src/node-workspace-services.ts",
+        "packages/assistant-service/src/__tests__/node-workspace-services*.ts",
+        "packages/assistant-service/src/__tests__/node-workspace-services*/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/canonical-ingestion/src/**",
+        "packages/canonical-ingestion/__tests__/**",
+        "packages/web-writer/src/**",
+        "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
+        "packages/web-state-store/src/__tests__/web-state-extension-order.browser.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*/**/*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}"
+      ],
       "linter": {
         "rules": {
           "nursery": {

@@ -304,7 +304,6 @@ async function readDesktopNativeAdmission(
   );
   const descriptors = await desktopToolDescriptors({
     enabledNativeToolIds: intent.enabledNativeToolIds,
-    localProvider: configuration.provider.trim().toLowerCase() === 'local',
     skills: workspaceSkills !== undefined,
     worktrees,
   });
@@ -346,23 +345,12 @@ function desktopRunSkills(
   }
   return {};
 }
-/** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
+/** Plan mode admits only the plan-mode tool set. */
 function desktopRunTools(
   tools: Readonly<Record<string, DesktopToolDescriptor>>,
-  request: HostRunAdmissionRequest,
-  provider: string
+  request: HostRunAdmissionRequest
 ): Readonly<Record<string, DesktopToolDescriptor>> {
-  if (!request.planMode) {
-    return tools;
-  }
-  if (provider === 'local') {
-    throw refusalError(
-      'configuration',
-      'run.plan-mode-unavailable',
-      'Plan mode is unavailable for the built-in local provider'
-    );
-  }
-  return desktopPlanModeTools(tools);
+  return request.planMode ? desktopPlanModeTools(tools) : tools;
 }
 /** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
 function desktopPersonaFields(delegation: HostDelegation | undefined): {
@@ -496,7 +484,7 @@ export function createDesktopRunAdmission(
       request,
       workspace
     );
-    const tools = desktopRunTools(native.descriptors, request, configuration.provider);
+    const tools = desktopRunTools(native.descriptors, request);
     const resilience = resolveAssistantResilienceConfig();
     // MCP tools are composed and executed by the Node host's own MCP runtime.
     const close = (): Promise<void> => {
@@ -509,7 +497,6 @@ export function createDesktopRunAdmission(
       policies.set(request.threadId, permissionPolicy);
       const delegation = resolveDesktopHostDelegation(
         intent,
-        configuration.provider,
         native.runtime.workspaceRoots ?? [],
         request.planMode === true
       );

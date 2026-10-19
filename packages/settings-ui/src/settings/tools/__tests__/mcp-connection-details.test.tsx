@@ -146,3 +146,75 @@ describe('MCP connection details disclosure', () => {
     expect(onControl).not.toHaveBeenCalled();
   });
 });
+
+describe('MCP tools availability notice (BST-1632)', () => {
+  const features = {
+    completion: false,
+    promptListChanged: false,
+    prompts: false,
+    resourceListChanged: false,
+    resourceSubscriptions: false,
+    resources: false,
+    toolListChanged: true,
+    tools: true,
+  };
+  const base = {
+    errors: {},
+    features,
+    subscription: { mode: 'none', state: 'unsupported' },
+  } as const;
+
+  it.each([
+    ['loading', { ...base, listing: ['tools'] as const }, 'connected · loading tools'],
+    ['empty', { ...base, tools: { tools: [] } }, 'connected · no tools'],
+    [
+      'unsupported',
+      { ...base, features: { ...features, tools: false } },
+      'connected · offers no tools',
+    ],
+  ] as const)('states %s plainly, never as a warning', (availability, catalog, text) => {
+    render(
+      <McpServerStatusRow controlAvailable onControl={vi.fn()} server={{ ...connected, catalog }} />
+    );
+    const notice = screen.getByText(text);
+    expect(notice).toHaveAttribute('data-tools-availability', availability);
+    expect(notice).toHaveClass('text-muted-foreground');
+    expect(notice).not.toHaveClass('text-warning');
+  });
+
+  it('keeps a failed tool list amber', () => {
+    render(
+      <McpServerStatusRow
+        controlAvailable
+        onControl={vi.fn()}
+        server={{
+          ...connected,
+          catalog: {
+            ...base,
+            errors: { tools: { category: 'protocol', code: 'boom', message: 'Connection closed' } },
+          },
+        }}
+      />
+    );
+    const notice = screen.getByText(/tools unavailable/u);
+    expect(notice).toHaveAttribute('data-tools-availability', 'tools-unavailable');
+    expect(notice).toHaveClass('text-warning');
+  });
+
+  it('says nothing when the server listed tools', () => {
+    render(
+      <McpServerStatusRow
+        controlAvailable
+        onControl={vi.fn()}
+        server={{
+          ...connected,
+          catalog: {
+            ...base,
+            tools: { tools: [{ inputSchema: { type: 'object' }, name: 'echo' }] },
+          },
+        }}
+      />
+    );
+    expect(screen.queryByText(/connected ·/u)).not.toBeInTheDocument();
+  });
+});

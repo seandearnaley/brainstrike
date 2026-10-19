@@ -824,10 +824,6 @@ jobs:
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
 
       - name: Package the desktop application
-        env:
-          # Bakes the E2E-only MCP Tasks harness chunk into THIS package for the
-          # packaged Tasks verifier below; release packaging never sets it.
-          VITE_MCP_TASK_HARNESS: '1'
         run: |
           set -euo pipefail
           test -n "${ELECTRON_DIST:-}"
@@ -1031,7 +1027,13 @@ jobs:
       BASE_URL: http://127.0.0.1:8080
       # Browsers are preinstalled here in the image; point Playwright at them.
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      pnpm_config_verify_deps_before_run: error
+      # Off (BST-2168): `Install dependencies` deliberately leaves the native
+      # addons uninstalled, but pnpm's pre-run check holds a filtered `run` to
+      # every workspace dependency of the selected project, and web reaches
+      # both addons (BST-2080). Right after a frozen install in a fresh
+      # container there is no drift to find. Unset, the default (`install`)
+      # would try to build the addons here instead.
+      pnpm_config_verify_deps_before_run: "false"
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'

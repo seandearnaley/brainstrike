@@ -1,4 +1,5 @@
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
+import { isPeerReset } from '@brainstrike/agent-host/boundary-wire';
 import { attachAgentHost } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
@@ -12,7 +13,7 @@ import {
   launchHost,
   type StartupMessage,
 } from '@brainstrike/host-lease';
-import type { ClearContentResult } from '@brainstrike/state-store';
+import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import {
@@ -167,6 +168,18 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
     );
   });
 }
+/**
+ * BST-2176: the PID and OS start time the ready utility's root lease names,
+ * read before this owner has observed its exit. A zombie has no start time.
+ */
+function readyIdentity(child: OwnedChild): { pid: number; start: string } {
+  const pid = child.handle.pid;
+  const start = child.exitCode === undefined && pid !== undefined ? processStartTime(pid) : null;
+  if (pid === undefined || start === null) {
+    throw new Error(`Host utility pid ${pid} exited as it reported ready`);
+  }
+  return { pid, start };
+}
 /** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
 async function closeChild(child: OwnedChild): Promise<void> {
   child.closing = true;
@@ -183,18 +196,21 @@ async function closeChild(child: OwnedChild): Promise<void> {
     throw new Error(`Owned host utility exited with code ${code}`);
   }
 }
-/** The peer closed with Main's bytes unread: the reset an exited host's socket reports. */
-const PEER_RESET_CODES = new Set(['ECONNRESET', 'EPIPE']);
+/** The peer closed with Main's bytes unread or unsent: the reset a closing host's socket reports. */
 function isPeerResetOnly(cause: unknown): boolean {
   if (cause instanceof AggregateError) {
     return cause.errors.length > 0 && cause.errors.every(isPeerResetOnly);
   }
-  return cause instanceof Error && PEER_RESET_CODES.has(String(Reflect.get(cause, 'code')));
+  return isPeerReset(cause);
 }
 /**
- * BST-2143: a host lost while Main's requests were in flight resets this
- * connection as it exits. That reset is the loss already reported, like its
- * exit code; failing the release would refuse every later admission.
+ * Only the host can reset Main's end of this connection, and this release
+ * closes it before closeChild asks the host to close. A reset here is the
+ * host ending the connection with Main's requests in flight: it was lost
+ * (BST-2143), or it is closing on its own, as when a signal to Main's process
+ * group reaches it too (BST-2192). Either way closeChild still joins its exit
+ * and reports a failed one. After this owner asked first (a content clear), or
+ * on a host it did not start, a reset stays a close failure.
  */
 async function closeAttachment(
   attachment: HostAttachment,
@@ -203,7 +219,7 @@ async function closeAttachment(
   try {
     await attachment.close();
   } catch (cause) {
-    if (!(child?.lost && isPeerResetOnly(cause))) {
+    if (!(child && !child.closing && isPeerResetOnly(cause))) {
       throw cause;
     }
   }
@@ -332,11 +348,15 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           }
           options.onChildStarted?.();
           await ready;
+          const identity = readyIdentity(child);
           child.ready = true;
           options.onChildReady?.({
             exited: child.exited,
             postClientPort: (port) => child.handle.postMessage({ event: 'client-port' }, [port]),
           });
+          // BST-2167: this lease's Scope stays the child's one owner. An
+          // attached host needs no hand-off; a launch that gives up closes it.
+          return { identity, release: async () => undefined, retire: closeScope };
         },
         ...(options.startupTimeoutMs === undefined
           ? {}

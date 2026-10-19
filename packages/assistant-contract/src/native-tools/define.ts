@@ -28,21 +28,6 @@ export type NativeToolSurface =
   | 'web';
 
 /**
- * A desktop tool under the built-in on-device model, the one record of that
- * fact for the renderer's offer, Main's admitted descriptors and every
- * executor fold:
- * - `offered`: a local run is offered the tool. The eager-core-only surface is
- *   a separately qualified product contract, not "every critical tool":
- *   `writeWorkspaceFile` stays out even though it is critical for hosted
- *   small-model reachability.
- * - `unregistered`: no local executor exists (the WebGPU prefill budget cannot
- *   afford it, or it needs suspend/resume the local provider does not
- *   register), so a local run never has the tool.
- * Absent: a local executor exists, but a local run is not offered the tool.
- */
-export type NativeToolLocalProvider = 'offered' | 'unregistered';
-
-/**
  * Provider-facing deferred groups. Each namespace stays below ten functions so
  * native provider search receives enough semantic detail without reintroducing
  * the complete tool-schema payload. Summaries live in `tool-discovery.ts`.
@@ -186,8 +171,6 @@ export interface DesktopNativeToolDefinition<
   In extends NativeToolInputSchema = NativeToolInputSchema,
 > extends NativeToolDefinitionBase<Id, In> {
   readonly kind: 'desktop';
-  /** The tool under the built-in on-device model; see {@link NativeToolLocalProvider}. */
-  readonly localProvider?: NativeToolLocalProvider;
   /** Every surface that registers the tool; `desktop` is implied and listed for symmetry. */
   readonly surfaces: readonly NativeToolSurface[];
 }

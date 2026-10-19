@@ -507,7 +507,7 @@ describe('assistant-tools multi-root read tools', () => {
 
   // Main's admission (`desktopToolDescriptors`) now owns the enabled-tool allowlist.
   describe('enabled-tool allowlist (admission descriptors)', () => {
-    const admission = { localProvider: false, skills: false, worktrees: true } as const;
+    const admission = { skills: false, worktrees: true } as const;
     it('passes the suspending tool ids through the enabled-tool allowlist filter', async () => {
       const descriptors = await desktopToolDescriptors({
         ...admission,
@@ -556,7 +556,6 @@ describe('assistant-tools multi-root read tools', () => {
         desktopToolDescriptors({
           ...admission,
           enabledNativeToolIds: ['brainstrike.readWorkspaceFile', 'brainstrike.removedNativeTool'],
-          localProvider: true,
         })
       ).rejects.toThrow('Enabled native tool preferences contain unknown tool IDs.');
     });

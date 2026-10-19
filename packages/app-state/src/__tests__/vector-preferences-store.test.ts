@@ -42,6 +42,25 @@ describe('vector-preferences-store', () => {
     expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(false);
   });
 
+  it('clears a chosen device back to the unconfigured preference detection resolves', async () => {
+    useVectorPreferencesStore.getState().setDevicePref('wasm');
+
+    useVectorPreferencesStore.getState().clearDevicePref();
+
+    expect(useVectorPreferencesStore.getState()).toMatchObject({
+      devicePref: 'webgpu',
+      devicePrefConfigured: false,
+    });
+    // The record the hidden embedding host rehydrates from is unconfigured too.
+    await vi.waitFor(() => {
+      const stored = window.localStorage.getItem('vector-preferences.v1');
+      expect(stored ? JSON.parse(stored).state : undefined).toMatchObject({
+        devicePref: 'webgpu',
+        devicePrefConfigured: false,
+      });
+    });
+  });
+
   it('rejects automatic WASM detection instead of persisting a slow backend', () => {
     expect(() => useVectorPreferencesStore.getState().setDetectedDevicePref('wasm')).toThrow(
       'Automatic vector device detection cannot persist WASM.'

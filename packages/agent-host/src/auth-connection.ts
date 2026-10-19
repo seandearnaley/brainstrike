@@ -48,7 +48,7 @@ export function bindHostAuthMethods(
     })(
       await connection.sendRequest(
         CLIENT_OPEN_EXTERNAL,
-        Schema.decodeUnknownSync(ClientOpenExternalParamsSchema, {
+        Schema.decodeSync(ClientOpenExternalParamsSchema, {
           errors: 'all',
           onExcessProperty: 'error',
         })({ url })

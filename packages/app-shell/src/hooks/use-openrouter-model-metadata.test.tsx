@@ -127,4 +127,36 @@ describe('useOpenRouterModelMetadata', () => {
     expect(result.current.agentLoopSettings).toBeUndefined();
     expect(result.current.modelSettings).toBeUndefined();
   });
+
+  it('names a persisted output limit the catalog window cannot fit when the details fail to load (BST-1810)', async () => {
+    // MiniMax M3: window 524,288, margin 26,215. A persisted 512,000 output
+    // leaves no input budget; with live details unavailable, the run budgets
+    // on the catalog row, so the composer must say why instead of throwing.
+    readOpenRouterModel.mockRejectedValue(new Error('unavailable'));
+
+    const { result } = renderHook(
+      () =>
+        useOpenRouterModelMetadata({
+          modelId: 'minimax/minimax-m3',
+          // The thread draft carries the persisted provider setting as the request sends it.
+          modelSettings: { maxOutputTokens: 512_000 },
+          providerId: 'openrouter',
+          selectedModelDef: {
+            contextWindow: 524_288,
+            id: 'minimax/minimax-m3',
+            maxOutputTokens: 512_000,
+          },
+          settings: { maxOutputTokens: 512_000 },
+        }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(result.current.lookup?.state).toBe('error');
+    });
+    expect(result.current.reason).toBe(
+      'Configured output limit 512,000 cannot fit within the OpenRouter built-in catalog context window 524,288 plus its safety margin.'
+    );
+    expect(result.current.agentLoopSettings).toBeUndefined();
+  });
 });

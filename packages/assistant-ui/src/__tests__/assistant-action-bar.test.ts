@@ -62,6 +62,14 @@ describe('UserActionBar styling (BST-898: no hover layout shift)', () => {
     // UserActionBar must be `relative` so the absolutely-positioned bar's
     // containing block is its own grid area, not some ancestor further up
     // the tree (matches AssistantMessage's existing `relative grid`).
-    expect(userMessageSource).toContain('aui-user-message-root relative grid');
+    const rootClassName = userMessageSource.match(
+      /<MessagePrimitive\.Root\s+className="(aui-user-message-root [^"]*)"[^>]*>\s*<UserActionBar\s*\/>/u
+    )?.[1];
+    expect(rootClassName).toBeDefined();
+    // Animation utilities may sort between these tokens; their order has no
+    // effect on the root's containing block or grid layout.
+    expect(rootClassName?.split(/\s+/u)).toEqual(
+      expect.arrayContaining(['aui-user-message-root', 'relative', 'grid'])
+    );
   });
 });

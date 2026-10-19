@@ -22,6 +22,27 @@ function makeTool(execute: (...args: unknown[]) => unknown) {
 }
 
 describe('guardToolExecution', () => {
+  it('keeps a retained local cause out of the trusted input result', async () => {
+    const cause = new Error('PRIVATE credential and filesystem detail');
+    const error = new ToolInputError('Choose an existing file.', { cause });
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw error;
+      }),
+      {
+        timeoutMs: 1000,
+        toolName: 'demo',
+      }
+    );
+    expect(error.cause).toBe(cause);
+    const result = await tool.execute({ context: {} });
+    expect(result).toEqual({
+      error: { code: 'tool_input_invalid', message: 'Choose an existing file.', toolName: 'demo' },
+      ok: false,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|cause|stack/);
+  });
+
   it('passes through a successful result unchanged', async () => {
     const tool = guardToolExecution(
       makeTool(async () => ({ value: 42 })),

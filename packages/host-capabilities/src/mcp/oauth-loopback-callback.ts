@@ -238,7 +238,7 @@ export async function startLoopbackCallback(
     },
     cancel: (): void => settle(attempt, { error: new Error(CANCELLED_MESSAGE), kind: 'failure' }),
     close: (): Promise<void> => {
-      if (closePromise) {
+      if (closePromise !== undefined) {
         return closePromise;
       }
       closed = true;

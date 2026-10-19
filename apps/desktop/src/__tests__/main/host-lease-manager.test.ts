@@ -8,6 +8,15 @@ vi.mock('@brainstrike/host-lease', async (original) => ({
   ...(await original<typeof import('@brainstrike/host-lease')>()),
   launchHost: launch,
 }));
+// The fake utility's pid 123 names no real process: the start time its ready
+// identity reads is the one its host record carries (BST-2176).
+vi.mock('@brainstrike/state-store', async (original) => {
+  const actual = await original<typeof import('@brainstrike/state-store')>();
+  return {
+    ...actual,
+    processStartTime: (pid: number) => (pid === 123 ? 'child' : actual.processStartTime(pid)),
+  };
+});
 
 class Child extends EventEmitter {
   pid: number | undefined = 123;
@@ -230,8 +239,10 @@ describe('desktop host lease ownership', () => {
     failedCleanup.child.exit(0);
     await expect(failedCleanup.owner.close()).rejects.toThrow('receive and disposal failed');
 
-    // A host closed on request was never lost: its reset stays a close failure.
+    // A content clear asks the host to close before the lease closes its
+    // attachment: a reset after that ask stays a close failure.
     const asked = new Child();
+    asked.exitOnClose = false;
     attachment = {
       ...attachment,
       close: vi.fn(async () => {
@@ -243,10 +254,63 @@ describe('desktop host lease ownership', () => {
         queueMicrotask(() => asked.emit('message', { event: 'ready' }));
         return asked;
       },
+      platformModule: '/fixture.js',
       root,
     });
     await owner.acquire();
-    await expect(owner.close()).rejects.toThrow('ECONNRESET');
+    const clearing = owner.clearAndRetireContent();
+    asked.emit('message', { deletedChunks: null, deletedFiles: 0, event: 'content-cleared' });
+    asked.exit(0);
+    await expect(clearing).rejects.toThrow('ECONNRESET');
+  });
+  it('retires a host that reset its connection while closing on its own, and still joins its exit (BST-2192)', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    // A signal to Main's process group closes the host too. It ends Main's
+    // connection with Main's write in flight, and exits only after Main's
+    // shutdown has started releasing the lease.
+    const reset = (): Error => Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+    const selfClosing = () => {
+      const child = new Child();
+      child.exitOnClose = false;
+      attachment = {
+        ...attachment,
+        close: vi.fn(async () => {
+          throw reset();
+        }),
+      };
+      const onLost = vi.fn();
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready' }));
+          return child;
+        },
+        onLost,
+        root,
+      });
+      return { child, onLost, owner };
+    };
+
+    const clean = selfClosing();
+    await clean.owner.acquire();
+    const released = clean.owner.close();
+    await vi.waitFor(() => expect(clean.child.posts).toContainEqual({ method: 'close' }));
+    clean.child.exit(0);
+    await released;
+    expect(clean.onLost).not.toHaveBeenCalled();
+
+    // The reset is the host's own close, not proof of it: a failed exit still fails the release.
+    const failed = selfClosing();
+    await failed.owner.acquire();
+    const failing = failed.owner.close();
+    await vi.waitFor(() => expect(failed.child.posts).toContainEqual({ method: 'close' }));
+    failed.child.exit(1);
+    await expect(failing).rejects.toThrow('exited with code 1');
+
+    // A host this app only attached to has no exit for this owner to join.
+    launch.mockResolvedValue(attachment);
+    const attached = createDesktopHostLease({ root });
+    await attached.acquire();
+    await expect(attached.close()).rejects.toThrow('EPIPE');
   });
   it('never reports a loss for a close it asked for, or for a child that exits before ready (BST-2004)', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');

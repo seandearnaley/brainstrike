@@ -279,7 +279,7 @@ export class CanonicalIngestionHost {
     if (failure !== undefined) {
       abort();
     }
-    if (abortNotice) {
+    if (abortNotice !== undefined) {
       await abortNotice;
     }
     try {
@@ -298,7 +298,7 @@ export class CanonicalIngestionHost {
           : new AggregateError([failure, error], 'Canonical scan completion failed.');
     }
     // A notice admitted during manifest completion must physically settle.
-    if (abortNotice) {
+    if (abortNotice !== undefined) {
       await abortNotice;
     }
     context.signal.removeEventListener('abort', abort);
@@ -745,7 +745,7 @@ export class CanonicalIngestionHost {
       errors.push(error);
       abort();
     } finally {
-      if (cancellation) {
+      if (cancellation !== undefined) {
         await cancellation;
       }
       try {
@@ -756,7 +756,7 @@ export class CanonicalIngestionHost {
         this.cleanupFailure = error;
         errors.push(error);
       }
-      if (cancellation) {
+      if (cancellation !== undefined) {
         await cancellation;
       }
       context.signal.removeEventListener('abort', abort);

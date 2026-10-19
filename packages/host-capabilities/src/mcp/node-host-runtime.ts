@@ -407,7 +407,7 @@ export class McpHostRuntime {
         elicitationPresenter: this.elicitationPresenter,
         onInternalError: (code, cause) => this.reportInternalError(code, cause),
         openStorage: platform.openTaskStorage,
-        ...(platform.taskOwner ? { taskOwner: platform.taskOwner } : {}),
+        ...(platform.taskOwner === undefined ? {} : { taskOwner: platform.taskOwner }),
       });
     this.host = {
       close: async () => {

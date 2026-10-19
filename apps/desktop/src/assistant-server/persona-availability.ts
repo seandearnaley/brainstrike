@@ -4,10 +4,7 @@ import type {
   AssistantPersonaDefinition,
   ProviderCredential,
 } from '@brainstrike/assistant-contract';
-import {
-  isDesktopNativeToolId,
-  supportsWorkerPersonaProvider,
-} from '@brainstrike/assistant-contract';
+import { isDesktopNativeToolId } from '@brainstrike/assistant-contract';
 import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import { createLogger } from '@brainstrike/logging';
 
@@ -47,14 +44,6 @@ export async function inspectPersonaAvailability(
       issues.push({
         code: 'model-not-listed',
         message: `Model ${pin.provider}::${pin.modelId} is not in the host model catalog. Check its exact ID in Models or correct the profile.`,
-      });
-    }
-    if (persona.mode === 'worker' && !supportsWorkerPersonaProvider(pin.provider)) {
-      blocked = true;
-      issues.push({
-        code: 'worker-model-unsupported',
-        message:
-          'Worker mode cannot use the built-in local model. Select another model provider in this profile.',
       });
     }
     if (definition?.capabilities.llm && definition.authType !== 'none') {

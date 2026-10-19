@@ -1,7 +1,11 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostLogRow, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import { describeBoundaryError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  describeBoundaryError,
+  INTERNAL_FAULT,
+} from '@brainstrike/assistant-contract';
 import type { OmMeterState } from '@brainstrike/assistant-ui';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
@@ -20,10 +24,10 @@ export interface HostMemorySegment {
   readonly omSegment?: OmMeterState;
 }
 
-/** Map a ready read onto the meter's existing memory states. */
-export function hostOmMeterState(
-  observational: Extract<MemoryRead, { admission: { ready: true } }>['observational']
-): OmMeterState {
+type ReadyRead = Extract<MemoryRead, { admission: { ready: true } }>;
+
+/** Map a ready read onto the meter's memory states; a host that predates it reports no lifecycle. */
+export function hostOmMeterState(observational: ReadyRead['observational']): OmMeterState {
   if (observational.state === 'off') {
     return { kind: 'inactive' };
   }
@@ -38,6 +42,7 @@ export function hostOmMeterState(
     bufferedObservationTokens: record.bufferedObservationTokens,
     compactionSavedTokens: Math.max(0, record.totalTokensObserved - record.observationTokenCount),
     kind: 'stats',
+    ...(record.lifecycle ? { lifecycle: record.lifecycle } : {}),
     messageTokenThreshold: record.messageTokenThreshold,
     observationTokens: record.observationTokenCount,
     pendingMessageTokens: record.pendingMessageTokens,
@@ -77,9 +82,22 @@ async function readSegment(
 ): Promise<HostMemorySegment> {
   const result = await client.request('thread/memory/read', request);
   if ('observational' in result) {
-    return { omSegment: hostOmMeterState(result.observational) };
+    // The record as of this read: no committed row marks Mastra's background
+    // work ending, so its live flags hold until the next read.
+    const state = { ...hostOmMeterState(result.observational), readAt: Date.now() };
+    return { omSegment: result.models ? { ...state, models: result.models } : state };
   }
   return { admissionReason: result.admission.reason };
+}
+
+/** A failed read's validated reason, with the boundary code it arrived under. */
+function readFailure(cause: unknown): OmMeterState {
+  return {
+    code: cause instanceof BoundaryFailureError ? cause.failure.code : INTERNAL_FAULT.code,
+    kind: 'error',
+    readAt: Date.now(),
+    reason: describeBoundaryError(cause),
+  };
 }
 
 /**
@@ -130,12 +148,7 @@ class HostMemoryReads {
       },
       (cause: unknown) => {
         if (attempt === this.#latest) {
-          this.#publish({
-            omSegment: {
-              kind: 'error',
-              reason: describeBoundaryError(cause),
-            },
-          });
+          this.#publish({ omSegment: readFailure(cause) });
         }
       }
     );

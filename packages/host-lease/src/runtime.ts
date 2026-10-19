@@ -16,6 +16,7 @@ import {
   tokensEqual,
 } from './record.js';
 import { publishHostRecord, removeOwnHostRecord, secureDirectory } from './record-file.js';
+import { HOST_LEASE_CLOSING, HostLeaseRefusalError } from './refusal.js';
 import { ResourceOwner } from './resource-owner.js';
 
 export type HostLifetime = 'app' | 'cli' | 'persistent';
@@ -29,12 +30,13 @@ export interface HostRuntime {
 }
 /** M3 composes the existing lease with its store owner and client protocol. */
 export interface HostRuntimeBindings {
+  /** Returns the join of the socket's admitted requests; retirement awaits it before destroying the socket. */
   acceptSocket(
     socket: Socket,
     record: HostRecord,
     attached: () => void,
     lifecycle: HostSocketLifecycle
-  ): void;
+  ): (() => Promise<void>) | undefined;
   acquireRoot(
     retainRun: () => () => void
   ): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
@@ -117,6 +119,7 @@ export async function startHost(
   await secureDirectory(options.root);
   const owner = new ResourceOwner();
   const sockets = new Set<Socket>();
+  const admitted = new WeakMap<Socket, () => Promise<void>>();
   const completion = Promise.withResolvers<void>();
   // Preserve fatal cleanup failures on the public closed Promise without an
   // unhandled-rejection race before the launcher has received the runtime.
@@ -129,6 +132,7 @@ export async function startHost(
   let clients = 0;
   let activeRuns = 0;
   let attachedOnce = false;
+  let graceElapsed = false;
   const close = (cause?: unknown): Promise<void> => {
     if (!closing) {
       // BST-1977: fence Core before metadata/ACL and transport finalizers.
@@ -175,21 +179,20 @@ export async function startHost(
     }
     return closing;
   };
+  // A CLI host exits when its last client leaves. A host no client ever attached exits once its
+  // startup grace has elapsed, re-checked here when its last run releases (BST-2170): the grace
+  // timer fires once, and a run held at that moment must not keep the host alive forever.
   const finishIfIdle = (): void => {
-    if (
-      options.lifetime === 'cli' &&
-      attachedOnce &&
-      clients === 0 &&
-      activeRuns === 0 &&
-      !closing
-    ) {
+    const lastClientLeft = options.lifetime === 'cli' && attachedOnce;
+    const unattachedPastGrace = !attachedOnce && graceElapsed;
+    if ((lastClientLeft || unattachedPastGrace) && clients === 0 && activeRuns === 0 && !closing) {
       close().catch(() => undefined); // failure stays visible on completion.promise
     }
   };
   const retainRun = (): (() => void) => {
     signal?.throwIfAborted();
     if (closing) {
-      throw new Error('Host is closing');
+      throw new HostLeaseRefusalError(HOST_LEASE_CLOSING, 'Host is closing');
     }
     activeRuns += 1;
     let released = false;
@@ -251,7 +254,7 @@ export async function startHost(
             finishIfIdle();
           }
         });
-        bindings.acceptSocket(
+        const answered = bindings.acceptSocket(
           socket,
           record,
           () => {
@@ -276,18 +279,23 @@ export async function startHost(
             },
           }
         );
+        if (answered) {
+          admitted.set(socket, answered);
+        }
         return;
       }
-      const reject = (message: string): void => {
+      const reject = (message: string, code?: typeof HOST_LEASE_CLOSING): void => {
         if (rejected) {
           return;
         }
         rejected = true;
-        socket.end(`${JSON.stringify({ message, method: 'error' })}\n`);
+        socket.end(
+          `${JSON.stringify({ ...(code === undefined ? {} : { code }), message, method: 'error' })}\n`
+        );
       };
       const request = (frame: HostRequest): void => {
         if (rejected || closing || signal?.aborted) {
-          reject('Host is closing');
+          reject('Host is closing', HOST_LEASE_CLOSING);
           return;
         }
         if (frame.method === 'initialize') {
@@ -339,8 +347,15 @@ export async function startHost(
           value.close((error?: Error) => (error ? reject(error) : resolve()))
         );
         serverClosing.catch(() => undefined);
+        // BST-2174: new connections are refused from here; a request a socket
+        // already admitted writes its answer before that socket is destroyed.
         await Promise.all(
-          [...sockets].filter((socket) => socket !== stopReply?.socket).map(destroySocket)
+          [...sockets]
+            .filter((socket) => socket !== stopReply?.socket)
+            .map(async (socket) => {
+              await admitted.get(socket)?.();
+              await destroySocket(socket);
+            })
         );
         if (!stopReply) {
           await serverClosing;
@@ -367,9 +382,8 @@ export async function startHost(
       await owner.acquire(
         async () =>
           setTimeout(() => {
-            if (!attachedOnce && activeRuns === 0) {
-              close().catch(() => undefined);
-            }
+            graceElapsed = true;
+            finishIfIdle();
           }, options.startupGraceMs ?? 10_000),
         async (timer) => clearTimeout(timer)
       );

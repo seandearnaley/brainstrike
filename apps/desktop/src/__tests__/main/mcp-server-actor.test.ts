@@ -135,6 +135,23 @@ describe('McpServerActor', () => {
         'mcp-header-mismatch',
         'protocol',
       ],
+      // BST-1632: the SDK client refuses, before sending anything, a method
+      // the server never advertised (`tools/list` on a prompts-only server).
+      // The CALLER's mistake: the server stays connected.
+      [
+        new SdkError(
+          SdkErrorCode.CapabilityNotSupported,
+          'Server does not support tools (required for tools/list)'
+        ),
+        'mcp-capability-missing',
+        'operation',
+      ],
+      // A server that ANSWERS -32021 is still a protocol failure.
+      [
+        new ProtocolError(-32_021, 'private capability detail'),
+        'mcp-capability-missing',
+        'protocol',
+      ],
     ] as const;
     for (const [cause, code, category] of cases) {
       const subject = actor(async () =>

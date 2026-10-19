@@ -57,7 +57,10 @@ import {
   withIndexedPart,
   withoutIndexedPart,
 } from './committed-step-text';
-import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
+import {
+  committedHostCompaction,
+  HOST_CONTEXT_COMPACTED_DATA_NAME,
+} from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
@@ -231,17 +234,20 @@ function committedToolCatalogId(event: Readonly<Record<string, unknown>>): strin
  * What the card reads beside the approval: a question or plan's kind, or an
  * approval's host facts (a code-execution context, or the folder a file call
  * targets; each validated before use). A network consent carries both: its
- * kind, and the facts when they are valid.
+ * kind, and the facts when they are valid, or the browser origin it asks to
+ * open (BST-1178).
  */
 function interactionFacts(
   kind: CommittedInteractionKind,
   executionContext: unknown,
-  targetRoot: unknown
+  targetRoot: unknown,
+  origin: unknown
 ): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
   if (kind === 'network') {
     const facts: Readonly<Record<string, unknown>> = {
       interactionKind: kind,
       ...(isCodeExecutionApprovalContext(executionContext) ? { executionContext } : {}),
+      ...(typeof origin === 'string' ? { origin } : {}),
     };
     return facts as NonNullable<ToolPart['providerMetadata']>[string];
   }
@@ -711,12 +717,7 @@ export class CommittedAssistantLogProjection {
       return;
     }
     if (event['type'] === 'context.compacted') {
-      const kind = event['kind'];
-      if (kind !== 'agentic' && kind !== 'deterministic') {
-        throw new Error('Committed compaction has an unsupported kind.');
-      }
-      const summary = requiredString(event, 'summary');
-      this.data(run, row, { kind, summary }, HOST_CONTEXT_COMPACTED_DATA_NAME);
+      this.data(run, row, committedHostCompaction(event), HOST_CONTEXT_COMPACTED_DATA_NAME);
       return;
     }
     if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
@@ -899,7 +900,12 @@ export class CommittedAssistantLogProjection {
       throw new Error('Committed interaction has an unsupported kind.');
     }
     const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
-    const facts = interactionFacts(kind, event['executionContext'], event['targetRoot']);
+    const facts = interactionFacts(
+      kind,
+      event['executionContext'],
+      event['targetRoot'],
+      event['origin']
+    );
     this.updateTool(run, id, (part) => ({
       ...part,
       approval: {

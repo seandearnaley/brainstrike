@@ -8,7 +8,6 @@ import {
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { createAgentHostToolBindings } from '@brainstrike/agent-host/canonical-tool-bindings';
 import {
-  LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
   resolveToolRiskCategory,
   ToolInputError,
@@ -142,14 +141,12 @@ export function createSharedNativeHostTools(
   options: SharedNativeHostToolsOptions
 ): Readonly<Record<string, HostTool>> {
   const budget = options.resolvedToolResultBudget.domainModelResultCharBudget;
-  const provider = typeof options.runtime.provider === 'string' ? options.runtime.provider : '';
   const executors: Readonly<Record<string, NativeToolExecutor>> = {
     ...SHARED_NATIVE_TOOL_EXECUTORS,
     ...options.executors,
   };
   const bind = (runtimeData: RuntimeData, ports: NativeToolPorts) => {
     const context: NativeToolBuildContext = {
-      isLocalProvider: provider.trim().toLowerCase() === 'local',
       ports,
       readFileCursorRegistry: options.readFileCursorRegistry,
       resolveActiveDomainCharBudget: () =>
@@ -161,10 +158,6 @@ export function createSharedNativeHostTools(
     };
     const tools: NativeToolDefinitions = {};
     for (const id of options.ids) {
-      // The catalog's localProvider: 'unregistered' tools have no local executor.
-      if (context.isLocalProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(id)) {
-        continue;
-      }
       const executor = executors[id];
       if (!executor) {
         throw new Error(`No host executor is registered for native tool ${id}`);

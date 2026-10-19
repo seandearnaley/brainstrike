@@ -44,8 +44,10 @@ export async function readHostThreadMemory(
   const root = context.children.rootThread(params.threadId);
   const active = [...context.runs.values()].find((run) => run.threadId === root && !run.terminal);
   if (active?.admission) {
+    const { memoryModels } = active.admission;
     return {
       admission: { ready: true },
+      ...(memoryModels ? { models: memoryModels } : {}),
       observational: (await active.admission.readObservation?.(params.threadId)) ?? {
         state: 'off',
       },

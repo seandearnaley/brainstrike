@@ -14,7 +14,7 @@ const threadId = '9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7';
 const fullRun = '64263838-b201-4d03-b6d2-4d245a92c684';
 const partialRun = 'f9745466-0b46-469e-b131-eeb96cd7ebaa';
 function read(fold: ThreadLedgerFold) {
-  return Schema.decodeUnknownSync(HostLedgerThreadSchema, {
+  return Schema.decodeSync(HostLedgerThreadSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({ ...fold.read(), threadId });
@@ -49,7 +49,7 @@ describe('committed verdicts in the host ledger', () => {
   });
   test('an explicit user verdict survives later derived updates across incremental reads', () => {
     const fold = replay(rows);
-    const user = Schema.decodeUnknownSync(HostLogRowSchema, {
+    const user = Schema.decodeSync(HostLogRowSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })({

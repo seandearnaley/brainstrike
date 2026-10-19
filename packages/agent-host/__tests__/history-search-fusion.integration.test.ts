@@ -25,13 +25,14 @@ import { searchHostThreads } from '../src/thread-search.js';
 import { fixturePlatform } from './fixtures/child-run-host.js';
 import history from './fixtures/committed-history-search.json' with { type: 'json' };
 import judgments from './fixtures/history-search-judgments.json' with { type: 'json' };
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 
 const recorded = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
   errors: 'all',
   onExcessProperty: 'error',
 })(history);
 const threadIds = [...new Set(recorded.map(({ threadId }) => threadId))];
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = REAL_INDEXER_DEADLINES;
 type Port = Awaited<ReturnType<typeof openIndexer>>;
 type SearchResult = Awaited<ReturnType<typeof searchHostThreads>>;
 let root: string;

@@ -97,12 +97,13 @@ export interface EmbeddingHostRuntimeMetadata {
   readonly actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null;
   readonly backendMismatch: boolean;
   /**
-   * The device this host resolved at start from the saved vector preference
-   * and device detection. An unpinned load runs on it; a pinned query changes
+   * The device this host resolved from the saved vector preference and device
+   * detection, when memory recall first asks or the preference changes; it
+   * chooses none at start. An unpinned load runs on it; a pinned query changes
    * `selectedDevicePreference`, never this.
    */
   readonly hostDevice?: 'webgpu' | 'wasm';
-  /** A preference change could not resolve a device; recall reports this instead. */
+  /** Why the host could not resolve a device; recall refuses with this reason. */
   readonly hostDeviceError?: string;
   readonly selectedDevicePreference: 'webgpu' | 'wasm';
   readonly telemetry: EmbeddingTelemetrySnapshot;

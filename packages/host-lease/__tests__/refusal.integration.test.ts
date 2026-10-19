@@ -48,6 +48,7 @@ test('a foreign-host lease refuses before attach, spawn or mutation', async () =
       lifetime: 'cli',
       spawn: async () => {
         spawned = true;
+        throw new Error('This launch must not start a host');
       },
     })
   ).rejects.toBeInstanceOf(ForeignLockError);
@@ -65,6 +66,7 @@ test('a live lease without a published record names its owner and refuses withou
         lifetime: 'cli',
         spawn: async () => {
           spawned = true;
+          throw new Error('This launch must not start a host');
         },
         startupTimeoutMs: 50,
       })
@@ -112,7 +114,13 @@ test('a reused PID with a different start identity is stale even though that PID
   const client = await launchHost(root, {
     lifetime: 'cli',
     spawn: async (options) => {
-      hosts.push(await startHost(options));
+      const host = await startHost(options);
+      hosts.push(host);
+      return {
+        identity: { pid: host.record.pid, start: host.record.start },
+        release: async () => undefined,
+        retire: () => host.close(),
+      };
     },
   });
   clients.push(client);
@@ -129,6 +137,7 @@ test('synced roots refuse before any starter is invoked or directory created', a
       lifetime: 'cli',
       spawn: async () => {
         spawned = true;
+        throw new Error('This launch must not start a host');
       },
     })
   ).rejects.toBeInstanceOf(SyncedRootError);
@@ -164,6 +173,7 @@ test.skipIf(process.platform === 'win32')(
         lifetime: 'cli',
         spawn: async () => {
           spawned = true;
+          throw new Error('This launch must not start a host');
         },
       })
     ).rejects.toThrow(new RegExp(`Live host pid ${host.record.pid}`));

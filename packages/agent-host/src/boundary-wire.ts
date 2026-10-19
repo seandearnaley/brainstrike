@@ -7,7 +7,14 @@ import {
   refusal,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { ConnectionError, ConnectionErrors, ErrorCodes, ResponseError } from 'vscode-jsonrpc';
+import {
+  ConnectionError,
+  ConnectionErrors,
+  ErrorCodes,
+  Message,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc';
 
 /** The JSON-RPC error code of a refusal; a fault keeps `InternalError`. */
 export const BOUNDARY_REFUSAL_RPC_CODE = -32_001;
@@ -46,6 +53,41 @@ export function isConnectionLoss(cause: unknown): boolean {
     cause instanceof BoundaryFailureError &&
     (cause.failure.code === CONNECTION_CLOSED.code || cause.failure.code === CONNECTION_LOST.code)
   );
+}
+
+/** Node's codes for a socket whose peer closed or reset it under this side's reads or writes. */
+const PEER_RESET_CODES = new Set(['ECONNRESET', 'EPIPE']);
+
+/** A transport failure its peer caused by closing or resetting the connection. */
+export function isPeerReset(cause: unknown): boolean {
+  return cause instanceof Error && PEER_RESET_CODES.has(String(Reflect.get(cause, 'code')));
+}
+
+/** Per connection, the request writes its peer's reset failed and no rejection has read yet. */
+const peerResetWrites = new WeakMap<object, unknown[]>();
+
+/**
+ * BST-2192: records each request write the peer's reset failed. vscode-jsonrpc
+ * rejects that request with `MessageWriteError`, which keeps only the error
+ * text, but its writer first reports the error with the failed message on
+ * `onError`, and it writes one message at a time. A transport error without a
+ * request (the socket's own `error` event) is no write's evidence. Call before
+ * the first request.
+ */
+export function watchPeerReset(connection: Pick<MessageConnection, 'onError'>): void {
+  const resets: unknown[] = [];
+  peerResetWrites.set(connection, resets);
+  connection.onError(([error, message]) => {
+    if (Message.isRequest(message) && isPeerReset(error)) {
+      resets.push(error);
+    }
+  });
+}
+
+/** A write failure takes its own reset evidence, so a later write's other failure stays its own. */
+function takePeerResetWrite(connection: object | undefined): boolean {
+  const resets = connection === undefined ? undefined : peerResetWrites.get(connection);
+  return resets !== undefined && resets.shift() !== undefined;
 }
 
 function typedFailure(cause: unknown): BoundaryFailure | undefined {
@@ -122,7 +164,11 @@ export function toBoundaryResponseError(
  * peer sent, or the internal fault (with what arrived logged) when it sent none.
  * The original response error stays the cause.
  */
-export function fromBoundaryResponseError(cause: unknown, log: BoundaryLog): unknown {
+export function fromBoundaryResponseError(
+  cause: unknown,
+  log: BoundaryLog,
+  connection?: Pick<MessageConnection, 'onError'>
+): unknown {
   if (
     cause instanceof ConnectionError &&
     (cause.code === ConnectionErrors.Closed || cause.code === ConnectionErrors.Disposed)
@@ -134,7 +180,10 @@ export function fromBoundaryResponseError(cause: unknown, log: BoundaryLog): unk
   }
   if (
     cause.code === ErrorCodes.PendingResponseRejected ||
-    cause.code === ErrorCodes.ConnectionInactive
+    cause.code === ErrorCodes.ConnectionInactive ||
+    // A write the peer's reset failed never reached the peer. Any other write
+    // failure, such as unencodable params, stays the logged internal fault.
+    (cause.code === ErrorCodes.MessageWriteError && takePeerResetWrite(connection))
   ) {
     return new BoundaryFailureError(CONNECTION_LOST, { cause });
   }

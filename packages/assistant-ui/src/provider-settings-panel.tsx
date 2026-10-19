@@ -1,5 +1,6 @@
 import {
   deriveEffectiveInputBudget,
+  deriveMaxOutputTokensWithinBudget,
   getProviderDefinition,
   type LlmModelDefinition,
   mergeOpenRouterAutoProfileModel,
@@ -139,6 +140,35 @@ function resolveOpenRouterOutputReservation(
     profileModel,
     resolveOpenRouterReasoningActive(profileModel, settings.reasoningEffort || undefined)
   );
+}
+
+/**
+ * The output control's bound: the model's maximum, lowered to the most output
+ * that still leaves input room in its window (BST-1810). Some routes publish
+ * a maximum output within the safety margin of their window (MiniMax M3:
+ * 512,000 of 524,288), and a value past that room cannot run at all.
+ */
+function resolveOpenRouterOutputMaximum(limits: OpenRouterModelLimits | undefined): {
+  readonly maximum: number;
+  readonly source?: string;
+} {
+  const modelMaximum = limits?.maxOutputTokens ?? resolveOpenRouterCodingMaxOutputTokens();
+  if (!limits) {
+    return { maximum: modelMaximum };
+  }
+  let roomMaximum: number;
+  try {
+    roomMaximum = deriveMaxOutputTokensWithinBudget(limits.contextWindow);
+  } catch {
+    // A window too small for any output: the composer's budget check names it.
+    return { maximum: modelMaximum, source: limits.sourceLabel };
+  }
+  return roomMaximum < modelMaximum
+    ? {
+        maximum: roomMaximum,
+        source: `this model's ${settingsNumberFormatter.format(limits.contextWindow)}-token context window`,
+      }
+    : { maximum: modelMaximum, source: limits.sourceLabel };
 }
 
 function resolveOpenRouterModelLimits(
@@ -681,9 +711,8 @@ export const ProviderSettingsPanel = ({
   const isOpenAiFamily = normalizedProvider === 'openai' || normalizedProvider === 'openrouter';
   const isAnthropic = normalizedProvider === 'anthropic';
   const isGoogle = normalizedProvider === 'google';
-  const isLocal = normalizedProvider === 'local';
 
-  if (!(isOpenAiFamily || isAnthropic || isGoogle || isLocal)) {
+  if (!(isOpenAiFamily || isAnthropic || isGoogle)) {
     return null;
   }
 
@@ -706,10 +735,10 @@ export const ProviderSettingsPanel = ({
           effectiveOpenRouterModelMetadataLookup
         )?.outputReservation ?? resolveOpenRouterCodingMaxOutputTokens())
       : undefined;
-  const maximumOutputTokens =
+  const outputMaximum =
     normalizedProvider === 'openrouter'
-      ? (openRouterLimits?.maxOutputTokens ?? resolveOpenRouterCodingMaxOutputTokens())
-      : MAX_OUTPUT_MAX;
+      ? resolveOpenRouterOutputMaximum(openRouterLimits)
+      : { maximum: MAX_OUTPUT_MAX };
   const canUpdate = Boolean(onSettingsChange);
   const updateSettings: ProviderSettingsUpdate = (updates) => {
     if (!onSettingsChange) {
@@ -746,8 +775,8 @@ export const ProviderSettingsPanel = ({
           // draft is pending, and a remount per commit would drop focus and
           // silently discard a refused draft instead of reverting it.
           key={`${providerId}:${modelName ?? ''}`}
-          maximum={maximumOutputTokens}
-          maximumSource={openRouterLimits?.sourceLabel}
+          maximum={outputMaximum.maximum}
+          maximumSource={outputMaximum.source}
           onUpdate={updateSettings}
           onValidationChange={onValidationChange ?? contextValidationChange}
           settings={currentSettings}

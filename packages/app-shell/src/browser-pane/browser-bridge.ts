@@ -28,6 +28,8 @@ export interface BrowserTab {
   readonly canGoForward: boolean;
   /** True while the tab's main frame is loading. */
   readonly isLoading: boolean;
+  /** `agent` tabs are the agent's own, browsing behind its egress proxy (BST-1238). */
+  readonly owner: 'agent' | 'user';
   readonly tabId: string;
   readonly title: string;
   readonly url: string;

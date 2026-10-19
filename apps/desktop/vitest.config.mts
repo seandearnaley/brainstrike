@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { transformersOnnxRuntimeWasmUrlsPlugin } from '@brainstrike/build-utils';
-import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
+import { getAdjustedTimeout, getExpectPollTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import react from '@vitejs/plugin-react';
@@ -340,6 +340,10 @@ export default defineConfig({
       '**/qualification/**',
       ...(UNDER_ELECTRON ? [] : ELECTRON_RUNTIME_TESTS),
     ],
+    // Polls of real processes and the real renderer outlast Vitest's 1 s
+    // default (BST-2181). Integration and unit configs spread this test block;
+    // a call's own options still win.
+    expect: { poll: { timeout: getExpectPollTimeout() } },
     globals: true,
     // Desktop integration lanes build real PGlite instances inside beforeEach
     // hooks; vitest's 10s default hook timeout flakes on loaded CI runners
