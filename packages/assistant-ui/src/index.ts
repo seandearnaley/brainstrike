@@ -79,6 +79,8 @@ export {
   useContextMapLink,
 } from './context-map-link-context';
 export type {
+  MemoryCycleDisplay,
+  MemoryCyclesDisplay,
   MemoryModelsDisplay,
   OmAwaitingObserverReason,
   OmMeterState,

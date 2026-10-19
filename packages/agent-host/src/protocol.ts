@@ -32,7 +32,11 @@ import {
   MCP_SETTINGS_METHOD_SCHEMAS,
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.js';
-import { HostMemoryModelsSchema, HostObservationalMemoryStateSchema } from './protocol-memory.js';
+import {
+  HostMemoryCycleEventSchema,
+  HostMemoryModelsSchema,
+  HostObservationalMemoryStateSchema,
+} from './protocol-memory.js';
 import {
   HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
@@ -700,6 +704,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         modelId: Id,
         usage: json(),
       }),
+      HostMemoryCycleEventSchema,
       Schema.Struct({
         type: Schema.Literal('memory.observation.withheld'),
         ...RunFields,

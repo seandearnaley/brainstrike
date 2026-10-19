@@ -59,6 +59,8 @@ const observerCall = Schema.decodeUnknownSync(HostLogRowSchema, {
   seq: 1000,
   threadId: started.threadId,
 });
+/** The recorded run whose memory cycles the BST-2224 case commits. */
+const STARTED_RUN_ID = started.event.runId;
 class RowSource implements HostMemoryRowSource {
   private snapshot: {
     readonly rows: readonly HostLogRow[];
@@ -339,6 +341,73 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     act(() => source.commit(finished));
     await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+  });
+  test('each kind’s last committed memory cycle joins the segment, and a cycle re-reads (BST-2224)', async () => {
+    const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE, ACTIVE);
+    const source = new RowSource();
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    const cycle = (seq: number, event: Record<string, unknown>): HostLogRow =>
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+        event: { runId: STARTED_RUN_ID, type: 'memory.cycle', ...event },
+        seq,
+        threadId: started.threadId,
+        ts: Date.UTC(2026, 9, 19, 9, 0, seq - 1000),
+      });
+    const failed = {
+      durationMs: 3200,
+      failure: {
+        code: 'memory.observer-failed',
+        correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
+      },
+      kind: 'observation',
+      outcome: 'failed',
+      trigger: 'async-buffer',
+    };
+    act(() => source.commit(cycle(1001, failed)));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current.omSegment?.cycles).toEqual({
+        observation: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 1),
+          durationMs: 3200,
+          failure: failed.failure,
+          outcome: 'failed',
+          trigger: 'async-buffer',
+        },
+      })
+    );
+    act(() =>
+      source.commit(cycle(1002, { kind: 'reflection', outcome: 'completed', trigger: 'turn-sync' }))
+    );
+    act(() =>
+      source.commit(
+        cycle(1003, {
+          kind: 'observation',
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+        })
+      )
+    );
+    // The later observation replaces the failed one; the reflection stays.
+    await waitFor(() =>
+      expect(result.current.omSegment?.cycles).toEqual({
+        observation: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 3),
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+        },
+        reflection: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 2),
+          outcome: 'completed',
+          trigger: 'turn-sync',
+        },
+      })
+    );
   });
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);

@@ -594,6 +594,13 @@ export function createHostRunContext(
 ): HostRunContext {
   return {
     readCommittedRows,
+    recordMemoryCycle: async (cycle) => {
+      // A buffered cycle settles after the run's end; it is still the run's.
+      if (run.ownerJoined) {
+        throw new Error('Memory cycle arrived after the run lifetime joined');
+      }
+      await publish(run.threadId, [{ ...cycle, runId: run.id, type: 'memory.cycle' }]);
+    },
     recordObservationWithheld: async (reason) => {
       await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
     },

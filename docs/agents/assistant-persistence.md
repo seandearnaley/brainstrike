@@ -42,6 +42,15 @@ join it. A failure after the end is its own `memory.settlement.failed` fact, and
 the run's outcome stands. A run owner without that foreground phase joins whole
 before its end.
 
+Each observation and reflection cycle commits one `memory.cycle` fact from
+Mastra's documented lifecycle hooks. The agent host installs them next to its
+provider enclosure, so Core stays the only writer. The fact records what
+started the cycle, how it ended (`completed`, `failed`, or `cancelled` by Stop),
+how long it took, and the usage it reported. A failed cycle also records its
+typed `memory.*` code and the reference its cause is logged under. A buffered
+cycle's failure reaches only its end hook, so this fact is where it first
+appears. Spend is billed from `memory.usage` alone.
+
 Keep observations within the selected chat provider's privacy boundary under
 [ADR-0013](../adr/0013-observational-memory.md), with concrete resolved models and
 explicit credential authority. Actual observer and reflector usage belongs in

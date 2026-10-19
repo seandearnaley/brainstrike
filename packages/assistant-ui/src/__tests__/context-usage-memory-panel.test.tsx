@@ -156,6 +156,65 @@ describe('the Developer memory panel', () => {
     expect(row('embedder')).toHaveTextContent('Not reported by this host');
   });
 
+  it('shows the last observation and reflection cycle, a failed one with its code and reference (BST-2224)', () => {
+    const CYCLE_AT = Date.UTC(2026, 9, 19, 9, 0, 0);
+    popover({
+      ...LIVE,
+      cycles: {
+        observation: {
+          at: CYCLE_AT,
+          durationMs: 3200,
+          failure: {
+            code: 'memory.observer-failed',
+            correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
+          },
+          outcome: 'failed',
+          trigger: 'async-buffer',
+        },
+        reflection: {
+          durationMs: 900,
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 4210, outputTokens: 312, totalTokens: 4522 },
+        },
+      },
+    });
+    const observation = row('last-observation-cycle');
+    expect(observation).toHaveTextContent(
+      'Failed · async-buffer · 3.2 s · memory.observer-failed · Reference: 0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11'
+    );
+    expect(
+      within(observation).getByText((_, element) => element?.tagName === 'TIME')
+    ).toHaveAttribute('datetime', new Date(CYCLE_AT).toISOString());
+    expect(row('last-reflection-cycle')).toHaveTextContent(
+      'Completed · turn-sync · 0.9 s · 4,210 in / 312 out'
+    );
+  });
+
+  it('shows no cycle rows before the thread’s first cycle', () => {
+    popover(LIVE);
+    expect(screen.queryByTestId('context-usage-memory-last-observation-cycle')).toBeNull();
+    expect(screen.queryByTestId('context-usage-memory-last-reflection-cycle')).toBeNull();
+  });
+
+  it('shows the last failed cycle beside a failed read', () => {
+    popover({
+      code: 'memory.observer-failed',
+      cycles: {
+        observation: {
+          failure: { code: 'memory.observer-failed' },
+          outcome: 'failed',
+          trigger: 'turn-sync',
+        },
+      },
+      kind: 'error',
+      reason: 'Memory observe failed because its observer model failed.',
+    });
+    expect(row('last-observation-cycle')).toHaveTextContent(
+      'Failed · turn-sync · memory.observer-failed'
+    );
+  });
+
   it('names a waiting observer’s reason, and recall’s embedder while observations are off', () => {
     const { unmount } = popover({
       kind: 'awaiting-observer',
