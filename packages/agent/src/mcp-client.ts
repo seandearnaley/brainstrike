@@ -40,6 +40,10 @@ export {
   type McpClientExtensionRequestContract,
 } from './mcp/client-extension-registry';
 export {
+  DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+  MAX_MCP_MAX_TOTAL_TIMEOUT_MS,
+} from './mcp/client-policy';
+export {
   type ExplicitHttpMcpCallToolParams,
   type ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpClient,
