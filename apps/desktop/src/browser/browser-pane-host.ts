@@ -22,6 +22,7 @@ import {
   getBrowserPaneSession,
   type RefusedAgentResponse,
 } from './browser-session';
+import type { LoopbackAdmission } from './browser-url';
 import {
   type BrowserHostWindow,
   type BrowserPaneView,
@@ -103,8 +104,12 @@ export interface BrowserPaneHost {
   /** Agent-facing CDP driver for the active tab (BST-1176). */
   readonly driver: BrowserDriver;
   readonly manager: BrowserViewManager;
-  /** Start the egress proxy and route agent tabs through it; call before opening one. */
-  prepareAgentBrowsing(): Promise<void>;
+  /**
+   * Start the egress proxy and route agent tabs through it; call before
+   * opening one. BST-1178: `loopback` is the one loopback server the
+   * navigation about to open may reach, from its own tab; none closes it.
+   */
+  prepareAgentBrowsing(loopback?: LoopbackAdmission): Promise<void>;
 }
 
 /**
@@ -312,6 +317,6 @@ export function createBrowserPaneHost(
     },
     driver,
     manager,
-    prepareAgentBrowsing: () => agentRoute.prepare(recordRefusedResponse),
+    prepareAgentBrowsing: (loopback) => agentRoute.prepare(recordRefusedResponse, loopback ?? null),
   };
 }

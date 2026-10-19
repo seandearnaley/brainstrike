@@ -421,3 +421,50 @@ test('a streamed effect owner preserves sibling disclosure state and DOM as owne
   expect(await screen.findByRole('button', { name: 'Sibling detail' })).toBe(detail);
   expect(detail).toHaveAttribute('aria-expanded', 'true');
 });
+
+// BST-2200: a delegation card's "Open conversation" sits at the bottom of the
+// opening body, so it is clipped while the grid rows animate. Whatever reveals
+// a clipped control (keyboard focus, assistive technology, a test driver's
+// click) calls scrollIntoView. When the clip was a scroll container it
+// scrolled, and the rest of the transition slid the body back down under the
+// pointer: the press landed on the button, the release on the task summary,
+// and the conversation never opened. The clip must not move its content.
+test('a control revealed in an opening activity body stays under the press for the rest of the transition', () => {
+  render(
+    <div className="assistant-ui-panel" style={{ width: 480 }}>
+      <ActivityTrace
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={null}
+        summary={done}
+        tail={[]}
+      >
+        <div style={{ blockSize: 120 }}>Task summary</div>
+        <button type="button">Open conversation</button>
+      </ActivityTrace>
+    </div>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
+  const clip = mustFind(document, '.bs-trace-collapse-inner');
+  const disclosure = mustFind(document, '.bs-trace-collapse');
+  // Reading the style starts the open transition; hold it partway open.
+  expect(getComputedStyle(disclosure).gridTemplateRows).toBe('0px');
+  const [opening] = disclosure.getAnimations();
+  if (!opening) {
+    throw new Error('The activity body opened without its grid-rows transition.');
+  }
+  opening.pause();
+  opening.currentTime = 20;
+  const control = screen.getByRole('button', { name: 'Open conversation' });
+  expect(control.getBoundingClientRect().bottom).toBeGreaterThan(
+    clip.getBoundingClientRect().bottom
+  );
+
+  control.scrollIntoView({ block: 'nearest' });
+  const pressedAt = control.getBoundingClientRect().top;
+  expect(clip.scrollTop).toBe(0);
+  opening.finish();
+
+  expect(control.getBoundingClientRect().top).toBe(pressedAt);
+});

@@ -1,5 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
+type RequestListener = (
+  details: {
+    readonly initiatorOrigin?: string;
+    readonly resourceType: string;
+    readonly url: string;
+    readonly webContentsId?: number;
+  },
+  callback: (response: { cancel?: boolean }) => void
+) => void;
 type HeadersListener = (
   details: {
     readonly resourceType: string;
@@ -12,7 +21,10 @@ type HeadersListener = (
 
 const fixture = vi.hoisted(() => {
   const makeSession = () => {
-    const state: { headersListener: HeadersListener | null } = { headersListener: null };
+    const state: {
+      headersListener: HeadersListener | null;
+      requestListener: RequestListener | null;
+    } = { headersListener: null, requestListener: null };
     return {
       clearAuthCache: vi.fn(async () => undefined),
       clearData: vi.fn(async () => undefined),
@@ -24,6 +36,9 @@ const fixture = vi.hoisted(() => {
       setProxy: vi.fn(async (_config: { proxyRules?: string }) => undefined),
       state,
       webRequest: {
+        onBeforeRequest: vi.fn((listener: RequestListener) => {
+          state.requestListener = listener;
+        }),
         onHeadersReceived: vi.fn((listener: HeadersListener) => {
           state.headersListener = listener;
         }),
@@ -43,6 +58,7 @@ vi.mock('electron', () => ({
 beforeEach(async () => {
   vi.clearAllMocks();
   fixture.agent.state.headersListener = null;
+  fixture.agent.state.requestListener = null;
   const { __resetBrowserPaneSessionForTests } = await import('../browser/browser-session');
   __resetBrowserPaneSessionForTests();
 });
@@ -137,4 +153,35 @@ it('cancels a response the proxy refused and names its tab, so the load fails vi
   );
   expect(passed).toHaveBeenCalledExactlyOnceWith({});
   expect(onRefused).toHaveBeenCalledOnce();
+});
+
+it('lets an admitted loopback server be reached only from its own tab and page (BST-1178)', async () => {
+  const { routeAgentBrowserSession } = await import('../browser/browser-session');
+  const admission = {
+    authority: 'localhost:5173',
+    origin: 'http://localhost:5173',
+    webContentsId: 7,
+  };
+  await routeAgentBrowserSession(41_000, vi.fn(), admission);
+  const listener = fixture.agent.state.requestListener;
+  if (listener === null) {
+    throw new Error('No request listener was installed');
+  }
+  const decide = (details: Parameters<RequestListener>[0]): unknown => {
+    const callback = vi.fn();
+    listener(details, callback);
+    return callback.mock.calls[0]?.[0];
+  };
+  const own = {
+    initiatorOrigin: 'http://localhost:5173',
+    resourceType: 'xhr',
+    url: 'http://localhost:5173/api',
+  };
+  expect(decide({ ...own, webContentsId: 7 })).toEqual({ cancel: false });
+  expect(decide({ ...own, webContentsId: 8 })).toEqual({ cancel: true });
+  // The next navigation's route closes it: the request is the proxy's again,
+  // which no longer admits the server.
+  await routeAgentBrowserSession(41_000, vi.fn());
+  expect(decide({ ...own, webContentsId: 8 })).toEqual({ cancel: false });
+  expect(fixture.agent.webRequest.onBeforeRequest).toHaveBeenCalledOnce();
 });

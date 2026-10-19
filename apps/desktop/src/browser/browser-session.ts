@@ -23,6 +23,7 @@
 import { createLogger } from '@brainstrike/logging';
 import { type Session, session } from 'electron';
 import { EGRESS_REFUSAL_HEADER } from './agent-egress/egress-proxy';
+import { type LoopbackAdmission, loopbackRequestAllowed } from './browser-url';
 
 const logger = createLogger('BrowserSession');
 
@@ -37,6 +38,8 @@ export const AGENT_BROWSER_PARTITION = 'browser-pane-agent';
 let configured: Session | null = null;
 let agentConfigured: Session | null = null;
 let agentProxyPort: number | null = null;
+/** BST-1178: the loopback server the agent's current navigation may reach, if any. */
+let agentLoopback: LoopbackAdmission | null = null;
 
 function harden(paneSession: Session): void {
   // Deny-by-default: refuse EVERY permission request. An allowlist would be
@@ -98,14 +101,23 @@ function refusalHeader(headers: Record<string, string[]> | undefined): string | 
  * plain-http request instead gets the proxy's empty 403, which this cancels
  * so the load fails visibly rather than rendering a blank page; `onRefused`
  * names the tab and the refused class.
+ *
+ * BST-1178: `loopback` is the one loopback server the navigation about to
+ * open may reach, which the proxy admits for every agent tab. This session
+ * lets requests for it through only from that tab's approved page
+ * ({@link loopbackRequestAllowed}) and cancels the rest.
  */
 export async function routeAgentBrowserSession(
   proxyPort: number,
-  onRefused: (response: RefusedAgentResponse) => void
+  onRefused: (response: RefusedAgentResponse) => void,
+  loopback: LoopbackAdmission | null = null
 ): Promise<Session> {
   const agentSession = agentConfigured ?? session.fromPartition(AGENT_BROWSER_PARTITION);
   if (agentConfigured === null) {
     harden(agentSession);
+    agentSession.webRequest.onBeforeRequest((details, callback) => {
+      callback({ cancel: !loopbackRequestAllowed(details, agentLoopback) });
+    });
     agentSession.webRequest.onHeadersReceived((details, callback) => {
       const refusal = refusalHeader(details.responseHeaders);
       if (refusal === undefined) {
@@ -124,6 +136,7 @@ export async function routeAgentBrowserSession(
     });
     agentConfigured = agentSession;
   }
+  agentLoopback = loopback;
   if (agentProxyPort !== proxyPort) {
     await agentSession.setProxy({
       mode: 'fixed_servers',
@@ -174,4 +187,5 @@ export function __resetBrowserPaneSessionForTests(): void {
   configured = null;
   agentConfigured = null;
   agentProxyPort = null;
+  agentLoopback = null;
 }
