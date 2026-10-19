@@ -363,6 +363,9 @@ export class McpHostRuntime {
           configuredServerId: input.config.configuredServerId,
           ...(input.config.enabledTools ? { enabledTools: input.config.enabledTools } : {}),
           ...(input.config.extensions ? { extensions: input.config.extensions } : {}),
+          ...(input.config.toolTimeoutMs === undefined
+            ? {}
+            : { toolTimeoutMs: input.config.toolTimeoutMs }),
           factory: (context) => {
             const attempt = Symbol('mcp-auth-attempt');
             authAttempt = attempt;
@@ -407,7 +410,7 @@ export class McpHostRuntime {
         elicitationPresenter: this.elicitationPresenter,
         onInternalError: (code, cause) => this.reportInternalError(code, cause),
         openStorage: platform.openTaskStorage,
-        ...(platform.taskOwner ? { taskOwner: platform.taskOwner } : {}),
+        ...(platform.taskOwner === undefined ? {} : { taskOwner: platform.taskOwner }),
       });
     this.host = {
       close: async () => {
@@ -572,6 +575,7 @@ export class McpHostRuntime {
           // included — never the compiled-in default (BST-1604).
           extensions: resolveMcpServerExtensions(server),
           startup: server.startup,
+          ...(server.toolTimeoutMs === undefined ? {} : { toolTimeoutMs: server.toolTimeoutMs }),
           transport: { configRef, type: server.transport },
         };
       })

@@ -100,6 +100,8 @@ export interface WorkerProgressUpdate {
 }
 
 export interface UseFileTreeWorkerOptions {
+  /** False keeps the hook inert: no worker is created (BST-1957). Defaults to true. */
+  enabled?: boolean;
   /** File system adapter for I/O operations */
   fileSystemAdapter: FileSystemAdapter | null;
   /** Callback when errors occur */
@@ -137,7 +139,7 @@ export interface UseFileTreeWorkerReturn {
  * @returns Worker port ref and handle map ref
  */
 export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTreeWorkerReturn {
-  const { fileSystemAdapter, onProgress, onError } = options;
+  const { enabled = true, fileSystemAdapter, onProgress, onError } = options;
 
   // Worker port ref
   const portRef = useRef<FileTreeWorkerPort | null>(null);
@@ -166,6 +168,9 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
   // Initialize worker and set up handlers
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     // Create worker
     let worker: Worker;
     let port: FileTreeWorkerPort;
@@ -299,7 +304,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
       port.terminate();
       portRef.current = null;
     };
-  }, [fileSystemAdapter]); // Only recreate worker when adapter changes
+  }, [enabled, fileSystemAdapter]); // Only recreate worker when adapter or enablement changes
 
   return {
     handleMapRef,

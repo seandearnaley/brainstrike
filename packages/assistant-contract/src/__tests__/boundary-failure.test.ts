@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   BoundaryFailureError,
   decodeBoundaryFailure,
+  describeBoundaryFailure,
+  describeBoundaryFailureForModel,
+  fault,
   INTERNAL_FAULT,
+  isStateStoreReadOnly,
   processLost,
   refusal,
+  STATE_STORE_READ_ONLY_CODE,
 } from '../boundary-failure';
 
 describe('boundary failure taxonomy', () => {
@@ -53,5 +58,47 @@ describe('boundary failure taxonomy', () => {
     expect(thrown.message).toBe('Enable the model first.');
     expect(thrown.cause).toBe(cause);
     expect(thrown.failure.code).toBe('model.not-enabled');
+  });
+
+  it('names a fault’s correlation id, which finds its cause in the diagnostic log (BST-2202)', () => {
+    const correlationId = '6f1c2a54-9a0b-4c1e-8d3f-2b7e5a9c4d10';
+    expect(describeBoundaryFailure({ ...INTERNAL_FAULT, correlationId })).toBe(
+      `${INTERNAL_FAULT.message} Reference: ${correlationId}`
+    );
+    const typed = fault({
+      category: 'authorization',
+      code: 'memory.embedder-failed',
+      correlationId,
+      message: 'Memory recall failed.',
+      providerEvidence: 'OpenAI returned HTTP 401.',
+      remedy: 'Check the OpenAI API key.',
+    });
+    expect(describeBoundaryFailure(typed)).toBe(
+      `Memory recall failed. Check the OpenAI API key. Provider response: OpenAI returned HTTP 401. Reference: ${correlationId}`
+    );
+    // Without one, nothing is added; a model's context never carries it.
+    expect(describeBoundaryFailure(INTERNAL_FAULT)).toBe(INTERNAL_FAULT.message);
+    expect(describeBoundaryFailureForModel({ ...INTERNAL_FAULT, correlationId })).toBe(
+      INTERNAL_FAULT.message
+    );
+  });
+
+  it('recognises only the state store’s read-only refusal as one (BST-2144)', () => {
+    const readOnly = { category: 'availability', code: STATE_STORE_READ_ONLY_CODE } as const;
+    const message = 'The conversation store is read-only.';
+    expect(isStateStoreReadOnly(new BoundaryFailureError(refusal({ ...readOnly, message })))).toBe(
+      true
+    );
+    expect(isStateStoreReadOnly(new BoundaryFailureError(fault({ ...readOnly, message })))).toBe(
+      false
+    );
+    expect(
+      isStateStoreReadOnly(
+        new BoundaryFailureError(
+          refusal({ category: 'availability', code: 'thread.read-only', message })
+        )
+      )
+    ).toBe(false);
+    expect(isStateStoreReadOnly(new Error(message))).toBe(false);
   });
 });

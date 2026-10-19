@@ -10,7 +10,9 @@ const isDev = process.env.NODE_ENV === 'development';
 const logger = createBuildLogger('PGliteLocator');
 
 const CSP_QUALIFIED_EVAL_MODULES = [
-  /\/node_modules\/\.pnpm\/web-tree-sitter@0\.25\.10\/node_modules\/web-tree-sitter\/tree-sitter\.js$/,
+  // Python grammar path requalified under the production CSP by
+  // apps/web/e2e/production-csp.test.ts (BST-2033). Keep version and module exact.
+  /\/node_modules\/\.pnpm\/web-tree-sitter@0\.27\.1\/node_modules\/web-tree-sitter\/web-tree-sitter\.js$/,
   // COUPLED to the `@electric-sql/pglite` catalog pin in pnpm-workspace.yaml.
   // That catalog has since moved on (BST-1063 to 0.5.4, BST-1283 to 0.5.5),
   // so this 0.5.3 entry matches NOTHING and PGlite EVAL warnings resurface in

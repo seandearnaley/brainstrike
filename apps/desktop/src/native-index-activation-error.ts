@@ -1,4 +1,5 @@
 import { isHostLeaseClosed, isRetirementRefusal } from './desktop-shutdown-state';
+import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
@@ -39,6 +40,14 @@ export function reportNativeIndexActivationError(
   shuttingDown: boolean,
   logger: ActivationLogger
 ): void {
+  if (shuttingDown && error instanceof IndexerUtilityExitedError) {
+    // A signal to Main's process group ends the utility with the shutdown (BST-2135). Info, not
+    // warn: the exit cannot lose committed index state (see `IndexerUtilityExitedError`).
+    logger.info('Native indexer utility exited before shutdown retired its attachments', {
+      reason: error.message,
+    });
+    return;
+  }
   if (
     shuttingDown &&
     (error instanceof NativeAuthorityTransitionError || isRetirementRefusal(error))

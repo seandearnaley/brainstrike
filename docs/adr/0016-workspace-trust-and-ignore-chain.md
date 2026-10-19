@@ -34,8 +34,9 @@ development database were copies under `.claude/worktrees`.
 
 - Workspace instructions and skills stay deferred on web, which lacks a workspace-tool
   bridge (ADR-0008).
-- File mutation tools do not yet consult the agent-ignore guard, so an agent can still
-  write to an agent-ignored path (BST-1433).
+- File mutation tools refuse agent-ignored and credential paths with the read paths'
+  refusal: write, edit and delete refuse the target, and rename refuses either end, so
+  a protected file can be neither clobbered nor moved somewhere readable (BST-1433).
 - Adding an ignore source means placing it in the one precedence table in
   `docs/agents/explorer-search-context-map.md`.
 

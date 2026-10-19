@@ -34,6 +34,23 @@ export {
 } from './platform-client-configuration';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
+/**
+ * BST-2202: the agent host's error and fatal log records reach Main's
+ * diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
+ * correlation id names is in the desktop log and debug bundle.
+ */
+export const PLATFORM_DIAGNOSTICS_RECORD_METHOD = 'platform/diagnostics/record';
+/** One record as its producer's logger redacted it, bounded to JSON. */
+export const PlatformDiagnosticRecordSchema = Schema.Struct({
+  record: Schema.Struct({
+    args: Schema.mutable(Schema.Array(Schema.MutableJson)),
+    bindings: Schema.Record(Schema.String, Schema.MutableJson),
+    level: Schema.Literals(['error', 'fatal']),
+    message: Schema.optional(Schema.String),
+    scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
+    timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+});
 /** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
 export const PlatformNativeChildSchema = Schema.Struct({
   group: Schema.Boolean,
@@ -240,6 +257,42 @@ export const PlatformCatalogModelSchema = Schema.Struct({ model: Id, provider: I
 export const PlatformCatalogModelResultSchema = Schema.NullOr(
   Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id })
 );
+/**
+ * BST-754: what admission asks Main's local runtime catalog about the selected
+ * Ollama model (its `/api/show`), at the run configuration's endpoint.
+ */
+export const PlatformLocalModelSchema = Schema.Struct({
+  endpoint: Schema.optional(
+    Schema.Struct({
+      apiToken: Schema.optional(Schema.String),
+      baseUrl: Schema.optional(Schema.String),
+    })
+  ),
+  model: Id,
+});
+const ContextTokens = Schema.Int.check(Schema.isGreaterThan(0));
+export const PlatformLocalModelResultSchema = Schema.Union([
+  Schema.Struct({
+    contextLength: Schema.Union([
+      Schema.Struct({
+        key: Schema.String,
+        state: Schema.Literal('reported'),
+        tokens: ContextTokens,
+      }),
+      Schema.Struct({ state: Schema.Literal('unreported') }),
+      Schema.Struct({ detail: Schema.String, state: Schema.Literal('malformed') }),
+    ]),
+    endpoint: Schema.String,
+    state: Schema.Literal('resolved'),
+    thinking: Schema.Boolean,
+  }),
+  Schema.Struct({
+    endpoint: Schema.String,
+    message: Schema.String,
+    state: Schema.Literal('unavailable'),
+  }),
+]);
+export type PlatformLocalModel = (typeof PlatformLocalModelResultSchema)['Type'];
 export const PlatformObserverCandidatesSchema = Schema.Struct({
   candidates: Schema.mutable(Schema.Array(Id)),
 });

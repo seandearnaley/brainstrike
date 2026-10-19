@@ -64,6 +64,8 @@ export interface LocalRuntimeNormalizedModel {
    * `details.families`) or heuristically inferred from the model name.
    */
   readonly capabilitySource: LocalRuntimeCapabilitySource;
+  /** BST-754: the native context the runtime reports; absent where it reports none. */
+  readonly contextLength?: LocalRuntimeReportedContextLength;
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
   readonly displayName: string;
   readonly endpoint: string;
@@ -215,9 +217,20 @@ export type OllamaModelCapability =
   | 'tools'
   | 'vision';
 
+/**
+ * BST-754: the native context a model reports in `/api/show`'s `model_info`
+ * (`<architecture>.context_length`). Unreported and malformed stay explicit:
+ * no consumer guesses a window from them.
+ */
+export type LocalRuntimeReportedContextLength =
+  | { readonly key: string; readonly state: 'reported'; readonly tokens: number }
+  | { readonly state: 'unreported' }
+  | { readonly detail: string; readonly state: 'malformed' };
+
 export interface LocalRuntimeOllamaCapabilitiesResolved {
   readonly capabilities: readonly OllamaModelCapability[];
   readonly checkedAt: number;
+  readonly contextLength: LocalRuntimeReportedContextLength;
   readonly embedding: boolean;
   readonly endpoint: string;
   readonly insert: boolean;

@@ -51,6 +51,33 @@ const searchDefinition = `
   END;
   INSERT INTO state_search_fts(state_search_fts,rank) VALUES('secure-delete',1);
 `;
+/**
+ * The statements a catch-up runs for every event and thread it projects. Each
+ * store prepares them once on its connection and reuses them (BST-2159); they
+ * close with that connection, and a reopened index acquires a new store.
+ */
+function projectionStatements(db: Database.Database) {
+  return {
+    cursor: db
+      .prepare('SELECT COALESCE((SELECT seq FROM state_thread_cursors WHERE thread_id=?),0)')
+      .pluck(),
+    deleteRefs: db.prepare('DELETE FROM state_event_blob_refs WHERE event_pk=?'),
+    deleteSearch: db.prepare('DELETE FROM state_search_rows WHERE event_pk=?'),
+    insertRef: db.prepare('INSERT INTO state_event_blob_refs VALUES(?,?)'),
+    insertSearch: db.prepare(
+      'INSERT INTO state_search_rows(event_pk,thread_id,seq,run_id,role,text) VALUES(?,?,?,?,?,?)'
+    ),
+    upsertEvent: db
+      .prepare(`
+      INSERT INTO state_event_rows(thread_id,seq,payload,content,gap_reason) VALUES(?,?,?,?,?)
+      ON CONFLICT(thread_id,seq) DO UPDATE SET payload=excluded.payload,content=excluded.content,gap_reason=excluded.gap_reason RETURNING pk
+    `)
+      .pluck(),
+    writeCursor: db.prepare(
+      'INSERT INTO state_thread_cursors VALUES(?,?) ON CONFLICT(thread_id) DO UPDATE SET seq=excluded.seq'
+    ),
+  };
+}
 const quote = (text: string): string => `"${text.replaceAll('"', '""')}"`;
 // Normalize only SQL whitespace; quoted constraint/default literals retain their exact bytes.
 const normalizedDefinition = (sql: string): string =>
@@ -289,13 +316,9 @@ export class StateEventStore {
   }
 
   private writeSearch(pk: number, threadId: string, seq: number, search: StateSearchRow): void {
-    this.db.prepare('DELETE FROM state_search_rows WHERE event_pk=?').run(pk);
+    this.statements.deleteSearch.run(pk);
     if (search) {
-      this.db
-        .prepare(
-          'INSERT INTO state_search_rows(event_pk,thread_id,seq,run_id,role,text) VALUES(?,?,?,?,?,?)'
-        )
-        .run(pk, threadId, seq, search.runId, search.role, search.text);
+      this.statements.insertSearch.run(pk, threadId, seq, search.runId, search.role, search.text);
     }
   }
 
@@ -303,6 +326,7 @@ export class StateEventStore {
   readonly messages: StateMessageVectors;
   readonly observations: StateObservationVectors;
   private readonly searchVectors: StateSearchVectors;
+  private readonly statements: ReturnType<typeof projectionStatements>;
   /** Where the last bounded catch-up over this exact thread list stopped. */
   private resume: { readonly index: number; readonly key: string } | undefined;
 
@@ -317,6 +341,7 @@ export class StateEventStore {
     this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
     this.searchVectors = new StateSearchVectors(db);
     this.prompts = new PromptVectors(db);
+    this.statements = projectionStatements(db);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
 
@@ -331,17 +356,11 @@ export class StateEventStore {
     }
     const hashes = blobsOf(payload);
     const pk = decodeCount(
-      this.db
-        .prepare(`
-      INSERT INTO state_event_rows(thread_id,seq,payload,content,gap_reason) VALUES(?,?,?,?,?)
-      ON CONFLICT(thread_id,seq) DO UPDATE SET payload=excluded.payload,content=excluded.content,gap_reason=excluded.gap_reason RETURNING pk
-    `)
-        .pluck()
-        .get(threadId, seq, payload, row.text, row.gap)
+      this.statements.upsertEvent.get(threadId, seq, payload, row.text, row.gap)
     );
-    this.db.prepare('DELETE FROM state_event_blob_refs WHERE event_pk=?').run(pk);
+    this.statements.deleteRefs.run(pk);
     for (const hash of hashes) {
-      this.db.prepare('INSERT INTO state_event_blob_refs VALUES(?,?)').run(pk, hash);
+      this.statements.insertRef.run(pk, hash);
     }
     this.writeSearch(pk, threadId, seq, row.search);
   }
@@ -384,13 +403,7 @@ export class StateEventStore {
     const rotated = [...ordered.slice(start), ...ordered.slice(0, start)];
     for (const [offset, threadId] of rotated.entries()) {
       const tail = this.truth.watermark(threadId);
-      let next =
-        decodeCount(
-          this.db
-            .prepare('SELECT COALESCE((SELECT seq FROM state_thread_cursors WHERE thread_id=?),0)')
-            .pluck()
-            .get(threadId)
-        ) + 1;
+      let next = decodeCount(this.statements.cursor.get(threadId)) + 1;
       if (next > tail + 1) {
         throw new Error('State projection is ahead of its authoritative truth');
       }
@@ -411,11 +424,7 @@ export class StateEventStore {
             this.replace(threadId, row.seq, row.raw);
             next++;
           }
-          this.db
-            .prepare(
-              'INSERT INTO state_thread_cursors VALUES(?,?) ON CONFLICT(thread_id) DO UPDATE SET seq=excluded.seq'
-            )
-            .run(threadId, next - 1);
+          this.statements.writeCursor.run(threadId, next - 1);
         })();
         budget -= rows.length;
       }
@@ -464,12 +473,7 @@ export class StateEventStore {
         .pluck()
         .get(threadId)
     );
-    const cursor = decodeCount(
-      this.db
-        .prepare('SELECT COALESCE((SELECT seq FROM state_thread_cursors WHERE thread_id=?),0)')
-        .pluck()
-        .get(threadId)
-    );
+    const cursor = decodeCount(this.statements.cursor.get(threadId));
     const gaps = this.db
       .prepare(
         'SELECT seq AS "from",seq AS "to",gap_reason AS reason FROM state_event_rows WHERE thread_id=? AND gap_reason IS NOT NULL ORDER BY seq'

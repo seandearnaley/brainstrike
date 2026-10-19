@@ -91,7 +91,7 @@ export function serializeAssistantChildInput(
     text: input.text,
     ...(input.nextRun
       ? {
-          nextRun: Schema.decodeUnknownSync(childNextRunSchema, {
+          nextRun: Schema.decodeSync(childNextRunSchema, {
             errors: 'all',
             onExcessProperty: 'error',
           })(input.nextRun),
@@ -135,7 +135,7 @@ export function readAssistantChildSignalContents(contents: unknown): {
     text: text.join('\n'),
     ...(attachments.length > 0
       ? {
-          attachments: Schema.decodeUnknownSync(assistantChildAttachmentsSchema, {
+          attachments: Schema.decodeSync(assistantChildAttachmentsSchema, {
             errors: 'all',
             onExcessProperty: 'error',
           })(attachments),

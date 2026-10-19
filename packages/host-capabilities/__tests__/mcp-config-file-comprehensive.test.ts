@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -43,7 +44,10 @@ const getMcpConfigPath = (): Promise<string> => configFile.path();
 const loadMcpConfig = (): Promise<LoadedMcpConfig> => configFile.load();
 const setCustomMcpConfigPath = (configPath: string | null): Promise<void> =>
   configFile.setCustomPath(configPath);
-const watchMcpConfig: McpConfigFile['watch'] = (onChange) => configFile.watch(onChange);
+const watchMcpConfig = (
+  onChange: Parameters<McpConfigFile['watch']>[0],
+  onError: Parameters<McpConfigFile['watch']>[1] = vi.fn()
+): ReturnType<McpConfigFile['watch']> => configFile.watch(onChange, onError);
 
 // Typed helpers for mocked modules
 const mockedFs = vi.mocked(fs as unknown as { watch: ReturnType<typeof vi.fn> });
@@ -204,11 +208,12 @@ describe('MCP config file comprehensive tests', () => {
   });
 
   describe('watchMcpConfig', () => {
-    let mockWatcher: { close: ReturnType<typeof vi.fn> };
+    /** An fs watcher: it emits `error` when it dies while running. */
+    let mockWatcher: EventEmitter & { close: ReturnType<typeof vi.fn> };
 
     beforeEach(() => {
       vi.useFakeTimers();
-      mockWatcher = { close: vi.fn() };
+      mockWatcher = Object.assign(new EventEmitter(), { close: vi.fn() });
       mockedFs.watch.mockReturnValue(mockWatcher as never);
     });
 
@@ -428,6 +433,27 @@ describe('MCP config file comprehensive tests', () => {
 
       expect(onChange).not.toHaveBeenCalled();
       expect(mockWatcher.close).toHaveBeenCalledOnce();
+    });
+
+    it('closes itself on a watcher error, reports it once and delivers no change after it', async () => {
+      mockedFsp.readFile.mockResolvedValue(
+        JSON.stringify({ servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }] })
+      );
+      const onChange = vi.fn();
+      const onError = vi.fn();
+      await watchMcpConfig(onChange, onError);
+      const failure = new Error('EPERM: operation not permitted, watch');
+
+      getWatchCallback()('change', 'mcp.config.json');
+      mockWatcher.emit('error', failure);
+      mockWatcher.emit('error', new Error('a second failure'));
+      await vi.advanceTimersByTimeAsync(100);
+      getWatchCallback()('change', 'mcp.config.json');
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(onError.mock.calls).toEqual([[failure]]);
+      expect(mockWatcher.close).toHaveBeenCalledOnce();
+      expect(onChange).not.toHaveBeenCalled();
     });
 
     it('should handle undefined filename', async () => {

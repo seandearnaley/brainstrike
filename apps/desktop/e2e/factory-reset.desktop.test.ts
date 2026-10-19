@@ -284,7 +284,12 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       }
     };
     window.on('console', recordError);
-    await window.getByTestId('factory-reset-button').click();
+    // The retired document stays visually ready while Main purges its stores.
+    // Join the replacement document before consulting its readiness or catalog.
+    await Promise.all([
+      window.waitForEvent('load'),
+      window.getByTestId('factory-reset-button').click(),
+    ]);
     await expect
       .poll(() => fs.existsSync(sentinelFile), {
         timeout: 10_000,

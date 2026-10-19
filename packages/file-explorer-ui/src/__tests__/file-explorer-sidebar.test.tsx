@@ -8,7 +8,8 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import { type ReactElement, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
@@ -223,6 +224,86 @@ describe('FileExplorerSidebar', () => {
     });
 
     expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
+  });
+
+  // BST-2088: a recursive folder click shows a loader, then its scan lands the
+  // subtree it read and the selection, and the loader clears. The single-root
+  // tree renders through useDeferredValue, so when the deferred render came
+  // after the loader cleared, the urgent commit painted the NEW selection
+  // against the PREVIOUS (unloaded) tree: the fully selected folder showed
+  // indeterminate until the deferred render caught up, past the Performance
+  // E2E's two-frame interaction window on slow runners.
+  it('paints a scanned, fully selected folder checked in the commit that applies the selection', () => {
+    const unloadedFolder = createDirectoryNode({
+      children: [],
+      loadState: 'unloaded',
+      name: 'folder',
+      path: 'folder',
+    });
+    const scannedFolder = createDirectoryNode({
+      children: [createFileNode({ depth: 1, name: 'nested.js', path: 'folder/nested.js' })],
+      name: 'folder',
+      path: 'folder',
+    });
+    const rootIdByPath = new Map([['/test-directory', 'test-folder']]);
+    const harness: {
+      setLoadingPath: ((path: string | null) => void) | null;
+      setTree: ((tree: IFileNode[]) => void) | null;
+      store: ReturnType<typeof useFileExplorerStoreContext> | null;
+    } = { setLoadingPath: null, setTree: null, store: null };
+    function Harness() {
+      const [tree, setTree] = useState<IFileNode[]>([unloadedFolder]);
+      const [loadingPath, setLoadingPath] = useState<string | null>(null);
+      harness.setLoadingPath = setLoadingPath;
+      harness.setTree = setTree;
+      harness.store = useFileExplorerStoreContext();
+      return (
+        <FileExplorerSidebar
+          {...defaultProps}
+          isLoadingForSelection={loadingPath !== null}
+          loadingPathForSelection={loadingPath}
+          quickFilteredTree={tree}
+          rootIdByPath={rootIdByPath}
+        />
+      );
+    }
+
+    act(() => {
+      renderWithProviders(<Harness />);
+    });
+    expect(screen.getByLabelText('Select folder')).toHaveAttribute('data-state', 'unchecked');
+
+    // Every data-state the folder checkbox is given, in every commit
+    // (LightweightCheckbox writes it from a layout effect).
+    const paintedStates: string[] = [];
+    const setAttribute = Element.prototype.setAttribute;
+    const setAttributeSpy = vi
+      .spyOn(Element.prototype, 'setAttribute')
+      .mockImplementation(function recordFolderState(this: Element, name, value) {
+        if (name === 'data-state' && this.getAttribute('aria-label') === 'Select folder') {
+          paintedStates.push(value);
+        }
+        setAttribute.call(this, name, value);
+      });
+    let loaderShown = false;
+    act(() => {
+      // The click starts the scan: an urgent commit swaps the folder's
+      // checkbox for its loader.
+      flushSync(() => {
+        harness.setLoadingPath?.('folder');
+      });
+      loaderShown = screen.queryByLabelText('Loading folder for selection') !== null;
+      // The scan lands its subtree and selection and the loader clears before
+      // any deferred render has run: the order the hosted runner produces.
+      harness.store?.getState().addSelectedFile('test-folder', 'folder/nested.js');
+      harness.setTree?.([scannedFolder]);
+      harness.setLoadingPath?.(null);
+    });
+    setAttributeSpy.mockRestore();
+
+    expect(loaderShown).toBe(true);
+    expect(paintedStates).toEqual(['checked']);
+    expect(screen.getByLabelText('Select folder')).toHaveAttribute('data-state', 'checked');
   });
 
   // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)
@@ -746,6 +827,145 @@ describe('FileExplorerSidebar', () => {
     ).toBe(false);
     // ...and the focused-root panel handler was never used.
     expect(panelSelectFolderRecursively).not.toHaveBeenCalled();
+  });
+
+  // BST-2179, the forest edition of BST-2088: each section filters a deferred
+  // copy of its tree. A recursive click lands the scanned subtree and the
+  // selection, then clears the loader, before any deferred render runs. The
+  // urgent commit then painted the new selection against the previous,
+  // unloaded tree: the fully selected folder showed indeterminate until the
+  // deferred render caught up.
+  it('paints a scanned, fully selected folder checked in one commit in a NON-focused root section', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+
+    const handleA = {
+      _internal: {} as FileSystemDirectoryHandle,
+      kind: 'directory' as const,
+      name: 'project-a',
+      path: '/project-a',
+      platform: 'web' as const,
+    };
+    const handleB = {
+      _internal: {} as FileSystemDirectoryHandle,
+      kind: 'directory' as const,
+      name: 'project-b',
+      path: '/project-b',
+      platform: 'web' as const,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+    const subDirB: IFileNode = {
+      ...createDirectoryNode({
+        children: [],
+        name: 'sub',
+        path: '/project-b/sub',
+        rootFolderId: ROOT_ID_B,
+      }),
+      handle: { kind: 'directory', name: 'sub', path: '/project-b/sub' },
+      loadState: 'unloaded',
+    } as unknown as IFileNode;
+    const innerFileB = createFileNode({
+      name: 'inner.ts',
+      path: '/project-b/sub/inner.ts',
+      rootFolderId: ROOT_ID_B,
+    });
+
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes = handle.path === '/project-b' ? [subDirB] : [];
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+    // The scan's read of the folder is held so the test decides when it lands.
+    let releaseScan: (() => void) | null = null;
+    vi.spyOn(adapter, 'readDirectory').mockImplementation((handle) => {
+      if (handle.path !== '/project-b/sub') {
+        return Promise.resolve([]);
+      }
+      return new Promise((resolve) => {
+        releaseScan = () => resolve([innerFileB]);
+      });
+    });
+
+    const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+      current: null,
+    };
+    function StoreProbe() {
+      storeRef.current = useFileExplorerStoreContext();
+      return null;
+    }
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+    act(() => {
+      renderWithPopulatedAdapter(
+        <>
+          <StoreProbe />
+          <FileExplorerSidebar
+            {...defaultProps}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={
+              new Map([
+                ['/project-a', ROOT_ID_A],
+                ['/project-b', ROOT_ID_B],
+              ])
+            }
+            // Mocked, so the click below leaves root A focused.
+            setFocusedRoot={vi.fn()}
+          />
+        </>
+      );
+    });
+    act(() => {
+      storeRef.current?.getState().setCurrentFolderId(ROOT_ID_A);
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Select sub')).toHaveAttribute('data-state', 'unchecked');
+    });
+
+    // The click starts the scan and the folder's checkbox becomes its loader.
+    await user.click(screen.getByLabelText('Select sub'));
+    await waitFor(() => {
+      expect(releaseScan).not.toBeNull();
+      expect(screen.getByLabelText('Loading sub for selection')).toBeInTheDocument();
+    });
+
+    // Every data-state the folder checkbox is given, in every commit
+    // (LightweightCheckbox writes it from a layout effect).
+    const paintedStates: string[] = [];
+    const setAttribute = Element.prototype.setAttribute;
+    const setAttributeSpy = vi
+      .spyOn(Element.prototype, 'setAttribute')
+      .mockImplementation(function recordFolderState(this: Element, name, value) {
+        if (name === 'data-state' && this.getAttribute('aria-label') === 'Select sub') {
+          paintedStates.push(value);
+        }
+        setAttribute.call(this, name, value);
+      });
+    // act() holds every render until its callback settles, so the scan lands
+    // its subtree and the selection and clears the loader before any render
+    // runs: the order a slow runner produces.
+    await act(async () => {
+      releaseScan?.();
+      await vi.waitFor(() => {
+        expect(
+          storeRef.current
+            ?.getState()
+            .folderStates[ROOT_ID_B]?.selectedFilePaths.has(
+              `${ROOT_ID_B}|@|/project-b/sub/inner.ts`
+            )
+        ).toBe(true);
+      });
+      // The persist write and the loader reset that follow the selection are
+      // microtasks; one macrotask drains them.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    setAttributeSpy.mockRestore();
+
+    expect(paintedStates).toEqual(['checked']);
+    expect(screen.getByLabelText('Select sub')).toHaveAttribute('data-state', 'checked');
   });
 
   // Forest mode: each root section header carries a tristate select-all

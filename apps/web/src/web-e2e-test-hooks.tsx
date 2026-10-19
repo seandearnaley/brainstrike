@@ -11,6 +11,7 @@ import { useEffect } from 'react';
 import type { WebE2EEmbeddingModelSwitchMemoryProbeResult } from './embedding-model-switch-memory-probe-contract';
 import { BST369_E2E_INIT_FLAG } from './embedding-model-switch-memory-probe-contract';
 import { qualifyLocalEmbedding } from './qualify-local-embedding';
+import { webE2ERequiresDurableWrites } from './web-e2e-durable-writes';
 
 interface ModelEnabledRow {
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
@@ -469,6 +470,13 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         });
       },
       syncDatabase: async (): Promise<void> => {
+        // Under relaxed durability syncToFs returns before IndexedDB has the
+        // write, so a "synced" reload could still lose it (BST-2093).
+        if (!webE2ERequiresDurableWrites()) {
+          throw new Error(
+            'syncDatabase cannot flush a relaxed-durability store: set __brainstrikeWebE2ERequireDurableWrites__ in an init script before the app boots.'
+          );
+        }
         if (typeof db.syncToFs !== 'function') {
           throw new Error('Web E2E database handle does not expose syncToFs');
         }

@@ -15,6 +15,7 @@ import {
   StreamStalledError,
   ToolCallInputStreamingTimeoutError,
 } from '@brainstrike/agent/provider-runtime';
+import { BoundaryFailureError, describeBoundaryFailure } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
   APICallError,
@@ -23,6 +24,7 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
+import { correlatedFailure } from './failure-correlation.js';
 import type { HostEvent } from './protocol.js';
 
 const logger = createLogger('AgentHost');
@@ -44,7 +46,9 @@ export type HostAttemptFailure = Pick<HostRunAttempt, 'detail' | 'reason' | 'ref
 function isContextOverflow(cause: unknown): boolean {
   return (
     cause instanceof ProviderRequestContextOverflowError ||
-    isContextOverflowProviderErrorCode(extractProviderRunError(cause).code)
+    // A typed host failure (memory's own model, BST-2202) is no chat provider's evidence.
+    (!(cause instanceof BoundaryFailureError) &&
+      isContextOverflowProviderErrorCode(extractProviderRunError(cause).code))
   );
 }
 
@@ -80,7 +84,9 @@ export class HostRunOutcome {
   constructor(
     private readonly configuration: Readonly<RuntimeData> | undefined,
     private readonly modelId: string,
-    resumed: boolean
+    resumed: boolean,
+    /** The run a failure's diagnostic record correlates to (BST-2202). */
+    private readonly run: { readonly runId: string; readonly threadId: string }
   ) {
     this.contributed = resumed;
   }
@@ -146,11 +152,25 @@ export class HostRunOutcome {
    */
   fail(cause: unknown): void {
     this.cause = cause;
+    const timed =
+      cause instanceof StreamStalledError || cause instanceof ToolCallInputStreamingTimeoutError;
+    // BST-2202: a fault's detail names the correlation id this one record holds its cause under.
+    const failure = timed
+      ? undefined
+      : correlatedFailure(resolveProviderError(cause, this.configuration).failure, cause);
     logger.error('Assistant model attempt failed', {
       cause,
+      ...(failure
+        ? {
+            code: failure.code,
+            ...(failure.correlationId === undefined
+              ? {}
+              : { correlationId: failure.correlationId }),
+          }
+        : {}),
       rootId: this.configuration?.boundWorkspaceRootId,
-      runId: this.configuration?.memory?.runId,
-      threadId: this.configuration?.memory?.threadId,
+      runId: this.run.runId,
+      threadId: this.run.threadId,
     });
     this.failure =
       cause instanceof StreamStalledError
@@ -161,7 +181,7 @@ export class HostRunOutcome {
           })
         : cause instanceof ToolCallInputStreamingTimeoutError
           ? describeToolCallInputTimeout(cause)
-          : resolveProviderError(cause, this.configuration).detail;
+          : failure && describeBoundaryFailure(failure);
   }
 
   /** Preserve the existing replay decision without publishing its private SDK cause. */

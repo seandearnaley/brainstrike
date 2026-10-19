@@ -8,6 +8,7 @@ import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
+  HOST_RESULT_SCHEMAS,
   type HostChildDelivery,
   type HostChildOrigin,
   type HostEvent,
@@ -140,6 +141,14 @@ export function hasHostInteractionResponse(pending: PendingInteraction): boolean
     ? pending.decision !== undefined
     : Object.hasOwn(pending, 'resumeData');
 }
+/**
+ * A call's pending network consent: whether the policy also asked to approve
+ * it, and the browser origin it asks to open (BST-1178).
+ */
+export interface HostConsent {
+  readonly approval: boolean;
+  readonly origin?: string;
+}
 /** What a run was started with that its plan's follow-up run starts with again. */
 export interface HostRunInput {
   readonly configuration?: HostParams<'run/start'>['configuration'];
@@ -257,13 +266,8 @@ export interface HostRunState {
   /** BST-1932: human input a running child takes; it starts the run after this one. */
   childInput?: HostParams<'run/start'> | undefined;
   completion?: Promise<void>;
-  /** Calls awaiting network consent this step, and whether the policy also asked to approve them. */
-  readonly consents: Map<
-    string,
-    {
-      readonly approval: boolean;
-    }
-  >;
+  /** Calls awaiting network consent this step. */
+  readonly consents: Map<string, HostConsent>;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */
   deadline?: string;
@@ -280,6 +284,20 @@ export interface HostRunState {
    * approved: the admitting configuration, and the live client's origin.
    */
   input?: HostRunInput;
+  /**
+   * BST-1932: a committed run/input names this run, so the child's next run
+   * takes its human input and carries its report: that run's run/start
+   * command ID, derived from the run/input's (`deriveHostInputRunCommandId`).
+   * A legacy run/steer only ends the run (`steered`); it hands nothing on.
+   */
+  inputCommandId?: string;
+  /**
+   * BST-2178: the run that took this run's accepted input, the one the
+   * `inputCommandId` run/start started, live (core-run-end.ts) and on replay.
+   * A regenerate or edit of that input's message branches from this run too,
+   * but is never this run.
+   */
+  inputRun?: string;
   readonly liveInputs: Map<
     string,
     {
@@ -463,6 +481,37 @@ export function createHostRunState(
     toolContexts: new Map(),
   };
 }
+/** The branch parent a committed run/start names, whatever its recorded attachments. */
+const HostStartParentSchema = Schema.Struct({
+  parentMessageId: Schema.optional(Schema.NullOr(Schema.String)),
+});
+/**
+ * BST-2178: the command ID of the run/start that takes a child's human input,
+ * derived from the committed run/input's own command ID (any non-empty string
+ * is a protocol command ID), so a replay names the same run/start the live
+ * host committed. It is unique per run/input, as that command's ID is.
+ */
+export function deriveHostInputRunCommandId(inputCommandId: string): string {
+  return `${inputCommandId}-input`;
+}
+/**
+ * BST-2178: the run/start whose command ID is a run's `inputCommandId` started
+ * the run that took its input (or committed that input's refusal). A person's
+ * edit naming the same parent is another command, never the input's run.
+ */
+function foldHostInputRun(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: Extract<HostEvent, { type: 'command.accepted' }>
+): void {
+  const { parentMessageId } = Schema.decodeUnknownSync(HostStartParentSchema)(event.payload);
+  const accepted = parentMessageId ? runs.get(parentMessageId) : undefined;
+  if (accepted?.inputCommandId !== event.commandId) {
+    return;
+  }
+  accepted.inputRun = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'])(
+    event.result
+  ).runId;
+}
 export function foldHostAcceptedCommand(
   commands: HostCommandLedger,
   runs: ReadonlyMap<string, HostRunState>,
@@ -480,6 +529,10 @@ export function foldHostAcceptedCommand(
     result: event.result,
     threadId,
   });
+  if (event.method === 'run/start') {
+    foldHostInputRun(runs, event);
+    return;
+  }
   if (event.method !== 'run/stop' && event.method !== 'run/steer' && event.method !== 'run/input') {
     return;
   }
@@ -493,8 +546,11 @@ export function foldHostAcceptedCommand(
   }
   if (event.method === 'run/stop') {
     run.stopped = true;
-  } else {
-    run.steered = true;
+    return;
+  }
+  run.steered = true;
+  if (event.method === 'run/input') {
+    run.inputCommandId = deriveHostInputRunCommandId(event.commandId);
   }
 }
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */
@@ -538,6 +594,13 @@ export function createHostRunContext(
 ): HostRunContext {
   return {
     readCommittedRows,
+    recordMemoryCycle: async (cycle) => {
+      // A buffered cycle settles after the run's end; it is still the run's.
+      if (run.ownerJoined) {
+        throw new Error('Memory cycle arrived after the run lifetime joined');
+      }
+      await publish(run.threadId, [{ ...cycle, runId: run.id, type: 'memory.cycle' }]);
+    },
     recordObservationWithheld: async (reason) => {
       await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
     },

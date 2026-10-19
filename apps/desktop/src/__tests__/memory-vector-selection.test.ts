@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { vectorProfileHash } from '@brainstrike/indexer';
 import { expect, test, vi } from 'vitest';
 import {
@@ -166,9 +167,19 @@ test('local recall without a host device or a target refuses visibly', async () 
       sources(Promise.reject(new Error('Embedding host is not running.')))
     )
   ).rejects.toThrow('Embedding host is not running.');
-  await expect(
-    resolveDesktopMemoryVectors(settings(null), sources(Promise.resolve('webgpu')))
-  ).rejects.toThrow(/embedding model target/);
+  // BST-2202: no selected target is a typed configuration refusal with its remedy.
+  const unselected = await resolveDesktopMemoryVectors(
+    settings(null),
+    sources(Promise.resolve('webgpu'))
+  ).catch((error: unknown) => error);
+  expect(unselected).toBeInstanceOf(BoundaryFailureError);
+  expect((unselected as BoundaryFailureError).failure).toEqual({
+    category: 'configuration',
+    code: 'memory.configuration-invalid',
+    kind: 'refusal',
+    message: 'Semantic recall has no embedding model selected.',
+    remedy: 'Choose an embedding model in Settings → Assistant Memory.',
+  });
 });
 
 function hostStatus(
@@ -185,7 +196,7 @@ function hostStatus(
   } as EmbeddingHostStatus;
 }
 
-test('the host device is the one the running embedding host resolved at start', async () => {
+test('the host device is the one the running embedding host resolved for unpinned loads', async () => {
   const runtime = {
     actualWorkerMetadata: null,
     backendMismatch: false,
@@ -193,25 +204,67 @@ test('the host device is the one the running embedding host resolved at start', 
     selectedDevicePreference: 'webgpu',
     telemetry: {},
   } as unknown as NonNullable<EmbeddingHostStatus['embeddingRuntime']>;
-  const ensureStarted = vi.fn(async () => hostStatus('running', { embeddingRuntime: runtime }));
+  const ensureDeviceResolved = vi.fn(async () =>
+    hostStatus('running', { embeddingRuntime: runtime })
+  );
   await expect(
-    readEmbeddingHostDevice({ ensureStarted }, new AbortController().signal)
+    readEmbeddingHostDevice({ ensureDeviceResolved }, new AbortController().signal)
   ).resolves.toBe('wasm');
-  expect(ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
+  expect(ensureDeviceResolved).toHaveBeenCalledOnce();
 });
 
-test('a host that cannot resolve a device refuses with its own reason', async () => {
+test('a host that resolved no device refuses with its reason and the remedy (BST-2193)', async () => {
+  const runtime = {
+    actualWorkerMetadata: null,
+    backendMismatch: false,
+    hostDeviceError: 'WebGPU adapter is unavailable.',
+    selectedDevicePreference: 'webgpu',
+    telemetry: {},
+  } as unknown as NonNullable<EmbeddingHostStatus['embeddingRuntime']>;
+  const refused = await readEmbeddingHostDevice(
+    { ensureDeviceResolved: async () => hostStatus('running', { embeddingRuntime: runtime }) },
+    new AbortController().signal
+  ).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(BoundaryFailureError);
+  expect((refused as BoundaryFailureError).failure).toEqual({
+    category: 'configuration',
+    code: 'memory.embedder-device-unavailable',
+    kind: 'refusal',
+    message:
+      'The on-device memory embedder has no execution device: WebGPU adapter is unavailable. Choose a device in Settings → Assistant Memory → On-device embedding device, choose a hosted embedding model there, or turn off semantic recall and vector observation retrieval.',
+  });
+});
+
+test('a host that is not running, or reports no resolution, is a typed unavailable embedder whose own reason stays its cause (BST-2202)', async () => {
   const signal = new AbortController().signal;
-  await expect(
-    readEmbeddingHostDevice(
-      {
-        ensureStarted: async () =>
-          hostStatus('error', { lastError: 'Workspace Index requires WebGPU.' }),
-      },
-      signal
-    )
-  ).rejects.toThrow('Workspace Index requires WebGPU.');
-  await expect(
-    readEmbeddingHostDevice({ ensureStarted: async () => hostStatus('running') }, signal)
-  ).rejects.toThrow('The embedding host has not resolved its execution device.');
+  const unavailable = (message: string) => ({
+    category: 'availability',
+    code: 'memory.embedder-unavailable',
+    kind: 'fault',
+    message,
+    remedy:
+      'Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval.',
+  });
+  const stopped = await readEmbeddingHostDevice(
+    {
+      ensureDeviceResolved: async () =>
+        hostStatus('error', { lastError: 'Embedding host renderer exited.' }),
+    },
+    signal
+  ).catch((error: unknown) => error);
+  expect(stopped).toBeInstanceOf(BoundaryFailureError);
+  expect((stopped as BoundaryFailureError).failure).toEqual(
+    unavailable('The on-device memory embedder is not running.')
+  );
+  // The host's reason is the cause Main logs under the reference, never the shown text.
+  expect((stopped as BoundaryFailureError).cause).toEqual(
+    new Error('Embedding host renderer exited.')
+  );
+  const unresolved = await readEmbeddingHostDevice(
+    { ensureDeviceResolved: async () => hostStatus('running') },
+    signal
+  ).catch((error: unknown) => error);
+  expect((unresolved as BoundaryFailureError).failure).toEqual(
+    unavailable('The on-device memory embedder has not resolved its execution device.')
+  );
 });

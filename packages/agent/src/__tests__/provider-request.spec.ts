@@ -820,7 +820,14 @@ describe('recorded installed-provider payloads (offline)', () => {
           : provider === 'openai-codex'
             ? { apiKey: 'offline-fixture', fetch: globalThis.fetch, kind: 'custom_fetch' as const }
             : { apiKey: 'offline-fixture', kind: 'api_key' as const };
-      const config = createProvider(provider, auth, modelId);
+      const config = createProvider(
+        provider,
+        auth,
+        modelId,
+        undefined,
+        // BST-754: Ollama sends the window its run was admitted with.
+        provider === 'ollama' ? { contextWindow: 32_768, thinking: true } : undefined
+      );
       const resolved =
         typeof config === 'object' && 'doStream' in config
           ? config
@@ -907,7 +914,7 @@ describe('recorded installed-provider payloads (offline)', () => {
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] === '1') {
       await writeFile(
         fixtureUrl,
-        `${JSON.stringify({ payloads: recorded, source: { base: '22888518d60b2c2dcd9717bccf58a7fc9753a712', capture: 'real installed SDK/provider serialization; fully intercepted fetch; no real account', sdk: '7.0.142' } }, null, 2)}\n`
+        `${JSON.stringify({ payloads: recorded, source: { base: 'f9dcbce5f6917a02ea4b4fc9cc7438e997d6cd03', capture: 'real installed SDK/provider serialization; fully intercepted fetch; no real account', openai: '4.0.96', sdk: '7.0.142' } }, null, 2)}\n`
       );
     }
     const fixtures = JSON.parse(await readFile(fixtureUrl, 'utf8')) as {

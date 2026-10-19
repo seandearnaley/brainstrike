@@ -17,7 +17,6 @@ import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   isSupportedProvider,
-  LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
@@ -63,12 +62,9 @@ export function readDesktopHostConfiguration(
   const { sessionGrants: _sessionGrants, ...permission } = getPermissionToolGateSnapshotInput();
   const personas = useSubagentPersonasStore.getState();
   const instructions = useWorkspaceInstructionsPreferencesStore.getState();
-  // The built-in local model gets its own small tool surface, as the legacy composer offers it.
-  const offeredNativeToolIds: readonly string[] =
-    provider === 'local' ? LOCAL_DESKTOP_NATIVE_TOOL_IDS : DESKTOP_NATIVE_TOOL_IDS;
   return captureDesktopHostIntent({
     agentLoop: projection?.agentLoop ?? buildAgentLoopSettings(providerSettings[provider]),
-    enabledNativeToolIds: offeredNativeToolIds.filter((id) =>
+    enabledNativeToolIds: DESKTOP_NATIVE_TOOL_IDS.filter((id) =>
       useNativeToolPreferencesStore.getState().isToolEnabled(id)
     ),
     memoryOptions: buildAssistantMemoryOptions(providerSettings[provider]),

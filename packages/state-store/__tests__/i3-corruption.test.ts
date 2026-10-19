@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
-import { ThreadDamagedError, ThreadReadOnlyError } from '../src/errors.js';
+import { StateStoreReadOnlyError, ThreadDamagedError, ThreadReadOnlyError } from '../src/errors.js';
 import { readAll, SqliteReader } from '../src/sqlite-reader.js';
 import { STATE_DB, StateStore } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
@@ -96,9 +96,12 @@ describe('item 3 · S integrity', () => {
         kind: 'damaged',
       });
       await expect(store.read('t1')).rejects.toThrow(ThreadDamagedError);
-      await expect(appendInputs(store, 't1', [{ content: 'x', type: 'text' }])).rejects.toThrow(
-        ThreadReadOnlyError
+      const refused = await appendInputs(store, 't1', [{ content: 'x', type: 'text' }]).catch(
+        (cause: unknown) => cause
       );
+      expect(refused).toBeInstanceOf(ThreadReadOnlyError);
+      // Only this thread is damaged: the store itself is writable (BST-2144).
+      expect(refused).toMatchObject({ storeDamage: null });
       // A refusal does not fail the store: other threads still append.
       await appendInputs(store, 't2', [{ content: 'y', type: 'text' }]);
     } finally {
@@ -175,9 +178,35 @@ describe('item 3 · S integrity', () => {
     try {
       expect(store.health().stateDamage).toMatch(/missing from index/);
       expect((await store.status('t1')).kind).toBe('damaged');
-      await expect(appendInputs(store, 't1', [{ content: 'x', type: 'text' }])).rejects.toThrow(
-        ThreadReadOnlyError
+      const append = await appendInputs(store, 't1', [{ content: 'x', type: 'text' }]).catch(
+        (cause: unknown) => cause
       );
+      expect(append).toBeInstanceOf(ThreadReadOnlyError);
+      // BST-2144: the whole store refused, so the refusal carries its finding.
+      expect(append).toMatchObject({ storeDamage: expect.stringMatching(/missing from index/) });
+      // BST-2144: catalog reads go on; a catalog write is the store's typed
+      // read-only refusal with its own finding, never a raw SqliteError.
+      await expect(store.modelChoices({ operation: 'snapshot' })).resolves.toMatchObject({
+        models: [],
+      });
+      const refused = await store
+        .modelChoices({ enabled: true, operation: 'provider', providerId: 'openai' })
+        .catch((cause: unknown) => cause);
+      expect(refused).toBeInstanceOf(StateStoreReadOnlyError);
+      expect(refused).toMatchObject({ damage: expect.stringMatching(/missing from index/) });
+    } finally {
+      await store.close();
+    }
+  });
+
+  test('a healthy store never reports a failed write as read-only (BST-2144)', async () => {
+    const store = await StateStore.open(freshDir('i3healthywrite'));
+    try {
+      const failed = await store
+        .modelChoices({ enabled: true, operation: 'provider', providerId: '' })
+        .catch((cause: unknown) => cause);
+      expect(failed).toBeInstanceOf(Error);
+      expect(failed).not.toBeInstanceOf(StateStoreReadOnlyError);
     } finally {
       await store.close();
     }

@@ -9,7 +9,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { PlaywrightProviderOptions } from '@vitest/browser-playwright';
 import { playwright } from '@vitest/browser-playwright';
-import type { BrowserConfigOptions } from 'vitest/node';
+import type { Frame, Page } from 'playwright';
+import type { BrowserConfigOptions, BrowserProvider } from 'vitest/node';
 
 export interface BrowserTestConfig {
   /** Headless mode (default: true) */
@@ -211,10 +212,43 @@ export function bindTraceChunkNameBounding(browser: TraceChunkCommandRegistry): 
   }
 }
 
+/**
+ * Vitest reuses a page across isolated files. Commands arrive over its WebSocket
+ * before Playwright has necessarily processed the previous iframe's detach event,
+ * so the provider's name-only frame lookup can return that dying frame. Resolve
+ * the current DOM element through Playwright instead; no frame, action or test
+ * is retried, and the caller's existing timeout still owns the command.
+ */
+export function bindCurrentTestFrame(provider: Pick<BrowserProvider, 'getCommandsContext'>): void {
+  const getContext = provider.getCommandsContext.bind(provider);
+  provider.getCommandsContext = (sessionId) => {
+    const context = getContext(sessionId);
+    return {
+      ...context,
+      async frame(): Promise<Frame> {
+        const page = context['page'] as Page;
+        const element = await page.locator('iframe[data-vitest="true"]').elementHandle();
+        if (!element) {
+          throw new Error('Cannot resolve the current test iframe element.');
+        }
+        try {
+          const frame = await element.contentFrame();
+          if (!frame) {
+            throw new Error('Cannot resolve the current test iframe content frame.');
+          }
+          return frame;
+        } finally {
+          await element.dispose();
+        }
+      },
+    };
+  };
+}
+
 type PlaywrightProviderDefinition = ReturnType<typeof playwright>;
 
 /**
- * Wraps a playwright provider definition so its trace chunk names are bounded.
+ * Wraps a playwright provider with bounded trace names and live command frames.
  * `createBrowserProject` applies this for you — call it directly only from a
  * browser project that builds its own `playwright()` provider (packages/db and
  * packages/storage), otherwise that project keeps the ENAMETOOLONG exposure.
@@ -239,6 +273,7 @@ export function withBoundedTraceChunkNames(
         );
       }
       bindTraceChunkNameBounding(browser);
+      bindCurrentTestFrame(provider);
       return provider;
     },
   };

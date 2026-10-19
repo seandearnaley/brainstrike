@@ -1,6 +1,12 @@
 import { Socket } from 'node:net';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { decodeHostRecord, HOST_VERSION, type HostRecord } from '@brainstrike/host-lease';
+import {
+  decodeHostRecord,
+  HOST_LEASE_CONNECTION_CLOSED,
+  HOST_VERSION,
+  HostLeaseRefusalError,
+  type HostRecord,
+} from '@brainstrike/host-lease';
 import {
   createMessageConnection,
   type MessageConnection,
@@ -51,7 +57,14 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
           await new Promise<void>((resolve, reject) => {
             socket.once('connect', resolve);
             socket.once('error', reject);
-            socket.once('close', () => reject(new Error('Host socket closed before connect')));
+            socket.once('close', () =>
+              reject(
+                new HostLeaseRefusalError(
+                  HOST_LEASE_CONNECTION_CLOSED,
+                  'Host socket closed before connect'
+                )
+              )
+            );
             socket.connect(record.endpoint);
           });
           reader = new StreamMessageReader(socket);

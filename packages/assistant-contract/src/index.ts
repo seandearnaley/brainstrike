@@ -35,6 +35,7 @@ export * from './grep-match.js';
 export * from './guarded-tool-error.js';
 export * from './hook-skip-notices.js';
 export * from './host-meta-tools.js';
+export * from './local-runtime-context.js';
 export * from './mastra-memory-schema.js';
 export * from './mcp-apps-ipc.js';
 export * from './mcp-elicitation.js';
@@ -46,6 +47,7 @@ export * from './mcp-task-ipc.js';
 export * from './mcp-task-presentation.js';
 export * from './mcp-tool-preferences.js';
 export * from './memory-credential-reasons.js';
+export * from './memory-failure.js';
 export * from './memory-settings.js';
 export type {
   CatalogModel,

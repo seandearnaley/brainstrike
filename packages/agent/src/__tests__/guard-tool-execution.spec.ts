@@ -7,14 +7,19 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyToolGuards,
+  formatToolInactivityMessage,
   formatToolTimeoutMessage,
+  formatToolTotalBudgetMessage,
   type GuardedToolError,
   guardToolExecution,
   isGuardedToolError,
 } from '../tools/guard-tool-execution';
 import {
   readToolGuardDeadlineSignal,
+  readToolGuardRemainingMs,
+  reportToolGuardActivity,
   resolveGuardedToolSignal,
+  toolGuardOwnsInactivity,
 } from '../tools/tool-guard-deadline';
 
 function makeTool(execute: (...args: unknown[]) => unknown) {
@@ -22,6 +27,27 @@ function makeTool(execute: (...args: unknown[]) => unknown) {
 }
 
 describe('guardToolExecution', () => {
+  it('keeps a retained local cause out of the trusted input result', async () => {
+    const cause = new Error('PRIVATE credential and filesystem detail');
+    const error = new ToolInputError('Choose an existing file.', { cause });
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw error;
+      }),
+      {
+        timeoutMs: 1000,
+        toolName: 'demo',
+      }
+    );
+    expect(error.cause).toBe(cause);
+    const result = await tool.execute({ context: {} });
+    expect(result).toEqual({
+      error: { code: 'tool_input_invalid', message: 'Choose an existing file.', toolName: 'demo' },
+      ok: false,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|cause|stack/);
+  });
+
   it('passes through a successful result unchanged', async () => {
     const tool = guardToolExecution(
       makeTool(async () => ({ value: 42 })),
@@ -462,5 +488,148 @@ describe('applyToolGuards', () => {
     await vi.advanceTimersByTimeAsync(1000);
     await slow;
     vi.useRealTimers();
+  });
+});
+
+describe('guardToolExecution inactivity budget (BST-1779)', () => {
+  const FAKE = {
+    toFake: ['setTimeout', 'clearTimeout', 'performance'] as (
+      | 'setTimeout'
+      | 'clearTimeout'
+      | 'performance'
+    )[],
+  };
+  /** A call that never settles, exposing the context the guard forwarded. */
+  function hangingTool() {
+    const seen: { context?: unknown } = {};
+    const tool = makeTool((_input: unknown, context: unknown) => {
+      seen.context = context;
+      return new Promise(() => {});
+    });
+    return { seen, tool };
+  }
+
+  it('restarts its window on each activity, then ends at the total budget, cancelling the work', async () => {
+    vi.useFakeTimers(FAKE);
+    try {
+      const { seen, tool } = hangingTool();
+      const guarded = guardToolExecution(tool, {
+        activity: { maxTotalMs: 1000 },
+        timeoutMs: 300,
+        toolName: 'demo',
+      });
+      let settled: unknown;
+      const result = Promise.resolve(guarded.execute({}, { toolCallId: 'call-1' })).then(
+        (value: unknown) => {
+          settled = value;
+          return value;
+        }
+      );
+      for (let step = 0; step < 4; step += 1) {
+        await vi.advanceTimersByTimeAsync(200);
+        reportToolGuardActivity(seen.context);
+      }
+      // 800 ms in, no window ever went 300 ms silent: still running.
+      expect(settled).toBeUndefined();
+      expect(toolGuardOwnsInactivity(seen.context)).toBe(true);
+      const deadline = readToolGuardDeadlineSignal(seen.context);
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(result).resolves.toEqual({
+        error: {
+          code: 'tool_timeout',
+          message: formatToolTotalBudgetMessage(1000),
+          toolName: 'demo',
+        },
+        ok: false,
+      });
+      expect(deadline?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends a silent call at its window, naming the silence and the total it could have had', async () => {
+    vi.useFakeTimers(FAKE);
+    try {
+      const guarded = guardToolExecution(hangingTool().tool, {
+        activity: { maxTotalMs: 600_000 },
+        timeoutMs: 60_000,
+        toolName: 'demo',
+      });
+      const result = guarded.execute({}, { toolCallId: 'call-1' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(result).resolves.toMatchObject({
+        error: { message: formatToolInactivityMessage(60_000, 600_000) },
+      });
+      expect(formatToolInactivityMessage(60_000, 600_000)).toBe(
+        'The tool reported no progress for 60s and was cancelled (it may run up to 600s while it reports progress). Try a smaller request or another approach.'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a silent call ended by a total shorter than its window is told it was silent, not chatty', async () => {
+    vi.useFakeTimers(FAKE);
+    try {
+      const guarded = guardToolExecution(hangingTool().tool, {
+        activity: { maxTotalMs: 600 },
+        timeoutMs: 900,
+        toolName: 'demo',
+      });
+      const result = guarded.execute({}, { toolCallId: 'call-1' });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(result).resolves.toMatchObject({
+        error: { code: 'tool_timeout', message: formatToolInactivityMessage(600, 600) },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tells the running tool how long it has left, counting from its latest activity', async () => {
+    vi.useFakeTimers(FAKE);
+    try {
+      const { seen, tool } = hangingTool();
+      const guarded = guardToolExecution(tool, {
+        activity: { maxTotalMs: 1000 },
+        timeoutMs: 300,
+        toolName: 'demo',
+      });
+      void guarded.execute({}, { toolCallId: 'call-1' });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(readToolGuardRemainingMs(seen.context)).toBe(100);
+      reportToolGuardActivity(seen.context);
+      expect(readToolGuardRemainingMs(seen.context)).toBe(300);
+      // The last window is cut to what the total leaves: 1000 - 900 = 100.
+      await vi.advanceTimersByTimeAsync(250);
+      reportToolGuardActivity(seen.context);
+      await vi.advanceTimersByTimeAsync(250);
+      reportToolGuardActivity(seen.context);
+      await vi.advanceTimersByTimeAsync(200);
+      reportToolGuardActivity(seen.context);
+      expect(readToolGuardRemainingMs(seen.context)).toBe(100);
+      await vi.advanceTimersByTimeAsync(100);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a flat guard flat: activity never extends it', async () => {
+    vi.useFakeTimers(FAKE);
+    try {
+      const { seen, tool } = hangingTool();
+      const guarded = guardToolExecution(tool, { timeoutMs: 300, toolName: 'demo' });
+      const result = guarded.execute({}, { toolCallId: 'call-1' });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(toolGuardOwnsInactivity(seen.context)).toBe(false);
+      reportToolGuardActivity(seen.context);
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(result).resolves.toMatchObject({
+        error: { message: formatToolTimeoutMessage(300, undefined) },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

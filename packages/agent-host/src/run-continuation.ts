@@ -16,6 +16,11 @@ const logger = createLogger('AgentHost');
 
 import { ApprovalInputReconstructionError, validateApprovalInput } from './approval-input.js';
 import {
+  browserOriginDeniedReason,
+  type HostBrowserOriginStore,
+  saveHostBrowserOrigin,
+} from './browser-origin-answers.js';
+import {
   applyHostPermissionGrant,
   hasHostInteractionResponse,
   type PendingInteraction,
@@ -48,6 +53,69 @@ type Interaction = Extract<
   }
 >;
 type Dispatch = (action: Action, input: unknown, resumeData?: unknown) => Promise<unknown>;
+/** Core's platform, and its StateStore's saved browser origins (BST-1178). */
+interface HostInteractionOwner {
+  readonly origins: HostBrowserOriginStore;
+  readonly platform: HostPlatform;
+}
+function decodeNetworkConsent(value: unknown): (typeof HostNetworkConsentSchema)['Type'] {
+  return Schema.decodeUnknownSync(HostNetworkConsentSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
+}
+/**
+ * BST-1178: the origin a committed Don't allow refused. Core settles that call
+ * unrun itself; the browser tool never sees a refused call.
+ */
+function refusedHostOrigin(pending: PendingInteraction): string | undefined {
+  const { event } = pending;
+  if (
+    event.kind !== 'network' ||
+    event.origin === undefined ||
+    !Object.hasOwn(pending, 'resumeData')
+  ) {
+    return;
+  }
+  return decodeNetworkConsent(pending.resumeData).action === 'deny' ? event.origin : undefined;
+}
+/** A card the policy answers with a person's saved origin answer. */
+interface HostOriginPolicyAnswer {
+  readonly pending: PendingInteraction;
+  readonly resumeData: { readonly action: 'allow' | 'deny' };
+}
+/**
+ * BST-1178: Always allow or Don't allow on a browser origin is saved before
+ * the answer is accepted, so a save that fails refuses the answer rather than
+ * losing it. The run's other cards for that origin (parallel calls in one
+ * step) take the saved answer by policy: Don't allow settles each, Always
+ * allow each that does not also stand in for an approval the policy asks for.
+ */
+async function rememberHostOrigin(
+  origins: HostBrowserOriginStore,
+  run: Run,
+  pending: PendingInteraction,
+  resumed: unknown
+): Promise<readonly HostOriginPolicyAnswer[]> {
+  const origin = pending.event.kind === 'network' ? pending.event.origin : undefined;
+  if (origin === undefined) {
+    return [];
+  }
+  const { action, remember } = decodeNetworkConsent(resumed);
+  if (!remember) {
+    return [];
+  }
+  await saveHostBrowserOrigin(origins, origin, action);
+  return [...run.approvals.values()].flatMap((other) =>
+    other !== pending &&
+    other.event.kind === 'network' &&
+    other.event.origin === origin &&
+    !hasHostInteractionResponse(other) &&
+    (action === 'deny' || other.event.risk === undefined)
+      ? [{ pending: other, resumeData: { action } }]
+      : []
+  );
+}
 /** Core supplies the original append, boundary sync and fold, in that order. */
 export async function commitHostModelMessages(
   run: Run,
@@ -107,16 +175,13 @@ function resumedGrant(
   if (pending.event.kind !== 'network' || pending.event.risk === undefined) {
     throw new Error('Only a network consent that stood in for an approval carries a grant');
   }
-  const { action } = Schema.decodeUnknownSync(HostNetworkConsentSchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(resumed);
+  const { action } = decodeNetworkConsent(resumed);
   return answeredGrant(run, pending, grant, action === 'allow' ? 'approve' : 'deny');
 }
 /** Core supplies its sole acceptance writer and continuation owner. */
 export async function commitHostInteractionResponse(
   run: Run,
-  platform: HostPlatform,
+  { origins, platform }: HostInteractionOwner,
   params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
   accept: (events: readonly HostEvent[]) => Promise<void>,
   continueRun: () => Promise<void>
@@ -140,14 +205,13 @@ export async function commitHostInteractionResponse(
     );
   }
   await ensureHostRunAdmission(platform, run);
+  const resumed = approval
+    ? undefined
+    : await validateHostInteractionResume(run, pending, params.resumeData);
   const grant = approval
     ? answeredGrant(run, pending, params.grant, params.decision)
-    : resumedGrant(
-        run,
-        pending,
-        params.grant,
-        await validateHostInteractionResume(run, pending, params.resumeData)
-      );
+    : resumedGrant(run, pending, params.grant, resumed);
+  const settled = approval ? [] : await rememberHostOrigin(origins, run, pending, resumed);
   await accept([
     ...(grant ? [{ grant, runId: run.id, type: 'permission.granted' as const }] : []),
     approval
@@ -163,6 +227,13 @@ export async function commitHostInteractionResponse(
           runId: run.id,
           type: 'interaction.responded',
         },
+    ...settled.map(({ pending: other, resumeData }) => ({
+      by: 'policy' as const,
+      interactionId: other.event.interactionId,
+      resumeData,
+      runId: run.id,
+      type: 'interaction.responded' as const,
+    })),
   ]);
   if (grant) {
     applyHostPermissionGrant(run, grant);
@@ -171,6 +242,9 @@ export async function commitHostInteractionResponse(
     pending.decision = params.decision;
   } else {
     pending.resumeData = params.resumeData;
+  }
+  for (const { pending: other, resumeData } of settled) {
+    other.resumeData = resumeData;
   }
   run.task = (run.task ?? Promise.resolve()).then(continueRun);
   run.task.catch(() => undefined);
@@ -318,7 +392,7 @@ function assertHostGrantMatchesCall(
  */
 export async function approveHostRunByPolicy(
   run: Run,
-  platform: HostPlatform,
+  owner: HostInteractionOwner,
   interactionId: string,
   append: (events: readonly HostEvent[]) => Promise<unknown>,
   continueRun: () => Promise<void>
@@ -329,13 +403,13 @@ export async function approveHostRunByPolicy(
     !pending ||
     pending.event.kind !== 'approval' ||
     hasHostInteractionResponse(pending) ||
-    (await hostRunToolDecision(platform, run, pending.event.toolId)) !== 'allow'
+    (await hostRunToolDecision(owner.platform, run, pending.event.toolId)) !== 'allow'
   ) {
     return;
   }
   await commitHostInteractionResponse(
     run,
-    platform,
+    owner,
     {
       commandId: interactionId,
       decision: 'approve',
@@ -361,13 +435,18 @@ export async function validateHostInteractionResume(
 ): Promise<unknown> {
   const tool = hostRunTools(run)[pending.event.toolId];
   if (pending.event.kind === 'network') {
-    if (!tool?.consent || tool.identity !== pending.event.toolIdentity) {
+    if (
+      !(tool && (tool.consent || tool.browserOrigin)) ||
+      tool.identity !== pending.event.toolIdentity
+    ) {
       throw new Error('Network consent tool identity changed');
     }
-    return Schema.decodeUnknownSync(HostNetworkConsentSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(value);
+    const consent = decodeNetworkConsent(value);
+    // run_python's network is asked per call, never remembered.
+    if (consent.remember && pending.event.origin === undefined) {
+      throw new Error("Only a browser origin's consent is remembered");
+    }
+    return consent;
   }
   if (
     !tool ||
@@ -426,9 +505,17 @@ export async function resolveApprovedHostCall(
   dispatch: Dispatch
 ): Promise<ToolContent[number]> {
   const { event, decision } = pending;
-  if (decision === 'deny' || (await hostRunToolDecision(platform, run, event.toolId)) === 'deny') {
+  const refused = refusedHostOrigin(pending);
+  if (
+    refused !== undefined ||
+    decision === 'deny' ||
+    (await hostRunToolDecision(platform, run, event.toolId)) === 'deny'
+  ) {
     return {
-      output: { type: 'execution-denied' },
+      output: {
+        type: 'execution-denied',
+        ...(refused === undefined ? {} : { reason: browserOriginDeniedReason(refused) }),
+      },
       toolCallId: event.toolCallId,
       toolName: event.toolId,
       type: 'tool-result',
@@ -475,14 +562,17 @@ export async function createHostApprovalResponses(
   const responses: ToolContent = [];
   for (const pending of run.approvals.values()) {
     const { event, decision } = pending;
+    const refused = refusedHostOrigin(pending);
     if (!run.responses.has(event.interactionId)) {
       responses.push({
         approvalId: event.interactionId,
-        approved: event.kind !== 'approval' || decision === 'approve',
+        approved: refused === undefined && (event.kind !== 'approval' || decision === 'approve'),
+        ...(refused === undefined ? {} : { reason: browserOriginDeniedReason(refused) }),
         type: 'tool-approval-response',
       });
     }
     if (
+      refused === undefined &&
       event.kind !== 'approval' &&
       !run.outputs.has(event.toolCallId) &&
       !run.checkpointedResults.has(event.toolCallId)

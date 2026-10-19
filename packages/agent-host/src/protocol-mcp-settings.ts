@@ -4,6 +4,7 @@ import {
   type McpHostServerSnapshot,
   type McpHostSnapshot,
 } from '@brainstrike/assistant-contract';
+import { MCP_CATALOG_ACCESS } from '@brainstrike/assistant-contract/mcp-catalog';
 import {
   parseMcpHostServerSnapshot,
   parseMcpHostSnapshot,
@@ -46,14 +47,18 @@ export const McpConfigStatusSchema = Schema.Struct({
       )
     )
   ),
+  /** Why the config file watcher cannot run; a later save or reload retries it. */
+  watchError: Schema.optional(Schema.String),
 });
 export type McpConfigStatus = (typeof McpConfigStatusSchema)['Type'];
+/** The config text and its `revision`, the SHA-256 a write names as its base. */
 export const McpConfigTextSchema = Schema.Struct({
   content: Schema.String,
   created: Schema.Boolean,
   error: Schema.optional(Schema.String),
   exists: Schema.Boolean,
   path: Schema.String,
+  revision: Schema.String,
 });
 export const McpToolMetadataSchema = Schema.Struct({
   description: Schema.optional(Schema.String),
@@ -113,14 +118,37 @@ export const McpSettingsEventSchema = Schema.Union(
 export type McpSettingsEvent = (typeof McpSettingsEventSchema)['Type'];
 const Applied = Schema.Struct({ applied: Schema.Literal(true) });
 const None = Schema.Record(Schema.String, Schema.Never);
+/**
+ * A config write or catalog install: the file it changed and its new revision,
+ * or why nothing changed. `conflict` marks a file that changed since its read.
+ */
+const McpConfigWriteResultSchema = Schema.Union(
+  [
+    Schema.Struct({ path: Schema.String, revision: Schema.String, success: Schema.Literal(true) }),
+    Schema.Struct({
+      conflict: Schema.optional(Schema.Literal(true)),
+      error: Schema.String,
+      path: Schema.String,
+      success: Schema.Literal(false),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
 export const MCP_SETTINGS_METHOD_SCHEMAS = {
+  /** Appends one curated catalog server; `token` only for a token entry, stored by the host. */
+  'mcp/config/install': Schema.Struct({
+    access: Schema.Literals(MCP_CATALOG_ACCESS),
+    catalogId: Id,
+    token: Schema.optional(Schema.String),
+  }),
   'mcp/config/path': None,
   /** `null` restores the profile's default path; any other path must be picker-selected. */
   'mcp/config/path/set': Schema.Struct({ path: Schema.NullOr(Schema.String) }),
   'mcp/config/read': None,
   'mcp/config/sample': None,
   'mcp/config/status': None,
-  'mcp/config/write': Schema.Struct({ content: Schema.String }),
+  /** Writes only while the file still has `baseRevision`, the revision `mcp/config/read` returned. */
+  'mcp/config/write': Schema.Struct({ baseRevision: Schema.String, content: Schema.String }),
   'mcp/extensions/read': None,
   'mcp/extensions/set': McpExtensionEnablementSchema,
   /** connect, retry, cancel, disconnect or reauthorize one configured server. */
@@ -138,6 +166,7 @@ export const MCP_SETTINGS_METHOD_SCHEMAS = {
   'mcp/tools/stats': None,
 } as const;
 export const MCP_SETTINGS_RESULT_SCHEMAS = {
+  'mcp/config/install': McpConfigWriteResultSchema,
   'mcp/config/path': Schema.Struct({ path: Schema.String }),
   'mcp/config/path/set': Schema.Struct({ path: Schema.String, success: Schema.Literal(true) }),
   'mcp/config/read': McpConfigTextSchema,
@@ -147,13 +176,7 @@ export const MCP_SETTINGS_RESULT_SCHEMAS = {
     success: Schema.Boolean,
   }),
   'mcp/config/status': McpConfigStatusSchema,
-  'mcp/config/write': Schema.Union(
-    [
-      Schema.Struct({ path: Schema.String, success: Schema.Literal(true) }),
-      Schema.Struct({ error: Schema.String, path: Schema.String, success: Schema.Literal(false) }),
-    ],
-    { mode: 'oneOf' }
-  ),
+  'mcp/config/write': McpConfigWriteResultSchema,
   'mcp/extensions/read': McpExtensionEnablementSchema,
   'mcp/extensions/set': McpExtensionEnablementSchema,
   'mcp/server/control': McpHostServerStatusSchema,

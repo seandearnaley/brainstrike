@@ -22,6 +22,7 @@ import {
   acquireIndexerHost,
   closeIndexerRuntime,
   destroyIndexerRuntime,
+  fenceIndexerCanonicalSources,
   getReadyIndexerHost,
   getReadyScopedIndexerPort,
 } from './indexer-runtime';
@@ -62,7 +63,7 @@ import {
 } from './native-index-settings';
 import {
   type NativeIndexSources,
-  retireNativeIndexSources,
+  settleNativeIndexSources,
 } from './native-index-source-retirement';
 import { createNativeIndexWatchHealthHandler } from './native-index-watch-health';
 import type { NativeScopedRead, NativeSearchAuthority } from './native-scoped-search';
@@ -147,7 +148,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (!sources) {
       return;
     }
-    await retireNativeIndexSources(sources, () => getReadyIndexerHost().retireCanonicalSources());
+    await settleNativeIndexSources(
+      sources,
+      () => getReadyIndexerHost().retireCanonicalSources(),
+      (exit) => dependencies.onError('source retirement', exit)
+    );
     if (current.sources === sources) {
       current.sources = undefined;
     }
@@ -673,8 +678,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           }
         }
       },
-      fence: () =>
-        graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.')),
+      fence: () => {
+        // One turn, as `retireSources` does: revoked utility work answers cancelled (BST-2140).
+        graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.'));
+        fenceIndexerCanonicalSources();
+      },
     }
   );
   const failures = createNativeIndexFailures({

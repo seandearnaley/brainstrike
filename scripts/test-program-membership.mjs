@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { classifyCommand, extractProject, flattenScript } from './ts7-parity-check.mjs';
+import { classifyCommand, flattenScript } from './ts7-parity-check.mjs';
 import { inspectTsconfigProgram } from './verify-test-tsconfig-program.mjs';
 import { workspacePackages } from './workspace-packages.mjs';
 
@@ -100,7 +100,12 @@ export function canonicalTestPrograms(pkg) {
       }
       compiler.add(path.resolve(pkg.dir, classified.project ?? 'tsconfig.json'));
     } else if (classified.kind === 'build') {
-      const project = path.resolve(pkg.dir, extractProject(command) ?? 'tsconfig.json');
+      // Only bare builds have the default root; positional roots and build flags
+      // need their own supported inspection semantics before they can earn coverage.
+      if (!/^tsc (?:--build|-b)$/u.test(command)) {
+        throw new Error(`Unsupported build inspection command: ${command}`);
+      }
+      const project = path.resolve(pkg.dir, 'tsconfig.json');
       for (const referenced of referencedProjects(project)) {
         compiler.add(referenced);
       }

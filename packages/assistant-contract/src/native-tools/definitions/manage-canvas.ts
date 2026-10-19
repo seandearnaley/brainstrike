@@ -25,7 +25,6 @@ export const manageCanvas = defineNativeTool({
   id: 'brainstrike.manageCanvas',
   inputSchema: effectToolInputSchema(ManageCanvasInputSchema),
   kind: 'desktop',
-  localProvider: 'unregistered',
   returns:
     'Create/update/rewrite returns canvasId and new version; list returns each canvas latest version. Missing or non-unique matches return a structured error.',
   surfaces: ['desktop'],

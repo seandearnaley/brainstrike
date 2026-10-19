@@ -16,7 +16,11 @@ Corruption refuses or contains reads without deleting/replacing canonical data.
 A state DB that fails `integrity_check` opens read-only, and `health()` names the
 failure. The host serves it as `state/health/read`; desktop's damaged-store notice
 reads it and offers a re-read and a host restart, which reopens the store so it
-checks itself again (BST-1880). Neither changes the damaged file.
+checks itself again (BST-1880). Neither changes the damaged file. Its writes are
+refusals, not failures: the store raises `StateStoreReadOnlyError` (a thread
+refusal carries `storeDamage`), and the host sends both as the typed
+`state.read-only` refusal, so callers that write on startup stop quietly
+(BST-2144).
 
 The browser writer (`@brainstrike/web-state-store`, ADR-0011's 2026-10-15
 amendment) runs the same `schema.mjs`, `run-log.mjs`, `catalog-domains.mjs`,

@@ -42,12 +42,29 @@ join it. A failure after the end is its own `memory.settlement.failed` fact, and
 the run's outcome stands. A run owner without that foreground phase joins whole
 before its end.
 
+Each observation and reflection cycle commits one `memory.cycle` fact from
+Mastra's documented lifecycle hooks. The agent host installs them next to its
+provider enclosure, so Core stays the only writer. The fact records what
+started the cycle, how it ended (`completed`, `failed`, or `cancelled` by Stop),
+how long it took, and the usage it reported. A failed cycle also records its
+typed `memory.*` code and the reference its cause is logged under. A buffered
+cycle's failure reaches only its end hook, so this fact is where it first
+appears. Spend is billed from `memory.usage` alone.
+
 Keep observations within the selected chat provider's privacy boundary under
 [ADR-0013](../adr/0013-observational-memory.md), with concrete resolved models and
 explicit credential authority. Actual observer and reflector usage belongs in
 billing and spend totals. A rewind preserves observation residue; branched
 history withholds observations it cannot attribute safely instead of guessing
 which text to remove. Strict deletion and reset must also erase affected memory.
+
+A memory failure carries a typed `memory.*` code at the step or admission that
+found it: observer, embedder, vector store, configuration or credential. It is
+never classified as an error from the chat provider, and it names the memory
+model's own provider. A fault's correlation id is shown in the failure row and
+the send gate. The agent host forwards its error records, with those ids, to
+Main's diagnostics, so the debug pack finds the cause. Owner:
+[memory failures](../../packages/agent-host/src/adapters/memory-failure.ts).
 
 The context meter describes the latest provider step, not accumulated billed
 usage. Estimates, unknown cost and unavailable measurements remain labelled;

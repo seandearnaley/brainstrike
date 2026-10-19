@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { buildModelSettingsOption } from '@brainstrike/agent/provider-request';
+import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostRunIntentRequest } from '@brainstrike/agent-host';
 import {
   materializeCliWorkspaceIntent,
@@ -17,9 +18,12 @@ import {
   findProviderDefinition,
   isSupportedProvider,
   listAutoObservationalMemoryCandidates,
+  localRuntimeContextWindow,
+  refusalError,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
+import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import type { DesktopAdmissionReads, DesktopRunSelection } from './desktop-run-admission';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
@@ -57,8 +61,9 @@ export function desktopInputTokenLimit(
 /**
  * Ollama and LM Studio models are discovered live from the local server: the
  * picker offers exactly what the runtime lists, and neither the models table
- * nor the static catalog holds them. A run on one is budgeted at the
- * conservative window the picker declares for every discovered model.
+ * nor the static catalog holds them. This starts at the documented default
+ * window; an Ollama run is then admitted at the window its model reports
+ * ({@link readDesktopLocalModel}), the one the picker shows (BST-754).
  */
 function localRuntimeModelDefinition(model: string): DesktopCatalogSelection['definition'] {
   if (model.length === 0) {
@@ -72,6 +77,76 @@ function localRuntimeModelDefinition(model: string): DesktopCatalogSelection['de
     vision: 'unknown',
   };
 }
+const logger = createLogger('DesktopRunAdmission');
+
+/** BST-754: an Ollama run's admitted window and whether its model thinks. */
+export interface DesktopLocalModel {
+  readonly contextWindow: number;
+  readonly thinking: boolean;
+}
+
+/**
+ * BST-754: an Ollama run's facts, from Main's local runtime catalog (Ollama's
+ * `/api/show`, at the run configuration's endpoint): the window the run
+ * budgets and Ollama allocates (`num_ctx`), and whether the model thinks. A
+ * server that cannot describe the model refuses the run, saying why.
+ *
+ * The lookup is authenticated as the run's own chat requests are: the host's
+ * stored Ollama credential first, then a token the configuration carries.
+ */
+export async function readDesktopLocalModel(
+  reads: DesktopAdmissionReads,
+  configuration: (typeof PlatformModelConfigurationSchema)['Type'],
+  signal: AbortSignal,
+  resolveAuth: (() => Promise<ProviderAuthInput | undefined>) | undefined
+): Promise<DesktopLocalModel | undefined> {
+  if (configuration.provider !== 'ollama') {
+    return;
+  }
+  if (!reads.localRuntimeModel) {
+    throw new Error('An Ollama run needs the desktop local runtime catalog');
+  }
+  if (!resolveAuth) {
+    throw new Error("An Ollama run needs the host's credential authority");
+  }
+  const options = configuration.providerOptions?.['ollama'];
+  const baseUrl = options?.['baseUrl'];
+  const auth = await resolveAuth();
+  const stored = auth?.kind === 'api_key' && auth.apiKey.trim() ? auth.apiKey : undefined;
+  const configured = options?.['apiToken'];
+  const apiToken = stored ?? (typeof configured === 'string' ? configured : undefined);
+  const facts = await reads.localRuntimeModel(
+    {
+      endpoint: {
+        ...(apiToken === undefined ? {} : { apiToken }),
+        ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
+      },
+      model: configuration.model,
+    },
+    signal
+  );
+  if (facts.state === 'unavailable') {
+    throw refusalError(
+      'availability',
+      'local-runtime.model-unavailable',
+      `Ollama could not describe "${configuration.model}" at ${facts.endpoint}: ${facts.message}`,
+      'Check that Ollama is running and has this model, then retry.'
+    );
+  }
+  const window = localRuntimeContextWindow(
+    facts.contextLength.state === 'reported' ? facts.contextLength.tokens : undefined
+  );
+  logger.info('Ollama run context', {
+    contextLength: facts.contextLength,
+    contextWindow: window.tokens,
+    endpoint: facts.endpoint,
+    model: configuration.model,
+    source: window.source,
+    thinking: facts.thinking,
+  });
+  return { contextWindow: window.tokens, thinking: facts.thinking };
+}
+
 export async function readDesktopCatalogSelection(
   reads: DesktopAdmissionReads,
   modelId: string,

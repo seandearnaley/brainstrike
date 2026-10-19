@@ -92,7 +92,7 @@ export class WebFileIndex implements ScopedIndexerPort, Pick<IndexerPort, 'info'
       return (await this.store.extension(`files.${op}`, params)) as T;
     } catch (error) {
       if (error instanceof WebStateStoreError && error.code !== undefined) {
-        throw new IndexerError(error.code, error.message);
+        throw new IndexerError(error.code, error.message, { cause: error });
       }
       throw error;
     }

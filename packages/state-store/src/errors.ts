@@ -14,11 +14,33 @@ export class ThreadDamagedError extends Error {
 /** An append or purge refused because the thread is damaged. A refusal, so it does not fail the store. */
 export class ThreadReadOnlyError extends Error {
   readonly threadId: string;
+  /**
+   * The state DB's own integrity finding when the whole store opened damaged
+   * and read-only, so every thread refuses (BST-2144); null when only this
+   * thread's history is damaged.
+   */
+  readonly storeDamage: string | null;
 
-  constructor(threadId: string, message: string) {
+  constructor(threadId: string, message: string, storeDamage: string | null = null) {
     super(message);
     this.name = 'ThreadReadOnlyError';
     this.threadId = threadId;
+    this.storeDamage = storeDamage;
+  }
+}
+
+/**
+ * A write refused because the state DB opened damaged and therefore read-only
+ * (BST-2144). A refusal: nothing was written, every file is kept, and reads go
+ * on. `damage` is the store's own integrity finding.
+ */
+export class StateStoreReadOnlyError extends Error {
+  readonly damage: string;
+
+  constructor(damage: string) {
+    super(`the state store is read-only: database damaged: ${damage}`);
+    this.name = 'StateStoreReadOnlyError';
+    this.damage = damage;
   }
 }
 

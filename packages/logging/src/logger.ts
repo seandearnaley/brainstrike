@@ -333,6 +333,13 @@ function sanitizeBrowserConsoleValue(
     return value.toString();
   }
 
+  // Functions are not log data. Pino's browser redaction also leaves a
+  // `restore()` method on every redacted record, which printed as source text
+  // on each console line (BST-2154).
+  if (typeof value === 'function') {
+    return undefined;
+  }
+
   if (Array.isArray(value)) {
     return value.map((entry) => sanitizeBrowserConsoleValue(entry, seen));
   }
@@ -772,23 +779,30 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
 
 type PinoLogMethod = (first: unknown, ...rest: unknown[]) => void;
 
+const PRINTF_DIRECTIVE = /%[sdifjoOc%]/;
+
+function isMetadataObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function normalizePinoLogArgs(args: readonly unknown[]): readonly unknown[] {
-  if (args.length !== 2) {
-    return args;
-  }
-  const [message, metadata] = args;
-  if (
-    typeof message !== 'string' ||
-    typeof metadata !== 'object' ||
-    metadata === null ||
-    Array.isArray(metadata)
-  ) {
+  const [message, metadata, error] = args;
+  if (typeof message !== 'string' || !isMetadataObject(metadata)) {
     return args;
   }
   // Public Brainstrike logging is message-first, while Pino's structured form
   // is object-first. Reorder only the declared `(message, metadata)` overload;
   // other variadic calls retain Pino's interpolation semantics.
-  return [metadata, message];
+  if (args.length === 2) {
+    return [metadata, message];
+  }
+  // `(message, metadata, error)` without placeholders: Pino would interpolate
+  // the message and drop both trailing arguments, so the sinks kept only the
+  // message (BST-2154). Fold the error into the metadata instead.
+  if (args.length === 3 && !PRINTF_DIRECTIVE.test(message)) {
+    return [{ ...metadata, error }, message];
+  }
+  return args;
 }
 
 function writePinoLog(

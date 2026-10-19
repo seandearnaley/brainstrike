@@ -10,7 +10,12 @@ import {
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  fault,
+  INTERNAL_FAULT,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { Schema } from 'effect';
@@ -54,6 +59,8 @@ const observerCall = Schema.decodeUnknownSync(HostLogRowSchema, {
   seq: 1000,
   threadId: started.threadId,
 });
+/** The recorded run whose memory cycles the BST-2224 case commits. */
+const STARTED_RUN_ID = started.event.runId;
 class RowSource implements HostMemoryRowSource {
   private snapshot: {
     readonly rows: readonly HostLogRow[];
@@ -121,6 +128,42 @@ const ACTIVE: MemoryRead = {
     state: 'active',
   },
 };
+const OBSERVED_AT = Date.UTC(2026, 9, 18, 21, 30);
+// BST-2201: a host that reports the record's lifecycle and the run's models.
+const LIVE: MemoryRead = {
+  admission: { ready: true },
+  models: {
+    embedder: {
+      dimensions: 384,
+      distance: 'cosine',
+      dtype: 'fp16',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      provider: 'local',
+    },
+    observer: 'openai::gpt-5-mini',
+  },
+  observational: {
+    record: {
+      bufferedObservationTokens: 120,
+      lifecycle: {
+        generationCount: 2,
+        isBufferingObservation: true,
+        isBufferingReflection: false,
+        isObserving: false,
+        isReflecting: false,
+        lastBufferedAtTime: null,
+        lastObservedAt: OBSERVED_AT,
+        originType: 'reflection',
+        reflectionTokenThreshold: 40_000,
+      },
+      messageTokenThreshold: 30_000,
+      observationTokenCount: 900,
+      pendingMessageTokens: 4000,
+      totalTokensObserved: 5900,
+    },
+    state: 'active',
+  },
+};
 const NOT_READY: MemoryRead = {
   admission: { ready: false, reason: 'Semantic recall needs its embedding model downloaded.' },
 };
@@ -147,6 +190,94 @@ describe('the meter reads the host memory state the next send would admit', () =
       observationTokens: 900,
       pendingMessageTokens: 4000,
     });
+  });
+  test('a reported record lifecycle reaches the meter whole', () => {
+    if (!('observational' in LIVE)) {
+      throw new Error('LIVE is a ready read');
+    }
+    expect(hostOmMeterState(LIVE.observational)).toEqual({
+      bufferedObservationTokens: 120,
+      compactionSavedTokens: 5000,
+      kind: 'stats',
+      lifecycle: {
+        generationCount: 2,
+        isBufferingObservation: true,
+        isBufferingReflection: false,
+        isObserving: false,
+        isReflecting: false,
+        lastBufferedAtTime: null,
+        lastObservedAt: OBSERVED_AT,
+        originType: 'reflection',
+        reflectionTokenThreshold: 40_000,
+      },
+      messageTokenThreshold: 30_000,
+      observationTokens: 900,
+      pendingMessageTokens: 4000,
+    });
+  });
+  test('a ready read carries the models its memory uses and when it was read onto the segment', async () => {
+    const { client } = hostClient(LIVE);
+    const before = Date.now();
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source: undefined })
+    );
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    // Mastra's flags are the record's as of this read; no row marks their end.
+    expect(result.current.omSegment?.readAt).toBeGreaterThanOrEqual(before);
+    expect(result.current.omSegment?.models).toEqual({
+      embedder: {
+        dimensions: 384,
+        distance: 'cosine',
+        dtype: 'fp16',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        provider: 'local',
+      },
+      observer: 'openai::gpt-5-mini',
+    });
+  });
+  test('a typed refusal is the segment error with its code', async () => {
+    const client = memoryClient(async () => {
+      throw refusalError(
+        'configuration',
+        'memory.embedder-device-unavailable',
+        'The on-device memory embedder has no execution device.'
+      );
+    });
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source: undefined })
+    );
+    await waitFor(() =>
+      expect(result.current.omSegment).toEqual({
+        code: 'memory.embedder-device-unavailable',
+        kind: 'error',
+        readAt: expect.any(Number),
+        reason: 'The on-device memory embedder has no execution device.',
+      })
+    );
+  });
+  test('a fault names its reference beside its code, so the panel finds its cause (BST-2202)', async () => {
+    const correlationId = '3b9d2c1e-7f4a-4e8b-9c6d-1a2b3c4d5e6f';
+    const client = memoryClient(async () => {
+      throw new BoundaryFailureError(
+        fault({
+          category: 'availability',
+          code: 'memory.embedder-unavailable',
+          correlationId,
+          message: 'The on-device memory embedder is not running.',
+        })
+      );
+    });
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source: undefined })
+    );
+    await waitFor(() =>
+      expect(result.current.omSegment).toEqual({
+        code: 'memory.embedder-unavailable',
+        kind: 'error',
+        readAt: expect.any(Number),
+        reason: `The on-device memory embedder is not running. Reference: ${correlationId}`,
+      })
+    );
   });
   test('a memory precondition gates the send after any notice that already gates it', () => {
     const refused = { admissionReason: 'Semantic recall needs its embedding model downloaded.' };
@@ -210,6 +341,95 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     act(() => source.commit(finished));
     await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
+  });
+  test('each kind’s last committed memory cycle joins the segment, and a cycle re-reads (BST-2224)', async () => {
+    const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE, ACTIVE);
+    const source = new RowSource();
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    const cycle = (seq: number, event: Record<string, unknown>): HostLogRow =>
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+        event: { runId: STARTED_RUN_ID, type: 'memory.cycle', ...event },
+        seq,
+        threadId: started.threadId,
+        ts: Date.UTC(2026, 9, 19, 9, 0, seq - 1000),
+      });
+    const failed = {
+      durationMs: 3200,
+      failure: {
+        code: 'memory.observer-failed',
+        correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
+      },
+      kind: 'observation',
+      outcome: 'failed',
+      trigger: 'async-buffer',
+    };
+    act(() => source.commit(cycle(1001, failed)));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current.omSegment?.cycles).toEqual({
+        observation: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 1),
+          durationMs: 3200,
+          failure: failed.failure,
+          outcome: 'failed',
+          trigger: 'async-buffer',
+        },
+      })
+    );
+    act(() =>
+      source.commit(cycle(1002, { kind: 'reflection', outcome: 'completed', trigger: 'turn-sync' }))
+    );
+    act(() =>
+      source.commit(
+        cycle(1003, {
+          kind: 'observation',
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+        })
+      )
+    );
+    // The later observation replaces the failed one; the reflection stays.
+    await waitFor(() =>
+      expect(result.current.omSegment?.cycles).toEqual({
+        observation: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 3),
+          outcome: 'completed',
+          trigger: 'turn-sync',
+          usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+        },
+        reflection: {
+          at: Date.UTC(2026, 9, 19, 9, 0, 2),
+          outcome: 'completed',
+          trigger: 'turn-sync',
+        },
+      })
+    );
+  });
+  test('a failed memory settlement re-reads, so the panel drops the buffering flag its cycle saw', async () => {
+    const { client, request } = hostClient(ACTIVE, ACTIVE);
+    const source = new RowSource();
+    renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    act(() =>
+      source.commit(
+        Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+          event: {
+            detail: 'Memory observe failed because its observer model failed.',
+            runId: STARTED_RUN_ID,
+            type: 'memory.settlement.failed',
+          },
+          seq: 1001,
+          threadId: started.threadId,
+        })
+      )
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
   });
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);
@@ -293,13 +513,17 @@ describe('the meter reads the host memory state the next send would admit', () =
     act(() => source.commit(finished));
     await waitFor(() =>
       expect(result.current.omSegment).toEqual({
+        code: INTERNAL_FAULT.code,
         kind: 'error',
+        readAt: expect.any(Number),
         reason: INTERNAL_FAULT.message,
       })
     );
     await act(async () => answerFirst(ACTIVE));
     expect(result.current.omSegment).toEqual({
+      code: INTERNAL_FAULT.code,
       kind: 'error',
+      readAt: expect.any(Number),
       reason: INTERNAL_FAULT.message,
     });
   });

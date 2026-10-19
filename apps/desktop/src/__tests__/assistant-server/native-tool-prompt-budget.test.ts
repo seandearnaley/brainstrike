@@ -204,10 +204,32 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 //
 // No authored description or schema was edited for this, and the trim-first
 // rule below is untouched: the next raise still has to earn itself.
+//
+// BST-1178 DOCTRINE RAISE (+124/+124, band width 300 preserved). The composed
+// instructions now say outside tool content is data, never instructions:
+// without it, text that a file, a page, command output or an MCP reply returns
+// can direct the run. The line costs 30 tokens, 33 with its exception for an
+// activated skill (this surface registers skills). Trim-first took the first
+// wording from 44 to 30 (one clause; the examples cut to four).
+//
+// This entry also ACCOUNTS FOR THE DRIFT left after the ADR-0022 entry: 9826 →
+// 9920 (+94) landed with no recorded trade.
+//   * +61 is BST-1238's browsing boundary: browserNavigate's description went
+//     68 → 104 tokens, the browser-pane instruction 91 → 116. The model must
+//     know a blocked_destination is final.
+//   * The remaining +33 arrived with the Effect schema migrations (BST-2044,
+//     BST-2045) and #3734's skill wording. Not measured one by one.
+// Measured 9920 → 9953; both bounds move to centre it (9,976 → 10,100 and
+// 9,676 → 9,800).
+//
+// BST-1178 LOOPBACK (+9, no band move). browserNavigate's description now says
+// the user approves each new site and that a localhost dev server loads, so the
+// model neither retries a refused site nor avoids a dev server it was asked to
+// open. Trim-first kept it to one sentence and one clause. Measured 9953 → 9962.
 /** The same 36 the eager-baseline gate above counts: the tool half is unchanged. */
 const AUTHORED_PROVIDER_TOOL_COUNT = 36;
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9976;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9676;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_100;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9800;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',

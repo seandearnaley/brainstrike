@@ -209,7 +209,7 @@ export function createTokenRefresher(deps: TokenRefresherDeps): TokenRefresher {
   return {
     async getFreshAccessToken(providerId: string): Promise<FreshAccessTokenResult> {
       const existing = inFlight.get(providerId);
-      if (existing) {
+      if (existing !== undefined) {
         return await existing;
       }
       const credential = await readActiveCredential(providerId);
@@ -220,7 +220,7 @@ export function createTokenRefresher(deps: TokenRefresherDeps): TokenRefresher {
       // two concurrent callers would BOTH refresh and replay the rotating
       // refresh token.
       const raced = inFlight.get(providerId);
-      if (raced) {
+      if (raced !== undefined) {
         return await raced;
       }
       if (credential === null || credential.type !== 'oauth') {

@@ -20,8 +20,10 @@ import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
+import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
 import {
+  admittedMemoryModels,
   type HostObservationSource,
   nativeObservationSource,
   readHostObservation,
@@ -45,7 +47,7 @@ import type {
   HostRunIntentRequest,
   HostTool,
 } from './ports.js';
-import type { HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
+import type { HostMemoryModels, HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
 import { prepareHostProviderTools } from './provider-schema-selection.js';
 import type { HostStartupContext } from './runtime.js';
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
@@ -67,12 +69,14 @@ export interface ProductionHostRunConfiguration {
   readonly maxSteps: number;
   readonly memory: Omit<
     StateStoreHostMemoryOptions,
-    'store' | 'providerRequestContext' | 'vectorBridge'
+    'embedderIdentity' | 'store' | 'providerRequestContext' | 'vectorBridge'
   > & {
     /** Observational memory is on but waits for an observer this admission can run. */
     readonly observerAwaiting?: HostObserverAwaitingReason;
     /** Recall/vector-OM embedder and its profile; the host's own state index stores the vectors. */
     readonly vectors?: {
+      /** The platform's model-safe reading of its embedder's raw failures (BST-2202). */
+      readonly classifyFailure?: HostMemoryEmbedderIdentity['classifyFailure'];
       readonly embedder: NonNullable<StateStoreHostMemoryOptions['native']['embedder']>;
       readonly profile: VectorProfile;
     };
@@ -102,6 +106,15 @@ export type HostMemoryPreconditions =
       readonly observation: HostObservationSource;
       readonly ready: true;
     };
+/**
+ * thread/memory/read's platform answer: the preconditions, and once they pass,
+ * the observer and embedder the run they admit would use (BST-2201).
+ */
+export type HostMemoryReadiness =
+  | Extract<HostMemoryPreconditions, { readonly ready: false }>
+  | (Extract<HostMemoryPreconditions, { readonly ready: true }> & {
+      readonly models: HostMemoryModels;
+    });
 export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
@@ -124,7 +137,7 @@ export interface ProductionHostPlatformOptions {
   /** thread/memory/read's preconditions; absent where the host has no composer. */
   readonly readMemoryPreconditions?: (
     request: HostRunIntentRequest
-  ) => Promise<HostMemoryPreconditions>;
+  ) => Promise<HostMemoryReadiness>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -146,14 +159,16 @@ export interface ProductionHostPlatformOptions {
 }
 function rootModel(
   configuration: RuntimeData,
-  auth: ProviderAuthInput | undefined
+  auth: ProviderAuthInput | undefined,
+  localModel: ProviderRequestContext['localModel']
 ): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(
     selected.provider,
     selected.authInput,
     selected.runtime.model,
-    selected.runtime
+    selected.runtime,
+    localModel
   );
   return materializeHostProviderModel(model);
 }
@@ -183,13 +198,13 @@ async function admittedProviderAuth(
 /** The run's concrete model. */
 async function admittedModel(
   options: Pick<ProductionHostPlatformOptions, 'resolveModel'>,
-  selected: Pick<ProductionHostRunConfiguration, 'configuration'>,
+  selected: Pick<ProductionHostRunConfiguration, 'configuration' | 'providerRequestContext'>,
   auth: ProviderAuthInput | undefined
 ): Promise<Exclude<LanguageModel, string>> {
   const { configuration } = selected;
   return options.resolveModel
     ? await options.resolveModel(configuration, auth)
-    : rootModel(configuration, auth);
+    : rootModel(configuration, auth, selected.providerRequestContext.localModel);
 }
 function unavailableMcpServers(
   borrowed: HostMcpToolSelection | undefined
@@ -267,6 +282,7 @@ function productionMemoryReadiness(
       }
       return {
         admission: { ready: true },
+        models: preconditions.models,
         observational: await readHostObservation(
           options.startup.store,
           preconditions.observation,
@@ -491,6 +507,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           return owner.memory;
         };
         const { observerAwaiting, vectors, ...memory } = selected.memory;
+        const observation = nativeObservationSource(memory, observerAwaiting);
         const nativeMemory = (
           bridge: StateStoreMemoryVector | undefined,
           native: StateStoreHostMemoryOptions['native'] = memory.native
@@ -535,6 +552,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           hookSkips: selected.hookSkips,
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
+          memoryModels: admittedMemoryModels(observation, memory.observerModelId, vectors?.profile),
           model,
           ...(selected.referencedFileFailures
             ? { referencedFileFailures: selected.referencedFileFailures }
@@ -546,6 +564,17 @@ export async function createProductionHostPlatform<Configuration extends Product
             const runOptions = hostRunMemoryOptions(memory, context);
             const owner = StateStoreHostMemory.open(context, {
               ...runOptions,
+              // The embedder's failures name its own catalog identity (BST-2202).
+              ...(vectors
+                ? {
+                    embedderIdentity: {
+                      ...(vectors.classifyFailure
+                        ? { classifyFailure: vectors.classifyFailure }
+                        : {}),
+                      modelId: `${vectors.profile.provider}::${vectors.profile.modelId}`,
+                    },
+                  }
+                : {}),
               native: nativeMemory(bridge, runOptions.native),
               providerRequestContext: () => selected.providerRequestContext,
               // Core keeps every run and its admission; a closed owner leaves this map.
@@ -581,11 +610,7 @@ export async function createProductionHostPlatform<Configuration extends Product
             },
           },
           readObservation: (threadId) =>
-            readHostObservation(
-              options.startup.store,
-              nativeObservationSource(memory, observerAwaiting),
-              threadId
-            ),
+            readHostObservation(options.startup.store, observation, threadId),
           snapshot: {
             configuration: selected.durableConfiguration,
             maxSteps: selected.maxSteps,

@@ -5,6 +5,14 @@ import {
   type ProviderAuthInput,
 } from '@brainstrike/agent/provider-runtime';
 import type { ProductionHostRunConfiguration } from '@brainstrike/agent-host';
+import {
+  BoundaryFailureError,
+  fault,
+  MEMORY_FAILURE_CODES,
+  MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
+  memoryConfigurationError,
+} from '@brainstrike/assistant-contract';
+import { hostedMemoryEmbedderFailure } from './memory-embedder-failure';
 import { requireMemoryApiKey } from './memory-readiness';
 import type { PlatformSelection } from './platform-wire';
 
@@ -33,27 +41,42 @@ export async function createDesktopHostMemoryVectorConfiguration(
   }
   const profile = selection.memory.vectorProfile;
   if (!profile) {
-    throw new Error('Memory vectors require the embedding profile Main admitted');
+    throw memoryConfigurationError('Memory vectors require the embedding profile Main admitted');
   }
-  let embedder: NonNullable<MemoryConfiguration['vectors']>['embedder'];
+  let vectors: NonNullable<MemoryConfiguration['vectors']>;
   if (profile.provider === 'local' || profile.provider === 'transformers') {
     if (!localEmbedding) {
-      throw new Error(
-        'Local semantic recall requires the desktop embedding host, which this host cannot reach.'
+      throw new BoundaryFailureError(
+        fault({
+          category: 'availability',
+          code: MEMORY_FAILURE_CODES.embedderUnavailable,
+          message: 'The on-device memory embedder cannot be reached from the agent host.',
+          remedy: MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
+        }),
+        { cause: new Error('The admitted thread selection lends no desktop embedding host') }
       );
     }
-    embedder = createLocalHostMemoryEmbedder({
-      client: localEmbedding,
-      modelId: profile.modelId,
-      resolveDimensions: async () => profile.dimensions,
-    });
+    vectors = {
+      embedder: createLocalHostMemoryEmbedder({
+        client: localEmbedding,
+        modelId: profile.modelId,
+        resolveDimensions: async () => profile.dimensions,
+      }),
+      profile,
+    };
   } else {
     const auth = await requireMemoryApiKey(
       semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
       profile.provider,
       resolveProviderAuth
     );
-    embedder = createEmbeddingProvider(profile.provider, auth.apiKey, profile.modelId);
+    const provider = profile.provider;
+    vectors = {
+      // BST-2202: its failures read with the hosted embedding classification indexing uses.
+      classifyFailure: (cause) => hostedMemoryEmbedderFailure(provider, cause),
+      embedder: createEmbeddingProvider(provider, auth.apiKey, profile.modelId),
+      profile,
+    };
   }
   return {
     semanticRecall: semanticRecall.enabled
@@ -63,6 +86,6 @@ export async function createDesktopHostMemoryVectorConfiguration(
           topK: semanticRecall.topK,
         }
       : false,
-    vectors: { embedder, profile },
+    vectors,
   };
 }

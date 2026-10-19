@@ -21,6 +21,7 @@ import type { RuntimeData } from '../types';
 import { resolveBedrockModelId } from './bedrock-model-id';
 import { resolveCodexModelId } from './codex-model-id';
 import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model';
+import { createOllamaChatModel, type OllamaModelFacts } from './ollama-chat-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
 import { wrapModelWithCallTransform } from './prompt-transform-proxy';
@@ -80,7 +81,6 @@ const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
   'anthropic',
   'google',
   'openrouter',
-  'local',
 ]);
 
 function resolveLocalRuntimeBaseUrl(
@@ -149,7 +149,9 @@ export function createProvider(
   provider: SupportedProvider | string,
   auth?: ProviderAuthInput,
   model?: string,
-  runtime?: Pick<RuntimeData, 'providerOptions'>
+  runtime?: Pick<RuntimeData, 'providerOptions'>,
+  /** BST-754: an Ollama model's admitted window and thinking capability; required for Ollama. */
+  ollama?: OllamaModelFacts
 ): ProviderModelConfiguration {
   // Shape validation (aws region) happens BEFORE provider dispatch so a
   // malformed input fails identically on every provider case.
@@ -330,27 +332,25 @@ export function createProvider(
     }
 
     case 'ollama': {
-      // Ollama exposes OpenAI-compatible routes. Defaults to 127.0.0.1:11434
-      // but users can override via `runtime.providerOptions.ollama.baseUrl`
-      // (to reach a LAN GPU box) and supply an `apiToken` for Ollama Turbo.
-      //
-      // Always pass an explicit `apiKey`. When the user has not configured a
-      // token we substitute the conventional dummy value `'ollama'` so the
-      // compatible adapter does NOT fall back to `process.env.OPENAI_API_KEY`. Without
-      // this substitution a user with `OPENAI_API_KEY` set in their
-      // environment and a remote `baseUrl` (LAN GPU box, tunnel, etc.) would
-      // silently leak their OpenAI key as a `Bearer` header to that remote
-      // host. Ollama and LM Studio ignore the bearer value when auth is
-      // disabled, so the dummy is harmless on the wire.
+      // BST-754: Ollama's native /api/chat, sized to the window its run was
+      // admitted with (ollama-chat-model.ts). Defaults to 127.0.0.1:11434;
+      // `runtime.providerOptions.ollama.baseUrl` reaches a LAN GPU box and
+      // `apiToken` an authenticated server. The token is sent only when the
+      // user configured one; this provider reads no environment key.
       const ollamaOptions = runtime?.providerOptions?.ollama;
-      const url = resolveLocalRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl);
-      const resolvedKey = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), ollamaOptions);
-      return {
-        apiKey: resolvedKey ?? 'ollama',
+      const apiToken = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), ollamaOptions);
+      if (!ollama) {
+        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+          context: { provider: validatedProvider },
+          detail: 'An Ollama model needs the context window its run was admitted with.',
+        });
+      }
+      return createOllamaChatModel({
+        ...(apiToken ? { apiToken } : {}),
+        facts: ollama,
         modelId: modelName,
-        providerId: 'ollama',
-        url,
-      };
+        origin: resolveRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl),
+      });
     }
 
     case 'lmstudio': {
@@ -358,8 +358,13 @@ export function createProvider(
       // and supports an optional bearer token on 0.4.0+ servers that enabled
       // `Require API clients to provide a valid API token` in Settings > Server.
       //
-      // See the `ollama` case above for why we always pass an explicit
-      // `apiKey` (preventing OPENAI_API_KEY env-var leakage to remote hosts).
+      // Always pass an explicit `apiKey`. When the user has not configured a
+      // token we substitute the conventional dummy value `'lmstudio'` so the
+      // compatible adapter does NOT fall back to `process.env.OPENAI_API_KEY`.
+      // Without it, a user with `OPENAI_API_KEY` set and a remote `baseUrl`
+      // (LAN GPU box, tunnel) would leak their OpenAI key as a `Bearer` header
+      // to that host. LM Studio ignores the bearer value when auth is
+      // disabled, so the dummy is harmless on the wire.
       const lmStudioOptions = runtime?.providerOptions?.lmstudio;
       const url = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
       const resolvedKey = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), lmStudioOptions);
@@ -400,10 +405,9 @@ export function createLanguageModelProvider(
       detail: `Persistent memory does not support provider: ${provider}`,
     });
   }
-  // Registry-derived (PR #2513 review, finding 7): within the persistent-
-  // memory allowlist above, `local` is the only `authType: 'none'` member
-  // (ollama/lmstudio are excluded from persistent memory entirely), so this
-  // is behavior-identical to the previous `provider !== 'local'` check.
+  // Registry-derived (PR #2513 review, finding 7), never a provider-id branch:
+  // a keyless provider would skip it, and ollama/lmstudio are excluded from
+  // persistent memory entirely.
   if (providerAuthType(provider) !== 'none' && !apiKey?.trim()) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
       context: { provider },

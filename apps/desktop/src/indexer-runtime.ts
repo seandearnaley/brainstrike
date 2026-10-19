@@ -1,6 +1,7 @@
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { IndexerHostManager } from './indexer-host-manager';
+import { IndexerUtilityExitedError } from './indexer-utility-exit';
 
 interface IndexerOwner {
   closing: boolean;
@@ -59,13 +60,21 @@ export async function acquireIndexerHost(
 }
 
 export function getReadyIndexerHost(): IndexerHostManager {
-  if (!(owner?.manager && owner.port) || owner.closing || owner.manager.exited) {
+  // Typed: an exited host's attachments ended with its process, and nothing retires through it.
+  if (owner?.manager?.exited) {
+    throw new IndexerUtilityExitedError();
+  }
+  if (!(owner?.manager && owner.port) || owner.closing) {
     throw new Error(
       'Native indexer capability is unavailable or its owned host is not ready.',
       owner?.startupFailure === undefined ? undefined : { cause: owner.startupFailure }
     );
   }
   return owner.manager;
+}
+/** Fences the current host's canonical attachments, if a host has been created (BST-2140). */
+export function fenceIndexerCanonicalSources(): void {
+  owner?.manager?.fenceCanonicalSources();
 }
 export function getReadyIndexerPort(): IndexerPort {
   getReadyIndexerHost();

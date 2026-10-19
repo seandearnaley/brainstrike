@@ -256,9 +256,10 @@ function isObjectWithNumber(
 }
 
 test.describe('Startup Restore Regression', () => {
-  test.fixme('restores folder and active tab without startup churn signatures', {
-    annotation: { description: 'BST-1957', type: 'quarantine' },
-  }, async ({ electronHarness, window }) => {
+  test('restores folder and active tab without startup churn signatures', async ({
+    electronHarness,
+    window,
+  }) => {
     await seedRestoredStartupState(window);
     const restartedContext = await electronHarness.restart();
     const restartedWindow = restartedContext.window;
@@ -284,9 +285,20 @@ test.describe('Startup Restore Regression', () => {
     const handleMapBuildLogs = records.filter((record) =>
       recordContainsText(record, 'buildHandleMap complete')
     );
-    const workerTreeInitializedLogs = records.filter((record) =>
-      recordContainsText(record, 'tree initialized')
-    );
+    // Inits of the restored root, keyed by its id or (the churn BST-1957 fixed)
+    // its path. The worker's empty mount reset (folderId '') is excluded: it is
+    // the one legitimate no-root init (use-lazy-file-tree-no-root-reset.test.ts).
+    const workerTreeInitializedLogs = records.filter((record) => {
+      if (!recordContainsText(record, 'tree initialized')) {
+        return false;
+      }
+      const details = record.args[1];
+      const folderId =
+        typeof details === 'object' && details !== null
+          ? (details as { folderId?: unknown }).folderId
+          : undefined;
+      return folderId === RESTORED_ROOT_ID || folderId === RESTORED_FOLDER_PATH;
+    });
     const noOpWarmCacheLogs = records.filter((record) => {
       if (!recordContainsText(record, 'Warm cache effect: preloading folders')) {
         return false;

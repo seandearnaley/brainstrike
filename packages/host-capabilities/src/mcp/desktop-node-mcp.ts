@@ -7,7 +7,10 @@ import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { addLogListener, createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
+import {
+  createSecretsMcpBearerCredentialAuthority,
+  createSecretsMcpBearerCredentialWriter,
+} from './bearer-credential.js';
 import { createMcpConfigFile } from './config-file.js';
 import { McpContentService } from './content-service.js';
 import {
@@ -128,8 +131,8 @@ class DesktopMcpSettingsAuthority extends McpSettingsAuthority {
 
 /** The profile credential store Main and this host share. */
 export interface DesktopNodeMcpCredentials {
-  /** MCP bearer references, behind the host's credential gate. */
-  secrets(): Pick<SecretsService, 'getKey' | 'listProviders'>;
+  /** MCP bearer tokens behind the host's credential gate: read by transports, written by catalog installs. */
+  secrets(): Pick<SecretsService, 'deleteKey' | 'getKey' | 'listProviders' | 'saveKey'>;
   /** The raw accounts: this host is the one writer of its MCP OAuth records. */
   store(): McpOAuthCredentialStorage;
 }
@@ -229,6 +232,10 @@ export async function createDesktopNodeMcpHost(
   }
   const settings = new DesktopMcpSettingsAuthority(
     {
+      bearerCredentials: createSecretsMcpBearerCredentialWriter({
+        deleteKey: (key) => credentials.secrets().deleteKey(key),
+        saveKey: (key, value) => credentials.secrets().saveKey(key, value),
+      }),
       configFile: createMcpConfigFile(userDataDir),
       extensionStore: startup.store,
       runtime: services.runtime,

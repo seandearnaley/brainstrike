@@ -4,6 +4,7 @@ import type {
   NativeCanonicalCatalogRecord,
   NativeCanonicalInference,
 } from '@brainstrike/canonical-ingestion';
+import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export interface NativeIndexSources {
@@ -97,14 +98,38 @@ export function retireNativeIndexSources(
     collect(await joined);
     collect(await parentRetirement);
     collect(await retireCapabilities());
-    if (failures.length > 0) {
-      throw new AggregateError(
-        [...new Set(failures)],
-        'Canonical utility attachments did not retire.'
-      );
+    const unique = [...new Set(failures)];
+    // Main's own capabilities retired, and the utility's exit is the only reason its
+    // attachments did not: that typed outcome, not a retirement claim (BST-2135).
+    const exit = unique.find((failure) => failure instanceof IndexerUtilityExitedError);
+    if (exit && unique.every((failure) => failure instanceof IndexerUtilityExitedError)) {
+      throw exit;
+    }
+    if (unique.length > 0) {
+      throw new AggregateError(unique, 'Canonical utility attachments did not retire.');
     }
   })().finally(() => {
     sources.retirement = undefined;
   });
   return sources.retirement;
+}
+
+/**
+ * Source retirement whose utility exit settles as that typed outcome, reported through
+ * `onExited`: the sources ended with the process, and nothing retires them through it (BST-2135).
+ * Every other failure keeps the sources owned for an explicit retry.
+ */
+export async function settleNativeIndexSources(
+  sources: NativeIndexSources,
+  retireAttachments: () => Promise<void>,
+  onExited: (exit: IndexerUtilityExitedError) => void
+): Promise<void> {
+  try {
+    await retireNativeIndexSources(sources, retireAttachments);
+  } catch (error) {
+    if (!(error instanceof IndexerUtilityExitedError)) {
+      throw error;
+    }
+    onExited(error);
+  }
 }

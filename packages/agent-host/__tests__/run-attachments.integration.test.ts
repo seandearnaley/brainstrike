@@ -17,6 +17,7 @@ import { attachAgentHost, type HostClient } from '../src/client.js';
 import type { HostPlatform } from '../src/ports.js';
 import type { HostImageAttachment, HostLogRow } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 
 type Prompt = MockLanguageModelV4['doStreamCalls'][number]['prompt'];
 
@@ -100,7 +101,7 @@ async function setup(options: { readonly indexed?: boolean } = {}) {
               },
               stateRoot: root,
             },
-            { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+            REAL_INDEXER_DEADLINES
           );
           await context.register(async () => native.close());
           return { ...platform, stateIndexer: createStateStoreIndexer(native) };

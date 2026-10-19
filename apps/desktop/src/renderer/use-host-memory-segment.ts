@@ -1,9 +1,17 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostLogRow, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import { describeBoundaryError } from '@brainstrike/assistant-contract';
-import type { OmMeterState } from '@brainstrike/assistant-ui';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  BoundaryFailureError,
+  describeBoundaryError,
+  INTERNAL_FAULT,
+} from '@brainstrike/assistant-contract';
+import type {
+  MemoryCycleDisplay,
+  MemoryCyclesDisplay,
+  OmMeterState,
+} from '@brainstrike/assistant-ui';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 type MemoryRead = HostResults['thread/memory/read'];
 
@@ -20,10 +28,10 @@ export interface HostMemorySegment {
   readonly omSegment?: OmMeterState;
 }
 
-/** Map a ready read onto the meter's existing memory states. */
-export function hostOmMeterState(
-  observational: Extract<MemoryRead, { admission: { ready: true } }>['observational']
-): OmMeterState {
+type ReadyRead = Extract<MemoryRead, { admission: { ready: true } }>;
+
+/** Map a ready read onto the meter's memory states; a host that predates it reports no lifecycle. */
+export function hostOmMeterState(observational: ReadyRead['observational']): OmMeterState {
   if (observational.state === 'off') {
     return { kind: 'inactive' };
   }
@@ -38,6 +46,7 @@ export function hostOmMeterState(
     bufferedObservationTokens: record.bufferedObservationTokens,
     compactionSavedTokens: Math.max(0, record.totalTokensObserved - record.observationTokenCount),
     kind: 'stats',
+    ...(record.lifecycle ? { lifecycle: record.lifecycle } : {}),
     messageTokenThreshold: record.messageTokenThreshold,
     observationTokens: record.observationTokenCount,
     pendingMessageTokens: record.pendingMessageTokens,
@@ -64,12 +73,48 @@ export function withMemoryGate<Presentation extends ComposerNotice>(
   return { ...presentation, disabledReason: segment.admissionReason, isComposerDisabled: true };
 }
 
-/** Whether rows past the ones already seen include a memory call or a run's end. */
+/**
+ * Whether rows past the ones already seen change what Memory holds: a memory
+ * call or cycle, a run's end, or a failed settlement. A failed buffered cycle
+ * commits before Mastra clears its buffering flag; the settlement's failure
+ * commits after, so its read sees the record settled.
+ */
 function memoryChangedSince(rows: readonly HostLogRow[], seen: number): boolean {
   return rows
     .slice(seen)
-    .some(({ event }) => event.type === 'memory.usage' || event.type === 'run.finished');
+    .some(
+      ({ event }) =>
+        event.type === 'memory.usage' ||
+        event.type === 'memory.cycle' ||
+        event.type === 'memory.settlement.failed' ||
+        event.type === 'run.finished'
+    );
 }
+
+/** The thread's last committed cycle of each kind (BST-2224), with when it committed. */
+export function lastMemoryCycles(rows: readonly HostLogRow[]): MemoryCyclesDisplay | undefined {
+  let observation: MemoryCycleDisplay | undefined;
+  let reflection: MemoryCycleDisplay | undefined;
+  for (const { event, ts } of rows) {
+    if (event.type !== 'memory.cycle') {
+      continue;
+    }
+    const { kind, runId: _runId, type: _type, ...facts } = event;
+    const cycle = ts === undefined ? facts : { ...facts, at: ts };
+    if (kind === 'observation') {
+      observation = cycle;
+    } else {
+      reflection = cycle;
+    }
+  }
+  if (!(observation || reflection)) {
+    return;
+  }
+  return { ...(observation ? { observation } : {}), ...(reflection ? { reflection } : {}) };
+}
+
+const NO_ROWS: readonly HostLogRow[] = [];
+const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
 
 async function readSegment(
   client: Pick<HostClient, 'request'>,
@@ -77,9 +122,22 @@ async function readSegment(
 ): Promise<HostMemorySegment> {
   const result = await client.request('thread/memory/read', request);
   if ('observational' in result) {
-    return { omSegment: hostOmMeterState(result.observational) };
+    // The record as of this read: no committed row marks Mastra's background
+    // work ending, so its live flags hold until the next read.
+    const state = { ...hostOmMeterState(result.observational), readAt: Date.now() };
+    return { omSegment: result.models ? { ...state, models: result.models } : state };
   }
   return { admissionReason: result.admission.reason };
+}
+
+/** A failed read's validated reason, with the boundary code it arrived under. */
+function readFailure(cause: unknown): OmMeterState {
+  return {
+    code: cause instanceof BoundaryFailureError ? cause.failure.code : INTERNAL_FAULT.code,
+    kind: 'error',
+    readAt: Date.now(),
+    reason: describeBoundaryError(cause),
+  };
 }
 
 /**
@@ -130,12 +188,7 @@ class HostMemoryReads {
       },
       (cause: unknown) => {
         if (attempt === this.#latest) {
-          this.#publish({
-            omSegment: {
-              kind: 'error',
-              reason: describeBoundaryError(cause),
-            },
-          });
+          this.#publish({ omSegment: readFailure(cause) });
         }
       }
     );
@@ -174,6 +227,10 @@ export function useHostMemorySegment(options: {
   // An answer that arrives after unmount publishes to a store nothing reads.
   const [reads] = useState(() => new HostMemoryReads());
   const segment = useSyncExternalStore(reads.subscribe, reads.getSnapshot);
+  // The thread view replaces its rows array only when rows commit.
+  const readRows = useCallback(() => source?.getSnapshot().rows ?? NO_ROWS, [source]);
+  const rows = useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, readRows, readRows);
+  const cycles = useMemo(() => lastMemoryCycles(rows), [rows]);
   const read = useCallback(
     (always: boolean): void => {
       reads.read(client, blocked ? undefined : readRequest(), catalog, always);
@@ -201,5 +258,12 @@ export function useHostMemorySegment(options: {
       }
     });
   }, [read, source]);
-  return segment;
+  // Each kind's last committed cycle joins whatever state the read answered.
+  return useMemo(
+    () =>
+      segment.omSegment && cycles
+        ? { ...segment, omSegment: { ...segment.omSegment, cycles } }
+        : segment,
+    [cycles, segment]
+  );
 }

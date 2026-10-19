@@ -1,5 +1,5 @@
 // The writer worker's replies as the facade returns them: its run-log rows and its errors.
-import { ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
+import { StateStoreReadOnlyError, ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
 import type { LogRow, RunEvent } from './run-log-types.js';
 import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 
@@ -26,7 +26,13 @@ export function errorOf(r: Readonly<Record<string, unknown>>): Error {
   const message = String(r['error']);
   switch (r['errorKind']) {
     case 'readonly':
-      return new ThreadReadOnlyError(String(r['threadId']), message);
+      return new ThreadReadOnlyError(
+        String(r['threadId']),
+        message,
+        typeof r['storeDamage'] === 'string' ? r['storeDamage'] : null
+      );
+    case 'store-readonly':
+      return new StateStoreReadOnlyError(String(r['damage']));
     case 'damaged':
       return new ThreadDamagedError(String(r['threadId']), Number(r['atSeq']), String(r['detail']));
     case 'checkpoint-blocked':

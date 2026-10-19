@@ -1,4 +1,5 @@
 import {
+  DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
   MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
   McpClientExtensionRegistry,
   registerMcpTasksWireContracts,
@@ -531,5 +532,114 @@ describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
       expect(requestExtension).not.toHaveBeenCalled();
       await features.close();
     }
+  });
+
+  it('stands the idle timeout back to the total only for a call whose guard owns inactivity (BST-1779)', async () => {
+    const { client } = createClient();
+    const features = createMcpCoreServerFeatures(client);
+    await features.initialize();
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {
+      callerGuardsInactivity: true,
+    });
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {});
+    const [[, guarded], [, unguarded]] = client.callTool.mock.calls as unknown as [
+      [unknown, Record<string, unknown>],
+      [unknown, Record<string, unknown>],
+    ];
+    expect(guarded).toMatchObject({
+      maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+      resetTimeoutOnProgress: true,
+      timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+    });
+    // Nothing else stretches: an app's own call keeps the SDK's idle timeout.
+    expect(unguarded).not.toHaveProperty('timeout');
+    expect(unguarded).not.toHaveProperty('maxTotalTimeout');
+    await features.close();
+  });
+
+  it('waits out a server tool window on a call nothing guards, and only there (BST-1779)', async () => {
+    const { client } = createClient();
+    const features = createMcpCoreServerFeatures(client, { toolTimeoutMs: 180_000 });
+    await features.initialize();
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {
+      callerGuardsInactivity: true,
+    });
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {});
+    const [[, guarded], [, unguarded]] = client.callTool.mock.calls as unknown as [
+      [unknown, Record<string, unknown>],
+      [unknown, Record<string, unknown>],
+    ];
+    // The guard owns the window; the request still keeps only the total.
+    expect(guarded).toMatchObject({
+      maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+      timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+    });
+    expect(unguarded).toMatchObject({ timeout: 180_000 });
+    await features.close();
+  });
+
+  describe('listing (BST-1632)', () => {
+    function deferred<T>() {
+      let resolve: (value: T) => void = () => undefined;
+      let reject: (cause: unknown) => void = () => undefined;
+      const promise = new Promise<T>((settle, fail) => {
+        resolve = settle;
+        reject = fail;
+      });
+      return { promise, reject, resolve };
+    }
+
+    it('publishes tools as listing while the first tools/list is in flight, then settles it', async () => {
+      const fixture = createClient();
+      const first = deferred<typeof TOOLS>();
+      fixture.client.listTools.mockImplementationOnce(async () => await first.promise);
+      const changed = vi.fn();
+      const features = createMcpCoreServerFeatures(fixture.client, { onCatalogChanged: changed });
+
+      const initialized = features.initialize();
+      await vi.waitFor(() => expect(fixture.client.listTools).toHaveBeenCalledOnce());
+      expect(features.snapshot().listing).toContain('tools');
+      expect(features.snapshot().tools).toBeUndefined();
+
+      first.resolve(TOOLS);
+      await initialized;
+      expect(features.snapshot()).not.toHaveProperty('listing');
+      expect(features.snapshot().tools).toEqual(TOOLS);
+      // The settled tools section was published without `listing`.
+      const settled = changed.mock.calls.map(([catalog]) => catalog).filter((c) => c.tools);
+      expect(settled.at(-1)).not.toHaveProperty('listing');
+    });
+
+    it('stays listing until the last overlapping refresh settles, and settles on failure too', async () => {
+      const fixture = createClient();
+      const features = createMcpCoreServerFeatures(fixture.client, { onCatalogChanged: vi.fn() });
+      await features.initialize();
+      const handlers = fixture.handlers();
+      if (!handlers) {
+        throw new Error('The features never watched server events');
+      }
+      const failing = deferred<typeof TOOLS>();
+      const succeeding = deferred<typeof TOOLS>();
+      fixture.client.listTools
+        .mockImplementationOnce(async () => await failing.promise)
+        .mockImplementationOnce(async () => await succeeding.promise);
+
+      const firstRefresh = handlers.onToolListChanged?.();
+      const secondRefresh = handlers.onToolListChanged?.();
+      expect(features.snapshot().listing).toEqual(['tools']);
+      // The previous list stays readable while the refresh is in flight.
+      expect(features.snapshot().tools).toEqual(TOOLS);
+
+      failing.reject(new Error('tools/list failed'));
+      await firstRefresh;
+      expect(features.snapshot().listing).toEqual(['tools']);
+      expect(features.snapshot().errors.tools).toBeDefined();
+
+      succeeding.resolve(TOOLS);
+      await secondRefresh;
+      expect(features.snapshot()).not.toHaveProperty('listing');
+      expect(features.snapshot().errors.tools).toBeUndefined();
+      expect(features.snapshot().tools).toEqual(TOOLS);
+    });
   });
 });

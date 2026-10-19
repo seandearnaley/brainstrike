@@ -55,14 +55,30 @@ class FakeWebContents {
   reload = vi.fn();
   close = vi.fn();
   setWindowOpenHandler = vi.fn();
+  setWebRTCIPHandlingPolicy = vi.fn();
   on = vi.fn();
   once = vi.fn();
+  /** Replay `event` to the listeners the view manager registered. */
+  emit(event: string, ...args: unknown[]): void {
+    for (const [name, listener] of this.on.mock.calls as [string, Listener][]) {
+      if (name === event) {
+        listener(...args);
+      }
+    }
+  }
 }
+
+const createdViews: FakeWebContentsView[] = [];
 
 class FakeWebContentsView {
   readonly webContents = new FakeWebContents();
+  readonly partition: string;
   setBounds = vi.fn();
   setVisible = vi.fn();
+  constructor(options: { webPreferences: { partition: string } }) {
+    this.partition = options.webPreferences.partition;
+    createdViews.push(this);
+  }
 }
 
 vi.mock('electron', async (importOriginal) => {
@@ -286,5 +302,137 @@ describe('createBrowserPaneHost — CDP driver (BST-1176)', () => {
     const { window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
     await expect(host.driver.getPageText(100)).rejects.toThrow('No active browser tab');
+  });
+});
+
+describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createdViews.length = 0;
+  });
+
+  function fakeRoute() {
+    let onRefused: ((response: unknown) => void) | undefined;
+    const refusals = new Map<string, unknown>();
+    const route = {
+      prepare: vi.fn((listener: (response: unknown) => void, _loopback: unknown) => {
+        onRefused = listener;
+        return Promise.resolve();
+      }),
+      takeRefusal: vi.fn((host: string) => refusals.get(host)),
+    };
+    return { refusals, refuse: (response: unknown) => onRefused?.(response), route };
+  }
+
+  it('opens agent tabs on the agent partition with WebRTC confined to the proxy', async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { route } = fakeRoute();
+    const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
+    host.manager.createTab('https://user.test/');
+    host.manager.createTab('https://agent.test/', 'agent');
+    expect(createdViews.map((view) => view.partition)).toEqual([
+      'persist:browser-pane',
+      'browser-pane-agent',
+    ]);
+    expect(createdViews[0]?.webContents.setWebRTCIPHandlingPolicy).not.toHaveBeenCalled();
+    expect(createdViews[1]?.webContents.setWebRTCIPHandlingPolicy).toHaveBeenCalledExactlyOnceWith(
+      'disable_non_proxied_udp'
+    );
+    host.dispose();
+  });
+
+  it('prepares agent browsing through its route and fails the tab a refused response belonged to', async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { refuse, route } = fakeRoute();
+    const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
+    await host.prepareAgentBrowsing();
+    expect(route.prepare).toHaveBeenCalledOnce();
+    // BST-1178: a public navigation closes loopback; an approved one admits its server.
+    expect(route.prepare).toHaveBeenLastCalledWith(expect.any(Function), null);
+    const admission = {
+      authority: 'localhost:5173',
+      origin: 'http://localhost:5173',
+      webContentsId: 3,
+    };
+    await host.prepareAgentBrowsing(admission);
+    expect(route.prepare).toHaveBeenLastCalledWith(expect.any(Function), admission);
+    const tabId = host.manager.createTab('http://public.test/', 'agent');
+    const webContentsId = createdViews[0]?.webContents.id;
+    // A subresource refusal does not fail the page.
+    refuse({
+      isMainFrame: false,
+      refusal: 'loopback',
+      url: 'http://127.0.0.1/x.png',
+      webContentsId,
+    });
+    expect(host.manager.getNavigationError(tabId)).toBeNull();
+    refuse({
+      isMainFrame: true,
+      refusal: 'loopback',
+      url: 'http://internal.test/admin',
+      webContentsId,
+    });
+    expect(host.manager.getNavigationError(tabId)).toBe(
+      'blocked_destination: agent browsing may not connect to internal.test, a loopback address'
+    );
+    host.dispose();
+  });
+
+  it('reports a host that does not resolve as a failed load, not a blocked destination', async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { refusals, route } = fakeRoute();
+    refusals.set('typo.invalid', { host: 'typo.invalid', reason: 'unresolved' });
+    const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
+    const tabId = host.manager.createTab('https://typo.invalid/', 'agent');
+    createdViews[0]?.webContents.emit(
+      'did-fail-load',
+      {},
+      -111,
+      'ERR_TUNNEL',
+      'https://typo.invalid/',
+      true
+    );
+    expect(host.manager.getNavigationError(tabId)).toBe(
+      'agent browsing could not resolve typo.invalid'
+    );
+    host.dispose();
+  });
+
+  it("names an agent tab's tunnel failure from the proxy's refusal, and leaves other failures alone", async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { refusals, route } = fakeRoute();
+    refusals.set('metadata.test', {
+      address: '169.254.169.254',
+      addressClass: 'link-local',
+      host: 'metadata.test',
+      reason: 'destination',
+    });
+    const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
+    const agentTab = host.manager.createTab('https://a.test/', 'agent');
+    const userTab = host.manager.createTab('https://u.test/');
+    const [agentView, userView] = createdViews;
+    agentView?.webContents.emit(
+      'did-fail-load',
+      {},
+      -111,
+      'ERR_TUNNEL',
+      'https://metadata.test/',
+      true
+    );
+    userView?.webContents.emit(
+      'did-fail-load',
+      {},
+      -111,
+      'ERR_TUNNEL',
+      'https://metadata.test/',
+      true
+    );
+    expect(host.manager.getNavigationError(agentTab)).toBe(
+      'blocked_destination: agent browsing may not connect to metadata.test, a link-local address'
+    );
+    expect(host.manager.getNavigationError(userTab)).toBe(
+      'ERR_TUNNEL (-111) loading https://metadata.test/'
+    );
+    host.dispose();
   });
 });

@@ -5,6 +5,7 @@ import {
   preparedPromptBreakdown,
   preparedPromptToolCalls,
 } from '@brainstrike/agent/provider-request';
+import { memoryConfigurationError } from '@brainstrike/assistant-contract';
 import {
   applyPromptToolCallWindow,
   diffPromptToolCallWindow,
@@ -35,7 +36,12 @@ import {
   committedThreadBranches,
 } from '../committed-identities.js';
 import { compactedRunIds } from '../context-compaction.js';
-import type { HostProjectionRewrite, HostRunContext, HostRunOwner } from '../ports.js';
+import type {
+  HostPreparedStep,
+  HostProjectionRewrite,
+  HostRunContext,
+  HostRunOwner,
+} from '../ports.js';
 import { committedRewrites } from '../projection-rewrites.js';
 import type { HostLogRow } from '../protocol.js';
 import { HostRunOwnerCleanupError } from '../run-admission.js';
@@ -47,6 +53,7 @@ import {
   HostMemoryStepError,
   type HostMemoryStepName,
 } from './memory.js';
+import { classifyMemoryFailure, type HostMemoryEmbedderIdentity } from './memory-failure.js';
 import { StateStoreMemoryStorage } from './memory-storage.js';
 import {
   StateStoreMemoryVector,
@@ -100,6 +107,8 @@ async function selectRunMemory(
   return { ...native, options: { ...native.options, observationalMemory: false } };
 }
 export interface StateStoreHostMemoryOptions {
+  /** The run's embedder, as its failures name it (BST-2202); with vectors only. */
+  readonly embedderIdentity?: HostMemoryEmbedderIdentity;
   readonly native: Omit<HostMemoryCapabilities['native'], 'storage'>;
   /** The observer's catalog `provider::model`; required when observational memory is on. */
   readonly observerModelId?: string;
@@ -168,7 +177,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     try {
       return await StateStoreHostMemory.openOwner(context, options);
     } catch (cause) {
-      throw memoryStepFailure(context.signal, 'open', cause);
+      throw memoryOpenFailure(context.signal, cause);
     }
   }
 
@@ -185,7 +194,9 @@ export class StateStoreHostMemory implements HostRunOwner {
     if (vectorBridge) {
       vectorBridge.assertOwner(options.resourceId, context.threadId, context.signal);
       if (options.native.vector !== vectorBridge) {
-        throw new Error('Native Memory must use its captured prepared vector bridge');
+        throw memoryConfigurationError(
+          'Native Memory must use its captured prepared vector bridge'
+        );
       }
     }
     if (
@@ -193,7 +204,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       (!(vectorBridge instanceof StateStoreObservationVector && options.native.embedder) ||
         typeof options.native.embedder === 'string')
     ) {
-      throw new Error(
+      throw memoryConfigurationError(
         'Observational vector retrieval requires its captured canonical observation bridge and concrete embedder'
       );
     }
@@ -202,7 +213,9 @@ export class StateStoreHostMemory implements HostRunOwner {
       (!(options.native.vector && options.native.embedder) ||
         typeof options.native.embedder === 'string')
     ) {
-      throw new Error('Semantic recall requires the borrowed vector owner and a concrete embedder');
+      throw memoryConfigurationError(
+        'Semantic recall requires the borrowed vector owner and a concrete embedder'
+      );
     }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
@@ -233,10 +246,17 @@ export class StateStoreHostMemory implements HostRunOwner {
               new StateStoreObservationMemory(native, vectorBridge),
           }
         : {}),
+      ...(options.embedderIdentity ? { embedderIdentity: options.embedderIdentity } : {}),
       native: { ...native, storage },
       ...(options.observerModelId === undefined
         ? {}
         : { observerModelId: options.observerModelId }),
+      recordMemoryCycle: async (_current, cycle) => {
+        if (!context.recordMemoryCycle) {
+          throw new Error('Public Memory requires the host-owned memory cycle writer');
+        }
+        await context.recordMemoryCycle(cycle);
+      },
       recordObserverUsage: async (current, receipt) => {
         if (!context.recordObserverUsage) {
           throw new Error('Public Memory requires the host-owned usage receipt writer');
@@ -287,8 +307,15 @@ export class StateStoreHostMemory implements HostRunOwner {
       await memory.beginTurn(current);
       return owner;
     } catch (cause) {
-      throw await retireFailedOpen(owner, cause);
+      throw await retireFailedOpen(owner, owner.stepFailure('open', cause));
     }
+  }
+
+  /** A step's typed failure; cancellation and unjoined cleanup keep their identity. */
+  private stepFailure(step: HostMemoryStepName, cause: unknown): unknown {
+    return keepsIdentity(this.identity.signal, cause)
+      ? cause
+      : this.memory.stepFailure(step, cause);
   }
 
   prepareHostModel(model: LanguageModel): LanguageModel {
@@ -325,7 +352,12 @@ export class StateStoreHostMemory implements HostRunOwner {
           this.previousRequestToolCalls,
           toolCallWindow
         );
-        await this.memory.recordPrompt(prepared.params);
+        try {
+          await this.memory.recordPrompt(prepared.params);
+        } catch (cause) {
+          // Memory's own failure inside the chat model call: never a provider error.
+          throw this.stepFailure('accounting', cause);
+        }
       },
     });
     return wrapLanguageModel({
@@ -358,15 +390,11 @@ export class StateStoreHostMemory implements HostRunOwner {
   async prepareHostStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
-  }): Promise<{ messages: ModelMessage[]; system?: string }> {
+  }): Promise<HostPreparedStep> {
     try {
       return await this.selectStep(request);
     } catch (cause) {
-      throw memoryStepFailure(
-        this.identity.signal,
-        this.memory.failedStep(cause) ?? 'context',
-        cause
-      );
+      throw this.stepFailure('context', cause);
     }
   }
 
@@ -378,7 +406,7 @@ export class StateStoreHostMemory implements HostRunOwner {
   private async selectStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
-  }): Promise<{ messages: ModelMessage[]; system?: string }> {
+  }): Promise<HostPreparedStep> {
     this.preparedProviderHistory = undefined;
     const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
     const current = request.messages[currentUser];
@@ -395,9 +423,46 @@ export class StateStoreHostMemory implements HostRunOwner {
     for (const id of recalled) {
       selected.add(id);
     }
+    // Active SDK messages retain their actual validated approval/runtime objects.
+    // Public Memory selects previous committed turns, never reconstructs an
+    // active call or changes the existing host approval occurrence.
+    const system = [step.context.systemMessage, step.context.otherThreadsContext]
+      .filter((part) => part !== undefined && part.length > 0)
+      .join('\n\n');
+    const continuation = new MessageList({
+      resourceId: this.identity.resourceId,
+      threadId: this.identity.threadId,
+    });
+    if (step.context.continuationMessage) {
+      continuation.add([step.context.continuationMessage], 'memory');
+    }
+    return await this.assembleStep({
+      active: request.messages.slice(currentUser),
+      continuation,
+      recalled,
+      selected,
+      system,
+    });
+  }
+
+  /**
+   * The step's request from the committed log, over Memory's native selection
+   * and recall. Core rebuilds it after committing a compaction (ADR-0013), so
+   * the compacted turns leave it without Memory preparing its step again.
+   */
+  private async assembleStep(native: {
+    readonly active: readonly ModelMessage[];
+    readonly continuation: MessageList;
+    readonly recalled: ReadonlySet<string>;
+    readonly selected: ReadonlySet<string>;
+    readonly system: string;
+  }): Promise<HostPreparedStep> {
+    const { recalled, selected } = native;
+    this.preparedProviderHistory = undefined;
     const rows = await this.readRows(this.historyThreads());
     const historical: ModelMessage[] = [];
     const historicalIds = new Set<string>();
+    const historyRunIds = new Set<string>();
     // In this thread only the selected branch is history: a sibling branch's
     // turns never enter the request, even when native Memory selects them.
     const path = new Set(committedRunAncestors(rows, this.identity.runId));
@@ -448,6 +513,7 @@ export class StateStoreHostMemory implements HostRunOwner {
         )
       );
       historicalIds.add(previous.userMessageId);
+      historyRunIds.add(previousRunId);
       if (
         !rows.some(
           (row) =>
@@ -494,26 +560,23 @@ export class StateStoreHostMemory implements HostRunOwner {
         historical.push(...occurrence);
       }
     }
-    // Active SDK messages retain their actual validated approval/runtime objects.
-    // Public Memory selects previous committed turns, never reconstructs an
-    // active call or changes the existing host approval occurrence.
-    const system = [step.context.systemMessage, step.context.otherThreadsContext]
-      .filter((part) => part !== undefined && part.length > 0)
-      .join('\n\n');
-    const continuation = new MessageList({
-      resourceId: this.identity.resourceId,
-      threadId: this.identity.threadId,
-    });
-    if (step.context.continuationMessage) {
-      continuation.add([step.context.continuationMessage], 'memory');
-    }
+    const { continuation, system } = native;
     this.captureProviderHistory(rows, historicalIds, continuation.get.all.db());
     return {
+      historyRunIds,
       messages: [
         ...historical,
         ...continuation.get.all.aiV5.model().map((message) => modelMessageSchema.parse(message)),
-        ...request.messages.slice(currentUser),
+        ...native.active,
       ],
+      rebuild: async () => {
+        try {
+          return await this.assembleStep(native);
+        } catch (cause) {
+          throw this.stepFailure('context', cause);
+        }
+      },
+      rewrites: this.preparedRewrites,
       ...(system ? { system } : {}),
     };
   }
@@ -550,7 +613,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     try {
       await this.commitStep();
     } catch (cause) {
-      throw memoryStepFailure(this.identity.signal, this.memory.failedStep(cause) ?? 'save', cause);
+      throw this.stepFailure('save', cause);
     }
   }
 
@@ -632,11 +695,23 @@ async function retireFailedOpen(owner: StateStoreHostMemory, cause: unknown): Pr
   return cause;
 }
 
-/** Name the memory step; cancellation and unjoined cleanup keep their identity. */
-function memoryStepFailure(signal: AbortSignal, step: HostMemoryStepName, cause: unknown): unknown {
-  return cause instanceof HostRunOwnerCleanupError || (signal.aborted && cause === signal.reason)
+/** Cancellation and unjoined cleanup keep their identity through a memory step. */
+function keepsIdentity(signal: AbortSignal, cause: unknown): boolean {
+  return cause instanceof HostRunOwnerCleanupError || (signal.aborted && cause === signal.reason);
+}
+
+/**
+ * An open that failed before its owner existed: a typed failure its producer
+ * gave it (memory's configuration), else the internal fault (BST-2202).
+ */
+function memoryOpenFailure(signal: AbortSignal, cause: unknown): unknown {
+  return keepsIdentity(signal, cause)
     ? cause
-    : HostMemoryStepError.wrap(step, cause);
+    : HostMemoryStepError.wrap(
+        'open',
+        cause,
+        classifyMemoryFailure('open', cause, { attribution: () => undefined })
+      );
 }
 
 function retrievesObservationVectors(native: StateStoreHostMemoryOptions['native']): boolean {

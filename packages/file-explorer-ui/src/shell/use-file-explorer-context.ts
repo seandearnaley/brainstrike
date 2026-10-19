@@ -284,9 +284,14 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const sharedTreeContext = useOptionalFileTreeContext();
 
   // Always call useFileTree to maintain hook order (rules of hooks).
-  // When sharedTreeContext is available, we use its values instead.
+  // When sharedTreeContext is available, we use its values instead, so the
+  // local tree stays inert: every consumer under the provider ran its own
+  // worker and root load, keyed by path, only to discard it (BST-1957).
   // Pass filterTreeFn to ensure workspace filters are respected in the slow path.
-  const localTreeState = useFileTree(rootDirectoryHandle, { filterTreeFn });
+  const localTreeState = useFileTree(rootDirectoryHandle, {
+    enabled: sharedTreeContext === null,
+    filterTreeFn,
+  });
 
   // Use shared context if available, otherwise use local tree state
   const {

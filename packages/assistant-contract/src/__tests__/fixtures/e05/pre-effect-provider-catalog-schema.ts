@@ -104,6 +104,7 @@ const LlmModelSchema = z.strictObject({
     })
     .optional(),
   bedrockReasoning: z.enum(['adaptive', 'budget-tokens', 'max-reasoning-effort']).optional(),
+  bedrockReasoningMandatory: z.literal(true).optional(),
   catalog: ModelCatalogPresentationSchema.optional(),
   contextWindow: z.number(),
   default: z.boolean().optional(),

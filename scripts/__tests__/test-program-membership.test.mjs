@@ -94,6 +94,57 @@ test('Effect-only test coverage does not earn canonical compiler coverage', (t) 
   assert.equal(inventory.projectsInspected, 2);
 });
 
+test('bare build commands inspect the default project and its references', (t) => {
+  const f = fixture(t);
+  f.write('modules/fixture/referenced/seed.spec.ts', 'export {};\n');
+  f.write('modules/fixture/referenced/tsconfig.json', {
+    compilerOptions: { composite: true, types: [] },
+    include: ['seed.spec.ts'],
+  });
+  f.write('modules/fixture/tsconfig.json', {
+    compilerOptions: { module: 'ESNext', moduleResolution: 'Bundler', noEmit: true, types: [] },
+    include: ['src/seed.spec.ts'],
+    references: [{ path: './referenced' }],
+  });
+  for (const command of ['tsc --build', 'tsc -b']) {
+    f.write('modules/fixture/package.json', {
+      name: '@fixture/build',
+      scripts: { 'type-check': command },
+    });
+    const inventory = inventoryTestPrograms(f.directory);
+    assert.equal(inventory.projectsInspected, 2);
+    assert.deepEqual(evaluateTestProgramDebt(inventory, emptyPolicy()), []);
+  }
+});
+
+test('unsupported build targets and nonchecking flags cannot earn default-project coverage', (t) => {
+  const f = fixture(t);
+  f.write('modules/fixture/src/index.ts', 'export {};\n');
+  f.write('modules/fixture/tsconfig.actual.json', {
+    compilerOptions: { types: [] },
+    include: ['src/index.ts'],
+  });
+  for (const command of [
+    'tsc --build tsconfig.actual.json',
+    'tsc --build missing-project.json',
+    'tsc --build --clean',
+    'tsc -b --watch',
+    'tsc --build --noCheck',
+    'tsc --build --dry',
+    'tsc --build --project tsconfig.actual.json',
+  ]) {
+    f.write('modules/fixture/package.json', {
+      name: '@fixture/build',
+      scripts: { 'type-check': command },
+    });
+    assert.throws(
+      () => inventoryTestPrograms(f.directory),
+      /Unsupported build inspection command/u,
+      command
+    );
+  }
+});
+
 test('an effect-tsgo step covers nothing unless its resolved tsconfig enables the language service', (t) => {
   const f = fixture(t);
   f.write('modules/fixture/package.json', {

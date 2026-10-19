@@ -46,6 +46,7 @@ import type {
   HostHookSkip,
   HostLoginCredential,
   HostLogRow,
+  HostMemoryModels,
   HostObservationalMemoryState,
   HostParams,
   HostResults,
@@ -64,6 +65,9 @@ export type HostProjectionRewrite = Extract<
   HostEvent,
   { type: 'tool.projection.rewritten' }
 >['rewrites'][number];
+
+/** A memory cycle's committed facts, without the run they belong to (BST-2224). */
+export type HostMemoryCycle = Omit<Extract<HostEvent, { type: 'memory.cycle' }>, 'runId' | 'type'>;
 
 /** One committed tool call on a request's branch, with its committed model-facing result. */
 export interface HostToolInvocation {
@@ -163,6 +167,11 @@ export interface HostRunContext {
    * decoded them, threads by id and each by seq: the run's Memory history.
    */
   readCommittedRows(threadIds: ReadonlySet<string>): readonly HostLogRow[];
+  /**
+   * One observation or reflection cycle's facts (BST-2224), committed through
+   * HostCore before the run's owner joins, like its spend.
+   */
+  recordMemoryCycle?(cycle: HostMemoryCycle): Promise<void>;
   /** A typed, committed reason this run received no observational memory. */
   recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */
@@ -187,6 +196,30 @@ export interface HostRunContext {
    */
   readonly workingMemory?: false;
 }
+/** One step's request as the run's Memory selected it. */
+export interface HostPreparedStep {
+  /**
+   * The earlier committed turns (their run ids) whose messages this request
+   * holds, from the branch or recalled. Pre-request compaction measures this
+   * request, and only this thread's branch turns among them can leave it
+   * (ADR-0013): a turn recalled from another thread is that thread's history.
+   */
+  readonly historyRunIds: ReadonlySet<string>;
+  readonly messages: ModelMessage[];
+  /**
+   * The same step's request reassembled from the committed log after Core
+   * committed a compaction, so the compacted turns leave it. Memory's own step
+   * preparation and recall do not run again.
+   */
+  rebuild(): Promise<HostPreparedStep>;
+  /**
+   * The committed tool-output rewrites the provider request applies to these
+   * messages, from every thread the request reads (resource-wide with
+   * resource-scoped recall), so the request is measured as it is sent.
+   */
+  readonly rewrites: ReadonlyMap<string, HostProjectionRewrite>;
+  readonly system?: string;
+}
 /** Fence new work and join every provider, memory, storage and hook tail. */
 export interface HostRunOwner {
   close(): Promise<void>;
@@ -205,7 +238,7 @@ export interface HostRunOwner {
   prepareHostStep?(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
-  }): Promise<{ readonly messages: ModelMessage[]; readonly system?: string }>;
+  }): Promise<HostPreparedStep>;
 }
 
 /** Trusted run configuration; credential resolution stays inside the adapter. */
@@ -336,6 +369,8 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
+  /** The observer and embedder this admission's memory uses, for `thread/memory/read`. */
+  readonly memoryModels?: HostMemoryModels;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
@@ -486,6 +521,13 @@ export interface HostTool {
    */
   readonly approvalTarget?: (input: unknown) => HostApprovalTargetRoot | undefined;
   /**
+   * BST-1178: the web origin this call opens. A person answers the first call
+   * to each origin; their Always allow or Don't allow is saved by the host and
+   * answers every later call to it. Undefined where the call names no origin
+   * it could open (its execute refuses the URL).
+   */
+  readonly browserOrigin?: (input: unknown) => string | undefined;
+  /**
    * Whether this call's own input asks for network a person must allow, per
    * call, before it executes (run_python's requested domains). Never remembered
    * and never answered by a grant or policy.
@@ -524,11 +566,16 @@ export interface HostTool {
  * OpenRouter model metadata. Keys resolve inside the host and never cross.
  */
 export interface HostProviderService {
-  openRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** `signal` is the request's: its abort cancels this caller's network wait with its reason. */
+  openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
   /** The availability payload Settings and the assistant panel gate on. */
   status(): Promise<Readonly<Record<string, unknown>>>;
   /** A subscription probe needs the desktop origin, like a subscription run. */
-  verify(provider: string, origin: HostClientOrigin): Promise<ProviderVerificationSnapshot>;
+  verify(
+    provider: string,
+    origin: HostClientOrigin,
+    signal: AbortSignal
+  ): Promise<ProviderVerificationSnapshot>;
 }
 
 /**
@@ -543,6 +590,10 @@ export interface HostMcpSettingsService {
   control(request: HostParams<'mcp/server/control'>): Promise<HostResults['mcp/server/control']>;
   createSampleConfig(): Promise<HostResults['mcp/config/sample']>;
   extensions(): Promise<HostResults['mcp/extensions/read']>;
+  /** Appends one catalog server to the profile's config, storing its token when it has one. */
+  installCatalogServer(
+    request: HostParams<'mcp/config/install'>
+  ): Promise<HostResults['mcp/config/install']>;
   readConfigText(): Promise<HostResults['mcp/config/read']>;
   reloadToolPreferences(): Promise<void>;
   resetTools(): Promise<void>;

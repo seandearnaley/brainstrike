@@ -192,6 +192,21 @@ describe('logger', () => {
       expect(transport).toHaveBeenCalledWith(metadata, 'Failed to initialize');
     });
 
+    it('folds the error of a (message, metadata, error) call into the metadata', () => {
+      const error = new Error('boom');
+
+      expect(
+        __loggerTesting.normalizePinoLogArgs(['Tab panel crashed', { label: 'Changes' }, error])
+      ).toEqual([{ error, label: 'Changes' }, 'Tab panel crashed']);
+      // A placeholder keeps Pino's interpolation, and longer calls stay variadic.
+      expect(
+        __loggerTesting.normalizePinoLogArgs(['loaded %o', { label: 'Changes' }, error])
+      ).toEqual(['loaded %o', { label: 'Changes' }, error]);
+      expect(
+        __loggerTesting.normalizePinoLogArgs(['crashed', { label: 'Changes' }, error, 'extra'])
+      ).toEqual(['crashed', { label: 'Changes' }, error, 'extra']);
+    });
+
     it('redacts nested secrets before notifying log listeners', () => {
       class ProviderConfig {
         apiKey = 'class-secret';
@@ -525,6 +540,22 @@ describe('logger', () => {
           self: '[Circular]',
         },
       ]);
+    });
+
+    it('omits function-valued fields from browser console metadata', () => {
+      expect(
+        __loggerTesting.formatBrowserConsoleMessage(
+          {
+            attempt: 1,
+            msg: 'read failed',
+            nested: { callback: () => 'x', kept: true },
+            restore: () => ({}),
+            scope: 'ThemeProvider',
+          },
+          'scope',
+          {}
+        )
+      ).toBe('[ThemeProvider] read failed {"attempt":1,"nested":{"kept":true}}');
     });
 
     it('formats primitive, metadata-only, and scope-only browser console values', () => {

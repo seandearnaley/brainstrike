@@ -324,7 +324,7 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
     if (this.#closedBy) {
       throw this.#closedBy;
     }
-    if (this.#closing) {
+    if (this.#closing !== undefined) {
       throw new Error('The browser host client is closing');
     }
     const params = parseHostParams(method, input) as HostParams<ServedMethod>;

@@ -280,8 +280,7 @@
         "packages/db/__tests__/wasm-loader.test.ts",
         "packages/db/__tests__/workspace-search-scoping.test.ts",
         "packages/db/__tests__/workspace-snapshots-schema.test.ts",
-        "packages/db/__tests__/worktree-ledger-schema.test.ts",
-        "packages/web-state-store/src/__tests__/held-extension-worker.ts"
+        "packages/db/__tests__/worktree-ledger-schema.test.ts"
       ]
     },
     {

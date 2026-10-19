@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { attachAgentHost, type HostClient } from '../dist/client.js';
@@ -176,6 +175,12 @@ const usageOf =
   ({ event }: HostLogRow): boolean =>
     event.type === 'memory.usage' && event.runId === runId && event.kind === 'observation';
 
+/** BST-2224: the run's committed observation cycle. */
+const cycleOf =
+  (runId: string) =>
+  ({ event }: HostLogRow): boolean =>
+    event.type === 'memory.cycle' && event.runId === runId && event.kind === 'observation';
+
 test('run.finished commits while a step-time observation is still buffering', async () => {
   const observer = heldObserver();
   const host = await settlementHost(observer.model);
@@ -191,6 +196,22 @@ test('run.finished commits while a step-time observation is still buffering', as
     const usage = await host.committed(usageOf(runId));
     expect(usage.seq).toBeGreaterThan(finished.seq);
     expect(usage.event).toMatchObject({ modelId: 'openai::gpt-4.1-mini', runId });
+    // BST-2224: the buffered cycle commits its own facts beside its spend.
+    const cycle = await host.committed(cycleOf(runId));
+    expect(cycle.seq).toBeGreaterThan(finished.seq);
+    expect(cycle.event).toEqual({
+      durationMs: expect.any(Number),
+      kind: 'observation',
+      outcome: 'completed',
+      runId,
+      trigger: 'async-buffer',
+      type: 'memory.cycle',
+      usage: {
+        inputTokens: expect.any(Number),
+        outputTokens: expect.any(Number),
+        totalTokens: expect.any(Number),
+      },
+    });
     expect(fetch).not.toHaveBeenCalled();
   } finally {
     observer.release();
@@ -315,13 +336,31 @@ test('a buffered observation that fails after run.finished is its own committed 
     const failed = await host.committed(
       ({ event }) => event.type === 'memory.settlement.failed' && event.runId === first.runId
     );
+    // BST-2202: the settlement's own fact names the observer and its reference.
+    const detail = failed.event.type === 'memory.settlement.failed' ? failed.event.detail : '';
+    const reference = / Reference: ([0-9a-f-]{36})$/u.exec(detail)?.[1] ?? 'no reference';
     expect(failed.event).toEqual({
-      detail: INTERNAL_FAULT.message,
+      detail: `Memory observe failed because its observer model (OpenAI gpt-4.1-mini) failed. Retry, or review Settings → Assistant Memory. Reference: ${reference}`,
       runId: first.runId,
       type: 'memory.settlement.failed',
     });
-    diagnostics.expectCause('Memory observe failed');
-    diagnostics.expectCause('Recorded buffered observer failure');
+    diagnostics.expectCorrelatedCause(reference, {
+      cause: 'Recorded buffered observer failure',
+      code: 'memory.observer-failed',
+      step: 'observe',
+    });
+    // BST-2224: Mastra reports the buffered failure only to its end hook; the
+    // cycle commits it, under the same code and reference as the settlement.
+    const cycle = await host.committed(cycleOf(first.runId));
+    expect(cycle.event).toEqual({
+      durationMs: expect.any(Number),
+      failure: { code: 'memory.observer-failed', correlationId: reference },
+      kind: 'observation',
+      outcome: 'failed',
+      runId: first.runId,
+      trigger: 'async-buffer',
+      type: 'memory.cycle',
+    });
     // The run's own outcome is unchanged, and the thread accepts its next run.
     const finished = (await host.rows()).filter(
       ({ event }) => event.type === 'run.finished' && event.runId === first.runId

@@ -14,6 +14,46 @@ import {
 } from '../mcp-config.js';
 
 describe('MCP config contract', () => {
+  it.each([600_001, 999, 180_000.5, -1])(
+    'refuses a server tool window of %d instead of clamping it (BST-1779)',
+    (toolTimeoutMs) => {
+      const value = {
+        servers: [{ command: 'node', name: 'slow', toolTimeoutMs, transport: 'stdio' }],
+      };
+      expect(() => parseMcpConfigValue(value)).toThrow(McpConfigValidationError);
+      try {
+        parseMcpConfigValue(value);
+      } catch (error) {
+        expect(error).toMatchObject({
+          issues: [
+            {
+              message: 'must be a whole number of milliseconds from 1000 (1 s) to 600000 (10 min)',
+              path: 'servers.0.toolTimeoutMs',
+            },
+          ],
+        });
+      }
+    }
+  );
+
+  it('keeps a server tool window from a second to the ten-minute ceiling, unclamped (BST-1779)', () => {
+    for (const toolTimeoutMs of [1000, 180_000, 600_000]) {
+      expect(
+        parseMcpConfigValue({
+          servers: [
+            { command: 'node', name: 'slow', toolTimeoutMs, transport: 'stdio' },
+            {
+              name: 'remote',
+              toolTimeoutMs,
+              transport: 'streamable-http',
+              url: 'https://example.test/mcp',
+            },
+          ],
+        }).config.servers.map((server) => server.toolTimeoutMs)
+      ).toEqual([toolTimeoutMs, toolTimeoutMs]);
+    }
+  });
+
   it('keeps the public types on the member union, not the transport probe (BST-2084)', () => {
     // The probe's encoded side is an open record; it must not leak into the inputs.
     expectTypeOf<
@@ -63,21 +103,22 @@ describe('MCP config contract', () => {
   it.each(['stdio', 'sse'] as const)(
     'rejects oauth-user on %s at every config entrypoint',
     (transport) => {
-      const server = {
+      const server: unknown = {
         auth: { type: 'oauth-user' },
         name: 'unsupported-oauth',
         transport,
         ...(transport === 'stdio' ? { command: 'node' } : { url: 'https://example.test/sse' }),
       };
+      const config: unknown = { servers: [server] };
       expect(
         Schema.decodeUnknownResult(McpServerSchema, { errors: 'all', onExcessProperty: 'error' })(
           server
         )._tag === 'Success'
       ).toBe(false);
       expect(
-        Schema.decodeUnknownResult(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })({
-          servers: [server],
-        })._tag === 'Success'
+        Schema.decodeUnknownResult(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })(
+          config
+        )._tag === 'Success'
       ).toBe(false);
       expect(() => parseMcpServerValue(server)).toThrow(McpConfigValidationError);
       expect(() => parseMcpConfigValue({ servers: [server] })).toThrow(McpConfigValidationError);

@@ -787,7 +787,7 @@ describe('MCP runtime client', () => {
         const discovered = await runtimeClient?.listToolsetsWithErrors();
         const tool = guardToolExecution(
           requireExecutableTool(discovered?.toolsets['remote']?.['export']),
-          { timeoutMs: 1000, toolName: 'app-task-export' }
+          { timeoutMs: 60_000, toolName: 'app-task-export' }
         );
         const abortController = new AbortController();
 
@@ -800,10 +800,59 @@ describe('MCP runtime client', () => {
         );
         expect(mcpTaskTracking.awaitSettlement).toHaveBeenCalledWith(handle, {
           signal: abortController.signal,
-          timeoutMs: 45_000,
+          timeoutMs: expect.any(Number),
         });
+        // The configured 45 s wait, cut to three quarters of what the 60 s
+        // guard has left once the task is tracked.
+        const [[, { timeoutMs }]] = vi.mocked(mcpTaskTracking.awaitSettlement).mock.calls as [
+          [unknown, { timeoutMs: number }],
+        ];
+        expect(timeoutMs).toBeGreaterThan(44_000);
+        expect(timeoutMs).toBeLessThanOrEqual(45_000);
       }
     );
+
+    it('fits the settlement wait inside what the guard has left after a slow start (BST-1779)', async () => {
+      const remote = {
+        ...createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult),
+        // The task arrives 400 ms into a 1 s guard window.
+        callTool: vi.fn(async (): Promise<ExplicitHttpMcpCallToolResult> => {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          return createdTask as unknown as ExplicitHttpMcpCallToolResult;
+        }),
+      };
+      const mcpTaskTracking: McpTaskTrackingCapability = {
+        awaitSettlement: vi.fn<McpTaskTrackingCapability['awaitSettlement']>(
+          async (_handle, { timeoutMs }) => {
+            await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+            return { reason: 'timeout', settled: false, task: live };
+          }
+        ),
+        track: vi.fn(async () => live),
+      };
+      const { host } = createTestHost({ remote });
+      const runtimeClient = await createMcpRuntimeClient({
+        config: undefined,
+        host,
+        mcpTaskTracking,
+        toolTimeoutMs: 60_000,
+      });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const tool = guardToolExecution(
+        requireExecutableTool(discovered?.toolsets['remote']?.['export']),
+        { timeoutMs: 1000, toolName: 'slow-start-export' }
+      );
+
+      // The live task, not a timeout: the wait took a share of the ~600 ms left.
+      await expect(
+        tool.execute({}, { abortSignal: new AbortController().signal, toolCallId: 'task-call' })
+      ).resolves.toEqual({ kind: 'mcp-task', task: live });
+      const [[, { timeoutMs }]] = vi.mocked(mcpTaskTracking.awaitSettlement).mock.calls as [
+        [unknown, { timeoutMs: number }],
+      ];
+      expect(timeoutMs).toBeGreaterThan(0);
+      expect(timeoutMs).toBeLessThanOrEqual(450);
+    });
 
     it.each([
       { name: 'direct', result: createdTask },

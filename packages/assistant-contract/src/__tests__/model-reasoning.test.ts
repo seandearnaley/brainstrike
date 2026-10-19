@@ -12,8 +12,10 @@ describe('resolveModelReasoningSupport', () => {
     ['openrouter', 'moonshotai/kimi-k3', { source: 'model', state: 'supported' }],
     ['openrouter', 'meta/muse-spark-1.1', { source: 'model', state: 'supported' }],
     ['openrouter', 'z-ai/glm-5.2', { source: 'model', state: 'supported' }],
+    // Every direct OpenAI row now declares its own ladder (BST-1709).
+    ['openai', 'gpt-5.6-terra', { source: 'model', state: 'supported' }],
     // Hosted reasoning-first providers default to supported.
-    ['openai', 'gpt-5.6-terra', { source: 'provider-default', state: 'supported' }],
+    ['openai', 'gpt-not-in-catalog', { source: 'provider-default', state: 'supported' }],
     ['anthropic', 'claude-sonnet-5', { source: 'provider-default', state: 'supported' }],
     ['google', 'gemini-3.5-flash', { source: 'provider-default', state: 'supported' }],
     // Undeclared OpenRouter models are visibly unverified, never silently on.
@@ -45,7 +47,7 @@ describe('resolveModelReasoningSupport', () => {
 
   it('normalizes provider id casing', () => {
     expect(resolveModelReasoningSupport('OpenAI', 'gpt-5.6-terra')).toEqual({
-      source: 'provider-default',
+      source: 'model',
       state: 'supported',
     });
   });
@@ -145,8 +147,8 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('offers the provider-default efforts for OpenAI models', () => {
-    expect(resolveReasoningControlsAvailability('openai', 'gpt-5.6-terra')).toEqual({
+  it('offers the provider-default efforts for an undeclared OpenAI model', () => {
+    expect(resolveReasoningControlsAvailability('openai', 'gpt-not-in-catalog')).toEqual({
       available: true,
       efforts: OPENAI_FAMILY_DEFAULT_EFFORTS,
       family: 'openai',
@@ -154,35 +156,30 @@ describe('resolveReasoningControlsAvailability', () => {
   });
 
   /**
-   * BST-1698. GPT-5.6 Sol declares no per-model `reasoning` block, so it
-   * resolves through the undeclared OpenAI-family default set. This pins that
-   * `xhigh` reaches the menu — the question the ticket asked — and records the
-   * rest of today's shape so any change to it has to be deliberate.
-   *
-   * Asserted against a LITERAL list rather than
-   * `OPENAI_FAMILY_DEFAULT_EFFORTS`: the sibling test above compares the
-   * resolver's output to the very constant that feeds it, so dropping a rung
-   * from the constant moves both sides together and stays green. This is the
-   * pin that actually goes red.
-   *
-   * The offered set does NOT match Sol's vendor ladder in either direction,
-   * which is a BEHAVIOUR question deliberately left to a follow-up rather than
-   * ridden along on a pricing fix. Sol's model page
-   * (https://developers.openai.com/api/docs/models/gpt-5.6-sol, retrieved
-   * 2026-09-08) documents "none, low, medium (default), high, xhigh, and max":
-   * - `max` is offered only where a model declares its own
-   *   `reasoning.supportedEfforts`, so Sol cannot reach it from the menu even
-   *   though the vendor supports it.
-   * - `minimal` IS offered but is absent from Sol's documented ladder — the
-   *   same "offering an effort a route rejects is a broken menu entry" hazard
-   *   the Bedrock ladders call out.
-   * - `none` is expressed as "Auto (default)" (unset) rather than a menu rung.
+   * BST-1709. Every direct OpenAI row declares the ladder its own model page
+   * documents (developers.openai.com/api/docs/models/<id>, read 2026-10-18).
+   * The undeclared family default offered `minimal`, which none of them lists,
+   * and withheld `max`, which the GPT-5.6 rows accept. Literal lists, not the
+   * constant: a test that compares the resolver to its own input can't go red.
    */
-  it('offers xhigh but clamps max for GPT-5.6 Sol on the OpenAI path', () => {
-    const controls = resolveReasoningControlsAvailability('openai', 'gpt-5.6-sol');
-    expect(controls).toEqual({
+  it.each([
+    ['gpt-5.6-sol', 'medium', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['gpt-5.6-terra', 'medium', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['gpt-5.6-luna', 'medium', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['gpt-5.5', 'medium', ['none', 'low', 'medium', 'high', 'xhigh']],
+    ['gpt-5.5-pro', 'high', ['medium', 'high', 'xhigh']],
+    ['gpt-5.4', 'none', ['none', 'low', 'medium', 'high', 'xhigh']],
+    ['gpt-5.4-pro', 'medium', ['medium', 'high', 'xhigh']],
+    ['gpt-5.4-mini', 'none', ['none', 'low', 'medium', 'high', 'xhigh']],
+    ['gpt-5.4-nano', 'none', ['none', 'low', 'medium', 'high', 'xhigh']],
+    ['gpt-5.3-codex', undefined, ['low', 'medium', 'high', 'xhigh']],
+    ['gpt-5.2', 'none', ['none', 'low', 'medium', 'high', 'xhigh']],
+    ['gpt-5.2-pro', undefined, ['medium', 'high', 'xhigh']],
+  ] as const)('offers the documented %s ladder (default %s)', (modelId, defaultEffort, efforts) => {
+    expect(resolveReasoningControlsAvailability('openai', modelId)).toEqual({
       available: true,
-      efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+      ...(defaultEffort === undefined ? {} : { defaultEffort }),
+      efforts,
       family: 'openai',
     });
   });
@@ -308,7 +305,8 @@ describe('resolveReasoningControlsAvailability', () => {
   it('normalizes provider id casing', () => {
     expect(resolveReasoningControlsAvailability('OpenAI', 'gpt-5.6-terra')).toEqual({
       available: true,
-      efforts: OPENAI_FAMILY_DEFAULT_EFFORTS,
+      defaultEffort: 'medium',
+      efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
       family: 'openai',
     });
   });

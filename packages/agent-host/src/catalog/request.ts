@@ -11,8 +11,10 @@ export async function sendCatalogRequest(
   try {
     return await connection.sendRequest(method, request);
   } catch (cause) {
-    throw fromBoundaryResponseError(cause, (message, fields) =>
-      logger.error(message, { ...fields, method })
+    throw fromBoundaryResponseError(
+      cause,
+      (message, fields) => logger.error(message, { ...fields, method }),
+      connection
     );
   }
 }

@@ -119,11 +119,11 @@ export type McpHostAuthSnapshot =
     }
   | McpHostBearerAuthSnapshot
   | McpHostOAuthAuthSnapshot;
-export const McpHostErrorSchema: Schema.ConstraintDecoder<McpHostError> = Schema.Struct({
+export const McpHostErrorSchema = Schema.Struct({
   category: McpStableErrorCategorySchema,
   code: Schema.String,
   message: Schema.String,
-});
+}) satisfies Schema.ConstraintDecoder<McpHostError>;
 export const MCP_CORE_SERVER_PROJECTION = Object.freeze({
   completion: Object.freeze({
     operations: Object.freeze(['completion/complete'] as const),
@@ -154,6 +154,8 @@ interface McpHostServerSnapshotBase {
   /** Effective registered-extension state for this generation (BST-1604). */
   extensions?: McpExtensionEnablement;
   generation: number;
+  /** The server's configured tool window (BST-1779); absent uses the host's default. */
+  toolTimeoutMs?: number;
   transport: McpStatusTransport;
 }
 export interface McpHostDiagnostic {
@@ -170,6 +172,14 @@ export const MCP_HOST_CATALOG_SECTIONS = [
   'tools',
 ] as const;
 export type McpHostCatalogSection = (typeof MCP_HOST_CATALOG_SECTIONS)[number];
+/** The catalog sections a server lists (`subscription` is a status, not a list). */
+export const MCP_HOST_LISTED_CATALOG_SECTIONS = [
+  'prompts',
+  'resources',
+  'resourceTemplates',
+  'tools',
+] as const;
+export type McpHostListedCatalogSection = (typeof MCP_HOST_LISTED_CATALOG_SECTIONS)[number];
 export type McpHostCatalogErrors = {
   readonly [Section in McpHostCatalogSection]?: McpHostError | undefined;
 };
@@ -206,6 +216,14 @@ type SdkEmptyResult = z.output<typeof EmptyResultSchema>;
 export interface McpHostCatalog {
   errors: McpHostCatalogErrors;
   features: McpHostServerFeatures;
+  /**
+   * Sections whose list request is in flight right now, initial or after a
+   * list-changed notification (BST-1632). Absent when every list has settled.
+   * A section that is listing and has no result yet is LOADING, which is
+   * distinct from a settled empty list, a failed one (`errors`), or a server
+   * that advertises no such capability (`features`).
+   */
+  listing?: readonly McpHostListedCatalogSection[] | undefined;
   prompts?: BrowserSafe<SdkListPromptsResult> | undefined;
   resources?: BrowserSafe<SdkListResourcesResult> | undefined;
   resourceTemplates?: BrowserSafe<SdkListResourceTemplatesResult> | undefined;
@@ -426,6 +444,32 @@ export const McpStartupPolicySchema = Schema.Literals(['automatic', 'authenticat
   .annotate({ default: 'automatic' })
   .pipe(Schema.withDecodingDefault(Effect.succeed('automatic')));
 export type McpStartupPolicy = (typeof McpStartupPolicySchema)['Type'];
+/**
+ * A server's `toolTimeoutMs` ceiling (BST-1779): the transport's default total
+ * (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`), and so below the stream's
+ * tool-executing backstop, which is derived to sit above every guard window.
+ * A longer silent window would end at that backstop instead of its own.
+ */
+export const MAX_MCP_TOOL_TIMEOUT_MS = 600_000;
+/** Below a second, `toolTimeoutMs` is far likelier a value meant in seconds. */
+export const MIN_MCP_TOOL_TIMEOUT_MS = 1000;
+/**
+ * BST-1779: how long one of this server's tools may run without reporting
+ * progress, for servers that are slow and silent. Out of range is refused,
+ * never clamped.
+ */
+export const McpToolTimeoutMsSchema = Schema.Number.check(
+  Schema.makeFilter((value) =>
+    Number.isSafeInteger(value) &&
+    value >= MIN_MCP_TOOL_TIMEOUT_MS &&
+    value <= MAX_MCP_TOOL_TIMEOUT_MS
+      ? undefined
+      : {
+          issue: `must be a whole number of milliseconds from ${MIN_MCP_TOOL_TIMEOUT_MS} (1 s) to ${MAX_MCP_TOOL_TIMEOUT_MS} (10 min)`,
+          path: [],
+        }
+  )
+);
 const McpConfiguredServerSchema = Schema.Struct({
   auth: McpConfiguredAuthSchema,
   configuredProtocol: McpConfiguredProtocolSchema,
@@ -433,6 +477,7 @@ const McpConfiguredServerSchema = Schema.Struct({
   enabledTools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   extensions: Schema.optional(McpExtensionEnablementSchema),
   startup: McpStartupPolicySchema,
+  toolTimeoutMs: Schema.optional(McpToolTimeoutMsSchema),
   transport: TransportSchema,
 })
   .check(
@@ -602,6 +647,14 @@ export interface McpHostTaskOwner {
   recover(handle: McpTaskHandle): McpHostExecution | undefined;
 }
 export interface McpHostInvokeOptions {
+  /**
+   * BST-1779: the caller ends a `tools/call` itself once it reports no
+   * progress for its window (the tool guard's inactivity budget). The
+   * request's own idle timeout then stands back to its total: the SDK re-arms
+   * that timer on progress before the caller hears of it, so at an equal
+   * window it would win the race and end the call as an unexplained failure.
+   */
+  callerGuardsInactivity?: true;
   /** The admitting host tool call's capability. It never reaches the server. */
   execution?: McpHostExecution;
   onProgress?: (progress: McpHostProgress) => void;

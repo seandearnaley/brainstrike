@@ -44,7 +44,9 @@ test.each([false, true])(
       host = await startHost(
         { lifetime: 'persistent', root },
         {
-          acceptSocket: (socket) => socket.destroy(),
+          acceptSocket: (socket) => {
+            socket.destroy();
+          },
           acquireRoot: async () => {
             lock = await RootLock.acquire(root);
             const acquired = lock;

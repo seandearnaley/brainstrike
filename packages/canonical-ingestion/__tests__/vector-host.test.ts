@@ -4,6 +4,7 @@ import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { type ScopedFilePlan, type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { describe, expect, it, vi } from 'vitest';
+import { CanonicalOperationCancelledError } from '../src/cancellation.js';
 import { CanonicalIngestionHost } from '../src/host.js';
 import type {
   CanonicalCatalogPort,
@@ -560,7 +561,8 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     physical.resolve();
     await cancelling;
     const reason = await result;
-    expect(reason).toBeInstanceOf(DOMException);
+    // The scan ends on the host's own typed cancellation, not the inference owner's reason.
+    expect(reason).toBeInstanceOf(CanonicalOperationCancelledError);
     expect(reason).not.toBe(ownedReason);
     expect(f.inference.join).toHaveBeenCalledOnce();
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
@@ -585,6 +587,48 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
     await expect(f.host.close()).rejects.toThrow('retirement failed');
     vi.mocked(f.inference.join).mockResolvedValue();
+    await f.host.close();
+  });
+  // BST-2140: a shutdown retires the attachment while its scan awaits a publication call.
+  it.each(['before', 'after'] as const)(
+    'ends a scan whose port operation its owner cancelled %s the host cancel as that cancellation',
+    async (order) => {
+      const f = await fixture();
+      const physical = deferred();
+      const retired = new CanonicalOperationCancelledError('Canonical attachment retired.');
+      vi.mocked(f.publication.vectorCoverage).mockImplementation(async () => {
+        await physical.promise;
+        throw retired;
+      });
+      const result = f.host.scan(f.request).catch((error: unknown) => error);
+      await vi.waitFor(() => expect(f.publication.vectorCoverage).toHaveBeenCalledOnce());
+      if (order === 'before') {
+        physical.resolve();
+        expect(await result).toBe(retired);
+        await f.host.close();
+        return;
+      }
+      const cancelling = f.host.cancel(f.request.requestId);
+      physical.resolve();
+      await expect(cancelling).resolves.toBeUndefined();
+      expect(await result).toBe(retired);
+      await f.host.close();
+    }
+  );
+  it('keeps an independent port failure a failed cancel', async () => {
+    const f = await fixture();
+    const physical = deferred();
+    const independent = new DOMException('independent coverage fault', 'AbortError');
+    vi.mocked(f.publication.vectorCoverage).mockImplementation(async () => {
+      await physical.promise;
+      throw independent;
+    });
+    const result = f.host.scan(f.request).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(f.publication.vectorCoverage).toHaveBeenCalledOnce());
+    const cancelling = f.host.cancel(f.request.requestId).catch((error: unknown) => error);
+    physical.resolve();
+    expect(await cancelling).toBe(independent);
+    expect(await result).toBe(independent);
     await f.host.close();
   });
   it.each([undefined, null])(

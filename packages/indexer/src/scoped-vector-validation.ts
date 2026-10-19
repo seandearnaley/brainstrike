@@ -65,7 +65,8 @@ export function validateScopedStorage(db: Database.Database, profileHash?: strin
   } catch (error) {
     throw new IndexerError(
       'rebuild-required',
-      `Scoped profile/vector storage is invalid: ${error instanceof Error ? error.message : String(error)}`
+      `Scoped profile/vector storage is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

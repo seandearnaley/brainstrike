@@ -13,9 +13,10 @@ import { storedHostEvent } from '../src/event-storage.js';
 import type { HostPlatform } from '../src/ports.js';
 import { HostLogRowSchema } from '../src/protocol.js';
 import { AgentHostStartupError, startAgentHost } from '../src/runtime.js';
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 
 type NativeIndexer = Awaited<ReturnType<typeof openIndexer>>;
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = REAL_INDEXER_DEADLINES;
 
 function openNative(root: string): Promise<NativeIndexer> {
   return openIndexer(

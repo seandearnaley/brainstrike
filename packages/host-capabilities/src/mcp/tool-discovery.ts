@@ -38,6 +38,16 @@ function isPlaceholderServer(server: McpServer): boolean {
   return false;
 }
 
+/**
+ * A connected server whose catalog advertises no tools capability, like a
+ * prompts-only or resources-only server (BST-1632). There is nothing to
+ * discover, and asking anyway made the SDK refuse a `tools/list` the server
+ * never offered.
+ */
+function offersNoTools(snapshot: McpHostSnapshot['servers'][number] | undefined): boolean {
+  return snapshot?.state === 'connected' && snapshot.catalog?.features.tools === false;
+}
+
 export interface DiscoveredServerTools {
   server: ResolvedMcpServer;
   tools: Record<string, McpDiscoveredTool>;
@@ -62,6 +72,7 @@ export async function discoverToolsFromConfig(
       committedIds.has(parseConfiguredMcpServerId(server.name)) &&
       committedById.get(parseConfiguredMcpServerId(server.name))?.state !==
         'authentication-required' &&
+      !offersNoTools(committedById.get(parseConfiguredMcpServerId(server.name))) &&
       !isPlaceholderServer(server)
   );
   const skippedPlaceholderServers = config.servers
@@ -372,6 +383,16 @@ export type ToolPreferenceProjection =
    * tools would un-block writes over a file still known to be broken.
    */
   | { status: 'not-read' };
+
+/** What Settings says while the preferences file is `unavailable`. */
+export function buildToolPreferencesFaultMessage(fault: {
+  kind: McpToolPreferencesFaultKind;
+  path: string;
+  reason: string;
+}): string {
+  const cause = fault.kind === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
+  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved, so your saved choices are left on disk untouched. Repair or remove that file, then choose Reload tool preferences in Settings. Reset tool preferences discards your saved choices.`;
+}
 
 /** Read-only recovery: no retirement, rewrite, timestamp update or file creation. */
 export async function loadToolPreferencesForRecovery(

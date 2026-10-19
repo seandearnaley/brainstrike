@@ -210,6 +210,9 @@ export async function startAgentHost(
             return;
           }
           const replyFinished = Promise.withResolvers<void>();
+          // Each dispatched message settles after its response write (BST-2174).
+          const dispatched = new Set<Promise<void>>();
+          const retiring = new AbortController();
           let dispatchingMessage: Message | undefined;
           let shutdownMessage: Message | undefined;
           socket.once('close', () => replyFinished.resolve());
@@ -222,15 +225,17 @@ export async function startAgentHost(
                 handleMessage: async (message, next) => {
                   const previous = dispatchingMessage;
                   dispatchingMessage = message;
-                  let handled: ReturnType<typeof next>;
+                  let handled: Promise<void>;
                   try {
-                    handled = next(message);
+                    handled = Promise.resolve(next(message));
                   } finally {
                     dispatchingMessage = previous;
                   }
+                  dispatched.add(handled);
                   try {
                     await handled;
                   } finally {
+                    dispatched.delete(handled);
                     if (message === shutdownMessage) {
                       replyFinished.resolve();
                     }
@@ -249,9 +254,16 @@ export async function startAgentHost(
                 return lifecycle.stop(replyFinished.promise);
               },
             },
+            retiring: retiring.signal,
             ...clientCapabilities(),
           });
           socket.once('close', () => connection.dispose());
+          // Cancel, then join, the requests already admitted when retirement
+          // reaches this socket; later ones refuse as closing.
+          return async () => {
+            retiring.abort();
+            await Promise.allSettled([...dispatched]);
+          };
         },
         acquireRoot: async (retainRun) => {
           signal.throwIfAborted();

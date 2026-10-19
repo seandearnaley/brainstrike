@@ -127,13 +127,12 @@ export interface McpElicitationRetiredWire {
 }
 /** Accepted form values mirror the SDK's `ElicitResult['content']` primitive set. */
 export type McpElicitationContentValue = boolean | number | string | string[];
-const McpElicitationContentValueSchema: Schema.ConstraintDecoder<McpElicitationContentValue> =
-  Schema.Union([
-    Schema.String,
-    Schema.Finite,
-    Schema.Boolean,
-    Schema.mutable(Schema.Array(Schema.String)),
-  ]);
+const McpElicitationContentValueSchema = Schema.Union([
+  Schema.String,
+  Schema.Finite,
+  Schema.Boolean,
+  Schema.mutable(Schema.Array(Schema.String)),
+]) satisfies Schema.ConstraintDecoder<McpElicitationContentValue>;
 const SafeIntegerSchema = Schema.Int.check(
   Schema.makeFilter((value) =>
     Number.isSafeInteger(value) ? undefined : { issue: 'must be a safe integer', path: [] }

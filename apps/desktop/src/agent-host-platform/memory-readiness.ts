@@ -1,22 +1,53 @@
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostMemoryPreconditions, HostObservationSource } from '@brainstrike/agent-host';
+import { toBoundaryFailure } from '@brainstrike/agent-host/boundary-wire';
 import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
   isSupportedProvider,
+  MEMORY_FAILURE_CODES,
   type MemoryCredentialNeed,
   memoryCredentialRequiredReason,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { ProviderCredentialMissingError } from '@brainstrike/host-capabilities';
+import { createLogger } from '@brainstrike/logging';
 import type { PlatformSelection } from './platform-wire';
 
 type ResolveProviderAuth = (provider: string) => Promise<ProviderAuthInput | undefined>;
 
+const logger = createLogger('DesktopMemoryReadiness');
+
 /** Why the memory feature cannot run without its provider's API key, as legacy words it. */
-function memoryKeyRequired(need: MemoryCredentialNeed, provider: string): Error {
-  return new Error(
-    isSupportedProvider(provider)
-      ? memoryCredentialRequiredReason(need, provider)
-      : `Memory uses the unsupported provider ${provider}`
+function memoryKeyRequired(need: MemoryCredentialNeed, provider: string): BoundaryFailureError {
+  return isSupportedProvider(provider)
+    ? refusalError(
+        'configuration',
+        MEMORY_FAILURE_CODES.credentialMissing,
+        memoryCredentialRequiredReason(need, provider)
+      )
+    : refusalError(
+        'configuration',
+        MEMORY_FAILURE_CODES.configuration,
+        `Memory uses the unsupported provider ${provider}`
+      );
+}
+
+/**
+ * The send gate's words for a precondition failure (BST-2202): a typed
+ * failure as the boundary describes it, naming a fault's correlation id. A
+ * fault that arrived with one was logged by its sender (Main); one raised
+ * here is logged here under a new one. Any other failure keeps its own reason.
+ */
+export function memoryReadinessReason(cause: unknown): string {
+  if (!(cause instanceof BoundaryFailureError)) {
+    return cause instanceof Error ? cause.message : String(cause);
+  }
+  return describeBoundaryFailure(
+    cause.failure.correlationId === undefined
+      ? toBoundaryFailure(cause, (message, fields) => logger.error(message, fields))
+      : cause.failure
   );
 }
 
@@ -93,7 +124,7 @@ export async function desktopMemoryPreconditions(
       await requireMemoryApiKey(need, provider, resolveProviderAuth);
     }
   } catch (cause) {
-    return { ready: false, reason: cause instanceof Error ? cause.message : String(cause) };
+    return { ready: false, reason: memoryReadinessReason(cause) };
   }
   return { observation: observationSource(admitted.memory, admitted.resourceId), ready: true };
 }

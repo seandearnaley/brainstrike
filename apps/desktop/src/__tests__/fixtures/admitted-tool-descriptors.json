@@ -126,7 +126,7 @@
       "risk": "read"
     },
     "brainstrike_browserNavigate": {
-      "description": "Open a URL in the app's embedded browser pane (creates a tab when none is open) and wait for the load. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
+      "description": "Open a URL in your own tab of the app's embedded browser pane (never a tab the user opened) and wait for the load. The user approves each new site. Only public addresses and a localhost dev server load: another private-network or metadata URL fails as blocked_url, and a page that resolves or redirects to one fails as blocked_destination. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
       "identity": "brainstrike.browserNavigate",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1844,7 +1844,7 @@
       "risk": "read"
     },
     "brainstrike_browserNavigate": {
-      "description": "Open a URL in the app's embedded browser pane (creates a tab when none is open) and wait for the load. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
+      "description": "Open a URL in your own tab of the app's embedded browser pane (never a tab the user opened) and wait for the load. The user approves each new site. Only public addresses and a localhost dev server load: another private-network or metadata URL fails as blocked_url, and a page that resolves or redirects to one fails as blocked_destination. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
       "identity": "brainstrike.browserNavigate",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3344,7 +3344,7 @@
       "risk": "read"
     },
     "brainstrike_browserNavigate": {
-      "description": "Open a URL in the app's embedded browser pane (creates a tab when none is open) and wait for the load. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
+      "description": "Open a URL in your own tab of the app's embedded browser pane (never a tab the user opened) and wait for the load. The user approves each new site. Only public addresses and a localhost dev server load: another private-network or metadata URL fails as blocked_url, and a page that resolves or redirects to one fails as blocked_destination. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
       "identity": "brainstrike.browserNavigate",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",

@@ -1,5 +1,6 @@
+import { StateStoreReadOnlyError } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
-import type { MessageConnection } from 'vscode-jsonrpc';
+import { type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from '../src/auth-connection.js';
 import { bindHostMcpPresentationMethods } from '../src/mcp-presentation-connection.js';
 import type { HostClientOrigin, HostMcpPresentationService } from '../src/ports.js';
@@ -64,5 +65,22 @@ describe('host MCP presentation methods', () => {
     expect(owner.subscribe).not.toHaveBeenCalled();
     expect(owner.act).not.toHaveBeenCalled();
     expect(owner.settle).not.toHaveBeenCalled();
+  });
+
+  it("keeps a read-only state store's refusal typed, and shows any other failure as written (BST-2144)", async () => {
+    const owner = service();
+    vi.mocked(owner.act)
+      .mockRejectedValueOnce(new StateStoreReadOnlyError('row 1 missing from index'))
+      .mockRejectedValueOnce(new Error('Task handle is stale'));
+    const { handlers } = bound(owner, 'desktop-ui');
+
+    await expect(handlers.get('mcp/tasks/act')?.({})).rejects.toMatchObject({
+      failure: { code: 'state.read-only', kind: 'refusal' },
+    });
+    const other = await handlers
+      .get('mcp/tasks/act')?.({})
+      .catch((cause: unknown) => cause);
+    expect(other).toBeInstanceOf(ResponseError);
+    expect(other).toMatchObject({ message: 'Task handle is stale' });
   });
 });

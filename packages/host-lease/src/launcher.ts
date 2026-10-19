@@ -13,15 +13,42 @@ import {
 import { attachHost, type HostAttachment } from './client.js';
 import type { HostRecord } from './record.js';
 import { readHostRecord } from './record-file.js';
+import { HOST_LEASE_CLOSING, HOST_LEASE_CONNECTION_CLOSED } from './refusal.js';
 import type { HostLifetime, HostStartOptions } from './runtime.js';
+import { RootContentionError } from './startup-failure.js';
 import { windowsPrivateAcl } from './windows-acl.js';
-export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<void>;
+/**
+ * A host a starter started, still owned by the launch that asked for it
+ * (BST-2167). The launch settles it exactly once: `release` once it attached,
+ * `retire` when it gives up, so a launch never abandons a host it started.
+ */
+export interface StartedHost {
+  /**
+   * The started host's PID and OS start time, as its root lease names it. Its
+   * starter reads them when the host reports ready (BST-2176).
+   */
+  readonly identity: { readonly pid: number; readonly start: string };
+  /** The launch attached: the host keeps the lifetime it was started with. */
+  release(): Promise<void>;
+  /** The launch gave up on it: cancel the host and join its exit. */
+  retire(): Promise<void>;
+}
+export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<StartedHost>;
 export interface HostLaunchOptions {
   /** The new host uses canonical JSON-RPC; old-path callers retain their handshake. */
   readonly attach?: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>;
+  /**
+   * An attach's budget, 1.5 s by default. The host this launch started gets
+   * all of it once its starter reports ready (BST-2176); any other owner's
+   * attach is also clipped to what the startup deadline has left.
+   */
   readonly attachTimeoutMs?: number;
   readonly lifetime: HostLifetime;
   readonly spawn: HostSpawner;
+  /**
+   * The acquisition deadline, 30 s by default: waiting for a starting or
+   * leaving owner, attaching to one, and starting a host until it is ready.
+   */
   readonly startupTimeoutMs?: number;
 }
 export class LiveHostUnavailableError extends Error {
@@ -69,8 +96,11 @@ async function liveLease(root: string): Promise<LockOwner | null> {
   }
   return lease;
 }
-function matches(record: HostRecord, owner: LockOwner): boolean {
-  return record.pid === owner.pid && record.start === owner.start;
+function matches(
+  identity: { readonly pid: number; readonly start: string },
+  owner: LockOwner
+): boolean {
+  return identity.pid === owner.pid && identity.start === owner.start;
 }
 async function pause(signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
@@ -115,20 +145,90 @@ async function publishedRecord(
     }
   );
 }
-function ownRecord(record: HostRecord | null, lease: LockOwner): HostRecord {
-  if (!record) {
-    throw new Error(`Host pid ${lease.pid} released or changed its root lease during startup`);
+/**
+ * Whether the owner `record` names stops holding the root before `deadline`:
+ * its lease released, expired with its process, or taken by another owner.
+ */
+async function ownerLeaves(root: string, record: HostRecord, deadline: number): Promise<boolean> {
+  const signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+  for (;;) {
+    const lease = await liveLease(root);
+    if (!(lease && matches(record, lease))) {
+      return true;
+    }
+    try {
+      await pause(signal);
+    } catch {
+      return false;
+    }
   }
-  return record;
 }
-async function attach(
+/**
+ * Codes of an owner whose sockets are closing or already gone: the transport's,
+ * and the host lease's typed closing and lost-connection refusals. Classified
+ * by code, never by message (BST-2158).
+ */
+const LEAVING_CODES = new Set<string>([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOENT',
+  'EPIPE',
+  HOST_LEASE_CLOSING,
+  HOST_LEASE_CONNECTION_CLOSED,
+]);
+/** The agent host's typed closing and connection-loss failures, matched by code. */
+const LEAVING_FAILURE_CODES = new Set([
+  'host.closing',
+  'host.connection-closed',
+  'host.connection-lost',
+]);
+/**
+ * Whether an attach failure shows the owner may be leaving: it refused as
+ * closing, or its transport was lost. An authentication, version, protocol or
+ * record failure, or a handshake timeout, shows nothing of the kind: it stays
+ * terminal, and never starts another owner (docs/agents/host-lease.md).
+ */
+function ownerMayBeLeaving(cause: unknown, depth = 0): boolean {
+  if (depth > 4 || typeof cause !== 'object' || cause === null) {
+    return false;
+  }
+  if (cause instanceof AggregateError) {
+    return cause.errors.some((inner) => ownerMayBeLeaving(inner, depth + 1));
+  }
+  const code = Reflect.get(cause, 'code');
+  const failure = Reflect.get(cause, 'failure');
+  const failureCode =
+    typeof failure === 'object' && failure !== null ? Reflect.get(failure, 'code') : undefined;
+  if (
+    (typeof code === 'string' && LEAVING_CODES.has(code)) ||
+    (typeof failureCode === 'string' && LEAVING_FAILURE_CODES.has(failureCode))
+  ) {
+    return true;
+  }
+  return ownerMayBeLeaving(Reflect.get(cause, 'cause'), depth + 1);
+}
+/**
+ * Attach to an owner. BST-2142: an owner that refuses because it is closing,
+ * or whose transport is lost, is leaving; wait for it to give up the root,
+ * then acquire again (null). An owner that keeps the root to the deadline is
+ * live and unreachable, and any other attach failure is terminal: refused,
+ * with the attach failure as the cause.
+ */
+async function attachOrAwaitExit(
+  root: string,
   record: HostRecord,
+  deadline: number,
   timeoutMs: number,
   attachClient: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>
-): Promise<HostAttachment> {
+): Promise<HostAttachment | null> {
   try {
-    return await attachClient(record, timeoutMs);
+    // The attach never outlasts its phase's deadline: the launch's, or the
+    // attach budget of a host this launch started (BST-2176).
+    return await attachClient(record, Math.max(1, Math.min(timeoutMs, deadline - Date.now())));
   } catch (cause) {
+    if (ownerMayBeLeaving(cause) && (await ownerLeaves(root, record, deadline))) {
+      return null;
+    }
     throw new LiveHostUnavailableError(record.pid, cause);
   }
 }
@@ -187,6 +287,144 @@ function startOptionsFor(root: string, lifetime: HostLifetime): HostStartOptions
   return { lifetime, parent: { pid: process.pid, start }, root };
 }
 
+/** One launch: its root, options and the deadline its acquisition shares. */
+interface Launch {
+  readonly attachClient: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>;
+  readonly attachTimeoutMs: number;
+  readonly deadline: number;
+  readonly options: HostLaunchOptions;
+  readonly root: string;
+}
+/** An attachment, or AGAIN: the owner left, so acquisition starts over. */
+const AGAIN = Symbol('acquire again');
+type Step = HostAttachment | typeof AGAIN;
+
+function remaining(deadline: number): number {
+  return Math.max(1, deadline - Date.now());
+}
+async function attachOwner(launch: Launch, record: HostRecord, deadline: number): Promise<Step> {
+  return (
+    (await attachOrAwaitExit(
+      launch.root,
+      record,
+      deadline,
+      launch.attachTimeoutMs,
+      launch.attachClient
+    )) ?? AGAIN
+  );
+}
+/** The race this starter lost: attach to its winner, or start over once that winner left. */
+async function attachWinner(launch: Launch, cause: unknown): Promise<Step> {
+  if (cause instanceof RootContentionError) {
+    return AGAIN;
+  }
+  if (!(cause instanceof RootLockedError)) {
+    throw cause;
+  }
+  // Only a proved acquisition race is attachable. Unrelated spawn errors are
+  // returned unchanged; a live owner's endpoint is never replaced or killed.
+  const winner = await liveLease(launch.root);
+  if (!winner) {
+    return AGAIN;
+  }
+  const record = await publishedRecord(launch.root, winner, remaining(launch.deadline));
+  return record ? attachOwner(launch, record, launch.deadline) : AGAIN;
+}
+/** Retire a host the launch gave up on; a failed retirement joins the launch's own failure. */
+async function retireAfter(started: StartedHost, cause: unknown): Promise<never> {
+  try {
+    await started.retire();
+  } catch (retireCause) {
+    throw new AggregateError(
+      [cause, retireCause],
+      'Host launch failed and the host it started did not retire',
+      { cause }
+    );
+  }
+  throw cause;
+}
+/**
+ * Start a host under the launch's one deadline. At the deadline the starter's
+ * signal aborts and the launch waits for that starter to settle, so its
+ * cancellation, and the exit of any child it started, is joined before the
+ * launch rejects. A host reported started after the deadline is retired.
+ */
+async function startWithin(launch: Launch, options: HostStartOptions): Promise<StartedHost> {
+  const deadline = new AbortController();
+  const timer = setTimeout(
+    () => deadline.abort(new Error('Host startup timed out')),
+    remaining(launch.deadline)
+  );
+  let started: StartedHost;
+  try {
+    started = await launch.options.spawn(options, deadline.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (deadline.signal.aborted) {
+    return retireAfter(started, deadline.signal.reason);
+  }
+  return started;
+}
+/**
+ * BST-2176: attach to the host this launch started under `deadline`, its own
+ * attach budget, never what the startup deadline has left. The record read,
+ * the handshake and any wait for that host to leave all share it. Only the
+ * host its starter named gets that budget: an owner that replaced it is
+ * attached as any other, under the launch's deadline, once the launch has
+ * retired the host it started.
+ */
+async function attachStarted(
+  launch: Launch,
+  started: StartedHost,
+  deadline: number
+): Promise<Step> {
+  const acquired = await liveLease(launch.root);
+  if (!acquired) {
+    throw new Error('Host starter returned without a live root lease');
+  }
+  if (!matches(started.identity, acquired)) {
+    return AGAIN;
+  }
+  // The host this launch started may itself be leaving by now (an idle CLI
+  // host with no client yet): the same exit-aware attach as any other owner,
+  // and one that released before publishing sends the launch back to the start.
+  const record = await publishedRecord(launch.root, acquired, remaining(deadline));
+  return record ? attachOwner(launch, record, deadline) : AGAIN;
+}
+/**
+ * BST-2167: the launch owns the host it started until it settles it. An
+ * attachment releases that host to its lifetime; giving up, or a host that
+ * left on its own, retires it, so no started host outlives a failed launch.
+ */
+async function startAndAttach(launch: Launch): Promise<Step> {
+  const startOptions = startOptionsFor(launch.root, launch.options.lifetime);
+  let started: StartedHost;
+  try {
+    started = await startWithin(launch, startOptions);
+  } catch (cause) {
+    return attachWinner(launch, cause);
+  }
+  const attachDeadline = Date.now() + launch.attachTimeoutMs;
+  let step: Step;
+  try {
+    step = await attachStarted(launch, started, attachDeadline);
+  } catch (cause) {
+    return retireAfter(started, cause);
+  }
+  if (step === AGAIN) {
+    await started.retire();
+    return AGAIN;
+  }
+  try {
+    await started.release();
+  } catch (cause) {
+    await step.close();
+    throw cause;
+  }
+  return step;
+}
+
 export async function launchHost(
   root: string,
   options: HostLaunchOptions
@@ -195,45 +433,34 @@ export async function launchHost(
     throw new TypeError('Host data root must be absolute');
   }
   assertNotSyncedRoot(root);
-  const startupTimeoutMs = options.startupTimeoutMs ?? 10_000;
+  const startupTimeoutMs = options.startupTimeoutMs ?? 30_000;
   const attachTimeoutMs = options.attachTimeoutMs ?? 1500;
-  const attachClient = options.attach ?? attachHost;
   if (![startupTimeoutMs, attachTimeoutMs].every((value) => Number.isFinite(value) && value > 0)) {
     throw new RangeError('Host launch deadlines must be positive finite milliseconds');
   }
-  const owned = await liveOwnerRecord(root, startupTimeoutMs);
-  if (owned) {
-    return attach(owned, attachTimeoutMs, attachClient);
-  }
-  const startOptions = startOptionsFor(root, options.lifetime);
-  try {
-    await runWithTimeout((signal) => options.spawn(startOptions, signal), {
-      onTimeout: () => new Error('Host startup timed out'),
-      timeoutMs: startupTimeoutMs,
-    });
-  } catch (cause) {
-    if (!(cause instanceof RootLockedError)) {
-      throw cause;
-    }
-    // Only a proved acquisition race is attachable. Unrelated spawn errors are
-    // returned unchanged; a live owner's endpoint is never replaced or killed.
-    const winner = await liveLease(root);
-    if (!winner) {
-      throw cause;
-    }
-    return attach(
-      ownRecord(await publishedRecord(root, winner, startupTimeoutMs), winner),
-      attachTimeoutMs,
-      attachClient
-    );
-  }
-  const acquired = await liveLease(root);
-  if (!acquired) {
-    throw new Error('Host starter returned without a live root lease');
-  }
-  return attach(
-    ownRecord(await publishedRecord(root, acquired, startupTimeoutMs), acquired),
+  // BST-2142: one deadline bounds acquisition. An owner that leaves while it
+  // is waited for, attached to or raced against sends the launcher back to the
+  // start, never to an error naming an owner that is gone. BST-2176: the host
+  // this launch started then attaches under its own attachTimeoutMs, so a
+  // self-started launch settles within startupTimeoutMs + attachTimeoutMs,
+  // plus joining the exit of a host it retires.
+  const launch: Launch = {
+    attachClient: options.attach ?? attachHost,
     attachTimeoutMs,
-    attachClient
-  );
+    deadline: Date.now() + startupTimeoutMs,
+    options,
+    root,
+  };
+  for (;;) {
+    if (Date.now() >= launch.deadline) {
+      throw new Error('Host startup timed out');
+    }
+    const owned = await liveOwnerRecord(root, remaining(launch.deadline));
+    const step = owned
+      ? await attachOwner(launch, owned, launch.deadline)
+      : await startAndAttach(launch);
+    if (step !== AGAIN) {
+      return step;
+    }
+  }
 }

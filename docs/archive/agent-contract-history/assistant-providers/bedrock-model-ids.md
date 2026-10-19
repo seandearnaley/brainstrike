@@ -102,3 +102,31 @@ rewrite.
   list: no `awsCredentialChain` capability is injected there, so a
   profile-chain credential cannot resolve on web even if the provider list
   changed.
+
+---
+
+## Superseded 2026-10-18: per-card route tables (BST-1738)
+
+The prefix-shaped region sets and the models.dev-derived id sets above are
+**retired**. Do not follow their refresh procedure.
+`packages/agent/src/providers/bedrock-model-id.ts` now holds one row per model
+in `BEDROCK_INFERENCE_ROUTES`, transcribed from that model's own AWS card
+(retrieved 2026-10-18):
+
+- **Geo.** A region takes a geo prefix exactly when the card's "Geo inference
+  details" lists it as a source region of that profile. This covers `us.`
+  (including both Canada regions), `eu.` (including Zurich), `jp.` (including
+  Osaka), `au.` (including New Zealand where listed), and the newer `in.`,
+  `apac.` and `ca.` profiles.
+- **Global.** `global.` is taken in the bedrock-runtime Global ✓ regions that
+  are not a geo source.
+- **Precedence** is unchanged: geo, then global, then verbatim.
+- **GovCloud** stays verbatim.
+
+Every row was cross-checked against the card's Programmatic Access IDs. The
+card-over-mirror ruling above still holds, now for every row: models.dev is
+never a source, and `eu.anthropic.claude-fable-5` was its last phantom.
+
+The refresh procedure lives in the module header: re-download each card,
+re-read both sections, and update the rows and the retrieval date.
+`bedrock-model-id.spec.ts` pins the fixed routes and the table invariants.

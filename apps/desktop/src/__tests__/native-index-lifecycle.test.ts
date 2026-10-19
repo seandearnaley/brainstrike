@@ -401,6 +401,22 @@ describe('an embedding host that stopped responding', () => {
     }).state;
   const refusal = { kind: 'embedding-host-unresponsive', message: unresponsive.message } as const;
 
+  it('preserves rebuild precedence over a newly retained embedding timeout cause', () => {
+    const wrapped = new IndexerError('rebuild-required', 'Invalid metadata.', {
+      cause: unresponsive,
+    });
+    expect(wrapped.cause).toBe(unresponsive);
+    expect(nativeIndexObservation(failedOpen(wrapped))).toMatchObject({
+      cause: { kind: 'rebuild-required', message: NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE },
+    });
+  });
+
+  it('finds Retry indexing behind a non-rebuild IndexerError with a retained cause', () => {
+    const wrapped = new IndexerError('indexer-failed', 'Indexer stopped.', { cause: unresponsive });
+    expect(nativeIndexObservation(failedOpen(wrapped))).toMatchObject({ cause: refusal });
+    expect(nativeIndexStateError(failedOpen(wrapped))).toMatchObject({ cause: wrapped, refusal });
+  });
+
   it('blocks with its plain cause for observers and readers, keeping the failure as the cause', () => {
     const state = failedOpen(unresponsive);
     expect(nativeIndexObservation(state)).toEqual({

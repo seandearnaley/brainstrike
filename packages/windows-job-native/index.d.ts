@@ -29,8 +29,11 @@ export function activeProcessCount(): number;
 /**
  * After the surviving guard stops admissions, terminate and physically join the
  * other members of its initialized Job. Resolves only when fresh membership and
- * accounting prove the guard alone; rejection is not proof of cleanup. This is
- * not cancellable, and an outer deadline must never permit Root release.
+ * accounting prove no live member besides the guard: every other listed member
+ * is one this drain joined. activeProcessCount() may still exceed 1 briefly,
+ * until Windows releases the exited members' references. Rejection is not proof
+ * of cleanup. This is not cancellable, and an outer deadline must never permit
+ * Root release.
  */
 export function drainOtherProcesses(exitCode: number): Promise<void>;
 export function initialize(): void;

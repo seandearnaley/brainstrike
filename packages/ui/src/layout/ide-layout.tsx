@@ -1233,8 +1233,12 @@ export const IdeLayout = React.memo(function IdeLayout({
           </div>
         )}
 
+        {/* `disableCursor` on both groups: the library's cursor stylesheet
+            restyles the whole app on every hover and drag, so each separator
+            draws the cursor itself (see `separatorClassName`, BST-2184). */}
         <Group
           defaultLayout={horizontalLayout}
+          disableCursor
           groupRef={horizontalGroupRef}
           onLayoutChanged={handleHorizontalLayout}
           orientation="horizontal"
@@ -1294,6 +1298,7 @@ export const IdeLayout = React.memo(function IdeLayout({
           <Panel id={layoutIds.middlePanel} minSize={resolvedPanelConstraints.mainContentMinSize}>
             <Group
               defaultLayout={verticalLayout}
+              disableCursor
               groupRef={verticalGroupRef}
               onLayoutChanged={handleVerticalLayout}
               orientation="vertical"

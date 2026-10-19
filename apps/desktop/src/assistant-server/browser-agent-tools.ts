@@ -17,16 +17,12 @@ import type {
   BrowserNavigateInput,
   BrowserReadPageInput,
 } from '@brainstrike/agent';
-import { refuseExtractUrl } from '@brainstrike/host-capabilities/extract-url-refusal';
 import { createLogger } from '@brainstrike/logging';
 import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
 import type { BrowserDriver } from '../browser/browser-driver';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
-import {
-  type BrowserTabState,
-  isNavigableUrl,
-  normalizeUrl,
-} from '../browser/browser-view-manager';
+import { agentNavigationTarget, type LoopbackAdmission } from '../browser/browser-url';
+import type { BrowserTabOwner, BrowserTabState } from '../browser/browser-view-manager';
 import type { BrowserToolRunner } from './native-tool-executors-browser';
 
 const logger = createLogger('BrowserAgentTools');
@@ -35,16 +31,20 @@ const logger = createLogger('BrowserAgentTools');
 export interface BrowserPaneHostLike {
   readonly driver: Pick<BrowserDriver, 'getPageText' | 'snapshot'>;
   readonly manager: {
-    createTab(url?: string): string;
+    createTab(url?: string, owner?: BrowserTabOwner): string;
     getActiveWebContentsId(): number | null;
+    getWebContentsId(tabId: string): number | null;
     getNavigationError(tabId: string): string | null;
     listTabs(): readonly BrowserTabState[];
     navigate(tabId: string, url: string): boolean;
+    selectTab(tabId: string): boolean;
   };
+  prepareAgentBrowsing(loopback?: LoopbackAdmission): Promise<void>;
 }
 
 export interface BrowserToolFailure {
   readonly error:
+    | 'blocked_destination'
     | 'blocked_url'
     | 'browser_unavailable'
     | 'driver_failed'
@@ -87,10 +87,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function activeTab(host: BrowserPaneHostLike): BrowserTabState | undefined {
-  return host.manager.listTabs().find((tab) => tab.active);
-}
-
 /**
  * How long a stable not-loading state is trusted as "the load settled" when
  * neither a loading transition nor a url change was observed. Covers the
@@ -99,44 +95,157 @@ function activeTab(host: BrowserPaneHostLike): BrowserTabState | undefined {
  */
 const SETTLE_GRACE_MS = 600;
 
-export async function runBrowserNavigate(
-  input: BrowserNavigateInput,
-  host: BrowserPaneHostLike | null,
-  options?: BrowserNavigateOptions
-): Promise<BrowserNavigateResult> {
-  if (!host) {
-    return UNAVAILABLE;
-  }
-  const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+/** The prefix the pane host gives a navigation the egress proxy refused. */
+const BLOCKED_DESTINATION = 'blocked_destination:';
 
-  // AGENT-initiated navigation gets webExtract's host guard, not just the
-  // pane's scheme gate: with requiresApproval false, an unguarded navigate
-  // could read cloud metadata endpoints / RFC1918 / loopback in one turn.
-  // The USER's own URL bar is unaffected. (BST-1175/1178 add scoped, approved
-  // paths for dev-server preview.) Normalize FIRST so the gate sees exactly
-  // what the pane would load — including the search fallback.
-  const normalized = normalizeUrl(input.url);
-  const refusal = isNavigableUrl(normalized)
-    ? refuseExtractUrl(normalized)
-    : `refused: only http(s) pages can be opened by the agent (got "${normalized}")`;
-  if (refusal) {
-    return { error: 'blocked_url', hint: refusal, ok: false };
+/**
+ * Pin the TARGET tab now — polling "the active tab" would report whatever
+ * tab the user (or a popup interception) activated mid-wait as the result
+ * of this navigation. The agent drives only its own tabs, never one the
+ * user opened: the active agent tab, else the latest one, else a new one.
+ */
+function startAgentNavigation(
+  host: BrowserPaneHostLike,
+  url: string
+): { readonly preNavUrl: string | null; readonly tabId: string } | BrowserToolFailure {
+  const agentTabs = host.manager.listTabs().filter((tab) => tab.owner === 'agent');
+  const existing = agentTabs.find((tab) => tab.active) ?? agentTabs.at(-1);
+  if (existing === undefined) {
+    return { preNavUrl: null, tabId: host.manager.createTab(url, 'agent') };
   }
-
-  // Pin the TARGET tab now — polling "the active tab" would report whatever
-  // tab the user (or a popup interception) activated mid-wait as the result
-  // of this navigation.
-  const existing = activeTab(host);
-  const targetTabId = existing?.tabId ?? host.manager.createTab(normalized);
-  const preNavUrl = existing?.url ?? null;
-  if (existing && !host.manager.navigate(existing.tabId, normalized)) {
+  if (!existing.active) {
+    host.manager.selectTab(existing.tabId);
+  }
+  if (!host.manager.navigate(existing.tabId, url)) {
     return {
       error: 'navigate_failed',
       hint: `Tab ${existing.tabId} vanished mid-call; retry to open a fresh tab.`,
       ok: false,
     };
   }
+  return { preNavUrl: existing.url, tabId: existing.tabId };
+}
+
+/**
+ * BST-1178: a loopback navigation names its tab in its admission, so the tab
+ * must exist first: a new agent tab opens blank (no network), the proxy and
+ * session admit the server for that tab only, and then the tab loads it.
+ */
+async function startLoopbackNavigation(
+  host: BrowserPaneHostLike,
+  target: { readonly loopback: string; readonly origin: string; readonly url: string }
+): Promise<{ readonly preNavUrl: string | null; readonly tabId: string } | BrowserToolFailure> {
+  const agentTabs = host.manager.listTabs().filter((tab) => tab.owner === 'agent');
+  const existing = agentTabs.find((tab) => tab.active) ?? agentTabs.at(-1);
+  const tabId = existing?.tabId ?? host.manager.createTab('about:blank', 'agent');
+  if (existing !== undefined && !existing.active) {
+    host.manager.selectTab(existing.tabId);
+  }
+  const vanished: BrowserToolFailure = {
+    error: 'navigate_failed',
+    hint: `Tab ${tabId} vanished mid-call; retry to open a fresh tab.`,
+    ok: false,
+  };
+  const webContentsId = host.manager.getWebContentsId(tabId);
+  if (webContentsId === null) {
+    return vanished;
+  }
+  await host.prepareAgentBrowsing({
+    authority: target.loopback,
+    origin: target.origin,
+    webContentsId,
+  });
+  if (!host.manager.navigate(tabId, target.url)) {
+    return vanished;
+  }
+  return { preNavUrl: existing?.url ?? 'about:blank', tabId };
+}
+
+/**
+ * A blocked destination, a blocked scheme or a failed load
+ * (ERR_NAME_NOT_RESOLVED, refused connection) must never read as an ok blank
+ * page — NO SILENT FALLBACKS.
+ */
+function settledNavigation(
+  navigationError: string | null,
+  tab: BrowserTabState
+): BrowserNavigateResult {
+  if (navigationError?.startsWith(BLOCKED_DESTINATION) === true) {
+    return {
+      error: 'blocked_destination',
+      hint: navigationError.slice(BLOCKED_DESTINATION.length).trim(),
+      ok: false,
+    };
+  }
+  if (navigationError !== null) {
+    return { error: 'load_failed', hint: navigationError, ok: false };
+  }
+  return { ok: true, title: tab.title, url: tab.url };
+}
+
+/**
+ * BST-1178: one agent navigation at a time per pane. A navigation's loopback
+ * admission holds until it settles; a parallel call would replace it first.
+ */
+const navigations = new WeakMap<BrowserPaneHostLike, Promise<unknown>>();
+
+export function runBrowserNavigate(
+  input: BrowserNavigateInput,
+  host: BrowserPaneHostLike | null,
+  options?: BrowserNavigateOptions
+): Promise<BrowserNavigateResult> {
+  if (!host) {
+    return Promise.resolve(UNAVAILABLE);
+  }
+  const navigation = (navigations.get(host) ?? Promise.resolve()).then(() =>
+    navigateOnce(input, host, options)
+  );
+  navigations.set(
+    host,
+    navigation.catch(() => undefined)
+  );
+  return navigation;
+}
+
+async function navigateOnce(
+  input: BrowserNavigateInput,
+  host: BrowserPaneHostLike,
+  options?: BrowserNavigateOptions
+): Promise<BrowserNavigateResult> {
+  const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  // An unguarded navigate could read cloud metadata, RFC1918 or loopback in
+  // one turn. The agent host asked a person about this target's origin before
+  // the call reached here (BST-1178), so a loopback target is a dev server
+  // they approved: the proxy admits its exact host:port for this navigation.
+  const target = agentNavigationTarget(input.url);
+  if ('refusal' in target) {
+    return { error: 'blocked_url', hint: target.refusal, ok: false };
+  }
+  // The literal check above is a fast refusal, not the boundary: agent tabs
+  // connect only through the egress proxy, which checks every connection's
+  // resolved address, redirects and popups included (BST-1238).
+  let started: Awaited<ReturnType<typeof startLoopbackNavigation>>;
+  try {
+    const { loopback } = target;
+    if (loopback === undefined) {
+      await host.prepareAgentBrowsing();
+      started = startAgentNavigation(host, target.url);
+    } else {
+      started = await startLoopbackNavigation(host, { ...target, loopback });
+    }
+  } catch (error) {
+    return {
+      error: 'browser_unavailable',
+      hint: `Agent browsing could not start its network route: ${String(error)}`,
+      ok: false,
+    };
+  }
+  if ('ok' in started) {
+    return started;
+  }
+  const { preNavUrl, tabId: targetTabId } = started;
 
   // Settle discipline: accept a stable not-loading state only once we have
   // EVIDENCE the navigation ran — a loading transition was observed, or the
@@ -164,17 +273,7 @@ export async function runBrowserNavigate(
     if (!(sawLoading || urlChanged || preNavUrl === null || gracePassed)) {
       continue;
     }
-    // A blocked scheme or a failed load (ERR_NAME_NOT_RESOLVED, refused
-    // connection) must never read as an ok blank page — NO SILENT FALLBACKS.
-    const navigationError = host.manager.getNavigationError(targetTabId);
-    if (navigationError) {
-      return {
-        error: 'load_failed',
-        hint: navigationError,
-        ok: false,
-      };
-    }
-    return { ok: true, title: tab.title, url: tab.url };
+    return settledNavigation(host.manager.getNavigationError(targetTabId), tab);
   }
   return {
     error: 'load_timeout',

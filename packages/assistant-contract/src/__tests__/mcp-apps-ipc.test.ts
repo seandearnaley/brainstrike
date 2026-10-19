@@ -77,7 +77,7 @@ describe('MCP Apps IPC contract', () => {
       toolName: 'get-time',
     };
     expect(
-      Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
+      Schema.decodeSync(McpAppPrepareRequestSchema, {
         errors: 'all',
         onExcessProperty: 'error',
       })(request)
@@ -88,18 +88,20 @@ describe('MCP Apps IPC contract', () => {
         onExcessProperty: 'error',
       })({ ...request, decision: 'allow' })
     ).toThrow();
+    const emptyPreparationId: unknown = { ...request, preparationId: '' };
     expect(() =>
       Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
         errors: 'all',
         onExcessProperty: 'error',
-      })({ ...request, preparationId: '' })
+      })(emptyPreparationId)
     ).toThrow();
+    const emptyThreadId: unknown = { ...request, threadId: '' };
     // The owning thread is mandatory: admission is resolved per thread.
     expect(() =>
       Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
         errors: 'all',
         onExcessProperty: 'error',
-      })({ ...request, threadId: '' })
+      })(emptyThreadId)
     ).toThrow();
     expect(() => {
       const { threadId: _omitted, ...withoutThread } = request;

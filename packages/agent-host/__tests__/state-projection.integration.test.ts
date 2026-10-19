@@ -25,6 +25,7 @@ import { HostLogRowSchema } from '../src/protocol.js';
 import { decode, messages, search, text } from '../src/state-projection.js';
 import { searchHostThreads } from '../src/thread-search.js';
 import history from './fixtures/committed-history-search.json' with { type: 'json' };
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 
 const recordings = { approved, plan, question, rich };
 
@@ -40,8 +41,8 @@ test('native indexer consumes the actual Core producer and preserves committed t
     },
     stateRoot: root,
   } as const;
-  // Existing native process deadlines; no new readiness or inference budget.
-  const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+  // The shared real-indexer test deadlines; no new readiness or inference budget.
+  const deadlines = REAL_INDEXER_DEADLINES;
   let port: Awaited<ReturnType<typeof openIndexer>> | undefined;
   let store: StateStore | undefined;
   try {
@@ -242,7 +243,7 @@ test('recorded tool and decision history searches retain addresses through rebui
       },
       stateRoot: root,
     },
-    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+    REAL_INDEXER_DEADLINES
   );
   const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
   let core: HostCore | undefined;
@@ -377,7 +378,7 @@ test('recorded multi-line tool output searches by each of its words, not JSON es
       },
       stateRoot: root,
     },
-    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+    REAL_INDEXER_DEADLINES
   );
   const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
   try {

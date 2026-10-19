@@ -23,7 +23,7 @@
 /**
  * THE reasoning-effort vocabulary, weakest to strongest.
  *
- * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.49)
+ * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.96)
  * chat-options declaration; policed by
  * `scripts/__tests__/ai-sdk-openai-mirror-contract.test.mjs`.
  *

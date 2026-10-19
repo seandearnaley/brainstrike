@@ -225,7 +225,7 @@ async function productionReplay(
           prepareHostStep: (request) =>
             observe(
               owner.prepareHostStep?.(request) ??
-                Promise.resolve({ messages: [...request.messages] })
+                Promise.reject(new Error('Production Memory owner prepares no step'))
             ),
         };
       },
@@ -652,7 +652,9 @@ test.for(['stopped', 'interrupted'] as const)(
         },
         {
           call_id: 'call_recorded',
-          output: repair.content[0]?.output.value,
+          // OpenAI 4.0.88 / vercel/ai#22209 preserves the failure marker on
+          // the wire. The earlier successful occurrence remains plain text.
+          output: JSON.stringify({ error: repair.content[0]?.output.value }),
           type: 'function_call_output',
         },
       ]);

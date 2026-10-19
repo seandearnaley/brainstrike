@@ -461,7 +461,7 @@ test('a plain Node process serves the same authenticated schema through a symlin
   const socketRows = (await socket.request('thread/read', { fromSeq: 0, threadId })).rows;
   expect(
     (await stdio.request('thread/read', { fromSeq: 0, threadId })).rows.map((row) =>
-      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+      Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
     )
   ).toEqual(socketRows);
   expect(socketRows.some((row) => row.event.type === 'effect.started')).toBe(false);

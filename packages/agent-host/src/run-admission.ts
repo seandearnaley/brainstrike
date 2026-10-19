@@ -1,6 +1,7 @@
 import { modelStepFields } from '@brainstrike/agent/provider-runtime';
 import { resolveRunPythonExecutionContext } from '@brainstrike/agent/tool-runtime';
 import {
+  type BoundaryFailure,
   intersectChildPermissionCeilings,
   isPermissionDenied,
   NATIVE_TOOL_ID,
@@ -15,8 +16,18 @@ import type { StepResult, ToolSet } from 'ai';
 import { Schema } from 'effect';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
+import {
+  browserOriginDeniedReason,
+  type HostBrowserOriginStore,
+  readHostBrowserOrigins,
+} from './browser-origin-answers.js';
 import { withHostDelegationTools } from './child-runs.js';
-import { createHostRunContext, type HostRunState, type HostThreadGrants } from './core-state.js';
+import {
+  createHostRunContext,
+  type HostConsent,
+  type HostRunState,
+  type HostThreadGrants,
+} from './core-state.js';
 import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -28,6 +39,7 @@ import type {
   HostRunAdmissionRequest,
   HostRunIntentRequest,
   HostRunOwner,
+  HostTool,
 } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
@@ -67,7 +79,15 @@ export class HostRunAdmissionCleanupError extends AggregateError {
  * opaque and keeps the run, its writer and Root owned.
  */
 export class HostRunOwnerFailure extends AggregateError {
-  constructor(failures: readonly unknown[], message: string) {
+  /**
+   * @param failure - The outcome's typed failure, when its owner typed it
+   *   (BST-2202); the joined failures stay the logged cause.
+   */
+  constructor(
+    failures: readonly unknown[],
+    message: string,
+    readonly failure?: BoundaryFailure
+  ) {
     super(failures, message);
     this.name = 'HostRunOwnerFailure';
   }
@@ -123,12 +143,10 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
       : {}),
     snapshot: immutableData(
-      Schema.decodeUnknownSync(HostRunSnapshotSchema, { errors: 'all', onExcessProperty: 'error' })(
-        {
-          ...selected.snapshot,
-          ...(Object.keys(mcpAuthorities).length > 0 ? { mcpAuthorities } : {}),
-        }
-      )
+      Schema.decodeSync(HostRunSnapshotSchema, { errors: 'all', onExcessProperty: 'error' })({
+        ...selected.snapshot,
+        ...(Object.keys(mcpAuthorities).length > 0 ? { mcpAuthorities } : {}),
+      })
     ),
     tools: Object.freeze(
       Object.fromEntries(
@@ -551,11 +569,7 @@ export function hostStepInteractions(
         ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
-        kind: registered.interaction?.kind ?? (consent ? 'network' : 'approval'),
-        // A network consent offers grants only where it also stands in for an approval.
-        ...(registered.interaction || (consent && !consent.approval)
-          ? {}
-          : { risk: registered.risk }),
+        ...hostInteractionKind(registered, consent),
         runId: run.id,
         ...(targetRoot ? { targetRoot: { ...targetRoot } } : {}),
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
@@ -566,6 +580,58 @@ export function hostStepInteractions(
       },
     ];
   });
+}
+/**
+ * A request's kind, a network consent's browser origin, and the risk whose
+ * grants it offers: a network consent offers them only where it also stands
+ * in for an approval.
+ */
+function hostInteractionKind(
+  registered: HostTool,
+  consent: HostConsent | undefined
+): Pick<Extract<HostEvent, { type: 'interaction.requested' }>, 'kind' | 'origin' | 'risk'> {
+  return {
+    kind: registered.interaction?.kind ?? (consent ? 'network' : 'approval'),
+    ...(consent?.origin === undefined ? {} : { origin: consent.origin }),
+    ...(registered.interaction || (consent && !consent.approval) ? {} : { risk: registered.risk }),
+  };
+}
+/**
+ * A person's per-call consent ahead of the policy's own ask: run_python's
+ * requested network (legacy Gate B), or the first call to a browser origin
+ * (BST-1178). The SDK gives a call one approval round, so this one card also
+ * stands in for an approval the policy asks for; Core answers and executes it
+ * on resume. A saved Don't allow refuses the call; a saved Always allow
+ * leaves it to the policy.
+ */
+async function hostConsentDecision(
+  run: HostRunState,
+  registered: HostTool,
+  call: { readonly input: unknown; readonly toolCallId: string },
+  decision: 'allow' | 'ask',
+  origins: HostBrowserOriginStore
+): Promise<'user-approval' | { reason: string; type: 'denied' } | undefined> {
+  let origin: string | undefined;
+  if (!registered.consent?.(call.input)) {
+    origin = registered.browserOrigin?.(call.input);
+    if (origin === undefined) {
+      return;
+    }
+    const saved = (await readHostBrowserOrigins(origins))[origin];
+    run.controller.signal.throwIfAborted();
+    if (saved === 'deny') {
+      return { reason: browserOriginDeniedReason(origin), type: 'denied' };
+    }
+    if (saved === 'allow') {
+      return;
+    }
+  }
+  run.liveInputs.set(call.toolCallId, { value: call.input });
+  run.consents.set(call.toolCallId, {
+    approval: decision === 'ask',
+    ...(origin === undefined ? {} : { origin }),
+  });
+  return 'user-approval';
 }
 /**
  * Discovery's own tools sit outside the permission catalog: legacy added them
@@ -681,6 +747,7 @@ export function createAdmittedHostSdkTools(
 export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
+  origins: HostBrowserOriginStore,
   call: {
     toolName: string;
     toolCallId: string;
@@ -757,13 +824,11 @@ export async function decideHostSdkApproval(
   ) {
     throw new Error('Committed approval action identity changed');
   }
-  // run_python's requested network needs a person per call (legacy Gate B). The
-  // SDK gives a call one approval round, so this one card also stands in for an
-  // approval the policy asks for; Core answers and executes it on resume.
-  if (!prior && registered.consent?.(call.input)) {
-    run.liveInputs.set(call.toolCallId, { value: call.input });
-    run.consents.set(call.toolCallId, { approval: decision === 'ask' });
-    return 'user-approval';
+  const consented = prior
+    ? undefined
+    : await hostConsentDecision(run, registered, call, decision, origins);
+  if (consented) {
+    return consented;
   }
   if (decision === 'ask' && prior?.decision !== 'approve') {
     run.liveInputs.set(call.toolCallId, { value: call.input });

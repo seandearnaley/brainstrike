@@ -265,7 +265,7 @@ security test is worse than none.
 
 ## This suite is pinned to an exact srt version
 
-`@anthropic-ai/sandbox-runtime` is pinned to **0.0.75** in the workspace
+`@anthropic-ai/sandbox-runtime` is pinned to **0.0.80** in the workspace
 catalog, and a test in this file asserts the installed version matches.
 
 That is deliberate. The fence's guarantees *are* srt's guarantees, and the live
@@ -360,6 +360,44 @@ dropping the file.
 ---
 
 ### Bump log
+
+- **0.0.75 → 0.0.80 (BST-2029, 2026-10-18).** Published tarballs were
+  integrity-verified. Both existing integration files passed 47/47 on the
+  baseline on macOS arm64 and Ubuntu 26.04 x64. Before changing the version
+  assertion, the candidate passed all 46 macOS behavior cases and all 47 Linux
+  behavior cases; only the old version assertion failed. The additional Linux
+  case calls `unshare(CLONE_NEWUSER)` through the real executor: baseline allowed
+  it, candidate returns `EPERM`. The same syscall must first succeed under
+  bare Bubblewrap on the selected host path; host policy cannot count as a
+  fence denial. An omitted-fence mutation fails the denial assertion.
+  That Linux-specific case is intentionally not
+  executed on macOS; no network/host prerequisite cases were skipped.
+
+  M2, M3, M4, M12 and M13 were each removed temporarily on **both platforms**;
+  all five selected policy tests failed assertions, then the original source
+  was restored. As in the previous bump, the other eleven historical mutation
+  cases were not repeated: their executor mechanisms are unchanged. Their
+  ordinary behavior cases did run. This is five policy mutation kills per
+  platform, not a new claim of 16/16 mutation qualification.
+
+  The Ubuntu host uses the dedicated root-owned distro Bubblewrap copy and
+  application-specific AppArmor profile described in `docs/agents/code-execution.md`.
+  The ordinary distro profile and global namespace restriction remain enabled.
+  Both versions were tested with this same setup and disposable homes. The
+  Linux source checkout was installed frozen and its 18 build prerequisites
+  built locally; hosted CI was not used.
+
+  Keep all Brainstrike policy refusals. Upstream adds stricter nested-namespace
+  and write-deny enforcement; `allowNestedUserNamespaces` and other weakening
+  options remain unset. The prior root-read vulnerability description below
+  records the old releases, not a claim that the same vendor implementation
+  remains in 0.0.80. Refusing whole-root reads is still our tested policy.
+  Callback changes do not need an adapter: this executor calls `initialize`
+  without an ask callback and supplies explicit domain lists. The new Node
+  >=22.12 engine requirement is covered by the repository's Node >=24.20 floor.
+  Packaged desktop artifacts, Linux arm64 and Windows were not qualified by
+  these integration runs. Forge remains an accepted unresolved dependency
+  advisory; this upgrade does not claim to clear it.
 
 - **0.0.73 → 0.0.75 (BST-1669, 2026-09-07).** Two upstream releases.
   **Platforms that actually ran: macOS locally (Step 3) and Linux in CI

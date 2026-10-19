@@ -22,6 +22,10 @@ import {
   HooksSettingsSection,
 } from './settings/system/hooks-settings-section';
 import { PermissionSettingsSection } from './settings/system/permission-settings-section';
+import {
+  type SavedBrowserOrigins,
+  SavedBrowserOriginsSection,
+} from './settings/system/saved-browser-origins-section';
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
 import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
@@ -151,9 +155,20 @@ export function createSearchIndexingSettingsCategory(
   };
 }
 
-export function createPermissionSettingsCategory(): SettingsCategory {
+/** `browserOrigins`: the desktop host's saved site answers (BST-1178); web has none. */
+export function createPermissionSettingsCategory(options?: {
+  readonly browserOrigins?: SavedBrowserOrigins | undefined;
+}): SettingsCategory {
+  const browserOrigins = options?.browserOrigins;
   return {
-    content: <PermissionSettingsSection />,
+    content: browserOrigins ? (
+      <div className="space-y-6">
+        <PermissionSettingsSection />
+        <SavedBrowserOriginsSection origins={browserOrigins} />
+      </div>
+    ) : (
+      <PermissionSettingsSection />
+    ),
     description: 'Gate the assistant’s tools behind an allow / ask / deny policy.',
     icon: ShieldCheck,
     id: 'permissions',
@@ -169,6 +184,8 @@ export function createPermissionSettingsCategory(): SettingsCategory {
       'tools',
       'safety',
       'guardrails',
+      'sites',
+      'browser',
     ],
     title: 'Permissions',
   };
@@ -176,17 +193,21 @@ export function createPermissionSettingsCategory(): SettingsCategory {
 
 export interface CreateAssistantMemorySettingsCategoryOptions {
   readonly assistantMemoryBackendAvailable: boolean;
+  /** The host's embedding host runs local embedders on a device the user may choose. */
+  readonly onDeviceEmbedding?: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
 export function createAssistantMemorySettingsCategory({
   assistantMemoryBackendAvailable,
+  onDeviceEmbedding = false,
   providerKeySources,
 }: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
   return {
     content: (
       <AssistantMemorySettingsSection
         assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+        onDeviceEmbedding={onDeviceEmbedding}
         {...(providerKeySources ? { providerKeySources } : {})}
       />
     ),

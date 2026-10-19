@@ -10,24 +10,31 @@
  *  - `FollowUpQueueChips` — visible, removable "queued" chips above the
  *    composer; a removed chip is never dispatched.
  *  - `FollowUpQueueBridge` — render-nothing leaf (mounted alongside
- *    `RunLifecycleNotificationBridge`) that watches the thread's isRunning
- *    transition true->false and dispatches ONE queued message per run end via
+ *    `RunLifecycleNotificationBridge`) that joins the runtime's
+ *    `thread.runEnd` event and dispatches ONE queued message per run end via
  *    `aui.thread().append(...)` (the same programmatic-send seam the approval
  *    and suspend notices use). FIFO: the next item waits for the dispatched
  *    run to end. Dispatch failures are re-queued at the FRONT and logged —
  *    never silently dropped.
  *
+ * The run end is the runtime's event, never an observed `isRunning` edge:
+ * thread state reaches React through batched renders, so a dispatched run
+ * that starts and ends between two renders never shows as running, and an
+ * edge-watching bridge would strand the rest of the queue (BST-2207). The
+ * rendered `isRunning` only gates the send — nothing is appended while a run
+ * is visibly active.
+ *
  * Hydration/thread-switch guards mirror run-lifecycle-notifications.ts: no
- * dispatch while `state.thread.isLoading` (reload hydration must not replay a
- * "run end"), and a threadKey change reseeds the transition baseline instead
- * of treating the switch as a run end. Dispatch fires on BOTH finished and
- * failed/cancelled runs (a transition-based seam cannot distinguish them);
- * the chip's remove control is the user's veto while the run is active.
+ * dispatch while `state.thread.isLoading` (a run end waits for the real
+ * state), and a threadKey change discards any pending run end instead of
+ * treating the switch as one. Dispatch fires on BOTH finished and
+ * failed/cancelled runs (the event does not distinguish them); the chip's
+ * remove control is the user's veto while the run is active.
  */
-import { useAui, useAuiState } from '@assistant-ui/react';
+import { useAui, useAuiEvent, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
-import { use, useEffect, useRef } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { useAnsweredApprovals } from './answered-approvals-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import {
@@ -35,22 +42,67 @@ import {
   followUpQueueKey,
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
-import { useThreadScrollFollow } from './thread-scroll-follow';
+import { type ThreadScrollFollow, useThreadScrollFollow } from './thread-scroll-follow';
 
 const logger = createLogger('FollowUpQueue');
 
 function canDispatchQueuedFollowUp(args: {
-  readonly isRunning: boolean;
   readonly queueLength: number;
-  readonly isRunEndTransition: boolean;
+  readonly isRunEnd: boolean;
   readonly isCatchUp: boolean;
   readonly deferredRunEnd: boolean;
 }): boolean {
-  return (
-    !args.isRunning &&
-    args.queueLength > 0 &&
-    (args.isRunEndTransition || args.isCatchUp || args.deferredRunEnd)
-  );
+  return args.queueLength > 0 && (args.isRunEnd || args.isCatchUp || args.deferredRunEnd);
+}
+
+/** Sends the queue's next dispatchable item as a real user message. */
+function sendNextQueuedFollowUp({
+  answered,
+  aui,
+  follow,
+  queueKey,
+}: {
+  readonly answered: ReadonlyMap<string, unknown>;
+  readonly aui: ReturnType<typeof useAui>;
+  readonly follow: ThreadScrollFollow;
+  readonly queueKey: string;
+}): void {
+  const item = dequeueDispatchable(queueKey, answered);
+  if (!item) {
+    return;
+  }
+  // `append` is synchronous (returns void) in the installed assistant-ui;
+  // the guard covers a synchronous throw from the runtime binding. A run
+  // that STARTS and then fails is a normal run.failed, not a dispatch
+  // failure — it is not requeued.
+  const wasPinned = follow.getIsAtBottom();
+  try {
+    aui.thread().append(
+      item.message ?? {
+        content: [{ text: item.text, type: 'text' }],
+        role: 'user',
+      }
+    );
+  } catch (error) {
+    useFollowUpQueueStore.getState().requeueFront(queueKey, item);
+    logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
+    return;
+  }
+  if (wasPinned) {
+    // Dispatch IS a send, and sending pins the thread. Beyond intent,
+    // this closes a real race (BST-1039): the dequeue above unmounts the
+    // chip row, the composer shrinks, and the browser's scrollTop clamp
+    // can be misread as a user scroll by the follow engine's scroll
+    // bookkeeping — silently unpinning follow with no user act. The
+    // explicit request re-arms that bookkeeping through the clamp window.
+    // Readers who scrolled up are never yanked: wasPinned is captured
+    // before the flush. OUTSIDE the try: a scroll failure must never
+    // requeue an already-sent message (duplicate send). No behavior
+    // option — the engine's scrollToBottom deliberately omits it, so the
+    // default routes through CSS scroll-behavior (see THREAD SCROLLING in
+    // docs/agents/assistant-runtime.md).
+    follow.scrollToBottom();
+  }
 }
 
 export function useFollowUpQueueDispatch(
@@ -65,15 +117,21 @@ export function useFollowUpQueueDispatch(
   const { answers: answered } = useAnsweredApprovals();
   const queueKey = followUpQueueKey(threadKey);
   const queueLength = useFollowUpQueueStore((state) => state.queuedByThread[queueKey]?.length ?? 0);
+  // Every run end the runtime reports, counted from its own event (see the
+  // module header). The effect serves the ones it has not handled yet.
+  const [runEnds, setRunEnds] = useState(0);
+  useAuiEvent('thread.runEnd', () => {
+    setRunEnds((count) => count + 1);
+  });
 
-  const wasRunningRef = useRef(false);
+  const handledRunEndsRef = useRef(runEnds);
   const seededKeyRef = useRef(queueKey);
   // The bridge lives inside a threadKey-keyed subtree, so a thread switch
-  // UNMOUNTS it — a run that ends off-screen produces no observable
-  // transition. Once per (re)mounted key, an IDLE thread with a non-empty
-  // queue is treated as exactly that missed run end and dispatched (the chip
-  // promised "sends when the current run ends"; the run HAS ended). false
-  // until the first settled (non-loading) observation.
+  // UNMOUNTS it — a run that ends off-screen reaches no listener. Once per
+  // (re)mounted key, an IDLE thread with a non-empty queue is treated as
+  // exactly that missed run end and dispatched (the chip promised "sends when
+  // the current run ends"; the run HAS ended). false until the first settled
+  // (non-loading) observation.
   const caughtUpKeyRef = useRef<string | undefined>(undefined);
   const deferredRunEndRef = useRef(false);
 
@@ -82,11 +140,11 @@ export function useFollowUpQueueDispatch(
       return;
     }
     if (seededKeyRef.current !== queueKey) {
-      // Thread switch WITHIN one mounted bridge: reseed the baseline from the
-      // NEW thread's live state — a switch is not a run end — and let the
-      // catch-up below re-evaluate for the new key.
+      // Thread switch WITHIN one mounted bridge: a switch is not a run end,
+      // so drop any pending one, and let the catch-up below re-evaluate for
+      // the new key.
       seededKeyRef.current = queueKey;
-      wasRunningRef.current = isRunning;
+      handledRunEndsRef.current = runEnds;
       caughtUpKeyRef.current = undefined;
       deferredRunEndRef.current = false;
       return;
@@ -97,65 +155,32 @@ export function useFollowUpQueueDispatch(
     }
     const isCatchUp = caughtUpKeyRef.current !== queueKey;
     caughtUpKeyRef.current = queueKey;
-    const wasRunning = wasRunningRef.current;
-    wasRunningRef.current = isRunning;
-    const isRunEndTransition = wasRunning && !isRunning;
+    if (isRunning) {
+      // A run is on screen: still going, or its end has not rendered yet.
+      // Either way nothing is sent over it; a pending run end waits here.
+      return;
+    }
+    const isRunEnd = handledRunEndsRef.current !== runEnds;
+    handledRunEndsRef.current = runEnds;
     // The renderer can briefly report idle after a socket drops even while
     // the host run remains active. Keep the chip until replay reaches a real
     // terminal result (or the stale cursor is explicitly released).
     if (isReattaching) {
-      deferredRunEndRef.current ||= queueLength > 0 && (isRunEndTransition || isCatchUp);
+      deferredRunEndRef.current ||= queueLength > 0 && (isRunEnd || isCatchUp);
       return;
     }
     if (
       !canDispatchQueuedFollowUp({
         deferredRunEnd: deferredRunEndRef.current,
         isCatchUp,
-        isRunEndTransition,
-        isRunning,
+        isRunEnd,
         queueLength,
       })
     ) {
       return;
     }
     deferredRunEndRef.current = false;
-
-    const item = dequeueDispatchable(queueKey, answered);
-    if (!item) {
-      return;
-    }
-    // `append` is synchronous (returns void) in the installed assistant-ui;
-    // the guard covers a synchronous throw from the runtime binding. A run
-    // that STARTS and then fails is a normal run.failed, not a dispatch
-    // failure — it is not requeued.
-    const wasPinned = follow.getIsAtBottom();
-    try {
-      aui.thread().append(
-        item.message ?? {
-          content: [{ text: item.text, type: 'text' }],
-          role: 'user',
-        }
-      );
-    } catch (error) {
-      useFollowUpQueueStore.getState().requeueFront(queueKey, item);
-      logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
-      return;
-    }
-    if (wasPinned) {
-      // Dispatch IS a send, and sending pins the thread. Beyond intent,
-      // this closes a real race (BST-1039): the dequeue above unmounts the
-      // chip row, the composer shrinks, and the browser's scrollTop clamp
-      // can be misread as a user scroll by the follow engine's scroll
-      // bookkeeping — silently unpinning follow with no user act. The
-      // explicit request re-arms that bookkeeping through the clamp window.
-      // Readers who scrolled up are never yanked: wasPinned is captured
-      // before the flush. OUTSIDE the try: a scroll failure must never
-      // requeue an already-sent message (duplicate send). No behavior
-      // option — the engine's scrollToBottom deliberately omits it, so the
-      // default routes through CSS scroll-behavior (see THREAD SCROLLING in
-      // docs/agents/assistant-runtime.md).
-      follow.scrollToBottom();
-    }
+    sendNextQueuedFollowUp({ answered, aui, follow, queueKey });
   }, [
     answered,
     aui,
@@ -166,6 +191,7 @@ export function useFollowUpQueueDispatch(
     ownsQueue,
     queueKey,
     queueLength,
+    runEnds,
   ]);
 }
 

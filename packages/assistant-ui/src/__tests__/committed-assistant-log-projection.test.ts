@@ -16,6 +16,7 @@ import {
   type CommittedAssistantLogRow,
   type CommittedAssistantRunIdentity,
 } from '../committed-assistant-log-projection';
+import { CommittedRowUnreadableError } from '../committed-host-event-readers';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { recordedMessage } from './committed-assistant-test-support';
 
@@ -362,10 +363,84 @@ describe('rich committed-log presentation projection', () => {
       },
     ]);
     expect(answer(projection).content.at(-1)).toEqual({
-      data: { kind: 'deterministic', summary },
+      data: { kind: 'deterministic', reason: 'pre-request', summary, turnsCompacted: 1 },
       name: HOST_CONTEXT_COMPACTED_DATA_NAME,
       type: 'data',
     });
+  });
+
+  it('keeps an agentic compaction’s reason, turns, summarizer model and usage on its card part', () => {
+    const projection = projector();
+    projection.acceptCommitted(rows);
+    const last = rows.at(-1);
+    if (!last) {
+      throw new Error('Missing recorded rows.');
+    }
+    const summary = '## Goal\nShip it.';
+    projection.acceptCommitted([
+      {
+        event: {
+          compactedRunIds: ['earlier-run', 'middle-run'],
+          kind: 'agentic',
+          modelId: 'openai::gpt-6-sol',
+          reason: 'pre-request',
+          runId,
+          summary,
+          type: 'context.compacted',
+          // The SDK totalUsage exactly as the summarizer side call reported it.
+          usage: {
+            inputTokenDetails: { cacheReadTokens: 0 },
+            inputTokens: 12_400,
+            outputTokens: 310,
+            totalTokens: 12_710,
+          },
+        },
+        seq: last.seq + 1,
+        threadId,
+      },
+    ]);
+    expect(answer(projection).content.at(-1)).toEqual({
+      data: {
+        kind: 'agentic',
+        modelId: 'openai::gpt-6-sol',
+        reason: 'pre-request',
+        summary,
+        turnsCompacted: 2,
+        usage: { inputTokens: 12_400, outputTokens: 310 },
+      },
+      name: HOST_CONTEXT_COMPACTED_DATA_NAME,
+      type: 'data',
+    });
+  });
+
+  it.each([
+    ['an unknown reason', { reason: 'budget' }],
+    ['no compacted runs', { compactedRunIds: [] }],
+    ['usage without its token counts', { modelId: 'openai::gpt-6-sol', usage: { totalTokens: 9 } }],
+  ])('stops before a committed compaction with %s', (_label, change) => {
+    const projection = projector();
+    projection.acceptCommitted(rows);
+    const last = rows.at(-1);
+    if (!last) {
+      throw new Error('Missing recorded rows.');
+    }
+    expect(() =>
+      projection.acceptCommitted([
+        {
+          event: {
+            compactedRunIds: ['earlier-run'],
+            kind: 'deterministic',
+            reason: 'context-overflow',
+            runId,
+            summary: 'Deterministic fallback.',
+            type: 'context.compacted',
+            ...change,
+          },
+          seq: last.seq + 1,
+          threadId,
+        },
+      ])
+    ).toThrow(CommittedRowUnreadableError);
   });
 
   it('offers a permission approval’s grants and maps the chosen one to the call’s category or tool', () => {

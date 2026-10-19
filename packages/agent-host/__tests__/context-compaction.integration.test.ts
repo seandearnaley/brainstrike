@@ -57,7 +57,13 @@ function recordedTurn(threadId: string, index: number, answerChars: number): Hos
   ];
 }
 
-async function longThreadHost(turns: number, answerChars: number, inputTokenLimit: number) {
+async function longThreadHost(
+  turns: number,
+  answerChars: number,
+  inputTokenLimit: number,
+  /** Memory's native history window, in stored messages; each earlier turn stores two. */
+  lastMessages = 200
+) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-context-compaction-'));
   const store = await StateStore.open(root, {
     memoryCalculatorModule: join(
@@ -89,7 +95,7 @@ async function longThreadHost(turns: number, answerChars: number, inputTokenLimi
       memory: {
         native: {
           options: {
-            lastMessages: 200,
+            lastMessages,
             observationalMemory: false,
             semanticRecall: false,
             workingMemory: { enabled: false },
@@ -235,10 +241,50 @@ test('a summarizer answer outside the five-section schema commits the labelled d
     usage: { inputTokens: 42, outputTokens: 9 },
   });
   expect(compaction.summary).toContain('after an agentic summarizer failure');
+  expect(compaction.summarizerFailure).toEqual({
+    code: 'compaction.summary-invalid',
+    correlationId: expect.any(String),
+  });
   const request = JSON.stringify(requests.at(-1));
   expect(request).not.toContain('answer-0 ');
   expect(request).toContain('answer-11 ');
   expect(request).toContain(compaction.summary);
+});
+
+test('a branch past the trigger whose Memory request is under it is not compacted (ADR-0013)', async () => {
+  const { requests } = stubProvider(SUMMARY);
+  // 120,000 estimated tokens of branch; Memory's window sends the newest few turns.
+  const host = await longThreadHost(TURNS, ANSWER_CHARS, BUDGET, 6);
+  const { events } = await host.run('Latest question');
+
+  expect(events.filter((event) => event.type === 'context.compacted')).toEqual([]);
+  expect(requests).toHaveLength(1);
+  const request = JSON.stringify(requests[0]);
+  expect(request).not.toContain('Create a concise conversation state summary');
+  expect(request).not.toContain('answer-0 ');
+  expect(request).toContain('answer-11 ');
+});
+
+test('Memory’s request past the trigger compacts only the earlier turns it holds', async () => {
+  const { requests } = stubProvider(SUMMARY);
+  // 14 earlier turns; Memory's window holds the newest ten (~100,000 tokens), past the trigger.
+  const host = await longThreadHost(14, ANSWER_CHARS, BUDGET, 21);
+  const { events } = await host.run('Latest question');
+
+  const compaction = compactionOf(events);
+  expect(compaction).toMatchObject({ kind: 'agentic', reason: 'pre-request' });
+  expect(compaction.compactedRunIds).toHaveLength(8);
+  expect(requests).toHaveLength(2);
+  const [summarizer, request] = requests.map((body) => JSON.stringify(body));
+  expect(summarizer).not.toContain('answer-3 ');
+  expect(summarizer).toContain('answer-4 ');
+  expect(summarizer).toContain('answer-11 ');
+  expect(summarizer).not.toContain('answer-12 ');
+  expect(request).not.toContain('answer-3 ');
+  expect(request).not.toContain('answer-11 ');
+  expect(request).toContain('answer-12 ');
+  expect(request).toContain('answer-13 ');
+  expect(request).toContain('State: twelve earlier questions were answered.');
 });
 
 /** The provider's own overflow answer (OpenAI's `context_length_exceeded`), then a terminal 400. */

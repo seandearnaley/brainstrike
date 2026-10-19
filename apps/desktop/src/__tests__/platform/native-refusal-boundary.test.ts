@@ -1,4 +1,5 @@
 import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { IndexerError } from '@brainstrike/indexer';
 import {
   type NativeIndexRefusalCause,
   NativeIndexRefusalError,
@@ -133,3 +134,32 @@ it('keeps a closed refusal during quit, with its cause logged at info (ADR-0015)
     correlationId: expect.any(String),
   });
 });
+
+// Hosted run 39174635723: a signal to Main's process group ended the indexer under
+// a renderer's in-flight index call, and its typed exit was logged at error.
+it.each([false, true])(
+  'logs an indexer exit under an index call at error, or at info while quitting (quitting=%s)',
+  async (quitting) => {
+    if (quitting) {
+      markDesktopShuttingDown();
+    }
+    const exited = new IndexerError('indexer-exited', 'Indexer process exited.');
+    const wire = await settleIpcResult(
+      { category: 'native-index', code: 'native-index-failed' },
+      () => {
+        throw exited;
+      }
+    );
+    expect(wire).toMatchObject({ error: { code: 'boundary.internal' }, ok: false });
+    const fields = {
+      correlationId: expect.any(String),
+      error: exited,
+      operation: { category: 'native-index', code: 'native-index-failed' },
+    };
+    expect(quitting ? info : log).toHaveBeenCalledExactlyOnceWith(
+      'Untyped failure crossed a process boundary',
+      fields
+    );
+    expect(quitting ? log : info).not.toHaveBeenCalled();
+  }
+);

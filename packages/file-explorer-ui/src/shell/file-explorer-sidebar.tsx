@@ -555,6 +555,8 @@ interface RootSectionInnerProps extends RootSectionProps {
  * The INPUT tree is deferred (useDeferredValue) BEFORE the filter passes, so
  * expand-all storms run the expensive filtering at deferred priority while
  * the canonical treeContext.fileTree stays immediate for loading/selection.
+ * Around this section's recursive folder selection the current tree is
+ * filtered instead (useSelectionPinnedDeferredTree).
  */
 const RootSectionInner = ({
   isFirstSection,
@@ -569,7 +571,10 @@ const RootSectionInner = ({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
   const treeContext = useFileTreeContext();
-  const deferredFileTree = useDeferredValue(treeContext.fileTree);
+  const deferredFileTree = useSelectionPinnedDeferredTree(
+    treeContext.fileTree,
+    treeContext.isLoadingForSelection
+  );
   const viewFilteredTree = useGlobalFilteredTree(deferredFileTree);
   // The QUICK FILTER (search box) applies to every section's display too —
   // it is workspace-global state, and a search box that only filtered the
@@ -855,6 +860,37 @@ const RootSection = ({ rootDirectoryHandle, rootIdByPath, ...rest }: RootSection
   );
 };
 
+/**
+ * A tree deferred with useDeferredValue, except around a recursive folder
+ * selection. The single-root layout passes its display tree; each forest
+ * section passes its canonical tree, so the section's filtering stays deferred.
+ *
+ * React 19: useDeferredValue keeps showing the old tree while the new one
+ * renders, which prevents a "flash" during rapid tree updates such as
+ * expand-all.
+ *
+ * A recursive folder selection is the exception (BST-2088, BST-2179). Its scan
+ * lands the subtree it read and the selection together, then clears its
+ * loader, often before any deferred render has run. Painting that selection
+ * against the deferred (previous) tree showed the fully selected folder
+ * indeterminate, with its children hidden, until the deferred render caught
+ * up. So once a selection load starts, the current tree renders, and keeps
+ * rendering after the loader clears until the deferred tree has caught up: the
+ * layout never steps back to a tree older than the selection. The pin is state
+ * adjusted during render, React's pattern for state derived from props.
+ */
+function useSelectionPinnedDeferredTree<Tree>(tree: Tree, isLoadingForSelection: boolean): Tree {
+  const deferredTree = useDeferredValue(tree);
+  const [isPinnedToCurrentTree, setIsPinnedToCurrentTree] = useState(false);
+  if (isLoadingForSelection && !isPinnedToCurrentTree) {
+    setIsPinnedToCurrentTree(true);
+  }
+  if (!isLoadingForSelection && isPinnedToCurrentTree && deferredTree === tree) {
+    setIsPinnedToCurrentTree(false);
+  }
+  return isLoadingForSelection || isPinnedToCurrentTree ? tree : deferredTree;
+}
+
 const FileExplorerSidebar = memo(
   ({
     rootDirectoryHandle,
@@ -881,9 +917,10 @@ const FileExplorerSidebar = memo(
     isLoadingForSelectAll = false,
     isDisplayTreeFiltered,
   }: FileExplorerSidebarProps) => {
-    // React 19: useDeferredValue keeps showing the old tree while new one renders
-    // This prevents "flash" during rapid tree updates (like expand-all)
-    const deferredTree = useDeferredValue(quickFilteredTree);
+    const singleRootTree = useSelectionPinnedDeferredTree(
+      quickFilteredTree,
+      Boolean(isLoadingForSelection)
+    );
 
     // Forest mode single scroll owner: every section's TreeTable virtualizes
     // against this column (shared-scroller mode). Unconditional hook — forest
@@ -984,7 +1021,7 @@ const FileExplorerSidebar = memo(
     }
 
     // SINGLE-ROOT LAYOUT (original, golden-path regression safety)
-    const hasContent = deferredTree && deferredTree.length > 0;
+    const hasContent = singleRootTree && singleRootTree.length > 0;
     // Storage v5: resolve RootId for single-root mode folderId. getRootFolderId
     // already prefers the stamped handle.rootId, then the path→id map, then the
     // path — so it is the single canonical resolver here.
@@ -1040,13 +1077,13 @@ const FileExplorerSidebar = memo(
             {hasContent ? (
               <OptimizedFileTree
                 cancelChildLoading={cancelChildLoading}
-                fileTree={deferredTree}
+                fileTree={singleRootTree}
                 folderId={singleRootFolderId}
                 // The flag describes quickFilteredTree; while useDeferredValue
                 // still shows the PREVIOUS tree, fall back to the conservative
                 // legacy build (undefined) instead of mislabeling it.
                 isDisplayTreeFiltered={
-                  deferredTree === quickFilteredTree ? isDisplayTreeFiltered : undefined
+                  singleRootTree === quickFilteredTree ? isDisplayTreeFiltered : undefined
                 }
                 isLoadingForSelection={isLoadingForSelection}
                 loadingFiles={loadingFiles}
@@ -1071,7 +1108,7 @@ const FileExplorerSidebar = memo(
             ) : (
               <EmptyStateComponent
                 isLoading={isLoading}
-                quickFilteredTree={deferredTree}
+                quickFilteredTree={singleRootTree}
                 rootDirectoryHandle={rootDirectoryHandle}
               />
             )}

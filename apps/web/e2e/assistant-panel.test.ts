@@ -1,19 +1,14 @@
 import { expect, test } from '@playwright/test';
-import { mockAssistantApi } from './utils/assistant-mocks';
+import { HOSTED_ASSISTANT_STATUS, mockAssistantApi } from './utils/assistant-mocks';
 import { openAssistantWorkspace } from './utils/assistant-workspace';
 
 test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-state', () => {
-  test.beforeEach(async ({ request }, testInfo) => {
-    const response = await request.get('/api/assistant/status');
-    const payload = (await response.json()) as { enabled?: boolean };
-    if (!payload.enabled) {
-      testInfo.skip(true, 'Assistant disabled (missing API key)');
-    }
-  });
-
+  // BST-1968: the hosted status is the page's own mock, as in the other
+  // assistant specs. This spec used to skip unless the real server held a
+  // provider key, so it never ran in a keyless lane.
   test.beforeEach(async ({ page }) => {
-    await mockAssistantApi(page);
-    await openAssistantWorkspace(page, { rootName: 'assistant-panel' });
+    await mockAssistantApi(page, HOSTED_ASSISTANT_STATUS);
+    await openAssistantWorkspace(page, { hostedAssistantModel: true, rootName: 'assistant-panel' });
   });
 
   test('send message and stream response while switching agent sidebar tabs', async ({ page }) => {

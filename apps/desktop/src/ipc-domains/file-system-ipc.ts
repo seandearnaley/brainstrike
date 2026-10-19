@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   BoundaryFailureError,
   fault,
+  isStateStoreReadOnly,
   refusalError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import {
@@ -528,8 +529,10 @@ export function createFileSystemIpcDomain({
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
     getRootsCatalog,
-    // ADR-0015: the catalog refuses once the app quits during a reset; that is expected.
-    isExpectedCatalogRefusal: isExpectedShutdownRefusal,
+    // ADR-0015: the catalog refuses once the app quits during a reset; that is
+    // expected. So is a damaged store, which opened read-only (BST-2144).
+    isExpectedCatalogRefusal: (error) =>
+      isExpectedShutdownRefusal(error) || isStateStoreReadOnly(error),
     onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
     resolveCanonicalRoot: async (rootPath) => {

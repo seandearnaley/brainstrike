@@ -1,0 +1,20 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test:integration": {
+      // The node-workspace-services, node-workspace-root-identity and
+      // node-native-text-services suites run their fixtures as plain Node
+      // children, outside Vitest's source aliases. Those children import
+      // @brainstrike/assistant-service/node-workspace-services and
+      // /node-native-text-services, plus state-store, indexer and the other
+      // @brainstrike/* packages, through package exports that resolve to dist.
+      // `build` builds this package's dist and, through `^build`, every dist
+      // those children load.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    },
+    "test:coverage": {
+      // The coverage lane includes those same real-process suites.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

@@ -12,11 +12,10 @@ export type ToolCallArgsState = 'partial-call' | 'call' | 'result';
  * Reads the accumulator's `state` off a tool-call part.
  *
  * The renderer receives the accumulated part spread whole into its props, so
- * `state` is present at runtime — but `@assistant-ui/core`'s public
- * `ToolCallMessagePart` type does not declare it, and the field that IS typed
- * for the purpose (`status.isArgsComplete`) is written `false` at part creation
- * and never flipped by the installed accumulator, so it cannot carry the
- * signal. Narrowed rather than cast; an absent or unrecognised value yields
+ * `state` is present at runtime, but `@assistant-ui/core`'s public
+ * `ToolCallMessagePart` type does not declare it. assistant-stream 0.3.52 also
+ * sets `status.isArgsComplete`; `state` still distinguishes all three phases
+ * this reader exposes. Narrowed rather than cast; an absent or unrecognised value yields
  * `undefined` so the card falls back to plain "Running" instead of claiming
  * input is still arriving. Pinned against the installed accumulator in
  * `__tests__/tool-call-args-state.contract.test.ts`.

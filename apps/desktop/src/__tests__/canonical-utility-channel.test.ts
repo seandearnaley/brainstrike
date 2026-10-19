@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { CanonicalUtilityChannel } from '../canonical-utility-channel';
@@ -34,6 +35,37 @@ describe('canonical utility ownership', () => {
     });
     await expect(pending).rejects.toBe(controller.signal.reason);
     expect(channel.pendingCount).toBe(0);
+  });
+
+  // BST-2140: the ingestion host recognizes its owner's cancellation by type, never by name.
+  it('types a cancelled response as the owner cancellation and keeps a failure as itself', async () => {
+    const channel = new CanonicalUtilityChannel(() => {});
+    const cancelled = channel.call('owner', 'load-files', {}, Schema.String);
+    const failed = channel.call('owner', 'load-files', {}, Schema.String);
+    const retired = new DOMException('Canonical attachment retired.', 'AbortError');
+    channel.receive({
+      cancelled: true,
+      channel: 'canonical-ingestion-v1',
+      error: canonicalFault(retired),
+      id: 1,
+      kind: 'result',
+      ok: false,
+      owner: 'owner',
+    });
+    channel.receive({
+      channel: 'canonical-ingestion-v1',
+      error: canonicalFault(new DOMException('independent fault', 'AbortError')),
+      id: 2,
+      kind: 'result',
+      ok: false,
+      owner: 'owner',
+    });
+    const cancellation = await cancelled.catch((error: unknown) => error);
+    expect(cancellation).toBeInstanceOf(CanonicalOperationCancelledError);
+    expect(cancellation).toMatchObject({ message: 'Canonical attachment retired.' });
+    const failure = await failed.catch((error: unknown) => error);
+    expect(failure).not.toBeInstanceOf(CanonicalOperationCancelledError);
+    expect(failure).toMatchObject({ message: 'independent fault', name: 'AbortError' });
   });
 
   it('does not accept a response from another captured owner', async () => {

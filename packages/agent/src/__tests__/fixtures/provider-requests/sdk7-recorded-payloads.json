@@ -46,7 +46,8 @@
             "x-optional": [
               "line"
             ]
-          }
+          },
+          "strict": false
         }
       ],
       "tool_choice": "auto",
@@ -101,7 +102,8 @@
             "x-optional": [
               "line"
             ]
-          }
+          },
+          "strict": false
         }
       ],
       "tool_choice": "auto",
@@ -173,9 +175,6 @@
               "name": "read",
               "description": "Read a workspace file",
               "parametersJsonSchema": {
-                "required": [
-                  "path"
-                ],
                 "type": "object",
                 "properties": {
                   "line": {
@@ -184,7 +183,10 @@
                   "path": {
                     "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "path"
+                ]
               }
             }
           ]
@@ -291,13 +293,18 @@
     },
     "ollama": {
       "model": "qwen3",
-      "max_tokens": 321,
       "messages": [
         {
           "role": "user",
           "content": "Read README.md"
         }
       ],
+      "max_output_tokens": 321,
+      "think": true,
+      "options": {
+        "num_ctx": 32768,
+        "num_predict": 321
+      },
       "tools": [
         {
           "type": "function",
@@ -435,7 +442,8 @@
             "x-optional": [
               "line"
             ]
-          }
+          },
+          "strict": false
         }
       ],
       "tool_choice": "auto",
@@ -521,7 +529,8 @@
             "x-optional": [
               "line"
             ]
-          }
+          },
+          "strict": false
         }
       ],
       "tool_choice": "auto",
@@ -529,8 +538,9 @@
     }
   },
   "source": {
-    "base": "22888518d60b2c2dcd9717bccf58a7fc9753a712",
+    "base": "f9dcbce5f6917a02ea4b4fc9cc7438e997d6cd03",
     "capture": "real installed SDK/provider serialization; fully intercepted fetch; no real account",
+    "openai": "4.0.96",
     "sdk": "7.0.142"
   }
 }

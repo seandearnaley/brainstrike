@@ -3,7 +3,7 @@ import { toBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { createLogger } from '@brainstrike/logging';
+import { createLogger, error as logError, fatal as logFatal } from '@brainstrike/logging';
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
@@ -20,9 +20,14 @@ import {
 import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import {
+  PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
   PlatformCatalogModelSchema,
+  PlatformDiagnosticRecordSchema,
   PlatformEmbeddingQuerySchema,
+  type PlatformLocalModel,
+  PlatformLocalModelResultSchema,
+  PlatformLocalModelSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformMemoryVectorsSchema,
   PlatformNativeChildSchema,
@@ -35,6 +40,8 @@ import {
 } from './platform-wire';
 
 const logger = createLogger('DesktopMainPlatform');
+/** An unscoped host record keeps no scope in Main's log either. */
+const ROOT_LOG = { error: logError, fatal: logFatal } as const;
 const PLATFORM_CLOSING = fault({
   category: 'availability',
   code: 'platform.closing',
@@ -111,6 +118,28 @@ function serveAdmissionReads(
           )
         )
       )
+  );
+  connection.onRequest<PlatformLocalModel, unknown>(
+    'platform/admission/local-model',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async (signal) => {
+        const localRuntimeModel = reads.localRuntimeModel;
+        if (!localRuntimeModel) {
+          throw new Error('This desktop serves no local runtime catalog');
+        }
+        return Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(
+          await localRuntimeModel(
+            Schema.decodeUnknownSync(PlatformLocalModelSchema, {
+              errors: 'all',
+              onExcessProperty: 'error',
+            })(input),
+            signal
+          )
+        );
+      })
   );
   connection.onRequest('platform/admission/observers', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) =>
@@ -299,6 +328,21 @@ export function serveDesktopPlatform(
     task.then(settled, settled);
     return task;
   };
+  connection.onRequest(
+    PLATFORM_DIAGNOSTICS_RECORD_METHOD,
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { record } = wireDecoder(PlatformDiagnosticRecordSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
+        // BST-2202: Main's existing logger owns the file and durable diagnostic
+        // sinks, as for MCP's records. The host's logger redacted it already.
+        const relog = record.scope === undefined ? ROOT_LOG : createLogger(record.scope);
+        relog[record.level](...record.args);
+        return null;
+      })
+  );
   connection.onRequest('platform/ready', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       wireDecoder(Schema.Record(Schema.String, Schema.Never), {
@@ -395,7 +439,13 @@ export function serveDesktopPlatform(
   connection.onDispose(() => {
     void close().catch(() => undefined);
   });
-  connection.onRequest('platform/close', close);
+  // The host keeps its Root when this fails, so the failure is logged here with
+  // every inner cause, under the correlation id the host's fault carries (BST-2192).
+  connection.onRequest('platform/close', () =>
+    close().catch((cause: unknown) => {
+      throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
+    })
+  );
   connection.listen();
   return {
     close: disconnect,

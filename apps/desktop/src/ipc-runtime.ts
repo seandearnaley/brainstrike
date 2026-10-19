@@ -244,6 +244,26 @@ function validateModelId(value: unknown): string {
   return value;
 }
 
+/**
+ * BST-754: run admission's read of an Ollama model's `/api/show`, through the
+ * same cached catalog the picker's discovery uses.
+ */
+export function resolveOllamaModelForAdmission(
+  modelId: string,
+  endpoint:
+    | { readonly apiToken?: string | undefined; readonly baseUrl?: string | undefined }
+    | undefined,
+  signal: AbortSignal
+): ReturnType<LocalRuntimeModelCatalogService['resolveOllamaCapabilities']> {
+  return getBridge().resolveOllamaCapabilities(modelId, {
+    endpoint: {
+      ...(endpoint?.apiToken === undefined ? {} : { apiToken: endpoint.apiToken }),
+      ...(endpoint?.baseUrl === undefined ? {} : { baseUrl: endpoint.baseUrl }),
+    },
+    signal,
+  });
+}
+
 export function registerRuntimeIpcHandlers(): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 

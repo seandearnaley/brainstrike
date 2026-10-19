@@ -1,4 +1,9 @@
-import { resolveGuardedToolSignal } from '@brainstrike/agent/tool-guard-deadline';
+import {
+  readToolGuardRemainingMs,
+  reportToolGuardActivity,
+  resolveGuardedToolSignal,
+  toolGuardOwnsInactivity,
+} from '@brainstrike/agent/tool-guard-deadline';
 import {
   type McpHostExecution,
   type McpHostPort,
@@ -74,6 +79,7 @@ export interface McpRuntimeClient {
 
 /** A host invocation carries its execution capability; it never reaches the server request. */
 type HostCallToolOptions = ExplicitHttpMcpRequestOptions & {
+  readonly callerGuardsInactivity?: true;
   readonly execution?: McpHostExecution;
 };
 
@@ -132,6 +138,7 @@ function createHostClient(
   }
   let closed = false;
   const requestOptions = (options?: HostCallToolOptions) => ({
+    ...(options?.callerGuardsInactivity ? { callerGuardsInactivity: true as const } : {}),
     ...(options?.execution ? { execution: options.execution } : {}),
     ...(options?.onprogress ? { onProgress: options.onprogress } : {}),
     signal: options?.signal ? AbortSignal.any([lease.signal, options.signal]) : lease.signal,
@@ -392,33 +399,35 @@ async function executeMcpTool(
   let lastProgress = Number.NEGATIVE_INFINITY;
   const toolCallId = readToolCallId([undefined, context]);
   const writer = context?.writer;
-  const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> | undefined =
-    toolCallId && writer
-      ? (progress): void => {
-          if (
-            typeof progress.progress !== 'number' ||
-            !Number.isFinite(progress.progress) ||
-            progress.progress < lastProgress
-          ) {
-            return;
-          }
-          lastProgress = progress.progress;
-          progressWrites = progressWrites
-            .then(() =>
-              writer.custom({
-                progress: progress.progress,
-                toolCallId,
-                toolName: `${serverName}.${toolName}`,
-                type: MCP_PROGRESS_STREAM_PART_TYPE,
-                ...(progress.message === undefined ? {} : { message: progress.message }),
-                ...(progress.total === undefined ? {} : { total: progress.total }),
-              })
-            )
-            .catch((error: unknown) => {
-              progressDeliveryError ??= error;
-            });
-        }
-      : undefined;
+  const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> = (progress): void => {
+    if (
+      typeof progress.progress !== 'number' ||
+      !Number.isFinite(progress.progress) ||
+      progress.progress < lastProgress
+    ) {
+      return;
+    }
+    lastProgress = progress.progress;
+    // BST-1779: progress is activity, so the call's inactivity window restarts.
+    reportToolGuardActivity(context);
+    if (!(toolCallId && writer)) {
+      return;
+    }
+    progressWrites = progressWrites
+      .then(() =>
+        writer.custom({
+          progress: progress.progress,
+          toolCallId,
+          toolName: `${serverName}.${toolName}`,
+          type: MCP_PROGRESS_STREAM_PART_TYPE,
+          ...(progress.message === undefined ? {} : { message: progress.message }),
+          ...(progress.total === undefined ? {} : { total: progress.total }),
+        })
+      )
+      .catch((error: unknown) => {
+        progressDeliveryError ??= error;
+      });
+  };
 
   const finishProgressDelivery = async (): Promise<void> => {
     await progressWrites;
@@ -450,8 +459,9 @@ async function executeMcpTool(
       },
       {
         ...host,
+        ...(toolGuardOwnsInactivity(context) ? { callerGuardsInactivity: true as const } : {}),
         ...(callSignal ? { signal: callSignal } : {}),
-        ...(onprogress ? { onprogress } : {}),
+        onprogress,
       }
     );
   } catch (error) {
@@ -490,6 +500,7 @@ async function executeMcpTool(
       // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
       configuredServerId: serverName,
       ...host,
+      guardRemainingMs: () => readToolGuardRemainingMs(context),
       result: createdTask,
       ...(context?.abortSignal ? { signal: context?.abortSignal } : {}),
       toolName,

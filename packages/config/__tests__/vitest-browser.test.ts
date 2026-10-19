@@ -3,6 +3,7 @@ import { playwright as playwrightProvider } from '@vitest/browser-playwright';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type BrowserProjectConfig,
+  bindCurrentTestFrame,
   bindTraceChunkNameBounding,
   boundTraceChunkName,
   createBrowserProject,
@@ -452,4 +453,64 @@ describe('createBrowserProject async-utility timeout wiring (BST-1299)', () => {
       );
     }
   );
+});
+
+describe('browser command frames during worker reuse', () => {
+  function fixture() {
+    const currentFrame = { name: () => 'vitest-iframe' };
+    const contentFrame = vi.fn<() => Promise<typeof currentFrame | null>>(async () => currentFrame);
+    const dispose = vi.fn(async () => undefined);
+    const handle = { contentFrame, dispose };
+    const elementHandle = vi.fn<() => Promise<typeof handle | null>>(async () => handle);
+    const locator = vi.fn(() => ({ elementHandle }));
+    const staleFrame = vi.fn(async () => ({ name: () => 'previous-file' }));
+    const page = { locator };
+    const provider = {
+      getCommandsContext: vi.fn((_sessionId: string) => ({ frame: staleFrame, page })),
+    };
+    bindCurrentTestFrame(provider);
+    const context = provider.getCommandsContext('reused-worker');
+    return { contentFrame, context, currentFrame, dispose, elementHandle, locator, staleFrame };
+  }
+
+  it('uses the live iframe when the named frame still belongs to the previous file', async () => {
+    const f = fixture();
+    expect(await f.context.frame()).toBe(f.currentFrame);
+    expect(f.locator).toHaveBeenCalledWith('iframe[data-vitest="true"]');
+    expect(f.staleFrame).not.toHaveBeenCalled();
+    expect(f.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('resolves a fresh element for every command instead of caching a previous file', async () => {
+    const f = fixture();
+    await f.context.frame();
+    const nextFrame = { name: () => 'next-file' };
+    f.contentFrame.mockResolvedValueOnce(nextFrame);
+    expect(await f.context.frame()).toBe(nextFrame);
+    expect(f.elementHandle).toHaveBeenCalledTimes(2);
+    expect(f.dispose).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces a missing iframe element without selecting a stale frame', async () => {
+    const f = fixture();
+    f.elementHandle.mockResolvedValueOnce(null);
+    await expect(f.context.frame()).rejects.toThrow('current test iframe element');
+    expect(f.staleFrame).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a missing content frame and releases its element', async () => {
+    const f = fixture();
+    f.contentFrame.mockResolvedValueOnce(null);
+    await expect(f.context.frame()).rejects.toThrow('current test iframe');
+    expect(f.dispose).toHaveBeenCalledOnce();
+    expect(f.staleFrame).not.toHaveBeenCalled();
+  });
+
+  it('preserves a frame lookup failure and still releases its element', async () => {
+    const f = fixture();
+    const failure = new Error('Frame lookup failed');
+    f.contentFrame.mockRejectedValueOnce(failure);
+    await expect(f.context.frame()).rejects.toBe(failure);
+    expect(f.dispose).toHaveBeenCalledOnce();
+  });
 });

@@ -7,24 +7,34 @@ import { readToolCallId } from './read-tool-call-id';
  * before answering a timeout, and releases this entry in finally. The caller's
  * abortSignal stays untouched because raw MCP result retention uses its identity.
  */
-const deadlineSignals = new WeakMap<object, AbortSignal>();
+export interface ToolGuardDeadlineHooks {
+  /** BST-1779: re-arms an inactivity budget; absent for a flat wall-clock guard. */
+  readonly onActivity?: () => void;
+  /** How long until the guard ends the call, as it stands now; absent before it arms. */
+  readonly remainingMs?: () => number | undefined;
+}
+interface ToolGuardDeadline extends ToolGuardDeadlineHooks {
+  readonly signal: AbortSignal;
+}
+const deadlineSignals = new WeakMap<object, ToolGuardDeadline>();
 
 /** Publish one invocation's deadline; calls without host identity publish nothing. */
 export function registerToolGuardDeadlineSignal(
   args: readonly unknown[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  hooks: ToolGuardDeadlineHooks = {}
 ): () => void {
   const context = args[1];
   if (typeof context !== 'object' || context === null || !readToolCallId(args)) {
     return () => undefined;
   }
   const existing = deadlineSignals.get(context);
-  if (existing && existing !== signal) {
+  if (existing && existing.signal !== signal) {
     throw new Error('Tool execution context already owns a guard deadline');
   }
-  deadlineSignals.set(context, signal);
+  deadlineSignals.set(context, { ...hooks, signal });
   return (): void => {
-    if (deadlineSignals.get(context) === signal) {
+    if (deadlineSignals.get(context)?.signal === signal) {
       deadlineSignals.delete(context);
     }
   };
@@ -33,8 +43,41 @@ export function registerToolGuardDeadlineSignal(
 /** The guard deadline for this exact invocation, never a lookup by provider ID. */
 export function readToolGuardDeadlineSignal(executionContext: unknown): AbortSignal | undefined {
   return typeof executionContext === 'object' && executionContext !== null
-    ? deadlineSignals.get(executionContext)
+    ? deadlineSignals.get(executionContext)?.signal
     : undefined;
+}
+
+/**
+ * BST-1779: the tool reports that its work is progressing (an MCP server's
+ * progress notification). A guard with an inactivity budget restarts its
+ * window; a flat guard, or a call with no guard, ignores it.
+ */
+export function reportToolGuardActivity(executionContext: unknown): void {
+  if (typeof executionContext === 'object' && executionContext !== null) {
+    deadlineSignals.get(executionContext)?.onActivity?.();
+  }
+}
+
+/**
+ * How long until this call's guard ends it, as of now (an inactivity budget's
+ * window restarts on activity). Absent when no guard has armed for the call.
+ */
+export function readToolGuardRemainingMs(executionContext: unknown): number | undefined {
+  return typeof executionContext === 'object' && executionContext !== null
+    ? deadlineSignals.get(executionContext)?.remainingMs?.()
+    : undefined;
+}
+
+/**
+ * BST-1779: whether this call's guard ends it on inactivity, so a request's
+ * own idle timeout must not race that guard.
+ */
+export function toolGuardOwnsInactivity(executionContext: unknown): boolean {
+  return (
+    typeof executionContext === 'object' &&
+    executionContext !== null &&
+    deadlineSignals.get(executionContext)?.onActivity !== undefined
+  );
 }
 
 /**

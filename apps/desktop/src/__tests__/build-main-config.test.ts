@@ -61,6 +61,7 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
 describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
+      'agent-egress-entry': 'src/agent-egress-entry.ts',
       'agent-host-entry': 'src/agent-host-entry.ts',
       'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
       'desktop-database-location': 'src/desktop-database-location.ts',

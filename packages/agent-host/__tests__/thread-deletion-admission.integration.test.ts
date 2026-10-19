@@ -14,6 +14,7 @@ import { expect, test, vi } from 'vitest';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import { HostLogRowSchema } from '../src/protocol.js';
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
 test.for([
@@ -35,7 +36,7 @@ test.for([
         },
         stateRoot: root,
       },
-      { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+      REAL_INDEXER_DEADLINES
     );
     const store = await StateStore.open(root, { indexer: createStateStoreIndexer(native) });
     const snapshot = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {

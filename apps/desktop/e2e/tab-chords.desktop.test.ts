@@ -67,9 +67,10 @@ async function openThreeThreads(page: Page): Promise<Locator> {
 }
 
 test.describe('Tab keyboard chords (desktop)', () => {
-  test.fixme('⌘W closes a tab, not the window; ⌘⇧T restores it; Ctrl+Tab cycles by position', {
-    annotation: { description: 'BST-1958', type: 'quarantine' },
-  }, async ({ electronApp, window: page }) => {
+  test('⌘W closes a tab, not the window; ⌘⇧T restores it; Ctrl+Tab cycles by position', async ({
+    electronApp,
+    window: page,
+  }) => {
     test.setTimeout(120_000);
     const app = electronApp.app;
 
@@ -149,6 +150,9 @@ test.describe('Tab keyboard chords (desktop)', () => {
     for (const appId of ['changes', 'canvas']) {
       await page.getByTestId('workspace-add-tab').click();
       await page.getByTestId(`workspace-add-tab-${appId}`).click();
+      // The menu dismisses after the pick (exit animation, then focus returns
+      // to "+"); reopening inside that window is closed by the returning focus.
+      await expect(page.getByRole('menu')).toHaveCount(0);
     }
     const canvasTab = workspace.getByTestId('workspace-app-tab-canvas');
     await canvasTab.click();

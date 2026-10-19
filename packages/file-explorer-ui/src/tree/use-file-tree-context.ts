@@ -134,6 +134,13 @@ export interface CancellableFileTreeHook {
 
 export interface UseFileTreeOptions {
   /**
+   * False keeps the tree inert (BST-1957): no worker, no root load, an empty
+   * tree. For a caller that must call the hook for hook order but reads a
+   * shared FileTreeProvider tree instead. Defaults to true.
+   */
+  enabled?: boolean;
+
+  /**
    * Filter function to apply workspace include/exclude filters to a tree.
    * Called in the slow path when directories are loaded from the worker,
    * ensuring workspace filters are respected before file selection.

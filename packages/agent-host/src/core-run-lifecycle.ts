@@ -10,7 +10,7 @@ import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
 import { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
-import { HostRunAdmissionCleanupError } from './run-admission.js';
+import { HostRunAdmissionCleanupError, HostRunOwnerFailure } from './run-admission.js';
 
 const logger = createLogger('AgentHost');
 
@@ -489,8 +489,13 @@ function failureDetail(run: HostRunState, failure: unknown): string | undefined 
 }
 
 function describeRunFailure(run: HostRunState, failure: unknown): string {
+  // A typed owner outcome keeps its joined failures as the cause logged under its id.
+  const typed =
+    failure instanceof HostRunOwnerFailure && failure.failure
+      ? new BoundaryFailureError(failure.failure, { cause: failure })
+      : failure;
   return describeBoundaryFailure(
-    toBoundaryFailure(failure, (message, fields) =>
+    toBoundaryFailure(typed, (message, fields) =>
       logger.error(message, { ...fields, runId: run.id, threadId: run.threadId })
     )
   );

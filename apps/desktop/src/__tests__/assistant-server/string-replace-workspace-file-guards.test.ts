@@ -78,6 +78,16 @@ describe('stringReplaceWorkspaceFile (real tool execute)', () => {
       expect(escalatedError).toMatchObject({ reason: 'not_found' });
       expect((escalatedError as Error).message).toContain('No sufficiently close match');
       expect((escalatedError as Error).message).toContain(EDIT_FAILURE_HINT_MESSAGE);
+      expect(escalatedError).toBeInstanceOf(Error);
+      if (!(escalatedError instanceof Error)) {
+        throw new Error('Expected an Error');
+      }
+      expect(escalatedError.cause).toBeInstanceOf(Error);
+      expect(escalatedError.cause).toMatchObject({
+        message: expect.not.stringContaining(EDIT_FAILURE_HINT_MESSAGE),
+        reason: 'not_found',
+      });
+      expect(Object.getOwnPropertyDescriptor(escalatedError, 'cause')?.enumerable).toBe(false);
 
       await executeTool({
         newStr: 'enabled=false',

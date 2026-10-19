@@ -22,7 +22,6 @@ export const inspectCommandSessions = defineNativeTool({
   id: 'brainstrike.inspectCommandSessions',
   inputSchema: effectToolInputSchema(InspectCommandSessionsInputSchema),
   kind: 'desktop',
-  localProvider: 'unregistered',
   // Command text, stdin, cwd, and PTY output are redacted from durable history.
   nonDurableOutput: true,
   returns:

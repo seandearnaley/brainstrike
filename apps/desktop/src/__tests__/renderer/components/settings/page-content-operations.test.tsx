@@ -75,7 +75,12 @@ interface CapturedToolsOperations {
   createSampleConfig: () => Promise<{ error?: string; path: string; success: boolean }>;
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
-  getMcpConfigInfo: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
+  getMcpConfigInfo: () => Promise<{
+    error?: string;
+    exists: boolean;
+    path: string;
+    watchError?: string;
+  } | null>;
   getMcpConfigPath?: () => Promise<string>;
   getMcpExtensionPreferences?: () => Promise<McpExtensionEnablement>;
   getMcpPrompt?: (request: unknown) => Promise<unknown>;
@@ -89,8 +94,13 @@ interface CapturedToolsOperations {
     total: number;
   }>;
   getTools: () => Promise<Array<{ id: string; source: string }>>;
+  installMcpCatalogServer?: (request: {
+    access: 'read-only' | 'read-write';
+    catalogId: string;
+    token?: string;
+  }) => Promise<{ error?: string; path: string; revision?: string; success: boolean }>;
   openMcpConfig: () => Promise<void>;
-  readMcpConfigText?: () => Promise<{ content: string; path: string }>;
+  readMcpConfigText?: () => Promise<{ content: string; path: string; revision: string }>;
   readMcpResource?: (request: unknown) => Promise<unknown>;
   refreshMcpServers: () => Promise<void>;
   reloadToolPreferences?: () => Promise<void>;
@@ -101,7 +111,12 @@ interface CapturedToolsOperations {
     preferences: McpExtensionEnablement
   ) => Promise<McpExtensionEnablement>;
   subscribeMcpConfig: (
-    listener: (config: { error?: string; exists: boolean; path: string }) => void
+    listener: (config: {
+      error?: string;
+      exists: boolean;
+      path: string;
+      watchError?: string;
+    }) => void
   ) => () => void;
   subscribeMcpExtensionPreferences?: (
     listener: (preferences: McpExtensionEnablement) => void
@@ -109,8 +124,9 @@ interface CapturedToolsOperations {
   subscribeMcpServerStatus?: (listener: (event: McpHostWatchEvent) => void) => () => void;
   subscribeMcpTools: (listener: () => void) => () => void;
   writeMcpConfigText?: (
-    content: string
-  ) => Promise<{ error?: string; path: string; success: boolean }>;
+    content: string,
+    baseRevision: string
+  ) => Promise<{ error?: string; path: string; revision?: string; success: boolean }>;
 }
 
 let capturedOperations: CapturedToolsOperations | null = null;
@@ -314,6 +330,10 @@ vi.mock('../../../../renderer/host-mcp-settings', () => ({
   resolveDesktopMcpContent: () => hostMcpContent.current,
 }));
 
+vi.mock('../../../../renderer/host-browser-origins', () => ({
+  resolveDesktopHostBrowserOrigins: () => null,
+}));
+
 vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
   DesktopLoggingSettings: () => <div data-testid="logging-settings" />,
 }));
@@ -344,6 +364,7 @@ const MCP_TOOLS = {
 
 function createHostMcpSettings(): FakeHostMcpSettings {
   const responses: Record<string, (params: unknown) => unknown> = {
+    'mcp/config/install': () => ({ path: '/tmp/mcp.json', revision: 'installed', success: true }),
     'mcp/config/path': () => ({ path: '/tmp/mcp.json' }),
     'mcp/config/path/set': (params) => ({
       path: (params as { path: string | null }).path ?? '/tmp/default.json',
@@ -355,10 +376,11 @@ function createHostMcpSettings(): FakeHostMcpSettings {
       error: 'invalid_mcp_config: servers: required',
       exists: true,
       path: '/tmp/mcp.json',
+      revision: 'loaded',
     }),
     'mcp/config/sample': () => ({ path: '/tmp/sample.json', success: true }),
     'mcp/config/status': () => ({ exists: true, path: '/tmp/mcp.json' }),
-    'mcp/config/write': () => ({ path: '/tmp/mcp.json', success: true }),
+    'mcp/config/write': () => ({ path: '/tmp/mcp.json', revision: 'written', success: true }),
     'mcp/extensions/read': () => extensionPreferences,
     'mcp/extensions/set': (params) => params,
     'mcp/server/control': () => hostSnapshot.servers[0],
@@ -449,6 +471,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(operations).not.toHaveProperty('getMcpExtensionPreferences');
     expect(operations).not.toHaveProperty('readMcpConfigText');
     expect(operations).not.toHaveProperty('writeMcpConfigText');
+    expect(operations).not.toHaveProperty('installMcpCatalogServer');
     await expect(operations.createSampleConfig()).resolves.toEqual({
       error: 'MCP settings need the desktop agent host',
       path: '',
@@ -541,13 +564,23 @@ describe('desktop SettingsPageContent tool operations', () => {
       error: 'invalid_mcp_config: servers: required',
       exists: true,
       path: '/tmp/mcp.json',
+      revision: 'loaded',
     });
-    await expect(operations.writeMcpConfigText?.('{"servers":{}}')).resolves.toEqual({
+    await expect(operations.writeMcpConfigText?.('{"servers":{}}', 'loaded')).resolves.toEqual({
       path: '/tmp/mcp.json',
+      revision: 'written',
       success: true,
     });
     expect(settings.request).toHaveBeenCalledWith('mcp/config/write', {
+      baseRevision: 'loaded',
       content: '{"servers":{}}',
+    });
+    await expect(
+      operations.installMcpCatalogServer?.({ access: 'read-only', catalogId: 'linear' })
+    ).resolves.toEqual({ path: '/tmp/mcp.json', revision: 'installed', success: true });
+    expect(settings.request).toHaveBeenCalledWith('mcp/config/install', {
+      access: 'read-only',
+      catalogId: 'linear',
     });
     await expect(operations.getMcpConfigInfo()).resolves.toEqual({
       exists: true,
@@ -640,6 +673,23 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(settings.request).toHaveBeenCalledWith('mcp/server/control', request);
   });
 
+  it("carries the config watcher's failure from the host's config status", async () => {
+    const operations = await renderOperations();
+    const settings = requireSettings();
+    settings.request.mockResolvedValueOnce({
+      exists: true,
+      path: '/tmp/mcp.json',
+      watchError: 'EMFILE: too many open files, watch',
+    });
+
+    await expect(operations.getMcpConfigInfo()).resolves.toEqual({
+      exists: true,
+      path: '/tmp/mcp.json',
+      watchError: 'EMFILE: too many open files, watch',
+    });
+    expect(settings.request).toHaveBeenLastCalledWith('mcp/config/status', {});
+  });
+
   it('hears config and tools changes from the host settings stream', async () => {
     const operations = await renderOperations();
     const settings = requireSettings();
@@ -651,7 +701,11 @@ describe('desktop SettingsPageContent tool operations', () => {
     const toolsListener = vi.fn();
     const stopTools = operations.subscribeMcpTools(toolsListener);
     const [configStream, toolsStream] = settings.subscribe.mock.calls.map(([listener]) => listener);
-    const config = { exists: false, path: '/tmp/new-mcp.json' };
+    const config = {
+      exists: false,
+      path: '/tmp/new-mcp.json',
+      watchError: 'EPERM: operation not permitted, watch',
+    };
     configStream?.({ config, type: 'config' });
     configStream?.({ tools: {}, type: 'tools' });
     toolsStream?.({ tools: MCP_TOOLS, type: 'tools' });
@@ -743,8 +797,10 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     render(<SettingsPageContent />);
 
+    // Desktop runs local recall embedders in its embedding host, so its device is offered.
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenCalledWith({
       assistantMemoryBackendAvailable: true,
+      onDeviceEmbedding: true,
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
     });
     // The Model Catalog page no longer carries the memory settings.
@@ -760,6 +816,7 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenLastCalledWith({
       assistantMemoryBackendAvailable: expect.any(Boolean),
+      onDeviceEmbedding: true,
     });
   });
 

@@ -9,6 +9,7 @@ import {
   vectorProfileHash,
 } from '@brainstrike/indexer/browser';
 import { sha256Hex } from '@brainstrike/utils/crypto';
+import { CanonicalOperationCancelledError } from './cancellation.js';
 import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
 import type {
   CanonicalCatalogFile,
@@ -187,9 +188,11 @@ export class CanonicalIngestionHost {
     if (!active || active.requestId !== requestId) {
       throw new Error('Canonical cancellation request is stale or unknown.');
     }
-    active.controller.abort(new DOMException('Canonical scan cancelled.', 'AbortError'));
+    active.controller.abort(new CanonicalOperationCancelledError('Canonical scan cancelled.'));
     await active.settled;
-    if (active.error !== undefined && active.error !== active.controller.signal.reason) {
+    // The scan ends as its cancellation either way: on this abort, or on a port operation its
+    // owner cancelled while retiring the same attachment (BST-2140). Any other error stays.
+    if (active.error !== undefined && !(active.error instanceof CanonicalOperationCancelledError)) {
       throw active.error;
     }
   }
@@ -276,7 +279,7 @@ export class CanonicalIngestionHost {
     if (failure !== undefined) {
       abort();
     }
-    if (abortNotice) {
+    if (abortNotice !== undefined) {
       await abortNotice;
     }
     try {
@@ -295,7 +298,7 @@ export class CanonicalIngestionHost {
           : new AggregateError([failure, error], 'Canonical scan completion failed.');
     }
     // A notice admitted during manifest completion must physically settle.
-    if (abortNotice) {
+    if (abortNotice !== undefined) {
       await abortNotice;
     }
     context.signal.removeEventListener('abort', abort);
@@ -742,7 +745,7 @@ export class CanonicalIngestionHost {
       errors.push(error);
       abort();
     } finally {
-      if (cancellation) {
+      if (cancellation !== undefined) {
         await cancellation;
       }
       try {
@@ -753,7 +756,7 @@ export class CanonicalIngestionHost {
         this.cleanupFailure = error;
         errors.push(error);
       }
-      if (cancellation) {
+      if (cancellation !== undefined) {
         await cancellation;
       }
       context.signal.removeEventListener('abort', abort);

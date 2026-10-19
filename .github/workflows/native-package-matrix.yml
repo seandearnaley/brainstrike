@@ -19,11 +19,17 @@ name: Native Package Matrix
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to qualify (scheduled runs always cover every target)
+        type: choice
+        default: all
+        options: [all, linux, windows]
   schedule:
     - cron: '41 9 * * *'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -38,20 +44,28 @@ env:
   TURBO_CACHE_DIR: .turbo
 
 jobs:
+  select-targets:
+    if: github.repository == 'seandearnaley/brainstrike'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: select
+        env:
+          TARGET_PLATFORM: ${{ inputs.platform || 'all' }}
+        run: node scripts/native-package-targets.mjs "$TARGET_PLATFORM" >> "$GITHUB_OUTPUT"
+
   smoke:
+    needs: select-targets
     name: ${{ matrix.os }} (${{ matrix.arch }})
     if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: macos-15, platform: darwin, arch: arm64 }
-          - { os: macos-15-intel, platform: darwin, arch: x64 }
-          - { os: ubuntu-24.04, platform: linux, arch: x64 }
-          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64 }
-          - { os: windows-2025, platform: win32, arch: x64 }
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
     defaults:
       run:
         shell: bash
@@ -168,11 +182,11 @@ jobs:
 
   notify-linear:
     name: Notify Linear
-    needs: [smoke]
+    needs: [select-targets, smoke]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}
-      results: smoke=${{ needs.smoke.result }}
+      results: select-targets=${{ needs.select-targets.result }},smoke=${{ needs.smoke.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

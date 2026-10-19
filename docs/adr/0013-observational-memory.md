@@ -30,8 +30,9 @@ In the spikes OM wrote no transcript messages, so it is not a second writer.
 - Scrubbing observation text after a rewind would be guesswork, so it is not done.
 - Mastra's wording for presenting observations cannot be configured, so the host
   builds a coding-specific prompt. Stop also cancels an in-flight observation.
-- Compaction today ignores OM: it measured 37,599 estimated tokens of history against
-  7,523 actually sent and still fired. It is ported as is and is the first fix to make.
+- Compaction was ported ignoring OM: it measured 37,599 estimated tokens of history
+  against 7,523 actually sent and still fired. BST-2204 fixed this: the trigger now
+  measures the request Memory builds, and compacts only turns that request holds.
 - On the lighter web version, memory features are desktop-only.
 
 ## Sources

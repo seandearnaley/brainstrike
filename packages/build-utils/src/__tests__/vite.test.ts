@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { HmrContext } from 'vite';
@@ -15,6 +16,7 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
+  getWorkspaceSourceOptimizeDepsInclude,
   isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
@@ -31,7 +33,7 @@ function toVitePath(filePath: string): string {
 
 describe('createCspQualifiedEvalWarningFilter', () => {
   it.each([
-    '../../node_modules/.pnpm/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js',
+    '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/web-tree-sitter.js',
     '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/index.js',
     '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/chunk-HXUXMFL7.js',
   ])('suppresses the CSP-qualified EVAL warning from %s', (id) => {
@@ -59,7 +61,7 @@ describe('createCspQualifiedEvalWarningFilter', () => {
         code: 'EVAL',
         loc: {
           column: 33,
-          file: String.raw`C:\repo\node_modules\.pnpm\web-tree-sitter@0.25.10\node_modules\web-tree-sitter\tree-sitter.js`,
+          file: String.raw`C:\repo\node_modules\.pnpm\web-tree-sitter@0.27.1\node_modules\web-tree-sitter\web-tree-sitter.js`,
           line: 2978,
         },
         message: 'Use of direct eval',
@@ -73,8 +75,18 @@ describe('createCspQualifiedEvalWarningFilter', () => {
   it.each([
     {
       code: 'CIRCULAR_DEPENDENCY',
-      id: '../../node_modules/.pnpm/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js',
+      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/web-tree-sitter.js',
       message: 'A different warning from an allowlisted module',
+    },
+    {
+      code: 'EVAL',
+      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.2/node_modules/web-tree-sitter/web-tree-sitter.js',
+      message: 'An unqualified future tree-sitter version',
+    },
+    {
+      code: 'EVAL',
+      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/unreviewed.js',
+      message: 'An unqualified module in the current version',
     },
     {
       code: 'EVAL',
@@ -127,6 +139,30 @@ describe('findPGliteWasm', () => {
 });
 
 describe('assistant vite helpers', () => {
+  test('prebundles resolvable dependencies of excluded workspace sources before a lazy surface opens', () => {
+    const entries = getWorkspaceSourceOptimizeDepsInclude();
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        '@brainstrike/ui > @codemirror/view',
+        '@brainstrike/ui > mermaid',
+        '@brainstrike/utils > ignore',
+        '@brainstrike/settings-ui > @tanstack/react-table',
+        'zustand/vanilla',
+      ])
+    );
+    expect(new Set(entries).size).toBe(entries.length);
+    for (const entry of entries) {
+      const parts = entry.split(' > ');
+      const owner = parts.length === 2 ? parts[0]?.replace('@brainstrike/', '') : 'build-utils';
+      const dependency = parts.at(-1);
+      expect(dependency).toBeTruthy();
+      const require = createRequire(
+        path.resolve(import.meta.dirname, '../../../', owner ?? '', 'package.json')
+      );
+      expect(require.resolve(dependency ?? '')).toBeTruthy();
+    }
+  });
+
   test('returns shared startup optimize-deps package ids', () => {
     expect(getCoreAppOptimizeDepsInclude()).toEqual(
       expect.arrayContaining([

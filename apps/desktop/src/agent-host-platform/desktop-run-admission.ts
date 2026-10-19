@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { type RuntimeData, resolveAssistantResilienceConfig } from '@brainstrike/agent';
+import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import { DEFAULT_AGENT_MAX_STEPS } from '@brainstrike/agent/tool-runtime';
 import type {
   HostDelegation,
@@ -37,19 +38,24 @@ import {
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import { attachedMentionReader, placeMentionedFiles } from './desktop-mentioned-files';
 import {
+  type DesktopLocalModel,
   desktopInputTokenLimit,
   desktopMemorySelection,
   readDesktopCatalogSelection,
   readDesktopIntent,
+  readDesktopLocalModel,
   readEnabledObservers,
   resolveDesktopMemorySettings,
 } from './desktop-run-preconditions';
 import { type DesktopToolDescriptor, desktopToolDescriptors } from './desktop-tool-descriptors';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
+import { memoryReadinessReason } from './memory-readiness';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
   PlatformAdmittedSkillSchema,
   type PlatformClientConfigurationSchema,
+  type PlatformLocalModel,
+  type PlatformLocalModelSchema,
   type PlatformMemoryReadinessSchema,
   PlatformModelConfigurationSchema,
   type PlatformSelection,
@@ -87,6 +93,14 @@ export interface DesktopAdmissionReads {
   enabledObservers(candidates: readonly string[], signal: AbortSignal): Promise<readonly string[]>;
   /** The profile's mounted workspace roots. */
   liveWorkspaceRoots(signal: AbortSignal): Promise<RuntimeWorkspaceRoots>;
+  /**
+   * BST-754: what the local runtime catalog reads from Ollama's `/api/show`
+   * for the selected model; absent where no catalog serves the desktop.
+   */
+  localRuntimeModel?(
+    target: (typeof PlatformLocalModelSchema)['Type'],
+    signal: AbortSignal
+  ): Promise<PlatformLocalModel>;
   /** The recall embedder the memory settings select, resolved by Main's embedding host. */
   memoryVectors(
     settings: PlatformSelection['memory']['settings'],
@@ -104,6 +118,8 @@ export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation
   freshWorkspaceRoots(): Promise<RuntimeWorkspaceRoots>;
   /** An admitted local recall embedder's exact plan, sent with each borrowed query. */
   readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
+  /** BST-754: an Ollama run's admitted window (Ollama's `num_ctx`) and thinking capability. */
+  readonly localModel?: DesktopLocalModel;
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
 }
 export interface DesktopRunAdmission {
@@ -304,7 +320,6 @@ async function readDesktopNativeAdmission(
   );
   const descriptors = await desktopToolDescriptors({
     enabledNativeToolIds: intent.enabledNativeToolIds,
-    localProvider: configuration.provider.trim().toLowerCase() === 'local',
     skills: workspaceSkills !== undefined,
     worktrees,
   });
@@ -346,23 +361,12 @@ function desktopRunSkills(
   }
   return {};
 }
-/** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
+/** Plan mode admits only the plan-mode tool set. */
 function desktopRunTools(
   tools: Readonly<Record<string, DesktopToolDescriptor>>,
-  request: HostRunAdmissionRequest,
-  provider: string
+  request: HostRunAdmissionRequest
 ): Readonly<Record<string, DesktopToolDescriptor>> {
-  if (!request.planMode) {
-    return tools;
-  }
-  if (provider === 'local') {
-    throw refusalError(
-      'configuration',
-      'run.plan-mode-unavailable',
-      'Plan mode is unavailable for the built-in local provider'
-    );
-  }
-  return desktopPlanModeTools(tools);
+  return request.planMode ? desktopPlanModeTools(tools) : tools;
 }
 /** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
 function desktopPersonaFields(delegation: HostDelegation | undefined): {
@@ -414,7 +418,15 @@ function desktopNativeRuntime(
 export function createDesktopRunAdmission(
   reads: DesktopAdmissionReads,
   /** The policy the user saved, which the host keeps; undefined when none is saved. */
-  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>
+  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>,
+  /**
+   * BST-754: the host's credential authority, for the admission's own
+   * provider reads; an Ollama run refuses without it.
+   */
+  resolveProviderAuth?: (
+    provider: string,
+    origin: HostRunIntentRequest['origin']
+  ) => Promise<ProviderAuthInput | undefined>
 ): DesktopRunAdmission {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -434,13 +446,13 @@ export function createDesktopRunAdmission(
    */
   const readPreconditions = async (request: HostRunIntentRequest) => {
     request.signal.throwIfAborted();
-    const catalog = await readDesktopCatalogSelection(reads, request.modelId, request.signal);
-    const intent = await readDesktopIntent(request, catalog, savedPolicy, reads.cliOwnerIntent);
+    const selection = await readDesktopCatalogSelection(reads, request.modelId, request.signal);
+    const intent = await readDesktopIntent(request, selection, savedPolicy, reads.cliOwnerIntent);
     const configuration = Schema.decodeUnknownSync(PlatformModelConfigurationSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(intent.modelConfiguration);
-    if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
+    if (configuration.provider !== selection.provider || configuration.model !== selection.model) {
       throw refusalError(
         'conflict',
         'model.selection-changed',
@@ -448,6 +460,21 @@ export function createDesktopRunAdmission(
         'Select the model again and retry.'
       );
     }
+    // BST-754: an Ollama model is budgeted at the window it reports, capped.
+    const localModel = await readDesktopLocalModel(
+      reads,
+      configuration,
+      request.signal,
+      resolveProviderAuth
+        ? () => resolveProviderAuth(configuration.provider, request.origin)
+        : undefined
+    );
+    const catalog = localModel
+      ? {
+          ...selection,
+          definition: { ...selection.definition, contextWindow: localModel.contextWindow },
+        }
+      : selection;
     const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
@@ -468,6 +495,7 @@ export function createDesktopRunAdmission(
       configuration,
       inputTokenLimit,
       intent,
+      ...(localModel ? { localModel } : {}),
       memory,
       memoryVectors,
       observerTarget,
@@ -482,6 +510,7 @@ export function createDesktopRunAdmission(
       configuration,
       inputTokenLimit,
       intent,
+      localModel,
       memory,
       memoryVectors,
       observerTarget,
@@ -496,7 +525,7 @@ export function createDesktopRunAdmission(
       request,
       workspace
     );
-    const tools = desktopRunTools(native.descriptors, request, configuration.provider);
+    const tools = desktopRunTools(native.descriptors, request);
     const resilience = resolveAssistantResilienceConfig();
     // MCP tools are composed and executed by the Node host's own MCP runtime.
     const close = (): Promise<void> => {
@@ -509,7 +538,6 @@ export function createDesktopRunAdmission(
       policies.set(request.threadId, permissionPolicy);
       const delegation = resolveDesktopHostDelegation(
         intent,
-        configuration.provider,
         native.runtime.workspaceRoots ?? [],
         request.planMode === true
       );
@@ -552,6 +580,7 @@ export function createDesktopRunAdmission(
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory,
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
+        ...(localModel ? { localModel } : {}),
         nativeRuntime: desktopNativeRuntime(
           native.runtime,
           native.retrievalRootsOnly,
@@ -645,7 +674,7 @@ export function createDesktopRunAdmission(
         return { memory, ready: true, resourceId: WORKSPACE_MEMORY_RESOURCE_ID };
       } catch (cause) {
         request.signal.throwIfAborted();
-        return { ready: false, reason: cause instanceof Error ? cause.message : String(cause) };
+        return { ready: false, reason: memoryReadinessReason(cause) };
       }
     },
     readPermissionPolicy: readHostPermissionPolicy,

@@ -305,6 +305,11 @@ describe('useFileExplorer (context)', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.fileContents['/file1.ts']).toBe('content');
     expect(mockApplyFileFilters).toHaveBeenCalledWith(initialFileTree, [], [], false);
+    // No FileTreeProvider here, so the hook's own tree is the live one (BST-1957).
+    expect(useFileTree).toHaveBeenCalledWith(
+      rootHandle,
+      expect.objectContaining({ enabled: true })
+    );
 
     act(() => {
       result.current.handleRootDirectorySelect();

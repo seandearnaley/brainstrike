@@ -35,6 +35,7 @@ import {
   OLLAMA_SHOW_PATH,
   type OllamaCapabilitiesCacheEntry,
   parseOllamaCapabilityList,
+  parseOllamaContextLength,
   type RuntimeModelCacheEntry,
   type RuntimeModelCandidate,
   type RuntimeModelEndpointDefinition,
@@ -265,6 +266,7 @@ export class LocalRuntimeModelCatalogService {
       const resolved: LocalRuntimeOllamaCapabilitiesResolved = {
         capabilities,
         checkedAt,
+        contextLength: parseOllamaContextLength(result.payload),
         embedding: capabilities.includes('embedding'),
         endpoint: showEndpoint,
         insert: capabilities.includes('insert'),

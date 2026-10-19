@@ -684,7 +684,7 @@ export async function createMcpOAuthClientProvider(
   // biome-ignore-end lint/style/useNamingConvention: OAuth metadata uses RFC wire names.
 
   const closeProvider = (): Promise<McpOAuthCloseProof> => {
-    if (closePromise) {
+    if (closePromise !== undefined) {
       return closePromise;
     }
     closed = true;

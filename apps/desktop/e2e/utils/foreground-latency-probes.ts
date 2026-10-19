@@ -375,14 +375,14 @@ export async function installMainProbes(
         (record: ProbeLoopRecord): boolean =>
           record.chatPathOpMs.length < samples || record.toolReadMs.length < samples;
 
-      const startLag = (): import('node:perf_hooks').IntervalHistogram => {
+      const startLag = (): import('node:perf_hooks').ELDHistogram => {
         const histogram = perfHooks.monitorEventLoopDelay({ resolution: eldResolutionMs });
         histogram.enable();
         return histogram;
       };
       const finishPhase = (
         record: ProbeLoopRecord,
-        histogram: import('node:perf_hooks').IntervalHistogram
+        histogram: import('node:perf_hooks').ELDHistogram
       ): MainPhaseSamples => {
         histogram.disable();
         const lag = (nanoseconds: number): number =>
@@ -401,7 +401,7 @@ export async function installMainProbes(
       let loaded: {
         control: { stopped: boolean };
         done: Promise<void>;
-        histogram: import('node:perf_hooks').IntervalHistogram;
+        histogram: import('node:perf_hooks').ELDHistogram;
         record: ProbeLoopRecord;
       } | null = null;
       const requireLoaded = (): NonNullable<typeof loaded> => {

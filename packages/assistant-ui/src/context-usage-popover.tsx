@@ -17,7 +17,9 @@ import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-
 import { createLogger } from '@brainstrike/logging';
 import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { cn } from '@brainstrike/ui';
+import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import type { ConversationTokenEstimate } from './context-estimate';
+import { MemoryDeveloperPanel } from './context-usage-memory-panel';
 import type {
   CumulativeUsageDisplay,
   OmAwaitingObserverReason,
@@ -160,7 +162,7 @@ function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } 
     case 'empty':
       return { text: 'No observations yet', tone: 'muted' };
     case 'error':
-      return { text: 'Observations unavailable', tone: 'error' };
+      return { text: `Observations unavailable: ${state.reason}`, tone: 'error' };
     case 'withheld':
       return {
         text: 'Observations paused — this thread has branches, and its observations would mix them',
@@ -709,6 +711,7 @@ export const ContextUsagePopoverContent = ({
   usedTokens,
   workspaceFileTokens,
 }: ContextUsagePopoverContentProps) => {
+  const { detailLevel } = useAssistantDetailLevel();
   const breakdownInvalid = breakdownState?.invalid === true;
   const { rows, segments, subRowsByTestId } = composeBreakdown({
     breakdown: breakdownState && !breakdownState.invalid ? breakdownState.breakdown : undefined,
@@ -804,6 +807,7 @@ export const ContextUsagePopoverContent = ({
           web supplies { kind: 'chat-only' } so the stats are hidden, never
           zeros. */}
       {omSegment && <OmMeterSection state={omSegment} />}
+      {omSegment && detailLevel === 'developer' && <MemoryDeveloperPanel state={omSegment} />}
     </div>
   );
 };

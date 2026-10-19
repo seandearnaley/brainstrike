@@ -145,6 +145,7 @@ export const WorktreeArchiveRequestSchema = Schema.Struct({
 
 const BrowserFailure = Schema.Struct({
   error: Schema.Literals([
+    'blocked_destination',
     'blocked_url',
     'browser_unavailable',
     'driver_failed',

@@ -1,3 +1,10 @@
+import { readdir } from 'node:fs/promises';
+import type {
+  ChunkError,
+  ChunkRequest,
+  ChunkResult,
+  WorkerReady,
+} from '@brainstrike/chunking-worker';
 // Sourced from the shared builder rather than the app's `../src/csp-utils`
 // wrapper: this spec graph is ESM (see e2e/package.json), while apps/web has no
 // `"type"`, so a value import reaching into apps/web/src is CommonJS-transpiled
@@ -32,7 +39,13 @@ async function installProductionCsp(page: Page, baseUrl: string): Promise<void> 
       await route.continue();
       return;
     }
-    const response = await route.fetch();
+    // route.fetch re-requests from Node over Playwright's keep-alive pool, which
+    // never expires idle sockets itself; the preview server closes them after
+    // 6s idle. A pooled socket handed out as the server closes it fails with
+    // ECONNRESET before any response byte (BST-2093). `maxRetries` is
+    // Playwright's option for that case: it retries ECONNRESET only, after a
+    // 250ms backoff, and still throws if the retry fails.
+    const response = await route.fetch({ maxRetries: 1 });
     await route.fulfill({
       headers: {
         ...response.headers(),
@@ -188,5 +201,101 @@ test.describe('Production CSP qualification', () => {
       pageErrors: [],
       violations: [],
     });
+  });
+
+  test('chunks Python through the built worker under production CSP @web-production-csp', async ({
+    baseURL,
+    page,
+  }) => {
+    if (!baseURL) {
+      throw new Error('Production CSP qualification requires a Playwright baseURL');
+    }
+    const workerFiles = (await readdir(new URL('../dist/assets/', import.meta.url))).filter(
+      (name) => /^chunking\.worker-.*\.js$/u.test(name)
+    );
+    expect(workerFiles).toHaveLength(1);
+    const workerPath = `/assets/${workerFiles[0]}`;
+    const workerPolicies: string[] = [];
+    const runtimeWasm: string[] = [];
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    page.on('response', (response) => {
+      const pathname = new URL(response.url()).pathname;
+      if (pathname === workerPath) {
+        workerPolicies.push(response.headers()['content-security-policy'] ?? '');
+      }
+      if (/\/(?:web-)?tree-sitter-.*\.wasm$/u.test(pathname) && response.ok()) {
+        runtimeWasm.push(response.url());
+      }
+    });
+    await installProductionCsp(page, baseURL);
+    const response = await page.goto('/');
+    expect(response?.headers()['content-security-policy']).toBe(PRODUCTION_CSP);
+    expect(PRODUCTION_CSP).not.toContain("'unsafe-eval'");
+    await waitForAppLoad(page, { waitForDatabase: false });
+
+    const content = [
+      'def alpha():',
+      '    return "café 🧠"',
+      '',
+      'settings = {"outer": {"inner" 1}}',
+      '',
+      'def beta():',
+      '    return "β 🌳"',
+      '',
+      'class Gamma:',
+      '    pass',
+      '',
+    ].join('\n');
+    const result = await page.evaluate(
+      async ({ content: source, workerPath: url }) => {
+        const worker = new Worker(url, { type: 'module' });
+        try {
+          return await new Promise<ChunkResult>((resolve, reject) => {
+            worker.onerror = (event) => reject(new Error(event.message));
+            worker.onmessage = (event: MessageEvent<ChunkResult | ChunkError | WorkerReady>) => {
+              const message = event.data;
+              if (message.type === 'ready') {
+                worker.postMessage({
+                  content: source,
+                  fileName: 'recovery.py',
+                  filePath: '/qualification/recovery.py',
+                  fileRecordId: 'production-csp-python',
+                  id: 'production-csp-python',
+                  options: { forceStrategy: true, maxTokens: 2048, strategy: 'recursive' },
+                  type: 'chunk',
+                } satisfies ChunkRequest);
+              }
+              if (message.type === 'error') {
+                reject(new Error(message.error));
+              }
+              if (message.type === 'result') {
+                resolve(message);
+              }
+            };
+            worker.postMessage({
+              parserFlag: 'babel',
+              treeSitterLanguages: ['python'],
+              type: 'init',
+            });
+          });
+        } finally {
+          worker.terminate();
+        }
+      },
+      { content, workerPath }
+    );
+
+    expect(result.skipped).toBe(false);
+    expect(result.symbols?.map((symbol) => symbol.name)).toEqual(['alpha', 'beta', 'Gamma']);
+    expect(result.chunks.length).toBeGreaterThanOrEqual(3);
+    expect(result.sourceRangeSkippedChunks ?? 0).toBe(0);
+    for (const chunk of result.chunks) {
+      expect(content.slice(chunk.startOffset, chunk.endOffset)).toBe(chunk.content);
+    }
+    expect(workerPolicies).toContain(PRODUCTION_CSP);
+    expect(runtimeWasm.length).toBeGreaterThan(0);
+    expect(runtimeWasm.every((url) => new URL(url).origin === new URL(baseURL).origin)).toBe(true);
+    expect(pageErrors).toEqual([]);
   });
 });

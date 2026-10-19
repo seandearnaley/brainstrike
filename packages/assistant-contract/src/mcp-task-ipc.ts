@@ -78,7 +78,7 @@ export function createMcpTaskToolInvocationResult(
 ): McpTaskToolInvocationResult {
   return {
     kind: MCP_TASK_TOOL_RESULT_KIND,
-    task: Schema.decodeUnknownSync(McpTaskPresentationSchema, {
+    task: Schema.decodeSync(McpTaskPresentationSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(task),

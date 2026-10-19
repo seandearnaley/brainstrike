@@ -69,6 +69,11 @@
       "import": "./dist/mcp-config.js",
       "require": "./dist/mcp-config.js"
     },
+    "./mcp-catalog": {
+      "types": "./dist/mcp-catalog.d.ts",
+      "import": "./dist/mcp-catalog.js",
+      "require": "./dist/mcp-catalog.js"
+    },
     "./official-auth-conformance": {
       "types": "./dist/official-auth-conformance.d.ts",
       "import": "./dist/official-auth-conformance.js",
@@ -108,6 +113,11 @@
       "types": "./dist/context-budget.d.ts",
       "import": "./dist/context-budget.js",
       "require": "./dist/context-budget.js"
+    },
+    "./local-runtime-context": {
+      "types": "./dist/local-runtime-context.d.ts",
+      "import": "./dist/local-runtime-context.js",
+      "require": "./dist/local-runtime-context.js"
     },
     "./env-bootstrap-bridge": {
       "types": "./dist/env-bootstrap-bridge.d.ts",

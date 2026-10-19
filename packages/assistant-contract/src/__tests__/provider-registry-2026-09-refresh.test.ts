@@ -87,6 +87,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
   it('declares the Bedrock Claude Opus 5.5 route from the AWS model card and pricing page', () => {
     expect(getLlmCapabilityFacts('bedrock', 'anthropic.claude-opus-5-5')).toEqual({
       bedrockReasoning: 'adaptive',
+      bedrockReasoningMandatory: true,
       contextWindow: 1_000_000,
       id: 'anthropic.claude-opus-5-5',
       label: 'Claude Opus 5.5 (Bedrock)',

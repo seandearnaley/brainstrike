@@ -61,6 +61,7 @@ vi.mock('../host-lease-manager', () => ({
 vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: fixtureMocks.acquire,
   closeIndexerRuntime: fixtureMocks.close,
+  fenceIndexerCanonicalSources: vi.fn(),
   getReadyIndexerHost: () => fixtureMocks.manager,
   getReadyScopedIndexerPort: fixtureMocks.readyPort,
 }));

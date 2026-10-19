@@ -77,7 +77,21 @@ describe('createAssistantMemorySettingsCategory', () => {
     expect(screen.getByTestId('assistant-memory-settings-section-mock')).toBeInTheDocument();
     expect(memorySectionProps.calls.at(-1)).toEqual({
       assistantMemoryBackendAvailable: true,
+      onDeviceEmbedding: false,
       providerKeySources: [OPENAI_ENV_SOURCE],
+    });
+  });
+
+  it('offers the on-device embedding device only where the host declares on-device embedding', () => {
+    const category = createAssistantMemorySettingsCategory({
+      assistantMemoryBackendAvailable: true,
+      onDeviceEmbedding: true,
+    });
+    render(category.content);
+
+    expect(memorySectionProps.calls.at(-1)).toEqual({
+      assistantMemoryBackendAvailable: true,
+      onDeviceEmbedding: true,
     });
   });
 
@@ -87,7 +101,10 @@ describe('createAssistantMemorySettingsCategory', () => {
     });
     render(category.content);
 
-    expect(memorySectionProps.calls.at(-1)).toEqual({ assistantMemoryBackendAvailable: false });
+    expect(memorySectionProps.calls.at(-1)).toEqual({
+      assistantMemoryBackendAvailable: false,
+      onDeviceEmbedding: false,
+    });
   });
 });
 

@@ -105,7 +105,7 @@ export function refusal(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
-  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+  return Schema.decodeSync(BoundaryFailureSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({ ...bounded(failure), kind: 'refusal' });
@@ -114,7 +114,7 @@ export function fault(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'correlationId' | 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
-  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+  return Schema.decodeSync(BoundaryFailureSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({ ...bounded(failure), kind: 'fault' });
@@ -129,7 +129,7 @@ const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
 };
 /** The cause a supervisor reports when its child exits without being asked. */
 export function processLost(facts: (typeof ProcessLostFacts)['Type']): BoundaryFailure {
-  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+  return Schema.decodeSync(BoundaryFailureSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({
@@ -166,6 +166,15 @@ export class BoundaryFailureError extends Error {
 export function isBoundaryRefusal(cause: unknown): cause is BoundaryFailureError {
   return cause instanceof BoundaryFailureError && cause.failure.kind === 'refusal';
 }
+/**
+ * BST-2144: the state store opened damaged, so it is read-only and refused a
+ * write. Expected until the store is restored: callers that write on startup
+ * stop quietly, and the damaged-store notice explains it.
+ */
+export const STATE_STORE_READ_ONLY_CODE = 'state.read-only';
+export function isStateStoreReadOnly(cause: unknown): cause is BoundaryFailureError {
+  return isBoundaryRefusal(cause) && cause.failure.code === STATE_STORE_READ_ONLY_CODE;
+}
 /** A typed refusal ready to throw: `throw refusalError('conflict', 'run.already-active', '…')`. */
 export function refusalError(
   category: BoundaryFailureCategory,
@@ -180,7 +189,10 @@ export function refusalError(
 export function isBoundaryFailureError(value: unknown): value is BoundaryFailureError {
   return value instanceof BoundaryFailureError;
 }
-/** Render only validated public failure fields; causes and stacks never participate. */
+/**
+ * Render only validated public failure fields; causes and stacks never participate.
+ * A fault's correlation id is named: its sender logged the cause under it (BST-2202).
+ */
 export function describeBoundaryFailure(failure: BoundaryFailure): string {
   return [
     failure.message,
@@ -188,9 +200,18 @@ export function describeBoundaryFailure(failure: BoundaryFailure): string {
     failure.providerEvidence === undefined
       ? undefined
       : `Provider response: ${failure.providerEvidence}`,
+    failure.correlationId === undefined ? undefined : `Reference: ${failure.correlationId}`,
   ]
     .filter((part) => part !== undefined)
     .join(' ');
+}
+/**
+ * The same words for a model's context: a correlation id is the user's and
+ * the log's, and keeps a model-facing message stable across failures.
+ */
+export function describeBoundaryFailureForModel(failure: BoundaryFailure): string {
+  const { correlationId: _reference, ...modelFacing } = failure;
+  return describeBoundaryFailure(modelFacing);
 }
 export function describeBoundaryError(cause: unknown): string {
   return describeBoundaryFailure(

@@ -44,13 +44,19 @@ import {
   type DesktopAdmissionReads,
   type DesktopRunSelection,
 } from './desktop-run-admission';
+import { forwardHostDiagnostics } from './host-diagnostics';
 import { mainQueryEmbedding } from './host-retrieval-clients';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
-import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
+import {
+  createDesktopHostMemoryConfiguration,
+  desktopMemoryModels,
+} from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
+  PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
+  PlatformLocalModelResultSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformRewindConflictsSchema,
@@ -185,6 +191,11 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/roots', {}, signal)),
+    localRuntimeModel: async (target, signal) =>
+      Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/admission/local-model', target, signal)),
     memoryVectors: async (settings, signal) => {
       const resolved = Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
         errors: 'all',
@@ -270,6 +281,11 @@ export async function createDesktopHostConfiguration(
     connection.dispose();
     port.close();
   });
+  // BST-2202: this host's error records reach Main's diagnostics with their correlation ids.
+  const diagnostics = forwardHostDiagnostics((record) =>
+    connection.sendRequest(PLATFORM_DIAGNOSTICS_RECORD_METHOD, record)
+  );
+  await startup.register(() => diagnostics.close());
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
   // Its servers connect after readiness, so bearer reads wait for a pending
   // legacy import like every other credential use. Its OAuth records live in
@@ -280,10 +296,14 @@ export async function createDesktopHostConfiguration(
   }
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
-  const runAdmission = createDesktopRunAdmission(mainAdmissionReads(request), async () => {
-    const saved = await readHostPermissionPolicy(startup.store);
-    return saved ? hostPermissionGate(saved) : undefined;
-  });
+  const runAdmission = createDesktopRunAdmission(
+    mainAdmissionReads(request),
+    async () => {
+      const saved = await readHostPermissionPolicy(startup.store);
+      return saved ? hostPermissionGate(saved) : undefined;
+    },
+    (provider, origin) => host.auth.resolveProviderAuth(provider, origin)
+  );
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
     credentials: {
@@ -302,7 +322,12 @@ export async function createDesktopHostConfiguration(
       await mcpHost.close();
       // The language servers, command trees and command sessions this host spawned.
       await disposeHostTools();
+      // Accepted error records are delivered while Main's connection is open.
+      const [delivered] = await Promise.allSettled([diagnostics.close()]);
       await request('platform/close', {});
+      if (delivered.status === 'rejected') {
+        throw delivered.reason;
+      }
     },
     confirmMainReady: async () => {
       wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
@@ -415,6 +440,7 @@ export async function createDesktopHostConfiguration(
         memory,
         providerRequestContext: {
           inputTokenLimit: selected.inputTokenLimit,
+          ...(selected.localModel ? { localModel: selected.localModel } : {}),
           provider,
           runtimeData: configuration,
         },
@@ -424,14 +450,19 @@ export async function createDesktopHostConfiguration(
         toolTimeoutMs: selected.toolTimeoutMs,
       };
     },
-    // The admission's preconditions, then the memory credentials, nothing acquired.
+    // The admission's preconditions, then the memory credentials, nothing acquired;
+    // once they pass, the observer and embedder that admission would use.
     readMemoryPreconditions: async (admission) => {
       const readiness = await runAdmission.readMemoryReadiness(admission);
-      return readiness.ready
-        ? await desktopMemoryPreconditions(readiness, (provider) =>
-            host.auth.resolveProviderAuth(provider, admission.origin)
-          )
-        : readiness;
+      if (!readiness.ready) {
+        return readiness;
+      }
+      const preconditions = await desktopMemoryPreconditions(readiness, (provider) =>
+        host.auth.resolveProviderAuth(provider, admission.origin)
+      );
+      return preconditions.ready
+        ? { ...preconditions, models: desktopMemoryModels(readiness.memory) }
+        : preconditions;
     },
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),

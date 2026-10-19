@@ -52,6 +52,17 @@ function consumerWithOtherOnnxRuntime(): string {
 }
 
 describe('ONNX Runtime WASM from Transformers.js own dependency (BST-2003)', () => {
+  it.each([
+    { consumers: [], message: 'needs at least one Transformers.js consumer', name: 'empty' },
+    { consumers: new Array<string>(1), message: 'produced no result', name: 'sparse' },
+  ])(
+    'refuses $name consumer configuration before emitting asset URLs',
+    ({ consumers, message }) => {
+      expect(() => resolveTransformersOnnxRuntimeWasmFiles(consumers)).toThrow(message);
+      expect(() => transformersOnnxRuntimeWasmUrlsPlugin(consumers)).toThrow(message);
+    }
+  );
+
   it('resolves the files the installed Transformers.js loads, for every consumer alike', () => {
     const files = resolveTransformersOnnxRuntimeWasmFiles([embeddingWorker, agent]);
     const requireFromTransformers = createRequire(

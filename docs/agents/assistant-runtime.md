@@ -16,10 +16,32 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
 - An expired tool guard cancels the work belonging to that tool call. A provider
   timeout must abort the provider; a timeout while a host tool runs is terminal
   rather than an opportunity to execute that tool again.
+- An MCP tool's guard is an inactivity budget (BST-1779). Each progress
+  notification restarts its window (the resilience `toolTimeoutMs`, 60 s), up
+  to the transport's own total (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`, 600 s). A
+  silent server ends at the window and a chatty one at the total. The timeout
+  text says which, and the call is cancelled on the wire either way. The guard
+  alone ends a silent call: such a request (`callerGuardsInactivity`) keeps the
+  total as its SDK idle timeout, because the SDK re-arms its own 60 s timer on
+  progress before the guard does and would otherwise end the call first, as an
+  unexplained failure. A server's own `toolTimeoutMs` (1 s to 10 min) replaces
+  the window for its tools, for servers that work long in silence; it also
+  bounds that server's unguarded requests. The ceiling is the transport's
+  default total, which keeps every guard ending below the stream's
+  tool-executing backstop. An MCP Tasks settlement wait fits in three quarters
+  of what the call's guard has left once the task is tracked
+  (`readToolGuardRemainingMs`). Native tools keep their flat guard.
 - Failed or abnormal finishes produce failed durable outcomes. Recoverable
   attempts are recorded before retry, stay on the committed branch, and never
   repeat a step that streamed tool input or a call. Context-overflow recovery
   requires a committed compaction that actually shortens the request.
+- Pre-request compaction measures the request the provider will receive. With
+  Memory, that is the request Memory builds (its selected and recalled turns,
+  rewritten tool outputs and system context), not the branch, and only the
+  earlier turns that request holds can be compacted. Memory then reassembles the
+  request from the log without re-running its step preparation. When the
+  summarizer fails, the deterministic fallback's `context.compacted` records the
+  typed failure code and the reference its cause is logged under.
 
 Owners: [execution](../../packages/agent-host/src/core-run-execution.ts),
 [watchdog](../../packages/agent-host/src/run-stream-watchdog.ts),
@@ -39,6 +61,18 @@ survive restart, but uncertain started effects are interrupted and never
 replayed. Child recovery follows [the delegation contract](assistant-subagents.md).
 See [ADR-0010](../adr/0010-approvals-and-delegation.md) and
 [continuations](../../packages/agent-host/src/run-continuation.ts).
+
+Browser origins (BST-1178): the first `browserNavigate` call to each origin
+(scheme, host, port) raises a `network` consent that names it, whatever the
+policy or YOLO. Allow once runs that call. Always allow and Don't allow are
+saved by the host in its StateStore (`permissions/browser-origins`, wiped by
+factory reset) before the answer commits, and answer every later call; Core
+settles a denied call unrun, with a reason the model reads. Settings →
+Permissions lists and removes them. Consent sees the requested URL only: a
+page can still redirect or load elsewhere, through the egress proxy
+([ADR-0025](../adr/0025-agent-browsing-egress-proxy.md)). A `localhost`,
+`127.0.0.1` or `[::1]` dev server is answered on the same card, and the proxy
+admits only that navigation's exact host and port.
 
 ## Hooks and plan mode
 

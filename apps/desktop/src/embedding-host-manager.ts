@@ -9,6 +9,7 @@ import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import { EmbeddingHostStartup } from './embedding-host-background-startup';
+import { awaitHostDevice, requestHostDeviceResolution } from './embedding-host-device';
 import { documentBatchTimeout } from './embedding-host-document-timeout';
 import {
   documentResponseFailure,
@@ -71,6 +72,7 @@ const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 // Leave time for the remaining owners inside main's five-second shutdown budget.
 const EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS = 3000;
 const EMBEDDING_HOST_STOP_TIMEOUT_MS = 10_000;
+const STOPPED_WITH_INFERENCE = 'Embedding host stopped while inference requests were in flight.';
 
 export interface EmbeddingHostManagerOptions {
   readonly platform?: NodeJS.Platform;
@@ -90,6 +92,8 @@ export class EmbeddingHostManager {
   private reportedRuntimeId: string | null = null;
   private pendingReset: { requestId: string; runtimeId: string } | null = null;
   private stopping: Promise<EmbeddingHostStatus> | null = null;
+  /** Host windows whose renderer process is gone: none of them can acknowledge Stop. */
+  private readonly exitedRenderers = new WeakSet<BrowserWindow>();
   private retirement: { readonly failures: unknown[]; readonly promise: Promise<void> } | null =
     null;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
@@ -231,7 +235,8 @@ export class EmbeddingHostManager {
           });
         }
       },
-      onRenderProcessGone: ({ exitCode, message, reason }) => {
+      onRenderProcessGone: ({ exitCode, message, reason, window }) => {
+        this.exitedRenderers.add(window);
         this.clearPendingInactiveStatus();
         if (this.retirement) {
           this.retirement.failures.push(new Error(message));
@@ -325,7 +330,7 @@ export class EmbeddingHostManager {
     backgroundWorker: boolean
   ): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('ensureStarted');
-    if (this.stopping) {
+    if (this.stopping !== null) {
       await this.stopping;
     }
     if (this.retirement) {
@@ -355,24 +360,19 @@ export class EmbeddingHostManager {
     return this.stopHost();
   }
 
-  /** Re-resolve a running host's unpinned device; its background worker keeps its device until restart. */
+  /** The running host's status carrying memory recall's device (BST-2193). */
+  async ensureDeviceResolved(): Promise<EmbeddingHostStatus> {
+    const started = await this.ensureStarted({ waitForRunning: true });
+    return await awaitHostDevice(started, this.lifecycle, () => this.resolveDevice());
+  }
+
+  /** A preference change re-resolves a running host's unpinned device (`requestHostDeviceResolution`). */
   resolveDevice(): void {
-    const window = this.lifecycle.getHostWindow();
-    const status = this.getStatus();
-    if (this.disposed || this.disposing || !window || window.isDestroyed()) {
-      return;
-    }
-    if (status.state !== 'running') {
-      return;
-    }
-    window.webContents.send(
-      EMBEDDING_HOST_COMMAND_EVENT,
-      createEmbeddingHostCommand('resolve-device', status.runtimeId)
-    );
+    requestHostDeviceResolution(this.lifecycle, !(this.disposed || this.disposing));
   }
 
   private async stopHost(timeoutMs = EMBEDDING_HOST_STOP_TIMEOUT_MS): Promise<EmbeddingHostStatus> {
-    if (this.stopping) {
+    if (this.stopping !== null) {
       if (timeoutMs === EMBEDDING_HOST_STOP_TIMEOUT_MS) {
         return this.stopping;
       }
@@ -412,18 +412,22 @@ export class EmbeddingHostManager {
     }
   }
 
+  /** A host with no live renderer is already stopped: retire its window, no Stop ack. */
+  private async settleStoppedHost(window: BrowserWindow | null): Promise<EmbeddingHostStatus> {
+    if (window) {
+      await this.destroyInferenceHostWindow();
+    }
+    this.lifecycle.clearHostWindow();
+    this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
+    this.rejectSettledInferenceRequests(STOPPED_WITH_INFERENCE);
+    return this.getStatus();
+  }
+
   private async stopHostOnce(timeoutMs: number): Promise<EmbeddingHostStatus> {
     const window = this.lifecycle.getHostWindow();
-    if (!window || window.isDestroyed()) {
-      if (window) {
-        await this.destroyInferenceHostWindow();
-      }
-      this.lifecycle.clearHostWindow();
-      this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
-      this.rejectSettledInferenceRequests(
-        'Embedding host stopped while inference requests were in flight.'
-      );
-      return this.getStatus();
+    // A renderer that exited, before or while Stop waits, can never acknowledge it (BST-2135).
+    if (!window || window.isDestroyed() || this.exitedRenderers.has(window)) {
+      return this.settleStoppedHost(window);
     }
 
     this.lifecycle.setStatus(
@@ -442,16 +446,18 @@ export class EmbeddingHostManager {
       window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
       const status = await this.lifecycle.waitForStatus(
         (nextStatus) =>
-          nextStatus.commandId === command.requestId &&
-          (nextStatus.state === 'stopped' || nextStatus.state === 'error'),
+          this.exitedRenderers.has(window) ||
+          (nextStatus.commandId === command.requestId &&
+            (nextStatus.state === 'stopped' || nextStatus.state === 'error')),
         timeoutMs
       );
+      if (this.exitedRenderers.has(window)) {
+        return await this.settleStoppedHost(window);
+      }
       if (status.state === 'error') {
         throw new Error(status.lastError ?? 'Embedding renderer reported a failed stop.');
       }
-      this.rejectSettledInferenceRequests(
-        'Embedding host stopped while inference requests were in flight.'
-      );
+      this.rejectSettledInferenceRequests(STOPPED_WITH_INFERENCE);
       return status;
     } catch (error) {
       let failure = error;
@@ -475,7 +481,7 @@ export class EmbeddingHostManager {
     if (this.hostedRequests.hasPending) {
       await this.hostedRequests.retire();
     }
-    if (this.stopping) {
+    if (this.stopping !== null) {
       await this.stopping;
     }
     if (this.retirement) {
@@ -579,10 +585,10 @@ export class EmbeddingHostManager {
       if (selected.modelId !== payload.modelId || payload.inferencePlan) {
         throw new Error('Hosted query identity conflicts with the selected provider/model.');
       }
-      if (this.stopping) {
+      if (this.stopping !== null) {
         await this.stopping;
       }
-      if (this.hostedRequests.retirement) {
+      if (this.hostedRequests.retirement !== null) {
         await this.hostedRequests.retirement;
       }
       this.assertNotDisposed('queryEmbedding');

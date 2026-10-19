@@ -188,19 +188,22 @@ export interface RuntimeWorkspaceRoot {
  * sync by hand. `unconfigured` (BST-1335): no workspace root has been
  * selected yet; setup is incomplete, not a failure.
  */
+export const RUNTIME_WORKSPACE_INDEX_STATUS_STATES = [
+  'blocked',
+  'disabled',
+  'idle',
+  'paused',
+  'recovering',
+  'unconfigured',
+  'waiting',
+  'scanning',
+  'importing',
+  'chunking',
+  'embedding',
+  'error',
+] as const;
 export type RuntimeWorkspaceIndexStatusState =
-  | 'blocked'
-  | 'disabled'
-  | 'idle'
-  | 'paused'
-  | 'recovering'
-  | 'unconfigured'
-  | 'waiting'
-  | 'scanning'
-  | 'importing'
-  | 'chunking'
-  | 'embedding'
-  | 'error';
+  (typeof RUNTIME_WORKSPACE_INDEX_STATUS_STATES)[number];
 
 export interface RuntimeWorkspaceIndexQueueProgress {
   failed: number;
@@ -319,7 +322,7 @@ export interface RuntimeData {
    * keys PRESENT with undefined values" in `use-assistant-request-lifecycle.test.ts`;
    * same shape as `permissionPolicyRequest`, whose declaration in
    * `packages/agent/src/types.ts` carries the full rationale.
-   * Excluded for the built-in local provider. Agent-only enforcement.
+   * Agent-only enforcement.
    */
   planMode?: boolean;
   projectId?: string;

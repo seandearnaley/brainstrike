@@ -7,6 +7,7 @@ import type {
   CanonicalWorkspaceLease,
   CanonicalWorkspaceRuntimeDependencies,
 } from '@brainstrike/canonical-ingestion';
+import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import { CanonicalUtilityChannel } from './canonical-utility-channel';
@@ -107,6 +108,8 @@ export class CanonicalUtilityChild {
           this.send({
             channel: CANONICAL_CHANNEL,
             error: canonicalFault(error),
+            // Main tells the scan's cancellation from its failure by this flag (BST-2140).
+            ...(error instanceof CanonicalOperationCancelledError ? { cancelled: true } : {}),
             id: frame.id,
             kind: 'result',
             ok: false,

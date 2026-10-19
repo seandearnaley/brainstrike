@@ -89,14 +89,23 @@ vi.mock('electron', () => ({
 }));
 
 /** The lifecycle callbacks the latest manager registered, so a test can retire its host. */
+interface LifecycleCallbacks {
+  readonly onRenderProcessGone: (context: {
+    readonly exitCode: number;
+    readonly message: string;
+    readonly reason: string;
+    readonly window: unknown;
+  }) => void;
+  readonly onWindowClosed: () => void;
+}
 const lifecycleCallbacks = vi.hoisted(() => ({
-  current: null as { readonly onWindowClosed: () => void } | null,
+  current: null as LifecycleCallbacks | null,
 }));
 
 vi.mock('../renderer-host-lifecycle', () => ({
-  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle(options: {
-    readonly onWindowClosed: () => void;
-  }) {
+  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle(
+    options: LifecycleCallbacks
+  ) {
     lifecycleCallbacks.current = options;
     return lifecycleState;
   }),

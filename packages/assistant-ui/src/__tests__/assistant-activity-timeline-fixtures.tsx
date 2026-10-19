@@ -1,10 +1,13 @@
 import {
+  type AppendMessage,
+  type AssistantRuntime,
   AssistantRuntimeProvider,
   type ChatModelAdapter,
   ComposerPrimitive,
   MessagePrimitive,
   type ThreadMessageLike,
   ThreadPrimitive,
+  useExternalStoreRuntime,
   useLocalRuntime,
 } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
@@ -208,6 +211,39 @@ export function Harness({
   initialMessages?: ThreadMessageLike[];
 }) {
   const runtime = useLocalRuntime(adapter, { initialMessages });
+  return <HarnessView runtime={runtime}>{children}</HarnessView>;
+}
+
+/** Host history is projected verbatim, without the local runtime cancelling earlier pauses. */
+export function HostHistoryHarness({
+  children,
+  initialMessages,
+  onNew,
+}: {
+  children?: (content: ReactNode) => ReactNode;
+  initialMessages: ThreadMessageLike[];
+  onNew?: (message: AppendMessage) => Promise<void>;
+}) {
+  const runtime = useExternalStoreRuntime({
+    convertMessage: (message) => message,
+    isRunning: false,
+    messages: initialMessages,
+    onNew:
+      onNew ??
+      (async () => {
+        throw new Error('Host history projection must not start a model request.');
+      }),
+  });
+  return <HarnessView runtime={runtime}>{children}</HarnessView>;
+}
+
+function HarnessView({
+  children,
+  runtime,
+}: {
+  children: ((content: ReactNode) => ReactNode) | undefined;
+  runtime: AssistantRuntime;
+}) {
   const content = (
     <ThreadPrimitive.Root>
       <ThreadPrimitive.Messages

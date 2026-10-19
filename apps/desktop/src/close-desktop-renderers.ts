@@ -1,25 +1,55 @@
 interface ShutdownRendererWindow {
   close(): void;
+  destroy(): void;
   isDestroyed(): boolean;
   once(event: 'closed', listener: () => void): unknown;
   removeListener(event: 'closed', listener: () => void): unknown;
+  readonly webContents: {
+    once(event: 'render-process-gone', listener: () => void): unknown;
+    removeListener(event: 'render-process-gone', listener: () => void): unknown;
+  };
 }
 
 function closeRenderer(window: ShutdownRendererWindow): Promise<void> {
   return new Promise((resolve, reject) => {
-    const closed = () => resolve();
-    window.once('closed', closed);
-    try {
-      // Normal close preserves beforeunload/unload and window state persistence.
-      // The existing application deadline owns an unresponsive renderer.
-      window.close();
-    } catch (error) {
+    // A renderer that exits mid-close never acknowledges its unload, so that close waits
+    // forever: a signal to Main's process group ends it there (BST-2135). Its page can run no
+    // unload handler any more, and `destroy` guarantees `closed`. Deferred past this event's
+    // dispatch: its other listeners still read the window.
+    const contents = window.webContents;
+    const closed = () => {
+      contents.removeListener('render-process-gone', gone);
+      resolve();
+    };
+    // A close or destroy that throws settles this renderer: destroyed is closed, else its cause.
+    const fail = (error: unknown) => {
       window.removeListener('closed', closed);
+      contents.removeListener('render-process-gone', gone);
       if (window.isDestroyed()) {
         resolve();
         return;
       }
       reject(error);
+    };
+    const gone = () => {
+      setImmediate(() => {
+        try {
+          if (!window.isDestroyed()) {
+            window.destroy();
+          }
+        } catch (error) {
+          fail(error);
+        }
+      });
+    };
+    window.once('closed', closed);
+    contents.once('render-process-gone', gone);
+    try {
+      // Normal close preserves beforeunload/unload and window state persistence.
+      // The existing application deadline owns an unresponsive renderer.
+      window.close();
+    } catch (error) {
+      fail(error);
     }
   });
 }

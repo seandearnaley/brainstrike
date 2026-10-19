@@ -21,7 +21,10 @@
  */
 import { LoaderCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
-import type { ThreadRowStatusState } from './assistant-thread-presentation';
+import {
+  getThreadRowAccessibleName,
+  type ThreadRowStatusState,
+} from './assistant-thread-presentation';
 
 /**
  * Shared corner geometry. The dot states reuse the spinner's exact box so the
@@ -33,26 +36,22 @@ const GLYPH_CLASS_NAME =
 const DOT_PRESENTATION = {
   'done-unseen': {
     className: 'bg-primary',
-    describe: (title: string) => `${title} has unseen activity`,
     testId: 'thread-unseen-glyph',
   },
   'failed-unseen': {
     className: 'bg-destructive',
-    describe: (title: string) => `${title} failed`,
     testId: 'thread-failed-glyph',
   },
   'needs-you': {
     // The shared semantic token is contrast-graded against both row surfaces
     // in `warning-theme-contract.test.mjs`; consumers never choose raw amber.
     className: 'bg-warning',
-    describe: (title: string) => `${title} needs your approval`,
     testId: 'thread-needs-you-glyph',
   },
 } as const satisfies Record<
   Exclude<ThreadRowStatusState, 'running'>,
   {
     readonly className: string;
-    readonly describe: (title: string) => string;
     readonly testId: string;
   }
 >;
@@ -71,7 +70,7 @@ export function ThreadRowStatusGlyph({
   if (state === 'running') {
     return (
       <LoaderCircle
-        aria-label={`${title} is active`}
+        aria-label={getThreadRowAccessibleName(state, title)}
         className={`${GLYPH_CLASS_NAME} animate-spin bg-background text-current motion-reduce:animate-none`}
         data-testid="thread-active-spinner"
         role="img"
@@ -81,7 +80,7 @@ export function ThreadRowStatusGlyph({
   const presentation = DOT_PRESENTATION[state];
   return (
     <span
-      aria-label={presentation.describe(title)}
+      aria-label={getThreadRowAccessibleName(state, title)}
       className={`${GLYPH_CLASS_NAME} ${presentation.className}`}
       data-testid={presentation.testId}
       role="img"

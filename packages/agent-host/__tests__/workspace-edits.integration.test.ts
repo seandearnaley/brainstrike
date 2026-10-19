@@ -28,6 +28,7 @@ import type { HostPlatform, HostToolContext } from '../src/ports.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { scriptedToolSequence } from '../src/test-fixtures/scripted-model.js';
+import { REAL_INDEXER_DEADLINES } from './fixtures/real-indexer-deadlines.js';
 
 const ROOT_ID = 'workspace-root';
 /** A scripted run takes seconds under machine load, past expect.poll's 1 s default. */
@@ -607,7 +608,7 @@ test('thread deletion collects the baselines its edits referenced and purges pla
           },
           stateRoot: state.dataRoot,
         },
-        { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+        REAL_INDEXER_DEADLINES
       );
       return {
         ...platform(state),

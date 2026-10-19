@@ -178,7 +178,7 @@ export class HostCore {
     foldRows: (rows) => this.foldRows(rows),
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
-    runs: () => this.runs.values(),
+    runs: () => this.runs,
     startNextRun: (params, origin, refused) => this.startNextRun(params, origin, refused),
     wake: (threadId) =>
       this.admit(threadId, async () => {
@@ -697,6 +697,7 @@ export class HostCore {
       foldRows: this.foldRows,
       mcpInputs: this.mcpInputs,
       openRun: (run) => this.openRun(run),
+      origins: this.store,
       platform: this.platform,
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
@@ -771,7 +772,7 @@ export class HostCore {
       this.admit(sibling.threadId, () =>
         approveHostRunByPolicy(
           sibling,
-          this.platform,
+          this.executionPorts(),
           interactionId,
           (events) => this.append(sibling.threadId, events),
           () => this.continueRun(sibling)
@@ -859,7 +860,7 @@ export class HostCore {
     return this.command(method, params, async () => {
       const answered = await commitHostInteractionResponse(
         run(),
-        this.platform,
+        this.executionPorts(),
         params,
         (events) => this.accept(params.threadId, method, params, { accepted: true }, events),
         () => this.continueRun(run())

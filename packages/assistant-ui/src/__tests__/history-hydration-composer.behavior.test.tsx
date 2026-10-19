@@ -27,7 +27,6 @@ vi.mock('../assistant-message-text', () => ({
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
-vi.mock('@assistant-ui/styles/index.css', () => ({}));
 
 import { AssistantUiPanel } from '../assistant-ui-panel';
 

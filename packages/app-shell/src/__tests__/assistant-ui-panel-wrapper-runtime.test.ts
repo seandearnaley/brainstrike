@@ -361,7 +361,7 @@ describe('assistant runtime helpers', () => {
         providerKeySources: [{ provider: 'openai', source: 'stored' }],
       })
     ).toBe(
-      'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.'
+      'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.'
     );
   });
 
@@ -1081,6 +1081,49 @@ describe('assistant runtime helpers', () => {
       // The stale `local` preference entry is NOT folded back in: the built-in
       // local provider no longer offers a chat model to enable.
     ).toEqual(new Set(['registry-model', 'llama']));
+  });
+
+  it('declares each discovered Ollama model at the window admission budgets and Ollama allocates (BST-754)', () => {
+    const model = (modelId: string, contextLength?: { state: 'reported'; tokens: number }) => ({
+      capabilities: {
+        embeddings: 'unsupported' as const,
+        llm: true,
+        vision: 'unsupported' as const,
+      },
+      capabilitySource: 'provider_reported' as const,
+      ...(contextLength ? { contextLength: { ...contextLength, key: 'x.context_length' } } : {}),
+      dimensionsKnown: { state: 'not_applicable' as const },
+      displayName: modelId,
+      endpoint: 'http://localhost',
+      freshness: 'live' as const,
+      modelId,
+      modelKey: `ollama/${modelId}`,
+      providerId: 'ollama' as const,
+      runtime: 'ollama' as const,
+      source: 'ollama_api_tags' as const,
+    });
+    const catalog = {
+      ollama: {
+        checkedAt: 0,
+        endpoint: 'http://localhost',
+        freshness: 'live',
+        models: [
+          model('phi4', { state: 'reported', tokens: 16_384 }),
+          model('gemma4:31b', { state: 'reported', tokens: 262_144 }),
+          model('unreported'),
+        ],
+        runtime: 'ollama',
+        source: 'ollama_api_tags',
+        state: 'loaded_non_empty',
+      },
+    } as unknown as Parameters<typeof toRuntimeProviderModels>[1];
+    expect(
+      toRuntimeProviderModels('ollama', catalog).map(({ contextWindow, id }) => [id, contextWindow])
+    ).toEqual([
+      ['phi4', 16_384],
+      ['gemma4:31b', 32_768],
+      ['unreported', 32_768],
+    ]);
   });
 
   it('identifies local runtime providers and extracts prepared run ids', () => {

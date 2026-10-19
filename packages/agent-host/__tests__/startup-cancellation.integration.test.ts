@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { createNodeHostSpawner } from '@brainstrike/host-lease';
+import { createNodeHostSpawner, type StartedHost } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { startAgentHost } from '../src/runtime.js';
@@ -113,7 +113,7 @@ test.for(startupModes)(
     const watchdog = new AbortController();
     const signal = AbortSignal.any([context.signal, controller.signal, watchdog.signal]);
     const observer = await observeFixtureStartup(root, signal);
-    let starting: Promise<void> | undefined;
+    let starting: Promise<StartedHost> | undefined;
     let ownerPid: number | undefined;
     let ownerStart: string | undefined;
     let childPid: number | undefined;

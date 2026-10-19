@@ -22,6 +22,7 @@ describe('app-shell session-store test isolation', () => {
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
+      owner: 'user',
       tabId: 'stale-tab',
       title: 'Stale tab',
       url: 'https://example.com',

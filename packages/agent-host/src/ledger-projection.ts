@@ -68,17 +68,13 @@ export function catalogModel(modelId: string): CatalogModel | undefined {
     ? { model: modelId.slice(separator + 2), provider: modelId.slice(0, separator) }
     : undefined;
 }
-/**
- * An observer call's model: the catalog id Core commits it under (BST-1929).
- * The built-in local observer bills nothing.
- */
+/** An observer call's model: the catalog id Core commits it under (BST-1929). */
 export function observerUsageModel(modelId: string): CatalogModel | undefined {
   const committed = catalogModel(modelId);
   if (!committed) {
     warnUncosted(modelId);
-    return;
   }
-  return committed.provider === 'local' ? undefined : committed;
+  return committed;
 }
 const uncostedModelIds = new Set<string>();
 /**

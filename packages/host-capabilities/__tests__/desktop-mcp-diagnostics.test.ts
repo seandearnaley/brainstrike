@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import type { MessageConnection } from 'vscode-jsonrpc';
+import { McpConfigWatchHealth } from '../src/mcp/config-watch.js';
 import {
   createDesktopMcpDiagnostics,
   createDesktopNodeMcpHost,
@@ -134,6 +135,37 @@ describe('desktop MCP diagnostic delivery', () => {
     }
   });
 
+  it('forwards the config watcher health records', async () => {
+    const request = vi.fn(async (_method: string, _payload: unknown) => undefined);
+    const relay = createDesktopMcpDiagnostics(request);
+    try {
+      const health = new McpConfigWatchHealth();
+      health.want();
+      await health.ensure({
+        announce: () => undefined,
+        current: () => true,
+        running: () => false,
+        start: () => Promise.reject(new Error('EMFILE: too many open files, watch')),
+      });
+      await relay.drain();
+      expect(request.mock.calls.map((call) => call[1])).toMatchObject([
+        {
+          record: {
+            args: [
+              'MCP config watcher cannot run',
+              { error: { message: 'EMFILE: too many open files, watch' } },
+            ],
+            level: 'error',
+            scope: 'McpConfigWatch',
+          },
+          type: 'record',
+        },
+      ]);
+    } finally {
+      relay.dispose();
+    }
+  });
+
   it('reports delivery failure loudly, retains it through drain, and unregisters its scoped tap', async () => {
     const failure = new Error('Main diagnostic adapter rejected delivery');
     const request = vi.fn(async (_method: string, _payload: unknown) => {
@@ -176,7 +208,12 @@ function compositionOptions(
   return {
     connection: { onRequest: () => ({ dispose: () => undefined }) } as unknown as MessageConnection,
     credentials: {
-      secrets: () => ({ getKey: async () => null, listProviders: async () => [] }),
+      secrets: () => ({
+        deleteKey: async () => false,
+        getKey: async () => null,
+        listProviders: async () => [],
+        saveKey: async () => false,
+      }),
       store: () => store,
     },
     request,

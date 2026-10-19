@@ -6,6 +6,7 @@ import {
   openExistingNodeWorkspaceServices,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { RootLock, StateStore } from '@brainstrike/state-store';
+import { sendFixtureResult } from './fixture-result.mjs';
 
 const [mode, fixture] = process.argv.slice(2);
 assert.ok(mode === 'retarget' || mode === 'stable-alias');
@@ -115,6 +116,4 @@ try {
     await assert.rejects(access(path.join(profileB, '.db-process.lock')));
   }
 }
-process.stdout.write(
-  `NODE_WORKSPACE_ROOT_IDENTITY_RECEIPT ${JSON.stringify({ ...report, physicallyJoined: true })}\n`
-);
+await sendFixtureResult({ ...report, physicallyJoined: true });

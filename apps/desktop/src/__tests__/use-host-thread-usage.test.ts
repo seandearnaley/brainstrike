@@ -67,7 +67,7 @@ test('Luna cache writes preserve the rendered meter and price recorded usage', (
   const ledger = new HostThreadLedger();
   const cached = recordedRows('openai::gpt-6-luna').map((row) =>
     row.event.type === 'model.step'
-      ? Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+      ? Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
           ...row,
           event: {
             ...row.event,

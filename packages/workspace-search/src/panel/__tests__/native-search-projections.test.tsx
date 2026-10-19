@@ -100,17 +100,27 @@ describe('native Search projections without a database provider', () => {
     expect(screen.getByRole('combobox')).toBeVisible();
   });
   it('keeps incomplete native publication visible despite all current chunks being present', async () => {
+    // The banner verifies coverage before it reports it. The first read is held
+    // open so both states are observed instead of raced (BST-2220).
+    const firstRead = Promise.withResolvers<IndexerCoverageBatch>();
     const coverageBatch = vi
       .fn<IndexSearchCapability['coverageBatch']>()
-      .mockResolvedValue(observation(false));
+      .mockResolvedValue(observation(false))
+      .mockReturnValueOnce(firstRead.promise);
     const dependency = { capability: bridge(coverageBatch), embedQuery: vi.fn(), profile: null };
     const { rerender } = render(
       <NativeWorkspaceSearchContext value={dependency}>
         <SearchCoverageBanner collectionId="imported" rootIds={['root-a']} />
       </NativeWorkspaceSearchContext>
     );
-    expect(await screen.findByRole('status')).toHaveTextContent('Indexing');
+    expect(await screen.findByRole('status')).toHaveTextContent('Verifying index coverage…');
     await waitFor(() => expect(coverageBatch).toHaveBeenCalledOnce());
+    await act(async () => {
+      firstRead.resolve(observation(false));
+      await firstRead.promise;
+    });
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Indexing'));
+    expect(coverageBatch).toHaveBeenCalledOnce();
     expect(liveQuery).not.toHaveBeenCalled();
     const completed = observation(true);
     coverageBatch.mockResolvedValue(completed);

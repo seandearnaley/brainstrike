@@ -83,9 +83,6 @@ interface RequestSkillSet {
 /** The request's skill scan and enabled filter, or undefined when skills are off. */
 function requestSkillSet(params: PrepareRequestSkillsParams): RequestSkillSet | undefined {
   const { fs, homedir, runtimeData } = params;
-  if (runtimeData?.provider === 'local') {
-    return;
-  }
   const preference = readSkillsPreference(runtimeData?.skillsPreference);
   if (!preference.masterEnabled) {
     return;

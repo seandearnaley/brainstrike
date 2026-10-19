@@ -325,6 +325,11 @@ single configured HTTP MCP resource.
   an `api_key` envelope in the existing `brainstrike-secrets` safeStorage store
   under `mcp-credentials:<uuid>`; no second credential store or plaintext
   configuration channel exists.
+- Settings sends a token pasted into an MCP catalog install once, over the
+  `desktop-ui` host connection (`mcp/config/install`). The host's bearer writer
+  stores it under a fresh UUID in the profile credential store, and only the
+  `{ store: 'mcp-credentials', id }` reference is written to the MCP config. A
+  failed config write removes the stored token again.
 - `DesktopMcpHostRuntime` receives a credential authority capability, never a
   token. The capability resolves on each request, validates the bearer-token
   grammar, rejects a competing Authorization header, binds use to the exact

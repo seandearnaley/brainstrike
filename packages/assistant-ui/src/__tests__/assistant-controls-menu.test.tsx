@@ -1,26 +1,10 @@
 import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { JSX, ReactNode } from 'react';
+import type { JSX } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ControlsMenu } from '../assistant-controls-menu';
 import type { AssistantToolMenuConfig } from '../assistant-ui-panel';
-
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
-  const Shell = ({ children }: { children: ReactNode }): JSX.Element => <div>{children}</div>;
-  const Content = ({ children }: { children: ReactNode }): JSX.Element => (
-    <div role="dialog">{children}</div>
-  );
-  const Trigger = ({ children }: { children: ReactNode }): JSX.Element => <>{children}</>;
-
-  return {
-    ...actual,
-    Popover: Shell,
-    PopoverContent: Content,
-    PopoverTrigger: Trigger,
-  };
-});
 
 vi.mock('../provider-settings-panel', () => ({
   ProviderSettingsPanel: ({
@@ -37,15 +21,19 @@ vi.mock('../provider-settings-panel', () => ({
 }));
 
 describe('ControlsMenu', () => {
-  it('always renders the trigger and the Detail control, even without tools or reasoning', () => {
+  it('always offers the trigger and opens Detail, even without tools or reasoning', async () => {
+    const user = userEvent.setup();
     // The Detail control is always relevant, so the menu no longer hides itself.
     render(<ControlsMenu />);
 
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Assistant controls' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
     expect(screen.getByText('Detail')).toBeInTheDocument();
   });
 
-  it('renders output & limits controls for supported providers', () => {
+  it('renders output & limits controls for supported providers', async () => {
+    const user = userEvent.setup();
     const settings = {
       OpenAI: {
         reasoningEffort: 'low',
@@ -62,6 +50,7 @@ describe('ControlsMenu', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
     expect(screen.getByText('Output & Limits')).toBeInTheDocument();
     expect(screen.getByText('Provider settings panel')).toHaveAttribute(
       'data-provider-id',
@@ -70,10 +59,13 @@ describe('ControlsMenu', () => {
     expect(screen.getByText('Provider settings panel')).toHaveAttribute('data-model-name', 'gpt-5');
   });
 
-  it('hides reasoning settings for unsupported providers but still shows the menu', () => {
+  it('hides reasoning settings for unsupported providers but still shows the menu', async () => {
+    const user = userEvent.setup();
     render(<ControlsMenu onProviderSettingsChange={vi.fn()} selectedProvider="local" />);
 
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
+    expect(screen.getByRole('dialog', { name: 'Assistant controls' })).toBeInTheDocument();
     expect(screen.queryByText('Output & Limits')).not.toBeInTheDocument();
   });
 
@@ -113,6 +105,7 @@ describe('ControlsMenu', () => {
     } satisfies AssistantToolMenuConfig;
 
     render(<ControlsMenu toolMenu={toolMenu} />);
+    await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
 
     expect(screen.getByText('AI Tools')).toBeInTheDocument();
     expect(screen.getByText('1 of 3 enabled')).toBeInTheDocument();
@@ -180,6 +173,7 @@ describe('ControlsMenu', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
     const search = screen.getByRole('searchbox', { name: 'Search tools' });
     await user.click(screen.getByText('Native Tools', { selector: 'summary span' }));
     expect(
@@ -208,7 +202,8 @@ describe('ControlsMenu', () => {
     expect(screen.getByText(/No tools match/)).toBeInTheDocument();
   });
 
-  it('uses a supplied tool summary and disables tools without a toggle handler', () => {
+  it('uses a supplied tool summary and disables tools without a toggle handler', async () => {
+    const user = userEvent.setup();
     const toolMenu = {
       items: [
         {
@@ -223,13 +218,15 @@ describe('ControlsMenu', () => {
     } satisfies AssistantToolMenuConfig;
 
     render(<ControlsMenu toolMenu={toolMenu} />);
+    await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
 
     expect(screen.getByText('Custom tool summary')).toBeInTheDocument();
     expect(screen.getByRole('switch')).toBeDisabled();
     expect(screen.getByText('Native Read')).toBeInTheDocument();
   });
 
-  it('shows the loading state while tool discovery is in progress', () => {
+  it('shows the loading state while tool discovery is in progress', async () => {
+    const user = userEvent.setup();
     const toolMenu = {
       isLoading: true,
       items: [
@@ -244,6 +241,7 @@ describe('ControlsMenu', () => {
     } satisfies AssistantToolMenuConfig;
 
     render(<ControlsMenu toolMenu={toolMenu} />);
+    await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
 
     expect(screen.getByText(/Loading tools/)).toBeInTheDocument();
     expect(screen.queryByText('Native Read')).not.toBeInTheDocument();

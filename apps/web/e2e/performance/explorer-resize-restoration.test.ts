@@ -7,7 +7,7 @@ import {
   restoreInlineFixture,
 } from '../utils/file-explorer-restoration';
 import { widenExplorerForDirectTreeActions } from '../utils/file-tree-locators';
-import { waitForAppLoad } from '../utils/layout-helpers';
+import { waitForAppLoad, waitForDatabaseReady } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 
 const ROOT_NAME = 'restored-resize-regression';
@@ -224,23 +224,42 @@ test('keeps restored expanded explorer windowed during panel resize drag', async
   await page.getByTestId('expand-all-button-small').click();
   await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 60_000 });
   await expect.poll(() => getExpandedDirectoryCount(page), { timeout: 10_000 }).toBeGreaterThan(0);
-  await persistCurrentExplorerStoreSnapshot(page);
+  // Restored explorer state is keyed by the root's durable RootId (BST-1044):
+  // remount the same root, not a fresh one.
+  const { currentFolderId: rootId } = await persistCurrentExplorerStoreSnapshot(page);
+  if (!rootId) {
+    throw new Error('The selected root did not persist a RootId');
+  }
 
   await page.reload();
   await waitForAppLoad(page, { waitForDatabase: false });
-  await restoreInlineFixture(page, ROOT_NAME, tree);
+  await restoreInlineFixture(page, ROOT_NAME, tree, rootId);
   await expect(explorer.fileTree).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => getExpandedDirectoryCount(page), { timeout: 10_000 }).toBeGreaterThan(0);
 
+  // Restoration is asserted above, before the database is ready (the reload
+  // passes waitForDatabase: false). The drag below is measured only once the
+  // database is up: on a slow runner the PGlite first-run bootstrap is still
+  // running at this point ("Storage: Connecting…"), and the probe measures the
+  // drag, not app startup.
+  await waitForDatabaseReady(page);
+
   const treeContainer = explorer.fileTreeScrollContainer;
   await expect(treeContainer).toBeVisible();
-  const treeBox = await treeContainer.boundingBox();
-  if (!treeBox) {
-    throw new Error('File tree scroll container bounding box is unavailable');
+  // The Explorer lives in the right-hand Workspace panel; its resize handle is
+  // that panel's separator, on the Explorer's LEFT edge. A point derived from
+  // the tree's geometry (its right edge + 2px) lands outside the 1280px
+  // viewport, where the drag hits nothing and only measures idle time.
+  const resizeHandle = page.getByRole('separator', { name: 'Resize Workspace panel' });
+  await expect(resizeHandle).toBeVisible();
+  const handleBox = await resizeHandle.boundingBox();
+  if (!handleBox) {
+    throw new Error('The "Resize Workspace panel" separator has no bounding box');
   }
 
-  const x = treeBox.x + treeBox.width + 2;
-  const y = treeBox.y + treeBox.height / 2;
+  const x = handleBox.x + handleBox.width / 2;
+  const y = handleBox.y + handleBox.height / 2;
+  const widthBeforeDrag = await treeContainer.evaluate((element) => element.clientWidth);
 
   await installFrameProbe(page);
   await page.mouse.move(x, y);
@@ -254,6 +273,11 @@ test('keeps restored expanded explorer windowed during panel resize drag', async
 
   const metrics = await finishFrameProbe(page);
   console.log(`RESTORED_EXPLORER_RESIZE_METRICS ${JSON.stringify(metrics)}`);
+  const widthAfterDrag = await treeContainer.evaluate((element) => element.clientWidth);
+  expect(
+    widthAfterDrag,
+    `Dragging the "Resize Workspace panel" separator left the explorer ${widthBeforeDrag}px wide: the drag resized nothing`
+  ).not.toBe(widthBeforeDrag);
   expect(metrics.beforeRowCount).toBeGreaterThan(0);
   expect(metrics.afterRowCount).toBeLessThan(200);
   expect(metrics.afterLastIndex ?? 0).toBeLessThan(200);

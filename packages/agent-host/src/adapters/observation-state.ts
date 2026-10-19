@@ -1,6 +1,11 @@
+import type { VectorProfile } from '@brainstrike/indexer';
 import type { MemoryDomainPort } from '@brainstrike/state-store';
 import type { ObservationalMemoryRecord } from '@mastra/core/storage';
-import type { HostObservationalMemoryState, HostObserverAwaitingReason } from '../protocol.js';
+import type {
+  HostMemoryModels,
+  HostObservationalMemoryState,
+  HostObserverAwaitingReason,
+} from '../protocol.js';
 import type { HostMemoryCapabilities } from './memory.js';
 import { StateStoreMemoryStorage } from './memory-storage.js';
 
@@ -19,27 +24,101 @@ function tokens(value: unknown, field: string): number {
   return value;
 }
 
+function flag(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new TypeError(`Observation record ${field} is not a boolean`);
+  }
+  return value;
+}
+
+/** A stored time as epoch ms; a time the record has not reached yet is null. */
+function time(value: unknown, field: string): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!(value instanceof Date && Number.isFinite(value.getTime()))) {
+    throw new TypeError(`Observation record ${field} is not a date`);
+  }
+  return value.getTime();
+}
+
+/** A positive threshold from the record's stored configuration, or an error. */
+function threshold(config: Record<string, unknown>, section: string, field: string): number {
+  const entry: unknown = Reflect.get(config, section);
+  const value =
+    entry && typeof entry === 'object'
+      ? tokens(Reflect.get(entry, field), `config.${section}.${field}`)
+      : undefined;
+  if (!value) {
+    throw new TypeError(`Observation record has no positive config.${section}.${field}`);
+  }
+  return value;
+}
+
+function originType(value: unknown): 'initial' | 'reflection' {
+  if (value !== 'initial' && value !== 'reflection') {
+    throw new TypeError('Observation record originType is not initial or reflection');
+  }
+  return value;
+}
+
 /** The meter's fields, read strictly: a malformed record is an error, never a zero. */
 function observationRecord(record: ObservationalMemoryRecord): NonNullable<ObservationRecord> {
-  const observation: unknown = Reflect.get(record.config, 'observation');
-  const threshold =
-    observation && typeof observation === 'object'
-      ? tokens(Reflect.get(observation, 'messageTokens'), 'config.observation.messageTokens')
-      : undefined;
-  if (!threshold) {
-    throw new TypeError('Observation record has no positive config.observation.messageTokens');
-  }
   return {
     bufferedObservationTokens: (record.bufferedObservationChunks ?? []).reduce(
       (total, chunk, index) =>
         total + tokens(chunk.tokenCount, `bufferedObservationChunks[${index}].tokenCount`),
       0
     ),
-    messageTokenThreshold: threshold,
+    lifecycle: {
+      generationCount: tokens(record.generationCount, 'generationCount'),
+      isBufferingObservation: flag(record.isBufferingObservation, 'isBufferingObservation'),
+      isBufferingReflection: flag(record.isBufferingReflection, 'isBufferingReflection'),
+      isObserving: flag(record.isObserving, 'isObserving'),
+      isReflecting: flag(record.isReflecting, 'isReflecting'),
+      lastBufferedAtTime: time(record.lastBufferedAtTime, 'lastBufferedAtTime'),
+      lastObservedAt: time(record.lastObservedAt, 'lastObservedAt'),
+      originType: originType(record.originType),
+      reflectionTokenThreshold: threshold(record.config, 'reflection', 'observationTokens'),
+    },
+    messageTokenThreshold: threshold(record.config, 'observation', 'messageTokens'),
     observationTokenCount: tokens(record.observationTokenCount, 'observationTokenCount'),
     pendingMessageTokens: tokens(record.pendingMessageTokens, 'pendingMessageTokens'),
     totalTokensObserved: tokens(record.totalTokensObserved, 'totalTokensObserved'),
   };
+}
+
+/**
+ * The models an admission's memory uses: its observer's catalog id and its
+ * vector profile's identity. A local profile's precision follows its device.
+ */
+export function hostMemoryModels(
+  observerModelId: string | undefined,
+  profile: VectorProfile | undefined
+): HostMemoryModels {
+  return {
+    ...(profile
+      ? {
+          embedder: {
+            dimensions: profile.dimensions,
+            distance: profile.distance,
+            ...('dtype' in profile ? { dtype: profile.dtype } : {}),
+            modelId: profile.modelId,
+            provider: profile.provider,
+          },
+        }
+      : {}),
+    ...(observerModelId === undefined ? {} : { observer: observerModelId }),
+  };
+}
+
+/** A live admission's models: its observer runs only while its observational memory is on. */
+export function admittedMemoryModels(
+  source: HostObservationSource,
+  observerModelId: string | undefined,
+  profile: VectorProfile | undefined
+): HostMemoryModels {
+  return hostMemoryModels(source.state === 'on' ? observerModelId : undefined, profile);
 }
 
 /** A live admission's source: its native options, or the platform's awaiting reason. */

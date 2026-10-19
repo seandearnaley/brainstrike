@@ -1,14 +1,20 @@
-import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { RootLock } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
+import { runFixtureProcess } from './fixtures/fixture-process.js';
 
-const execute = promisify(execFile);
 const seed = path.join(import.meta.dirname, 'fixtures/node-workspace-native-child.mjs');
 const child = path.join(import.meta.dirname, 'fixtures/node-workspace-root-identity-child.mjs');
+
+/** The receipt fields these assertions cross-reference; toMatchObject checks the rest. */
+interface RootIdentityReport {
+  readonly grantReads: number;
+  readonly profileA: string;
+  readonly profileB: string;
+  readonly rejection?: string;
+}
 
 for (const mode of ['retarget', 'stable-alias']) {
   test(`actual StateStore captured profile identity through a presentation alias: ${mode}`, async () => {
@@ -17,17 +23,12 @@ for (const mode of ['retarget', 'stable-alias']) {
       for (const name of ['a', 'b']) {
         const root = path.join(fixture, name);
         await mkdir(root);
-        const result = await execute(process.execPath, [seed, 'seed', root]);
-        expect(JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '')).toMatchObject({
+        expect(await runFixtureProcess(seed, ['seed', root])).toMatchObject({
           electron: false,
           seeded: true,
         });
       }
-      const result = await execute(process.execPath, [child, mode, fixture]);
-      const prefix = 'NODE_WORKSPACE_ROOT_IDENTITY_RECEIPT ';
-      const receipt = result.stdout.split('\n').find((line) => line.startsWith(prefix));
-      expect(receipt).toBeDefined();
-      const report = JSON.parse(receipt?.slice(prefix.length) ?? '');
+      const report = (await runFixtureProcess(child, [mode, fixture])) as RootIdentityReport;
       expect(report).toMatchObject({ electron: false, mode, physicallyJoined: true });
       if (mode === 'retarget') {
         expect(report).toMatchObject({

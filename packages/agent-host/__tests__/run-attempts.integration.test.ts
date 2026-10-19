@@ -1,7 +1,9 @@
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
-import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
+import {
+  captureHostFailureDiagnostics,
+  INTERNAL_FAULT_DETAIL,
+} from './fixtures/host-failure-diagnostics.js';
 import {
   type Chunk,
   committedRunText,
@@ -155,7 +157,7 @@ test('a non-retryable provider error is not an attempt failure', async () => {
     [{ error: { message: 'Malformed request.', type: 'invalid_request_error' }, type: 'error' }],
   ]);
   const { rows, terminal } = await finishedRun(model);
-  expect(terminal).toMatchObject({ detail: INTERNAL_FAULT.message, outcome: 'failed' });
+  expect(terminal).toMatchObject({ detail: INTERNAL_FAULT_DETAIL, outcome: 'failed' });
   diagnostics.expectCause('Malformed request.');
   expect(calls()).toBe(1);
   expect(attempts(rows)).toEqual([]);
