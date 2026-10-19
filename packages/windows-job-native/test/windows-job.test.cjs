@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const windowsJob = require('..');
-const { inbox, processObserverSource } = require('./command-job-fixture.cjs');
+const { inbox, processObserverSource, waitForObserverStart } = require('./command-job-fixture.cjs');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -233,7 +233,7 @@ const job = require(${JSON.stringify(path.resolve(__dirname, '..'))});
       );
       const observer = inbox(child, true);
       observers.push(observer);
-      const pinned = await observer.wait('pinned');
+      const pinned = await waitForObserverStart(observer);
       assert.deepEqual(
         pinned.identities.map((identity) => identity.pid),
         pids

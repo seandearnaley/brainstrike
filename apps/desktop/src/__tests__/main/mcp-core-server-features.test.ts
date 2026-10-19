@@ -1,4 +1,5 @@
 import {
+  DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
   MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
   McpClientExtensionRegistry,
   registerMcpTasksWireContracts,
@@ -531,6 +532,29 @@ describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
       expect(requestExtension).not.toHaveBeenCalled();
       await features.close();
     }
+  });
+
+  it('stands the idle timeout back to the total only for a call whose guard owns inactivity (BST-1779)', async () => {
+    const { client } = createClient();
+    const features = createMcpCoreServerFeatures(client);
+    await features.initialize();
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {
+      callerGuardsInactivity: true,
+    });
+    await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {});
+    const [[, guarded], [, unguarded]] = client.callTool.mock.calls as unknown as [
+      [unknown, Record<string, unknown>],
+      [unknown, Record<string, unknown>],
+    ];
+    expect(guarded).toMatchObject({
+      maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+      resetTimeoutOnProgress: true,
+      timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+    });
+    // Nothing else stretches: an app's own call keeps the SDK's idle timeout.
+    expect(unguarded).not.toHaveProperty('timeout');
+    expect(unguarded).not.toHaveProperty('maxTotalTimeout');
+    await features.close();
   });
 
   describe('listing (BST-1632)', () => {

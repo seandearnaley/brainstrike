@@ -16,6 +16,15 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
 - An expired tool guard cancels the work belonging to that tool call. A provider
   timeout must abort the provider; a timeout while a host tool runs is terminal
   rather than an opportunity to execute that tool again.
+- An MCP tool's guard is an inactivity budget (BST-1779). Each progress
+  notification restarts its window (the resilience `toolTimeoutMs`, 60 s), up
+  to the transport's own total (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`, 600 s). A
+  silent server ends at the window and a chatty one at the total. The timeout
+  text says which, and the call is cancelled on the wire either way. The guard
+  alone ends a silent call: such a request (`callerGuardsInactivity`) keeps the
+  total as its SDK idle timeout, because the SDK re-arms its own 60 s timer on
+  progress before the guard does and would otherwise end the call first, as an
+  unexplained failure. Native tools keep their flat guard.
 - Failed or abnormal finishes produce failed durable outcomes. Recoverable
   attempts are recorded before retry, stay on the committed branch, and never
   repeat a step that streamed tool input or a call. Context-overflow recovery

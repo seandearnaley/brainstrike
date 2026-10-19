@@ -8,6 +8,12 @@
 // the client's `notifications/cancelled` (the SDK surfaces that as an abort on
 // the handler's request signal), so a test can prove the cancellation actually
 // reached the server rather than the request merely being abandoned.
+//
+// BST-1779: `BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS` makes the call answer
+// once it has streamed progress that long, and `BRAINSTRIKE_STDIO_PROGRESS_SILENT=1`
+// makes it send no progress at all, so a test can tell an inactivity budget
+// from a wall-clock one. `BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS` stops the
+// progress that long into the call: a server that went quiet mid-work.
 import { rename, writeFile } from 'node:fs/promises';
 import { Server } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
@@ -20,6 +26,18 @@ const rawIntervalMs = process.env['BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS'];
 const progressIntervalMs = rawIntervalMs === undefined ? 25 : Number(rawIntervalMs);
 if (!Number.isSafeInteger(progressIntervalMs) || progressIntervalMs < 1) {
   throw new Error('BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS must be a positive safe integer');
+}
+
+const rawFinishAfterMs = process.env['BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS'];
+const finishAfterMs = rawFinishAfterMs === undefined ? undefined : Number(rawFinishAfterMs);
+if (finishAfterMs !== undefined && !(Number.isSafeInteger(finishAfterMs) && finishAfterMs > 0)) {
+  throw new Error('BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS must be a positive safe integer');
+}
+const silent = process.env['BRAINSTRIKE_STDIO_PROGRESS_SILENT'] === '1';
+const rawSilentAfterMs = process.env['BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS'];
+const silentAfterMs = rawSilentAfterMs === undefined ? undefined : Number(rawSilentAfterMs);
+if (silentAfterMs !== undefined && !(Number.isSafeInteger(silentAfterMs) && silentAfterMs > 0)) {
+  throw new Error('BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS must be a positive safe integer');
 }
 
 const state = { cancelled: false, progressSent: 0 };
@@ -55,7 +73,16 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
     throw new Error('The progress fixture requires a progressToken on the tools/call request');
   }
   return await new Promise((resolve, reject) => {
+    const startedAt = Date.now();
     const timer = setInterval(() => {
+      if (finishAfterMs !== undefined && Date.now() - startedAt >= finishAfterMs) {
+        clearInterval(timer);
+        resolve({ content: [{ text: 'finished', type: 'text' }] });
+        return;
+      }
+      if (silent || (silentAfterMs !== undefined && Date.now() - startedAt >= silentAfterMs)) {
+        return;
+      }
       state.progressSent += 1;
       ctx.mcpReq
         .notify({

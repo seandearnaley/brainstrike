@@ -1,15 +1,35 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { DESKTOP_TYPED_PRODUCER_FILES } from '../effect-typed-producer-cohorts.mjs';
 import { runTsc } from '../verify-test-tsconfig-program.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const consumer = path.join(root, 'packages/effect-kit');
-const checker = path.join(consumer, 'node_modules/@effect/tsgo/dist/effect-tsgo.cjs');
+
+function diagnostics(project, cwd = consumer) {
+  const checker = path.join(cwd, 'node_modules/@effect/tsgo/dist/effect-tsgo.cjs');
+  const result = spawnSync(
+    process.execPath,
+    [checker, 'diagnostics', '--project', project, '--strict', '--format', 'json'],
+    { cwd, encoding: 'utf8', timeout: 30_000 }
+  );
+  assert.ifError(result.error);
+  assert.equal(result.signal, null, result.stderr);
+  return { ...result, ...JSON.parse(result.stdout) };
+}
 
 // These programs exercise the installed checker through the real consumer's
 // inherited test configuration. No replacement plugin configuration can make
@@ -117,29 +137,14 @@ function checkFixture(t, side) {
       `import { Effect } from 'effect';\n${side === 'bad' ? bad : good}\n`
     );
   }
-  const result = spawnSync(
-    process.execPath,
-    [
-      checker,
-      'diagnostics',
-      '--project',
-      path.join(directory, 'tsconfig.json'),
-      '--strict',
-      '--format',
-      'json',
-    ],
-    { cwd: root, encoding: 'utf8', timeout: 30_000 }
-  );
-  assert.ifError(result.error);
-  assert.equal(result.signal, null, result.stderr);
-  const output = JSON.parse(result.stdout);
+  const result = diagnostics(path.join(directory, 'tsconfig.json'));
   assert.equal(
-    output.summary.filesChecked,
+    result.summary.filesChecked,
     cases.length,
     'every fixture, including the Vitest callback, is checked'
   );
-  assert.equal(output.summary.filesWithoutPlugin, 0);
-  return { ...result, ...output, directory };
+  assert.equal(result.summary.filesWithoutPlugin, 0);
+  return { ...result, directory };
 }
 
 test('the configured Effect checker rejects each correctness failure, including test callbacks', (t) => {
@@ -223,6 +228,134 @@ test('the actual shared schema rejects wrong Encoded fields without erasing unkn
   );
   assert.equal(erased.status, 0, 'a decoder name alone cannot prove typed input after erasure');
 });
+
+function desktopFixture(t) {
+  const cache = path.join(root, 'node_modules/.cache');
+  mkdirSync(cache, { recursive: true });
+  const directory = mkdtempSync(path.join(cache, 'brainstrike-desktop-producers-'));
+  t.after(() => rmSync(directory, { force: true, recursive: true }));
+  // Copy the actual config chain byte-for-byte. The exact relative override paths
+  // now address disposable files without mutating the checkout or inventing rules.
+  for (const file of [
+    'apps/desktop/tsconfig.test.json',
+    'apps/desktop/tsconfig.json',
+    'packages/config/tsconfig/base.json',
+  ]) {
+    const destination = path.join(directory, file);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    copyFileSync(path.join(root, file), destination);
+  }
+  const desktop = path.join(directory, 'apps/desktop');
+  symlinkSync(
+    path.join(root, 'apps/desktop/node_modules'),
+    path.join(desktop, 'node_modules'),
+    'junction'
+  );
+  writeFileSync(path.join(desktop, 'package.json'), '{"type":"module"}');
+  return {
+    desktop,
+    diagnostics() {
+      return diagnostics(this.project, desktop);
+    },
+    project: path.join(desktop, 'tsconfig.test.json'),
+    write(file, source) {
+      const destination = path.join(desktop, file);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      writeFileSync(destination, source);
+    },
+  };
+}
+
+test('desktop inherited overrides reject authored unknown decoders only in the admitted files', (t) => {
+  const fixture = desktopFixture(t);
+  const outside = 'src/__tests__/outside-producer-cohort.test.ts';
+  const prelude =
+    "import { Schema } from 'effect'; const Person = Schema.Struct({ name: Schema.String });\n";
+  const bad = `${prelude}export const value = Schema.decodeUnknownSync(Person)({ name: 'Ada' });`;
+  for (const file of [...DESKTOP_TYPED_PRODUCER_FILES, outside]) {
+    fixture.write(file, bad);
+  }
+  const rejected = fixture.diagnostics();
+  assert.equal(
+    rejected.status,
+    1,
+    'configured desktop producer paths must reject unknown decoders'
+  );
+  assert.equal(rejected.summary.filesChecked, DESKTOP_TYPED_PRODUCER_FILES.length + 1);
+  assert.equal(rejected.summary.filesWithoutPlugin, 0);
+  for (const file of DESKTOP_TYPED_PRODUCER_FILES) {
+    const diagnostic = rejected.diagnostics.find(
+      (entry) => entry.file === path.join(fixture.desktop, file)
+    );
+    assert.equal(diagnostic?.name, 'preferTypedSchemaDecoder', file);
+    assert.equal(diagnostic.severity, 'error', file);
+    assert.ok(diagnostic.line > 0 && diagnostic.column > 0 && diagnostic.length > 0);
+  }
+  const unchanged = rejected.diagnostics.find(
+    (entry) => entry.file === path.join(fixture.desktop, outside)
+  );
+  assert.equal(unchanged?.name, 'preferTypedSchemaDecoder');
+  assert.equal(
+    unchanged.severity,
+    'message',
+    'unadmitted desktop files retain their default suggestion'
+  );
+  for (const file of DESKTOP_TYPED_PRODUCER_FILES) {
+    fixture.write(
+      file,
+      `${prelude}export const value = Schema.decodeSync(Person)({ name: 'Ada' }); const wire: unknown = { name: 123 }; export const received = Schema.decodeUnknownResult(Person)(wire);`
+    );
+  }
+  const accepted = fixture.diagnostics();
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(accepted.summary.errors, 0);
+  assert.equal(accepted.summary.warnings, 0);
+  assert.equal(accepted.diagnostics.length, 1, 'only the outside-cohort suggestion remains');
+});
+
+for (const { title, file, module, schema, field } of [
+  {
+    field: 'contextWindow',
+    file: 'src/__tests__/host-permission-policy.test.ts',
+    module: path.join(root, 'apps/desktop/src/agent-host-platform/platform-wire.ts'),
+    schema: 'PlatformSelectionSchema',
+    title: 'desktop selection',
+  },
+  {
+    field: 'seq',
+    file: 'src/__tests__/host-thread-debug.test.ts',
+    module: '@brainstrike/agent-host/protocol',
+    schema: 'HostLogRowSchema',
+    title: 'host log',
+  },
+]) {
+  test(`the actual ${title} schema keeps useful Encoded input under the canonical compiler`, (t) => {
+    const fixture = desktopFixture(t);
+    assert.ok(
+      DESKTOP_TYPED_PRODUCER_FILES.includes(file),
+      'the producer proof is in the admitted cohort'
+    );
+    const imports = `import { Schema } from 'effect';\nimport { ${schema} } from ${JSON.stringify(module)};\n`;
+    const check = (source) => {
+      fixture.write(file, imports + source);
+      const result = runTsc(['--noEmit', '--incremental', 'false', '--project', fixture.project]);
+      assert.ifError(result.error);
+      assert.equal(result.signal, null, result.stderr);
+      return result;
+    };
+    const producer = `declare const selected: (typeof ${schema})['Encoded']; export const value = Schema.decodeSync(${schema})({ ...selected, ${field}: `;
+    const invalid = check(`${producer}'wrong' });`);
+    assert.equal(invalid.status, 1, 'wrong real desktop fields must fail the canonical compiler');
+    assert.match(invalid.stdout, /TS2322/u);
+    assert.ok(invalid.stdout.includes(path.basename(file)), invalid.stdout);
+    const valid = check(`${producer}32000 });`);
+    assert.equal(valid.status, 0, valid.stdout || valid.stderr);
+    const unknown = check(
+      `const wire: unknown = { ${field}: 'wrong' }; export const value = Schema.decodeUnknownResult(${schema})(wire);`
+    );
+    assert.equal(unknown.status, 0, unknown.stdout || unknown.stderr);
+  });
+}
 
 test('the diagnostics package stays on the qualified release', () => {
   assert.equal(

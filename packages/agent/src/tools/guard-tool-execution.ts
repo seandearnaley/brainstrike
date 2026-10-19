@@ -38,11 +38,15 @@ const MAX_TOOL_INPUT_ERROR_MESSAGE_CHARS = 1000;
  * read "1s", and a sub-500ms grant read "0s" — and a model sizes its next
  * `timeoutMs` from this number (PR review).
  */
+function formatBudget(ms: number): string {
+  return ms % 1000 === 0 ? `${ms / 1000}s` : `${ms} ms`;
+}
+
 export function formatToolTimeoutMessage(
   grantedMs: number,
   declaredMaxMs: number | undefined
 ): string {
-  const budget = grantedMs % 1000 === 0 ? `${grantedMs / 1000}s` : `${grantedMs} ms`;
+  const budget = formatBudget(grantedMs);
   const head = `The tool did not finish within its ${budget} execution budget and was cancelled.`;
   if (declaredMaxMs === undefined) {
     return `${head} Try a smaller request or another approach.`;
@@ -51,6 +55,16 @@ export function formatToolTimeoutMessage(
     return `${head} That is the largest budget this tool allows, so split the work into smaller steps.`;
   }
   return `${head} Pass a larger timeoutMs (up to ${declaredMaxMs} ms) if the work legitimately needs longer, or split it into smaller steps.`;
+}
+/**
+ * BST-1779: an inactivity budget's two endings, told apart so the model knows
+ * whether the tool went silent or kept working past its ceiling.
+ */
+export function formatToolInactivityMessage(idleMs: number, maxTotalMs: number): string {
+  return `The tool reported no progress for ${formatBudget(idleMs)} and was cancelled (it may run up to ${formatBudget(maxTotalMs)} while it reports progress). Try a smaller request or another approach.`;
+}
+export function formatToolTotalBudgetMessage(maxTotalMs: number): string {
+  return `The tool kept reporting progress but did not finish within its ${formatBudget(maxTotalMs)} total budget and was cancelled. Split the work into smaller steps.`;
 }
 const TOOL_INPUT_ERROR_TRUNCATION_SUFFIX = '… [input error truncated]';
 
@@ -83,6 +97,14 @@ function hasExecute(tool: unknown): tool is ExecutableLike {
 export type ToolGuardTimeout = number | ((args: readonly unknown[]) => number | ToolGuardBudget);
 
 export interface GuardOptions {
+  /**
+   * BST-1779: an inactivity budget. Each activity the call reports (an MCP
+   * server's progress, {@link reportToolGuardActivity}) restarts the
+   * `timeoutMs` window, never past `maxTotalMs` from the start: a silent call
+   * still ends at `timeoutMs` and a chatty one at `maxTotalMs`. Absent keeps
+   * the flat wall-clock guard.
+   */
+  activity?: { readonly maxTotalMs: number };
   /** `maxMs` of the tool's declared execution budget; shapes the timeout remedy. */
   declaredMaxMs?: number;
   /**
@@ -110,6 +132,21 @@ function resolveCallBudget(timeout: ToolGuardTimeout, args: readonly unknown[]):
     throw new Error(`Tool guard resolved a non-positive budget: ${String(budget.guardMs)}`);
   }
   return budget;
+}
+
+function timeoutMessage(
+  ended: 'idle' | 'total',
+  grantedMs: number,
+  idleMs: number,
+  maxTotalMs: number | undefined,
+  declaredMaxMs: number | undefined
+): string {
+  if (maxTotalMs === undefined) {
+    return formatToolTimeoutMessage(grantedMs, declaredMaxMs);
+  }
+  return ended === 'total'
+    ? formatToolTotalBudgetMessage(maxTotalMs)
+    : formatToolInactivityMessage(idleMs, maxTotalMs);
 }
 
 /**
@@ -144,7 +181,19 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // folds this signal into its own so the peer is told instead of being left
     // holding a request the run has already abandoned (BST-1594).
     const deadline = new AbortController();
-    const releaseDeadline = registerToolGuardDeadlineSignal(executionArgs, deadline.signal);
+    // Bound once the budget resolves; activity before that has nothing to re-arm.
+    let rearm: (() => void) | undefined;
+    let reported = false;
+    const releaseDeadline = registerToolGuardDeadlineSignal(
+      executionArgs,
+      deadline.signal,
+      options.activity
+        ? () => {
+            reported = true;
+            rearm?.();
+          }
+        : undefined
+    );
     // Measured around the REAL execution, so a suspended-then-approved call is
     // billed for the work rather than the wait. Started here, before budget
     // resolution or the call, so the duration is honest even when resolving
@@ -162,22 +211,56 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     const startedAt = performance.now();
     try {
       const { grantedMs, guardMs } = resolveCallBudget(options.timeoutMs, executionArgs);
+      const maxTotalMs = options.activity?.maxTotalMs;
       const timeout = new Promise<GuardedToolError>((resolve) => {
-        timer = setTimeout(() => {
+        const expire = (total: boolean): void => {
+          const exceededMs = total && maxTotalMs !== undefined ? maxTotalMs : guardMs;
+          // A window at least as long as the total ends a call at the total
+          // before any progress arrives; that call went silent, not chatty.
+          const ended = total && reported ? 'total' : 'idle';
           // Abort BEFORE resolving so cancellation is ordered ahead of the
           // model-facing answer rather than racing it.
-          deadline.abort(new Error(`Tool "${toolName}" exceeded its ${guardMs}ms execution guard`));
-          logger?.error('Tool execution timed out', { grantedMs, timeoutMs: guardMs, toolName });
+          deadline.abort(
+            new Error(`Tool "${toolName}" exceeded its ${exceededMs}ms execution guard`)
+          );
+          logger?.error('Tool execution timed out', {
+            grantedMs,
+            ...(maxTotalMs === undefined ? {} : { ended, maxTotalMs }),
+            timeoutMs: guardMs,
+            toolName,
+          });
           resolve({
             error: {
               code: 'tool_timeout',
-              message: formatToolTimeoutMessage(grantedMs, options.declaredMaxMs),
+              message: timeoutMessage(
+                ended,
+                grantedMs,
+                exceededMs,
+                maxTotalMs,
+                options.declaredMaxMs
+              ),
               toolName,
             },
             ok: false,
           });
-        }, guardMs);
-        (timer as { unref?: () => void }).unref?.();
+        };
+        // The flat guard arms once; an inactivity budget re-arms on each
+        // activity, with its last window cut to what the total leaves.
+        const arm = (): void => {
+          if (deadline.signal.aborted) {
+            return;
+          }
+          clearTimeout(timer);
+          const left =
+            maxTotalMs === undefined
+              ? Number.POSITIVE_INFINITY
+              : maxTotalMs - (performance.now() - startedAt);
+          const total = left <= guardMs;
+          timer = setTimeout(() => expire(total), Math.max(0, total ? left : guardMs));
+          (timer as { unref?: () => void }).unref?.();
+        };
+        arm();
+        rearm = arm;
       });
 
       const run = (async () => Reflect.apply(original, cloned, executionArgs))();

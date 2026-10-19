@@ -4,8 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { HostToolExecutionContext } from '../host-tool-definition';
+import { DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS } from '../mcp/client-policy';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
 import {
@@ -54,6 +55,24 @@ async function readFixtureState(stateFile: string): Promise<ProgressFixtureState
 }
 
 /**
+ * The host's request timeouts for a `tools/call` (core-server-features): a call
+ * whose guard owns inactivity keeps only the total; any other keeps the SDK's
+ * idle timeout, which `sdkIdleTimeoutMs` scales down from its 60 s default.
+ */
+function requestTimeouts(
+  options: Parameters<McpHostPort['invoke']>[1],
+  sdkIdleTimeoutMs: number | undefined
+): { readonly maxTotalTimeout?: number; readonly timeout?: number } {
+  if (options?.callerGuardsInactivity) {
+    return {
+      maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+      timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+    };
+  }
+  return sdkIdleTimeoutMs === undefined ? {} : { timeout: sdkIdleTimeoutMs };
+}
+
+/**
  * The stdio slice of the desktop host's `tools/call` contract: `onprogress`,
  * the merged signal, and `resetTimeoutOnProgress: true` — the flag that makes
  * an abandoned progress-emitting call outlive its guard.
@@ -61,7 +80,8 @@ async function readFixtureState(stateFile: string): Promise<ProgressFixtureState
 function createStdioMcpHost(
   name: string,
   args: readonly string[],
-  env: Record<string, string>
+  env: Record<string, string>,
+  sdkIdleTimeoutMs?: number
 ): McpHostPort {
   const configuredServerId = parseConfiguredMcpServerId(name);
   const client = new ExplicitStdioMcpClient({ args, command: process.execPath, env, name });
@@ -117,7 +137,11 @@ function createStdioMcpHost(
             ...(operation.arguments ? { arguments: operation.arguments } : {}),
             name: operation.toolName,
           },
-          { ...requestOptions, resetTimeoutOnProgress: true }
+          {
+            ...requestOptions,
+            ...requestTimeouts(options, sdkIdleTimeoutMs),
+            resetTimeoutOnProgress: true,
+          }
         ),
         type: operation.type,
       });
@@ -268,6 +292,160 @@ describe('MCP tool guard cancellation over a real stdio transport', () => {
 
       await runtimeClient?.disconnect();
     } finally {
+      await host.close();
+      await fsp.rm(directory, { force: true, recursive: true });
+    }
+  }, 30_000);
+});
+
+/**
+ * BST-1779 over the same real transport: an MCP call's progress restarts its
+ * guard window (an inactivity budget, as the host binds MCP tools), bounded by
+ * a total budget. Times are scaled down: a 400 ms window stands in for 60 s.
+ */
+describe('MCP inactivity budget over a real stdio transport (BST-1779)', () => {
+  async function runGuarded(
+    env: Record<string, string>,
+    maxTotalMs: number,
+    awaitCancellation = false,
+    sdkIdleTimeoutMs?: number
+  ): Promise<{ readonly result: unknown }> {
+    const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'agent-mcp-inactivity-'));
+    const stateFile = path.join(directory, 'state.json');
+    const host = createStdioMcpHost(
+      'progress',
+      [progressServerEntrypoint],
+      {
+        BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '50',
+        BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: stateFile,
+        ...env,
+      },
+      sdkIdleTimeoutMs
+    );
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+    try {
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const source = discovered?.toolsets['progress']?.['progress_forever'];
+      if (!source) {
+        throw new Error('Progress fixture has no executable producer');
+      }
+      const tool = guardToolExecution(source, {
+        activity: { maxTotalMs },
+        timeoutMs: GUARD_TIMEOUT_MS,
+        toolName: 'progress',
+      }) as { execute: (input: unknown, context: unknown) => Promise<unknown> };
+      const result = await tool.execute(
+        {},
+        { abortSignal: new AbortController().signal, toolCallId: 'inactivity-call' }
+      );
+      if (awaitCancellation) {
+        // The server was told: notifications/cancelled reached it.
+        await expect
+          .poll(async () => (await readFixtureState(stateFile)).cancelled, { timeout: 10_000 })
+          .toBe(true);
+      }
+      return { result };
+    } finally {
+      await runtimeClient?.disconnect();
+      await host.close();
+      cleanups.push(() => fsp.rm(directory, { force: true, recursive: true }));
+    }
+  }
+  const cleanups: (() => Promise<void>)[] = [];
+  afterAll(async () => {
+    for (const cleanup of cleanups.splice(0)) {
+      await cleanup();
+    }
+  });
+
+  it('lets a call that keeps reporting progress run past its window and finish', async () => {
+    // Progress every 50 ms for 1.2 s: three times the 400 ms window, no gap longer than it.
+    const { result } = await runGuarded(
+      { BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '1200' },
+      10_000
+    );
+    expect(isGuardedToolError(result)).toBe(false);
+    expect(JSON.stringify(result)).toContain('finished');
+  }, 30_000);
+
+  it('cancels a silent call at its window, on the wire, naming the silence', async () => {
+    const { result } = await runGuarded(
+      {
+        BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '5000',
+        BRAINSTRIKE_STDIO_PROGRESS_SILENT: '1',
+      },
+      10_000,
+      true
+    );
+    expect(result).toMatchObject({
+      error: {
+        code: 'tool_timeout',
+        message: expect.stringContaining('reported no progress for 400 ms'),
+      },
+      ok: false,
+    });
+  }, 30_000);
+
+  it('ends a call that goes silent mid-work at its guard window, not the SDK request timeout', async () => {
+    // The SDK's idle timeout equals the guard window, as in production (60 s
+    // each), and re-arms on progress before the guard does: unless it stands
+    // back, it ends the call first, as a failure the model cannot read.
+    const { result } = await runGuarded(
+      {
+        BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '5000',
+        BRAINSTRIKE_STDIO_PROGRESS_SILENT_AFTER_MS: '600',
+      },
+      10_000,
+      true,
+      GUARD_TIMEOUT_MS
+    );
+    expect(result).toMatchObject({
+      error: {
+        code: 'tool_timeout',
+        message: expect.stringContaining('reported no progress for 400 ms'),
+      },
+      ok: false,
+    });
+  }, 30_000);
+
+  it('cancels a call that reports progress forever at its total budget, on the wire', async () => {
+    const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'agent-mcp-total-'));
+    const stateFile = path.join(directory, 'state.json');
+    const host = createStdioMcpHost('progress', [progressServerEntrypoint], {
+      BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '50',
+      BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: stateFile,
+    });
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+    try {
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const source = discovered?.toolsets['progress']?.['progress_forever'];
+      if (!source) {
+        throw new Error('Progress fixture has no executable producer');
+      }
+      const tool = guardToolExecution(source, {
+        activity: { maxTotalMs: 1500 },
+        timeoutMs: GUARD_TIMEOUT_MS,
+        toolName: 'progress',
+      }) as { execute: (input: unknown, context: unknown) => Promise<unknown> };
+      const startedAt = performance.now();
+      const result = await tool.execute(
+        {},
+        { abortSignal: new AbortController().signal, toolCallId: 'total-call' }
+      );
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(1400);
+      expect(result).toMatchObject({
+        error: {
+          code: 'tool_timeout',
+          message: expect.stringContaining('did not finish within its 1500 ms total budget'),
+        },
+        ok: false,
+      });
+      // The server was told: notifications/cancelled reached it.
+      await expect
+        .poll(async () => (await readFixtureState(stateFile)).cancelled, { timeout: 10_000 })
+        .toBe(true);
+    } finally {
+      await runtimeClient?.disconnect();
       await host.close();
       await fsp.rm(directory, { force: true, recursive: true });
     }
