@@ -1,5 +1,8 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
@@ -9,7 +12,8 @@ import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
-// Main's catalog and root reads answer from fixtures; no credential or HTTP is reachable.
+// Main's catalog and root reads answer from fixtures, and Ollama from a loopback
+// replay of its recordings; Main's credential reader and any real runtime are unreachable.
 const owner = vi.hoisted(() => ({
   credential: vi.fn(() => {
     throw new Error('Unexpected credential access in worktree tool control');
@@ -34,7 +38,6 @@ import { PlatformClientConfigurationSchema } from '../agent-host-platform/platfo
 import { admissionCatalogFixture, admissionModelSnapshot } from './fixtures/admission-catalog';
 import { desktopAdmission as createDesktopAdmission } from './fixtures/desktop-admission';
 import lmStudioModels from './fixtures/lmstudio-v1-models.json';
-import ollamaTags from './fixtures/ollama-0.32.14-api-tags.json';
 
 const WORKTREE_TOOL_IDS = [NATIVE_TOOL_ID.listWorktrees, NATIVE_TOOL_ID.manageWorktree];
 let directory = '';
@@ -65,6 +68,7 @@ function request(
   model: {
     readonly model: string;
     readonly provider: string;
+    readonly providerOptions?: Record<string, Record<string, string>>;
   } = {
     model: 'gpt-6-sol',
     provider: 'openai',
@@ -253,37 +257,114 @@ test('Main admits one scan’s enabled skills to a host run', async () => {
   expect(hosted.admitted).toEqual(['demo-skill']);
   expect(hosted.tools).toEqual(expect.arrayContaining(['skill', 'skill_read', 'skill_search']));
 });
-// Recorded 2026-10-08 from a local Ollama 0.32.14 (`GET /api/tags`) and LM Studio (`GET /v1/models`).
-const OLLAMA_CHAT_MODELS = ollamaTags.models
-  .filter((model) => model.capabilities.includes('completion'))
-  .map((model) => model.name);
+// Recorded 2026-10-18 from Ollama 0.40.5 (`GET /api/tags`, `POST /api/show`; BST-754), the
+// recordings the Ollama E2E replays, and 2026-10-08 from LM Studio (`GET /v1/models`).
+const OLLAMA_RECORDINGS = ['phi4', 'qwen3-14b'].map((recording) => {
+  const recorded = (name: string): string =>
+    readFileSync(
+      new URL(`../../e2e/recordings/ollama-0.40.5/${recording}/${name}`, import.meta.url),
+      'utf8'
+    );
+  const [listed, ...others] = z
+    .object({ models: z.array(z.object({ name: z.string() })) })
+    .parse(JSON.parse(recorded('api-tags.json'))).models;
+  if (!listed || others.length > 0) {
+    throw new Error(`The ${recording} recording lists more or less than its one model`);
+  }
+  return { model: listed.name, show: recorded('api-show.json') };
+});
 const LM_STUDIO_CHAT_MODELS = lmStudioModels.data
   .map((model) => model.id)
   .filter((id) => !id.startsWith('text-embedding-'));
+const OllamaShowRequestSchema = z.object({ model: z.string() });
+/** A loopback Ollama answering `POST /api/show` from its recordings, noting each request. */
+async function ollamaReplay() {
+  const shown: { readonly authorization: string | undefined; readonly model: string }[] = [];
+  const server = http.createServer((incoming, response) => {
+    const body: Buffer[] = [];
+    incoming.on('data', (chunk: Buffer) => body.push(chunk));
+    incoming.on('end', () => {
+      const show = incoming.method === 'POST' && incoming.url === '/api/show';
+      const asked = show
+        ? OllamaShowRequestSchema.parse(JSON.parse(Buffer.concat(body).toString('utf8'))).model
+        : undefined;
+      if (asked !== undefined) {
+        shown.push({ authorization: incoming.headers.authorization, model: asked });
+      }
+      const recorded = OLLAMA_RECORDINGS.find((recording) => recording.model === asked);
+      response.writeHead(recorded ? 200 : 404, { 'content-type': 'application/json' });
+      response.end(recorded?.show ?? JSON.stringify({ error: 'not recorded' }));
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    shown,
+    stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
 test('a model the local Ollama or LM Studio runtime lists is admitted without a catalog row', async () => {
   // Runtime-discovered models live in neither the models table nor the static catalog.
   catalog.modelRead.mockRejectedValue(
     new Error('A local runtime model has no catalog row to read')
   );
-  expect(OLLAMA_CHAT_MODELS).toEqual(
-    expect.arrayContaining(['gemma4:31b', 'glm-4.7-flash:latest', 'qwen3:30b'])
-  );
-  for (const [provider, model] of [
-    ...OLLAMA_CHAT_MODELS.map((id) => ['ollama', id] as const),
-    ...LM_STUDIO_CHAT_MODELS.map((id) => ['lmstudio', id] as const),
-  ]) {
+  const ollama = await ollamaReplay();
+  const admit = async (model: Parameters<typeof request>[2]) => {
     const captured = await desktopAdmission({}).readConfiguration(
-      request([], { agentLoop: { maxSteps: 3 } }, { model, provider })
+      request([], { agentLoop: { maxSteps: 3 } }, model)
     );
     try {
-      // Budgeted at the conservative window the picker declares for discovered models.
-      expect({ contextWindow: captured.contextWindow, model: captured.configuration }).toEqual({
-        contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
-        model: { model, provider },
-      });
+      return {
+        configuration: captured.configuration,
+        contextWindow: captured.contextWindow,
+        localModel: captured.localModel,
+      };
     } finally {
       await captured.close();
     }
+  };
+  try {
+    // BST-754: an Ollama model is admitted at the window its `/api/show` reports, capped at
+    // the documented default, read at the run configuration's endpoint.
+    const ollamaWindows = {
+      'phi4:latest': { contextWindow: 16_384, thinking: false },
+      'qwen3:14b': { contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW, thinking: true },
+    };
+    expect(OLLAMA_RECORDINGS.map((recording) => recording.model)).toEqual(
+      Object.keys(ollamaWindows)
+    );
+    for (const [model, localModel] of Object.entries(ollamaWindows)) {
+      const target = {
+        model,
+        provider: 'ollama',
+        providerOptions: { ollama: { baseUrl: ollama.origin } },
+      };
+      await expect(admit(target)).resolves.toEqual({
+        configuration: target,
+        contextWindow: localModel.contextWindow,
+        localModel,
+      });
+    }
+    // The host's credential authority holds no Ollama token, so each lookup goes unauthenticated.
+    expect(ollama.shown).toEqual([
+      { authorization: undefined, model: 'phi4:latest' },
+      { authorization: undefined, model: 'qwen3:14b' },
+    ]);
+    // LM Studio reports no window: its models are budgeted at that default, with no lookup.
+    for (const model of LM_STUDIO_CHAT_MODELS) {
+      await expect(admit({ model, provider: 'lmstudio' })).resolves.toEqual({
+        configuration: { model, provider: 'lmstudio' },
+        contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+        localModel: undefined,
+      });
+    }
+    expect(ollama.shown).toHaveLength(2);
+  } finally {
+    await ollama.stop();
   }
 });
 test('the auto observer is the first auto candidate the model catalog has enabled', async () => {
