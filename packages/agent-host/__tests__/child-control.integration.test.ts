@@ -2,7 +2,8 @@
  * BST-1932 S4: controlling one child. Stopping a selected child ends its
  * subtree alone (G12-G16, AT-25); typing into an idle child continues its own
  * conversation under its persona's authority and reports a completed answer
- * to the parent; edits and regenerations deliver pending child results.
+ * to the parent; edits and regenerations take pending child results, and a
+ * result that settles after them reaches them by a wake (BST-1767).
  */
 import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -236,5 +237,82 @@ test.each(['edit', 'regenerate'] as const)(
       `${LEDGER} — 1 total: 0 returned, 1 failed`
     );
     expect(runsOf(after).filter((run) => run.delivery !== undefined)).toHaveLength(1);
+  }
+);
+
+/**
+ * BST-1767 (owner decision 2026-10-19): delivery follows the thread, not the
+ * dispatching reply. A child still working when its reply is replaced reports
+ * once, by a wake at the thread's tip, which is the replacement.
+ */
+test.each(['edit', 'regenerate'] as const)(
+  'a %s takes a result that settles after it, by a wake at its tip',
+  async (action) => {
+    const alphaGate = Promise.withResolvers<void>();
+    let dispatched = false;
+    const model = new MockLanguageModelV4({
+      doStream: async (call) => {
+        if (firstUser(call) === 'ALPHA_TASK') {
+          await alphaGate.promise;
+          return stream(text('Alpha outcome.'));
+        }
+        if (lastUser(call).includes(LEDGER)) {
+          return stream(text('Parent read the ledger.'));
+        }
+        if (!dispatched) {
+          dispatched = true;
+          return stream(toolCalls([['agent-explore', { prompt: 'ALPHA_TASK' }, 'fan-1']]));
+        }
+        return stream(
+          text(answered(call as CallOptions) ? 'Original reply.' : `Replacement: ${lastUser(call)}`)
+        );
+      },
+    });
+    const harness = await setupChildRunHost(model, cleanup);
+    const runId = await harness.start('Fan out.');
+    const rows = await rowsUntil(harness, harness.threadId, finished(runId));
+    const userMessageId = rows.flatMap(({ event }) =>
+      event.type === 'command.accepted' && event.method === 'run/start' ? [event.commandId] : []
+    )[0];
+    const child = (await childrenByTask(harness, 1)).get('ALPHA_TASK');
+    if (!child) {
+      throw new Error('The child must start');
+    }
+    const next =
+      action === 'regenerate'
+        ? await harness.core().regenerateRun({
+            commandId: randomUUID(),
+            modelId: 'scripted',
+            threadId: harness.threadId,
+            userMessageId: userMessageId ?? '',
+          })
+        : await harness.core().startRun({
+            commandId: randomUUID(),
+            modelId: 'scripted',
+            parentMessageId: null,
+            prompt: 'Fan out, edited.',
+            threadId: harness.threadId,
+          });
+    const replaced = await rowsUntil(harness, harness.threadId, finished(next.runId));
+    // The child is still working, so the replacement has nothing to take yet.
+    expect(runsOf(replaced).find((run) => run.runId === next.runId)?.delivery).toBeUndefined();
+    alphaGate.resolve();
+    await rowsUntil(harness, child.threadId, finished(child.runId));
+    const woken = await rowsUntil(harness, harness.threadId, (row) =>
+      runsOf([row]).some((run) => run.delivery?.via === 'wake')
+    );
+    const wake = runsOf(woken).find((run) => run.delivery?.via === 'wake');
+    expect(wake?.parentMessageId).toBe(next.runId);
+    await rowsUntil(harness, harness.threadId, finished(wake?.runId ?? ''));
+    const wakeCall = model.doStreamCalls.at(-1) as CallOptions;
+    expect(lastUser(wakeCall)).toContain(`${LEDGER} — 1 total: 1 returned`);
+    // The wake continues the replacement's conversation, not the replaced reply's.
+    expect(JSON.stringify(wakeCall.prompt)).toContain('Replacement: ');
+    expect(JSON.stringify(wakeCall.prompt)).not.toContain('Original reply.');
+    expect(
+      runsOf(await harness.core().read(harness.threadId, 0)).filter(
+        (run) => run.delivery !== undefined
+      )
+    ).toHaveLength(1);
   }
 );

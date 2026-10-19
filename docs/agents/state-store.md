@@ -76,7 +76,11 @@ The root lease supplies writer authority through acquisition, admitted work and
 physical close. Preserve PID/start/generation checks and OS lock ownership; neither
 a saved path nor an attachment can take over a live owner. Root records and thread
 bindings carry actual canonical identity, while mount descriptors and UI choices
-are projections.
+are projections. A data root's identity is `canonicalRoot`: the OS's own realpath
+(`fs.realpathSync.native`). The lock records it, and every check that a lock,
+profile or reset target is that root derives it there. Node's JS `realpathSync`
+keeps another case or an 8.3 short name, so a second derivation refused a
+launcher's own host on Windows (BST-2234).
 
 Content-addressed blobs store canonical edit baselines and current-format content
 through their existing owner. Hashes and scope must match the bytes; a transient

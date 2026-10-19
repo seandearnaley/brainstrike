@@ -1,9 +1,10 @@
-import { realpath, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import {
   assertNotSyncedRoot,
+  canonicalRoot,
   ForeignLockError,
   type LockOwner,
   processStartTime,
@@ -71,7 +72,8 @@ async function liveLease(root: string): Promise<LockOwner | null> {
   if (!lease || lease.released) {
     return null;
   }
-  if (lease.host !== hostname() || lease.root !== (await realpath(root))) {
+  // The lock records `canonicalRoot(root)`; any other derivation can spell this root differently (BST-2234).
+  if (lease.host !== hostname() || lease.root !== canonicalRoot(root)) {
     throw new ForeignLockError(lease);
   }
   if (!isLive(lease)) {

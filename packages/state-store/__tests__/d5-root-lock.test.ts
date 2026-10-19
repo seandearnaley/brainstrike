@@ -2,10 +2,10 @@
 // a SIGKILLed owner's stale lock is recovered (pid + start time); a reused pid is stale; a foreign host's lock is never
 // taken over (live host-discovery contract supersedes historical spike confirmation policy); N racing processes ->
 // exactly one winner. On Windows the start time comes from GetProcessTimes (BST-1941).
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
-import { hostname } from 'node:os';
-import { join } from 'node:path';
+import { hostname, tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   ForeignLockError,
@@ -14,11 +14,21 @@ import {
   RootLock,
   RootLockedError,
 } from '../src/lock.js';
+import { canonicalRoot } from '../src/root-identity.js';
 import { StateStore } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { fixture, killKids, run, runTs } from './helpers/proc.js';
 
 const fsCjs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
+/** Whether the temp directory's file system ignores case: macOS and Windows by default, not Linux. */
+const tmpFoldsCase = ((): boolean => {
+  const probe = mkdtempSync(join(tmpdir(), 'bs-ss-case-'));
+  try {
+    return existsSync(join(dirname(probe), basename(probe).toUpperCase()));
+  } finally {
+    rmSync(probe, { recursive: true });
+  }
+})();
 afterEach(() => {
   killKids();
   cleanupDirs();
@@ -40,7 +50,7 @@ const plant = (root: string, o: Omit<LockOwner, 'root'> & { root?: string }): vo
   const g = (RootLock.inspect(root)?.gen ?? -1) + 1;
   writeFileSync(
     join(ld, `g${String(g).padStart(12, '0')}`),
-    JSON.stringify({ root: realpathSync(root), ...o })
+    JSON.stringify({ root: canonicalRoot(root), ...o })
   );
 };
 const newRoot = (): string => {
@@ -176,6 +186,24 @@ describe('D5: data-root lock', () => {
     expect(lockOf(root)?.token).toBe('foreign');
   });
 
+  // BST-2234: Node's JS realpathSync keeps a spelling's case (and a Windows 8.3 short name) as given, so the lock
+  // recorded one spelling and its comparers derived another. A case-sensitive file system has no second spelling.
+  test.skipIf(!tmpFoldsCase)(
+    'a lock taken through another spelling of its root records the canonical root, and that root is refused as live, not foreign',
+    async () => {
+      const root = newRoot();
+      const respelled = join(dirname(root), basename(root).toUpperCase());
+      const lock = await RootLock.acquire(respelled);
+      try {
+        await expect(RootLock.acquire(root)).rejects.toThrow(RootLockedError);
+        expect(lock.owner.root).toBe(canonicalRoot(root));
+        expect(lock.owner.root).not.toBe(respelled);
+      } finally {
+        lock.release();
+      }
+    }
+  );
+
   test('a winner that acted on an old listing drops its generation when a newer one exists (deterministic interleaving)', async () => {
     // X lists the lock dir and sees only a stale g0. Before X links g1, another process takes over: it creates g1 and
     // then g2, and its cleanup deletes g1. Simulated by injecting g2 (live owner) right after X's first listing.
@@ -183,7 +211,7 @@ describe('D5: data-root lock', () => {
     plant(root, { host: hostname(), pid: await exited(), start: 'gone', token: 'stale' });
     const sleeper = run(['-e', 'console.log("UP"); setTimeout(() => {}, 30000)']);
     await sleeper.line('UP');
-    const ld = RootLock.dirOf(realpathSync(root));
+    const ld = RootLock.dirOf(canonicalRoot(root));
     const orig = fsCjs.readdirSync;
     let fired = false;
     (fsCjs as { readdirSync: unknown }).readdirSync = function (
@@ -197,7 +225,7 @@ describe('D5: data-root lock', () => {
         const newer: LockOwner = {
           host: hostname(),
           pid: sleeper.p.pid as number,
-          root: realpathSync(root),
+          root: canonicalRoot(root),
           start: processStartTime(sleeper.p.pid as number) as string,
           token: 'newer',
         };

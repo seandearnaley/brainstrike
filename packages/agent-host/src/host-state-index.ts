@@ -14,7 +14,7 @@ import {
   validateIndexerDeadlines,
   validateIndexerOptions,
 } from '@brainstrike/indexer/transport';
-import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
+import { canonicalRoot, type IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import { createStateIndexOwner } from './host-state-index-owner.js';
 import type { HostStartupContext } from './runtime.js';
 
@@ -65,7 +65,8 @@ export async function openHostStateIndex(
   memoryResourceIds: readonly string[] = [],
   startup?: Pick<HostStartupContext, 'register' | 'signal'>
 ): Promise<HostStateIndex> {
-  const stateRoot = realpathSync(root);
+  // The root lock's identity for this root (BST-2234): the index's root id is durable.
+  const stateRoot = canonicalRoot(root);
   const dbPath = join(stateRoot, HOST_STATE_INDEX_FILE);
   const options = {
     dbPath,
