@@ -451,6 +451,9 @@ export default function SettingsPageContent() {
         // Main's hidden embedding host runs local recall embedders on the saved device.
         onDeviceEmbedding: true,
         ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
+        ...(hostProviders?.testMemoryEmbedder
+          ? { testEmbedder: hostProviders.testMemoryEmbedder }
+          : {}),
       }),
       {
         content: <DesktopLoggingSettings />,
