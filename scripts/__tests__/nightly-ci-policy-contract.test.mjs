@@ -236,7 +236,8 @@ test('PR, bot and manual workflows keep their triggers and say they stay disable
 const workflowFiles = () => readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
 const allWorkflows = () => new Map(workflowFiles().map((file) => [file, readWorkflow(file)]));
 const DISABLED_PULL_REQUEST = ['claude-code-review.yml', 'coverage.yml', 'react-doctor.yml'];
-const DISABLED_PUSH = ['react-doctor.yml'];
+// react-doctor.yml on pushes to main; release.yml on the owner's release tags.
+const DISABLED_PUSH = ['react-doctor.yml', 'release.yml'];
 
 const triggeredBy = (sources, event) =>
   [...sources]
@@ -284,7 +285,7 @@ test('only the disabled PR workflows trigger on pull_request', () => {
   assertPullRequestTriggers(allWorkflows());
 });
 
-test('beside a disabled workflow, only the merge queue triggers on push, for its queue branches', () => {
+test('beside the disabled workflows, only the merge queue triggers on push, for its queue branches', () => {
   assertPushTriggers(allWorkflows());
 });
 
