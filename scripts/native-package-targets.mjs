@@ -1,16 +1,27 @@
 import { pathToFileURL } from 'node:url';
 
 // One release-target list for scheduled and explicitly selected manual proof.
-// `desktopSmoke` legs also run the desktop smoke E2E lane against the app they
-// packaged (BST-2190): macOS and Windows, which have no other desktop E2E. Linux
-// runs the full desktop regression in desktop-e2e.yml.
 const TARGETS = [
-  { arch: 'arm64', desktopSmoke: true, os: 'macos-15', platform: 'darwin' },
-  { arch: 'x64', desktopSmoke: false, os: 'macos-15-intel', platform: 'darwin' },
-  { arch: 'x64', desktopSmoke: false, os: 'ubuntu-24.04', platform: 'linux' },
-  { arch: 'arm64', desktopSmoke: false, os: 'ubuntu-24.04-arm', platform: 'linux' },
-  { arch: 'x64', desktopSmoke: true, os: 'windows-2025', platform: 'win32' },
+  { arch: 'arm64', os: 'macos-15', platform: 'darwin' },
+  { arch: 'x64', os: 'macos-15-intel', platform: 'darwin' },
+  { arch: 'x64', os: 'ubuntu-24.04', platform: 'linux' },
+  { arch: 'arm64', os: 'ubuntu-24.04-arm', platform: 'linux' },
+  { arch: 'x64', os: 'windows-2025', platform: 'win32' },
 ];
+
+// Every leg also runs the desktop smoke E2E lane against the app it packaged
+// (`desktopSmoke`, BST-2190), except the targets named here. Each reason cites
+// the Linear issue that owns the gap. Excluded legs keep the native load smoke.
+export const DESKTOP_SMOKE_EXCLUSIONS = Object.freeze({
+  'macos-15-intel':
+    'BST-2190 runs the packaged desktop smoke on one macOS leg, Apple silicon (macos-15).',
+  'ubuntu-24.04':
+    'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
+  'ubuntu-24.04-arm':
+    'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
+  'windows-2025':
+    'BST-2234: on hosted run 39306463102 the host launcher refused its own data root as foreign (ForeignLockError). The state-store lock records the 8.3 short temp path (C:\\Users\\RUNNER~1\\...), and host-lease compares it with the expanded realpath. The BST-2234 fix turns this leg back on.',
+});
 
 export function selectNativePackageTargets(platform = 'all') {
   if (!['all', 'linux', 'windows'].includes(platform)) {
@@ -18,7 +29,9 @@ export function selectNativePackageTargets(platform = 'all') {
   }
   const selected = platform === 'windows' ? 'win32' : platform;
   return {
-    include: TARGETS.filter((target) => selected === 'all' || target.platform === selected),
+    include: TARGETS.filter((target) => selected === 'all' || target.platform === selected).map(
+      (target) => ({ ...target, desktopSmoke: !Object.hasOwn(DESKTOP_SMOKE_EXCLUSIONS, target.os) })
+    ),
   };
 }
 

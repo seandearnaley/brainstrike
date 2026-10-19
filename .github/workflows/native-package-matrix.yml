@@ -11,9 +11,9 @@ name: Native Package Matrix
 # `vec0.*` from `app.asar.unpacked`, the packaged tree has no node-gyp output,
 # and a vec0 table round-trips.
 #
-# BST-2190: the macOS arm64 and Windows x64 legs (`desktopSmoke` in
-# scripts/native-package-targets.mjs) also run the desktop smoke E2E lane
-# against that same packaged app.
+# BST-2190: legs with `desktopSmoke` also run the desktop smoke E2E lane against
+# that same packaged app: today macOS arm64. scripts/native-package-targets.mjs
+# names every excluded target with its Linear issue (Windows x64: BST-2234).
 #
 # Adapted from the native-index-sqlite spike. NOT a required check: failures on
 # the nightly run go to Linear (rule 7).
@@ -175,9 +175,9 @@ jobs:
             ${{ runner.temp }}/electron-builder.log
           if-no-files-found: warn
 
-      # BST-2190: macOS arm64 and Windows x64 have no other desktop E2E, so their
-      # legs run the desktop smoke lane against the app this leg just packaged
-      # (and, on macOS, signed). BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged makes the
+      # BST-2190: `desktopSmoke` legs run the desktop smoke lane against the app
+      # this leg just packaged (and, on macOS, signed). Excluded targets, each
+      # with its Linear issue, are in scripts/native-package-targets.mjs. BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged makes the
       # shared Electron harness launch apps/desktop/release's executable instead
       # of dist/main.js; a missing executable fails the lane, never the dev build.
       # Each test gets a disposable profile and the loopback provider shim, so no

@@ -4,15 +4,16 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import { selectNativePackageTargets } from '../native-package-targets.mjs';
+import * as nativePackageTargets from '../native-package-targets.mjs';
 
 /**
- * BST-2190: the nightly runs the desktop smoke lane against the PACKAGED app on
- * macOS (macos-15, arm64) and Windows (windows-2025, x64). It runs inside the
- * native-package-matrix leg that packaged the app, after packaging (and the
- * macOS ad-hoc signing), so it qualifies that leg's own `apps/desktop/release`
- * output rather than a dev build or a rebuilt copy. Failed runs upload their
- * Playwright traces.
+ * BST-2190: the nightly runs the desktop smoke lane against the PACKAGED app.
+ * It runs inside the native-package-matrix leg that packaged the app, after
+ * packaging (and the macOS ad-hoc signing), so it qualifies that leg's own
+ * `apps/desktop/release` output rather than a dev build or a rebuilt copy.
+ * Failed runs upload their Playwright traces. macOS arm64 runs it; every target
+ * that does not is a named exclusion whose reason cites the Linear issue that
+ * owns the gap, and the native load smoke still runs on every leg.
  *
  * Each check is a function over the workflow text and the target list, so the
  * CONTROL tests can mutate the real inputs and watch the check fail.
@@ -24,9 +25,12 @@ const HARNESS_TARGET = 'apps/desktop/e2e/utils/desktop-e2e-target.ts';
 const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8');
 const expression = (body) => `${'$'}{{ ${body} }}`;
 
-const PACKAGED_SMOKE_OSES = ['macos-15', 'windows-2025'];
+const { selectNativePackageTargets } = nativePackageTargets;
+const REQUIRED_SMOKE_OS = 'macos-15';
+const LINEAR_ISSUE = /\bBST-\d+\b/u;
 const PACKAGE_STEP = 'Package the desktop application';
 const SIGN_STEP = 'Ad-hoc sign with the hardened runtime (macOS)';
+const LOAD_SMOKE_STEP = 'Packaged smoke (natives from app.asar.unpacked)';
 const REBUILDS = /\brun (?:pack|build)\b|run-turbo-command|electron-builder/u;
 
 /** The variable the harness reads, from its own source, so a rename on either side fails. */
@@ -36,14 +40,37 @@ function harnessTargetVariable(source) {
   return match[1];
 }
 
-function assertTargets(targets) {
+/**
+ * Every target runs the packaged desktop smoke unless a named exclusion says why,
+ * citing a Linear issue id. An exclusion never names a target that runs the
+ * smoke, or no target at all.
+ */
+function assertTargets(targets, exclusions) {
+  assert.equal(typeof exclusions, 'object', 'native-package-targets.mjs names its exclusions');
+  assert.ok(exclusions !== null, 'native-package-targets.mjs names its exclusions');
   for (const target of targets) {
     assert.equal(typeof target.desktopSmoke, 'boolean', `${target.os} must say desktopSmoke`);
+    const reason = exclusions[target.os];
+    if (target.desktopSmoke) {
+      assert.equal(reason, undefined, `${target.os} runs the desktop smoke but is excluded`);
+      continue;
+    }
+    assert.equal(
+      typeof reason,
+      'string',
+      `${target.os} skips the desktop smoke without a named exclusion`
+    );
+    assert.match(reason, LINEAR_ISSUE, `${target.os}'s exclusion must cite a Linear issue id`);
   }
-  assert.deepEqual(
-    targets.filter((target) => target.desktopSmoke).map((target) => target.os),
-    PACKAGED_SMOKE_OSES,
-    'exactly macOS arm64 and Windows x64 run the packaged desktop smoke'
+  for (const os of Object.keys(exclusions)) {
+    assert.ok(
+      targets.some((target) => target.os === os),
+      `the exclusion for ${os} names no target`
+    );
+  }
+  assert.ok(
+    targets.some((target) => target.os === REQUIRED_SMOKE_OS && target.desktopSmoke),
+    'macOS arm64 runs the packaged desktop smoke'
   );
 }
 
@@ -56,6 +83,8 @@ function assertWorkflow(source, targetVariable) {
   };
   const packaged = index(PACKAGE_STEP);
   const signed = index(SIGN_STEP);
+  // An excluded leg still proves its packaged natives load.
+  assert.equal(steps[index(LOAD_SMOKE_STEP)].if, undefined, 'the load smoke runs on every leg');
 
   const lanes = steps.filter((step) => /\btest:e2e:/u.test(String(step.run ?? '')));
   assert.equal(lanes.length, 1, `${WORKFLOW} › smoke runs one desktop E2E lane`);
@@ -120,8 +149,11 @@ function assertWindowsExclusions(listSource, specSources) {
   assert.deepEqual([...used].sort(), listed, `every ${EXCLUSIONS} entry is used, and only those`);
 }
 
-test('macOS arm64 and Windows x64 are the packaged desktop smoke targets', () => {
-  assertTargets(selectNativePackageTargets().include);
+test('every target runs the packaged desktop smoke or names the Linear issue that excludes it', () => {
+  assertTargets(
+    selectNativePackageTargets().include,
+    nativePackageTargets.DESKTOP_SMOKE_EXCLUSIONS
+  );
 });
 
 test('each flagged leg runs the smoke lane on the app it packaged, and keeps traces', () => {
@@ -139,13 +171,46 @@ function mutate(source, from, to) {
   return mutated;
 }
 
-test('CONTROL: dropping either platform FAILS this contract', () => {
-  for (const os of PACKAGED_SMOKE_OSES) {
-    const targets = selectNativePackageTargets().include.map((target) =>
-      target.os === os ? { ...target, desktopSmoke: false } : target
-    );
-    assert.throws(() => assertTargets(targets), /exactly macOS arm64 and Windows x64/u);
+test('CONTROL: a skipped target with no exclusion, or one citing no issue, FAILS this contract', () => {
+  const targets = selectNativePackageTargets().include;
+  const exclusions = nativePackageTargets.DESKTOP_SMOKE_EXCLUSIONS;
+  for (const os of Object.keys(exclusions)) {
+    const { [os]: _dropped, ...unnamed } = exclusions;
+    assert.throws(() => assertTargets(targets, unnamed), /without a named exclusion/u);
+    const uncited = { ...exclusions, [os]: exclusions[os].replaceAll(/\bBST-\d+\b/gu, 'an issue') };
+    assert.throws(() => assertTargets(targets, uncited), /must cite a Linear issue id/u);
   }
+});
+
+test('CONTROL: dropping macOS, or excluding a target that runs or does not exist, FAILS', () => {
+  const targets = selectNativePackageTargets().include;
+  const exclusions = nativePackageTargets.DESKTOP_SMOKE_EXCLUSIONS;
+  const withoutMac = targets.map((target) =>
+    target.os === REQUIRED_SMOKE_OS ? { ...target, desktopSmoke: false } : target
+  );
+  assert.throws(
+    () => assertTargets(withoutMac, { ...exclusions, [REQUIRED_SMOKE_OS]: 'BST-1: off' }),
+    /macOS arm64 runs the packaged desktop smoke/u
+  );
+  assert.throws(
+    () => assertTargets(targets, { ...exclusions, [REQUIRED_SMOKE_OS]: 'BST-1: off' }),
+    /runs the desktop smoke but is excluded/u
+  );
+  assert.throws(
+    () => assertTargets(targets, { ...exclusions, 'macos-99': 'BST-1: gone' }),
+    /names no target/u
+  );
+});
+
+test('CONTROL: a load smoke gated like the desktop smoke FAILS this contract', () => {
+  const variable = harnessTargetVariable(read(HARNESS_TARGET));
+  const workflow = parse(read(WORKFLOW));
+  const load = workflow.jobs.smoke.steps.find((step) => step.name === LOAD_SMOKE_STEP);
+  load.if = expression('matrix.desktopSmoke');
+  assert.throws(
+    () => assertWorkflow(JSON.stringify(workflow), variable),
+    /load smoke runs on every leg/u
+  );
 });
 
 test('CONTROL: a lane that launches the dev build FAILS this contract', () => {
