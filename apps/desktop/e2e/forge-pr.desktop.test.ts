@@ -22,6 +22,7 @@ import { type GhShim, installGhShim } from './utils/gh-shim';
 import { freshRepo as createFreshRepo, createTempDirTracker } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
+import { WINDOWS_SMOKE_EXCLUSIONS } from './utils/windows-smoke-exclusions';
 
 const tempDirs = createTempDirTracker();
 const ROOT_ID = 'w4-forge-root-00000000-0000-4000-8000-000000000010';
@@ -72,6 +73,8 @@ async function openComposer(page: Page, repoPath: string): Promise<void> {
 }
 
 test.describe('forge PR awareness', () => {
+  test.fixme(process.platform === 'win32', WINDOWS_SMOKE_EXCLUSIONS.posixGhShim);
+
   test('@smoke shows the PR chip with the failing rollup for the checked-out branch', async ({
     window,
   }) => {

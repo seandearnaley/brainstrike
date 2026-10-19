@@ -14,11 +14,11 @@ const script = path.join(root, 'scripts/native-package-targets.mjs');
 
 test('the scheduled/default package proof preserves every existing release target', () => {
   assert.deepEqual(selectNativePackageTargets().include, [
-    { arch: 'arm64', os: 'macos-15', platform: 'darwin' },
-    { arch: 'x64', os: 'macos-15-intel', platform: 'darwin' },
-    { arch: 'x64', os: 'ubuntu-24.04', platform: 'linux' },
-    { arch: 'arm64', os: 'ubuntu-24.04-arm', platform: 'linux' },
-    { arch: 'x64', os: 'windows-2025', platform: 'win32' },
+    { arch: 'arm64', desktopSmoke: true, os: 'macos-15', platform: 'darwin' },
+    { arch: 'x64', desktopSmoke: false, os: 'macos-15-intel', platform: 'darwin' },
+    { arch: 'x64', desktopSmoke: false, os: 'ubuntu-24.04', platform: 'linux' },
+    { arch: 'arm64', desktopSmoke: false, os: 'ubuntu-24.04-arm', platform: 'linux' },
+    { arch: 'x64', desktopSmoke: false, os: 'windows-2025', platform: 'win32' },
   ]);
 });
 
@@ -28,7 +28,7 @@ test('manual Linux and Windows proof selects only the requested real platform', 
     ['ubuntu-24.04', 'ubuntu-24.04-arm']
   );
   assert.deepEqual(selectNativePackageTargets('windows').include, [
-    { arch: 'x64', os: 'windows-2025', platform: 'win32' },
+    { arch: 'x64', desktopSmoke: false, os: 'windows-2025', platform: 'win32' },
   ]);
   assert.throws(() => selectNativePackageTargets('darwin'), /Unsupported native package platform/);
 });

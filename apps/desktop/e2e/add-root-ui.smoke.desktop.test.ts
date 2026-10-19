@@ -27,6 +27,7 @@ import {
 } from './utils/git-fixtures';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedRoot } from './utils/seed-root';
+import { WINDOWS_SMOKE_EXCLUSIONS } from './utils/windows-smoke-exclusions';
 
 function makeRootDir(label: string, fileCount: number): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), `brainstrike-addroot-smoke-${label}-`));
@@ -168,6 +169,7 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
   test('the root header offers workspace-root actions and opens a shell at that root', {
     tag: '@smoke',
   }, async ({ window: page }) => {
+    test.fixme(process.platform === 'win32', WINDOWS_SMOKE_EXCLUSIONS.posixShellCommand);
     test.setTimeout(120_000);
     const repo = freshConnectRepo('rootmenu');
     await seedRoot(page, repo, {
