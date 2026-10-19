@@ -98,8 +98,11 @@ result in the same success/failure union shape as `mcp/config/write`. It runs on
 6. Write through the same stop-watcher → `configFile.writeText` →
    restart-watcher → reload path that `writeConfigText` uses. Extract that path
    into a private helper that both methods call, instead of copying it.
-7. If the write fails after step 4, `bearerCredentials.delete(reference)` runs and
-   the failure is returned. If that delete also fails, both errors are reported.
+7. The token's fate follows whether the file was written. A write that returned a
+   failure (including a conflict) or threw before writing deletes the token, and
+   the error says so. A failure after a successful write (watcher restart or
+   reload) keeps the token, because the config already references it, and
+   rethrows. A failed delete is reported beside the original failure.
 
 `bearer-credential.ts` gains `createSecretsMcpBearerCredentialWriter`, whose
 `create(token)` and `delete(reference)` use the same `SecretsService` as the
@@ -149,6 +152,11 @@ requires `baseRevision`, and write and install successes return the new `revisio
 The editor saves on the revision it last loaded or saved. An install commits on the
 revision it read, so an edit during the keychain write refuses it and removes its token.
 An external writer can still race the adjacent check and write; that is acceptable here.
+A conflict reloads the runtime from the changed file. The editor allows one save in
+flight, and after a conflict it keeps the editor text but locks Save until a reload.
+When a write fails and the watcher restart or reload then fails too, the write's
+failure is reported first. An install the host committed stays a success when the
+later Settings refresh fails; that failure gets its own alert.
 
 ## 5. Error handling
 

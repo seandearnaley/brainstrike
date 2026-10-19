@@ -432,8 +432,8 @@ export function McpConfigPanel({
 
   const handleCatalogInstalled = useCallback(
     async (serverName: string) => {
-      // Edits typed while the install ran are never replaced silently, and saving them would
-      // drop the new server: ask, and say so.
+      // Edits typed while the install ran are never replaced silently, and saving them is
+      // refused as a conflict until a reload: ask, and say so.
       if (hasUnsavedChangesRef.current) {
         dispatch({ reason: { kind: 'install', serverName }, type: 'SHOW_RELOAD_CONFIRM' });
       } else {
