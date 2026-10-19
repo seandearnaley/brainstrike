@@ -6,7 +6,6 @@ import { requireToolExecute } from './_tool-test-helpers';
 
 type RunSkillScript = typeof import('../../assistant-server/run-skill-script-tool').runSkillScript;
 
-const desktopResolverMock = vi.hoisted(() => vi.fn(async () => '/bundled/python3'));
 const bundledResolverMock = vi.hoisted(() => vi.fn(async () => '/bundled/python3'));
 const runSkillScriptMock = vi.hoisted(() =>
   vi.fn<RunSkillScript>(
@@ -17,10 +16,6 @@ const runSkillScriptMock = vi.hoisted(() =>
 vi.mock('../../python-runtime/resolve-python-binary', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../python-runtime/resolve-python-binary')>()),
   resolvePythonBinary: bundledResolverMock,
-}));
-
-vi.mock('../../python-runtime', () => ({
-  resolveDesktopPythonExecutable: desktopResolverMock,
 }));
 
 vi.mock('../../assistant-server/run-skill-script-tool', () => ({
@@ -74,10 +69,11 @@ describe('run_skill_script bundled-Python wiring', () => {
       throw new Error('runSkillScript received no bundled-Python resolver');
     }
     await expect(resolvePythonExecutable()).resolves.toBe('/bundled/python3');
+    // BST-1627: the packaged tree is unpacked at build time beside the manifest.
     expect(bundledResolverMock).toHaveBeenCalledExactlyOnceWith({
-      resourcesDir: '/resources/python-runtime',
+      installDir: '/resources/python-runtime',
+      manifestDir: '/resources/python-runtime',
       signal: undefined,
-      userDataDir: '/user-data',
     });
   });
 });

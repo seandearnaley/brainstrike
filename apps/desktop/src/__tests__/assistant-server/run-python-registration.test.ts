@@ -175,7 +175,14 @@ describe('run_python sandbox availability wiring', () => {
       expect(resolveSeccompApplyPath).toHaveBeenCalledExactlyOnceWith();
       expect(readPackagedState).not.toHaveBeenCalled();
       expect(fenceSupport.factory).toHaveBeenCalledExactlyOnceWith({
-        interpreters: { python: { command: '/injected/python3', scriptExtension: 'py' } },
+        interpreters: {
+          python: {
+            command: '/injected/python3',
+            // BST-1627: no bytecode beside the shipped (on macOS, signed) tree.
+            env: { PYTHONDONTWRITEBYTECODE: '1' },
+            scriptExtension: 'py',
+          },
+        },
         linuxSeccompApplyPath: '/injected/physical/apply-seccomp',
       });
     } finally {
@@ -192,7 +199,14 @@ describe('run_python sandbox availability wiring', () => {
     const tool = requireRunPythonTool(toolsFor());
     await tool.execute({ code: 'print(1)' }, undefined);
     expect(fenceSupport.factory).toHaveBeenCalledExactlyOnceWith({
-      interpreters: { python: { command: '/bundled/python3', scriptExtension: 'py' } },
+      interpreters: {
+        python: {
+          command: '/bundled/python3',
+          // BST-1627: no bytecode beside the shipped (on macOS, signed) tree.
+          env: { PYTHONDONTWRITEBYTECODE: '1' },
+          scriptExtension: 'py',
+        },
+      },
       linuxSeccompApplyPath: '/resources/app.asar.unpacked/seccomp/apply-seccomp',
     });
   });

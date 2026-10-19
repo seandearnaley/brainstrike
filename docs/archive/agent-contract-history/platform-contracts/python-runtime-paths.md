@@ -57,3 +57,9 @@ integration test invokes `resetDesktopApplicationData` against a temporary
 profile, observes deletion of the installed binary, and resolves and executes
 it again from the immutable resource archive without fetch or PATH Python.
 See `docs/archive/agent-contract-history/code-execution/bundled-linux-python.md` for provenance and limits.
+
+## Superseded (BST-1627)
+
+The runtime unpack this record describes was retired: the interpreter is now
+unpacked at build time and ships as loose files. See
+[python-build-time-unpack](../code-execution/python-build-time-unpack.md).

@@ -39,9 +39,19 @@ async function qualify(resources, state, layoutOnly) {
   ];
   assert(target, `unsupported packaged Python architecture: ${process.arch}`);
   const derived = manifest.targets[target].derived;
-  const archive = fs.readFileSync(path.join(runtimeResources, derived.archiveFileName));
-  assert.equal(archive.length, derived.bytes);
-  assert.equal(createHash('sha256').update(archive).digest('hex'), derived.sha256);
+  // BST-1627: the derived archive was unpacked at build time; its tree ships
+  // loose, and its sentinel names the derived archive, never the upstream one.
+  assert.equal(
+    fs.readFileSync(path.join(runtimeResources, '.brainstrike-python-runtime-ok'), 'utf8').trim(),
+    derived.sha256
+  );
+  assert.deepEqual(
+    fs.readdirSync(runtimeResources).filter((name) => name.endsWith('.tar.gz')),
+    [],
+    'no Python archive ships'
+  );
+  const binary = path.join(runtimeResources, 'python/bin/python3');
+  assert.equal(spawnSync('/usr/bin/test', ['-x', binary]).status, 0, 'python3 must be executable');
   if (layoutOnly) {
     console.log(
       JSON.stringify({
@@ -54,22 +64,9 @@ async function qualify(resources, state, layoutOnly) {
     );
     return;
   }
-  for (const name of ['install', 'scratch', 'outside']) {
+  for (const name of ['scratch', 'outside']) {
     fs.mkdirSync(path.join(state, name), { recursive: true });
   }
-  const unpack = spawnSync(
-    '/usr/bin/tar',
-    [
-      '--use-compress-program=/usr/bin/gzip',
-      '-xf',
-      path.join(runtimeResources, derived.archiveFileName),
-      '-C',
-      path.join(state, 'install'),
-    ],
-    { encoding: 'utf8', timeout: 30_000 }
-  );
-  assert.equal(unpack.status, 0, unpack.stderr);
-  const binary = path.join(state, 'install/python/bin/python3');
   const socketControl = spawnSync(
     binary,
     [
