@@ -7,9 +7,13 @@ import { readToolCallId } from './read-tool-call-id';
  * before answering a timeout, and releases this entry in finally. The caller's
  * abortSignal stays untouched because raw MCP result retention uses its identity.
  */
-interface ToolGuardDeadline {
+export interface ToolGuardDeadlineHooks {
   /** BST-1779: re-arms an inactivity budget; absent for a flat wall-clock guard. */
   readonly onActivity?: () => void;
+  /** How long until the guard ends the call, as it stands now; absent before it arms. */
+  readonly remainingMs?: () => number | undefined;
+}
+interface ToolGuardDeadline extends ToolGuardDeadlineHooks {
   readonly signal: AbortSignal;
 }
 const deadlineSignals = new WeakMap<object, ToolGuardDeadline>();
@@ -18,7 +22,7 @@ const deadlineSignals = new WeakMap<object, ToolGuardDeadline>();
 export function registerToolGuardDeadlineSignal(
   args: readonly unknown[],
   signal: AbortSignal,
-  onActivity?: () => void
+  hooks: ToolGuardDeadlineHooks = {}
 ): () => void {
   const context = args[1];
   if (typeof context !== 'object' || context === null || !readToolCallId(args)) {
@@ -28,7 +32,7 @@ export function registerToolGuardDeadlineSignal(
   if (existing && existing.signal !== signal) {
     throw new Error('Tool execution context already owns a guard deadline');
   }
-  deadlineSignals.set(context, { ...(onActivity ? { onActivity } : {}), signal });
+  deadlineSignals.set(context, { ...hooks, signal });
   return (): void => {
     if (deadlineSignals.get(context)?.signal === signal) {
       deadlineSignals.delete(context);
@@ -52,6 +56,16 @@ export function reportToolGuardActivity(executionContext: unknown): void {
   if (typeof executionContext === 'object' && executionContext !== null) {
     deadlineSignals.get(executionContext)?.onActivity?.();
   }
+}
+
+/**
+ * How long until this call's guard ends it, as of now (an inactivity budget's
+ * window restarts on activity). Absent when no guard has armed for the call.
+ */
+export function readToolGuardRemainingMs(executionContext: unknown): number | undefined {
+  return typeof executionContext === 'object' && executionContext !== null
+    ? deadlineSignals.get(executionContext)?.remainingMs?.()
+    : undefined;
 }
 
 /**

@@ -4,6 +4,8 @@
 // that reports progress every 0.5 s and answers after 9 s, three windows,
 // succeeds; under a flat guard it was cancelled at 3 s. The same server kept
 // silent is cancelled at the window, and the model reads that it went silent.
+// A server configured with its own `toolTimeoutMs` gives a silent tool that
+// window instead; a value past the ten-minute ceiling is refused where it is typed.
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,34 +28,44 @@ function streaming(value: unknown): boolean {
   return typeof value === 'object' && value !== null && 'stream' in value && value.stream === true;
 }
 
-async function configureServer(
-  window: Page,
+/** The fixture server's config entry; `fields` adds server settings such as `toolTimeoutMs`. */
+type FixtureServer = Readonly<Record<string, unknown>> & { readonly name: string };
+
+function fixtureServer(
   serverId: string,
-  env: Record<string, string>
-): Promise<void> {
+  env: Readonly<Record<string, string>>,
+  fields: Readonly<Record<string, unknown>> = {}
+): FixtureServer {
+  return {
+    args: [FIXTURE],
+    command: process.execPath,
+    env,
+    name: serverId,
+    protocol: 'legacy',
+    transport: 'stdio',
+    ...fields,
+  };
+}
+
+async function openMcpConfig(window: Page): Promise<void> {
   await new HomePage(window).openSettings();
   await new SettingsPage(window).openCategory(/AI Tools/i, 'ai-tools');
   await window.getByRole('tab', { name: 'MCP Config' }).click();
-  await window.getByTestId('mcp-config-editor').fill(
-    JSON.stringify({
-      servers: [
-        {
-          args: [FIXTURE],
-          command: process.execPath,
-          env,
-          name: serverId,
-          protocol: 'legacy',
-          transport: 'stdio',
-        },
-      ],
-    })
-  );
+}
+
+async function configureServer(window: Page, server: FixtureServer): Promise<void> {
+  await openMcpConfig(window);
+  await window.getByTestId('mcp-config-editor').fill(JSON.stringify({ servers: [server] }));
   await window.getByTestId('mcp-config-save').click();
   await expect(window.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await window.getByRole('tab', { exact: true, name: 'Tools' }).click();
-  await expect(window.getByTestId(`mcp-server-row-${serverId}`)).toContainText(/connected/i, {
-    timeout: 60_000,
-  });
+  const row = window.getByTestId(`mcp-server-row-${server.name}`);
+  await expect(row).toContainText(/connected/i, { timeout: 60_000 });
+  if (typeof server['toolTimeoutMs'] === 'number') {
+    // The connected generation states the window it runs under.
+    await row.getByText('Connection details').click();
+    await expect(row).toContainText(`tool timeout ${server['toolTimeoutMs'] / 1000} s`);
+  }
   await window.keyboard.press('Escape');
 }
 
@@ -61,19 +73,27 @@ async function configureServer(
 async function runSlowTool(
   window: Page,
   modelProvider: ModelProviderShim,
-  env: Readonly<Record<string, string>>
+  env: Readonly<Record<string, string>>,
+  fields: Readonly<Record<string, unknown>> = {}
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'bst-1779-'));
   try {
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window);
     const serverId = 'slow-progress';
-    await configureServer(window, serverId, {
-      BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '9000',
-      BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '500',
-      BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: join(directory, 'state.json'),
-      ...env,
-    });
+    await configureServer(
+      window,
+      fixtureServer(
+        serverId,
+        {
+          BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '9000',
+          BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '500',
+          BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: join(directory, 'state.json'),
+          ...env,
+        },
+        fields
+      )
+    );
     const finalText = 'Inactivity budget checked.';
     modelProvider.setScript(({ requestBody }) =>
       streaming(requestBody)
@@ -112,4 +132,38 @@ test('a silent tool is cancelled at its window, and the model reads why (BST-177
   expect(
     await runSlowTool(window, modelProvider, { BRAINSTRIKE_STDIO_PROGRESS_SILENT: '1' })
   ).toContain('reported no progress for 3s');
+});
+
+test("a silent tool runs past the host's window on a server configured with a longer one (BST-1779)", async ({
+  modelProvider,
+  window,
+}) => {
+  test.setTimeout(240_000);
+  // Silent for 5 s: past the host's 3 s window, inside the server's 8 s.
+  expect(
+    await runSlowTool(
+      window,
+      modelProvider,
+      {
+        BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '5000',
+        BRAINSTRIKE_STDIO_PROGRESS_SILENT: '1',
+      },
+      { toolTimeoutMs: 8000 }
+    )
+  ).toContain('finished');
+});
+
+test('a server tool window past the ten-minute ceiling is refused where it is typed (BST-1779)', async ({
+  window,
+}) => {
+  await ensureMockWorkspaceOpen(window);
+  await openMcpConfig(window);
+  await window
+    .getByTestId('mcp-config-editor')
+    .fill(JSON.stringify({ servers: [fixtureServer('too-slow', {}, { toolTimeoutMs: 600_001 })] }));
+  await window.getByTestId('mcp-config-save').click();
+  await expect(window.getByTestId('mcp-config-error')).toContainText(
+    'servers.0.toolTimeoutMs: must be a whole number of milliseconds from 1000 (1 s) to 600000 (10 min)'
+  );
+  await expect(window.getByTestId('mcp-config-status')).toHaveCount(0);
 });

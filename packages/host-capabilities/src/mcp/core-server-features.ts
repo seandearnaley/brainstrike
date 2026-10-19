@@ -70,6 +70,27 @@ interface McpCoreServerFeaturesOptions {
   onCatalogChanged?: ((catalog: McpHostCatalog) => void) | undefined;
   onInternalError?: ((code: string, cause: unknown) => void) | undefined;
   signal?: AbortSignal | undefined;
+  /** The server's configured tool window (BST-1779); absent keeps the SDK's idle timeout. */
+  toolTimeoutMs?: number | undefined;
+}
+
+/**
+ * A `tools/call`'s request timeouts (BST-1779). A guarded call's silence is
+ * its guard's to end, so the request keeps only the total as its own bound.
+ * Any other call waits out the server's configured window, if it has one; the
+ * schema keeps that window within the total.
+ */
+function toolCallTimeouts(
+  guarded: boolean,
+  toolTimeoutMs: number | undefined
+): { readonly maxTotalTimeout?: number; readonly timeout?: number } {
+  if (guarded) {
+    return {
+      maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+      timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+    };
+  }
+  return toolTimeoutMs === undefined ? {} : { timeout: toolTimeoutMs };
 }
 interface CloseProof {
   callbacksClosed: number;
@@ -188,6 +209,7 @@ export class McpCoreServerFeatures {
   private relistenAttempts = 0;
   private readonly signal: AbortSignal;
   private subscriptionClosures = 0;
+  private readonly toolTimeoutMs: number | undefined;
   private unsubscribeEvents: (() => void) | undefined;
 
   constructor(
@@ -198,6 +220,7 @@ export class McpCoreServerFeatures {
     this.extensionRegistry = options.extensionRegistry;
     this.onCatalogChanged = options.onCatalogChanged ?? (() => undefined);
     this.onInternalError = options.onInternalError ?? (() => undefined);
+    this.toolTimeoutMs = options.toolTimeoutMs;
     this.signal = options.signal
       ? AbortSignal.any([this.abort.signal, options.signal])
       : this.abort.signal;
@@ -282,14 +305,7 @@ export class McpCoreServerFeatures {
     const callOptions: ToolCallRequestOptions = {
       ...(options.onProgress === undefined ? {} : { onprogress: options.onProgress }),
       resetTimeoutOnProgress: true,
-      // A guarded call's silence is its guard's to end (BST-1779); the
-      // request keeps only the total as its own bound.
-      ...(options.callerGuardsInactivity
-        ? {
-            maxTotalTimeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
-            timeout: DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
-          }
-        : {}),
+      ...toolCallTimeouts(options.callerGuardsInactivity === true, this.toolTimeoutMs),
       ...normalizedOptions,
     };
     if (this.tasksRegistered() && serverAdvertisesTasks(this.client)) {

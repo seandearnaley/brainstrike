@@ -2,7 +2,10 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import {
+  type ConfiguredMcpServerId,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { describe, expect, test } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 
@@ -110,5 +113,76 @@ describe('MCP progress-deferred tool call cancellation', () => {
       await runtime.host.close();
       await fsp.rm(directory, { force: true, recursive: true });
     }
+  }, 30_000);
+});
+
+/**
+ * BST-1779 over the real host: a server's `toolTimeoutMs` reaches its snapshot
+ * and its requests. The fixture works silently for 3 s on a server configured
+ * with a 1 s window: a call nothing guards ends at that window, while one whose
+ * guard owns inactivity keeps only the total and is answered.
+ */
+describe('MCP server tool window', () => {
+  async function withSilentServer(
+    run: (
+      runtime: ReturnType<typeof createDesktopMcpHostRuntime>,
+      id: ConfiguredMcpServerId
+    ) => Promise<void>
+  ): Promise<void> {
+    const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'desktop-mcp-tool-window-'));
+    const configuredServerId = parseConfiguredMcpServerId('stdio.silent');
+    const runtime = createDesktopMcpHostRuntime();
+    try {
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            args: [progressServerEntrypoint],
+            command: process.execPath,
+            env: {
+              BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '3000',
+              BRAINSTRIKE_STDIO_PROGRESS_SILENT: '1',
+              BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: path.join(directory, 'state.json'),
+            },
+            name: configuredServerId,
+            protocol: 'legacy',
+            startup: 'automatic',
+            toolTimeoutMs: 1000,
+            transport: 'stdio',
+          },
+        ],
+      });
+      expect(runtime.host.snapshot().servers[0]).toMatchObject({ toolTimeoutMs: 1000 });
+      await run(runtime, configuredServerId);
+    } finally {
+      await runtime.host.close();
+      await fsp.rm(directory, { force: true, recursive: true });
+    }
+  }
+
+  test('ends a call nothing guards at the window', async () => {
+    await withSilentServer(async (runtime, configuredServerId) => {
+      const startedAt = performance.now();
+      await expect(
+        runtime.host.invoke(
+          { configuredServerId, toolName: 'progress_forever', type: 'tools/call' },
+          { onProgress: () => undefined }
+        )
+      ).rejects.toMatchObject({ code: 'mcp-request-timeout' });
+      expect(performance.now() - startedAt).toBeLessThan(2500);
+    });
+  }, 30_000);
+
+  test('answers a call whose guard owns inactivity', async () => {
+    await withSilentServer(async (runtime, configuredServerId) => {
+      await expect(
+        runtime.host.invoke(
+          { configuredServerId, toolName: 'progress_forever', type: 'tools/call' },
+          { callerGuardsInactivity: true, onProgress: () => undefined }
+        )
+      ).resolves.toMatchObject({
+        result: { content: [{ text: 'finished', type: 'text' }] },
+        type: 'tools/call',
+      });
+    });
   }, 30_000);
 });

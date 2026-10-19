@@ -202,6 +202,7 @@ export async function connectClient(
     },
     onInternalError,
     signal: context.signal,
+    toolTimeoutMs: server.toolTimeoutMs,
   });
   try {
     await features.initialize();
