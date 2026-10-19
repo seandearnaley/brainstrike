@@ -314,7 +314,7 @@ function NativeIndexControls({
             <p className="text-muted-foreground text-sm" role="status">
               {catalog.model?.execution
                 ? [
-                    'Choose WebGPU on devices that have it; WASM runs this model without WebGPU. Each choice keeps its own vectors.',
+                    'Choose WebGPU on devices that have it; WASM runs this model without WebGPU. Changing it re-embeds the workspace, including switching back to an earlier choice.',
                     ...executionNotes(selectedCollection, localPlans),
                   ].join(' ')
                 : 'Choose the execution format provided by your model. Unavailable formats report an error; indexing never substitutes another model or execution device.'}

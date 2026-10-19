@@ -509,6 +509,30 @@ describe('SearchIndexingSettingsSection', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain(wasmNote));
   });
 
+  it('says a change of execution re-embeds, switching back included, and promises no kept vectors (BST-2006)', async () => {
+    withLocalModels();
+    const collection = {
+      createdAt: '2026-10-12',
+      dimensions: 384,
+      id: 'granite-index',
+      modelId: GRANITE_ID,
+      modelKey: `local::${GRANITE_ID}`,
+      name: 'Workspace Index (Granite Embedding Small R2)',
+    };
+    findAllMock.mockResolvedValue([collection]);
+    getByIdMock.mockResolvedValue(collection);
+    const preferences = useBackgroundIndexingPreferencesStore.getState();
+    preferences.setManagedCollectionId(collection.id);
+    preferences.setNativeIndexMode('VECTOR');
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain(
+        'Changing it re-embeds the workspace, including switching back to an earlier choice.'
+      )
+    );
+    expect(screen.getByRole('status').textContent).not.toContain('keeps its own vectors');
+  });
+
   it('offers only granite catalog execution plans, pinned to its catalog revision (BST-1993)', async () => {
     useModelRegistryStore.setState({
       models: [...useModelRegistryStore.getState().models, graniteModel],
