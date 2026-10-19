@@ -12,8 +12,10 @@
  * own `import`/`require` condition, `main` without `exports`, through
  * node_modules and literal dynamic imports. A first-party module that names a
  * `.js`/`.mjs`/`.cjs` file in `new URL(...)` (a worker or process entry) adds
- * that file as a root. `build-main.mjs` runs it on every emitted entry;
- * `src/__tests__/node-inference-boundary.test.ts` pins it on fixtures.
+ * that file as a root. Each build's own metafile also joins the graph, so modules
+ * a self-bundled entry inlined are seen too. `build-main.mjs` runs it once, on
+ * every Node build it emits; `src/__tests__/node-inference-boundary.test.ts` pins
+ * it on fixtures.
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
@@ -24,6 +26,7 @@ const NODE_FORBIDDEN_PACKAGES = ['@huggingface/transformers', 'onnxruntime-node'
 
 // Every file esbuild parses as code is followed, so the walk never stops at source.
 const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|json)$/u;
+const EMITTED_MODULE = /\.(?:c|m)?js$/u;
 const URL_NAMED_MODULE = /\bnew URL\(\s*(['"])([^'"]+?\.(?:c|m)?js)\1/gu;
 const RESOLVING = Symbol('node-inference-boundary.resolving');
 
@@ -104,15 +107,35 @@ function urlNamedModules(absWorkingDir, inputs) {
   return named;
 }
 
+/** Adds `more` to `inputs`, keeping every import a module has in either graph. */
+function mergeInputs(inputs, more) {
+  for (const [file, input] of Object.entries(more)) {
+    const known = inputs[file];
+    inputs[file] = known ? { ...known, imports: [...known.imports, ...input.imports] } : input;
+  }
+}
+
 /**
- * Every chain from `entryPoints` (relative to `absWorkingDir`) to a forbidden package,
- * as `root -[kind]-> module ... -[kind]-> 'package'`. Empty when none is reachable.
+ * Every chain from the given builds to a forbidden package, as
+ * `root -[kind]-> module ... -[kind]-> 'package'`. Empty when none is reachable.
+ * `builds` are esbuild metafiles, paths relative to `absWorkingDir`. Each one gives
+ * its own record of what it bundled, from its source entries, and its emitted files,
+ * walked as Node loads them. A self-bundled entry inlines its packages, so its
+ * emitted file alone hides what it carries.
  */
-export async function findNodeInferenceImports({ absWorkingDir: workingDir, entryPoints }) {
+export async function findNodeInferenceImports({ absWorkingDir: workingDir, builds }) {
   // esbuild keys the metafile by real paths (macOS tmpdir is a symlink).
   const absWorkingDir = realpathSync(workingDir);
+  const outputs = builds.flatMap((metafile) => Object.entries(metafile.outputs));
+  const emitted = outputs.map(([file]) => file).filter((file) => EMITTED_MODULE.test(file));
+  const entryPoints = [
+    ...new Set([...emitted, ...outputs.flatMap(([, output]) => output.entryPoint ?? [])]),
+  ];
   const roots = new Map(entryPoints.map((entry) => [entry, null]));
-  const inputs = await walk(absWorkingDir, entryPoints);
+  const inputs = await walk(absWorkingDir, emitted);
+  for (const metafile of builds) {
+    mergeInputs(inputs, metafile.inputs);
+  }
   for (;;) {
     const added = [...urlNamedModules(absWorkingDir, inputs)].filter(([key]) => !roots.has(key));
     if (added.length === 0) {
@@ -121,7 +144,7 @@ export async function findNodeInferenceImports({ absWorkingDir: workingDir, entr
     for (const [key, namer] of added) {
       roots.set(key, namer);
     }
-    Object.assign(
+    mergeInputs(
       inputs,
       await walk(
         absWorkingDir,

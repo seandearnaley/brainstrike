@@ -30,8 +30,9 @@ inference share the hidden runtime's physical owner and serialization.
 
 No Node-side desktop context loads Transformers.js or `onnxruntime-node`, and the
 packaged app leaves `onnxruntime-node` out (`build.files`): 1.24.1+ ships no
-darwin-x64 binding (BST-2148). `apps/desktop/scripts/build-main.mjs` refuses a
-build whose emitted entries, or the workers they name, reach either package.
+darwin-x64 binding (BST-2148). `apps/desktop/scripts/build-main.mjs` emits every
+Node entry, then refuses the build if any of them reaches either package. That
+covers the modules a self-bundled entry inlines and the workers the entries name.
 
 ## Model identity
 

@@ -15,10 +15,7 @@ import { readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import {
-  AGENT_HOST_PLATFORM_BUILD_OPTIONS,
-  MAIN_PROCESS_BUILD_OPTIONS,
-} from './build-main-config.mjs';
+import { NODE_BUILDS } from './build-main-config.mjs';
 import {
   assertNoNodeInferenceImports,
   findNodeInferenceImports,
@@ -61,25 +58,13 @@ async function assertPreloadBundlesAreSandboxSafe() {
   }
 }
 
-/**
- * Every emitted Node-side file is an entry Main, a utility process or a worker
- * loads. None may reach Transformers.js or onnxruntime-node, which the packaged
- * app leaves out (BST-2148). The renderer is a browser bundle and stays out.
- */
-async function assertNodeEntriesLoadNoLocalInference() {
-  const entries = await readdir(path.join(appRoot, 'dist'), { withFileTypes: true });
-  assertNoNodeInferenceImports(
-    await findNodeInferenceImports({
-      absWorkingDir: appRoot,
-      entryPoints: entries
-        .filter((entry) => entry.isFile() && /\.(?:c|m)?js$/u.test(entry.name))
-        .map((entry) => `dist/${entry.name}`),
-    })
-  );
-}
-
 await cleanMainProcessOutputs();
-await build(MAIN_PROCESS_BUILD_OPTIONS);
-await build(AGENT_HOST_PLATFORM_BUILD_OPTIONS);
+// Every Node-side entry Main, a utility process, a worker or the Windows command
+// path loads. None may reach Transformers.js or onnxruntime-node, which the
+// packaged app leaves out (BST-2148); the gate reads each build's own metafile.
+const builds = [];
+for (const options of NODE_BUILDS) {
+  builds.push((await build({ ...options, metafile: true })).metafile);
+}
 await assertPreloadBundlesAreSandboxSafe();
-await assertNodeEntriesLoadNoLocalInference();
+assertNoNodeInferenceImports(await findNodeInferenceImports({ absWorkingDir: appRoot, builds }));

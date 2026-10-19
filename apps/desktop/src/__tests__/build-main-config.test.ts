@@ -5,6 +5,8 @@ import {
   AGENT_HOST_PLATFORM_BUILD_OPTIONS,
   MAIN_PROCESS_BUILD_OPTIONS,
   MAIN_PROCESS_ENTRY_POINTS,
+  NODE_BUILDS,
+  WINDOWS_COMMAND_BUILD_OPTIONS,
 } from '../../scripts/build-main-config.mjs';
 
 interface DesktopPackageConfig {
@@ -19,6 +21,7 @@ interface DesktopPackageConfig {
     };
   };
   dependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
 }
 
 function packagedTypeScriptServerViolations(packageJson: DesktopPackageConfig): string[] {
@@ -82,6 +85,30 @@ describe('main-process bundle config', () => {
     expect(AGENT_HOST_PLATFORM_BUILD_OPTIONS.entryPoints).toEqual({
       'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
     });
+  });
+
+  it('emits every Node entry from build-main.mjs, so its inference gate scans them all', () => {
+    // BST-2148: a step after build-main.mjs would emit an entry the gate never sees.
+    expect(NODE_BUILDS).toEqual([
+      MAIN_PROCESS_BUILD_OPTIONS,
+      AGENT_HOST_PLATFORM_BUILD_OPTIONS,
+      WINDOWS_COMMAND_BUILD_OPTIONS,
+    ]);
+    expect(readDesktopPackageConfig().scripts?.['build:main']).toBe('node scripts/build-main.mjs');
+  });
+
+  it('builds the Windows command wrapper self-contained but for its native Job addon', () => {
+    expect(WINDOWS_COMMAND_BUILD_OPTIONS).toMatchObject({
+      bundle: true,
+      entryPoints: { 'windows-command-entry': 'src/windows-command-entry.ts' },
+      external: ['@brainstrike/windows-job-native'],
+      format: 'cjs',
+      packages: 'bundle',
+      platform: 'node',
+      target: 'node24',
+      tsconfigRaw: '{}',
+    });
+    expect(WINDOWS_COMMAND_BUILD_OPTIONS.outdir).toBe(MAIN_PROCESS_BUILD_OPTIONS.outdir);
   });
 
   it('unpacks worker-thread entries for plain packaged-worker paths', () => {

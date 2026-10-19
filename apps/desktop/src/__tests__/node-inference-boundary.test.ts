@@ -8,9 +8,10 @@
  * never depends on a built `dist/` or on workspace package builds.
  */
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import * as esbuild from 'esbuild';
 import { minimatch } from 'minimatch';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -69,13 +70,38 @@ afterEach(async () => {
 
 /** A disposable app root holding `files`, relative path to source. */
 async function fixture(files: Record<string, string>): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'bst-node-inference-'));
+  // esbuild keys its metafile by real paths (macOS tmpdir is a symlink).
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'bst-node-inference-')));
   cleanupPaths.push(root);
   for (const [relative, source] of Object.entries(files)) {
     await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
     await writeFile(path.join(root, relative), source);
   }
   return root;
+}
+
+/**
+ * Emits `src/<name>.js` to `dist/<name>.js` as build-main.mjs does: Main keeps its
+ * packages as runtime requires; the Windows command wrapper inlines them.
+ */
+async function emit(
+  root: string,
+  name: string,
+  packages: 'bundle' | 'external'
+): Promise<esbuild.Metafile> {
+  const { metafile } = await esbuild.build({
+    absWorkingDir: root,
+    bundle: true,
+    entryPoints: { [name]: `src/${name}.js` },
+    format: 'cjs',
+    logLevel: 'silent',
+    metafile: true,
+    outdir: path.join(root, 'dist'),
+    packages,
+    platform: 'node',
+    tsconfigRaw: '{}',
+  });
+  return metafile;
 }
 
 const INSTALLED_INFERENCE_PACKAGES = {
@@ -108,46 +134,64 @@ describe('packaged desktop app', () => {
   });
 });
 
+const EMBEDDING_BACKEND = {
+  'node_modules/embedding-backend/index.js':
+    "exports.load = () => import(/* @vite-ignore */ '@huggingface/transformers');\n",
+  'node_modules/embedding-backend/package.json': JSON.stringify({
+    main: 'index.js',
+    name: 'embedding-backend',
+  }),
+};
+
 describe('Node-side inference boundary', () => {
   it("names the chain to Transformers.js's Node build through a lazy dynamic import", async () => {
     const root = await fixture({
       ...INSTALLED_INFERENCE_PACKAGES,
-      'dist/main.js': "require('electron');\nrequire('node:fs');\nrequire('embedding-backend');\n",
-      'node_modules/embedding-backend/index.js':
-        "exports.load = () => import(/* @vite-ignore */ '@huggingface/transformers');\n",
-      'node_modules/embedding-backend/package.json': JSON.stringify({
-        main: 'index.js',
-        name: 'embedding-backend',
-      }),
+      ...EMBEDDING_BACKEND,
+      'src/main.js': "require('electron');\nrequire('node:fs');\nrequire('embedding-backend');\n",
     });
+    const builds = [await emit(root, 'main', 'external')];
 
-    expect(
-      await findNodeInferenceImports({ absWorkingDir: root, entryPoints: ['dist/main.js'] })
-    ).toEqual([
+    expect(await findNodeInferenceImports({ absWorkingDir: root, builds })).toEqual([
       "dist/main.js -[require-call]-> node_modules/embedding-backend/index.js -[dynamic-import]-> '@huggingface/transformers'",
     ]);
+  });
+
+  it('sees what a self-bundled entry inlined, which its emitted file hides', async () => {
+    // The Windows command wrapper inlines its packages: no require of Transformers.js is
+    // left in its output, and onnxruntime-node loads through createRequire.
+    const root = await fixture({
+      ...INSTALLED_INFERENCE_PACKAGES,
+      ...EMBEDDING_BACKEND,
+      'src/windows-command.js': "exports.probe = () => require('embedding-backend').load();\n",
+    });
+    const build = await emit(root, 'windows-command', 'bundle');
+    const chain =
+      "src/windows-command.js -[require-call]-> node_modules/embedding-backend/index.js -[dynamic-import]-> '@huggingface/transformers'";
+
+    expect(await findNodeInferenceImports({ absWorkingDir: root, builds: [build] })).toEqual([
+      chain,
+    ]);
+    // Scanning only the emitted file, as a walk of dist/ alone does, finds nothing.
+    expect(
+      await findNodeInferenceImports({ absWorkingDir: root, builds: [{ ...build, inputs: {} }] })
+    ).toEqual([]);
   });
 
   it('resolves packages as Node does, ignoring tsconfig paths to their source', async () => {
     // apps/desktop/tsconfig.json maps @brainstrike/* to renderer SOURCE; Node never does.
     const root = await fixture({
       ...INSTALLED_INFERENCE_PACKAGES,
-      'dist/main.js': "require('embedding-backend');\n",
-      'node_modules/embedding-backend/index.js':
-        "exports.load = () => import('@huggingface/transformers');\n",
-      'node_modules/embedding-backend/package.json': JSON.stringify({
-        main: 'index.js',
-        name: 'embedding-backend',
-      }),
+      ...EMBEDDING_BACKEND,
       'src/embedding-backend.ts': 'export const load = () => undefined;\n',
+      'src/main.js': "require('embedding-backend');\n",
       'tsconfig.json': JSON.stringify({
         compilerOptions: { paths: { 'embedding-backend': ['./src/embedding-backend.ts'] } },
       }),
     });
+    const builds = [await emit(root, 'main', 'external')];
 
-    expect(
-      await findNodeInferenceImports({ absWorkingDir: root, entryPoints: ['dist/main.js'] })
-    ).toEqual([
+    expect(await findNodeInferenceImports({ absWorkingDir: root, builds })).toEqual([
       "dist/main.js -[require-call]-> node_modules/embedding-backend/index.js -[dynamic-import]-> '@huggingface/transformers'",
     ]);
   });
@@ -155,30 +199,28 @@ describe('Node-side inference boundary', () => {
   it('follows worker modules a reached module names by URL', async () => {
     const root = await fixture({
       ...INSTALLED_INFERENCE_PACKAGES,
-      'dist/host.mjs':
-        "import { Worker } from 'node:worker_threads';\nnew Worker(new URL('./writer-worker.mjs', import.meta.url));\n",
       'dist/writer-worker.mjs': "import 'onnxruntime-node';\n",
+      'src/host.js':
+        "const { Worker } = require('node:worker_threads');\nconst { pathToFileURL } = require('node:url');\nnew Worker(new URL('./writer-worker.mjs', pathToFileURL(__filename)));\n",
     });
+    const builds = [await emit(root, 'host', 'external')];
 
-    expect(
-      await findNodeInferenceImports({ absWorkingDir: root, entryPoints: ['dist/host.mjs'] })
-    ).toEqual([
-      "dist/host.mjs -[new-url]-> dist/writer-worker.mjs -[import-statement]-> 'onnxruntime-node'",
+    expect(await findNodeInferenceImports({ absWorkingDir: root, builds })).toEqual([
+      "dist/host.js -[new-url]-> dist/writer-worker.mjs -[import-statement]-> 'onnxruntime-node'",
     ]);
   });
 
   it('passes a graph that reaches neither package, including an unresolvable optional require', async () => {
     const root = await fixture({
       ...INSTALLED_INFERENCE_PACKAGES,
-      'dist/main.js': "require('electron');\nrequire('ws-like');\n",
       'node_modules/ws-like/index.js':
         "try { require('bufferutil'); } catch {}\nmodule.exports = require('./addon.node');\n",
       'node_modules/ws-like/package.json': JSON.stringify({ main: 'index.js', name: 'ws-like' }),
+      'src/main.js': "require('electron');\nrequire('ws-like');\n",
     });
+    const builds = [await emit(root, 'main', 'external')];
 
-    expect(
-      await findNodeInferenceImports({ absWorkingDir: root, entryPoints: ['dist/main.js'] })
-    ).toEqual([]);
+    expect(await findNodeInferenceImports({ absWorkingDir: root, builds })).toEqual([]);
   });
 
   it('refuses a build with a named error listing every chain', () => {
