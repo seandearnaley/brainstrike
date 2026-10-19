@@ -69,14 +69,7 @@ import {
   shouldLogIdleBackoff,
 } from './embedding-worker-scheduler.js';
 
-export type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types.js';
-export { clearModelConfigCache, invalidateModelConfigCache } from './embedding-model-config.js';
-export type {
-  EmbeddingStatsRefreshController,
-  EmbeddingStatsRefreshControllerOptions,
-  StatsRefreshReason,
-} from './embedding-stats-refresh-controller.js';
-export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller.js';
+export type { EmbeddingCacheInterface } from './embedding-cache-types.js';
 
 const workerLogger = createLogger('EmbeddingWorker');
 

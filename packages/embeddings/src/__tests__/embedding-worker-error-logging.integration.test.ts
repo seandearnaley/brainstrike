@@ -12,7 +12,7 @@ import type {
   ModelConfig,
   SimilarityResult,
 } from '../types.js';
-import { clearModelConfigCache } from '../worker/embedding-worker.js';
+import { clearModelConfigCache } from '../worker/embedding-model-config.js';
 
 const PGLITE_SETUP_TIMEOUT_MS = 90_000;
 const EMBEDDING_WORKER_TEST_TIMEOUT_MS = 30_000;
