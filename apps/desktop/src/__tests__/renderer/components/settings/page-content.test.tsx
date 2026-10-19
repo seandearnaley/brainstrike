@@ -21,6 +21,10 @@ vi.mock('../../../../renderer/host-mcp-settings', () => ({
   resolveDesktopMcpContent: () => null,
 }));
 
+vi.mock('../../../../renderer/host-browser-origins', () => ({
+  resolveDesktopHostBrowserOrigins: () => null,
+}));
+
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   useFileExplorerStoreContext: () => {

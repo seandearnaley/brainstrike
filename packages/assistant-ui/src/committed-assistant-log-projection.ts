@@ -234,17 +234,20 @@ function committedToolCatalogId(event: Readonly<Record<string, unknown>>): strin
  * What the card reads beside the approval: a question or plan's kind, or an
  * approval's host facts (a code-execution context, or the folder a file call
  * targets; each validated before use). A network consent carries both: its
- * kind, and the facts when they are valid.
+ * kind, and the facts when they are valid, or the browser origin it asks to
+ * open (BST-1178).
  */
 function interactionFacts(
   kind: CommittedInteractionKind,
   executionContext: unknown,
-  targetRoot: unknown
+  targetRoot: unknown,
+  origin: unknown
 ): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
   if (kind === 'network') {
     const facts: Readonly<Record<string, unknown>> = {
       interactionKind: kind,
       ...(isCodeExecutionApprovalContext(executionContext) ? { executionContext } : {}),
+      ...(typeof origin === 'string' ? { origin } : {}),
     };
     return facts as NonNullable<ToolPart['providerMetadata']>[string];
   }
@@ -897,7 +900,12 @@ export class CommittedAssistantLogProjection {
       throw new Error('Committed interaction has an unsupported kind.');
     }
     const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
-    const facts = interactionFacts(kind, event['executionContext'], event['targetRoot']);
+    const facts = interactionFacts(
+      kind,
+      event['executionContext'],
+      event['targetRoot'],
+      event['origin']
+    );
     this.updateTool(run, id, (part) => ({
       ...part,
       approval: {

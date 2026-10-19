@@ -56,6 +56,7 @@ import {
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { indexSearchContract } from '../../../ipc-domains/index-search.contract';
+import { resolveDesktopHostBrowserOrigins } from '../../host-browser-origins';
 import {
   type DesktopHostMcpSettings,
   resolveDesktopHostMcpSettings,
@@ -213,6 +214,7 @@ export default function SettingsPageContent() {
   // The agent host owns the MCP config, extension dials, tool preferences,
   // server status and lifecycle control; a window without the host has none.
   const mcpSettings = useMemo(() => resolveDesktopHostMcpSettings(), []);
+  const browserOrigins = useMemo(() => resolveDesktopHostBrowserOrigins(), []);
   // BST-1585: user-initiated MCP content browsing comes from the agent host
   // (BST-1930 c5d); web has none, so the Settings affordance is absent.
   const mcpContent = useMemo(() => resolveDesktopMcpContent(), []);
@@ -459,7 +461,7 @@ export default function SettingsPageContent() {
         mcpAvailable: mcpSettings !== null,
         operations: toolOperations,
       }),
-      createPermissionSettingsCategory(),
+      createPermissionSettingsCategory(browserOrigins ? { browserOrigins } : undefined),
       createSubagentPersonasSettingsCategory(),
       createSkillsSettingsCategory(),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
@@ -485,6 +487,7 @@ export default function SettingsPageContent() {
     accurateRuntimeAvailable,
     apiKeyStatus,
     assistantProviderKeySources,
+    browserOrigins,
     devInlineFixtureEnabled,
     hookReviewRoots,
     hostProviders,

@@ -314,6 +314,10 @@ vi.mock('../../../../renderer/host-mcp-settings', () => ({
   resolveDesktopMcpContent: () => hostMcpContent.current,
 }));
 
+vi.mock('../../../../renderer/host-browser-origins', () => ({
+  resolveDesktopHostBrowserOrigins: () => null,
+}));
+
 vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
   DesktopLoggingSettings: () => <div data-testid="logging-settings" />,
 }));

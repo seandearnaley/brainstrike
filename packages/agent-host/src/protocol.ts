@@ -34,6 +34,7 @@ import {
 } from './protocol-mcp-settings.js';
 import { HostMemoryModelsSchema, HostObservationalMemoryStateSchema } from './protocol-memory.js';
 import {
+  HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
   PERMISSION_POLICY_RESULT_SCHEMAS,
 } from './protocol-permission-policy.js';
@@ -183,13 +184,6 @@ const PermissionGrant = Schema.Union(
   { mode: 'oneOf' }
 );
 export type HostPermissionGrant = (typeof PermissionGrant)['Type'];
-/**
- * The answer to a `network` interaction: allow lets this one call reach its
- * requested domains; deny settles it unrun (run_python's `network_denied`).
- */
-export const HostNetworkConsentSchema = Schema.Struct({
-  action: Schema.Literals(['allow', 'deny']),
-});
 const McpInput = { ...Run, interactionId: Id };
 /** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
 const McpAppCall = {
@@ -735,6 +729,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         executionContext: Schema.optional(json()),
         interactionId: Id,
         kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
+        origin: Schema.optional(HostBrowserOriginSchema),
         risk: Schema.optional(RiskCategory),
         targetRoot: Schema.optional(HostApprovalTargetRootSchema),
       }),
@@ -753,6 +748,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
             Schema.Struct({
               type: Schema.Literal('interaction.responded'),
               ...RunFields,
+              by: Schema.optional(Schema.Literal('policy')),
               interactionId: Id,
               resumeData: json(),
             }),

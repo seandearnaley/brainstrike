@@ -8,6 +8,7 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
+import type { HostBrowserOriginStore } from './browser-origin-answers.js';
 import {
   type HostContextCompactions,
   overflowCompaction,
@@ -91,6 +92,8 @@ export interface HostRunExecutionPorts {
   foldRows(rows: readonly HostLogRow[]): void;
   readonly mcpInputs: HostMcpInputState;
   openRun(run: Run): Promise<HostRunOwner | undefined>;
+  /** BST-1178: the answers saved for browser origins, in Core's own StateStore. */
+  readonly origins: HostBrowserOriginStore;
   readonly platform: HostPlatform;
   readonly records: HostToolRecords;
   /** The host is closing or the run's thread is being deleted. */
@@ -609,7 +612,8 @@ async function runHostSdkAttempt(
       },
       // A committed run/steer ends the run after the step in flight (BST-588).
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
-      toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),
+      toolApproval: ({ toolCall }) =>
+        decideHostSdkApproval(run, ports.platform, ports.origins, toolCall),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
       ...hostTelemetry('brainstrike.host-run', run),
     });
