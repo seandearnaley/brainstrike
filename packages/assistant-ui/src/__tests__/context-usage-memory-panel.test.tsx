@@ -209,6 +209,21 @@ describe('the Developer memory panel', () => {
     );
   });
 
+  it('keeps the last live recall beside a failed read', () => {
+    popover({
+      code: 'memory.embedder-failed',
+      kind: 'error',
+      reason: 'Memory recall failed because its embedding model failed.',
+      recall: {
+        at: Date.UTC(2026, 9, 19, 10, 0, 0),
+        latencyMs: 90,
+        messages: 1,
+        scope: 'thread',
+      },
+    });
+    expect(row('last-recall')).toHaveTextContent('1 message · this thread · 90 ms');
+  });
+
   it('shows no cycle rows before the thread’s first cycle', () => {
     popover(LIVE);
     expect(screen.queryByTestId('context-usage-memory-last-observation-cycle')).toBeNull();

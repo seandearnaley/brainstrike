@@ -210,6 +210,7 @@ function stateRows(state: OmMeterState): PanelRow[] | null {
           ? []
           : [{ id: 'error-code', label: 'Code', tone: 'error' as const, value: state.code }]),
         ...cycleRows(state.cycles),
+        ...recallRows(state.recall),
       ];
     case 'stats':
     case 'empty':
