@@ -9,6 +9,7 @@ import { decodeStartOptions, startHost } from '../../dist/index.js';
 
 const options = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null'));
 const mode = makeThrowingDecoder(Schema.Literals(['honour', 'ignore']))(process.argv[3]);
+const startup = new AbortController();
 /** @type {import('../../dist/index.js').HostRuntime | undefined} */
 let host;
 process.on('SIGTERM', () => {
@@ -21,7 +22,10 @@ process.on('SIGTERM', () => {
     process.exit(1);
   }
 });
-host = await startHost(options);
+// Installed before startHost, as the real host entries install theirs (BST-2228):
+// the launcher sends cancel-startup once the record is on disk, while startHost
+// may still be syncing its directory, and Node drops an IPC message that arrives
+// before any 'message' listener exists.
 process.on('message', (/** @type {unknown} */ message) => {
   if (
     mode === 'honour' &&
@@ -29,7 +33,21 @@ process.on('message', (/** @type {unknown} */ message) => {
     message !== null &&
     Reflect.get(message, 'event') === 'cancel-startup'
   ) {
+    startup.abort(new Error('Host process cancelled'));
     void host?.close();
   }
 });
-await host.closed;
+try {
+  host = await startHost(options, undefined, startup.signal);
+} catch (cause) {
+  if (!startup.signal.aborted) {
+    throw cause;
+  }
+  // startHost closed what it had acquired as it refused; the cancelled host exits failed.
+  process.exitCode = 1;
+}
+if (host && startup.signal.aborted) {
+  // The cancel arrived after startHost's last abort check, before `host` was set.
+  await host.close();
+}
+await host?.closed;
