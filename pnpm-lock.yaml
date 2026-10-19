@@ -960,9 +960,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      assistant-stream:
-        specifier: 'catalog:'
-        version: 0.3.52(ai@7.0.142(zod@4.6.7))
       concurrently:
         specifier: 'catalog:'
         version: 10.0.6
@@ -1393,9 +1390,6 @@ importers:
       '@mastra/core':
         specifier: 1.78.0
         version: 1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
-      '@mastra/memory':
-        specifier: 1.38.0
-        version: 1.38.0(patch_hash=35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
       '@mastra/schema-compat':
         specifier: 'catalog:'
         version: 1.3.15(zod@4.6.7)
@@ -1967,9 +1961,6 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
-      '@brainstrike/host-lease':
-        specifier: workspace:*
-        version: link:../host-lease
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
@@ -1994,9 +1985,6 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
-      '@brainstrike/utils':
-        specifier: workspace:*
-        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.5
@@ -4006,9 +3994,6 @@ importers:
         specifier: 'catalog:'
         version: 4.0.5
     devDependencies:
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -4742,9 +4727,6 @@ importers:
       '@sqlite.org/sqlite-wasm':
         specifier: 'catalog:'
         version: 3.53.4-build2
-      '@types/better-sqlite3':
-        specifier: 'catalog:'
-        version: 9.6.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
