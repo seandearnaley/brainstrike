@@ -28,6 +28,11 @@ subagent spike passed 178 tests with 33 of 33 mutations caught.
 - **Wakeups.** A child's suspension never wakes the parent model. A parent wakeup is
   the whole ledger of the turn's background invocations, read from durable rows. An
   interrupted claim is terminal, and admission never asserts that an effect succeeded.
+- **Regenerate and edit.** Undelivered background results belong to the thread, not
+  to the reply that dispatched them, and are delivered once. A regenerated or edited
+  reply takes those that settled before it started as its next-turn delivery. Those
+  that settle later reach it through the wake, which follows the thread's tip (owner
+  decision 2026-10-19, BST-1767).
 - **Restart.** Top-level approvals, questions and plans survive, and once answered the
   action runs at most once: if the app dies while it runs, it is marked interrupted and
   never re-run. Child interactions are marked interrupted. An approval whose input was

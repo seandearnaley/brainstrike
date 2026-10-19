@@ -45,6 +45,9 @@ A child pause does not wake the parent. Background completion delivers the whole
 turn's invocation ledger with a durable delivery watermark. Wakes use the
 parent thread's current committed selection and retain the original admitting
 client origin. See [ADR-0019](../adr/0019-host-thread-run-selection.md).
+Delivery follows the thread, not the dispatching reply: a regenerate or edit of
+that reply's message takes its undelivered results once
+([ADR-0010](../adr/0010-approvals-and-delegation.md)).
 
 Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 
