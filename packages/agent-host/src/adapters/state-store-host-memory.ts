@@ -570,6 +570,7 @@ export class StateStoreHostMemory implements HostRunOwner {
           throw this.stepFailure('context', cause);
         }
       },
+      rewrites: this.preparedRewrites,
       ...(system ? { system } : {}),
     };
   }

@@ -293,6 +293,7 @@ function memoryHolding(branch: readonly ModelMessage[], held: readonly number[],
       rebuilds.push(remaining.map((index) => `run-${index}`));
       return step(remaining);
     },
+    rewrites: new Map(),
     ...(system === undefined ? {} : { system }),
   });
   const prepare = vi.fn(async (_messages: readonly ModelMessage[]) => step(held));
@@ -303,7 +304,7 @@ function memoryHolding(branch: readonly ModelMessage[], held: readonly number[],
       compacted.add(runId);
     }
   };
-  return { commit, committed, memory: { prepare, rewrites: new Map() }, prepare, rebuilds };
+  return { commit, committed, prepare, rebuilds };
 }
 
 describe('prepareCompactedContext with Memory (ADR-0013)', () => {
@@ -314,8 +315,8 @@ describe('prepareCompactedContext with Memory (ADR-0013)', () => {
     const summarize = vi.fn(async () => summary);
     const { prepared } = await pastTrigger({
       commit: held.commit,
-      memory: held.memory,
       messages: branch,
+      prepareStep: held.prepare,
       summarize,
     });
     expect(summarize).not.toHaveBeenCalled();
@@ -332,8 +333,8 @@ describe('prepareCompactedContext with Memory (ADR-0013)', () => {
     const summarize = vi.fn(async (_transcript: string) => summary);
     const { prepared } = await pastTrigger({
       commit: held.commit,
-      memory: held.memory,
       messages: branch,
+      prepareStep: held.prepare,
       summarize,
     });
     expect(held.committed.map((event) => event.compactedRunIds)).toEqual([
@@ -348,16 +349,49 @@ describe('prepareCompactedContext with Memory (ADR-0013)', () => {
     expect(prepared.note).toBe(`[Earlier conversation compacted]\n${summary.text}`);
   });
 
+  it('never compacts a turn recalled from another thread, which is that thread’s own history', async () => {
+    const branch = turns(6, 40_000);
+    // A 50,000-token turn recalled from another thread puts the request past the trigger.
+    const recalled: ModelMessage[] = [
+      { content: 'other thread question', role: 'user' },
+      { content: [{ text: 'z'.repeat(200_000), type: 'text' }], role: 'assistant' },
+    ];
+    const committed: Compacted[] = [];
+    const summarize = vi.fn(async () => summary);
+    const { prepared } = await pastTrigger({
+      commit: async (event) => {
+        committed.push(event);
+      },
+      messages: branch,
+      prepareStep: async () => ({
+        historyRunIds: new Set(['other-thread-run']),
+        messages: [...recalled, ...branch.slice(-2)],
+        rebuild: async () => {
+          throw new Error('nothing was compacted');
+        },
+        rewrites: new Map(),
+      }),
+      summarize,
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(committed).toEqual([]);
+    expect(prepared.step?.historyRunIds).toEqual(new Set(['other-thread-run']));
+  });
+
   it('counts Memory’s system context toward the trigger', async () => {
     const branch = turns(6, 40_000);
     // 30,018 tokens of messages alone stay under the 36,000 trigger; 20,000 of observations pass it.
     const held = memoryHolding(branch, [3, 4], 'o'.repeat(80_000));
-    await pastTrigger({ commit: held.commit, memory: held.memory, messages: branch });
+    await pastTrigger({ commit: held.commit, messages: branch, prepareStep: held.prepare });
     expect(held.committed.map((event) => event.compactedRunIds)).toEqual([['run-3']]);
   });
 
-  it('measures a pruned tool output as the marker the provider request carries', async () => {
-    /** run-3 read a 50,007-token file; Core's branch already carries its pruned marker. */
+  it('measures a pruned tool output with the rewrites Memory’s provider request applies', async () => {
+    /**
+     * run-3 read a 50,007-token file, pruned since. Core's branch carries the
+     * marker; Memory's request carries the raw output and the rewrites it
+     * applies, which are resource-wide under resource-scoped recall.
+     */
     const readTurn = (value: string): ModelMessage[] => [
       { content: 'question 3', role: 'user' },
       {
@@ -396,13 +430,14 @@ describe('prepareCompactedContext with Memory (ADR-0013)', () => {
         historyRunIds: new Set(runs),
         messages: [...(runs.length > 0 ? readTurn('y'.repeat(200_000)) : []), ...branch.slice(-2)],
         rebuild: async () => step([]),
+        rewrites,
       });
       await pastTrigger({
         commit: async (event) => {
           committed.push(event);
         },
-        memory: { prepare: async () => step(['run-3']), rewrites },
         messages: branch,
+        prepareStep: async () => step(['run-3']),
       });
       return committed.map((event) => event.compactedRunIds);
     };

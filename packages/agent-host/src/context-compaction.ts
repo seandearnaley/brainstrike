@@ -15,7 +15,7 @@ import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import type { HostRunState } from './core-state.js';
 import { correlatedFailure } from './failure-correlation.js';
 import { type Json, jsonValue } from './json-value.js';
-import type { HostPreparedStep, HostProjectionRewrite } from './ports.js';
+import type { HostPreparedStep } from './ports.js';
 import { applyProjectionRewrites } from './projection-rewrites.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.js';
@@ -427,21 +427,10 @@ function applyOverlay(turns: readonly Turn[], compactions: readonly Compacted[])
   return turns.filter((turn) => !compacted.has(turn.run.id)).flatMap((turn) => turn.messages);
 }
 
-/**
- * The run's Memory, which builds the request the provider receives from its
- * own selection of earlier turns.
- */
-export interface HostCompactionMemory {
-  /** Memory's request over the overlaid branch. */
-  prepare(messages: readonly ModelMessage[]): Promise<HostPreparedStep>;
-  /** Committed tool-output rewrites, which the provider request applies to it. */
-  readonly rewrites: ReadonlyMap<string, HostProjectionRewrite>;
-}
-
 /** Memory's request as the provider receives it: its messages, rewritten, and its system context. */
-function estimateStep(step: HostPreparedStep, memory: HostCompactionMemory): number {
+function estimateStep(step: HostPreparedStep): number {
   return (
-    estimateTokens(applyProjectionRewrites(step.messages, memory.rewrites)) +
+    estimateTokens(applyProjectionRewrites(step.messages, step.rewrites)) +
     (step.system === undefined ? 0 : chars4(step.system))
   );
 }
@@ -452,8 +441,10 @@ function estimateStep(step: HostPreparedStep, memory: HostCompactionMemory): num
  * compaction of this branch. Below the trigger nothing is committed.
  *
  * With Memory, the trigger measures the request Memory builds, not the branch,
- * and only the earlier turns that request holds are compacted; Memory then
- * rebuilds it without them (ADR-0013).
+ * and only this branch's turns that request holds are compacted; Memory then
+ * rebuilds it without them (ADR-0013). A turn recalled from another thread is
+ * that thread's history: compacting it here would drop it from that thread's
+ * own requests too, so the provider request's limiter trims it instead.
  */
 export async function prepareCompactedContext(input: {
   readonly chain: readonly HostRunState[];
@@ -462,8 +453,9 @@ export async function prepareCompactedContext(input: {
   readonly commit: (event: Compacted) => Promise<void>;
   readonly compactions: readonly Compacted[];
   readonly inputTokenLimit: number | undefined;
-  readonly memory?: HostCompactionMemory;
   readonly messages: readonly ModelMessage[];
+  /** The run's Memory: the request it builds over the overlaid branch. */
+  readonly prepareStep?: (messages: readonly ModelMessage[]) => Promise<HostPreparedStep>;
   readonly signal: AbortSignal;
   readonly summarize: (transcript: string) => Promise<HostContextSummary>;
 }): Promise<{
@@ -474,14 +466,11 @@ export async function prepareCompactedContext(input: {
 }> {
   const turns = splitTurns(input.chain, input.messages);
   const compactions = [...input.compactions];
-  let step = await input.memory?.prepare(applyOverlay(turns, compactions));
+  let step = await input.prepareStep?.(applyOverlay(turns, compactions));
   const limit = input.inputTokenLimit;
   const run = input.chain.at(-1);
   if (run && limit !== undefined) {
-    const current =
-      step && input.memory
-        ? estimateStep(step, input.memory)
-        : estimateTokens(applyOverlay(turns, compactions));
+    const current = step ? estimateStep(step) : estimateTokens(applyOverlay(turns, compactions));
     const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
     const held = step?.historyRunIds;
     const candidates = droppable(turns, compacted).filter(

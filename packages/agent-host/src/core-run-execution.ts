@@ -399,10 +399,8 @@ async function prepareRunContext(
     inputTokenLimit: admission.inputTokenLimit,
     ...(prepareStep
       ? {
-          memory: {
-            prepare: (overlaid) => prepareStep({ messages: overlaid, stepNumber: run.steps }),
-            rewrites: ports.rewrites.read(run.threadId),
-          },
+          prepareStep: (overlaid: readonly ModelMessage[]) =>
+            prepareStep({ messages: overlaid, stepNumber: run.steps }),
         }
       : {}),
     messages: rewritten,
