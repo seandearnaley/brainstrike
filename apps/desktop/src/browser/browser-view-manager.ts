@@ -327,6 +327,11 @@ export class BrowserViewManager {
     return active ? active.view.webContents.id : null;
   }
 
+  /** The `webContents` id of one tab, or null when it is gone. */
+  getWebContentsId(tabId: string): number | null {
+    return this.tabs.get(tabId)?.view.webContents.id ?? null;
+  }
+
   dispose(): void {
     // `dispose()` runs on TWO paths: a LIVE window (renderer reload / factory
     // reset — the same manager then serves the fresh renderer) and, from the

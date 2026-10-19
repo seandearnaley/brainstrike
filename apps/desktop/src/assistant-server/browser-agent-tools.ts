@@ -21,7 +21,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
 import type { BrowserDriver } from '../browser/browser-driver';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
-import { agentNavigationTarget } from '../browser/browser-url';
+import { agentNavigationTarget, type LoopbackAdmission } from '../browser/browser-url';
 import type { BrowserTabOwner, BrowserTabState } from '../browser/browser-view-manager';
 import type { BrowserToolRunner } from './native-tool-executors-browser';
 
@@ -33,12 +33,13 @@ export interface BrowserPaneHostLike {
   readonly manager: {
     createTab(url?: string, owner?: BrowserTabOwner): string;
     getActiveWebContentsId(): number | null;
+    getWebContentsId(tabId: string): number | null;
     getNavigationError(tabId: string): string | null;
     listTabs(): readonly BrowserTabState[];
     navigate(tabId: string, url: string): boolean;
     selectTab(tabId: string): boolean;
   };
-  prepareAgentBrowsing(): Promise<void>;
+  prepareAgentBrowsing(loopback?: LoopbackAdmission): Promise<void>;
 }
 
 export interface BrowserToolFailure {
@@ -126,6 +127,41 @@ function startAgentNavigation(
 }
 
 /**
+ * BST-1178: a loopback navigation names its tab in its admission, so the tab
+ * must exist first: a new agent tab opens blank (no network), the proxy and
+ * session admit the server for that tab only, and then the tab loads it.
+ */
+async function startLoopbackNavigation(
+  host: BrowserPaneHostLike,
+  target: { readonly loopback: string; readonly origin: string; readonly url: string }
+): Promise<{ readonly preNavUrl: string | null; readonly tabId: string } | BrowserToolFailure> {
+  const agentTabs = host.manager.listTabs().filter((tab) => tab.owner === 'agent');
+  const existing = agentTabs.find((tab) => tab.active) ?? agentTabs.at(-1);
+  const tabId = existing?.tabId ?? host.manager.createTab('about:blank', 'agent');
+  if (existing !== undefined && !existing.active) {
+    host.manager.selectTab(existing.tabId);
+  }
+  const vanished: BrowserToolFailure = {
+    error: 'navigate_failed',
+    hint: `Tab ${tabId} vanished mid-call; retry to open a fresh tab.`,
+    ok: false,
+  };
+  const webContentsId = host.manager.getWebContentsId(tabId);
+  if (webContentsId === null) {
+    return vanished;
+  }
+  await host.prepareAgentBrowsing({
+    authority: target.loopback,
+    origin: target.origin,
+    webContentsId,
+  });
+  if (!host.manager.navigate(tabId, target.url)) {
+    return vanished;
+  }
+  return { preNavUrl: existing?.url ?? 'about:blank', tabId };
+}
+
+/**
  * A blocked destination, a blocked scheme or a failed load
  * (ERR_NAME_NOT_RESOLVED, refused connection) must never read as an ok blank
  * page — NO SILENT FALLBACKS.
@@ -147,31 +183,58 @@ function settledNavigation(
   return { ok: true, title: tab.title, url: tab.url };
 }
 
-export async function runBrowserNavigate(
+/**
+ * BST-1178: one agent navigation at a time per pane. A navigation's loopback
+ * admission holds until it settles; a parallel call would replace it first.
+ */
+const navigations = new WeakMap<BrowserPaneHostLike, Promise<unknown>>();
+
+export function runBrowserNavigate(
   input: BrowserNavigateInput,
   host: BrowserPaneHostLike | null,
   options?: BrowserNavigateOptions
 ): Promise<BrowserNavigateResult> {
   if (!host) {
-    return UNAVAILABLE;
+    return Promise.resolve(UNAVAILABLE);
   }
+  const navigation = (navigations.get(host) ?? Promise.resolve()).then(() =>
+    navigateOnce(input, host, options)
+  );
+  navigations.set(
+    host,
+    navigation.catch(() => undefined)
+  );
+  return navigation;
+}
+
+async function navigateOnce(
+  input: BrowserNavigateInput,
+  host: BrowserPaneHostLike,
+  options?: BrowserNavigateOptions
+): Promise<BrowserNavigateResult> {
   const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   // An unguarded navigate could read cloud metadata, RFC1918 or loopback in
   // one turn. The agent host asked a person about this target's origin before
-  // the call reached here (BST-1178); BST-1175 adds approved dev-server paths.
+  // the call reached here (BST-1178), so a loopback target is a dev server
+  // they approved: the proxy admits its exact host:port for this navigation.
   const target = agentNavigationTarget(input.url);
   if ('refusal' in target) {
     return { error: 'blocked_url', hint: target.refusal, ok: false };
   }
-  const normalized = target.url;
-
   // The literal check above is a fast refusal, not the boundary: agent tabs
   // connect only through the egress proxy, which checks every connection's
   // resolved address, redirects and popups included (BST-1238).
+  let started: Awaited<ReturnType<typeof startLoopbackNavigation>>;
   try {
-    await host.prepareAgentBrowsing();
+    const { loopback } = target;
+    if (loopback === undefined) {
+      await host.prepareAgentBrowsing();
+      started = startAgentNavigation(host, target.url);
+    } else {
+      started = await startLoopbackNavigation(host, { ...target, loopback });
+    }
   } catch (error) {
     return {
       error: 'browser_unavailable',
@@ -179,8 +242,6 @@ export async function runBrowserNavigate(
       ok: false,
     };
   }
-
-  const started = startAgentNavigation(host, normalized);
   if ('ok' in started) {
     return started;
   }

@@ -11,6 +11,8 @@ interface OriginAnswer {
 }
 
 const DISABLED = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
+/** The loopback origins the agent may be allowed to open: a server on this computer. */
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/u;
 
 /**
  * BST-1178: a person answers for each site the agent opens in its own browser
@@ -63,6 +65,11 @@ export function CommittedOriginConsent({
       <p className="break-all font-mono text-xs" data-testid="committed-origin-consent-origin">
         {origin}
       </p>
+      {LOCAL_ORIGIN.test(origin) ? (
+        <p className="text-muted-foreground text-xs" data-testid="committed-origin-consent-local">
+          A server on this computer, such as a dev server. Only this port opens.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {/* Deny is FIRST in DOM and tab order, primary, and autofocused. */}
         <Button
