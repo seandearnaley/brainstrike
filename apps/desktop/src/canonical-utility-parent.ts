@@ -427,9 +427,15 @@ export class CanonicalUtilityParent {
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
     );
-    if (errors.length > 0) {
-      throw new AggregateError(errors, 'Canonical utility attachments remain owned.');
+    if (errors.length === 0) {
+      return;
     }
+    // Every owner ended with the utility's exit alone, as `closeOwner` reports it: that exit, not
+    // a claim that Main still owns them (BST-2192). By identity, so no other failure passes as it.
+    if (this.remoteExited && errors.every((error) => error === this.remoteExit)) {
+      throw this.remoteExit;
+    }
+    throw new AggregateError(errors, 'Canonical utility attachments remain owned.');
   }
   /** Remote process exit does not retire main's outstanding filesystem/watch work. */
   async exited(error: unknown): Promise<void> {
