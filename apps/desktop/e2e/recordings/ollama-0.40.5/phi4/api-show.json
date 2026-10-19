@@ -1,0 +1,1 @@
+{"capabilities": ["completion"], "details": {"parent_model": "", "format": "gguf", "family": "phi3", "families": ["phi3"], "parameter_size": "14.7B", "quantization_level": "Q4_K_M"}, "model_info": {"general.architecture": "phi3", "general.parameter_count": 14659507200, "phi3.context_length": 16384}, "modified_at": "2025-03-18T21:35:59.699784456-04:00"}

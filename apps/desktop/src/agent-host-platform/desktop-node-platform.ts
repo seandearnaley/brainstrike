@@ -56,6 +56,7 @@ import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
+  PlatformLocalModelResultSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformRewindConflictsSchema,
@@ -190,6 +191,11 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/roots', {}, signal)),
+    localRuntimeModel: async (target, signal) =>
+      Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/admission/local-model', target, signal)),
     memoryVectors: async (settings, signal) => {
       const resolved = Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
         errors: 'all',
@@ -430,6 +436,7 @@ export async function createDesktopHostConfiguration(
         memory,
         providerRequestContext: {
           inputTokenLimit: selected.inputTokenLimit,
+          ...(selected.localModel ? { localModel: selected.localModel } : {}),
           provider,
           runtimeData: configuration,
         },

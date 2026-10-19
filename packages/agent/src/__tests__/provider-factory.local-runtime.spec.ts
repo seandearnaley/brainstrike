@@ -18,27 +18,12 @@ vi.mock('@ai-sdk/openai', () => ({
   },
 }));
 
+// Ollama runs on its native /api/chat (BST-754): its endpoint, token and
+// environment-key tests live in ollama-chat-model.spec.ts.
 describe('provider-factory local-runtime endpoint overrides', () => {
   beforeEach(() => {
     capturedOpenAiCalls.length = 0;
     fakeProvider.mockClear();
-  });
-
-  it('returns Mastra OpenAI-compatible config for Ollama', async () => {
-    const { createProvider } = await import('../providers/provider-factory');
-
-    const model = createProvider('ollama', undefined, 'qwen3:latest');
-
-    expect(capturedOpenAiCalls).toHaveLength(0);
-    // The dummy `apiKey: 'ollama'` is intentional: it suppresses the
-    // compatible adapter's `OPENAI_API_KEY` env-var fallback so we never leak a real
-    // OpenAI key to a (potentially remote) Ollama host.
-    expect(model).toEqual({
-      apiKey: 'ollama',
-      modelId: 'qwen3:latest',
-      providerId: 'ollama',
-      url: 'http://127.0.0.1:11434/v1',
-    });
   });
 
   it('returns Mastra OpenAI-compatible config for LM Studio', async () => {
@@ -52,26 +37,6 @@ describe('provider-factory local-runtime endpoint overrides', () => {
       modelId: 'qwen2.5',
       providerId: 'lmstudio',
       url: 'http://127.0.0.1:1234/v1',
-    });
-  });
-
-  it('normalizes the Ollama URL and forwards apiToken from runtime options', async () => {
-    const { createProvider } = await import('../providers/provider-factory');
-
-    const model = createProvider('ollama', undefined, 'qwen3:latest', {
-      providerOptions: {
-        ollama: {
-          apiToken: 'tok_abc',
-          baseUrl: 'https://gpu.lan:11434/v1/',
-        },
-      },
-    });
-
-    expect(model).toEqual({
-      apiKey: 'tok_abc',
-      modelId: 'qwen3:latest',
-      providerId: 'ollama',
-      url: 'https://gpu.lan:11434/v1',
     });
   });
 
@@ -90,53 +55,6 @@ describe('provider-factory local-runtime endpoint overrides', () => {
       providerId: 'lmstudio',
       url: 'http://127.0.0.1:1234/v1',
     });
-  });
-
-  it('accepts host:port shorthand and canonicalizes the baseURL', async () => {
-    const { createProvider } = await import('../providers/provider-factory');
-
-    const model = createProvider('ollama', undefined, 'qwen3:latest', {
-      providerOptions: {
-        ollama: { baseUrl: 'remote.box:11434' },
-      },
-    });
-
-    expect(model).toEqual({
-      apiKey: 'ollama',
-      modelId: 'qwen3:latest',
-      providerId: 'ollama',
-      url: 'http://remote.box:11434/v1',
-    });
-  });
-
-  it('does NOT forward OPENAI_API_KEY env var to a remote Ollama host', async () => {
-    // Regression guard for the env-var leak: a user with `OPENAI_API_KEY` set
-    // and a remote `baseUrl` configured for Ollama would, prior to this fix,
-    // implicitly forward their OpenAI key as a `Bearer` header to the remote
-    // host. The dummy `apiKey: 'ollama'` substitution prevents the SDK from
-    // ever consulting `process.env['OPENAI_API_KEY']`.
-    const previousKey = process.env['OPENAI_API_KEY'];
-    process.env['OPENAI_API_KEY'] = 'sk-real-secret-do-not-leak';
-    try {
-      const { createProvider } = await import('../providers/provider-factory');
-      const model = createProvider('ollama', undefined, 'qwen3:latest', {
-        providerOptions: { ollama: { baseUrl: 'https://gpu.lan:11434' } },
-      });
-      expect(model).toEqual({
-        apiKey: 'ollama',
-        modelId: 'qwen3:latest',
-        providerId: 'ollama',
-        url: 'https://gpu.lan:11434/v1',
-      });
-    } finally {
-      // Restore prior env state. Assigning `undefined` to `process.env` would
-      // coerce to the string "undefined", so delete the key when it was unset.
-      if (previousKey === undefined) {
-        Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
-      } else {
-        process.env['OPENAI_API_KEY'] = previousKey;
-      }
-    }
   });
 
   it('rejects Ollama tokens containing CR/LF to prevent header injection', async () => {

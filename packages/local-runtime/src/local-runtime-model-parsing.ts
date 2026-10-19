@@ -16,6 +16,7 @@ import type {
   LocalRuntimeModelType,
   LocalRuntimeNormalizedModel,
   LocalRuntimeOllamaCapabilitiesResolved,
+  LocalRuntimeReportedContextLength,
   OllamaModelCapability,
 } from './local-runtime-model-catalog-types.js';
 import {
@@ -517,6 +518,38 @@ const OLLAMA_KNOWN_CAPABILITIES: ReadonlySet<OllamaModelCapability> = new Set([
 
 function isKnownOllamaCapability(value: string): value is OllamaModelCapability {
   return OLLAMA_KNOWN_CAPABILITIES.has(value as OllamaModelCapability);
+}
+
+/**
+ * BST-754: a model's native context from `/api/show`'s `model_info`. The key
+ * is architecture-specific (`gemma4.context_length`), so it is read through
+ * `general.architecture` when that names one, else from the only
+ * `*.context_length` key. Several disagreeing keys, or a value that is not a
+ * positive integer, are malformed, never a guess.
+ */
+export function parseOllamaContextLength(payload: unknown): LocalRuntimeReportedContextLength {
+  const info = isRecord(payload) ? payload['model_info'] : undefined;
+  if (!isRecord(info)) {
+    return { state: 'unreported' };
+  }
+  const architecture = info['general.architecture'];
+  const keys =
+    typeof architecture === 'string' && `${architecture}.context_length` in info
+      ? [`${architecture}.context_length`]
+      : Object.keys(info).filter((key) => key.endsWith('.context_length'));
+  if (keys.length === 0) {
+    return { state: 'unreported' };
+  }
+  const values = new Set(keys.map((key) => info[key]));
+  const [key] = keys;
+  const [value] = values;
+  if (values.size > 1 || key === undefined) {
+    return { detail: `conflicting context lengths in ${keys.join(', ')}`, state: 'malformed' };
+  }
+  if (!(typeof value === 'number' && Number.isSafeInteger(value) && value > 0)) {
+    return { detail: `${key} is not a positive integer`, state: 'malformed' };
+  }
+  return { key, state: 'reported', tokens: value };
 }
 
 export function parseOllamaCapabilityList(payload: unknown): readonly OllamaModelCapability[] {

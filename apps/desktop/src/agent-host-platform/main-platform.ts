@@ -25,6 +25,9 @@ import {
   PlatformCatalogModelSchema,
   PlatformDiagnosticRecordSchema,
   PlatformEmbeddingQuerySchema,
+  type PlatformLocalModel,
+  PlatformLocalModelResultSchema,
+  PlatformLocalModelSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformMemoryVectorsSchema,
   PlatformNativeChildSchema,
@@ -115,6 +118,28 @@ function serveAdmissionReads(
           )
         )
       )
+  );
+  connection.onRequest<PlatformLocalModel, unknown>(
+    'platform/admission/local-model',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async (signal) => {
+        const localRuntimeModel = reads.localRuntimeModel;
+        if (!localRuntimeModel) {
+          throw new Error('This desktop serves no local runtime catalog');
+        }
+        return Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(
+          await localRuntimeModel(
+            Schema.decodeUnknownSync(PlatformLocalModelSchema, {
+              errors: 'all',
+              onExcessProperty: 'error',
+            })(input),
+            signal
+          )
+        );
+      })
   );
   connection.onRequest('platform/admission/observers', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) =>

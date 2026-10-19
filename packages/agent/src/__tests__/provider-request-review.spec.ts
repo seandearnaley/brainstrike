@@ -232,7 +232,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
     ];
     await expect(prepare(prompt, 200)).rejects.toMatchObject({
       accounting: { totalTokens: expect.any(Number) },
-      code: 'provider_request_context_overflow',
+      code: 'provider.context-overflow',
     });
     expect((await prepare(prompt, 10_000)).params.prompt).toEqual(prompt);
   });

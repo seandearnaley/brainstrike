@@ -114,6 +114,11 @@
       "import": "./dist/context-budget.js",
       "require": "./dist/context-budget.js"
     },
+    "./local-runtime-context": {
+      "types": "./dist/local-runtime-context.d.ts",
+      "import": "./dist/local-runtime-context.js",
+      "require": "./dist/local-runtime-context.js"
+    },
     "./env-bootstrap-bridge": {
       "types": "./dist/env-bootstrap-bridge.d.ts",
       "import": "./dist/env-bootstrap-bridge.js",

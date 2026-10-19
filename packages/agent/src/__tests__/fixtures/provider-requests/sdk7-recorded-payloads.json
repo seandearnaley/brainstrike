@@ -293,13 +293,18 @@
     },
     "ollama": {
       "model": "qwen3",
-      "max_tokens": 321,
       "messages": [
         {
           "role": "user",
           "content": "Read README.md"
         }
       ],
+      "max_output_tokens": 321,
+      "think": true,
+      "options": {
+        "num_ctx": 32768,
+        "num_predict": 321
+      },
       "tools": [
         {
           "type": "function",
@@ -535,7 +540,7 @@
   "source": {
     "base": "f9dcbce5f6917a02ea4b4fc9cc7438e997d6cd03",
     "capture": "real installed SDK/provider serialization; fully intercepted fetch; no real account",
-    "sdk": "7.0.142",
-    "openai": "4.0.96"
+    "openai": "4.0.96",
+    "sdk": "7.0.142"
   }
 }

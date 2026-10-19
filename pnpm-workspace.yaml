@@ -28,6 +28,11 @@ cleanupUnusedCatalogs: true
 catalog:
   # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
   ai: 7.0.142
+  # BST-754: Ollama's native /api/chat, the only route that takes a per-request
+  # context size (num_ctx). The library sends temperature/top_p/max tokens at the
+  # top level, which /api/chat ignores, and defaults `think` to false, so every
+  # request passes them in providerOptions.ollama (provider-factory.ts).
+  ollama-ai-provider-v2: 4.0.1
   vscode-jsonrpc: 9.0.3
   '@ai-sdk/amazon-bedrock': 5.0.117
   # BST-2067: the AI SDK's OpenTelemetry GenAI integration. LOCKSTEP with `ai`:

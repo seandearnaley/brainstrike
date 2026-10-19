@@ -37,10 +37,12 @@ import {
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import { attachedMentionReader, placeMentionedFiles } from './desktop-mentioned-files';
 import {
+  type DesktopLocalModel,
   desktopInputTokenLimit,
   desktopMemorySelection,
   readDesktopCatalogSelection,
   readDesktopIntent,
+  readDesktopLocalModel,
   readEnabledObservers,
   resolveDesktopMemorySettings,
 } from './desktop-run-preconditions';
@@ -51,6 +53,8 @@ import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
   PlatformAdmittedSkillSchema,
   type PlatformClientConfigurationSchema,
+  type PlatformLocalModel,
+  type PlatformLocalModelSchema,
   type PlatformMemoryReadinessSchema,
   PlatformModelConfigurationSchema,
   type PlatformSelection,
@@ -88,6 +92,14 @@ export interface DesktopAdmissionReads {
   enabledObservers(candidates: readonly string[], signal: AbortSignal): Promise<readonly string[]>;
   /** The profile's mounted workspace roots. */
   liveWorkspaceRoots(signal: AbortSignal): Promise<RuntimeWorkspaceRoots>;
+  /**
+   * BST-754: what the local runtime catalog reads from Ollama's `/api/show`
+   * for the selected model; absent where no catalog serves the desktop.
+   */
+  localRuntimeModel?(
+    target: (typeof PlatformLocalModelSchema)['Type'],
+    signal: AbortSignal
+  ): Promise<PlatformLocalModel>;
   /** The recall embedder the memory settings select, resolved by Main's embedding host. */
   memoryVectors(
     settings: PlatformSelection['memory']['settings'],
@@ -105,6 +117,8 @@ export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation
   freshWorkspaceRoots(): Promise<RuntimeWorkspaceRoots>;
   /** An admitted local recall embedder's exact plan, sent with each borrowed query. */
   readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
+  /** BST-754: an Ollama run's admitted window (Ollama's `num_ctx`) and thinking capability. */
+  readonly localModel?: DesktopLocalModel;
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
 }
 export interface DesktopRunAdmission {
@@ -423,13 +437,13 @@ export function createDesktopRunAdmission(
    */
   const readPreconditions = async (request: HostRunIntentRequest) => {
     request.signal.throwIfAborted();
-    const catalog = await readDesktopCatalogSelection(reads, request.modelId, request.signal);
-    const intent = await readDesktopIntent(request, catalog, savedPolicy, reads.cliOwnerIntent);
+    const selection = await readDesktopCatalogSelection(reads, request.modelId, request.signal);
+    const intent = await readDesktopIntent(request, selection, savedPolicy, reads.cliOwnerIntent);
     const configuration = Schema.decodeUnknownSync(PlatformModelConfigurationSchema, {
       errors: 'all',
       onExcessProperty: 'error',
     })(intent.modelConfiguration);
-    if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
+    if (configuration.provider !== selection.provider || configuration.model !== selection.model) {
       throw refusalError(
         'conflict',
         'model.selection-changed',
@@ -437,6 +451,14 @@ export function createDesktopRunAdmission(
         'Select the model again and retry.'
       );
     }
+    // BST-754: an Ollama model is budgeted at the window it reports, capped.
+    const localModel = await readDesktopLocalModel(reads, configuration, request.signal);
+    const catalog = localModel
+      ? {
+          ...selection,
+          definition: { ...selection.definition, contextWindow: localModel.contextWindow },
+        }
+      : selection;
     const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
@@ -457,6 +479,7 @@ export function createDesktopRunAdmission(
       configuration,
       inputTokenLimit,
       intent,
+      ...(localModel ? { localModel } : {}),
       memory,
       memoryVectors,
       observerTarget,
@@ -471,6 +494,7 @@ export function createDesktopRunAdmission(
       configuration,
       inputTokenLimit,
       intent,
+      localModel,
       memory,
       memoryVectors,
       observerTarget,
@@ -540,6 +564,7 @@ export function createDesktopRunAdmission(
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory,
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
+        ...(localModel ? { localModel } : {}),
         nativeRuntime: desktopNativeRuntime(
           native.runtime,
           native.retrievalRootsOnly,

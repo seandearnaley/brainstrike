@@ -820,7 +820,14 @@ describe('recorded installed-provider payloads (offline)', () => {
           : provider === 'openai-codex'
             ? { apiKey: 'offline-fixture', fetch: globalThis.fetch, kind: 'custom_fetch' as const }
             : { apiKey: 'offline-fixture', kind: 'api_key' as const };
-      const config = createProvider(provider, auth, modelId);
+      const config = createProvider(
+        provider,
+        auth,
+        modelId,
+        undefined,
+        // BST-754: Ollama sends the window its run was admitted with.
+        provider === 'ollama' ? { contextWindow: 32_768, thinking: true } : undefined
+      );
       const resolved =
         typeof config === 'object' && 'doStream' in config
           ? config

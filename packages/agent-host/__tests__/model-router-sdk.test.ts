@@ -41,7 +41,9 @@ const chunks = [
 
 afterEach(() => vi.unstubAllGlobals());
 
-test.each(['openrouter', 'ollama', 'lmstudio'] as const)(
+// Ollama left the router for its native /api/chat (BST-754): its wire is
+// proven in packages/agent/src/__tests__/ollama-chat-model.spec.ts.
+test.each(['openrouter', 'lmstudio'] as const)(
   'SDK 7 generate and stream preserve the shipped %s router request and actual usage',
   async (provider) => {
     const captures: { url: string; body: Record<string, unknown>; authorization: string | null }[] =

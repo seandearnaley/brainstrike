@@ -67,12 +67,12 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
       expect((createProvider('google', auth) as { modelId: string }).modelId).toBeDefined();
     });
 
-    it('keeps the ollama dummy-key substitution when the api_key is empty', () => {
-      expect(createProvider('ollama', { apiKey: '', kind: 'api_key' }, 'qwen2.5:latest')).toEqual({
-        apiKey: 'ollama',
-        modelId: 'qwen2.5:latest',
-        providerId: 'ollama',
-        url: 'http://127.0.0.1:11434/v1',
+    it('keeps the lmstudio dummy-key substitution when the api_key is empty', () => {
+      expect(createProvider('lmstudio', { apiKey: '', kind: 'api_key' }, 'qwen2.5')).toEqual({
+        apiKey: 'lmstudio',
+        modelId: 'qwen2.5',
+        providerId: 'lmstudio',
+        url: 'http://127.0.0.1:1234/v1',
       });
     });
   });
