@@ -38,8 +38,6 @@ interface TestHostClient {
   close: ReturnType<typeof vi.fn>;
   listTools: () => Promise<{ tools: unknown[] }>;
   release?: () => void;
-  /** The server's configured tool window, as its host snapshot publishes it. */
-  toolTimeoutMs?: number;
 }
 
 export function createTestHost(clients: Record<string, TestHostClient>): {
@@ -98,12 +96,11 @@ export function createTestHost(clients: Record<string, TestHostClient>): {
     replaceConfig: vi.fn(),
     snapshot: () => ({
       revision: 1,
-      servers: Object.entries(clients).map(([name, client]) => ({
+      servers: Object.keys(clients).map((name) => ({
         configuredProtocol: 'legacy' as const,
         configuredServerId: parseConfiguredMcpServerId(name),
         generation: 7,
         state: 'disconnected' as const,
-        ...(client.toolTimeoutMs === undefined ? {} : { toolTimeoutMs: client.toolTimeoutMs }),
         transport: 'stdio' as const,
       })),
     }),

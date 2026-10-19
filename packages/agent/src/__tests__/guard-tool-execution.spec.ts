@@ -16,6 +16,7 @@ import {
 } from '../tools/guard-tool-execution';
 import {
   readToolGuardDeadlineSignal,
+  readToolGuardRemainingMs,
   reportToolGuardActivity,
   resolveGuardedToolSignal,
   toolGuardOwnsInactivity,
@@ -581,6 +582,34 @@ describe('guardToolExecution inactivity budget (BST-1779)', () => {
       await expect(result).resolves.toMatchObject({
         error: { code: 'tool_timeout', message: formatToolInactivityMessage(600, 600) },
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tells the running tool how long it has left, counting from its latest activity', async () => {
+    vi.useFakeTimers(FAKE);
+    try {
+      const { seen, tool } = hangingTool();
+      const guarded = guardToolExecution(tool, {
+        activity: { maxTotalMs: 1000 },
+        timeoutMs: 300,
+        toolName: 'demo',
+      });
+      void guarded.execute({}, { toolCallId: 'call-1' });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(readToolGuardRemainingMs(seen.context)).toBe(100);
+      reportToolGuardActivity(seen.context);
+      expect(readToolGuardRemainingMs(seen.context)).toBe(300);
+      // The last window is cut to what the total leaves: 1000 - 900 = 100.
+      await vi.advanceTimersByTimeAsync(250);
+      reportToolGuardActivity(seen.context);
+      await vi.advanceTimersByTimeAsync(250);
+      reportToolGuardActivity(seen.context);
+      await vi.advanceTimersByTimeAsync(200);
+      reportToolGuardActivity(seen.context);
+      expect(readToolGuardRemainingMs(seen.context)).toBe(100);
+      await vi.advanceTimersByTimeAsync(100);
     } finally {
       vi.useRealTimers();
     }

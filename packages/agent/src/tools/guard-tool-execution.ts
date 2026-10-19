@@ -184,16 +184,20 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // Bound once the budget resolves; activity before that has nothing to re-arm.
     let rearm: (() => void) | undefined;
     let reported = false;
-    const releaseDeadline = registerToolGuardDeadlineSignal(
-      executionArgs,
-      deadline.signal,
-      options.activity
-        ? () => {
-            reported = true;
-            rearm?.();
+    // When the armed timer fires; a tool fits its own waits inside it.
+    let endsAt: number | undefined;
+    const releaseDeadline = registerToolGuardDeadlineSignal(executionArgs, deadline.signal, {
+      ...(options.activity
+        ? {
+            onActivity: () => {
+              reported = true;
+              rearm?.();
+            },
           }
-        : undefined
-    );
+        : {}),
+      remainingMs: () =>
+        endsAt === undefined ? undefined : Math.max(0, endsAt - performance.now()),
+    });
     // Measured around the REAL execution, so a suspended-then-approved call is
     // billed for the work rather than the wait. Started here, before budget
     // resolution or the call, so the duration is honest even when resolving
@@ -256,7 +260,9 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
               ? Number.POSITIVE_INFINITY
               : maxTotalMs - (performance.now() - startedAt);
           const total = left <= guardMs;
-          timer = setTimeout(() => expire(total), Math.max(0, total ? left : guardMs));
+          const delayMs = Math.max(0, total ? left : guardMs);
+          endsAt = performance.now() + delayMs;
+          timer = setTimeout(() => expire(total), delayMs);
           (timer as { unref?: () => void }).unref?.();
         };
         arm();

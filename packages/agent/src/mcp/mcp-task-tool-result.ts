@@ -53,6 +53,26 @@ export function resolveMcpTaskSettlementTimeoutMs(toolTimeoutMs: number): number
   return timeoutMs;
 }
 
+/**
+ * The settlement wait a call can still afford: its configured wait, cut to the
+ * guard's share of the time the guard has left once the task is tracked. The
+ * initial `tools/call` and `track()` already ran on the guard's clock, so a
+ * wait sized from the whole window let a slow start or a short server window
+ * hand a healthy, tracked task to the guard as a timeout (PR review).
+ */
+export function fitMcpTaskSettlementWaitMs(
+  settlementTimeoutMs: number,
+  guardRemainingMs: number | undefined
+): number {
+  if (guardRemainingMs === undefined) {
+    return settlementTimeoutMs;
+  }
+  const guardShare = Math.floor(
+    (guardRemainingMs * GUARD_SHARE_NUMERATOR) / GUARD_SHARE_DENOMINATOR
+  );
+  return Math.min(settlementTimeoutMs, guardShare);
+}
+
 export function createMcpTaskToolTracking(
   capability: McpTaskTrackingCapability,
   toolTimeoutMs: number
@@ -82,6 +102,8 @@ export interface SettleMcpTaskToolResultInput {
   readonly configuredServerId: string;
   /** The admitting host tool call's capability; absent outside an agent-host run. */
   readonly execution?: McpHostExecution;
+  /** How long the call's guard has left; the settlement wait fits inside it. */
+  readonly guardRemainingMs?: () => number | undefined;
   readonly result: CreateTaskResult;
   readonly signal?: AbortSignal;
   readonly toolName: string;
@@ -106,9 +128,17 @@ export async function settleMcpTaskToolResult(
     { configuredServerId, ...(execution ? { execution } : {}), result, toolName },
     signal
   );
+  const timeoutMs = fitMcpTaskSettlementWaitMs(
+    tracking.settlementTimeoutMs,
+    input.guardRemainingMs?.()
+  );
+  if (timeoutMs < 1) {
+    // No time left to wait: the tracked task's live presentation is the answer.
+    return createMcpTaskToolInvocationResult(initial);
+  }
   const outcome = await tracking.capability.awaitSettlement(initial.handle, {
     ...(signal ? { signal } : {}),
-    timeoutMs: tracking.settlementTimeoutMs,
+    timeoutMs,
   });
   return createMcpTaskToolInvocationResult(outcome.task);
 }

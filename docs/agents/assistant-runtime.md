@@ -26,10 +26,11 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
   progress before the guard does and would otherwise end the call first, as an
   unexplained failure. A server's own `toolTimeoutMs` (1 s to 10 min) replaces
   the window for its tools, for servers that work long in silence; it also
-  bounds that server's unguarded requests and its MCP Tasks settlement wait.
-  The ceiling is the transport's default total, which keeps every guard ending
-  below the stream's tool-executing backstop. Native tools keep their flat
-  guard.
+  bounds that server's unguarded requests. The ceiling is the transport's
+  default total, which keeps every guard ending below the stream's
+  tool-executing backstop. An MCP Tasks settlement wait fits in three quarters
+  of what the call's guard has left once the task is tracked
+  (`readToolGuardRemainingMs`). Native tools keep their flat guard.
 - Failed or abnormal finishes produce failed durable outcomes. Recoverable
   attempts are recorded before retry, stay on the committed branch, and never
   repeat a step that streamed tool input or a call. Context-overflow recovery
