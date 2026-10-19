@@ -2,6 +2,7 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
+import { proofTiming } from '@brainstrike/host-lease';
 import {
   createStateStoreIndexer,
   type StateIndexerPort,
@@ -115,8 +116,13 @@ function startStateIndexWorker(options: { readonly dbPath: string }): IndexerCon
   const validated = validateIndexerOptions(options);
   const deadlines = validateIndexerDeadlines(HOST_STATE_INDEX_DEADLINES);
   const worker = new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST));
+  // BST-2239 proof only.
+  worker.on('exit', (code) => {
+    proofTiming('BST-2239 state-index worker exit observed by host', { code });
+  });
   return createIndexerConnection(validated, deadlines, {
     kill: () => {
+      proofTiming('BST-2239 state-index worker terminate requested');
       void worker.terminate();
       return true;
     },

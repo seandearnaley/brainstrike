@@ -1,3 +1,6 @@
+import { appendFileSync } from 'node:fs';
+import { flushCompileCache, getCompileCacheDir } from 'node:module';
+import { join } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import { Schema } from 'effect';
 import {
@@ -16,6 +19,15 @@ const port = parentPort;
 if (!port) {
   throw new Error('Indexer writer requires a worker parent port.');
 }
+/** BST-2239 proof only: appended where the E2E harness collects the host's timings. */
+function proofWriterTiming(msg: string, fields: Record<string, unknown>): void {
+  const userData = process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
+  if (!userData) {
+    return;
+  }
+  const line = JSON.stringify({ ...fields, msg, pid: process.pid, time: new Date().toISOString() });
+  appendFileSync(join(userData, 'logs', 'agent-host-timing.ndjson'), `${line}\n`);
+}
 let writer: IndexWriter;
 try {
   const options = validateIndexerOptions(workerData);
@@ -24,6 +36,15 @@ try {
     : undefined;
   writer = new IndexWriter(options, openDesktopIndex(options, projection), projection);
   port.postMessage({ kind: 'ready', value: writer.info });
+  // BST-2239 proof only: what persisting this writer's compile cache costs once it is ready.
+  {
+    const startedAt = Date.now();
+    flushCompileCache();
+    proofWriterTiming('BST-2239 nested writer compile cache flushed after ready', {
+      compileCache: getCompileCacheDir() ?? null,
+      elapsedMs: Date.now() - startedAt,
+    });
+  }
   port.on('message', (input: unknown) => {
     let id: number | undefined;
     let closing = false;
@@ -150,6 +171,13 @@ try {
       }
     } finally {
       if (closing) {
+        // BST-2239 proof only: the nested writer's compile-cache persist at its close.
+        const startedAt = Date.now();
+        flushCompileCache();
+        proofWriterTiming('BST-2239 nested writer compile cache flushed', {
+          compileCache: getCompileCacheDir() ?? null,
+          elapsedMs: Date.now() - startedAt,
+        });
         port.close();
       }
     }
