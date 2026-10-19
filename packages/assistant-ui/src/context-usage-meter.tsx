@@ -87,7 +87,40 @@ export type OmAwaitingObserverReason =
   | 'no-backend'
   | 'no-hosted-chat-provider';
 
-export type OmMeterState =
+/**
+ * The OM record's own lifecycle, as the desktop host reports it (BST-2201):
+ * Mastra's live flags, when it last observed and buffered (epoch ms, null
+ * before the first), its reflection generation and the reflection threshold.
+ */
+export interface OmRecordLifecycle {
+  readonly generationCount: number;
+  readonly isBufferingObservation: boolean;
+  readonly isBufferingReflection: boolean;
+  readonly isObserving: boolean;
+  readonly isReflecting: boolean;
+  readonly lastBufferedAtTime: number | null;
+  readonly lastObservedAt: number | null;
+  readonly originType: 'initial' | 'reflection';
+  /** Observation tokens at which the reflector condenses them. */
+  readonly reflectionTokenThreshold: number;
+}
+
+/**
+ * The models memory uses (structural mirror of the host's `HostMemoryModels`):
+ * the resolved observer's catalog id and the recall embedder. Absent: none.
+ */
+export interface MemoryModelsDisplay {
+  readonly embedder?: {
+    readonly dimensions: number;
+    readonly distance: string;
+    readonly dtype?: string;
+    readonly modelId: string;
+    readonly provider: string;
+  };
+  readonly observer?: string;
+}
+
+export type OmMeterState = (
   | { readonly kind: 'chat-only' }
   | { readonly kind: 'inactive' }
   /** OM is on (Auto) but no eligible observer model resolved — waiting, not off. */
@@ -96,7 +129,8 @@ export type OmMeterState =
   | { readonly kind: 'withheld'; readonly reason: 'branched-thread' }
   | { readonly kind: 'loading' }
   | { readonly kind: 'empty' }
-  | { readonly kind: 'error'; readonly reason: string }
+  /** The read failed: its validated reason, and its boundary code where one was sent. */
+  | { readonly code?: string; readonly kind: 'error'; readonly reason: string }
   | {
       readonly kind: 'stats';
       /** Summaries generated in the async buffer but not activated yet. */
@@ -105,11 +139,19 @@ export type OmMeterState =
       readonly observationTokens: number;
       /** totalTokensObserved − observationTokenCount, clamped ≥ 0 (compacted away). */
       readonly compactionSavedTokens: number;
+      /** Absent where the host does not report the record's lifecycle. */
+      readonly lifecycle?: OmRecordLifecycle;
       /** Raw-message threshold that activates buffered observations. */
       readonly messageTokenThreshold: number;
       /** Raw message tokens currently progressing toward activation. */
       readonly pendingMessageTokens: number;
-    };
+    }
+) & {
+  /** The models the read named, where the host reports them (Developer panel). */
+  readonly models?: MemoryModelsDisplay;
+  /** When the host read this state (epoch ms): the record's flags hold as of then. */
+  readonly readAt?: number;
+};
 
 export interface ContextUsageMeterProps {
   /** Full model context window size. Meter is hidden when absent. */

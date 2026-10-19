@@ -41,7 +41,7 @@ const threadRun = (request: ModelProviderRequest): boolean =>
 test('a context overflow compacts the host thread behind a durable divider and the thread stays usable', async ({
   modelProvider,
   window,
-}) => {
+}, testInfo) => {
   const { mockFileSystemOperations } = await loadElectronHelpers();
   await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
@@ -87,8 +87,19 @@ test('a context overflow compacts the host thread behind a durable divider and t
     await expect(card).toContainText('Conversation compacted');
     await expect(card).toContainText('Deterministic compaction (no summarization model ran)');
     await expect(card).toContainText('after a provider context-overflow error');
+    // BST-2201: the committed reason and the turns it compacted; no summarizer ran.
+    await expect(card.getByTestId('compaction-summary-reason')).toContainText(
+      'After the provider reported a context overflow'
+    );
+    await expect(card.getByTestId('compaction-summary-turns')).toContainText('1 turn');
+    await expect(card.getByTestId('compaction-summary-model')).toHaveCount(0);
+    await expect(card.getByTestId('compaction-summary-usage')).toHaveCount(0);
   };
   await expectDivider();
+  await testInfo.attach('compaction-card', {
+    body: await card.screenshot(),
+    contentType: 'image/png',
+  });
   expect(overflowAttempts).toBe(2);
   // The re-attempt left the dropped oldest turn out of its request.
   const attempts = modelProvider

@@ -40,6 +40,16 @@ replayed. Child recovery follows [the delegation contract](assistant-subagents.m
 See [ADR-0010](../adr/0010-approvals-and-delegation.md) and
 [continuations](../../packages/agent-host/src/run-continuation.ts).
 
+Browser origins (BST-1178): the first `browserNavigate` call to each origin
+(scheme, host, port) raises a `network` consent that names it, whatever the
+policy or YOLO. Allow once runs that call. Always allow and Don't allow are
+saved by the host in its StateStore (`permissions/browser-origins`, wiped by
+factory reset) before the answer commits, and answer every later call; Core
+settles a denied call unrun, with a reason the model reads. Settings →
+Permissions lists and removes them. Consent sees the requested URL only: a
+page can still redirect or load elsewhere, through the egress proxy
+([ADR-0025](../adr/0025-agent-browsing-egress-proxy.md)).
+
 ## Hooks and plan mode
 
 Project hooks require trust in the current file content; skipped or invalid

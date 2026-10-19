@@ -6,6 +6,7 @@ import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { CommittedHumanInteraction } from './committed-human-interaction';
 import { CommittedNetworkConsent } from './committed-network-consent';
+import { CommittedOriginConsent } from './committed-origin-consent';
 import { ToolApprovalDecision } from './tool-approval-decision';
 import { useRememberedToolArguments } from './tool-argument-context';
 import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
@@ -211,6 +212,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
       />
       <CommittedHumanInteraction decisionRef={decisionRef} tool={props} />
       <CommittedNetworkConsent decisionRef={decisionRef} tool={props} />
+      <CommittedOriginConsent decisionRef={decisionRef} tool={props} />
       <ToolApprovalDecision decisionRef={decisionRef} tool={props} />
       <ToolFallbackBody
         argsText={displayArgsText}

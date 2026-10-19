@@ -11,6 +11,7 @@ import type {
   McpHostSnapshot,
   McpToolPreferencesFault,
 } from '@brainstrike/assistant-contract';
+import type { McpCatalogInstallRequest } from '@brainstrike/assistant-contract/mcp-catalog';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 
 /**
@@ -168,6 +169,8 @@ export interface ToolsSettingsOperations {
   getStats: () => Promise<ToolStats>;
   /** Get all registered tools */
   getTools: () => Promise<ToolDisplayMetadata[]>;
+  /** Install one catalog server into the profile's MCP config (desktop only). */
+  installMcpCatalogServer?: (request: McpCatalogInstallRequest) => Promise<McpConfigWriteResult>;
   /** Open MCP config file selector */
   openMcpConfig?: () => Promise<void>;
   /** Read MCP config file text, optionally auto-creating it from a template */
@@ -200,10 +203,8 @@ export interface ToolsSettingsOperations {
   subscribeMcpTools?: (listener: () => void) => () => void;
   /** Optional live query configuration for tools (PGlite) */
   toolsLiveQuery?: ToolsLiveQueryConfig;
-  /** Validate and write MCP config file text */
-  writeMcpConfigText?: (
-    content: string
-  ) => Promise<{ success: true; path: string } | { success: false; path: string; error: string }>;
+  /** Validate and write MCP config file text while the file still has `baseRevision` */
+  writeMcpConfigText?: (content: string, baseRevision: string) => Promise<McpConfigWriteResult>;
 }
 
 /**
@@ -280,6 +281,8 @@ export interface McpConfigInfo {
   exists: boolean;
   /** Current config file path */
   path: string;
+  /** Why the config file watcher cannot run; saving or reloading the config retries it */
+  watchError?: string;
 }
 
 export interface McpConfigTextDocument {
@@ -288,7 +291,14 @@ export interface McpConfigTextDocument {
   error?: string;
   exists: boolean;
   path: string;
+  /** The host's revision of `content`, which a save names as its base. */
+  revision: string;
 }
+
+/** A config write or catalog install: the new revision, or why nothing changed. */
+export type McpConfigWriteResult =
+  | { success: true; path: string; revision: string }
+  | { success: false; path: string; error: string; conflict?: true };
 
 /**
  * Props for MCP server status section.

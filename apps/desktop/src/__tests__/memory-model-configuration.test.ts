@@ -3,7 +3,10 @@ import * as providerRuntime from '@brainstrike/agent/provider-runtime';
 import type { ProductionHostRunConfiguration } from '@brainstrike/agent-host';
 import { Schema } from 'effect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopHostMemoryConfiguration } from '../agent-host-platform/memory-model-configuration';
+import {
+  createDesktopHostMemoryConfiguration,
+  desktopMemoryModels,
+} from '../agent-host-platform/memory-model-configuration';
 import {
   type PlatformSelection,
   PlatformSelectionSchema,
@@ -283,5 +286,48 @@ describe('admitted Memory model configuration', () => {
       })
     ).rejects.toBe(cause);
     expect(factory.mock.calls.length).toBe(0);
+  });
+});
+describe('the models thread/memory/read names for an admitted Memory selection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  it('names the resolved observer by the catalog id its usage commits under', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('Provider requests are outside this fixture');
+      })
+    );
+    const selected = selection('  OpenRouter/vendor/observer-fixture  ');
+    expect(desktopMemoryModels(selected.memory)).toEqual({
+      observer: 'openrouter::vendor/observer-fixture',
+    });
+    // The same id the run's memory configuration prices observer usage under.
+    const memory = await createDesktopHostMemoryConfiguration(selected, async () => ({
+      apiKey: syntheticCredential,
+      kind: 'api_key',
+    }));
+    expect(memory.observerModelId).toBe('openrouter::vendor/observer-fixture');
+  });
+  it('names no observer while observations are off or waiting, and the recall embedder while on', () => {
+    const selected = selection('auto');
+    selected.memory.settings.observationalMemory.enabled = false;
+    selected.memory.vectorProfile = {
+      dimensions: 384,
+      distance: 'cosine',
+      dtype: 'q8',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      provider: 'local',
+    };
+    expect(desktopMemoryModels(selected.memory)).toEqual({
+      embedder: {
+        dimensions: 384,
+        distance: 'cosine',
+        dtype: 'q8',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        provider: 'local',
+      },
+    });
   });
 });

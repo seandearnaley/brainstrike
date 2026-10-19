@@ -80,10 +80,10 @@ const assistantChildRunUsageDataUI = {
 // A host thread's committed compaction renders as the same card a durable
 // legacy compaction-summary message does, including its fallback label.
 const HostContextCompactedDataPart: DataMessagePartComponent = ({ data }) => {
-  const compaction = readHostContextCompaction(data);
+  const { kind, summary, ...details } = readHostContextCompaction(data);
   return (
-    <CompactionSummaryCard fallbackKind={compaction.kind}>
-      <p className="whitespace-pre-wrap">{compaction.summary}</p>
+    <CompactionSummaryCard details={details} fallbackKind={kind}>
+      <p className="whitespace-pre-wrap">{summary}</p>
     </CompactionSummaryCard>
   );
 };

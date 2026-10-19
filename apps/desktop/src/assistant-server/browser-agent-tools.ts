@@ -17,17 +17,12 @@ import type {
   BrowserNavigateInput,
   BrowserReadPageInput,
 } from '@brainstrike/agent';
-import { refuseExtractUrl } from '@brainstrike/host-capabilities/extract-url-refusal';
 import { createLogger } from '@brainstrike/logging';
 import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
 import type { BrowserDriver } from '../browser/browser-driver';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
-import {
-  type BrowserTabOwner,
-  type BrowserTabState,
-  isNavigableUrl,
-  normalizeUrl,
-} from '../browser/browser-view-manager';
+import { agentNavigationTarget } from '../browser/browser-url';
+import type { BrowserTabOwner, BrowserTabState } from '../browser/browser-view-manager';
 import type { BrowserToolRunner } from './native-tool-executors-browser';
 
 const logger = createLogger('BrowserAgentTools');
@@ -163,19 +158,14 @@ export async function runBrowserNavigate(
   const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  // AGENT-initiated navigation gets webExtract's host guard, not just the
-  // pane's scheme gate: with requiresApproval false, an unguarded navigate
-  // could read cloud metadata endpoints / RFC1918 / loopback in one turn.
-  // The USER's own URL bar is unaffected. (BST-1175/1178 add scoped, approved
-  // paths for dev-server preview.) Normalize FIRST so the gate sees exactly
-  // what the pane would load — including the search fallback.
-  const normalized = normalizeUrl(input.url);
-  const refusal = isNavigableUrl(normalized)
-    ? refuseExtractUrl(normalized)
-    : `refused: only http(s) pages can be opened by the agent (got "${normalized}")`;
-  if (refusal) {
-    return { error: 'blocked_url', hint: refusal, ok: false };
+  // An unguarded navigate could read cloud metadata, RFC1918 or loopback in
+  // one turn. The agent host asked a person about this target's origin before
+  // the call reached here (BST-1178); BST-1175 adds approved dev-server paths.
+  const target = agentNavigationTarget(input.url);
+  if ('refusal' in target) {
+    return { error: 'blocked_url', hint: target.refusal, ok: false };
   }
+  const normalized = target.url;
 
   // The literal check above is a fast refusal, not the boundary: agent tabs
   // connect only through the egress proxy, which checks every connection's

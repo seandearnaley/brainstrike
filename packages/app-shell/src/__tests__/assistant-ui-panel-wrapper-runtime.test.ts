@@ -361,7 +361,7 @@ describe('assistant runtime helpers', () => {
         providerKeySources: [{ provider: 'openai', source: 'stored' }],
       })
     ).toBe(
-      'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.'
+      'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.'
     );
   });
 

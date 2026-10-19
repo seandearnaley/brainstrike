@@ -395,7 +395,13 @@ export function serveDesktopPlatform(
   connection.onDispose(() => {
     void close().catch(() => undefined);
   });
-  connection.onRequest('platform/close', close);
+  // The host keeps its Root when this fails, so the failure is logged here with
+  // every inner cause, under the correlation id the host's fault carries (BST-2192).
+  connection.onRequest('platform/close', () =>
+    close().catch((cause: unknown) => {
+      throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
+    })
+  );
   connection.listen();
   return {
     close: disconnect,

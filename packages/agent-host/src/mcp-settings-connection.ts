@@ -66,6 +66,7 @@ export function bindHostMcpSettingsMethods(
   handle('mcp/config/path/set', (params) => visible(() => service().setConfigPath(params)));
   handle('mcp/config/read', () => visible(() => service().readConfigText()));
   handle('mcp/config/write', (params) => visible(() => service().writeConfigText(params)));
+  handle('mcp/config/install', (params) => visible(() => service().installCatalogServer(params)));
   handle('mcp/config/sample', () => visible(() => service().createSampleConfig()));
   handle('mcp/extensions/read', () => visible(() => service().extensions()));
   handle('mcp/extensions/set', (params) => visible(() => service().setExtensions(params)));

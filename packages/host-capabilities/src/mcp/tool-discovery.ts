@@ -384,6 +384,16 @@ export type ToolPreferenceProjection =
    */
   | { status: 'not-read' };
 
+/** What Settings says while the preferences file is `unavailable`. */
+export function buildToolPreferencesFaultMessage(fault: {
+  kind: McpToolPreferencesFaultKind;
+  path: string;
+  reason: string;
+}): string {
+  const cause = fault.kind === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
+  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved, so your saved choices are left on disk untouched. Repair or remove that file, then choose Reload tool preferences in Settings. Reset tool preferences discards your saved choices.`;
+}
+
 /** Read-only recovery: no retirement, rewrite, timestamp update or file creation. */
 export async function loadToolPreferencesForRecovery(
   userDataDir: string
