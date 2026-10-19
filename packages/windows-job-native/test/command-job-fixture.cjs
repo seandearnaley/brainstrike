@@ -31,6 +31,24 @@ async function waitForChildExit(child) {
   });
 }
 
+// Every wait() is bounded, so a stuck fixture child fails naming its event and
+// stderr instead of hanging the job. BST-2213 measured both bounds.
+//
+// A guard reports each event, and a started observer answers each command,
+// within EVENT_DEADLINE_MS. On hosted Windows (2 vCPUs) and on a 16-core
+// Windows 11 box the slowest such wait took 158 ms. In the failed attempt of
+// hosted Test run 39192445447, on a runner 2-15x slower than usual, every one
+// that ran still fit.
+const EVENT_DEADLINE_MS = 5000;
+// An observer's start is one-time work, not a reply. Windows PowerShell starts
+// (115-412 ms measured) and compiles the observer's C# with Add-Type (133-416
+// ms) before the observer pins its targets. Healthy starts took 275-652 ms.
+// On that failed runner the first observer's start took roughly 40-50 s,
+// inferred from its test's 55.7 s; the runner itself was never sampled. This
+// deadline is twice that slowest start. Only a start that never finishes pays
+// it in full: an observer that exits is reported at once.
+const OBSERVER_START_DEADLINE_MS = 100_000;
+
 function inbox(child, stdout = false) {
   const messages = [];
   let output = '';
@@ -60,7 +78,7 @@ function inbox(child, stdout = false) {
   }
   return {
     child,
-    wait: (event) =>
+    wait: (event, deadlineMs = EVENT_DEADLINE_MS) =>
       new Promise((resolve, reject) => {
         const cleanup = () => {
           clearTimeout(timer);
@@ -86,8 +104,9 @@ function inbox(child, stdout = false) {
           }
         };
         const timer = setTimeout(
-          () => failed(new Error(`Timed out waiting for ${event}: ${stderr}`)),
-          5000
+          () =>
+            failed(new Error(`Timed out after ${deadlineMs} ms waiting for ${event}: ${stderr}`)),
+          deadlineMs
         );
         child.on('fixture-message', check);
         child.once('exit', exited);
@@ -98,6 +117,11 @@ function inbox(child, stdout = false) {
         }
       }),
   };
+}
+
+// A process observer has started once it has pinned its targets.
+function waitForObserverStart(observer) {
+  return observer.wait('pinned', OBSERVER_START_DEADLINE_MS);
 }
 
 // `deny <mask>` gives the first pinned member a DACL that denies <mask> to
@@ -592,7 +616,7 @@ async function commandFixture(t) {
       );
       const observer = inbox(child, true);
       observers.push(observer);
-      const pinned = await observer.wait('pinned');
+      const pinned = await waitForObserverStart(observer);
       observer.pinned = pinned;
       assert.deepEqual(
         pinned.identities.map((identity) => identity.pid),
@@ -614,4 +638,12 @@ async function commandFixture(t) {
     root,
   };
 }
-module.exports = { commandFixture, inbox, processObserverSource, waitForChildExit };
+module.exports = {
+  commandFixture,
+  eventDeadlineMs: EVENT_DEADLINE_MS,
+  inbox,
+  observerStartDeadlineMs: OBSERVER_START_DEADLINE_MS,
+  processObserverSource,
+  waitForChildExit,
+  waitForObserverStart,
+};
