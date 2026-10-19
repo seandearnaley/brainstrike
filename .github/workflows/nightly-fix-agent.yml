@@ -1,0 +1,208 @@
+name: Nightly Fix Agent
+
+# BST-2189: one red-first fix attempt for one nightly-alert issue, on the failing
+# lane's runner image, by .claude/skills/fix-nightly. Claude works with a
+# read-only token and no provider keys. This workflow's own steps claim the
+# issue, publish the branch and pull request, and comment on Linear. The fix
+# job fails, visibly and before claiming, until the owner adds the
+# CLAUDE_CODE_OAUTH_TOKEN secret.
+
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: The nightly-alert issue to fix, such as BST-123.
+        required: true
+        type: string
+      runs_on:
+        description: The failing lane's runner label.
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      LINEAR_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    name: Fix ${{ inputs.issue }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 120
+    # One attempt per issue at a time, across workflows and nights.
+    concurrency:
+      group: nightly-fix-${{ inputs.issue }}
+      cancel-in-progress: false
+    # Read-only: the agent cannot push, open or merge a pull request.
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      commits: ${{ steps.handoff.outputs.commits }}
+    steps:
+      # The secret's presence travels as a boolean, never its value.
+      - name: Require the fix agent credential
+        env:
+          HAS_CLAUDE_CREDENTIAL: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          ISSUE: ${{ inputs.issue }}
+        run: |
+          if [ "$HAS_CLAUDE_CREDENTIAL" != "true" ]; then
+            echo "::error title=Nightly fix agent not configured::Add the CLAUDE_CODE_OAUTH_TOKEN repository secret (claude setup-token) to run the fix agent. $ISSUE was left unclaimed."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      # The claim is the lock: an issue someone holds skips this run. issue.md
+      # leads with tonight's failure, from this run, not the run that filed it.
+      - name: Claim the issue
+        id: claim
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          ISSUE: ${{ inputs.issue }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/nightly-fix"
+          set +e
+          node scripts/nightly-fix-issue.mjs claim --issue "$ISSUE" \
+            --claimant "github-run:$GITHUB_RUN_ID" --run-url "$RUN_URL" \
+            --issue-file "$RUNNER_TEMP/nightly-fix/issue.md"
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "claimed=true" >> "$GITHUB_OUTPUT" ;;
+            3)
+              echo "claimed=false" >> "$GITHUB_OUTPUT"
+              echo "$ISSUE is already claimed; this run skips it." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *) exit "$status" ;;
+          esac
+
+      # github_token makes the agent's token this job's read-only GITHUB_TOKEN
+      # instead of the Claude GitHub App's write token. The action's actor check
+      # stays at its default: no allowed_bots, no allowed_non_write_users.
+      - name: Run the fix agent
+        id: agent
+        if: steps.claim.outputs.claimed == 'true'
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1.0.253
+        env:
+          NIGHTLY_FIX_OUT: ${{ runner.temp }}/nightly-fix
+          # This run failed the test tonight: its artifacts are the evidence.
+          NIGHTLY_FIX_RUN_ID: ${{ github.run_id }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: /fix-nightly ${{ inputs.issue }}
+          claude_args: |
+            --max-turns 120
+            --add-dir ${{ runner.temp }}/nightly-fix
+            --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+            --disallowedTools "Bash(git push *),Bash(gh pr *),Bash(pnpm cassettes:record *),Bash(pnpm cassettes:proxy *)"
+
+      - name: Hand off the commits
+        id: handoff
+        if: ${{ always() && steps.claim.outputs.claimed == 'true' }}
+        env:
+          BASE_SHA: ${{ github.sha }}
+        run: |
+          commits=$(git rev-list --count "$BASE_SHA..HEAD")
+          echo "commits=$commits" >> "$GITHUB_OUTPUT"
+          if [ "$commits" -gt 0 ]; then
+            if [ ! -s "$RUNNER_TEMP/nightly-fix/pr.md" ]; then
+              echo "::error::The fix agent made $commits commit(s) but wrote no pr.md."
+              exit 1
+            fi
+            git bundle create "$RUNNER_TEMP/nightly-fix/fix.bundle" "$BASE_SHA..HEAD"
+          fi
+
+      - name: Upload the fix
+        if: ${{ always() && steps.handoff.outputs.commits != '' && steps.handoff.outputs.commits != '0' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-fix--${{ inputs.issue }}
+          path: |
+            ${{ runner.temp }}/nightly-fix/fix.bundle
+            ${{ runner.temp }}/nightly-fix/pr.md
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Post the evidence to Linear
+        if: ${{ always() && steps.claim.outputs.claimed == 'true' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          ISSUE: ${{ inputs.issue }}
+          AGENT_OUTCOME: ${{ steps.agent.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          evidence="$RUNNER_TEMP/nightly-fix/evidence.md"
+          if [ ! -s "$evidence" ]; then
+            printf 'The fix agent ended (%s) without writing evidence: %s\n' "$AGENT_OUTCOME" "$RUN_URL" > "$evidence"
+          fi
+          node scripts/nightly-fix-issue.mjs comment --issue "$ISSUE" --body-file "$evidence"
+
+  # Deterministic: pushes only nightly-fix/<issue>-<run>, opens the pull request
+  # with `Fixes <issue>`, and never merges.
+  publish:
+    name: Open the fix PR for ${{ inputs.issue }}
+    needs: [fix]
+    if: ${{ needs.fix.outputs.commits != '' && needs.fix.outputs.commits != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download the fix
+        uses: actions/download-artifact@v8
+        with:
+          name: nightly-fix--${{ inputs.issue }}
+          path: ${{ runner.temp }}/nightly-fix
+
+      - name: Push the branch and open the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+          BASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/nightly-fix"
+          branch="nightly-fix/$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')-$GITHUB_RUN_ID"
+          git fetch "$dir/fix.bundle" "HEAD:refs/heads/$branch"
+          git merge-base --is-ancestor "$BASE_SHA" "refs/heads/$branch"
+          title=$(head -n 1 "$dir/pr.md")
+          case "$title" in
+            *"($ISSUE)") ;;
+            *) echo "::error::The fix PR title must end with ($ISSUE): $title"; exit 1 ;;
+          esac
+          { printf 'Fixes %s\n\n' "$ISSUE"; tail -n +2 "$dir/pr.md"; } > "$dir/pr-body.md"
+          git push origin "refs/heads/$branch:refs/heads/$branch"
+          url=$(gh pr create --base main --head "$branch" --title "$title" --body-file "$dir/pr-body.md")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # The link marks the claim as handed to review, so it never goes stale.
+      - name: Link the pull request on Linear
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          ISSUE: ${{ inputs.issue }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: node scripts/nightly-fix-issue.mjs link-pr --issue "$ISSUE" --pr-url "$PR_URL"
