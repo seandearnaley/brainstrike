@@ -47,7 +47,10 @@ import {
 import { forwardHostDiagnostics } from './host-diagnostics';
 import { mainQueryEmbedding } from './host-retrieval-clients';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
-import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
+import {
+  createDesktopHostMemoryConfiguration,
+  desktopMemoryModels,
+} from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
@@ -436,14 +439,19 @@ export async function createDesktopHostConfiguration(
         toolTimeoutMs: selected.toolTimeoutMs,
       };
     },
-    // The admission's preconditions, then the memory credentials, nothing acquired.
+    // The admission's preconditions, then the memory credentials, nothing acquired;
+    // once they pass, the observer and embedder that admission would use.
     readMemoryPreconditions: async (admission) => {
       const readiness = await runAdmission.readMemoryReadiness(admission);
-      return readiness.ready
-        ? await desktopMemoryPreconditions(readiness, (provider) =>
-            host.auth.resolveProviderAuth(provider, admission.origin)
-          )
-        : readiness;
+      if (!readiness.ready) {
+        return readiness;
+      }
+      const preconditions = await desktopMemoryPreconditions(readiness, (provider) =>
+        host.auth.resolveProviderAuth(provider, admission.origin)
+      );
+      return preconditions.ready
+        ? { ...preconditions, models: desktopMemoryModels(readiness.memory) }
+        : preconditions;
     },
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),

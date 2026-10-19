@@ -57,7 +57,10 @@ import {
   withIndexedPart,
   withoutIndexedPart,
 } from './committed-step-text';
-import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
+import {
+  committedHostCompaction,
+  HOST_CONTEXT_COMPACTED_DATA_NAME,
+} from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
@@ -711,12 +714,7 @@ export class CommittedAssistantLogProjection {
       return;
     }
     if (event['type'] === 'context.compacted') {
-      const kind = event['kind'];
-      if (kind !== 'agentic' && kind !== 'deterministic') {
-        throw new Error('Committed compaction has an unsupported kind.');
-      }
-      const summary = requiredString(event, 'summary');
-      this.data(run, row, { kind, summary }, HOST_CONTEXT_COMPACTED_DATA_NAME);
+      this.data(run, row, committedHostCompaction(event), HOST_CONTEXT_COMPACTED_DATA_NAME);
       return;
     }
     if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {

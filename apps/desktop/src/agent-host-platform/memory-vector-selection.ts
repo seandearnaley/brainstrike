@@ -1,6 +1,7 @@
 import {
   BoundaryFailureError,
   fault,
+  MEMORY_EMBEDDER_DEVICE_REMEDY,
   MEMORY_EMBEDDER_SELECTION_REMEDY,
   MEMORY_FAILURE_CODES,
   MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
@@ -112,7 +113,7 @@ export async function readEmbeddingHostDevice(
     throw refusalError(
       'configuration',
       MEMORY_FAILURE_CODES.embedderDeviceUnavailable,
-      `The on-device memory embedder has no execution device: ${runtime.hostDeviceError} ${MEMORY_ON_DEVICE_EMBEDDER_REMEDY}`
+      `The on-device memory embedder has no execution device: ${runtime.hostDeviceError} ${MEMORY_EMBEDDER_DEVICE_REMEDY}`
     );
   }
   throw embedderUnavailable(

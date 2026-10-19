@@ -443,6 +443,8 @@ export default function SettingsPageContent() {
       },
       createAssistantMemorySettingsCategory({
         assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
+        // Main's hidden embedding host runs local recall embedders on the saved device.
+        onDeviceEmbedding: true,
         ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
       }),
       {

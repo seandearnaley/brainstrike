@@ -17,7 +17,7 @@ export function memoryCredentialRequiredReason(
   const providerName = getProviderDefinition(provider).displayName;
   switch (need) {
     case 'observational-memory':
-      return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.`;
+      return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.`;
     case 'semantic-recall':
       return `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.`;
     case 'semantic-observation-recall':

@@ -32,6 +32,13 @@ export const MEMORY_FAILURE_CODES = {
 export const MEMORY_ON_DEVICE_EMBEDDER_REMEDY =
   'Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval.';
 
+/**
+ * What the user can do when the on-device embedder has no execution device:
+ * choose one in the Assistant Memory picker (BST-2201), or not run on-device.
+ */
+export const MEMORY_EMBEDDER_DEVICE_REMEDY =
+  'Choose a device in Settings → Assistant Memory → On-device embedding device, choose a hosted embedding model there, or turn off semantic recall and vector observation retrieval.';
+
 /** What the user can do when memory's embedding model is not selected or not in the catalog. */
 export const MEMORY_EMBEDDER_SELECTION_REMEDY =
   'Choose an embedding model in Settings → Assistant Memory.';

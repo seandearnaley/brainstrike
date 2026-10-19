@@ -287,7 +287,7 @@ test('disabled recall and existing observer messages/off options preserve provid
   await expect(
     createDesktopHostMemoryConfiguration(admitted, async () => undefined)
   ).rejects.toThrow(
-    'Observational memory requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.'
+    'Observational memory requires a configured OpenAI API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.'
   );
   expect(fetch).not.toHaveBeenCalled();
 });

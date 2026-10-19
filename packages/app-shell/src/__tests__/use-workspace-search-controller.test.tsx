@@ -94,8 +94,9 @@ describe('native Search boundary presentation', () => {
     vi.spyOn(executor, 'searchSemantic').mockRejectedValueOnce(failure);
     createNativeWorkspaceSearchRunners(executor, ['D1']).runSemanticSearch();
     await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    // A fault names the reference Main logged its private cause under (BST-2202).
     expect(useWorkspaceSearchStore.getState().error).toBe(
-      'WebGPU device was lost. Choose the model again to retry.'
+      'WebGPU device was lost. Choose the model again to retry. Reference: 8cb3b33a-70a7-4753-b72b-cbea1c0b5250'
     );
     expect(useWorkspaceSearchStore.getState().error).not.toContain('private vendor');
   });

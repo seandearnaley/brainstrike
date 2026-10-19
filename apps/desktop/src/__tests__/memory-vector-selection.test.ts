@@ -231,7 +231,7 @@ test('a host that resolved no device refuses with its reason and the remedy (BST
     code: 'memory.embedder-device-unavailable',
     kind: 'refusal',
     message:
-      'The on-device memory embedder has no execution device: WebGPU adapter is unavailable. Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval.',
+      'The on-device memory embedder has no execution device: WebGPU adapter is unavailable. Choose a device in Settings → Assistant Memory → On-device embedding device, choose a hosted embedding model there, or turn off semantic recall and vector observation retrieval.',
   });
 });
 

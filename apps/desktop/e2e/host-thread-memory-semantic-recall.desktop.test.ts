@@ -282,7 +282,7 @@ test('an on-device embedder with no execution device refuses with its reason, no
   const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
   // The reason is the refusal run/start would fail with, shown before any send.
   const reason = panel.getByText(
-    /^The on-device memory embedder has no execution device: .*WebGPU.* Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval\.$/u
+    /^The on-device memory embedder has no execution device: .*WebGPU.* Choose a device in Settings → Assistant Memory → On-device embedding device, choose a hosted embedding model there, or turn off semantic recall and vector observation retrieval\.$/u
   );
   await expect(reason.or(page.getByText(GENERIC_FAULT)).first()).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);

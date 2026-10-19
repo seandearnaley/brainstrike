@@ -23,6 +23,7 @@ import type { HostMemory } from './adapters/memory.js';
 import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
 import {
+  admittedMemoryModels,
   type HostObservationSource,
   nativeObservationSource,
   readHostObservation,
@@ -46,7 +47,7 @@ import type {
   HostRunIntentRequest,
   HostTool,
 } from './ports.js';
-import type { HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
+import type { HostMemoryModels, HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
 import { prepareHostProviderTools } from './provider-schema-selection.js';
 import type { HostStartupContext } from './runtime.js';
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
@@ -105,6 +106,15 @@ export type HostMemoryPreconditions =
       readonly observation: HostObservationSource;
       readonly ready: true;
     };
+/**
+ * thread/memory/read's platform answer: the preconditions, and once they pass,
+ * the observer and embedder the run they admit would use (BST-2201).
+ */
+export type HostMemoryReadiness =
+  | Extract<HostMemoryPreconditions, { readonly ready: false }>
+  | (Extract<HostMemoryPreconditions, { readonly ready: true }> & {
+      readonly models: HostMemoryModels;
+    });
 export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
@@ -127,7 +137,7 @@ export interface ProductionHostPlatformOptions {
   /** thread/memory/read's preconditions; absent where the host has no composer. */
   readonly readMemoryPreconditions?: (
     request: HostRunIntentRequest
-  ) => Promise<HostMemoryPreconditions>;
+  ) => Promise<HostMemoryReadiness>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -270,6 +280,7 @@ function productionMemoryReadiness(
       }
       return {
         admission: { ready: true },
+        models: preconditions.models,
         observational: await readHostObservation(
           options.startup.store,
           preconditions.observation,
@@ -494,6 +505,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           return owner.memory;
         };
         const { observerAwaiting, vectors, ...memory } = selected.memory;
+        const observation = nativeObservationSource(memory, observerAwaiting);
         const nativeMemory = (
           bridge: StateStoreMemoryVector | undefined,
           native: StateStoreHostMemoryOptions['native'] = memory.native
@@ -538,6 +550,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           hookSkips: selected.hookSkips,
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
+          memoryModels: admittedMemoryModels(observation, memory.observerModelId, vectors?.profile),
           model,
           ...(selected.referencedFileFailures
             ? { referencedFileFailures: selected.referencedFileFailures }
@@ -595,11 +608,7 @@ export async function createProductionHostPlatform<Configuration extends Product
             },
           },
           readObservation: (threadId) =>
-            readHostObservation(
-              options.startup.store,
-              nativeObservationSource(memory, observerAwaiting),
-              threadId
-            ),
+            readHostObservation(options.startup.store, observation, threadId),
           snapshot: {
             configuration: selected.durableConfiguration,
             maxSteps: selected.maxSteps,

@@ -176,17 +176,21 @@ export function createPermissionSettingsCategory(): SettingsCategory {
 
 export interface CreateAssistantMemorySettingsCategoryOptions {
   readonly assistantMemoryBackendAvailable: boolean;
+  /** The host's embedding host runs local embedders on a device the user may choose. */
+  readonly onDeviceEmbedding?: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
 export function createAssistantMemorySettingsCategory({
   assistantMemoryBackendAvailable,
+  onDeviceEmbedding = false,
   providerKeySources,
 }: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
   return {
     content: (
       <AssistantMemorySettingsSection
         assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+        onDeviceEmbedding={onDeviceEmbedding}
         {...(providerKeySources ? { providerKeySources } : {})}
       />
     ),
