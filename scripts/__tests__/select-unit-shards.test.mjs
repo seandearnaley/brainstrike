@@ -104,6 +104,34 @@ test('unit-only work and dependent test tasks admit a partition', () => {
   );
 });
 
+test('a merge group selects affected shards against its base like a pull request', () => {
+  const calls = [];
+  const selected = selectUnitShards(matrix, 'merge_group', (filters) => {
+    calls.push(filters);
+    return filters[0] === '--filter=@brainstrike/a' ? integrationOnly : empty;
+  });
+  assert.deepEqual(selected.include, matrix.include.slice(0, 2));
+  assert.deepEqual(calls, [['--filter=@brainstrike/a'], ['--filter=!@brainstrike/a']]);
+});
+
+test('affected selection without an exact base and head fails closed', () => {
+  for (const event of ['pull_request', 'merge_group']) {
+    const result = spawnSync(process.execPath, [resolve('scripts/select-unit-shards.mjs')], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        EVENT_NAME: event,
+        GITHUB_OUTPUT: join(tmpdir(), 'never-written'),
+        TURBO_SCM_BASE: '',
+        TURBO_SCM_HEAD: 'HEAD',
+        UNIT_MATRIX: JSON.stringify(matrix),
+      },
+    });
+    assert.notEqual(result.status, 0, event);
+    assert.match(result.stderr, /Exact base and tested head are required/u, event);
+  }
+});
+
 test('push, nightly and manual execution retain all rows and never invoke affected selection', () => {
   for (const event of ['push', 'schedule', 'workflow_dispatch']) {
     assert.equal(

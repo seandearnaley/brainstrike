@@ -43,6 +43,10 @@ const STAYS_DISABLED = [
   'react-doctor.yml',
 ];
 const REUSABLE = ['nightly-linear-alert.yml'];
+// BST-2188: the merge queue's fast tier. merge-queue-contract.test.mjs owns its
+// triggers and gate; a red merge group removes the PR from the queue, so it
+// files nothing to Linear.
+const MERGE_QUEUE = ['merge-queue.yml'];
 
 const POLICY_LINE =
   '# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.';
@@ -170,7 +174,10 @@ function assertPolicyText(agents, ciQuality) {
 
 test('every workflow file has a declared CI role', () => {
   const files = readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
-  assert.deepEqual(files.sort(), [...SCHEDULED.keys(), ...STAYS_DISABLED, ...REUSABLE].sort());
+  assert.deepEqual(
+    files.sort(),
+    [...SCHEDULED.keys(), ...STAYS_DISABLED, ...REUSABLE, ...MERGE_QUEUE].sort()
+  );
 });
 
 test('scheduled workflows run only on schedule and dispatch, under the nightly header', () => {
@@ -216,8 +223,8 @@ test('PR, bot and manual workflows keep their triggers and say they stay disable
   assert.deepEqual(prTriggered, ['claude-code-review.yml', 'coverage.yml', 'react-doctor.yml']);
 });
 
-test('no scheduled job can start in a fork', () => {
-  for (const file of SCHEDULED.keys()) {
+test('no scheduled or merge-queue job can start in a fork', () => {
+  for (const file of [...SCHEDULED.keys(), ...MERGE_QUEUE]) {
     assertForkGuard(file, readWorkflow(file));
   }
 });
