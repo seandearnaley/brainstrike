@@ -4,12 +4,21 @@
 name: Nightly Coverage
 
 on:
-  schedule:
-    - cron: '17 8 * * *'
+  # BST-2233: no schedule of its own; nightly.yml calls it each night.
+  workflow_call:
+    secrets:
+      CODECOV_TOKEN:
+        required: true
+      LINEAR_API_KEY:
+        required: true
+      TURBO_TOKEN:
+        required: true
   workflow_dispatch:
 
+# In a called run github.workflow is the caller's name; the file name keeps this
+# group apart from nightly.yml's and its siblings'.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-nightly-coverage-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -413,7 +422,8 @@ jobs:
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
-      workflow_name: ${{ github.workflow }}
+      # Its own name: in nightly.yml's call, github.workflow is the caller's.
+      workflow_name: Nightly Coverage
       results: pg-textsearch-durability=${{ needs.pg-textsearch-durability.result }},sigkill-crash-gate=${{ needs.sigkill-crash-gate.result }},package-coverage=${{ needs.package-coverage.result }},db-coverage-shard=${{ needs.db-coverage-shard.result }},db-coverage=${{ needs.db-coverage.result }},coverage=${{ needs.coverage.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

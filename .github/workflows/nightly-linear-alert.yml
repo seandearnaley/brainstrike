@@ -17,6 +17,10 @@ on:
     secrets:
       LINEAR_API_KEY:
         required: true
+    outputs:
+      fix_issues:
+        description: JSON array of the failing and flaky tests' issues this run filed or commented on, the nightly fix agent's queue (BST-2189).
+        value: ${{ jobs.notify.outputs.fix_issues }}
 
 permissions:
   contents: read
@@ -26,6 +30,8 @@ jobs:
     name: Notify Linear
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      fix_issues: ${{ steps.file.outputs.fix_issues }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -40,12 +46,20 @@ jobs:
       # workflow-level issue.
       - name: Create the test results directory
         run: mkdir -p "$RUNNER_TEMP/nightly-results"
+      # Every workflow nightly.yml calls shares one run and its artifacts
+      # (BST-2233), so download only the results of the jobs this one reports.
+      - name: Name this workflow's results artifacts
+        id: results-artifacts
+        env:
+          RESULTS: ${{ inputs.results }}
+        run: node scripts/nightly-results-artifacts.mjs --results "$RESULTS" >> "$GITHUB_OUTPUT"
       - name: Download nightly test results
         uses: actions/download-artifact@v8
         with:
-          pattern: nightly-results--*
+          pattern: ${{ steps.results-artifacts.outputs.pattern }}
           path: ${{ runner.temp }}/nightly-results
       - name: File or update the Linear issues
+        id: file
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           WORKFLOW_NAME: ${{ inputs.workflow_name }}

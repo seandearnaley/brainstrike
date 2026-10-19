@@ -8,7 +8,8 @@ import { parse as parseYaml } from 'yaml';
 /**
  * BST-2066 (owner decision 2026-10-17): hosted CI runs on a schedule against
  * main and files every red night to Linear (`nightly-alert`). Per-PR and
- * per-push hosted CI stays off; merges use the local gate.
+ * per-push hosted CI stays off; merges use the local gate. BST-2233: the six
+ * required nightlies run as one scheduled run of nightly.yml.
  *
  * Each check is a function over source text, so the CONTROL tests at the end
  * can mutate the real files and watch the check fail.
@@ -23,18 +24,25 @@ const FORK_GUARD = "github.repository == 'seandearnaley/brainstrike'";
 const ALERT_WORKFLOW = './.github/workflows/nightly-linear-alert.yml';
 const ALERT_GATE = "always() && github.event_name == 'schedule'";
 
+const NIGHTLY = 'nightly.yml';
 const SCHEDULED = new Map([
   ['actions-storage-cleanup.yml', '17 5 * * *'],
   ['agent-evals.yml', '13 8 * * *'],
-  ['desktop-e2e.yml', '53 7 * * *'],
   ['knip.yml', '37 6 * * 1'],
   ['mcp-verification.yml', '23 8 * * *'],
-  ['native-package-matrix.yml', '41 9 * * *'],
-  ['nightly-coverage.yml', '17 8 * * *'],
-  ['performance.yml', '23 7 * * *'],
-  ['test.yml', '3 7 * * *'],
-  ['web-e2e.yml', '37 7 * * *'],
+  [NIGHTLY, '53 7 * * *'],
 ]);
+// BST-2233 (owner decision 2026-10-19): nightly.yml calls the six required
+// nightlies, and none has a schedule of its own, so every job of the night runs
+// on one github.sha. nightly-caller-contract.test.mjs pins the calls.
+const NIGHTLY_CALLS = [
+  'desktop-e2e.yml',
+  'native-package-matrix.yml',
+  'nightly-coverage.yml',
+  'performance.yml',
+  'test.yml',
+  'web-e2e.yml',
+];
 const STAYS_DISABLED = [
   'claude-code-review.yml',
   'claude.yml',
@@ -43,19 +51,26 @@ const STAYS_DISABLED = [
   'react-doctor.yml',
   'release.yml',
 ];
-const REUSABLE = ['nightly-linear-alert.yml'];
+const REUSABLE = ['nightly-fix-agent.yml', 'nightly-linear-alert.yml'];
 // BST-2188: the merge queue's fast tier. merge-queue-contract.test.mjs owns its
-// triggers, its call into test.yml and its gate; a red merge group removes the
-// PR from the queue, so it files nothing to Linear.
+// triggers, its call into test.yml, its gate and .mergify.yml; a red batch
+// removes the PR from Mergify's queue, so it files nothing to Linear.
 const MERGE_QUEUE = ['merge-queue.yml'];
-// Narrow allowances, both BST-2188 (owner decision 2026-10-19), each proven by
+// Narrow allowances, both BST-2188 (owner decisions 2026-10-19), each proven by
 // merge-queue-contract.test.mjs:
-// - test.yml may also be called (`workflow_call`), only by merge-queue.yml, so
-//   the queue runs the nightly's own jobs rather than copies of them;
-// - merge-queue.yml may trigger on pull_request, skip-only: every job skips on
-//   that event, so its required gate reports on PR heads and no runner starts.
-const CALLED_BY = new Map([['test.yml', 'merge-queue.yml']]);
-const SKIP_ONLY_PULL_REQUEST = ['merge-queue.yml'];
+// - test.yml may also be called by merge-queue.yml, so the queue runs the
+//   nightly's own jobs rather than copies of them;
+// - merge-queue.yml may trigger on push, only for the branches Mergify pushes
+//   each queue batch to. No pull request starts it, so its required gate never
+//   reports on a PR head and no runner starts for one.
+// Every other call into the six comes from nightly.yml (BST-2233).
+const CALLED_BY = new Map(
+  NIGHTLY_CALLS.map((file) => [
+    file,
+    file === 'test.yml' ? ['merge-queue.yml', NIGHTLY] : [NIGHTLY],
+  ])
+);
+const QUEUE_PUSH = new Map([['merge-queue.yml', { branches: ['mergify/merge-queue/**'] }]]);
 
 const POLICY_LINE =
   '# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.';
@@ -81,23 +96,34 @@ const expression = (value) =>
     .replace(/^\$\{\{\s*/u, '')
     .replace(/\s*\}\}$/u, '');
 const needsOf = (job) => [job.needs ?? []].flat();
-const cadence = (cron) => (cron.split(' ')[4] === '*' ? 'nightly' : 'weekly');
+const cadence = (file) =>
+  NIGHTLY_CALLS.includes(file) || SCHEDULED.get(file).split(' ')[4] === '*' ? 'nightly' : 'weekly';
 
 function assertScheduleOnly(file, source) {
   const { on } = parseYaml(source);
   assert.deepEqual(
     Object.keys(on).sort(),
-    ['schedule', ...(CALLED_BY.has(file) ? ['workflow_call'] : []), 'workflow_dispatch'],
+    ['schedule', 'workflow_dispatch'],
     `${file} must run only on its schedule and manual dispatch`
   );
   assert.deepEqual(on.schedule, [{ cron: SCHEDULED.get(file) }], `${file} schedule`);
+}
+
+/** One of the six: with no schedule of its own, it never runs on another commit than its night's. */
+function assertNightlyCalled(file, source) {
+  const { on } = parseYaml(source);
+  assert.deepEqual(
+    Object.keys(on).sort(),
+    ['workflow_call', 'workflow_dispatch'],
+    `${file} must run only when ${NIGHTLY} calls it and on manual dispatch`
+  );
 }
 
 function assertScheduledHeader(file, source) {
   const [first, second] = source.split('\n');
   assert.equal(
     first,
-    `# Runs ${cadence(SCHEDULED.get(file))} on main (owner decision 2026-10-17).`,
+    `# Runs ${cadence(file)} on main (owner decision 2026-10-17).`,
     `${file} header`
   );
   assert.equal(second, POLICY_LINE, `${file} header`);
@@ -136,7 +162,15 @@ function assertLinearFiling(file, source) {
   assert.ok(notify, `${file} must define notify-linear`);
   assert.equal(notify.uses, ALERT_WORKFLOW, `${file} › notify-linear`);
   assert.equal(expression(notify.if), `${FORK_GUARD} && ${ALERT_GATE}`, `${file} › notify-linear`);
-  assert.equal(notify.with?.workflow_name, actions('github.workflow'), `${file} › notify-linear`);
+  // A called run's github.workflow is its caller's name, so a callable
+  // workflow names itself and its tests file under it (BST-2233).
+  const { name, on } = parseYaml(source);
+  const callable = on?.workflow_call !== undefined;
+  assert.equal(
+    notify.with?.workflow_name,
+    callable ? name : actions('github.workflow'),
+    `${file} › notify-linear must file under ${callable ? 'its own name' : 'github.workflow'}`
+  );
   assert.equal(
     notify.secrets?.LINEAR_API_KEY,
     actions('secrets.LINEAR_API_KEY'),
@@ -156,8 +190,13 @@ function assertLinearFiling(file, source) {
       }
     }
   }
+  // A job after notify-linear (the BST-2189 fix agent) acts on what it filed.
+  const afterNotify = (id) => needsOf(jobs[id]).includes('notify-linear');
   for (const id of Object.keys(jobs)) {
-    assert.ok(id === 'notify-linear' || judged.has(id), `${file} › ${id} never reaches Linear`);
+    assert.ok(
+      id === 'notify-linear' || judged.has(id) || afterNotify(id),
+      `${file} › ${id} never reaches Linear`
+    );
   }
 }
 
@@ -185,7 +224,7 @@ test('every workflow file has a declared CI role', () => {
   const files = readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
   assert.deepEqual(
     files.sort(),
-    [...SCHEDULED.keys(), ...STAYS_DISABLED, ...REUSABLE, ...MERGE_QUEUE].sort()
+    [...SCHEDULED.keys(), ...NIGHTLY_CALLS, ...STAYS_DISABLED, ...REUSABLE, ...MERGE_QUEUE].sort()
   );
 });
 
@@ -193,6 +232,14 @@ test('scheduled workflows run only on schedule and dispatch, under the nightly h
   for (const file of SCHEDULED.keys()) {
     const source = readWorkflow(file);
     assertScheduleOnly(file, source);
+    assertScheduledHeader(file, source);
+  }
+});
+
+test('the six required nightlies run only when nightly.yml calls them, or on dispatch', () => {
+  for (const file of NIGHTLY_CALLS) {
+    const source = readWorkflow(file);
+    assertNightlyCalled(file, source);
     assertScheduledHeader(file, source);
   }
 });
@@ -215,11 +262,8 @@ test('scheduled workflows start in distinct UTC slots', () => {
 });
 
 test('CONTROL: two workflows in one cron slot fail the slot check', () => {
-  const clashing = new Map([
-    ...SCHEDULED,
-    ['agent-evals.yml', SCHEDULED.get('nightly-coverage.yml')],
-  ]);
-  assert.throws(() => assertDistinctSlots(clashing), /shares the 8:17 UTC slot/u);
+  const clashing = new Map([...SCHEDULED, ['agent-evals.yml', SCHEDULED.get(NIGHTLY)]]);
+  assert.throws(() => assertDistinctSlots(clashing), /shares the 7:53 UTC slot/u);
 });
 
 test('PR, bot and manual workflows keep their triggers and say they stay disabled', () => {
@@ -235,48 +279,78 @@ test('PR, bot and manual workflows keep their triggers and say they stay disable
 const workflowFiles = () => readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
 const allWorkflows = () => new Map(workflowFiles().map((file) => [file, readWorkflow(file)]));
 const DISABLED_PULL_REQUEST = ['claude-code-review.yml', 'coverage.yml', 'react-doctor.yml'];
+// react-doctor.yml on pushes to main; release.yml on the owner's release tags.
+const DISABLED_PUSH = ['react-doctor.yml', 'release.yml'];
 
-function assertPullRequestTriggers(sources) {
-  const prTriggered = [...sources]
-    .filter(([, source]) => parseYaml(source).on?.pull_request !== undefined)
+const triggeredBy = (sources, event) =>
+  [...sources]
+    .filter(([, source]) => parseYaml(source).on?.[event] !== undefined)
     .map(([file]) => file)
     .sort();
+
+function assertPullRequestTriggers(sources) {
   assert.deepEqual(
-    prTriggered,
-    [...DISABLED_PULL_REQUEST, ...SKIP_ONLY_PULL_REQUEST].sort(),
+    triggeredBy(sources, 'pull_request'),
+    DISABLED_PULL_REQUEST,
     'a new pull_request trigger needs its own owner decision'
   );
 }
 
+function assertPushTriggers(sources) {
+  assert.deepEqual(
+    triggeredBy(sources, 'push'),
+    [...DISABLED_PUSH, ...QUEUE_PUSH.keys()].sort(),
+    'a new push trigger needs its own owner decision'
+  );
+  for (const [file, push] of QUEUE_PUSH) {
+    assert.deepEqual(
+      parseYaml(sources.get(file)).on.push,
+      push,
+      `${file} may run on push only for Mergify queue branches`
+    );
+  }
+}
+
 function assertCallers(sources) {
-  for (const [callee, caller] of CALLED_BY) {
+  for (const [callee, expected] of CALLED_BY) {
     const callers = [...sources]
       .filter(([, source]) =>
         Object.values(parseYaml(source).jobs ?? {}).some(
           (job) => job.uses === `./.github/workflows/${callee}`
         )
       )
-      .map(([file]) => file);
-    assert.deepEqual(callers, [caller], `${callee} may be called only by ${caller}`);
+      .map(([file]) => file)
+      .sort();
+    assert.deepEqual(
+      callers,
+      expected,
+      `${callee} may be called only by ${expected.join(' and ')}`
+    );
   }
 }
 
-test('beside the disabled PR workflows, only the skip-only merge queue triggers on pull_request', () => {
+test('only the disabled PR workflows trigger on pull_request', () => {
   assertPullRequestTriggers(allWorkflows());
 });
 
-test('test.yml is called only by the merge queue', () => {
+test('beside the disabled workflows, only the merge queue triggers on push, for its queue branches', () => {
+  assertPushTriggers(allWorkflows());
+});
+
+test('nightly.yml calls each of the six, and only the merge queue also calls test.yml', () => {
   assertCallers(allWorkflows());
 });
 
-test('no scheduled or merge-queue job can start in a fork', () => {
-  for (const file of [...SCHEDULED.keys(), ...MERGE_QUEUE]) {
+test('no scheduled, nightly-called or merge-queue job can start in a fork', () => {
+  for (const file of [...SCHEDULED.keys(), ...NIGHTLY_CALLS, ...MERGE_QUEUE]) {
     assertForkGuard(file, readWorkflow(file));
   }
 });
 
 test('every scheduled run files its verdict to Linear', () => {
-  for (const file of SCHEDULED.keys()) {
+  // nightly.yml files nothing itself: each workflow it calls files its own jobs.
+  assert.equal(parseYaml(readWorkflow(NIGHTLY)).jobs['notify-linear'], undefined);
+  for (const file of [...SCHEDULED.keys(), ...NIGHTLY_CALLS].filter((f) => f !== NIGHTLY)) {
     assertLinearFiling(file, readWorkflow(file));
   }
   const testJobs = parseYaml(readWorkflow('test.yml')).jobs;
@@ -306,8 +380,31 @@ test('CONTROL: re-adding a pull_request or push trigger fails the trigger check'
     'push:\n    branches: [main]\n',
   ]) {
     const mutated = mutate(source, '\non:\n', `\non:\n  ${trigger}`);
-    assert.throws(() => assertScheduleOnly('test.yml', mutated), /schedule and manual dispatch/u);
+    assert.throws(() => assertNightlyCalled('test.yml', mutated), /and on manual dispatch/u);
+    const scheduled = mutate(readWorkflow(NIGHTLY), '\non:\n', `\non:\n  ${trigger}`);
+    assert.throws(() => assertScheduleOnly(NIGHTLY, scheduled), /schedule and manual dispatch/u);
   }
+});
+
+test('CONTROL: one of the six with its own schedule back fails the trigger check', () => {
+  const rescheduled = mutate(
+    readWorkflow('web-e2e.yml'),
+    '\non:\n',
+    "\non:\n  schedule:\n    - cron: '37 7 * * *'\n"
+  );
+  assert.throws(
+    () => assertNightlyCalled('web-e2e.yml', rescheduled),
+    /only when nightly\.yml calls it/u
+  );
+});
+
+test('CONTROL: a called workflow filing under github.workflow fails the Linear check', () => {
+  const callerNamed = mutate(
+    readWorkflow('web-e2e.yml'),
+    'workflow_name: Web E2E',
+    `workflow_name: ${actions('github.workflow')}`
+  );
+  assert.throws(() => assertLinearFiling('web-e2e.yml', callerNamed), /its own name/u);
 });
 
 test('CONTROL: the retired header fails the header check', () => {
@@ -353,18 +450,38 @@ test('CONTROL: the retired AGENTS.md sentence fails the policy check', () => {
   assert.throws(() => assertPolicyText(retired, ciQuality), /nightly policy/u);
 });
 
-test('CONTROL: another pull_request trigger, caller or workflow_call fails its allowance check', () => {
+test('CONTROL: another pull_request or push trigger, caller or workflow_call fails its allowance check', () => {
   const sources = allWorkflows();
-  const knip = mutate(sources.get('knip.yml'), '\non:\n', '\non:\n  pull_request:\n');
+  for (const file of ['knip.yml', 'merge-queue.yml']) {
+    const triggered = mutate(sources.get(file), '\non:\n', '\non:\n  pull_request:\n');
+    assert.throws(
+      () => assertPullRequestTriggers(new Map([...sources, [file, triggered]])),
+      /pull_request trigger needs its own owner decision/u,
+      file
+    );
+  }
+  const knipPush = mutate(sources.get('knip.yml'), '\non:\n', '\non:\n  push:\n');
   assert.throws(
-    () => assertPullRequestTriggers(new Map([...sources, ['knip.yml', knip]])),
-    /its own owner decision/u
+    () => assertPushTriggers(new Map([...sources, ['knip.yml', knipPush]])),
+    /push trigger needs its own owner decision/u
+  );
+  const mainPush = mutate(
+    sources.get('merge-queue.yml'),
+    "branches: ['mergify/merge-queue/**']",
+    'branches: [main]'
+  );
+  assert.throws(
+    () => assertPushTriggers(new Map([...sources, ['merge-queue.yml', mainPush]])),
+    /only for Mergify queue branches/u
   );
   const caller = `${sources.get('knip.yml')}  extra:\n    uses: ./.github/workflows/test.yml\n`;
   assert.throws(
     () => assertCallers(new Map([...sources, ['knip.yml', caller]])),
-    /called only by merge-queue\.yml/u
+    /called only by merge-queue\.yml and nightly\.yml/u
   );
-  const callable = mutate(readWorkflow('web-e2e.yml'), '\non:\n', '\non:\n  workflow_call:\n');
-  assert.throws(() => assertScheduleOnly('web-e2e.yml', callable), /schedule and manual dispatch/u);
+  const callable = mutate(readWorkflow('agent-evals.yml'), '\non:\n', '\non:\n  workflow_call:\n');
+  assert.throws(
+    () => assertScheduleOnly('agent-evals.yml', callable),
+    /schedule and manual dispatch/u
+  );
 });

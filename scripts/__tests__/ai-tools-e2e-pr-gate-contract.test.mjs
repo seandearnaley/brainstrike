@@ -382,7 +382,13 @@ test('MONEY TEST: the Desktop E2E fan-in rejects a lane it does not wait for or 
 
 test('REAL REPO: nightly E2E jobs invoke every smoke lane script', () => {
   const workflow = parseYaml(read('.github/workflows/test.yml'));
-  assert.ok(workflow.on?.schedule, 'test.yml must run nightly');
+  // BST-2233: the scheduled nightly.yml calls test.yml each night.
+  const nightly = parseYaml(read('.github/workflows/nightly.yml'));
+  assert.ok(nightly.on?.schedule, 'nightly.yml must run nightly');
+  assert.ok(
+    Object.values(nightly.jobs).some((job) => job.uses === './.github/workflows/test.yml'),
+    'test.yml must run nightly: nightly.yml must call it'
+  );
 
   const assertRequiredSmokeStep = (jobId, expectedCommand, expectedWorkingDirectory) => {
     const job = workflow.jobs[jobId];

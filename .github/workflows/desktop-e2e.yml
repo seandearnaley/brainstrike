@@ -4,8 +4,22 @@
 name: Desktop E2E
 
 on:
-  schedule:
-    - cron: '53 7 * * *'
+  # BST-2233: no schedule of its own; nightly.yml calls it each night. A called
+  # run's `inputs` holds only these inputs and its event is the caller's, so
+  # `suite` keeps a dispatched nightly from skipping the full regression.
+  workflow_call:
+    inputs:
+      suite:
+        description: Desktop E2E suite to run
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      LINEAR_API_KEY:
+        required: true
+      TURBO_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       suite:
@@ -17,8 +31,10 @@ on:
           - full
           - foreground-latency
 
+# In a called run github.workflow is the caller's name; the file name keeps this
+# group apart from nightly.yml's and its siblings'.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
+  group: ${{ github.workflow }}-desktop-e2e-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -410,9 +426,33 @@ jobs:
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
-      workflow_name: ${{ github.workflow }}
+      # Its own name: in nightly.yml's call, github.workflow is the caller's.
+      workflow_name: Desktop E2E
       # Each shard is one part of the gate: a red shard needs its own failing test.
       parts: desktop-full-regression-gate=shard-1 shard-2 shard-3 shard-4
       results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }},desktop-foreground-latency=${{ needs.desktop-foreground-latency.result }}
     secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+
+  # BST-2189: one fix agent per failing or flaky test's issue that Notify Linear
+  # filed or commented on tonight, on the runner image the lanes above use.
+  fix-nightly:
+    name: Fix nightly test
+    needs: [notify-linear]
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && needs.notify-linear.outputs.fix_issues != '[]' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        issue: ${{ fromJSON(needs.notify-linear.outputs.fix_issues) }}
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/nightly-fix-agent.yml
+    with:
+      issue: ${{ matrix.issue }}
+      runs_on: ubuntu-latest
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

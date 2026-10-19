@@ -1,13 +1,23 @@
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { UnknownEventError } from '@brainstrike/state-store';
+import { canonicalRoot, UnknownEventError } from '@brainstrike/state-store';
 import { describe, expect, it } from 'vitest';
 import { loadStateProjection } from '../src/state-projection.js';
 import { validateIndexerOptions } from '../src/transport.js';
 
 const module = new URL('./fixtures/state-schema.mjs', import.meta.url).href;
+/** Whether the temp directory's file system ignores case: macOS and Windows by default, not Linux. */
+const tmpFoldsCase = ((): boolean => {
+  const probe = mkdtempSync(path.join(os.tmpdir(), 'state-root-case-'));
+  try {
+    return existsSync(path.join(path.dirname(probe), path.basename(probe).toUpperCase()));
+  } finally {
+    rmSync(probe, { recursive: true });
+  }
+})();
 
 describe('producer-owned state schema projection', () => {
   it('projects historical events through the producer-owned upgrader', async () => {
@@ -100,6 +110,30 @@ describe('producer-owned state schema projection', () => {
       validateIndexerOptions({ ...options, stateProjection: { mode: 'dev', module } })
     ).toThrow('must be acquired together');
   });
+
+  // BST-2234: the state root is the index's durable root identity. JS realpathSync keeps a component's case (and a
+  // Windows 8.3 short name), so it took a second spelling of the root as canonical.
+  it.skipIf(!tmpFoldsCase)(
+    'refuses a state root spelled other than its canonical root, and accepts the canonical one',
+    async () => {
+      const root = canonicalRoot(await mkdtemp(path.join(os.tmpdir(), 'state-root-identity-')));
+      try {
+        const options = {
+          dbPath: path.join(root, 'state-index.sqlite'),
+          embedding: { indexMode: 'text-only' },
+          rootIds: [root],
+          stateProjection: { mode: 'dev', module },
+        };
+        expect(validateIndexerOptions({ ...options, stateRoot: root }).stateRoot).toBe(root);
+        const respelled = path.join(path.dirname(root), path.basename(root).toUpperCase());
+        expect(() => validateIndexerOptions({ ...options, stateRoot: respelled })).toThrow(
+          'trusted canonical absolute truth root'
+        );
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
+    }
+  );
 
   it("binds projection identity to the producer's implementation, not only its entry module", async () => {
     const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'state-producer-closure-')));

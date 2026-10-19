@@ -6,7 +6,7 @@
 // renames or unlinks someone else's live lock.
 //
 // The lock lives INSIDE the root (`<root>/lock/`), so any file-level copy of a root (Time Machine, Migration Assistant,
-// `cp -R`, the export bundle) carries it, and the owner records the root's realpath. A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
+// `cp -R`, the export bundle) carries it, and the owner records the root's canonical path (`canonicalRoot`, BST-2234). A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
 // by pid: the opener confirms the copied-root takeover explicitly.
 //
 // The record names the owner; on POSIX the Root itself is an flock(2) on `<root>/lock/root.flock`, taken right after a
@@ -31,7 +31,6 @@ import {
   openSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   unlinkSync,
   writeSync,
@@ -41,6 +40,7 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { newRetryStats, type RetryStats, retrySharing } from './fs-retry.mjs';
 import { replaceLockFileSync } from './lock-file-replacement.js';
+import { canonicalRoot } from './root-identity.js';
 
 export interface LockOwner {
   readonly host: string;
@@ -455,7 +455,7 @@ export class RootLock {
   }
 
   static async acquire(root: string, opts: LockOptions = {}): Promise<RootLock> {
-    const realRoot = realpathSync(root);
+    const realRoot = canonicalRoot(root);
     const host = opts.host ?? hostname();
     const dir = RootLock.dirOf(realRoot);
     mkdirSync(dir, { recursive: true });
