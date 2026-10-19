@@ -59,3 +59,45 @@ export function readToolTelemetryOmission(value: unknown): ToolTelemetryOmission
     ...(toolCallId === undefined ? {} : { toolCallId }),
   };
 }
+
+/**
+ * The `type` of the chunk Core sends when a run's Memory made a semantic
+ * recall (BST-2225, ADR-0011 amendment): a live diagnostic on the run's
+ * stream, never committed and never replayed. The recalled turns themselves
+ * reach the provider request from committed history.
+ */
+export const MEMORY_RECALL_TELEMETRY_TYPE = 'brainstrike.memory.recall';
+
+/** One semantic recall, as its telemetry chunk reports it. */
+export interface MemoryRecallTelemetry {
+  /** How long the recall took, embedding the query included. */
+  readonly latencyMs: number;
+  /** The messages recall returned: each hit with its configured message range. */
+  readonly messages: number;
+  /** Whether recall searched this thread or every thread of the resource. */
+  readonly scope: 'resource' | 'thread';
+  /** The most hits the recall asks for; absent when the configuration leaves it to Mastra. */
+  readonly topK?: number;
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** The recall a {@link MEMORY_RECALL_TELEMETRY_TYPE} chunk carries, or undefined for any other chunk. */
+export function readMemoryRecallTelemetry(value: unknown): MemoryRecallTelemetry | undefined {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  const { latencyMs, messages, scope, topK, type } = value as Record<string, unknown>;
+  if (
+    type !== MEMORY_RECALL_TELEMETRY_TYPE ||
+    !isCount(latencyMs) ||
+    !isCount(messages) ||
+    !(scope === 'resource' || scope === 'thread') ||
+    !(topK === undefined || (isCount(topK) && topK > 0))
+  ) {
+    return;
+  }
+  return { latencyMs, messages, scope, ...(topK === undefined ? {} : { topK }) };
+}
