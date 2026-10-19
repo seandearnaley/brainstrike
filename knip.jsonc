@@ -94,7 +94,16 @@
       },
       "project": [
         "src/**/*.{ts,tsx}!", // Source files
-        "api/**/*.ts!"
+        "api/**/*.ts!",
+        // Build and dev-server code that only vite.config.mts loads, so not
+        // shipped: its plugin list (canvas-frame-plugin; csp-utils' getDevCSP)
+        // and the dev/preview assistant middleware `devChatApiPlugin` imports,
+        // which uses assistant-stream-helpers and web-assistant-local-boundary.
+        "!src/canvas-frame-plugin.ts!",
+        "!src/csp-utils.ts!",
+        "!src/server/assistant-api-middleware.ts!",
+        "!src/server/web-assistant-local-boundary.ts!",
+        "!src/assistant-stream-helpers.ts!"
       ],
       "ignore": [
         // Keep specific ignores relevant to this app
@@ -104,6 +113,10 @@
         "src/test/**/*.{ts,tsx}",
         "src/config/server.ts"
       ],
+      // Production mode reads only the `start` script, which is `vite preview`
+      // of the built dist; vite is a devDependency, and Vercel serves dist
+      // (vercel.json). The suffix `!` limits this to production mode.
+      "ignoreBinaries": ["vite!"],
       "ignoreDependencies": [
         // Imported by src/app/globals.css via @import; CSS imports are not followed
         // by this workspace's TS/TSX project glob (knip 6.32.2).
@@ -192,6 +205,10 @@
       ],
       "project": ["src/**/*.{ts,tsx}!"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      // Production mode reads only the `start` script, which runs the built app
+      // with the electron devDependency; electron-builder packages the shipped
+      // app. The suffix `!` limits this to production mode.
+      "ignoreBinaries": ["electron!"],
       "ignoreDependencies": [
         // logs-page-content.test.tsx imports the real virtualizer inside its mock.
         // This workspace's production graph excludes tests; keep ownership local.
@@ -333,7 +350,8 @@
       "entry": ["__tests__/fixtures/record-*-log.mjs"]
     },
     "packages/indexer": {
-      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
+      // scripts/build-process-entries.mjs is the package `build` step, not shipped code.
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!", "!scripts/**!"],
       // scoped-electron.integration.test.ts launches the Electron main fixture by
       // path; it starts the utility fixture with `utilityProcess.fork(path)`.
       "entry": [
@@ -510,7 +528,8 @@
       "ignoreDependencies": ["node-addon-api"]
     },
     "packages/windows-job-native": {
-      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!"],
+      // scripts/install.cjs is the `install` lifecycle step (`node-gyp rebuild`), not shipped code.
+      "project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}!", "!**/__tests__/**!", "!scripts/**!"],
       "ignoreDependencies": ["node-addon-api"]
     },
     "packages/state-store": {
