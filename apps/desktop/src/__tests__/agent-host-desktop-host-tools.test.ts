@@ -11,7 +11,10 @@ import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/
 import type { GitResult, WorktreeCreateResult, WorktreeListEntry } from '@brainstrike/types';
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
-import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
+import {
+  PlatformNativeRuntimeSchema,
+  PlatformSelectionSchema,
+} from '../agent-host-platform/platform-wire';
 import { prepareAdmittedSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 
@@ -23,9 +26,9 @@ afterEach(async () => {
 });
 function selection(
   root: string,
-  native: Record<string, unknown> = {}
+  native: Partial<(typeof PlatformSelectionSchema)['Encoded']['nativeRuntime']> = {}
 ): MutableFixture<typeof PlatformSelectionSchema.Type> {
-  return Schema.decodeUnknownSync(PlatformSelectionSchema, {
+  return Schema.decodeSync(PlatformSelectionSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({
@@ -632,7 +635,14 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     }
     return [{ displayName: 'A', path: root, rootId: 'root-a' }];
   });
-  const selected = selection(root, { skills });
+  // The scanner exposes readonly collections and unknown frontmatter; validate
+  // that receiving seam before constructing the typed platform selection.
+  const selected = selection(root, {
+    skills: Schema.decodeUnknownSync(PlatformNativeRuntimeSchema.fields.skills, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(skills),
+  });
   for (const [id, risk] of [
     ['skill', 'read'],
     ['skill_read', 'read'],

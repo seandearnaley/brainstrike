@@ -23,7 +23,7 @@ type ObserverOptions = Exclude<
 >;
 /** The admitted platform payload shape, parsed by its existing schema. */
 function selection(modelTarget = 'openai/observer-fixture'): MutableFixture<PlatformSelection> {
-  return Schema.decodeUnknownSync(PlatformSelectionSchema, {
+  return Schema.decodeSync(PlatformSelectionSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({

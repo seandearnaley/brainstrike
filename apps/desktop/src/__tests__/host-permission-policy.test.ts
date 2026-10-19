@@ -25,14 +25,14 @@ function host() {
     closed: closed.promise,
     request: async <M extends HostMethod>(method: M, params: HostParams<M>) => {
       requests.push(method);
-      const parsed = Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS[method], {
+      const parsed = Schema.decodeSync(HOST_METHOD_SCHEMAS[method], {
         errors: 'all',
         onExcessProperty: 'error',
       })(params);
       if (method === 'permissions/policy/write') {
         saved = (parsed as HostParams<'permissions/policy/write'>).policy;
       }
-      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+      return Schema.decodeSync(HOST_RESULT_SCHEMAS[method], {
         errors: 'all',
         onExcessProperty: 'error',
       })({ policy: saved }) as HostResults[M];

@@ -147,6 +147,14 @@ boundary; derive types and check cross-field invariants rather than asserting a
 shape. Preserve the established error class/cause and pure preload parser surface.
 Type-only brands do not add a runtime producer or identity alias.
 
+Use typed Schema decoders for authored or already validated inputs, preserving
+the concrete schema's `Encoded` inference. Keep unknown-input decoders for wire
+recordings and deliberately malformed inputs; capabilities still require runtime
+validation without cloning their identity. Desktop fixture enforcement uses the
+exact file cohort in `scripts/effect-typed-producer-cohorts.mjs`, checked against
+the inherited config and executable compiler/diagnostic controls rather than a
+desktop-wide rule.
+
 Decoded fields annotate `message` with old hand-check sentences; predicate-only
 `Schema.is` boundaries preserve existing errors in caller code. Python maps
 issue paths to legacy `PythonManifestInvalidError` messages, and missing targets

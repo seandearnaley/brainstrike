@@ -16,7 +16,7 @@ class Port extends EventEmitter {
 }
 it('retains transferred prototype, identity and callable capabilities', async () => {
   const port = new Port();
-  expect(Schema.decodeUnknownSync(PlatformMessagePortSchema)(port)).toBe(port);
+  expect(Schema.decodeSync(PlatformMessagePortSchema)(port)).toBe(port);
   expect(
     bindDesktopClientPort(
       { data: { event: 'client-port' }, ports: [port], transportRider: true },
