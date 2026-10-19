@@ -126,3 +126,11 @@ A red batch is split until Mergify finds the PR that fails, and that PR leaves
 the queue. Read the failed lane, fix the cause, revalidate and enqueue again.
 Re-enqueueing to retry a failure is not a fix; a flaky lane needs the same
 diagnosis as any other failure.
+
+For a GitHub-native stack (`gh stack`), comment `@mergifyio queue` on the top
+PR only. Mergify queues every member below it, in order, against main, and
+keeps the stack in one batch when it fits
+([stacked pull requests](https://docs.mergify.com/merge-queue/stacks/)). The
+queue squashes, so members still open after a partial landing carry the landed
+commits under new SHAs: run `gh stack sync`, revalidate, and queue the top PR
+again.
