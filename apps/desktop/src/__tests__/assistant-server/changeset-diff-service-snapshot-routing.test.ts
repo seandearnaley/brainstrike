@@ -21,7 +21,7 @@ const baseDeps = {
 } as const;
 function hostTurns(owned = true) {
   // Same committed turn-start shape as the real host Changes integration.
-  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+  const row = Schema.decodeSync(HostLogRowSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })({

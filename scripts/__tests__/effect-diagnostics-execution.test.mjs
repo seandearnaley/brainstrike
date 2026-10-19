@@ -313,30 +313,49 @@ test('desktop inherited overrides reject authored unknown decoders only in the a
   assert.equal(accepted.diagnostics.length, 1, 'only the outside-cohort suggestion remains');
 });
 
-test('the actual desktop selection schema keeps useful Encoded input under the canonical compiler', (t) => {
-  const fixture = desktopFixture(t);
-  const file = DESKTOP_TYPED_PRODUCER_FILES[0];
-  const imports = `import { Schema } from 'effect';\nimport { PlatformSelectionSchema } from ${JSON.stringify(path.join(root, 'apps/desktop/src/agent-host-platform/platform-wire.ts'))};\n`;
-  const check = (source) => {
-    fixture.write(file, imports + source);
-    const result = runTsc(['--noEmit', '--incremental', 'false', '--project', fixture.project]);
-    assert.ifError(result.error);
-    assert.equal(result.signal, null, result.stderr);
-    return result;
-  };
-  const producer =
-    "declare const selected: (typeof PlatformSelectionSchema)['Encoded']; export const value = Schema.decodeSync(PlatformSelectionSchema)({ ...selected, contextWindow: ";
-  const invalid = check(`${producer}'wrong' });`);
-  assert.equal(invalid.status, 1, 'wrong real desktop fields must fail the canonical compiler');
-  assert.match(invalid.stdout, /TS2322/u);
-  assert.match(invalid.stdout, /host-permission-policy\.test\.ts/u);
-  const valid = check(`${producer}32000 });`);
-  assert.equal(valid.status, 0, valid.stdout || valid.stderr);
-  const unknown = check(
-    "const wire: unknown = { contextWindow: 'wrong' }; export const value = Schema.decodeUnknownResult(PlatformSelectionSchema)(wire);"
-  );
-  assert.equal(unknown.status, 0, unknown.stdout || unknown.stderr);
-});
+for (const { title, file, module, schema, field } of [
+  {
+    field: 'contextWindow',
+    file: 'src/__tests__/host-permission-policy.test.ts',
+    module: path.join(root, 'apps/desktop/src/agent-host-platform/platform-wire.ts'),
+    schema: 'PlatformSelectionSchema',
+    title: 'desktop selection',
+  },
+  {
+    field: 'seq',
+    file: 'src/__tests__/host-thread-debug.test.ts',
+    module: '@brainstrike/agent-host/protocol',
+    schema: 'HostLogRowSchema',
+    title: 'host log',
+  },
+]) {
+  test(`the actual ${title} schema keeps useful Encoded input under the canonical compiler`, (t) => {
+    const fixture = desktopFixture(t);
+    assert.ok(
+      DESKTOP_TYPED_PRODUCER_FILES.includes(file),
+      'the producer proof is in the admitted cohort'
+    );
+    const imports = `import { Schema } from 'effect';\nimport { ${schema} } from ${JSON.stringify(module)};\n`;
+    const check = (source) => {
+      fixture.write(file, imports + source);
+      const result = runTsc(['--noEmit', '--incremental', 'false', '--project', fixture.project]);
+      assert.ifError(result.error);
+      assert.equal(result.signal, null, result.stderr);
+      return result;
+    };
+    const producer = `declare const selected: (typeof ${schema})['Encoded']; export const value = Schema.decodeSync(${schema})({ ...selected, ${field}: `;
+    const invalid = check(`${producer}'wrong' });`);
+    assert.equal(invalid.status, 1, 'wrong real desktop fields must fail the canonical compiler');
+    assert.match(invalid.stdout, /TS2322/u);
+    assert.ok(invalid.stdout.includes(path.basename(file)), invalid.stdout);
+    const valid = check(`${producer}32000 });`);
+    assert.equal(valid.status, 0, valid.stdout || valid.stderr);
+    const unknown = check(
+      `const wire: unknown = { ${field}: 'wrong' }; export const value = Schema.decodeUnknownResult(${schema})(wire);`
+    );
+    assert.equal(unknown.status, 0, unknown.stdout || unknown.stderr);
+  });
+}
 
 test('the diagnostics package stays on the qualified release', () => {
   assert.equal(
