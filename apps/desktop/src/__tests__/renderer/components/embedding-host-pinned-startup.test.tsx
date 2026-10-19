@@ -386,7 +386,7 @@ describe('memory recall device', () => {
       kind: 'refusal',
     });
     expect((refused as BoundaryFailureError).message).toMatch(
-      /^The on-device memory embedder has no execution device: .*WebGPU adapter is unavailable\. Choose a hosted embedding model in Settings → Assistant Memory/u
+      /^The on-device memory embedder has no execution device: .*WebGPU adapter is unavailable\. Choose a device in Settings → Assistant Memory → On-device embedding device, choose a hosted embedding model there/u
     );
   });
 });

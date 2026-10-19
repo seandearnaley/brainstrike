@@ -49,6 +49,14 @@ billing and spend totals. A rewind preserves observation residue; branched
 history withholds observations it cannot attribute safely instead of guessing
 which text to remove. Strict deletion and reset must also erase affected memory.
 
+A memory failure carries a typed `memory.*` code at the step or admission that
+found it: observer, embedder, vector store, configuration or credential. It is
+never classified as an error from the chat provider, and it names the memory
+model's own provider. A fault's correlation id is shown in the failure row and
+the send gate. The agent host forwards its error records, with those ids, to
+Main's diagnostics, so the debug pack finds the cause. Owner:
+[memory failures](../../packages/agent-host/src/adapters/memory-failure.ts).
+
 The context meter describes the latest provider step, not accumulated billed
 usage. Estimates, unknown cost and unavailable measurements remain labelled;
 missing cost is never asserted as zero.

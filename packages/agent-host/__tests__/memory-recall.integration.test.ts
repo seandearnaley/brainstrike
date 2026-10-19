@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
@@ -167,12 +166,19 @@ test('missing semantic capability fails the run before embedding or the SDK call
         { timeout: 30_000 }
       )
       .toBe(true);
-    // The public run stays safe; diagnostics name the actual missing capability.
-    expect(finished).toMatchObject({
-      detail: INTERNAL_FAULT.message,
-      outcome: 'failed',
+    // The public run names memory's configuration (BST-2202); the diagnostic
+    // record under its reference names the actual missing capability.
+    expect(finished).toMatchObject({ outcome: 'failed' });
+    const detail = finished?.type === 'run.finished' ? (finished.detail ?? '') : '';
+    const reference = / Reference: ([0-9a-f-]{36})$/u.exec(detail)?.[1] ?? 'no reference';
+    expect(detail).toBe(
+      `Memory cannot run with this configuration. Review Settings → Assistant Memory, then retry. Reference: ${reference}`
+    );
+    diagnostics.expectCorrelatedCause(reference, {
+      cause: 'Semantic recall requires the borrowed vector owner',
+      code: 'memory.configuration-invalid',
+      step: 'open',
     });
-    diagnostics.expectCause('Semantic recall requires the borrowed vector owner');
     expect(current.embeddingCalls).toHaveLength(0);
     expect(current.models.flatMap((model) => model.doStreamCalls)).toHaveLength(0);
     expect(current.workingReads).toHaveLength(0);

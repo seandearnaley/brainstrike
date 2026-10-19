@@ -471,7 +471,10 @@ async function runHostSdkAttempt(
   model: LanguageModel,
   resumed: boolean
 ): Promise<HostSdkAttempt> {
-  const outcome = new HostRunOutcome(run.admission?.configuration, run.modelId, resumed);
+  const outcome = new HostRunOutcome(run.admission?.configuration, run.modelId, resumed, {
+    runId: run.id,
+    threadId: run.threadId,
+  });
   let interrupted = false;
   let checkpointFailure: unknown;
   let ownerStepFailure: unknown;

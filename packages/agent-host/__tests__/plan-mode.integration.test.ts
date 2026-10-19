@@ -3,7 +3,6 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { StateStore } from '@brainstrike/state-store';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
@@ -11,7 +10,10 @@ import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostRunAdmissionRequest } from '../src/ports.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
-import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
+import {
+  captureHostFailureDiagnostics,
+  INTERNAL_FAULT_DETAIL,
+} from './fixtures/host-failure-diagnostics.js';
 
 type Started = Extract<HostEvent, { type: 'run.started' }>;
 type Requested = Extract<HostEvent, { type: 'interaction.requested' }>;
@@ -281,7 +283,7 @@ test('a follow-up run that cannot start is committed as the thread’s failed ne
   expect(rows.flatMap((row) => (row.event.type === 'run.finished' ? [row.event] : []))).toEqual([
     expect.objectContaining({ outcome: 'completed', runId }),
     expect.objectContaining({
-      detail: INTERNAL_FAULT.message,
+      detail: INTERNAL_FAULT_DETAIL,
       outcome: 'failed',
       runId: started[1]?.runId,
     }),

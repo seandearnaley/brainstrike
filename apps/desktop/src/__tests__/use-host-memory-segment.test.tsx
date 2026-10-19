@@ -10,7 +10,12 @@ import {
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  fault,
+  INTERNAL_FAULT,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { Schema } from 'effect';
@@ -245,6 +250,30 @@ describe('the meter reads the host memory state the next send would admit', () =
         kind: 'error',
         readAt: expect.any(Number),
         reason: 'The on-device memory embedder has no execution device.',
+      })
+    );
+  });
+  test('a fault names its reference beside its code, so the panel finds its cause (BST-2202)', async () => {
+    const correlationId = '3b9d2c1e-7f4a-4e8b-9c6d-1a2b3c4d5e6f';
+    const client = memoryClient(async () => {
+      throw new BoundaryFailureError(
+        fault({
+          category: 'availability',
+          code: 'memory.embedder-unavailable',
+          correlationId,
+          message: 'The on-device memory embedder is not running.',
+        })
+      );
+    });
+    const { result } = renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source: undefined })
+    );
+    await waitFor(() =>
+      expect(result.current.omSegment).toEqual({
+        code: 'memory.embedder-unavailable',
+        kind: 'error',
+        readAt: expect.any(Number),
+        reason: `The on-device memory embedder is not running. Reference: ${correlationId}`,
       })
     );
   });

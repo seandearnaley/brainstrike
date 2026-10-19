@@ -235,12 +235,22 @@ test.each([
           .map((row) => row.event)
           .find((event) => event.type === 'run.finished');
         expect(finished).toMatchObject({ outcome: 'stopped', type: 'run.finished' });
-        const detail = finished?.type === 'run.finished' ? finished.detail : undefined;
-        expect(detail).toBe(INTERNAL_FAULT.message);
-        diagnostics.expectCause('Memory save failed');
-        diagnostics.expectCause(
-          boundary === 'inference' ? inferenceFailure.message : 'Run stopped by user'
+        const detail = finished?.type === 'run.finished' ? (finished.detail ?? '') : '';
+        // BST-2202: one typed reason, once: the joined owner re-reports the same
+        // failure the save step surfaced, under the same reference.
+        const reference = / Reference: ([0-9a-f-]{36})$/u.exec(detail)?.[1] ?? 'no reference';
+        expect(detail).toBe(
+          `${
+            boundary === 'inference'
+              ? 'Memory save failed because its embedding model failed. Retry, or review Settings → Assistant Memory.'
+              : INTERNAL_FAULT.message
+          } Reference: ${reference}`
         );
+        diagnostics.expectCorrelatedCause(reference, {
+          cause: boundary === 'inference' ? inferenceFailure.message : 'Run stopped by user',
+          code: boundary === 'inference' ? 'memory.embedder-failed' : INTERNAL_FAULT.code,
+          step: 'save',
+        });
       } else {
         expect(await host.store.threads()).not.toContain(ids.threadId);
       }

@@ -16,6 +16,7 @@ export { resolveProviderError } from './mastra-boundary/mastra-chunk-decoding';
 export {
   extractProviderRunError,
   isContextOverflowProviderErrorCode,
+  isLocalRunErrorClassification,
 } from './provider-error-metadata';
 export { createAwsCredentialChain } from './providers/aws-credential-chain';
 export type { LocalEmbeddingHostClient } from './providers/local/local-host-embedding-model';

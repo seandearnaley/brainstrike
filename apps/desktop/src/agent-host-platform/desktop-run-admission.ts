@@ -46,6 +46,7 @@ import {
 } from './desktop-run-preconditions';
 import { type DesktopToolDescriptor, desktopToolDescriptors } from './desktop-tool-descriptors';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
+import { memoryReadinessReason } from './memory-readiness';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
   PlatformAdmittedSkillSchema,
@@ -632,7 +633,7 @@ export function createDesktopRunAdmission(
         return { memory, ready: true, resourceId: WORKSPACE_MEMORY_RESOURCE_ID };
       } catch (cause) {
         request.signal.throwIfAborted();
-        return { ready: false, reason: cause instanceof Error ? cause.message : String(cause) };
+        return { ready: false, reason: memoryReadinessReason(cause) };
       }
     },
     readPermissionPolicy: readHostPermissionPolicy,

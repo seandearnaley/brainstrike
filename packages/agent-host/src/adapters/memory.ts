@@ -1,9 +1,20 @@
+import {
+  type BoundaryFailure,
+  BoundaryFailureError,
+  memoryConfigurationError,
+} from '@brainstrike/assistant-contract';
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import type { LanguageModelMiddleware, LanguageModelUsage } from 'ai';
+import { correlationIdFor } from '../failure-correlation.js';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
 import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.js';
+import {
+  classifyMemoryFailure,
+  type HostMemoryEmbedderIdentity,
+  memoryFailureCauses,
+} from './memory-failure.js';
 import { type MemoryLanguageModel, MemoryProviderLifetime } from './memory-provider-lifetime.js';
 
 type MemoryConfig = NonNullable<ConstructorParameters<typeof Memory>[0]>;
@@ -21,6 +32,8 @@ export interface HostMemoryIdentity extends Omit<HostRunContext, 'readCommittedR
 export interface HostMemoryCapabilities {
   /** Instantiate the public native leaf only after all run lifetime wrapping. */
   readonly createNativeMemory?: (native: HostMemoryCapabilities['native']) => Memory;
+  /** The run's embedder, as its failures name it (BST-2202); absent without vectors. */
+  readonly embedderIdentity?: HostMemoryEmbedderIdentity;
   /**
    * Optional additional run-owned tails. Called after the patched native
    * barrier joins. The storage owner may close after HostMemory.close completes.
@@ -58,32 +71,56 @@ export type HostMemoryStepName =
   | 'accounting'
   | 'provider';
 
-/** A memory operation failed; its run fails with a detail naming the step. */
-export class HostMemoryStepError extends Error {
+/**
+ * A memory operation failed; its run fails with the step's typed failure
+ * (BST-2202). The raw failure stays the cause, logged under the fault's
+ * correlation id; `step` names the memory step in that record.
+ */
+export class HostMemoryStepError extends BoundaryFailureError {
   private constructor(
     readonly step: HostMemoryStepName,
+    failure: BoundaryFailure,
     cause: unknown
   ) {
-    super(`Memory ${step} failed: ${cause instanceof Error ? cause.message : String(cause)}`, {
-      cause,
-    });
+    super(failure, { cause });
     this.name = 'HostMemoryStepError';
   }
 
-  /** The first labelled step is kept when a failure crosses nested operations. */
-  static wrap(step: HostMemoryStepName, cause: unknown): HostMemoryStepError {
-    return cause instanceof HostMemoryStepError ? cause : new HostMemoryStepError(step, cause);
+  /**
+   * The first labelled step is kept when a failure crosses nested operations.
+   * A fault takes its correlation id here, so every boundary that reports this
+   * failure names the same id.
+   */
+  static wrap(
+    step: HostMemoryStepName,
+    cause: unknown,
+    failure: BoundaryFailure
+  ): HostMemoryStepError {
+    if (cause instanceof HostMemoryStepError) {
+      return cause;
+    }
+    return new HostMemoryStepError(
+      step,
+      failure.kind === 'fault' && failure.correlationId === undefined
+        ? { ...failure, correlationId: correlationIdFor(cause) }
+        : failure,
+      cause
+    );
   }
 }
 
 /**
  * Every memory tail joined, but these operations failed: the run's outcome,
- * not a leak. The original failures are retained; the message names the step.
+ * not a leak. The original failures are retained; the first one's typed step
+ * failure is the outcome's.
  */
 export class HostMemoryFailure extends HostRunOwnerFailure {
-  constructor(failures: readonly unknown[], message: string) {
-    super(failures, message);
+  /** The memory step the outcome's failure came from, named in its diagnostic record. */
+  readonly step: HostMemoryStepName;
+  constructor(failures: readonly unknown[], outcome: HostMemoryStepError) {
+    super(failures, outcome.message, outcome.failure);
     this.name = 'HostMemoryFailure';
+    this.step = outcome.step;
   }
 }
 
@@ -130,6 +167,8 @@ export class HostMemory implements HostRunOwner {
   private readonly failures: unknown[] = [];
   /** The innermost step each retained failure came from. */
   private readonly failureSteps = new WeakMap<object, HostMemoryStepName>();
+  /** Each failure's typed step failure, so every report of it is the same one. */
+  private readonly stepFailures = new WeakMap<object, HostMemoryStepError>();
   private turn: Turn | undefined;
   private beginning: Promise<NativeContext> | undefined;
   /** Admitted work drained and the native turn ended, once. */
@@ -164,12 +203,14 @@ export class HostMemory implements HostRunOwner {
       // ADR-0013 and the existing memory credential boundary: descriptors and
       // routing strings cannot trigger Mastra's implicit credential resolution.
       if (!(isConcreteModel(observer) && isConcreteModel(reflector))) {
-        throw new Error(
+        throw memoryConfigurationError(
           'Observational memory requires resolved concrete observer and reflector models'
         );
       }
       if (!capabilities.observerModelId) {
-        throw new Error('Observational memory requires its observer catalog model id');
+        throw memoryConfigurationError(
+          'Observational memory requires its observer catalog model id'
+        );
       }
       if (typeof observation === 'object') {
         native = {
@@ -257,6 +298,38 @@ export class HostMemory implements HostRunOwner {
   /** The memory step a failure this run retained came from, for its run detail. */
   failedStep(cause: unknown): HostMemoryStepName | undefined {
     return typeof cause === 'object' && cause !== null ? this.failureSteps.get(cause) : undefined;
+  }
+
+  /**
+   * A failure's typed memory step failure (BST-2202), once per failure: the
+   * step that reports it and the outcome that joins it name the same failure
+   * and correlation id.
+   */
+  stepFailure(step: HostMemoryStepName, cause: unknown): HostMemoryStepError {
+    // A failure that carries one already reported (a provider join re-reporting
+    // the embedding failure a step surfaced) is that same failure.
+    for (const candidate of memoryFailureCauses(cause)) {
+      const known = this.stepFailures.get(candidate);
+      if (known) {
+        return known;
+      }
+    }
+    const failedStep = this.failedStep(cause) ?? step;
+    const failure = HostMemoryStepError.wrap(
+      failedStep,
+      cause,
+      classifyMemoryFailure(failedStep, cause, {
+        attribution: (failed) => this.providers.attribution(failed),
+        ...(this.capabilities.embedderIdentity
+          ? { embedder: this.capabilities.embedderIdentity }
+          : {}),
+        ...(this.observerModelId === undefined ? {} : { observerModelId: this.observerModelId }),
+      })
+    );
+    if (typeof cause === 'object' && cause !== null) {
+      this.stepFailures.set(cause, failure);
+    }
+    return failure;
   }
 
   private identifiers(): { resourceId: string; threadId: string } {
@@ -431,10 +504,7 @@ export class HostMemory implements HostRunOwner {
     if (first === undefined) {
       return;
     }
-    return new HostMemoryFailure(
-      failures,
-      HostMemoryStepError.wrap(this.failedStep(first) ?? 'observe', first).message
-    );
+    return new HostMemoryFailure(failures, this.stepFailure('observe', first));
   }
 
   /**

@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { attachAgentHost, type HostClient } from '../dist/client.js';
@@ -315,13 +314,19 @@ test('a buffered observation that fails after run.finished is its own committed 
     const failed = await host.committed(
       ({ event }) => event.type === 'memory.settlement.failed' && event.runId === first.runId
     );
+    // BST-2202: the settlement's own fact names the observer and its reference.
+    const detail = failed.event.type === 'memory.settlement.failed' ? failed.event.detail : '';
+    const reference = / Reference: ([0-9a-f-]{36})$/u.exec(detail)?.[1] ?? 'no reference';
     expect(failed.event).toEqual({
-      detail: INTERNAL_FAULT.message,
+      detail: `Memory observe failed because its observer model (OpenAI gpt-4.1-mini) failed. Retry, or review Settings → Assistant Memory. Reference: ${reference}`,
       runId: first.runId,
       type: 'memory.settlement.failed',
     });
-    diagnostics.expectCause('Memory observe failed');
-    diagnostics.expectCause('Recorded buffered observer failure');
+    diagnostics.expectCorrelatedCause(reference, {
+      cause: 'Recorded buffered observer failure',
+      code: 'memory.observer-failed',
+      step: 'observe',
+    });
     // The run's own outcome is unchanged, and the thread accepts its next run.
     const finished = (await host.rows()).filter(
       ({ event }) => event.type === 'run.finished' && event.runId === first.runId

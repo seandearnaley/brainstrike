@@ -189,7 +189,10 @@ export function refusalError(
 export function isBoundaryFailureError(value: unknown): value is BoundaryFailureError {
   return value instanceof BoundaryFailureError;
 }
-/** Render only validated public failure fields; causes and stacks never participate. */
+/**
+ * Render only validated public failure fields; causes and stacks never participate.
+ * A fault's correlation id is named: its sender logged the cause under it (BST-2202).
+ */
 export function describeBoundaryFailure(failure: BoundaryFailure): string {
   return [
     failure.message,
@@ -197,9 +200,18 @@ export function describeBoundaryFailure(failure: BoundaryFailure): string {
     failure.providerEvidence === undefined
       ? undefined
       : `Provider response: ${failure.providerEvidence}`,
+    failure.correlationId === undefined ? undefined : `Reference: ${failure.correlationId}`,
   ]
     .filter((part) => part !== undefined)
     .join(' ');
+}
+/**
+ * The same words for a model's context: a correlation id is the user's and
+ * the log's, and keeps a model-facing message stable across failures.
+ */
+export function describeBoundaryFailureForModel(failure: BoundaryFailure): string {
+  const { correlationId: _reference, ...modelFacing } = failure;
+  return describeBoundaryFailure(modelFacing);
 }
 export function describeBoundaryError(cause: unknown): string {
   return describeBoundaryFailure(

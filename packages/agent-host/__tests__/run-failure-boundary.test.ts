@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { expect, test } from 'vitest';
 import { failedHostStartEvents } from '../src/run-continuation.js';
+import { INTERNAL_FAULT_DETAIL } from './fixtures/host-failure-diagnostics.js';
 
 const params = {
   commandId: randomUUID(),
@@ -18,7 +19,8 @@ test('a failed continuation admission commits a safe terminal outcome without a 
     new Error('ENOENT /Users/fixture/private/file.ts')
   );
   expect(events[1]).toMatchObject({
-    detail: INTERNAL_FAULT.message,
+    // BST-2202: the row names the reference its cause was logged under.
+    detail: INTERNAL_FAULT_DETAIL,
     outcome: 'failed',
     type: 'run.finished',
   });

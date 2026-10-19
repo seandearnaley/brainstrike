@@ -2,7 +2,7 @@ import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { parseFileMentionDirectives } from '@brainstrike/agent';
 import { toBoundaryFailure } from '@brainstrike/agent-host/boundary-wire';
 import {
-  describeBoundaryFailure,
+  describeBoundaryFailureForModel,
   type ReferencedFileFailure,
   refusal,
 } from '@brainstrike/assistant-contract';
@@ -107,7 +107,7 @@ function unreadable(
 ): MentionRead {
   return {
     failure: { failure, path: mention.path, rootId: mention.rootId },
-    section: `### ${mention.path}\n[Could not read: ${describeBoundaryFailure(failure)}]`,
+    section: `### ${mention.path}\n[Could not read: ${describeBoundaryFailureForModel(failure)}]`,
   };
 }
 

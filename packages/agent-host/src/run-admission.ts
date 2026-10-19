@@ -1,6 +1,7 @@
 import { modelStepFields } from '@brainstrike/agent/provider-runtime';
 import { resolveRunPythonExecutionContext } from '@brainstrike/agent/tool-runtime';
 import {
+  type BoundaryFailure,
   intersectChildPermissionCeilings,
   isPermissionDenied,
   NATIVE_TOOL_ID,
@@ -78,7 +79,15 @@ export class HostRunAdmissionCleanupError extends AggregateError {
  * opaque and keeps the run, its writer and Root owned.
  */
 export class HostRunOwnerFailure extends AggregateError {
-  constructor(failures: readonly unknown[], message: string) {
+  /**
+   * @param failure - The outcome's typed failure, when its owner typed it
+   *   (BST-2202); the joined failures stay the logged cause.
+   */
+  constructor(
+    failures: readonly unknown[],
+    message: string,
+    readonly failure?: BoundaryFailure
+  ) {
     super(failures, message);
     this.name = 'HostRunOwnerFailure';
   }
