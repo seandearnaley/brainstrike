@@ -1,3 +1,4 @@
+import { fault } from '@brainstrike/assistant-contract';
 import type { ModelMessage } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -5,6 +6,7 @@ import {
   prepareCompactedContext,
 } from '../src/context-compaction.js';
 import type { HostRunState } from '../src/core-state.js';
+import type { HostPreparedStep, HostProjectionRewrite } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
@@ -147,6 +149,7 @@ describe('prepareCompactedContext', () => {
         kind: 'deterministic',
         reason: 'pre-request',
         runId: 'run-5',
+        summarizerFailure: { code: 'boundary.internal', correlationId: expect.any(String) },
         summary:
           'Deterministic fallback: dropped 3 earlier turns (6 messages) after an agentic summarizer failure; no summarization model ran.',
         type: 'context.compacted',
@@ -162,7 +165,34 @@ describe('prepareCompactedContext', () => {
         throw new HostContextSummarySchemaError(receipt);
       },
     });
-    expect(committed[0]).toMatchObject({ kind: 'deterministic', ...receipt });
+    expect(committed[0]).toMatchObject({
+      kind: 'deterministic',
+      ...receipt,
+      summarizerFailure: { code: 'compaction.summary-invalid', correlationId: expect.any(String) },
+    });
+  });
+
+  it('records the run’s reading of a summarizer’s provider failure and the reference its cause is logged under', async () => {
+    const providerFailure = new Error('401 from the provider');
+    const classify = vi.fn((_cause: unknown) =>
+      fault({
+        category: 'authorization',
+        code: 'provider.auth-failed',
+        message: 'The provider rejected the credential.',
+      })
+    );
+    const { committed } = await pastTrigger({
+      classify,
+      summarize: async () => {
+        throw providerFailure;
+      },
+    });
+    expect(classify).toHaveBeenCalledWith(providerFailure);
+    expect(committed[0]?.summarizerFailure).toEqual({
+      code: 'provider.auth-failed',
+      correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    });
+    expect(committed[0]).not.toHaveProperty('modelId');
   });
 
   it('commits nothing when the run aborts during summarization', async () => {
@@ -241,5 +271,143 @@ describe('prepareCompactedContext', () => {
         summarize: async () => summary,
       })
     ).rejects.toThrow('one user message per turn');
+  });
+});
+
+/**
+ * Memory's request over a branch: the earlier turns it holds (by index), the
+ * current turn, and its system context. Its rebuild leaves out each turn a
+ * committed compaction covers.
+ */
+function memoryHolding(branch: readonly ModelMessage[], held: readonly number[], system?: string) {
+  const compacted = new Set<string>();
+  const rebuilds: string[][] = [];
+  const step = (runs: readonly number[]): HostPreparedStep => ({
+    historyRunIds: new Set(runs.map((index) => `run-${index}`)),
+    messages: [
+      ...runs.flatMap((index) => branch.slice(index * 2, index * 2 + 2)),
+      ...branch.slice(-2),
+    ],
+    rebuild: async () => {
+      const remaining = runs.filter((index) => !compacted.has(`run-${index}`));
+      rebuilds.push(remaining.map((index) => `run-${index}`));
+      return step(remaining);
+    },
+    ...(system === undefined ? {} : { system }),
+  });
+  const prepare = vi.fn(async (_messages: readonly ModelMessage[]) => step(held));
+  const committed: Compacted[] = [];
+  const commit = async (event: Compacted) => {
+    committed.push(event);
+    for (const runId of event.compactedRunIds) {
+      compacted.add(runId);
+    }
+  };
+  return { commit, committed, memory: { prepare, rewrites: new Map() }, prepare, rebuilds };
+}
+
+describe('prepareCompactedContext with Memory (ADR-0013)', () => {
+  it('measures the request Memory builds, so a long branch Memory sends little of is not compacted', async () => {
+    const branch = turns(6, 40_000);
+    // Memory holds run-4 and the current run-5: 20,012 tokens, under the 36,000 trigger.
+    const held = memoryHolding(branch, [4]);
+    const summarize = vi.fn(async () => summary);
+    const { prepared } = await pastTrigger({
+      commit: held.commit,
+      memory: held.memory,
+      messages: branch,
+      summarize,
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(held.committed).toEqual([]);
+    expect(held.prepare).toHaveBeenCalledTimes(1);
+    expect(held.rebuilds).toEqual([]);
+    expect(prepared.step?.historyRunIds).toEqual(new Set(['run-4']));
+  });
+
+  it('compacts only the earlier turns Memory’s request holds, then rebuilds that request without them', async () => {
+    const branch = turns(6, 40_000);
+    // Memory holds run-1 to run-4 and the current run-5 (50,030 tokens); run-0 is outside its window.
+    const held = memoryHolding(branch, [1, 2, 3, 4]);
+    const summarize = vi.fn(async (_transcript: string) => summary);
+    const { prepared } = await pastTrigger({
+      commit: held.commit,
+      memory: held.memory,
+      messages: branch,
+      summarize,
+    });
+    expect(held.committed.map((event) => event.compactedRunIds)).toEqual([
+      ['run-1', 'run-2', 'run-3'],
+    ]);
+    const transcript = summarize.mock.calls[0]?.[0] ?? '';
+    expect(transcript).not.toContain('question 0');
+    expect(transcript).toContain('question 1');
+    expect(held.prepare).toHaveBeenCalledTimes(1);
+    expect(held.rebuilds).toEqual([['run-4']]);
+    expect(prepared.step?.historyRunIds).toEqual(new Set(['run-4']));
+    expect(prepared.note).toBe(`[Earlier conversation compacted]\n${summary.text}`);
+  });
+
+  it('counts Memory’s system context toward the trigger', async () => {
+    const branch = turns(6, 40_000);
+    // 30,018 tokens of messages alone stay under the 36,000 trigger; 20,000 of observations pass it.
+    const held = memoryHolding(branch, [3, 4], 'o'.repeat(80_000));
+    await pastTrigger({ commit: held.commit, memory: held.memory, messages: branch });
+    expect(held.committed.map((event) => event.compactedRunIds)).toEqual([['run-3']]);
+  });
+
+  it('measures a pruned tool output as the marker the provider request carries', async () => {
+    /** run-3 read a 50,007-token file; Core's branch already carries its pruned marker. */
+    const readTurn = (value: string): ModelMessage[] => [
+      { content: 'question 3', role: 'user' },
+      {
+        content: [{ input: {}, toolCallId: 'call-read', toolName: 'readFile', type: 'tool-call' }],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'text', value },
+            toolCallId: 'call-read',
+            toolName: 'readFile',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+    ];
+    const branch = turns(6, 40_000);
+    branch.splice(6, 2, ...readTurn('[pruned]'));
+    const prune = new Map<string, HostProjectionRewrite>([
+      [
+        'call-read',
+        {
+          kind: 'prune',
+          markerText: '[pruned]',
+          supersededByToolCallId: null,
+          toolCallId: 'call-read',
+        },
+      ],
+    ]);
+    const measure = async (rewrites: ReadonlyMap<string, HostProjectionRewrite>) => {
+      const committed: Compacted[] = [];
+      // Memory reads run-3 from the committed log, with the file's raw output.
+      const step = (runs: readonly string[]): HostPreparedStep => ({
+        historyRunIds: new Set(runs),
+        messages: [...(runs.length > 0 ? readTurn('y'.repeat(200_000)) : []), ...branch.slice(-2)],
+        rebuild: async () => step([]),
+      });
+      await pastTrigger({
+        commit: async (event) => {
+          committed.push(event);
+        },
+        memory: { prepare: async () => step(['run-3']), rewrites },
+        messages: branch,
+      });
+      return committed.map((event) => event.compactedRunIds);
+    };
+    expect(await measure(prune)).toEqual([]);
+    // The same request unpruned is past the trigger: the marker is what keeps it under.
+    expect(await measure(new Map())).toEqual([['run-3']]);
   });
 });

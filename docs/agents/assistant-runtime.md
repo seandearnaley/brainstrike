@@ -35,6 +35,13 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
   attempts are recorded before retry, stay on the committed branch, and never
   repeat a step that streamed tool input or a call. Context-overflow recovery
   requires a committed compaction that actually shortens the request.
+- Pre-request compaction measures the request the provider will receive. With
+  Memory, that is the request Memory builds (its selected and recalled turns,
+  rewritten tool outputs and system context), not the branch, and only the
+  earlier turns that request holds can be compacted. Memory then reassembles the
+  request from the log without re-running its step preparation. When the
+  summarizer fails, the deterministic fallback's `context.compacted` records the
+  typed failure code and the reference its cause is logged under.
 
 Owners: [execution](../../packages/agent-host/src/core-run-execution.ts),
 [watchdog](../../packages/agent-host/src/run-stream-watchdog.ts),

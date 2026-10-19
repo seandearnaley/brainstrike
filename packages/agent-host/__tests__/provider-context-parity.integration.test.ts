@@ -225,7 +225,7 @@ async function productionReplay(
           prepareHostStep: (request) =>
             observe(
               owner.prepareHostStep?.(request) ??
-                Promise.resolve({ messages: [...request.messages] })
+                Promise.reject(new Error('Production Memory owner prepares no step'))
             ),
         };
       },

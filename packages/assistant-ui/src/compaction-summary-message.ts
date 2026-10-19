@@ -16,11 +16,20 @@ export interface HostContextCompactionUsage {
   readonly outputTokens: number;
 }
 
+/** Why a deterministic fallback replaced the agentic summary (BST-2204). */
+export interface HostContextSummarizerFailure {
+  /** The summarizer's typed failure code. */
+  readonly code: string;
+  /** The reference its cause is logged under in the diagnostic log. */
+  readonly correlationId?: string;
+}
+
 export interface HostContextCompaction {
   readonly kind: CompactionSummaryPayload['fallbackKind'];
   /** The summarizer's catalog model, when one ran. */
   readonly modelId?: string;
   readonly reason: HostContextCompactionReason;
+  readonly summarizerFailure?: HostContextSummarizerFailure;
   readonly summary: string;
   /** The earlier turns the compaction replaced (its `compactedRunIds`). */
   readonly turnsCompacted: number;
@@ -33,6 +42,25 @@ function isReason(value: unknown): value is HostContextCompactionReason {
 
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isText(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/** A recorded summarizer failure, or why it cannot be read. */
+function readSummarizerFailure(value: unknown): HostContextSummarizerFailure {
+  if (
+    isRecord(value) &&
+    isText(value['code']) &&
+    (value['correlationId'] === undefined || isText(value['correlationId']))
+  ) {
+    return {
+      code: value['code'],
+      ...(value['correlationId'] === undefined ? {} : { correlationId: value['correlationId'] }),
+    };
+  }
+  throw new Error('Committed compaction has an unreadable summarizer failure.');
 }
 
 /** A summarizer's usage as committed (the SDK's totalUsage), or why it cannot be read. */
@@ -50,7 +78,7 @@ export function readHostCompactionUsage(usage: unknown): HostContextCompactionUs
 export function committedHostCompaction(
   event: Readonly<Record<string, unknown>>
 ): HostContextCompaction {
-  const { compactedRunIds, kind, modelId, reason, summary, usage } = event;
+  const { compactedRunIds, kind, modelId, reason, summarizerFailure, summary, usage } = event;
   if (kind !== 'agentic' && kind !== 'deterministic') {
     throw new Error('Committed compaction has an unsupported kind.');
   }
@@ -74,6 +102,9 @@ export function committedHostCompaction(
     kind,
     ...(modelId === undefined ? {} : { modelId }),
     reason,
+    ...(summarizerFailure === undefined
+      ? {}
+      : { summarizerFailure: readSummarizerFailure(summarizerFailure) }),
     summary,
     turnsCompacted: compactedRunIds.length,
     ...(usage === undefined ? {} : { usage: readHostCompactionUsage(usage) }),
@@ -95,6 +126,9 @@ export function readHostContextCompaction(data: unknown): HostContextCompaction 
       kind: data['kind'],
       ...(data['modelId'] === undefined ? {} : { modelId: data['modelId'] }),
       reason: data['reason'],
+      ...(data['summarizerFailure'] === undefined
+        ? {}
+        : { summarizerFailure: readSummarizerFailure(data['summarizerFailure']) }),
       summary: data['summary'],
       turnsCompacted: data['turnsCompacted'],
       ...(data['usage'] === undefined ? {} : { usage: readHostCompactionUsage(data['usage']) }),
