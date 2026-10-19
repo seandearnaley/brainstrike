@@ -8,7 +8,7 @@
   "framework": "vite",
   "buildCommand": "cd ../.. && pnpm build --filter @brainstrike/web^... && cd apps/web && pnpm build",
   "outputDirectory": "dist",
-  "installCommand": "cd ../.. && ONNXRUNTIME_NODE_INSTALL_CUDA=skip pnpm install",
+  "installCommand": "cd ../.. && pnpm install",
   "ignoreCommand": "exit 1",
   "functions": {
     "api/**/*.ts": {
