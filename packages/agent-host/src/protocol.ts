@@ -34,6 +34,8 @@ import {
 } from './protocol-mcp-settings.js';
 import {
   HostMemoryCycleEventSchema,
+  HostMemoryEmbedderProbeParamsSchema,
+  HostMemoryEmbedderProbeResultSchema,
   HostMemoryModelsSchema,
   HostObservationalMemoryStateSchema,
 } from './protocol-memory.js';
@@ -121,7 +123,9 @@ export * from './workspace-wire.js';
 // content). `mcp/config/write` requires `baseRevision` and refuses a stale base with
 // `conflict: true` instead of overwriting. Write and catalog-install successes return the new
 // `revision`. The required parameter is why this is a version bump and not a v11 addition.
-// Config status carries `watchError` while the config file watcher cannot run.
+// Config status carries `watchError` while the config file watcher cannot run. Additions since:
+// `memory/embedder/probe` (BST-2227), a new method, so a v12 client that never calls it sees
+// nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
@@ -418,6 +422,12 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': Schema.Struct({ ...McpInput, content: Schema.optional(McpContent) }),
+  /**
+   * BST-2227: embeds one fixed probe text with the embedder these memory
+   * settings select, resolved and credentialed as a run's admission resolves
+   * it. Nothing is committed; a failure is the embedder's typed failure.
+   */
+  'memory/embedder/probe': HostMemoryEmbedderProbeParamsSchema,
   /** Model metadata through the host's OpenRouter key; the client sends only the model id. */
   'providers/openrouter-model': Schema.Struct({ model: Id }),
   /** The cheapest authenticated probe of one provider's stored or env credential. */
@@ -982,6 +992,7 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': Schema.Struct({ staged: Schema.Literal(true) }),
+  'memory/embedder/probe': HostMemoryEmbedderProbeResultSchema,
   'providers/openrouter-model': opaqueWireSchema(
     (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
   ),

@@ -1,6 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { resolveChangesBridge } from '@brainstrike/app-shell/changes/availability';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   type ThreadWorkspaceBinding,
   ThreadWorkspaceBindingSchema,
@@ -224,6 +225,14 @@ export function createWindowThreadCapability(
       readOpenRouterModel: async (model) =>
         await (await client()).request('providers/openrouter-model', { model }),
       readStatus: async () => await (await client()).request('host/status', {}),
+      // BST-2227: the host resolves the embedder as a run's admission does.
+      testMemoryEmbedder: async (settings) =>
+        await (await client()).request('memory/embedder/probe', {
+          memorySettings: wireDecoder(Schema.Record(Schema.String, Schema.MutableJson), {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(JSON.parse(JSON.stringify(settings))),
+        }),
       verifyProvider: async (provider) =>
         await (await client()).request('providers/verify', { provider }),
     },
