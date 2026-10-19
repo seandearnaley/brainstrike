@@ -143,6 +143,8 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Startup thread-run reap completed"',
   '"msg":"Workspace snapshot orphan sweep completed"',
   '"msg":"Workspace snapshot startup GC completed"',
+  '"msg":"Workspace snapshot startup GC stopped: the app is quitting"',
+  '"msg":"Workspace snapshot startup maintenance stopped: the app is quitting"',
   '"msg":"Dimension index maintenance capability probe completed"',
   '"msg":"Started parcel watcher"',
   '[ERROR:dbus/bus.cc:406] Failed to connect to the bus:',
