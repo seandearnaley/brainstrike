@@ -409,6 +409,28 @@ describe('the meter reads the host memory state the next send would admit', () =
       })
     );
   });
+  test('a failed memory settlement re-reads, so the panel drops the buffering flag its cycle saw', async () => {
+    const { client, request } = hostClient(ACTIVE, ACTIVE);
+    const source = new RowSource();
+    renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    act(() =>
+      source.commit(
+        Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+          event: {
+            detail: 'Memory observe failed because its observer model failed.',
+            runId: STARTED_RUN_ID,
+            type: 'memory.settlement.failed',
+          },
+          seq: 1001,
+          threadId: started.threadId,
+        })
+      )
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  });
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);
     // The thread view's request callback changes identity on every render.

@@ -73,7 +73,12 @@ export function withMemoryGate<Presentation extends ComposerNotice>(
   return { ...presentation, disabledReason: segment.admissionReason, isComposerDisabled: true };
 }
 
-/** Whether rows past the ones already seen include a memory call or cycle, or a run's end. */
+/**
+ * Whether rows past the ones already seen change what Memory holds: a memory
+ * call or cycle, a run's end, or a failed settlement. A failed buffered cycle
+ * commits before Mastra clears its buffering flag; the settlement's failure
+ * commits after, so its read sees the record settled.
+ */
 function memoryChangedSince(rows: readonly HostLogRow[], seen: number): boolean {
   return rows
     .slice(seen)
@@ -81,6 +86,7 @@ function memoryChangedSince(rows: readonly HostLogRow[], seen: number): boolean 
       ({ event }) =>
         event.type === 'memory.usage' ||
         event.type === 'memory.cycle' ||
+        event.type === 'memory.settlement.failed' ||
         event.type === 'run.finished'
     );
 }
