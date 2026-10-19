@@ -74,6 +74,8 @@ export async function probeHostMemoryEmbedder(
       { cause }
     );
   }
+  // A provider that ignores the abort and answers anyway is still a cancelled probe.
+  signal.throwIfAborted();
   const latencyMs = Math.round(performance.now() - started);
   if (!embedding || embedding.length === 0) {
     throw new BoundaryFailureError(

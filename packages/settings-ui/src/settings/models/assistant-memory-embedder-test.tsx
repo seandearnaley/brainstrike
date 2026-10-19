@@ -7,7 +7,7 @@ import {
 import type { RuntimeAssistantMemorySettings } from '@brainstrike/assistant-contract/memory-settings';
 import { Button } from '@brainstrike/ui';
 import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 /** One test embedding, as the host reports it (BST-2227). */
 export interface MemoryEmbedderTestResult {
@@ -58,6 +58,8 @@ function EmbedderTestFailure({ failure }: { readonly failure: BoundaryFailure })
 /** Settings → Assistant Memory's "Test embedder" (BST-2227). */
 export function MemoryEmbedderTest({ target, testEmbedder }: MemoryEmbedderTestProps) {
   const [state, setState] = useState<TestState>({ kind: 'idle' });
+  // Only the latest test may settle the state: an earlier target's slower answer is stale.
+  const latest = useRef(0);
   const current = state.kind !== 'idle' && state.target === target ? state : undefined;
   const testing = current?.kind === 'testing';
 
@@ -65,18 +67,24 @@ export function MemoryEmbedderTest({ target, testEmbedder }: MemoryEmbedderTestP
     if (target === undefined) {
       return;
     }
+    latest.current += 1;
+    const request = latest.current;
     setState({ kind: 'testing', target });
+    let settled: TestState;
     try {
       const result = await testEmbedder(
         useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings()
       );
-      setState({ kind: 'passed', result, target });
+      settled = { kind: 'passed', result, target };
     } catch (cause) {
-      setState({
+      settled = {
         failure: cause instanceof BoundaryFailureError ? cause.failure : INTERNAL_FAULT,
         kind: 'failed',
         target,
-      });
+      };
+    }
+    if (latest.current === request) {
+      setState(settled);
     }
   };
 

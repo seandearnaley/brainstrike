@@ -9,7 +9,7 @@ import {
 } from '@brainstrike/app-state/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -674,6 +674,69 @@ describe('AssistantMemorySettingsSection', () => {
       );
 
       expect(screen.queryByTestId('assistant-memory-embedder-test-result')).toBeNull();
+    });
+
+    it('never lets a slower answer for an earlier embedder replace a newer result', async () => {
+      const user = userEvent.setup();
+      useModelRegistryStore.setState((state) => ({
+        models: [
+          ...state.models,
+          {
+            bestFor: null,
+            capabilities: { defaultDimension: 3072, type: 'embedding' },
+            description: null,
+            icon: null,
+            id: 'gemini-embedding-2',
+            isEnabled: true,
+            name: 'Gemini Embedding 2',
+            parameters: null,
+            providerId: 'google',
+            sortOrder: 3,
+            tagline: null,
+          },
+        ],
+        providers: [
+          ...state.providers,
+          { icon: null, id: 'google', isEnabled: true, name: 'Google', sortOrder: 6 },
+        ],
+      }));
+      const earlier = Promise.withResolvers<typeof PASSED>();
+      const testEmbedder = vi
+        .fn<NonNullable<AssistantMemorySettingsSectionProps['testEmbedder']>>()
+        .mockImplementationOnce(() => earlier.promise)
+        .mockResolvedValueOnce({
+          dimensions: 3072,
+          latencyMs: 90,
+          modelId: 'google::gemini-embedding-2',
+        });
+      render(
+        <AssistantMemorySettingsSection
+          assistantMemoryBackendAvailable={true}
+          providerKeySources={[
+            ...hostedProviderKeySources,
+            { provider: 'google', source: 'stored' },
+          ]}
+          testEmbedder={testEmbedder}
+        />
+      );
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: /semantic recall embedding model/i }),
+        'google/gemini-embedding-2'
+      );
+      await user.click(screen.getByRole('button', { name: 'Test embedder' }));
+      const result = await screen.findByTestId('assistant-memory-embedder-test-result');
+      expect(result).toHaveTextContent('google::gemini-embedding-2');
+
+      // The earlier embedder answers last; React applies whatever it settles.
+      await act(async () => {
+        earlier.resolve(PASSED);
+        await earlier.promise;
+      });
+
+      expect(screen.getByTestId('assistant-memory-embedder-test-result')).toHaveTextContent(
+        'google::gemini-embedding-2 embedded the test text in 90 ms: 3072 dimensions.'
+      );
     });
 
     it('offers no test for an on-device embedder and says why', () => {
