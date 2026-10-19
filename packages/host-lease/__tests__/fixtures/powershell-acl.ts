@@ -1,15 +1,16 @@
-// The PowerShell ACL path host-lease ran in production until BST-2237, kept
-// unchanged and only for tests: the oracle windows-acl.integration.test.ts
-// compares the native apply against, and the setter for the private file ACL a
-// fixture needs. No module under src/ may import it.
+// The PowerShell ACL path host-lease ran in production until BST-2237, its
+// behavior unchanged and kept only for tests. It is the oracle that
+// windows-acl.integration.test.ts compares the native apply against, and the
+// setter for the private file ACL some tests need. No module under src/ may
+// import it.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
 
 export type AclKind = 'directory' | 'file';
-export type AclAction = 'set' | 'verify';
-export type AclRunner = (environment: NodeJS.ProcessEnv) => Promise<string>;
+type AclAction = 'set' | 'verify';
+type AclRunner = (environment: NodeJS.ProcessEnv) => Promise<string>;
 const AclSchema = Schema.Struct({
   currentSid: Schema.String,
   ownerSid: Schema.String,
