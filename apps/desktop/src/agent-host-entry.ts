@@ -1,4 +1,3 @@
-import './agent-host-compile-cache';
 import { appendFileSync } from 'node:fs';
 import { flushCompileCache } from 'node:module';
 import { join } from 'node:path';
