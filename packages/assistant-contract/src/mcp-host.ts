@@ -618,6 +618,14 @@ export interface McpHostTaskOwner {
   recover(handle: McpTaskHandle): McpHostExecution | undefined;
 }
 export interface McpHostInvokeOptions {
+  /**
+   * BST-1779: the caller ends a `tools/call` itself once it reports no
+   * progress for its window (the tool guard's inactivity budget). The
+   * request's own idle timeout then stands back to its total: the SDK re-arms
+   * that timer on progress before the caller hears of it, so at an equal
+   * window it would win the race and end the call as an unexplained failure.
+   */
+  callerGuardsInactivity?: true;
   /** The admitting host tool call's capability. It never reaches the server. */
   execution?: McpHostExecution;
   onProgress?: (progress: McpHostProgress) => void;
