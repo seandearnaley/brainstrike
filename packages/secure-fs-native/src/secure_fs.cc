@@ -1534,8 +1534,7 @@ Napi::Value PrivateDirectory(const Napi::CallbackInfo& info, bool apply) {
   if (!GetFileInformationByHandleEx(directory.Get(), FileBasicInfo, &basic, sizeof(basic))) {
     ThrowWindowsError(env, "Private directory attributes are unreadable", GetLastError());
   }
-  if ((basic.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
-      (basic.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+  if ((basic.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
     ThrowCoded(env, "Private directory path is not a directory", "ENOTDIR");
   }
   PrivateVerdict verdict = PrivateVerdict::kAclMismatch;
