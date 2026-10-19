@@ -8,6 +8,7 @@ import type {
   MemoryCycleDisplay,
   MemoryCyclesDisplay,
   MemoryModelsDisplay,
+  MemoryRecallDisplay,
   OmMeterState,
   OmRecordLifecycle,
 } from './context-usage-meter';
@@ -174,6 +175,31 @@ function cycleRows(cycles: MemoryCyclesDisplay | undefined): PanelRow[] {
   return rows;
 }
 
+/** The last recall this view saw: what it returned, how wide it searched, and how long it took. */
+function recallRows(recall: MemoryRecallDisplay | undefined): PanelRow[] {
+  if (!recall) {
+    return [];
+  }
+  const parts = [
+    `${exact(recall.messages)} ${recall.messages === 1 ? 'message' : 'messages'}`,
+    ...(recall.topK === undefined ? [] : [`top ${exact(recall.topK)}`]),
+    recall.scope === 'resource' ? 'all threads' : 'this thread',
+    `${exact(recall.latencyMs)} ms`,
+  ];
+  return [
+    {
+      id: 'last-recall',
+      // Live telemetry, never committed: a reload clears it.
+      label: 'Last recall (live)',
+      value: (
+        <>
+          {parts.join(' · ')} · {storedTime(recall.at)}
+        </>
+      ),
+    },
+  ];
+}
+
 /** The rows a read state has; null for states with no host read behind them. */
 function stateRows(state: OmMeterState): PanelRow[] | null {
   switch (state.kind) {
@@ -192,6 +218,7 @@ function stateRows(state: OmMeterState): PanelRow[] | null {
       return [
         ...(state.kind === 'stats' ? recordRows(state) : []),
         ...cycleRows(state.cycles),
+        ...recallRows(state.recall),
         { id: 'observer', label: 'Observer', value: observerValue(state, state.models) },
         { id: 'embedder', label: 'Embedder', value: embedderValue(state.models) },
       ];

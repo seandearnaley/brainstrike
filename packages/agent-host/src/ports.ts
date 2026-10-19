@@ -26,6 +26,7 @@ import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-pre
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
+import type { MemoryRecallTelemetry } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
   FlexibleSchema,
@@ -187,6 +188,11 @@ export interface HostRunContext {
     readonly provider: string;
     readonly toolCallWindow: PromptToolCallWindow;
   }): Promise<void>;
+  /**
+   * One semantic recall's diagnostics (BST-2225), sent live on the run's
+   * stream as uncommitted `run/telemetry` (ADR-0011 amendment).
+   */
+  recordRecall?(recall: MemoryRecallTelemetry): void;
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;

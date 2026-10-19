@@ -191,6 +191,24 @@ describe('the Developer memory panel', () => {
     );
   });
 
+  it('shows the last recall this view saw live, and none before one (BST-2225)', () => {
+    const RECALLED_AT = Date.UTC(2026, 9, 19, 10, 0, 0);
+    const { unmount } = popover(LIVE);
+    expect(screen.queryByTestId('context-usage-memory-last-recall')).toBeNull();
+    unmount();
+    popover({
+      ...LIVE,
+      recall: { at: RECALLED_AT, latencyMs: 1240, messages: 6, scope: 'resource', topK: 4 },
+    });
+    const recall = row('last-recall');
+    expect(recall).toHaveTextContent('Last recall (live)');
+    expect(recall).toHaveTextContent('6 messages · top 4 · all threads · 1,240 ms');
+    expect(within(recall).getByText((_, element) => element?.tagName === 'TIME')).toHaveAttribute(
+      'datetime',
+      new Date(RECALLED_AT).toISOString()
+    );
+  });
+
   it('shows no cycle rows before the thread’s first cycle', () => {
     popover(LIVE);
     expect(screen.queryByTestId('context-usage-memory-last-observation-cycle')).toBeNull();
