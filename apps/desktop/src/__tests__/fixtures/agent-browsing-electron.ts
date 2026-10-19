@@ -62,6 +62,8 @@ async function main(): Promise<void> {
   const secretPort = await listen(secret);
   const secretUrl = `http://127.0.0.1:${secretPort}/secret`;
   const pages: Record<string, string> = {
+    // BST-1178: a public page in another agent tab reaching for an admitted server.
+    '/fetch-secret': `<title>Fetcher</title><img src="${secretUrl}?img"><script>fetch(${JSON.stringify(`${secretUrl}?fetch`)}, { mode: 'no-cors' }).catch(() => undefined)</script>`,
     '/location': `<title>Location</title><script>location.href=${JSON.stringify(secretUrl)}</script>`,
     '/meta': `<title>Meta</title><meta http-equiv="refresh" content="0;url=${secretUrl}">`,
     '/ok': '<title>Public</title><p>public page body</p>',
@@ -105,8 +107,10 @@ async function main(): Promise<void> {
           })),
   });
   const route = createAgentBrowsingRoute({
-    admitLoopback: async (authorities) => proxy.admitLoopback(authorities),
-    ensure: () => Promise.resolve({ password, port: proxy.port, username: 'agent' }),
+    prepare: async (authorities) => {
+      proxy.admitLoopback(authorities);
+      return { password, port: proxy.port, username: 'agent' };
+    },
     takeRefusal: (host) => {
       const refusal = refusals.get(host.toLowerCase());
       refusals.delete(host.toLowerCase());
@@ -181,6 +185,19 @@ async function main(): Promise<void> {
     navigate: await runBrowserNavigate({ url: secretUrl }, pane, options),
     text: await pageText(),
   });
+  // While the server stays admitted for its tab, another agent tab's public
+  // page cannot reach it.
+  const hitsBeforeOtherTab = secretHits.length;
+  const otherTab = pane.manager.createTab('http://public.test/fetch-secret', 'agent');
+  await settle(1500);
+  report('loopback-other-tab', {
+    secretHits: secretHits.length - hitsBeforeOtherTab,
+    title: pane.manager.listTabs().find((tab) => tab.tabId === otherTab)?.title ?? null,
+  });
+  pane.manager.selectTab(
+    pane.manager.listTabs().find((tab) => tab.owner === 'agent' && tab.tabId !== otherTab)?.tabId ??
+      otherTab
+  );
   report('loopback-other-port', {
     navigate: await runBrowserNavigate(
       { url: `http://127.0.0.1:${secretPort}/hop` },
@@ -235,9 +252,9 @@ async function main(): Promise<void> {
       });
       socket.once('error', reject);
     });
-  await egress.admitLoopback([`127.0.0.1:${secretPort}`]);
+  await egress.prepare([`127.0.0.1:${secretPort}`]);
   const admitted = await connectStatus(`127.0.0.1:${secretPort}`);
-  await egress.admitLoopback([]);
+  await egress.prepare([]);
   report('utility-loopback', { admitted, closed: await connectStatus(`127.0.0.1:${secretPort}`) });
   await egress.close();
 

@@ -72,9 +72,15 @@ amends the first consequence above.
   exact port. Another 127/8 address, a `*.localhost` name, the LAN, link-local
   and metadata addresses stay refused.
 - Before the agent's tab opens an approved loopback target, Main admits that
-  navigation's `host:port` in the proxy and waits for the proxy to confirm it.
-  The next agent navigation replaces the set, so a later public page never
-  reaches the server, and the server's page cannot reach another port.
+  navigation's `host:port` in the proxy and waits for the proxy to confirm it;
+  a proxy that does not confirm in time is killed. The next agent navigation
+  replaces the set, and agent navigations run one at a time.
+- The proxy cannot tell tabs apart, so the agent partition's
+  `webRequest.onBeforeRequest` lets a request for the admitted server through
+  only from the tab it opened in: the main-frame load the agent started, or a
+  request the approved origin itself initiated (`initiatorOrigin`, kept across
+  redirects). A public page in any agent tab cannot fetch or redirect to it,
+  and the server's page cannot reach another port.
 - The proxy dials an admitted target at its literal address, never through
   DNS, so a name that resolves to loopback gains nothing.
 - Evidence: `agent-browsing-egress.integration.test.ts` (real Chromium) and the

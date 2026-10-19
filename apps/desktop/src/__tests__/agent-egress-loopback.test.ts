@@ -9,7 +9,7 @@ import { connect, createServer, type Server, type Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentEgressHost, type EgressUtility } from '../browser/agent-egress/agent-egress-host';
 import { type EgressProxy, startEgressProxy } from '../browser/agent-egress/egress-proxy';
-import { agentNavigationTarget } from '../browser/browser-url';
+import { agentNavigationTarget, loopbackRequestAllowed } from '../browser/browser-url';
 
 describe('agentNavigationTarget', () => {
   it.each([
@@ -135,8 +135,10 @@ function fakeUtility(answer: 'admit' | 'refuse' | 'silent' | 'exit') {
   const listeners: ((message: unknown) => void)[] = [];
   let exited: ((code: number) => void) | undefined;
   const posted: unknown[] = [];
+  const killed = { count: 0 };
   const utility: EgressUtility = {
     kill: () => {
+      killed.count += 1;
       exited?.(0);
       return true;
     },
@@ -167,15 +169,15 @@ function fakeUtility(answer: 'admit' | 'refuse' | 'silent' | 'exit') {
       });
     },
   };
-  return { posted, utility };
+  return { killed, posted, utility };
 }
 
-describe('AgentEgressHost.admitLoopback', () => {
-  it('resolves once the proxy admits that revision', async () => {
+describe('AgentEgressHost.prepare', () => {
+  it('returns the proxy once that same proxy admits the revision', async () => {
     const { posted, utility } = fakeUtility('admit');
     const host = new AgentEgressHost(() => utility);
-    await host.admitLoopback(['localhost:5173']);
-    await host.admitLoopback([]);
+    await expect(host.prepare(['localhost:5173'])).resolves.toMatchObject({ port: 4321 });
+    await host.prepare([]);
     expect(posted).toEqual([
       expect.objectContaining({ type: 'start' }),
       { authorities: ['localhost:5173'], revision: 1, type: 'loopback' },
@@ -183,23 +185,93 @@ describe('AgentEgressHost.admitLoopback', () => {
     ]);
   });
 
-  it('rejects when the proxy refuses, exits or stays silent, so no navigation starts', async () => {
+  it('rejects when the proxy refuses or exits, so no navigation starts', async () => {
     await expect(
-      new AgentEgressHost(() => fakeUtility('refuse').utility).admitLoopback(['localhost:1'])
+      new AgentEgressHost(() => fakeUtility('refuse').utility).prepare(['localhost:1'])
     ).rejects.toThrow('The agent browsing proxy refused loopback: no');
     await expect(
-      new AgentEgressHost(() => fakeUtility('exit').utility).admitLoopback(['localhost:1'])
+      new AgentEgressHost(() => fakeUtility('exit').utility).prepare(['localhost:1'])
     ).rejects.toThrow('exited before it admitted loopback');
+  });
+
+  it('kills a proxy that stays silent: it may have applied the set (fail closed)', async () => {
     vi.useFakeTimers();
     try {
-      const silent = new AgentEgressHost(() => fakeUtility('silent').utility).admitLoopback([
-        'localhost:1',
-      ]);
-      const settled = expect(silent).rejects.toThrow('did not admit loopback servers in time');
+      const silent = fakeUtility('silent');
+      const prepared = new AgentEgressHost(() => silent.utility).prepare(['localhost:1']);
+      const settled = expect(prepared).rejects.toThrow('did not admit loopback servers in time');
       await vi.advanceTimersByTimeAsync(5000);
       await settled;
+      expect(silent.killed.count).toBe(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('loopbackRequestAllowed', () => {
+  const admission = {
+    authority: 'localhost:5173',
+    origin: 'http://localhost:5173',
+    webContentsId: 7,
+  };
+  it.each([
+    [
+      'the main-frame load the agent started',
+      { resourceType: 'mainFrame', url: 'http://localhost:5173/' },
+    ],
+    [
+      'the approved page loading its scripts',
+      {
+        initiatorOrigin: 'http://localhost:5173',
+        resourceType: 'script',
+        url: 'http://localhost:5173/src/main.ts',
+      },
+    ],
+    [
+      'its live-reload socket',
+      {
+        initiatorOrigin: 'http://localhost:5173',
+        resourceType: 'webSocket',
+        url: 'ws://localhost:5173/',
+      },
+    ],
+  ])('lets through %s, in the admitted tab', (_label, request) => {
+    expect(loopbackRequestAllowed({ ...request, webContentsId: 7 }, admission)).toBe(true);
+  });
+
+  it.each([
+    ['another agent tab', { initiatorOrigin: 'http://localhost:5173', webContentsId: 8 }],
+    [
+      'a public page in the same tab',
+      { initiatorOrigin: 'https://evil.example', webContentsId: 7 },
+    ],
+    ['a request the browser started for a subresource', { webContentsId: 7 }],
+  ])('cancels the admitted server reached from %s', (_label, fields) => {
+    expect(
+      loopbackRequestAllowed(
+        { ...fields, resourceType: 'xhr', url: 'http://localhost:5173/api' },
+        admission
+      )
+    ).toBe(false);
+  });
+
+  it('leaves every other target to the proxy', () => {
+    for (const url of [
+      'http://localhost:3000/',
+      'http://127.0.0.1:5173/',
+      'https://example.com/',
+    ]) {
+      expect(
+        loopbackRequestAllowed(
+          { initiatorOrigin: 'https://evil.example', resourceType: 'xhr', url, webContentsId: 8 },
+          admission
+        ),
+        url
+      ).toBe(true);
+    }
+    expect(
+      loopbackRequestAllowed({ resourceType: 'xhr', url: 'http://localhost:5173/' }, null)
+    ).toBe(true);
   });
 });

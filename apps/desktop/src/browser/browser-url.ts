@@ -69,16 +69,69 @@ export type AgentNavigationTarget =
   | { readonly loopback?: string; readonly origin: string; readonly url: string }
   | { readonly refusal: string };
 
-/** A loopback literal's `host:port`, as the proxy keys a CONNECT or absolute-form target. */
-function loopbackAuthority(url: URL): string | undefined {
-  if (
-    !LOOPBACK_HOSTS.has(url.hostname) ||
-    (url.protocol !== 'http:' && url.protocol !== 'https:')
-  ) {
+/** Each scheme a loopback server answers on, and its default port. */
+const LOOPBACK_SCHEME_PORTS: ReadonlyMap<string, string> = new Map([
+  ['http:', '80'],
+  ['https:', '443'],
+  ['ws:', '80'],
+  ['wss:', '443'],
+]);
+
+/**
+ * A loopback literal's `host:port`, as the proxy keys a CONNECT or
+ * absolute-form target; undefined for any other URL. WebSocket URLs count, so
+ * a dev server's live-reload socket is the same server.
+ */
+export function loopbackAuthorityOf(url: string | URL): string | undefined {
+  const parsed = typeof url === 'string' ? (URL.canParse(url) ? new URL(url) : undefined) : url;
+  const defaultPort = parsed === undefined ? undefined : LOOPBACK_SCHEME_PORTS.get(parsed.protocol);
+  if (parsed === undefined || defaultPort === undefined || !LOOPBACK_HOSTS.has(parsed.hostname)) {
     return;
   }
-  const port = url.port === '' ? (url.protocol === 'https:' ? '443' : '80') : url.port;
-  return `${url.hostname.replace(/^\[(.*)\]$/, '$1')}:${port}`;
+  return `${parsed.hostname.replace(/^\[(.*)\]$/, '$1')}:${parsed.port === '' ? defaultPort : parsed.port}`;
+}
+
+/**
+ * BST-1178: the one loopback server an agent navigation may reach, and from
+ * where: the tab it opened in, and only that page's own requests.
+ */
+export interface LoopbackAdmission {
+  /** The `host:port` the egress proxy admits. */
+  readonly authority: string;
+  /** The approved origin, the only initiator its requests may come from. */
+  readonly origin: string;
+  /** The agent tab the navigation opens in. */
+  readonly webContentsId: number;
+}
+
+/** The slice of a request the admission is checked against. */
+export interface LoopbackRequest {
+  readonly initiatorOrigin?: string | undefined;
+  readonly resourceType: string;
+  readonly url: string;
+  readonly webContentsId?: number | undefined;
+}
+
+/**
+ * Whether Main lets an agent-tab request through to the proxy. Only a request
+ * for the admitted server is decided here: it passes from the admitted tab,
+ * as the main-frame load the agent started or as the approved page's own
+ * request. A public page fetching or redirecting there, in any tab, is
+ * cancelled; every other target is the proxy's to decide.
+ */
+export function loopbackRequestAllowed(
+  request: LoopbackRequest,
+  admission: LoopbackAdmission | null
+): boolean {
+  if (admission === null || loopbackAuthorityOf(request.url) !== admission.authority) {
+    return true;
+  }
+  if (request.webContentsId !== admission.webContentsId) {
+    return false;
+  }
+  return request.initiatorOrigin === undefined
+    ? request.resourceType === 'mainFrame'
+    : request.initiatorOrigin === admission.origin;
 }
 
 /**
@@ -97,7 +150,10 @@ export function agentNavigationTarget(url: string | undefined): AgentNavigationT
     };
   }
   const parsed = URL.canParse(normalized) ? new URL(normalized) : undefined;
-  const loopback = parsed === undefined ? undefined : loopbackAuthority(parsed);
+  const loopback =
+    parsed === undefined || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      ? undefined
+      : loopbackAuthorityOf(parsed);
   if (parsed !== undefined && loopback !== undefined) {
     return parsed.username || parsed.password
       ? { refusal: 'refused: URLs with embedded credentials are never opened by the agent' }

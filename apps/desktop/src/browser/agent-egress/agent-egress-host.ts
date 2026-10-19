@@ -69,15 +69,18 @@ export class AgentEgressHost {
   }
 
   /**
-   * BST-1178: replace the loopback servers agent tabs may reach (each
-   * `host:port`), resolved once the running proxy admits them. A proxy that
-   * refuses, exits or stays silent rejects, so its navigation never starts.
+   * BST-1178: the running proxy (started on demand) with the loopback servers
+   * agent tabs may reach replaced by `authorities` (each `host:port`), both on
+   * one proxy, so the route and its admission never name different ones. A
+   * proxy that refuses or exits rejects. One that stays silent is killed: it
+   * may have applied the set, so it must not keep serving.
    */
-  async admitLoopback(authorities: readonly string[]): Promise<void> {
-    await this.ensure();
+  async prepare(authorities: readonly string[]): Promise<AgentEgress> {
+    this.#current ??= this.#start();
     const current = this.#current;
-    if (current === undefined) {
-      throw new Error('The agent browsing proxy exited before it admitted loopback servers');
+    const egress = await current.ready;
+    if (this.#current !== current) {
+      throw new Error('The agent browsing proxy restarted while it was being prepared');
     }
     this.#revision += 1;
     const revision = this.#revision;
@@ -85,6 +88,7 @@ export class AgentEgressHost {
     current.loopback.set(revision, answer);
     const timer = setTimeout(() => {
       answer.reject(new Error('The agent browsing proxy did not admit loopback servers in time'));
+      current.utility.kill();
     }, LOOPBACK_ANSWER_MS);
     current.utility.postMessage({ authorities: [...authorities], revision, type: 'loopback' });
     try {
@@ -93,6 +97,7 @@ export class AgentEgressHost {
       clearTimeout(timer);
       current.loopback.delete(revision);
     }
+    return egress;
   }
 
   /**

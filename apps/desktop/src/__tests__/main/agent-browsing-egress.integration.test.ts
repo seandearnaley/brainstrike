@@ -109,6 +109,8 @@ it('an agent tab reaches public pages through its proxy, and loopback only at an
       navigate: { ok: true, title: 'Secret' },
       text: expect.stringContaining('SECRET-BST-1238'),
     });
+    // Another agent tab's public page cannot reach the admitted server.
+    expect(reports.get('loopback-other-tab')).toEqual({ secretHits: 0, title: 'Fetcher' });
     expect(reports.get('loopback-other-port')).toMatchObject({
       navigate: { error: 'blocked_destination' },
     });
