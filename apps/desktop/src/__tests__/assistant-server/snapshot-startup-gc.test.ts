@@ -11,18 +11,20 @@ import {
 
 const ROOT = { path: '/tmp/root-1', rootId: 'root-1' };
 const oid = (value: number): string => value.toString(16).padStart(40, '0');
-function turns(count: number): SnapshotChainEntry[] {
+// These authored host-log rows always belong to a run; general chains need not.
+type HostSnapshotFixture = SnapshotChainEntry & { readonly runId: string };
+function turns(count: number): HostSnapshotFixture[] {
   return Array.from({ length: count }, (_, index) => count - index).flatMap((turn) => [
     { commitOid: oid(turn * 2), kind: 'turn-end' as const, runId: `run-${turn}` },
     { commitOid: oid(turn * 2 - 1), kind: 'turn-start' as const, runId: `run-${turn}` },
   ]);
 }
-function pendingRows(chain: readonly SnapshotChainEntry[]): HostLogRow[] {
+function pendingRows(chain: readonly HostSnapshotFixture[]): HostLogRow[] {
   const rows = [...chain]
     .reverse()
     .filter((entry) => entry.kind === 'turn-start')
     .map((entry, index) =>
-      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+      Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: {
           boundary: 'turn-start',
           roots: [{ commitOid: entry.commitOid, rootId: ROOT.rootId, rootPath: ROOT.path }],
@@ -34,7 +36,7 @@ function pendingRows(chain: readonly SnapshotChainEntry[]): HostLogRow[] {
       })
     );
   rows.push(
-    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+    Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
       event: {
         commandId: 'command-1',
         headId: null,
@@ -190,7 +192,7 @@ describe('host-owned startup snapshot retention', () => {
     expect((await runSnapshotStartupGc(f.deps)).failures).toEqual([]);
     expect(f.histories).toEqual([]);
     rows.push(
-      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+      Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: { outcomes: [], rewindId: 'rewind-1', type: 'thread.rewind.redone' },
         seq: rows.length + 1,
         threadId: 'thread-1',

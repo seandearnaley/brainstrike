@@ -19,18 +19,20 @@ import {
 } from '../renderer/host-thread-debug';
 
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
-const rows: HostLogRow[] = attemptsRecording.map((raw) => {
-  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+// Recorded wire data is a receiving boundary, unlike rows constructed below.
+function decodeRecordedRow(wire: unknown): HostLogRow {
+  return Schema.decodeUnknownSync(HostLogRowSchema, {
     errors: 'all',
     onExcessProperty: 'error',
-  })(raw);
+  })(wire);
+}
+const rows: HostLogRow[] = attemptsRecording.map((raw) => {
+  const row = decodeRecordedRow(raw);
   return row.event.type === 'run.started'
     ? { ...row, event: { ...row.event, modelId: MODEL } }
     : row;
 });
-const childRows = questionRecording.map((raw) =>
-  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(raw)
-);
+const childRows = questionRecording.map(decodeRecordedRow);
 const threadId = rows[0]?.threadId ?? '';
 const childThreadId = childRows[0]?.threadId ?? '';
 const [completedRun, failedRun] = rows.flatMap((row) =>
@@ -95,6 +97,12 @@ const noDiagnostics = {
   queryEvents: vi.fn(async () => []),
 };
 describe("a host thread's debug bundle, from its committed log", () => {
+  test('received recordings reject malformed fields and excess keys', () => {
+    const malformed: unknown = { ...rows[0], seq: 'wrong' };
+    const excess: unknown = { ...rows[0], rider: true };
+    expect(() => decodeRecordedRow(malformed)).toThrow();
+    expect(() => decodeRecordedRow(excess)).toThrow();
+  });
   test('selects the failed run: its finish detail, refused attempt and no provider call', () => {
     const data = collectHostThreadDebugBundleData(rows, { runId: null, threadId });
     expect(data.run).toMatchObject({
@@ -140,7 +148,7 @@ describe("a host thread's debug bundle, from its committed log", () => {
     const providerOptions = { openrouter: { reasoning: { effort: 'low' } } };
     const captured = rows.map((row) =>
       row.event.type === 'run.started' && row.event.runId === failedRun
-        ? Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+        ? Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
             ...row,
             event: {
               ...row.event,
