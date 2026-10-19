@@ -69,19 +69,15 @@ jobs:
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
 
-  # The fix agent (BST-2189) reads the run, pushes its branch and opens the PR.
   desktop-e2e:
     name: Desktop E2E
     if: github.repository == 'seandearnaley/brainstrike'
     permissions:
-      actions: read
-      contents: write
-      pull-requests: write
+      contents: read
     uses: ./.github/workflows/desktop-e2e.yml
     with:
       suite: full
     secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
@@ -106,7 +102,10 @@ jobs:
 
   # The night is green only when every call succeeded: a failed, cancelled or
   # skipped call fails this job and with it the run, which is what a release
-  # resolves a commit by. The summary lists each workflow's result.
+  # resolves a commit by. The summary lists each workflow's result. Only tests
+  # decide it (BST-2235): the fix agents (BST-2189) run after the night, in
+  # nightly-fix.yml, which GitHub starts as a run of its own when this one
+  # completes, so an agent's failure turns that run red and never this one.
   verdict:
     name: Nightly verdict
     if: github.repository == 'seandearnaley/brainstrike' && always()

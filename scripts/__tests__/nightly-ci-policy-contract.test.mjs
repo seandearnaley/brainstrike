@@ -52,6 +52,11 @@ const STAYS_DISABLED = [
   'release.yml',
 ];
 const REUSABLE = ['nightly-fix-agent.yml', 'nightly-linear-alert.yml'];
+// BST-2235 (owner decision 2026-10-19): the fix agents run after the night, in
+// their own run that GitHub starts when a Nightly run completes, so an agent's
+// failure never changes the night's verdict. It is the one workflow_run
+// trigger; nightly-fix-agent-contract.test.mjs owns the rest of it.
+const FOLLOW_UP = new Map([['nightly-fix.yml', { types: ['completed'], workflows: ['Nightly'] }]]);
 // BST-2188: the merge queue's fast tier. merge-queue-contract.test.mjs owns its
 // triggers, its call into test.yml, its gate and .mergify.yml; a red batch
 // removes the PR from Mergify's queue, so it files nothing to Linear.
@@ -63,13 +68,15 @@ const MERGE_QUEUE = ['merge-queue.yml'];
 // - merge-queue.yml may trigger on push, only for the branches Mergify pushes
 //   each queue batch to. No pull request starts it, so its required gate never
 //   reports on a PR head and no runner starts for one.
-// Every other call into the six comes from nightly.yml (BST-2233).
-const CALLED_BY = new Map(
-  NIGHTLY_CALLS.map((file) => [
+// Every other call into the six comes from nightly.yml (BST-2233), and only
+// the follow-up calls the fix agent (BST-2235).
+const CALLED_BY = new Map([
+  ...NIGHTLY_CALLS.map((file) => [
     file,
     file === 'test.yml' ? ['merge-queue.yml', NIGHTLY] : [NIGHTLY],
-  ])
-);
+  ]),
+  ['nightly-fix-agent.yml', [...FOLLOW_UP.keys()]],
+]);
 const QUEUE_PUSH = new Map([['merge-queue.yml', { branches: ['mergify/merge-queue/**'] }]]);
 
 const POLICY_LINE =
@@ -190,13 +197,10 @@ function assertLinearFiling(file, source) {
       }
     }
   }
-  // A job after notify-linear (the BST-2189 fix agent) acts on what it filed.
-  const afterNotify = (id) => needsOf(jobs[id]).includes('notify-linear');
+  // No job follows notify-linear: what acts on its filing, the fix agents, runs
+  // after the night in nightly-fix.yml, outside the verdict (BST-2235).
   for (const id of Object.keys(jobs)) {
-    assert.ok(
-      id === 'notify-linear' || judged.has(id) || afterNotify(id),
-      `${file} › ${id} never reaches Linear`
-    );
+    assert.ok(id === 'notify-linear' || judged.has(id), `${file} › ${id} never reaches Linear`);
   }
 }
 
@@ -224,7 +228,14 @@ test('every workflow file has a declared CI role', () => {
   const files = readdirSync(workflowsDir).filter((file) => /\.ya?ml$/u.test(file));
   assert.deepEqual(
     files.sort(),
-    [...SCHEDULED.keys(), ...NIGHTLY_CALLS, ...STAYS_DISABLED, ...REUSABLE, ...MERGE_QUEUE].sort()
+    [
+      ...SCHEDULED.keys(),
+      ...NIGHTLY_CALLS,
+      ...STAYS_DISABLED,
+      ...REUSABLE,
+      ...MERGE_QUEUE,
+      ...FOLLOW_UP.keys(),
+    ].sort()
   );
 });
 
@@ -341,8 +352,48 @@ test('nightly.yml calls each of the six, and only the merge queue also calls tes
   assertCallers(allWorkflows());
 });
 
-test('no scheduled, nightly-called or merge-queue job can start in a fork', () => {
-  for (const file of [...SCHEDULED.keys(), ...NIGHTLY_CALLS, ...MERGE_QUEUE]) {
+/** Only the follow-up starts from another workflow's run: after a Nightly run, or by hand. */
+function assertWorkflowRunTriggers(sources) {
+  assert.deepEqual(
+    triggeredBy(sources, 'workflow_run'),
+    [...FOLLOW_UP.keys()],
+    'a new workflow_run trigger needs its own owner decision'
+  );
+  for (const [file, trigger] of FOLLOW_UP) {
+    const { on } = parseYaml(sources.get(file));
+    assert.deepEqual(
+      Object.keys(on).sort(),
+      ['workflow_dispatch', 'workflow_run'],
+      `${file} must run only after a Nightly run and on manual dispatch`
+    );
+    assert.deepEqual(on.workflow_run, trigger, `${file} must start when a Nightly run completes`);
+  }
+}
+
+test('only the follow-up starts on workflow_run, once a Nightly run completes', () => {
+  assertWorkflowRunTriggers(allWorkflows());
+});
+
+test('CONTROL: another workflow_run trigger, or one on requested runs, fails the check', () => {
+  const sources = allWorkflows();
+  const chained = mutate(
+    sources.get('knip.yml'),
+    '\non:\n',
+    '\non:\n  workflow_run:\n    workflows: [Nightly]\n    types: [completed]\n'
+  );
+  assert.throws(
+    () => assertWorkflowRunTriggers(new Map([...sources, ['knip.yml', chained]])),
+    /workflow_run trigger needs its own owner decision/u
+  );
+  const early = mutate(sources.get('nightly-fix.yml'), 'types: [completed]', 'types: [requested]');
+  assert.throws(
+    () => assertWorkflowRunTriggers(new Map([...sources, ['nightly-fix.yml', early]])),
+    /must start when a Nightly run completes/u
+  );
+});
+
+test('no scheduled, nightly-called, follow-up or merge-queue job can start in a fork', () => {
+  for (const file of [...SCHEDULED.keys(), ...NIGHTLY_CALLS, ...FOLLOW_UP.keys(), ...MERGE_QUEUE]) {
     assertForkGuard(file, readWorkflow(file));
   }
 });
@@ -437,6 +488,22 @@ test('CONTROL: an unreported or unwaited job fails the Linear filing check', () 
   assert.throws(() => assertLinearFiling('mcp-verification.yml', unreported), /verify never/u);
   const ungated = mutate(source, ALERT_GATE, 'always()');
   assert.throws(() => assertLinearFiling('mcp-verification.yml', ungated), /notify-linear/u);
+});
+
+test('CONTROL: a fix agent job after notify-linear fails the Linear filing and caller checks', () => {
+  const inline = `${readWorkflow('desktop-e2e.yml')}
+  fix-nightly:
+    needs: [notify-linear]
+    uses: ./.github/workflows/nightly-fix-agent.yml
+`;
+  assert.throws(
+    () => assertLinearFiling('desktop-e2e.yml', inline),
+    /desktop-e2e\.yml › fix-nightly never reaches Linear/u
+  );
+  assert.throws(
+    () => assertCallers(new Map([...allWorkflows(), ['desktop-e2e.yml', inline]])),
+    /nightly-fix-agent\.yml may be called only by nightly-fix\.yml/u
+  );
 });
 
 test('CONTROL: the retired AGENTS.md sentence fails the policy check', () => {

@@ -1,0 +1,112 @@
+# Runs after each scheduled nightly on main (owner decision 2026-10-19).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
+
+name: Nightly Fix
+
+# BST-2235: the fix agents (BST-2189) act on a night's results; they are not
+# part of them. GitHub starts this workflow as a run of its own once a Nightly
+# run has completed, whatever its conclusion, so an agent's failure turns this
+# run red, never the night: the night's verdict judges only tests, and a
+# release resolves a commit by it. Under workflow_run GitHub runs this file
+# from the default branch, with main's head as GITHUB_SHA, so the agents work
+# from the night's run and commit, which the triggering run names.
+# https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run
+# scripts/__tests__/nightly-fix-agent-contract.test.mjs pins this workflow.
+on:
+  workflow_run:
+    workflows: [Nightly]
+    types: [completed]
+  # A manual run for a past scheduled night, while its artifacts are kept.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The scheduled Nightly run whose failing and flaky tests to fix.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  # Desktop E2E's Notify Linear uploads the night's queue, nightly-fix-issues:
+  # the failing and flaky tests' issues it filed or commented on, and the
+  # runner image of the lanes that ran them. A night without it fails here.
+  queue:
+    name: Read the night's fix queue
+    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      head_sha: ${{ steps.nightly.outputs.head_sha }}
+      queue: ${{ steps.queue.outputs.queue }}
+      run_id: ${{ steps.nightly.outputs.run_id }}
+    steps:
+      # A dispatch names its night by run id, and that run must be a
+      # scheduled Nightly run; its commit then comes from the run itself.
+      - name: Name the night's run and commit
+        id: nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_RUN_ID: ${{ github.event.workflow_run.id }}
+          NIGHTLY_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCHED_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            NIGHTLY_RUN_ID=$DISPATCHED_RUN_ID
+            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$NIGHTLY_RUN_ID" --jq '[.path, .event, .head_sha] | @tsv')
+            IFS=$'\t' read -r workflow event NIGHTLY_HEAD_SHA <<< "$run"
+            if [ "$workflow" != .github/workflows/nightly.yml ] || [ "$event" != schedule ]; then
+              echo "::error::Run $NIGHTLY_RUN_ID is a $event run of $workflow, not a scheduled Nightly run."
+              exit 1
+            fi
+          fi
+          if ! [[ "$NIGHTLY_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Nightly run $NIGHTLY_RUN_ID names no commit SHA (\"$NIGHTLY_HEAD_SHA\")."
+            exit 1
+          fi
+          printf 'run_id=%s\nhead_sha=%s\n' "$NIGHTLY_RUN_ID" "$NIGHTLY_HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      # By name from the night's run: a missing queue fails the download.
+      - name: Download the night's fix queue
+        uses: actions/download-artifact@v8
+        with:
+          name: nightly-fix-issues
+          path: ${{ runner.temp }}/nightly-fix
+          run-id: ${{ steps.nightly.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: List the issues to fix
+        id: queue
+        run: |
+          set -euo pipefail
+          queue=$(jq -c '.runs_on as $runs_on | [.issues[] | {issue: ., runs_on: $runs_on}]' "$RUNNER_TEMP/nightly-fix/fix-issues.json")
+          echo "queue=$queue" >> "$GITHUB_OUTPUT"
+          echo "Fix queue: $queue" >> "$GITHUB_STEP_SUMMARY"
+
+  # One agent per issue, on the image of the lanes that ran its test. The claim
+  # (scripts/nightly-fix-issue.mjs) and the per-issue concurrency group in
+  # nightly-fix-agent.yml hold each issue to one attempt.
+  fix:
+    name: Fix nightly test
+    needs: [queue]
+    if: needs.queue.outputs.queue != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.queue.outputs.queue) }}
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/nightly-fix-agent.yml
+    with:
+      issue: ${{ matrix.issue }}
+      runs_on: ${{ matrix.runs_on }}
+      nightly_run_id: ${{ needs.queue.outputs.run_id }}
+      head_sha: ${{ needs.queue.outputs.head_sha }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
