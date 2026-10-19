@@ -176,7 +176,13 @@ function assertNoLinearFromTheQueue(mergeQueueSource, nightlySource) {
         (job) => job.uses === `./.github/workflows/${NIGHTLY}`
       )
     );
-  assert.deepEqual(callers, [MERGE_QUEUE], 'only the merge queue may call test.yml');
+  // BST-2233: the scheduled nightly.yml is the other caller, and the one run
+  // in which test.yml files to Linear.
+  assert.deepEqual(
+    callers,
+    [MERGE_QUEUE, 'nightly.yml'],
+    'only the merge queue and the scheduled nightly may call test.yml'
+  );
   for (const [id, job] of Object.entries(parseYaml(nightlySource).jobs)) {
     if (/linear/iu.test(JSON.stringify(job))) {
       assert.ok(

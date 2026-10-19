@@ -4,9 +4,8 @@
 name: Test
 
 on:
-  # 07:03 UTC, ahead of the E2E workflows' crons.
-  schedule:
-    - cron: '3 7 * * *'
+  # BST-2233: no schedule of its own. nightly.yml calls this workflow each
+  # night, with `merge-queue: false`, beside the other required nightlies.
   workflow_dispatch:
   # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
   # on each merge group, so the queue's fast tier is these jobs, not a copy.
@@ -26,8 +25,8 @@ on:
     secrets:
       TURBO_TOKEN:
         required: true
-      # Read only by Notify Linear, which never runs in a called run; the queue
-      # does not pass it.
+      # Read only by Notify Linear, which runs only in the scheduled nightly's
+      # call; the queue does not pass it.
       LINEAR_API_KEY:
         required: false
     # Merge Queue Gate judges every job by these results.
@@ -61,8 +60,10 @@ on:
       unit-shard-count:
         value: ${{ jobs.static.outputs.unit-shard-count }}
 
+# In a called run github.workflow is the caller's name; the file name keeps this
+# group apart from the caller's and, in nightly.yml, from the five siblings'.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
+  group: ${{ github.workflow }}-test-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -1391,7 +1392,9 @@ jobs:
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
-      workflow_name: ${{ github.workflow }}
+      # This workflow's own name: in nightly.yml's call, github.workflow is
+      # the caller's (BST-2233).
+      workflow_name: Test
       results: admission=${{ needs.admission.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-windows=${{ needs.native-windows.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},web-e2e=${{ needs.web-e2e.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
