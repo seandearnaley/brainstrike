@@ -60,6 +60,27 @@ async function lifecycleOf(activation: ReturnType<typeof fixture>['activation'])
   }
 }
 
+/** Lets an open that was started reach its root restore: the fixture's ports answer at once. */
+async function drainTurns(): Promise<void> {
+  for (let turn = 0; turn < 20; turn += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+it('a host borrow does not start an index it did not resume (BST-1977)', async () => {
+  const f = heldOpens();
+  f.held.hold = true;
+  try {
+    await f.activation.acquireProfile();
+    await drainTurns();
+    expect(f.held.entered).toBe(false);
+    expect(await lifecycleOf(f.activation)).toMatchObject({ generation: 0, kind: 'preparing' });
+  } finally {
+    f.held.release.resolve();
+    await f.activation.close();
+  }
+});
+
 it('a read of an idle index refuses as preparing at once and starts no open', async () => {
   const f = heldOpens();
   f.held.hold = true;
