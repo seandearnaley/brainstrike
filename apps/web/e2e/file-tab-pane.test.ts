@@ -12,6 +12,10 @@ import { type FileTree, mockBrowserApis } from './utils/mock-fs';
  */
 test.describe('Per-file explorer pane', () => {
   test.beforeEach(async ({ page }) => {
+    // Reload assertions require the same durable writes as real web profiles.
+    await page.addInitScript(() => {
+      Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
+    });
     const tree: FileTree = {
       'readme.md': null,
       src: {

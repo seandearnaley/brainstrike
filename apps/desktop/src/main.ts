@@ -194,6 +194,7 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
+import { prepareDesktopRendererClose } from './prepare-desktop-renderer-close';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -203,7 +204,7 @@ import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
-import { resolveSourceWindowRole } from './window-role';
+import { getWindowRole, resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import { enqueueFolderCandidates, filterDirectoryOpenCandidates } from './workspace-open-queue';
 import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
@@ -515,16 +516,31 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
       // own stop.
-      renderers: async () => {
+      renderers: async (signal) => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
         nativeIndexActivation.fenceTerminal();
         await initialWindowCreation;
-        await closeDesktopRenderers(
-          BrowserWindow.getAllWindows(),
-          (window) =>
-            chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
+        const windows = BrowserWindow.getAllWindows();
+        const preparations = await Promise.allSettled(
+          windows
+            .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
+            .map((window) => prepareDesktopRendererClose(window, signal))
         );
+        signal.throwIfAborted();
+        const closes = await Promise.allSettled([
+          closeDesktopRenderers(
+            windows,
+            (window) =>
+              chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
+          ),
+        ]);
+        const failures = [...preparations, ...closes].flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length > 0) {
+          throw new AggregateError(failures, 'Desktop renderer producers failed to close');
+        }
       },
       // Stops between its stages and joins the one in flight, before the agent host,
       // the database or git that it reads retire; the next launch runs it again.
@@ -1193,6 +1209,48 @@ if (singleInstanceLockAcquired) {
   // rather than by registering the channel a second time, which the registry
   // rejects.
   const workspaceOpenReadyCallbacksByWebContentsId = new Map<number, () => void>();
+  const bindWorkspaceOpenWindow = (win: BrowserWindow): void => {
+    const contents = win.webContents;
+    const webContentsId = contents.id;
+    let loadFinished = false;
+    let rendererReady = false;
+    const maybeAttach = () => {
+      if (!(loadFinished && rendererReady)) {
+        return;
+      }
+      workspaceOpenQueue.attach({
+        isDestroyed: () => contents.isDestroyed(),
+        send: (channel, payload) => contents.send(channel, payload),
+      });
+    };
+
+    // Bind before the first navigation: React can subscribe and ping while
+    // document resources are still loading. Both gates must see that load.
+    contents.on('did-start-loading', () => {
+      loadFinished = false;
+      workspaceOpenQueue.detach();
+    });
+    contents.on('did-start-navigation', (details) => {
+      // Subframe and same-document navigation preserve the existing listener.
+      if (details.isMainFrame && !details.isSameDocument) {
+        rendererReady = false;
+      }
+    });
+    // Unlike did-finish-load, this pairs with did-start-loading for subframes.
+    contents.on('did-stop-loading', () => {
+      loadFinished = true;
+      maybeAttach();
+    });
+    workspaceOpenReadyCallbacksByWebContentsId.set(webContentsId, () => {
+      rendererReady = true;
+      maybeAttach();
+    });
+    win.once('closed', () => {
+      workspaceOpenReadyCallbacksByWebContentsId.delete(webContentsId);
+      workspaceOpenQueue.detach();
+    });
+  };
+
   const factoryResetRendererReplacement = createFactoryResetRendererReplacementCoordinator({
     noteNextWindowReload: (window) => {
       noteNextWindowReload(window, { reason: 'factory-reset', source: 'main' });
@@ -1746,160 +1804,14 @@ if (singleInstanceLockAcquired) {
           throw new Error('Settings store unavailable after app.ready - this should never happen');
         }
         const storedWindowState = readStoredWindowState(store);
-        const win = await createWindow({ windowState: storedWindowState });
+        const win = await createWindow({
+          onBeforeLoad: bindWorkspaceOpenWindow,
+          windowState: storedWindowState,
+        });
         // app.on('activate') recreates this window; dispose the persistence
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
-        // Between `win.close()` being initiated and the webContents actually being
-        // destroyed, `isDestroyed()` still reports `false` — so without this, a
-        // request enqueued in that same tick would be spliced out of `pending` and
-        // `send` into a dying webContents (lost, or an uncaught "Object has been
-        // destroyed" escaping through `enqueue`). Detaching explicitly on `closed`
-        // removes that gap instead of leaving it an emergent property of
-        // `isDestroyed()` timing; `activate`'s later `createMainWindow()` call
-        // re-attaches to the new window through the same wiring above.
-        win.once('closed', () => {
-          workspaceOpenQueue.detach();
-        });
-
-        // `createWindow`'s `loadFile`/`loadURL` call RESOLVES at `did-finish-load`
-        // (Electron's own contract), so by the time `win` exists here the initial
-        // load's main-frame document has already finished — a listener registered
-        // only AFTER this point would never see THAT particular event. Attach is
-        // gated on TWO independent conditions below (`loadFinished` AND
-        // `rendererReady`), each with its own catch-up path, so neither being
-        // already-true by the time this code runs is a problem.
-        // Wired HERE, inside `createMainWindow`, rather than at each call site, so
-        // the SAME attach point serves the initial launch and every
-        // `app.on('activate')` recreation — macOS's Dock-drop path with no window
-        // open is the primary way `open-file` arrives, and a window built without
-        // this wiring would strand the queue's target forever (BST-1393 L3 review).
-        let loadFinished = false;
-        // `did-finish-load` alone is NOT proof the renderer can receive a
-        // delivery: it fires when the DOCUMENT finishes loading, before React
-        // has mounted `WorkspaceConnectHost` and that component's passive
-        // `useEffect` has subscribed via `onOpenPath`. A flush in that gap
-        // sends into a renderer with no `ipcRenderer.on` listener, and
-        // Electron does not retain or replay the event — silent loss, the
-        // exact failure class this queue exists to prevent. `rendererReady`
-        // is the renderer's own explicit ack (`notifyOpenPathReady`, sent the
-        // instant `WorkspaceConnectHost` subscribes) — attach requires BOTH.
-        let rendererReady = false;
-        const attachWorkspaceOpenQueue = () => {
-          workspaceOpenQueue.attach({
-            isDestroyed: () => win.webContents.isDestroyed(),
-            send: (channel, payload) => {
-              win.webContents.send(channel, payload);
-            },
-          });
-        };
-        const maybeAttachWorkspaceOpenQueue = () => {
-          if (loadFinished && rendererReady) {
-            attachWorkspaceOpenQueue();
-          }
-        };
-        // A reload/navigation destroys the renderer's `WorkspaceConnectHost`
-        // subscription before the new document re-mounts it; detaching on
-        // `did-start-loading` stops mid-reload requests from being sent into a
-        // page with no listener (they buffer instead, and the matching
-        // re-attach below delivers them once loading settles again).
-        // `loadFinished` resets here UNCONDITIONALLY (any frame, including a
-        // subframe) — fail-safe: a request enqueued mid-load would be lost
-        // into a possibly-reloading page anyway, and the paired
-        // `did-stop-loading` below self-heals it regardless of which frame
-        // navigated.
-        //
-        // `rendererReady` is deliberately NOT reset here — see
-        // `did-start-navigation` below for why resetting it on EVERY
-        // `did-start-loading` is a second Critical bug, not a fix (PR #2682
-        // re-review).
-        win.webContents.on('did-start-loading', () => {
-          loadFinished = false;
-          workspaceOpenQueue.detach();
-        });
-        // `rendererReady` resets ONLY on a real MAIN-FRAME navigation that
-        // replaces the current document (`isMainFrame && !isSameDocument` — the
-        // same guard `browser-pane-host.ts`'s `onHostNavigation` already uses
-        // for an identical "did the top-level document just get replaced?"
-        // question). This is deliberately a DIFFERENT, narrower event than
-        // `did-start-loading` above: that one is WebContents-level and fires
-        // for ANY frame, including the canvas surface's `<iframe>`
-        // (`canvas-frame.tsx`) whose `src` changes with the nonce every time
-        // an artifact opens or re-keys. `WorkspaceConnectHost`'s ready-ping
-        // effect depends only on `[connectPath]`, so it NEVER re-fires for a
-        // subframe navigation — resetting `rendererReady` on
-        // `did-start-loading` (as an earlier version of this fix did) would
-        // clear it on a canvas-artifact open and nothing would ever set it
-        // back: `did-stop-loading` would restore `loadFinished`, but with no
-        // second ready ping ever coming, the queue would stay permanently
-        // detached — the ORIGINAL Critical 2 bug, reproduced through the new
-        // flag instead of the old attach listener. A subframe navigation
-        // (`isMainFrame === false`) and a same-document one (`isSameDocument`,
-        // e.g. a hash change or `pushState`) both leave the existing
-        // `WorkspaceConnectHost` subscription — and its already-sent ready
-        // ping — intact, so neither should reset readiness.
-        win.webContents.on('did-start-navigation', (details) => {
-          if (details.isMainFrame && !details.isSameDocument) {
-            rendererReady = false;
-          }
-        });
-        // `did-stop-loading`, NOT `did-finish-load`: the latter is main-frame
-        // ONLY (Electron guards `WebContents::DidFinishLoad` on
-        // `!render_frame_host->GetParent()`; a subframe's completion fires
-        // `did-frame-finish-load` instead), while `did-start-loading` above is
-        // WebContents-level and fires for ANY frame, including `<iframe>`
-        // navigations (e.g. the canvas surface's artifact frame). Pairing
-        // `did-start-loading` with `did-finish-load` is asymmetric: a
-        // subframe-only load would detach with nothing ever re-attaching for
-        // the lifetime of the window. `did-stop-loading` is documented as the
-        // WebContents-level counterpart of `did-start-loading` — it always
-        // fires, for main-frame and subframe loads alike, keeping the pair
-        // symmetric (BST-1393 PR #2682 review).
-        win.webContents.on('did-stop-loading', () => {
-          loadFinished = true;
-          maybeAttachWorkspaceOpenQueue();
-        });
-        // Renderer→main ready ping (`WorkspaceConnectHost`, immediately after
-        // it subscribes via `onOpenPath`). The channel itself is registered
-        // ONCE, globally, by `workspace-open-ready-ipc.ts` (see the module
-        // comment above `workspaceOpenReadyCallbacksByWebContentsId`) — this
-        // just plugs THIS window's callback into that shared dispatch map,
-        // keyed by `webContents.id` so a ping from a different window (or a
-        // stale one from a previous, now-destroyed window, after `activate`
-        // recreates it) never attaches this one prematurely. Removed on
-        // `closed` so the map doesn't accumulate entries across recreations.
-        // Captured NOW, not read inside the `closed` handler: by the time
-        // `closed` fires the WebContents is destroyed and `win.webContents`
-        // GETTER ACCESS throws "Object has been destroyed" — an uncaught
-        // main-process exception on every window close (caught live by the
-        // BST-1393 L5 e2e run, where it surfaced during every teardown).
-        const workspaceOpenReadyWebContentsId = win.webContents.id;
-        workspaceOpenReadyCallbacksByWebContentsId.set(workspaceOpenReadyWebContentsId, () => {
-          rendererReady = true;
-          maybeAttachWorkspaceOpenQueue();
-        });
-        win.once('closed', () => {
-          workspaceOpenReadyCallbacksByWebContentsId.delete(workspaceOpenReadyWebContentsId);
-        });
-        // LOAD-BEARING: this whole block, from the `did-start-loading`
-        // registration above through the `isLoading()` check below, MUST stay
-        // one synchronous run with NO `await` between any of the statements.
-        // Node/Electron main is single-threaded, so as written nothing can
-        // interleave; an inserted `await` would let a real `did-stop-loading`
-        // (or ready ping) land between a registration and this check, silently
-        // re-opening Critical 1 (the initial attach never fires again) in a
-        // way no test can express — this is a property of the CALLER's code
-        // shape, not something a mock can pin.
-        if (!win.webContents.isLoading()) {
-          loadFinished = true;
-          // `rendererReady` is still false here — WorkspaceConnectHost's
-          // effect has not run yet. This just catches up `loadFinished`;
-          // `maybeAttachWorkspaceOpenQueue` stays a no-op until the ready
-          // ping arrives, which is the correct order for a fresh window.
-          maybeAttachWorkspaceOpenQueue();
-        }
-
         // Embedded browser pane (BST-1174): each window owns its OWN pane host
         // + IPC registration, so a macOS close→dock-reopen cycle (which calls
         // createMainWindow again without quitting) rebinds the pane to the new

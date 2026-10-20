@@ -77,6 +77,13 @@ vi.mock('../../renderer/components/root-layout-content', () => ({
 }));
 
 vi.mock('../../renderer/log-buffer', () => ({}));
+vi.mock('../../renderer/host-permission-policy', () => ({
+  hostPermissionPolicyPersistence: () => ({
+    getItem: async () => null,
+    removeItem: async () => {},
+    setItem: async () => {},
+  }),
+}));
 
 // Host transport is a browser-only boundary, unrelated to database routing.
 vi.mock('../../renderer/agent-host-client', () => ({
@@ -87,6 +94,7 @@ vi.mock('../../renderer/agent-host-client', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal('agentHost', { onPrepareClose: vi.fn(() => () => undefined) });
   const existing = document.getElementById('root');
   if (existing) {
     existing.remove();
