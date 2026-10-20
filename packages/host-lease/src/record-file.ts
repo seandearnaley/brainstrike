@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { applyPrivateDirectorySync, SecureRoot } from '@brainstrike/secure-fs-native';
+import { proofStartupPhase } from './proof-startup-timing.js';
 import { decodeHostRecord, HOST_RECORD_FILE, type HostRecord, tokensEqual } from './record.js';
 
 function isMissing(error: unknown): boolean {
@@ -37,7 +38,7 @@ async function syncDirectory(root: string): Promise<void> {
 export async function readHostRecord(root: string): Promise<HostRecord | null> {
   const path = join(root, HOST_RECORD_FILE);
   try {
-    const info = await lstat(path);
+    const info = await proofStartupPhase('host-record.lstat', () => lstat(path));
     if (!info.isFile() || info.size > 8192) {
       throw new TypeError('host.json must be a bounded regular file');
     }
@@ -47,7 +48,9 @@ export async function readHostRecord(root: string): Promise<HostRecord | null> {
       // exact owner/DACL on the same handle from which it reads the bytes.
       const directory = new SecureRoot(root);
       try {
-        const result = await directory.readPrivateFileAsync(HOST_RECORD_FILE);
+        const result = await proofStartupPhase('host-record.private-read', () =>
+          directory.readPrivateFileAsync(HOST_RECORD_FILE)
+        );
         if (result.status === 'not-found') {
           return null;
         }

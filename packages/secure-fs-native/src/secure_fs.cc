@@ -1,12 +1,15 @@
 #include <napi.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -1124,6 +1127,86 @@ struct RootState {
   std::mutex mutex_;  // guards the pointer slot only; never held across I/O
 };
 
+// PROOF ONLY: distinguish libuv queue wait, native I/O and callback delivery.
+// No paths or bytes are emitted. Counts cover this addon's workers only.
+class ProofNativeWork {
+ public:
+  explicit ProofNativeWork(const char* operation, bool private_file = false)
+      : operation_(operation), private_file_(private_file) {
+    if (!Enabled()) return;
+    id_ = ++next_id_;
+    queued_at_ = Clock::now();
+    ++queued_;
+    if (private_file_) Print("queued");
+  }
+
+  void Start() {
+    if (!Enabled()) return;
+    started_at_ = Clock::now();
+    --queued_;
+    ++running_;
+    if (private_file_) Print("execute");
+  }
+
+  void Finish() {
+    if (!Enabled()) return;
+    finished_at_ = Clock::now();
+    --running_;
+  }
+
+  void Callback(bool error = false) const {
+    if (!Enabled()) return;
+    if (private_file_ || Ms(Clock::now() - queued_at_) >= 100) Print("callback", error);
+  }
+
+ private:
+  using Clock = std::chrono::steady_clock;
+  static bool Enabled() {
+    static const bool enabled = [] {
+#ifdef _WIN32
+      char value[2]{};
+      return GetEnvironmentVariableA("BRAINSTRIKE_PROOF_LAUNCH_TIMING", value,
+                                     static_cast<DWORD>(sizeof(value))) == 1 && value[0] == '1';
+#else
+      const char* value = std::getenv("BRAINSTRIKE_PROOF_LAUNCH_TIMING");
+      return value != nullptr && std::strcmp(value, "1") == 0;
+#endif
+    }();
+    return enabled;
+  }
+  static double Ms(Clock::duration duration) {
+    return std::chrono::duration<double, std::milli>(duration).count();
+  }
+  void Print(const char* stage, bool error = false) const {
+    const auto epoch = std::chrono::system_clock::now().time_since_epoch();
+#ifdef _WIN32
+    const auto pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    const auto pid = static_cast<unsigned long>(getpid());
+#endif
+    const bool callback = std::strcmp(stage, "callback") == 0;
+    std::fprintf(stderr,
+        "[native-fs-proof] {\"epochMs\":%.3f,\"pid\":%lu,\"id\":%llu,"
+        "\"operation\":\"%s\",\"stage\":\"%s\",\"queuedSecureFsWork\":%u,"
+        "\"runningSecureFsWork\":%u,\"queueMs\":%.3f,\"workMs\":%.3f,"
+        "\"callbackMs\":%.3f,\"error\":%s}\n",
+        std::chrono::duration<double, std::milli>(epoch).count(), pid, id_,
+        operation_, stage, queued_.load(), running_.load(),
+        started_at_ == Clock::time_point{} ? 0 : Ms(started_at_ - queued_at_),
+        callback ? Ms(finished_at_ - started_at_) : 0,
+        callback ? Ms(Clock::now() - finished_at_) : 0, error ? "true" : "false");
+  }
+  inline static std::atomic<unsigned long long> next_id_{0};
+  inline static std::atomic<unsigned int> queued_{0};
+  inline static std::atomic<unsigned int> running_{0};
+  const char* operation_;
+  bool private_file_;
+  unsigned long long id_ = 0;
+  Clock::time_point queued_at_{};
+  Clock::time_point started_at_{};
+  Clock::time_point finished_at_{};
+};
+
 class ListDirWorker final : public Napi::AsyncWorker {
  public:
   ListDirWorker(Napi::Env env, Napi::Promise::Deferred deferred,
@@ -1136,14 +1219,17 @@ class ListDirWorker final : public Napi::AsyncWorker {
         max_entries_(max_entries) {}
 
   void Execute() override {
+    proof_.Start();
     const auto root = state_->Acquire();
     if (root) {
       succeeded_ = ListDirectory(root->handle, components_, max_entries_, &entries_, &inspected_,
                                  &truncated_);
     }
+    proof_.Finish();
   }
 
   void OnOK() override {
+    proof_.Callback();
     if (!succeeded_) {
       deferred_.Resolve(Env().Null());
       return;
@@ -1151,9 +1237,13 @@ class ListDirWorker final : public Napi::AsyncWorker {
     deferred_.Resolve(BuildListResult(Env(), entries_, inspected_, truncated_));
   }
 
-  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+  void OnError(const Napi::Error& error) override {
+    proof_.Callback(true);
+    deferred_.Reject(error.Value());
+  }
 
  private:
+  ProofNativeWork proof_{"list-dir"};
   Napi::Promise::Deferred deferred_;
   std::shared_ptr<RootState> state_;
   std::vector<std::string> components_;
@@ -1176,17 +1266,26 @@ class ReadFileWorker final : public Napi::AsyncWorker {
         max_bytes_(max_bytes) {}
 
   void Execute() override {
+    proof_.Start();
     const auto root = state_->Acquire();
     if (root) {
       status_ = ReadRelativeFile(root->handle, components_, max_bytes_, &content_);
     }
+    proof_.Finish();
   }
 
-  void OnOK() override { deferred_.Resolve(BuildReadResult(Env(), status_, content_)); }
+  void OnOK() override {
+    proof_.Callback();
+    deferred_.Resolve(BuildReadResult(Env(), status_, content_));
+  }
 
-  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+  void OnError(const Napi::Error& error) override {
+    proof_.Callback(true);
+    deferred_.Reject(error.Value());
+  }
 
  private:
+  ProofNativeWork proof_{"read-file"};
   Napi::Promise::Deferred deferred_;
   std::shared_ptr<RootState> state_;
   std::vector<std::string> components_;
@@ -1201,12 +1300,14 @@ class PrivateFileWorker final : public Napi::AsyncWorker {
                     std::shared_ptr<const RootHandle> root, std::vector<std::string> components,
                     bool write, std::vector<uint8_t> content = {})
       : Napi::AsyncWorker(env, "brainstrike:secure-fs:private-file"),
+        proof_(write ? "private-write" : "private-read", true),
         deferred_(deferred),
         root_(std::move(root)),
         components_(std::move(components)),
         write_(write),
         content_(std::move(content)) {}
   void Execute() override {
+    proof_.Start();
     try {
       if (write_) {
         const auto failure = WritePrivateRelativeFile(root_->handle, components_, content_);
@@ -1219,19 +1320,23 @@ class PrivateFileWorker final : public Napi::AsyncWorker {
     }
     // Release the operation's pinned root before its Promise settles.
     root_.reset();
+    proof_.Finish();
   }
   void OnOK() override {
+    proof_.Callback();
     if (write_)
       deferred_.Resolve(Env().Undefined());
     else
       deferred_.Resolve(BuildReadResult(Env(), status_, content_));
   }
   void OnError(const Napi::Error& error) override {
+    proof_.Callback(true);
     error.Value().Set("code", "ERR_PRIVATE_FILE_OPERATION");
     deferred_.Reject(error.Value());
   }
 
  private:
+  ProofNativeWork proof_;
   Napi::Promise::Deferred deferred_;
   std::shared_ptr<const RootHandle> root_;
   std::vector<std::string> components_;

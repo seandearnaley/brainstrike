@@ -14,6 +14,7 @@ import {
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
+import { proofLaunchTiming, proofLaunchTimingEnabled } from './proof-launch-timing';
 
 interface OwnedCollectionScan {
   fault?: { readonly error: unknown };
@@ -29,6 +30,7 @@ export class IndexerHostManager {
   readonly #options: IndexerOptions;
   readonly #deadlines: IndexerDeadlines;
   readonly #entryPath: string;
+  readonly #proofId = performance.now();
   #connection: IndexerConnection | undefined;
   #start: Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> | undefined;
   #canonical: CanonicalUtilityParent | undefined;
@@ -90,7 +92,37 @@ export class IndexerHostManager {
     if (this.#closed) {
       throw new Error('Indexer host closed before launch.');
     }
+    const forkAt = performance.now();
+    this.#proof('fork');
     const child = utilityProcess.fork(this.#entryPath, [], { serviceName: 'brainstrike-indexer' });
+    child.once('spawn', () =>
+      this.#proof('spawn-event', {
+        pid: child.pid,
+        sinceForkMs: performance.now() - forkAt,
+      })
+    );
+    const proofRequests = new Map<number, { at: number; op: string }>();
+    const observeResponse = (value: unknown): void => {
+      if (!proofLaunchTimingEnabled || value === null || typeof value !== 'object') {
+        return;
+      }
+      const id: unknown = Reflect.get(value, 'id');
+      if (typeof id !== 'number') {
+        return;
+      }
+      const request = proofRequests.get(id);
+      if (!request) {
+        return;
+      }
+      this.#proof('rpc-response', {
+        elapsedMs: performance.now() - request.at,
+        id,
+        ok: typeof Reflect.get(value, 'ok') === 'boolean' ? Reflect.get(value, 'ok') : null,
+        op: request.op,
+        pid: child.pid,
+      });
+      proofRequests.delete(id);
+    };
     const protocolErrors = new Set<(error: unknown) => void>();
     const canonical = new CanonicalUtilityParent(
       (message) => {
@@ -122,6 +154,15 @@ export class IndexerHostManager {
       },
       onExit: (listener) => {
         const exit = (): void => {
+          for (const [id, request] of proofRequests) {
+            this.#proof('rpc-unanswered-at-exit', {
+              elapsedMs: performance.now() - request.at,
+              id,
+              op: request.op,
+              pid: child.pid,
+            });
+          }
+          proofRequests.clear();
           this.#closed = true;
           this.#exitCleanup ??= canonical.exited(new IndexerUtilityExitedError());
           void this.#exitCleanup.catch(() => {
@@ -135,6 +176,7 @@ export class IndexerHostManager {
       onMessage: (listener) => {
         const message = (value: unknown): void => {
           if (!isCanonicalFrame(value)) {
+            observeResponse(value);
             listener(value);
             return;
           }
@@ -151,9 +193,33 @@ export class IndexerHostManager {
         child.on('message', message);
         return () => child.off('message', message);
       },
-      send: (message) => child.postMessage(message),
+      send: (message) => {
+        if (proofLaunchTimingEnabled) {
+          const id: unknown = Reflect.get(message, 'id');
+          const op: unknown = Reflect.get(message, 'op');
+          if (typeof id === 'number' && typeof op === 'string') {
+            proofRequests.set(id, { at: performance.now(), op });
+            this.#proof('rpc-send', { id, op, pid: child.pid });
+          }
+        }
+        child.postMessage(message);
+      },
     });
-    const port = await this.#connection.ready;
+    let port: Awaited<IndexerConnection['ready']>;
+    try {
+      port = await this.#connection.ready;
+    } catch (cause) {
+      this.#proof('ready-failed', {
+        error: cause instanceof Error ? cause.message : String(cause),
+        pid: child.pid,
+        sinceForkMs: performance.now() - forkAt,
+      });
+      throw cause;
+    }
+    this.#proof('ready', {
+      pid: child.pid,
+      sinceForkMs: performance.now() - forkAt,
+    });
     return { ...port, close: () => this.close(), destroy: () => this.destroy() };
   }
 
@@ -307,9 +373,14 @@ export class IndexerHostManager {
     }
   }
 
+  #proof(phase: string, fields: Record<string, unknown> = {}): void {
+    proofLaunchTiming('indexer', phase, { ownerId: this.#proofId, ...fields });
+  }
+
   #bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout?: () => void): Promise<T> {
     return runWithTimeout(() => work, {
       onTimeout: () => {
+        this.#proof('canonical-request-deadline-exceeded', { timeoutMs });
         onTimeout?.();
         this.#closed = true;
         // Stop admission synchronously. The parent retains unfinished/failed retirement for close().

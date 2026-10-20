@@ -19,8 +19,6 @@ export const DESKTOP_SMOKE_EXCLUSIONS = Object.freeze({
     'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
   'ubuntu-24.04-arm':
     'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
-  'windows-2025':
-    'BST-2244: on hosted run 39353820360, with the BST-2239 and BST-2247 fixes, the first smoke test closed cleanly (Electron exit 0), but the third, add-root-ui:206, crashed Main in teardown with 0xE06D7363, then 0xC0000409. The BST-2244 fix turns this leg back on.',
 });
 
 export function selectNativePackageTargets(platform = 'all') {
