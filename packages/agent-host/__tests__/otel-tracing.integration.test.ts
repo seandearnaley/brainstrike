@@ -184,7 +184,7 @@ async function tracedRun(env: NodeJS.ProcessEnv, prompt: string) {
   const root = await mkdtemp(join(tmpdir(), 'bs-otel-tracing-'));
   roots.push(root);
   const host = launchHost(root, env);
-  expect(await host.startup).toEqual({ event: 'ready' });
+  expect(await host.startup).toMatchObject({ event: 'ready' });
   const record = decodeHostRecord(JSON.parse(await readFile(join(root, 'host.json'), 'utf8')));
   const client = await attachAgentHost(record);
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });

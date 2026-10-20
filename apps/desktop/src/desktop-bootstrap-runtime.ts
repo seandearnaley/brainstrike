@@ -22,6 +22,7 @@ import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { createDesktopHostLease } from './host-lease-manager';
+import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { registerPrivilegedSchemes } from './privileged-schemes';
 import {
@@ -187,6 +188,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
       // 3.731s. Keep the physical join within the existing 5s shutdown budget;
       // the other platforms retain their existing allowance.
       closeTimeoutMs: process.platform === 'win32' ? 5000 : 1000,
+      lifecycleDelays: lifecycleDelaySeam(),
       onChildReady: privateClients.attach,
       onChildStarted: () => launched.resolve(),
       onLost: (code) => {

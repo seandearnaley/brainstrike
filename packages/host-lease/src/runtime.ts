@@ -22,6 +22,12 @@ import { ResourceOwner } from './resource-owner.js';
 export type HostLifetime = 'app' | 'cli' | 'persistent';
 export type HostStartOptions = typeof StartOptionsSchema.Type;
 export interface HostRuntime {
+  /**
+   * Counts a client its launcher connected privately (a port, not this host's
+   * socket) from its initialize until the returned detach: it is attached like
+   * a socket client. Refused once the host is closing.
+   */
+  attachClient(): () => void;
   readonly clientCount: number;
   close(): Promise<void>;
   readonly closed: Promise<void>;
@@ -179,7 +185,7 @@ export async function startHost(
     }
     return closing;
   };
-  // A CLI host exits when its last client leaves. A host no client ever attached exits once its
+  // A CLI host exits when its last client leaves. A CLI host no client ever attached exits once its
   // startup grace has elapsed, re-checked here when its last run releases (BST-2170): the grace
   // timer fires once, and a run held at that moment must not keep the host alive forever.
   const finishIfIdle = (): void => {
@@ -378,7 +384,11 @@ export async function startHost(
       await closing;
       throw new Error('Host closed during startup');
     }
-    if (options.lifetime !== 'persistent') {
+    if (options.lifetime === 'cli') {
+      // A CLI host's idle rule, not a liveness bound: a host no client ever
+      // attached closes itself once its grace has elapsed. An app host has no
+      // grace (lifecycle R2): Main's lifetime channel alone ties it to Main,
+      // however long Main takes to attach.
       await owner.acquire(
         async () =>
           setTimeout(() => {
@@ -401,6 +411,22 @@ export async function startHost(
       throw new Error('App parent is not alive at host startup');
     }
     return {
+      attachClient: () => {
+        if (closing || signal?.aborted) {
+          throw new Error('Host attachment is already initialized or closing');
+        }
+        attachedOnce = true;
+        clients += 1;
+        let detached = false;
+        return () => {
+          if (detached) {
+            return;
+          }
+          detached = true;
+          clients -= 1;
+          finishIfIdle();
+        };
+      },
       get clientCount(): number {
         return clients;
       },

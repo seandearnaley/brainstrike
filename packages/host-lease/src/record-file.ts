@@ -34,13 +34,21 @@ async function syncDirectory(root: string): Promise<void> {
     await directory.close();
   }
 }
-export async function readHostRecord(root: string): Promise<HostRecord | null> {
+/**
+ * The published record, or null when there is none. `beforeRead` (the E2E
+ * `record-read` delay) is awaited once host.json exists, before its bytes are read.
+ */
+export async function readHostRecord(
+  root: string,
+  beforeRead?: () => Promise<void>
+): Promise<HostRecord | null> {
   const path = join(root, HOST_RECORD_FILE);
   try {
     const info = await lstat(path);
     if (!info.isFile() || info.size > 8192) {
       throw new TypeError('host.json must be a bounded regular file');
     }
+    await beforeRead?.();
     if (process.platform === 'win32') {
       // BST-1941: spawning PowerShell for every metadata read also delayed
       // cooperative retirement. The existing native primitive checks the

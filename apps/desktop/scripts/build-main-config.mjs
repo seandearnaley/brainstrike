@@ -7,6 +7,7 @@
  * - dist/main.js            small package.json "main" bootstrap
  * - dist/main-runtime.js    full Main, loaded after utility fork
  * - dist/desktop-*.js       shared bootstrap/profile process owners
+ * - dist/lifecycle-delay-seam.js  Main's one E2E delay seam, shared by every Main bundle
  * - dist/preload.js         visible BrowserWindow preload
  * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
  * - dist/parser-host-entry.js  utilityProcess.fork target, resolved as a SIBLING
@@ -58,6 +59,7 @@ export const MAIN_PROCESS_ENTRY_POINTS = {
   'hidden-preload': 'src/hidden-preload.ts',
   'host-lease-entry': 'src/host-lease-entry.ts',
   'indexer-host-entry': 'src/indexer-host-entry.ts',
+  'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
   main: 'src/main-bootstrap.ts',
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
   'main-runtime': 'src/main.ts',
@@ -76,6 +78,7 @@ const sharedMainModules = new Map(
     ['desktop-database-location', 'desktop-database-location'],
     ['desktop-env', 'desktop-env'],
     ['desktop-shutdown-state', 'desktop-shutdown-state'],
+    ['lifecycle-delay-seam', 'lifecycle-delay-seam'],
   ].map(([source, output]) => [path.join(appRoot, 'src', `${source}.ts`), output])
 );
 

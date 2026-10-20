@@ -115,51 +115,53 @@ async function connectSocket(socket: Socket, endpoint: string, signal: AbortSign
   });
 }
 
-export async function attachHost(input: HostRecord, timeoutMs = 1500): Promise<HostAttachment> {
+function compatibleRecord(input: HostRecord): HostRecord {
   const record = decodeHostRecord(input);
   if (record.protocolVersion !== PROTOCOL_VERSION || record.hostVersion !== HOST_VERSION) {
     throw new Error(`Host pid ${record.pid} has incompatible protocol or host version`);
   }
+  return record;
+}
+type Handshake = (signal: AbortSignal) => Promise<void>;
+/** Runs the socket handshake as `run` bounds it; a failed attach closes and joins its socket. */
+async function attachWith(
+  record: HostRecord,
+  run: (handshake: Handshake) => Promise<void>
+): Promise<HostAttachment> {
   const owner = new ResourceOwner();
   const socket = await owner.acquire(async () => new Socket(), destroySocket);
   const queue = new ReplyQueue(socket);
   try {
-    await runWithTimeout(
-      async (signal) => {
-        const aborted = (): void => {
-          queue.fail(signal.reason);
-          socket.destroy();
-        };
-        signal.addEventListener('abort', aborted, { once: true });
-        try {
-          await connectSocket(socket, record.endpoint, signal);
-          const initialized = await queue.request({
-            hostVersion: HOST_VERSION,
-            method: 'initialize',
-            protocolVersion: PROTOCOL_VERSION,
-            token: record.token,
-          });
-          if (
-            initialized.method !== 'initialized' ||
-            initialized.pid !== record.pid ||
-            initialized.start !== record.start ||
-            initialized.protocolVersion !== record.protocolVersion ||
-            initialized.hostVersion !== record.hostVersion
-          ) {
-            throw new Error('Host initialize reply does not match its lease record');
-          }
-          if ((await queue.request({ method: 'attach' })).method !== 'attached') {
-            throw new Error('Host did not acknowledge attach');
-          }
-        } finally {
-          signal.removeEventListener('abort', aborted);
+    await run(async (signal) => {
+      const aborted = (): void => {
+        queue.fail(signal.reason);
+        socket.destroy();
+      };
+      signal.addEventListener('abort', aborted, { once: true });
+      try {
+        await connectSocket(socket, record.endpoint, signal);
+        const initialized = await queue.request({
+          hostVersion: HOST_VERSION,
+          method: 'initialize',
+          protocolVersion: PROTOCOL_VERSION,
+          token: record.token,
+        });
+        if (
+          initialized.method !== 'initialized' ||
+          initialized.pid !== record.pid ||
+          initialized.start !== record.start ||
+          initialized.protocolVersion !== record.protocolVersion ||
+          initialized.hostVersion !== record.hostVersion
+        ) {
+          throw new Error('Host initialize reply does not match its lease record');
         }
-      },
-      {
-        onTimeout: () => new Error(`Host pid ${record.pid} initialize/attach timed out`),
-        timeoutMs,
+        if ((await queue.request({ method: 'attach' })).method !== 'attached') {
+          throw new Error('Host did not acknowledge attach');
+        }
+      } finally {
+        signal.removeEventListener('abort', aborted);
       }
-    );
+    });
     return { close: () => owner.close(), closed: queue.closed, record };
   } catch (cause) {
     try {
@@ -169,4 +171,32 @@ export async function attachHost(input: HostRecord, timeoutMs = 1500): Promise<H
     }
     throw cause;
   }
+}
+
+/**
+ * Attaches to a host this process did not start. R5(a), the R2 exception:
+ * bounded, because a live but unreachable owner that is not ours is refused
+ * at `timeoutMs`, never waited on, killed or replaced.
+ */
+export async function attachHost(input: HostRecord, timeoutMs = 1500): Promise<HostAttachment> {
+  const record = compatibleRecord(input);
+  return await attachWith(record, (handshake) =>
+    runWithTimeout(handshake, {
+      onTimeout: () => new Error(`Host pid ${record.pid} initialize/attach timed out`),
+      timeoutMs,
+    })
+  );
+}
+
+/**
+ * Attaches to the host this process started, from the record its ready report
+ * carried (lifecycle R2/R3): no deadline. It fails only when that host's
+ * socket errors or closes, or when `signal` aborts because the host exited or
+ * its owner is closing.
+ */
+export async function attachStartedHost(
+  input: HostRecord,
+  signal: AbortSignal
+): Promise<HostAttachment> {
+  return await attachWith(compatibleRecord(input), (handshake) => handshake(signal));
 }

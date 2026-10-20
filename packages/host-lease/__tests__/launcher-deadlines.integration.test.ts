@@ -1,11 +1,13 @@
 /**
- * BST-2176: which deadline bounds each phase of a launch. Acquisition runs
- * under the launch's startup deadline, 30 s by default. The host this launch
- * started then attaches under its own budget, `attachTimeoutMs` from the
- * moment its starter reported ready, never what the startup deadline has
- * left. An existing owner, a start race's winner, or an owner that replaced
- * the host this launch started, attaches within what the launch's one
- * deadline has left (BST-2142).
+ * Which bound applies to each phase of a launch. Waiting for an owner this
+ * launch did not start runs under the launch's startup deadline, 30 s by
+ * default, and an existing owner, a start race's winner, or an owner that
+ * replaced the host this launch started, attaches within what that one
+ * deadline has left (BST-2142). The host this launch started is never bounded
+ * by it (lifecycle R2/R3): a Node (CLI) starter's host attaches over its socket
+ * under the owner attach bound, 1.5 s from its ready report, whatever the
+ * startup deadline has left; a launch with `attachStarted` (the desktop) has
+ * no bound at all (launcher-ready-record.test.ts).
  */
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -56,11 +58,11 @@ afterEach(async () => {
 });
 
 // A slow cold start: ready 700 ms into a 1000 ms startup deadline leaves 300 ms
-// of it, less than the 500 ms its handshake takes and well within an 800 ms
-// attach budget.
+// of it, less than the 500 ms its handshake takes and well within the 1.5 s
+// owner attach bound.
 const STARTUP_MS = 1000;
 const READY_AT_MS = 700;
-const ATTACH_BUDGET_MS = 800;
+const ATTACH_BUDGET_MS = 1500;
 const HANDSHAKE_MS = 500;
 // The launcher reads its deadlines from Date.now(). A test that pins what the
 // launch deadline has left fakes only Date, from LAUNCHED_AT, and moves it to
@@ -96,7 +98,7 @@ function lateStarter(launchedAt: number, settled: Settled) {
     hosts.push(host);
     await sleep(Math.max(0, launchedAt + READY_AT_MS - Date.now()));
     return {
-      identity: { pid: host.record.pid, start: host.record.start },
+      record: host.record,
       release: async () => {
         settled.released += 1;
       },
@@ -142,13 +144,12 @@ function rootFree(root: string): boolean {
   return owner === undefined || owner.released === true;
 }
 
-test('a host this launch started late in its startup deadline still gets its whole attach budget', async () => {
+test('a CLI-started host ready late in the startup deadline still gets the whole owner attach bound', async () => {
   const root = await freshRoot();
   const settled = { released: 0, retired: 0 };
   const offered: number[] = [];
   const attachment = await launchHost(root, {
     attach: slowAttach(HANDSHAKE_MS, offered),
-    attachTimeoutMs: ATTACH_BUDGET_MS,
     lifetime: 'cli',
     spawn: lateStarter(Date.now(), settled),
     startupTimeoutMs: STARTUP_MS,
@@ -162,13 +163,12 @@ test('a host this launch started late in its startup deadline still gets its who
   expect(offered[0]).toBeLessThanOrEqual(ATTACH_BUDGET_MS);
 });
 
-test('a host this launch started that overruns its own attach budget is retired, and the root is free', async () => {
+test('a CLI-started host that overruns the owner attach bound is retired, and the root is free', async () => {
   const root = await freshRoot();
   const settled = { released: 0, retired: 0 };
   const offered: number[] = [];
   const refused = await launchHost(root, {
     attach: slowAttach(ATTACH_BUDGET_MS + 200, offered),
-    attachTimeoutMs: ATTACH_BUDGET_MS,
     lifetime: 'cli',
     spawn: lateStarter(Date.now(), settled),
     startupTimeoutMs: STARTUP_MS,
@@ -190,7 +190,6 @@ test('an existing owner that publishes late is attached within what the launch d
   // launchHost reads its deadline before its first await, at LAUNCHED_AT.
   const launching = launchHost(root, {
     attach: slowAttach(HANDSHAKE_MS, offered),
-    attachTimeoutMs: ATTACH_BUDGET_MS,
     lifetime: 'cli',
     spawn: async () => {
       started = true;
@@ -215,7 +214,6 @@ test('a start race winner that publishes late is attached within what the launch
   vi.useFakeTimers({ now: LAUNCHED_AT, toFake: ['Date'] });
   const launching = launchHost(root, {
     attach: slowAttach(HANDSHAKE_MS, offered),
-    attachTimeoutMs: ATTACH_BUDGET_MS,
     lifetime: 'cli',
     // This starter loses the race to an owner that took the root first.
     spawn: async () => {
@@ -239,12 +237,14 @@ test('a start race winner that publishes late is attached within what the launch
   expect(offered).toEqual([STARTUP_MS - READY_AT_MS]);
 });
 
-test('by default a launch gives the host it starts 30 s to report ready', async () => {
+test('the launch never cancels the host it starts; only its caller signal does', async () => {
   const root = await freshRoot();
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   const spawned = Promise.withResolvers<AbortSignal>();
+  const caller = new AbortController();
   const launching = launchHost(root, {
     lifetime: 'cli',
+    signal: caller.signal,
     spawn: (_options, signal) => {
       spawned.resolve(signal);
       return new Promise<never>((_resolve, reject) =>
@@ -254,11 +254,11 @@ test('by default a launch gives the host it starts 30 s to report ready', async 
   }).catch((cause: unknown) => cause);
   const signal = await spawned.promise;
 
-  vi.advanceTimersByTime(29_999);
+  vi.advanceTimersByTime(120_000);
   expect(signal.aborted).toBe(false);
-  vi.advanceTimersByTime(1);
-  expect(signal.aborted).toBe(true);
-  expect(await launching).toMatchObject({ message: 'Host startup timed out' });
+  const quit = new Error('quit during startup');
+  caller.abort(quit);
+  expect(await launching).toBe(quit);
 });
 
 /** Polls `condition` until it holds, or fails naming `what`. */
@@ -286,8 +286,6 @@ test('an owner that replaced the host this launch started gets only what the lau
       offered.push(timeoutMs);
       return attachHost(record, timeoutMs);
     },
-    // Far longer than the startup deadline, so the two budgets cannot be confused.
-    attachTimeoutMs: 60_000,
     lifetime: 'cli',
     spawn: async (options, signal) => {
       const started = await nodeStarter(options, signal);

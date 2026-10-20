@@ -38,13 +38,15 @@ const owner = createDesktopHostLease({
   startupTimeoutMs,
 });
 const unused = (): Promise<never> => Promise.reject(new Error('No index requested by this client'));
+const profile = createDesktopProfileRuntime(() => owner);
 const runtime = createNativeIndexRuntime({
+  admitProfile: (signal) => profile.acquire(signal),
   closeQueries: async () => {},
   createIndexOwner: unused,
   getAuthority: unused,
   getFileInvalidator: () => undefined,
   installQueryTarget: () => {},
-  profile: createDesktopProfileRuntime(() => owner),
+  profile,
 });
 let closing: Promise<void> | undefined;
 function close(): void {

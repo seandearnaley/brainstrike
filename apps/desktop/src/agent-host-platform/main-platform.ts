@@ -8,6 +8,7 @@ import type { NativeChildObserver } from '@brainstrike/state-store/native-childr
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
@@ -57,6 +58,8 @@ export interface DesktopPlatformCapabilities {
   closeRootCapabilities?(): Promise<void>;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
   readonly hostTools?: HostToolServiceCapabilities;
+  /** Main's E2E delay seam; `platform-ready` delays Main's answer to the host's readiness check. */
+  readonly lifecycleDelays?: Pick<LifecycleDelaySeam, 'delay'>;
   /**
    * ADR-0007: Main's hidden embedding host, borrowed by an admitted thread's
    * local recall or retrieval tools through `platform/embedding/query`.
@@ -349,6 +352,7 @@ export function serveDesktopPlatform(
         errors: 'all',
         onExcessProperty: 'error',
       })(input);
+      await capabilities.lifecycleDelays?.delay('platform-ready');
       signal.throwIfAborted();
       return null;
     })

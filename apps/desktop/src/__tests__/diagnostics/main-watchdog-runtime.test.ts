@@ -7,10 +7,6 @@ import {
   runMainWatchdogPowerTransition,
   startMainWatchdogBeforeWindow,
 } from '../../diagnostics/main-watchdog-runtime';
-import {
-  createInitialWindowAfterNativeReader,
-  observeNativeReaderStartup,
-} from '../../native-index-startup-window';
 
 const ENABLED_CUSTOM_LOGGING = {
   destination: '/custom/brainstrike.log',
@@ -200,33 +196,23 @@ describe('main watchdog attachment lifecycle', () => {
 
 describe('main watchdog window startup', () => {
   it('keeps watchdog attachment ahead of renderer startup and cleans up after exit', async () => {
-    const reader = Promise.withResolvers<void>();
     const runtime = createMainWatchdogRuntime({ onDeliveryError: vi.fn() });
     const attachment = createMainWatchdogAttachmentLifecycle(runtime);
     const postMessage = vi.fn();
     const createWindow = vi.fn(async () => ({ id: 1 }));
     const onError = vi.fn();
-    // BST-1977: qualify the actual Main startup seam while reader readiness
-    // is held, replacing the obsolete createMainWindow source-text assertion.
+    // BST-1977: qualify the actual Main startup seam, replacing the obsolete
+    // createMainWindow source-text assertion.
     const window = startMainWatchdogBeforeWindow(
       () => attachment.attach(postMessage, ENABLED_CUSTOM_LOGGING),
       onError,
-      () =>
-        createInitialWindowAfterNativeReader(
-          observeNativeReaderStartup(reader.promise, onError),
-          createWindow,
-          vi.fn(),
-          () => false
-        )
+      createWindow
     );
     expect(postMessage).toHaveBeenCalledExactlyOnceWith({
       logPath: '/custom/brainstrike.log',
       type: 'config',
     });
     expect(runtime.heartbeat()).toBe(true);
-    await Promise.resolve();
-    expect(createWindow).not.toHaveBeenCalled();
-    reader.resolve();
     await expect(window).resolves.toEqual({ id: 1 });
     expect(createWindow).toHaveBeenCalledOnce();
     expect(onError).not.toHaveBeenCalled();
@@ -244,13 +230,7 @@ describe('main watchdog window startup', () => {
         throw error;
       },
       onError,
-      () =>
-        createInitialWindowAfterNativeReader(
-          Promise.resolve({ kind: 'ready' }),
-          createWindow,
-          vi.fn(),
-          () => false
-        )
+      createWindow
     );
     await expect(window).resolves.toEqual({ id: 1 });
     expect(onError).toHaveBeenCalledExactlyOnceWith(error);
