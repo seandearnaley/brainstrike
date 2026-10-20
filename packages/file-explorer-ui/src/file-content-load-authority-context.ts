@@ -9,11 +9,14 @@ export interface FileContentLoadAuthority {
   clearErrors: (compositeKeys: readonly string[]) => void;
   clearGeneration: (compositeKey: string, expectedGeneration: number | undefined) => void;
   currentGeneration: (compositeKey: string) => number;
+  /** Physical settlement; unlike invalidation this keeps admitted reads owned. */
+  drain: () => Promise<void>;
   getActiveLoad: (compositeKey: string) => Promise<void> | undefined;
   getErrorsSnapshot: () => ReadonlyMap<string, Error>;
   invalidateAll: () => void;
   isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean;
   lifecycleId: number;
+  prepareClose: () => Promise<void>;
   promoteQueuedLoad: (compositeKey: string) => Promise<void> | undefined;
   recordErrors: (
     failures: readonly {

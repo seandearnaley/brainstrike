@@ -1,10 +1,15 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { TooltipProvider } from '@brainstrike/ui';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type ExplorerCloseLifecycle,
+  ExplorerCloseLifecycleContext,
+} from '../shell/explorer-close-lifecycle';
 import { ViewFilterPresetDropdown } from '../view-filter-preset-dropdown';
+import { withProviderCloseOwner } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => <TooltipProvider>{children}</TooltipProvider>);
 const renderWithProviders = makeRenderWithProviders(Wrapper);
@@ -52,6 +57,64 @@ function getPresetRow(label: string): HTMLElement {
     throw new Error(`Expected ${label} preset row`);
   }
   return row;
+}
+
+function createCloseScope() {
+  let preparing = false;
+  const producers = new Set<() => Promise<void>>();
+  const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
+    isPreparing: () => preparing,
+    registerPersistence: () => {
+      throw new Error('The preset dropdown must not register a persistence owner');
+    },
+    registerProducer: (prepare) => {
+      producers.add(prepare);
+      return () => producers.delete(prepare);
+    },
+  });
+  return {
+    lifecycle,
+    prepareClose: () => {
+      preparing = true;
+      return Promise.all([...producers].map((prepare) => prepare())).then(() => undefined);
+    },
+  };
+}
+
+function observeClose(prepare: () => Promise<void>) {
+  let settled = false;
+  const result = prepare().then(
+    () => {
+      settled = true;
+      return { status: 'fulfilled' as const };
+    },
+    (reason: unknown) => {
+      settled = true;
+      return { reason, status: 'rejected' as const };
+    }
+  );
+  return { isSettled: () => settled, result };
+}
+
+type PresetMutation = 'create' | 'update' | 'delete';
+
+async function startPresetMutation(
+  mutation: PresetMutation,
+  user: ReturnType<typeof userEvent.setup>
+): Promise<void> {
+  await user.click(screen.getByRole('button'));
+  if (mutation === 'create') {
+    await user.click(screen.getByText('Create New Preset'));
+    await user.type(screen.getByPlaceholderText('e.g. My Custom Filter'), 'Held preset');
+    await user.click(screen.getByRole('button', { name: 'Save & Select' }));
+    return;
+  }
+  await user.click(
+    within(getPresetRow('Documentation')).getByRole('button', { name: 'Edit preset' })
+  );
+  await user.click(
+    screen.getByRole('button', { name: mutation === 'update' ? 'Save' : /delete/i })
+  );
 }
 
 describe('ViewFilterPresetDropdown', () => {
@@ -381,5 +444,120 @@ describe('ViewFilterPresetDropdown', () => {
     // Should be back to list view
     expect(screen.queryByText('New Preset')).not.toBeInTheDocument();
     expect(screen.getByText('Source Files')).toBeInTheDocument();
+  });
+
+  describe('Explorer close preparation', () => {
+    const mutations: PresetMutation[] = ['create', 'update', 'delete'];
+
+    function renderHeldMutation() {
+      const scope = createCloseScope();
+      const saved = Promise.withResolvers<ViewFilterPreset>();
+      const deleted = Promise.withResolvers<boolean>();
+      const onCreate = vi.fn(() => saved.promise);
+      const onUpdate = vi.fn(() => saved.promise);
+      const onDelete = vi.fn(() => deleted.promise);
+      renderWithProviders(
+        <ExplorerCloseLifecycleContext.Provider value={scope.lifecycle}>
+          <ViewFilterPresetDropdown
+            {...defaultProps}
+            onCreate={onCreate}
+            onDelete={onDelete}
+            onUpdate={onUpdate}
+            selectedPreset={getMockPreset(1)}
+          />
+        </ExplorerCloseLifecycleContext.Provider>
+      );
+      return { deleted, onCreate, onDelete, onUpdate, saved, scope };
+    }
+
+    it.each(mutations)('joins an admitted %s and fences its late selection', async (mutation) => {
+      const user = userEvent.setup();
+      const { deleted, onCreate, onDelete, onUpdate, saved, scope } = renderHeldMutation();
+      await startPresetMutation(mutation, user);
+      expect(
+        { create: onCreate, delete: onDelete, update: onUpdate }[mutation]
+      ).toHaveBeenCalledOnce();
+
+      const close = observeClose(scope.prepareClose);
+      try {
+        await act(async () => {
+          await Promise.resolve();
+        });
+        expect(close.isSettled()).toBe(false);
+      } finally {
+        await act(async () => {
+          if (mutation === 'delete') {
+            deleted.resolve(true);
+          } else {
+            saved.resolve({ ...getMockPreset(1), name: 'Committed preset' });
+          }
+          await close.result;
+        });
+      }
+
+      await expect(close.result).resolves.toEqual({ status: 'fulfilled' });
+      expect(mockOnSelect).not.toHaveBeenCalled();
+    });
+
+    it.each(mutations)(
+      'retains the original admitted %s failure during close',
+      async (mutation) => {
+        const user = userEvent.setup();
+        const { deleted, onCreate, onDelete, onUpdate, saved, scope } = renderHeldMutation();
+        await startPresetMutation(mutation, user);
+        expect(
+          { create: onCreate, delete: onDelete, update: onUpdate }[mutation]
+        ).toHaveBeenCalledOnce();
+
+        const failure = new Error(`Original ${mutation} repository failure`);
+        const close = observeClose(scope.prepareClose);
+        await act(async () => {
+          if (mutation === 'delete') {
+            deleted.reject(failure);
+          } else {
+            saved.reject(failure);
+          }
+          await close.result;
+        });
+
+        const result = await close.result;
+        expect(result.status).toBe('rejected');
+        if (result.status !== 'rejected') {
+          throw new Error('Explorer close hid the repository failure');
+        }
+        expect(result.reason).toBe(failure);
+        expect(mockOnSelect).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(['pointer', 'keyboard'])(
+      'fences %s selection after preparation starts',
+      async (input) => {
+        const user = userEvent.setup();
+        const scope = createCloseScope();
+        renderWithProviders(
+          <ExplorerCloseLifecycleContext.Provider value={scope.lifecycle}>
+            <ViewFilterPresetDropdown {...defaultProps} />
+          </ExplorerCloseLifecycleContext.Provider>
+        );
+        await user.click(screen.getByRole('button'));
+        if (input === 'keyboard') {
+          await user.type(
+            screen.getByRole('textbox', { name: /filter presets/i }),
+            'Documentation'
+          );
+        }
+        await act(async () => {
+          await scope.prepareClose();
+        });
+
+        if (input === 'pointer') {
+          await user.click(screen.getByText('Documentation'));
+        } else {
+          await user.keyboard('{Enter}');
+        }
+        expect(mockOnSelect).not.toHaveBeenCalled();
+      }
+    );
   });
 });

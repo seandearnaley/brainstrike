@@ -1,3 +1,7 @@
+import {
+  useExplorerCloseLifecycle,
+  useExplorerClosePreparation,
+} from '../shell/explorer-close-lifecycle';
 /**
  * VISIBLE-file token indexing trigger (BST-1207, decision D2).
  *
@@ -38,7 +42,7 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   VISIBLE_FILE_INDEXING_DEBOUNCE_MS,
   VISIBLE_FILE_INDEXING_MAX_PER_PASS,
@@ -108,6 +112,25 @@ export function useVisibleFileTokenIndexing({
   triggerIndexing,
   visibleFiles,
 }: UseVisibleFileTokenIndexingParams): void {
+  const closeLifecycle = useExplorerCloseLifecycle();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const passesRef = useRef(new Set<Promise<void>>());
+  const drainVisiblePasses = async (): Promise<void> => {
+    const results = await Promise.allSettled([...passesRef.current]);
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Visible-file indexing failed to settle');
+    }
+  };
+  useExplorerClosePreparation(async () => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+    }
+    timerRef.current = null;
+    await drainVisiblePasses();
+  }, drainVisiblePasses);
   // Re-arm counter for the capped pass. State, not a ref: consuming a batch
   // has to schedule the NEXT effect run, and nothing else in the deps moves
   // when a batch completes.
@@ -169,6 +192,9 @@ export function useVisibleFileTokenIndexing({
   );
 
   useEffect(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     if (!visibleFiles || visibleFiles.size === 0) {
       return;
     }
@@ -187,7 +213,17 @@ export function useVisibleFileTokenIndexing({
     const batch = candidates.slice(0, VISIBLE_FILE_INDEXING_MAX_PER_PASS);
     let cancelled = false;
     const timeoutId = setTimeout(() => {
-      void indexVisibleFiles(batch)
+      timerRef.current = null;
+      if (closeLifecycle?.isPreparing()) {
+        return;
+      }
+      const pass = indexVisibleFiles(batch);
+      passesRef.current.add(pass);
+      void pass.then(
+        () => passesRef.current.delete(pass),
+        () => passesRef.current.delete(pass)
+      );
+      void pass
         .then(() => {
           const remaining = Array.from(visibleFiles).filter(isUnconsumed).length;
           // Re-arm on PROGRESS only. A pass that consumed nothing — every key
@@ -197,7 +233,7 @@ export function useVisibleFileTokenIndexing({
           // next pass and this stale continuation must not update its cursor.
           if (
             shouldRearmVisibleFileIndexing({
-              cancelled,
+              cancelled: cancelled || closeLifecycle?.isPreparing() === true,
               candidateCount: candidates.length,
               remainingCount: remaining,
             })
@@ -214,12 +250,13 @@ export function useVisibleFileTokenIndexing({
           });
         });
     }, VISIBLE_FILE_INDEXING_DEBOUNCE_MS);
-
+    timerRef.current = timeoutId;
     return () => {
       cancelled = true;
       clearTimeout(timeoutId);
     };
   }, [
+    closeLifecycle,
     visibleFiles,
     indexVisibleFiles,
     passCursor,

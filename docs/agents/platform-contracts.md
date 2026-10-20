@@ -64,6 +64,16 @@ reply port. This preparation is terminal: failure is reported and shutdown still
 ends the renderer lifetime under the existing deadline, including a cancelled
 native window close. Hidden hosts retain their existing retirement order.
 
+Menu reload, desktop failed-chunk recovery and developer database reset use the
+same terminal renderer preparation before navigation; developer reset prepares
+before clearing the old profile. `noteReloadIntent` only attributes navigation.
+The narrow reload request requires the current visible main frame. Preparation
+and navigation share the existing 5s macOS/Linux or 10s Windows renderer budget;
+the profile reset retains its own owner. Failure shows a fixed native notice and
+retires only still-matching terminal documents. Late replies cannot reload or
+destroy a replacement generation. Factory reset, crash recovery and browser-pane
+reload retain their existing owners.
+
 Terminal quit prepares Main's workspace mutations and worktree operations before
 child-process or profile retirement. Accepted workflows finish while mounts, git,
 setup and the authenticated catalog remain available; new mutations are refused.

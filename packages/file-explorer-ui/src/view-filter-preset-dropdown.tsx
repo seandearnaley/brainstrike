@@ -1,3 +1,4 @@
+import { useExplorerCloseProducer } from './shell/explorer-close-lifecycle';
 /**
  * View Filter Preset Dropdown
  *
@@ -412,6 +413,7 @@ export function ViewFilterPresetDropdown({
   className,
   threadPreset = null,
 }: ViewFilterPresetDropdownProps): React.ReactElement {
+  const { isPreparing, track } = useExplorerCloseProducer();
   const [isOpen, setIsOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -483,7 +485,7 @@ export function ViewFilterPresetDropdown({
   }, []);
 
   const handleCreate = useCallback(async () => {
-    if (!newForm.name.trim()) {
+    if (isPreparing() || !newForm.name.trim()) {
       return;
     }
 
@@ -502,7 +504,11 @@ export function ViewFilterPresetDropdown({
     };
 
     try {
-      const created = await onCreate(input);
+      const created = await track(onCreate(input));
+      if (isPreparing()) {
+        logger.debug('Created preset selection retired with Explorer');
+        return;
+      }
       onSelect(created);
       setIsCreating(false);
       setIsOpen(false);
@@ -510,10 +516,10 @@ export function ViewFilterPresetDropdown({
     } catch (error) {
       logger.error('Failed to create preset', { error, name: input.name });
     }
-  }, [newForm, onCreate, onSelect, resetCreateForm]);
+  }, [newForm, onCreate, onSelect, resetCreateForm, isPreparing, track]);
 
   const handleSaveEdit = useCallback(async () => {
-    if (!(editingId && editForm.name.trim())) {
+    if (isPreparing() || !(editingId && editForm.name.trim())) {
       return;
     }
 
@@ -536,25 +542,36 @@ export function ViewFilterPresetDropdown({
 
     let updated: Awaited<ReturnType<typeof onUpdate>> | null = null;
     try {
-      updated = await onUpdate(currentEditingId, input);
+      updated = await track(onUpdate(currentEditingId, input));
     } catch (error) {
       logger.error('Failed to update preset', { error, id: currentEditingId });
+      return;
+    }
+    if (isPreparing()) {
+      logger.debug('Updated preset selection retired with Explorer');
       return;
     }
     if (updated && selectedPresetId === currentEditingId) {
       onSelect(updated);
     }
     setEditingId(null);
-  }, [editingId, editForm, onUpdate, selectedPreset, onSelect]);
+  }, [editingId, editForm, onUpdate, selectedPreset, onSelect, isPreparing, track]);
 
   const handleDelete = useCallback(
     async (id: string) => {
+      if (isPreparing()) {
+        return;
+      }
       const selectedId = selectedPreset?.id;
       let deleted = false;
       try {
-        deleted = await onDelete(id);
+        deleted = await track(onDelete(id));
       } catch (error) {
         logger.error('Failed to delete preset', { error, id });
+      }
+      if (isPreparing()) {
+        logger.debug('Deleted preset selection retired with Explorer');
+        return;
       }
       if (deleted) {
         setEditingId(null);
@@ -567,15 +584,18 @@ export function ViewFilterPresetDropdown({
         }
       }
     },
-    [onDelete, selectedPreset, presets, onSelect]
+    [onDelete, selectedPreset, presets, onSelect, isPreparing, track]
   );
 
   const selectPreset = useCallback(
     (preset: ViewFilterPreset) => {
+      if (isPreparing()) {
+        return;
+      }
       onSelect(preset);
       setIsOpen(false);
     },
-    [onSelect]
+    [onSelect, isPreparing]
   );
 
   const handleSearchKeyDown = useCallback(

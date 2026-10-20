@@ -978,8 +978,19 @@ export async function noteRendererReloadIntent(page: Page, reason: string): Prom
 }
 
 export async function reloadRenderer(page: Page, reason: string): Promise<void> {
-  await noteRendererReloadIntent(page, reason);
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  const navigation = page.waitForEvent('framenavigated', {
+    predicate: (frame) => frame === page.mainFrame(),
+  });
+  await page.evaluate(async (reloadReason) => {
+    const lifecycle = (
+      window as Window & { desktopLifecycle?: { requestReload(reason: string): Promise<void> } }
+    ).desktopLifecycle;
+    if (!lifecycle?.requestReload) {
+      throw new Error('desktopLifecycle.requestReload is unavailable');
+    }
+    await lifecycle.requestReload(reloadReason);
+  }, reason);
+  await navigation;
   await waitForAppReady(page);
 }
 

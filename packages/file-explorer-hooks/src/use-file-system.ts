@@ -1,8 +1,10 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, RootDescriptor, StoredRootDescriptor } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
 import { useAdapters } from './adapters-context.js';
+import { registerClosePreparation } from './close-preparation';
 import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers.js';
 
 const logger = createLogger('FileSystemHook');
@@ -15,6 +17,12 @@ interface UseFileSystemParams {
    * from the store's descriptors (ghost root on reload) — no silent no-ops.
    */
   addActiveRoot: FileExplorerState['addActiveRoot'];
+  closeLifecycle?:
+    | {
+        readonly isPreparing: () => boolean;
+        readonly registerProducer: (prepare: () => Promise<void>) => () => void;
+      }
+    | undefined;
   /**
    * Optional getter for the store's folderAccessOrder array (oldest first).
    * Used during restoreRoots boot to refocus the most recently focused root.
@@ -377,6 +385,7 @@ async function runMultiRootRestore({
 }
 
 export function useFileSystem({
+  closeLifecycle,
   setCurrentFolderId,
   waitForHydration,
   getPersistedCurrentFolderId,
@@ -386,6 +395,62 @@ export function useFileSystem({
   setActiveRoots,
 }: UseFileSystemParams) {
   const { fileSystemAdapter } = useAdapters();
+
+  const closingRef = useRef(false);
+  const closeRef = useRef<Promise<void> | undefined>(undefined);
+  const pendingRef = useRef(new Set<Promise<unknown>>());
+  const assertAdmission = useCallback(() => {
+    if (closingRef.current || closeLifecycle?.isPreparing()) {
+      throw new Error('File-system owner is preparing to close');
+    }
+  }, [closeLifecycle]);
+  const track = useCallback(<T>(completion: Promise<T>): Promise<T> => {
+    pendingRef.current.add(completion);
+    void completion.then(
+      () => pendingRef.current.delete(completion),
+      () => pendingRef.current.delete(completion)
+    );
+    return completion;
+  }, []);
+  const run = useCallback(
+    <T>(operation: () => Promise<T>): Promise<T> => {
+      try {
+        assertAdmission();
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      return track(operation());
+    },
+    [assertAdmission, track]
+  );
+  const drain = useCallback(async () => {
+    const failures: unknown[] = [];
+    while (pendingRef.current.size > 0) {
+      const results = await Promise.allSettled([...pendingRef.current]);
+      failures.push(
+        ...results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+      );
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'File-system operations failed to settle');
+    }
+  }, []);
+  useLayoutEffect(() => {
+    if (!closeLifecycle || closeLifecycle.isPreparing()) {
+      return;
+    }
+    return registerClosePreparation(
+      {
+        drain,
+        prepareClose: () => {
+          closingRef.current = true;
+          closeRef.current ??= drain();
+          return closeRef.current;
+        },
+      },
+      closeLifecycle.registerProducer
+    );
+  }, [closeLifecycle, drain]);
 
   const [
     {
@@ -548,7 +613,7 @@ export function useFileSystem({
    * Returns the new focused handle (unchanged when the removed root was not
    * focused; null when no roots remain).
    */
-  const removeRootDirectory = useCallback(
+  const removeRootDirectory = useEventCallback(
     async (rootId: string): Promise<DirectoryHandle | null> => {
       // 1) Platform authority first. If it rejects, renderer state is unchanged
       //    and the surfaced error lets the user retry one coherent transition.
@@ -575,14 +640,7 @@ export function useFileSystem({
       removeActiveRoot(rootId);
 
       return nextFocused;
-    },
-    [
-      fileSystemAdapter,
-      rootDirectoryHandles,
-      rootDirectoryHandle,
-      updateCurrentFolderId,
-      removeActiveRoot,
-    ]
+    }
   );
 
   /**
@@ -782,7 +840,13 @@ export function useFileSystem({
   // Branch A: adapter has restoreRoots → restore ALL granted roots (multi-root).
   // Branch B: adapter has restoreLastFolder only → legacy single-root path.
   useEffect(() => {
-    if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
+    if (
+      closeLifecycle?.isPreparing() ||
+      closingRef.current ||
+      hasAttemptedRestoreRef.current ||
+      rootDirectoryHandle ||
+      isRestoringRef.current
+    ) {
       return;
     }
 
@@ -796,20 +860,22 @@ export function useFileSystem({
       dispatch({ loading: true, type: 'setAccessLoading' });
       // Use a mutable object so the cleanup closure can signal cancellation.
       const cancelledRef = { value: false };
-      void runMultiRootRestore({
-        cancelledRef,
-        dispatch,
-        getFolderAccessOrderRef,
-        getPersistedCurrentFolderId,
-        hasAttemptedRestoreRef,
-        isRestoringRef,
-        // BIND: the web adapter's restoreRoots reads this.handleCache — an
-        // unbound reference would lose `this` and throw at call time.
-        restoreRoots: adapterWithRestoreRoots.restoreRoots.bind(fileSystemAdapter),
-        setActiveRootsRef,
-        updateCurrentFolderId,
-        waitForHydration,
-      });
+      void track(
+        runMultiRootRestore({
+          cancelledRef,
+          dispatch,
+          getFolderAccessOrderRef,
+          getPersistedCurrentFolderId,
+          hasAttemptedRestoreRef,
+          isRestoringRef,
+          // BIND: the web adapter's restoreRoots reads this.handleCache — an
+          // unbound reference would lose `this` and throw at call time.
+          restoreRoots: adapterWithRestoreRoots.restoreRoots.bind(fileSystemAdapter),
+          setActiveRootsRef,
+          updateCurrentFolderId,
+          waitForHydration,
+        })
+      );
       return () => {
         cancelledRef.value = true;
         isRestoringRef.current = false;
@@ -858,7 +924,7 @@ export function useFileSystem({
         isRestoringRef.current = false;
       }
     };
-    void run();
+    void track(run());
     return () => {
       cancelled = true;
       isRestoringRef.current = false;
@@ -870,6 +936,8 @@ export function useFileSystem({
     applyRestoredFolderState,
     waitForHydration,
     getPersistedCurrentFolderId,
+    closeLifecycle,
+    track,
     // NOTE: getFolderAccessOrder and setActiveRoots are intentionally omitted from
     // deps to avoid infinite re-runs from unstable inline function references.
     // They are accessed via refs (getFolderAccessOrderRef / setActiveRootsRef)
@@ -878,25 +946,50 @@ export function useFileSystem({
 
   return useMemo(
     () => ({
-      addExternalRootHandle,
-      addRootDirectory,
-      addRootDirectoryByPath,
-      clearRootDirectory,
+      addExternalRootHandle: (handle: DirectoryHandle) => {
+        assertAdmission();
+        addExternalRootHandle(handle);
+      },
+      addRootDirectory: () => run(addRootDirectory),
+      addRootDirectoryByPath: addRootDirectoryByPath
+        ? (path: string) => run(() => addRootDirectoryByPath(path))
+        : undefined,
+      clearRootDirectory: () => {
+        assertAdmission();
+        clearRootDirectory();
+      },
       isAccessLoading,
       isFileSystemAccessSupported,
       listRecentRoots,
       recentRootsRevision,
-      registerRestoredHandles,
-      removeRootDirectory,
+      registerRestoredHandles: (handles: readonly DirectoryHandle[]) =>
+        run(() => registerRestoredHandles(handles)),
+      removeRootDirectory: (rootId: string, beforeRemove?: () => Promise<void>) =>
+        run(async () => {
+          // Admit caller preparation and the canonical disconnect as one operation.
+          await beforeRemove?.();
+          return await removeRootDirectory(rootId);
+        }),
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
-      selectRootDirectory,
-      setAccessLoading,
-      setFocusedRoot,
-      setRootDirectoryHandle,
+      selectRootDirectory: () => run(selectRootDirectory),
+      setAccessLoading: (loading: boolean) => {
+        assertAdmission();
+        setAccessLoading(loading);
+      },
+      setFocusedRoot: (identity: string) => {
+        assertAdmission();
+        setFocusedRoot(identity);
+      },
+      setRootDirectoryHandle: (handle: DirectoryHandle | null) => {
+        assertAdmission();
+        setRootDirectoryHandle(handle);
+      },
     }),
     [
+      assertAdmission,
+      run,
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,

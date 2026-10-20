@@ -3,7 +3,7 @@
  * the selected files' contents as one Markdown document, through the
  * explorer's existing context generation, with its project-tree option.
  */
-import { type ContextGenerationOverrides, useAdapters } from '@brainstrike/file-explorer-hooks';
+import type { ContextGenerationOverrides } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import {
   Button,
@@ -31,7 +31,6 @@ const logger = createLogger('ExplorerContextExportAction');
 export function ExplorerContextExportAction(): ReactElement {
   const { fileContents, loadMultipleFileContents, rootDirectoryHandle } = useFileExplorer();
   const store = useFileExplorerStoreContext();
-  const { storageAdapter } = useAdapters();
   // The whole forest: in query mode `selectedFilePaths` is the focused root alone.
   const { forestSelection, selectedCount } = useSelectionManager();
   const tokenTotal = useSelectedTokenTotal(forestSelection);
@@ -85,11 +84,11 @@ export function ExplorerContextExportAction(): ReactElement {
   const handleIncludeProjectTreeChange = useCallback(
     (checked: boolean) => {
       setIncludeProjectTree(checked);
-      persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
+      persistFileExplorerStateImmediately(store).catch((error: unknown) => {
         logger.error('Failed to persist includeProjectTree immediately', { error });
       });
     },
-    [setIncludeProjectTree, store, storageAdapter]
+    [setIncludeProjectTree, store]
   );
 
   const run = async (

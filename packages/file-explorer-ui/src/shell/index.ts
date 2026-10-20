@@ -1,4 +1,5 @@
 export * from '../components/worktree-indexing-control';
+export type { ExplorerCloseLifecycle } from './explorer-close-lifecycle';
 export * from './explorer-context-export-action';
 export * from './explorer-thread-status';
 export * from './file-content-context';

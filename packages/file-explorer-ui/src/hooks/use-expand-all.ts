@@ -1,3 +1,4 @@
+import { useExplorerCloseProducer } from '../shell/explorer-close-lifecycle';
 /**
  * Expand All Hook
  *
@@ -154,6 +155,12 @@ function prepareExpandAllWork(args: {
   }
 
   return { kind: 'run', pendingWork, rootDirectoryPaths };
+}
+
+function logSkippedExpandAll(reason: string | undefined): void {
+  if (reason) {
+    logger.debug(`expandAllProgressively: ${reason}`);
+  }
 }
 
 function handleExpandError(err: unknown, onError?: (error: Error) => void): void {
@@ -564,16 +571,19 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     setState({ isExpandingAll: false });
   }, [cancelLoadOperations]);
 
-  const expandAllProgressively = useCallback(
+  const { isPreparing, track } = useExplorerCloseProducer(cancelExpandAll);
+
+  const runExpandAll = useCallback(
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
       currentExpandedPaths: ReadonlySet<string> = new Set()
     ): Promise<void> => {
+      if (isPreparing()) {
+        throw new DOMException('Explorer expansion is retired', 'AbortError');
+      }
       const skipCheck = shouldSkipExpandAll(isExpandAllStartingRef.current);
       if (skipCheck.skip) {
-        if (skipCheck.reason) {
-          logger.debug(`expandAllProgressively: ${skipCheck.reason}`);
-        }
+        logSkippedExpandAll(skipCheck.reason);
         return;
       }
 
@@ -620,30 +630,36 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       sessionIdRef.current = sessionId;
 
       try {
-        const result = await runPendingUnloadedExpandAll({
-          batchConfig: buildExpandAllBatchConfig({
-            maxBatchDurationMs,
-            maxConcurrentLoads,
-            maxDirectories,
-            maxDirectoriesPerBatch,
+        const result = await track(
+          runPendingUnloadedExpandAll({
+            batchConfig: buildExpandAllBatchConfig({
+              maxBatchDurationMs,
+              maxConcurrentLoads,
+              maxDirectories,
+              maxDirectoriesPerBatch,
+            }),
+            committedPaths,
+            getNodeByPath,
+            initialPaths: pendingWork.pathsToLoad,
+            isExpandingAllRef,
+            loadDirectoryPath,
+            now,
+            onBatchLoadsSettled,
+            onProgress,
+            pathsToExpand: pendingWork.pathsToExpand,
+            rootDirectoryPaths,
+            runUnloadedExpandAll,
+            sessionId,
+            sessionIdRef,
+            setExpandedPaths,
+            yieldToBrowser,
           }),
-          committedPaths,
-          getNodeByPath,
-          initialPaths: pendingWork.pathsToLoad,
-          isExpandingAllRef,
-          loadDirectoryPath,
-          now,
-          onBatchLoadsSettled,
-          onProgress,
-          pathsToExpand: pendingWork.pathsToExpand,
-          rootDirectoryPaths,
-          runUnloadedExpandAll,
-          sessionId,
-          sessionIdRef,
-          setExpandedPaths,
-          yieldToBrowser,
-        });
+          (error) => sessionIdRef.current !== sessionId && isAbortError(error)
+        );
         const metrics = result.metrics ?? createEmptyExpandAllMetrics();
+        if (isPreparing() || sessionIdRef.current !== sessionId) {
+          return;
+        }
         commitExecutorResultPaths({
           committedPaths,
           metrics,
@@ -685,6 +701,8 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       }
     },
     [
+      isPreparing,
+      track,
       getNodeByPath,
       getRootNodes,
       loadDirectoryPath,
@@ -700,6 +718,11 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       runUnloadedExpandAll,
       yieldToBrowser,
     ]
+  );
+
+  const expandAllProgressively = useCallback(
+    (...args: Parameters<typeof runExpandAll>) => track(runExpandAll(...args)),
+    [runExpandAll, track]
   );
 
   return {

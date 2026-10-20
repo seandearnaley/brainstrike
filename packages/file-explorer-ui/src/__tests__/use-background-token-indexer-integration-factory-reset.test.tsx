@@ -12,9 +12,12 @@
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
+import type { ExplorerCloseLifecycle } from '../shell/explorer-close-lifecycle';
 import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';
+import { withProviderCloseOwner } from './test-helpers';
 
 const mockWorkers: MockWorker[] = [];
 
@@ -114,6 +117,7 @@ type LoggingModule = typeof import('@brainstrike/logging');
 let factoryReset: FactoryResetModule;
 let integration: IntegrationModule;
 let logging: LoggingModule;
+let lifecycleContext: typeof import('../shell/explorer-close-lifecycle');
 
 beforeEach(async () => {
   vi.resetModules();
@@ -122,6 +126,7 @@ beforeEach(async () => {
   logging = await import('@brainstrike/logging');
   factoryReset = await import('@brainstrike/app-state/factory-reset');
   integration = await import('../indexing/use-background-token-indexer-integration');
+  lifecycleContext = await import('../shell/explorer-close-lifecycle');
 });
 
 afterEach(() => {
@@ -140,13 +145,25 @@ function recordErrors(): { errors: string[]; stop: () => void } {
   return { errors, stop };
 }
 
-function renderIntegration(electronFileReader: () => Promise<string>) {
-  return renderHook(() =>
-    integration.useBackgroundTokenIndexerIntegration({
-      electronFileReader,
-      fileTree: [],
-      selectedFiles: new Set(),
-    })
+function renderIntegration(
+  electronFileReader: () => Promise<string>,
+  closeLifecycle?: ExplorerCloseLifecycle
+) {
+  return renderHook(
+    () =>
+      integration.useBackgroundTokenIndexerIntegration({
+        electronFileReader,
+        fileTree: [],
+        selectedFiles: new Set(),
+      }),
+    {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(
+          lifecycleContext.ExplorerCloseLifecycleContext.Provider,
+          { value: closeLifecycle },
+          children
+        ),
+    }
   );
 }
 
@@ -176,6 +193,141 @@ async function renderWithBatchInFlight() {
 }
 
 describe('background token indexing under a factory reset', () => {
+  it.each([false, true])(
+    'close joins the actual result-persistence ACK after logical dispatch settles (reject=%s)',
+    async (rejectWrite) => {
+      const ack = Promise.withResolvers<void>();
+      const failure = new Error('original result storage failure');
+      const writes = vi
+        .spyOn(tokenCacheContext.store!, 'set')
+        .mockImplementation(() => ack.promise);
+      const producers = new Set<() => Promise<void>>();
+      let preparing = false;
+      const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
+        isPreparing: () => preparing,
+        registerPersistence: () => () => {},
+        registerProducer: (prepare) => {
+          producers.add(prepare);
+          return () => {
+            producers.delete(prepare);
+          };
+        },
+      });
+      const view = renderIntegration(async () => 'export const result = true;', lifecycle);
+      let dispatch!: Promise<void>;
+      act(() => {
+        dispatch = view.result.current.triggerIndexing([fileKey]);
+      });
+      const worker = await waitFor(() => {
+        expect(mockWorkers).toHaveLength(1);
+        return mockWorkers[0]!;
+      });
+      act(() => {
+        worker.emitMessage({ type: 'ready' });
+      });
+      await waitFor(() =>
+        expect(worker.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'index-batch' })
+        )
+      );
+      const result = {
+        compositeKey: fileKey,
+        contentHash: 'controlled-hash',
+        elapsedMs: 1,
+        filePath: 'file-0.ts',
+        fileSize: 128,
+        folderId: 'root',
+        mode: 'accurate',
+        skipped: false,
+        tokenCount: 5,
+        type: 'result',
+      };
+      act(() => {
+        worker.emitMessage(result);
+      });
+      await waitFor(() => expect(writes).toHaveBeenCalledOnce());
+      await dispatch;
+      let closed = false;
+      let closing!: Promise<unknown>;
+      act(() => {
+        preparing = true;
+        closing = Promise.all([...producers].map((prepare) => prepare())).then(
+          () => {
+            closed = true;
+          },
+          (error: unknown) => error
+        );
+      });
+      try {
+        await act(async () => {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        });
+        expect(closed).toBe(false);
+        act(() => {
+          worker.emitMessage({ ...result, compositeKey: `${fileKey}-late` });
+        });
+        expect(writes).toHaveBeenCalledOnce();
+      } finally {
+        await act(async () => {
+          if (rejectWrite) {
+            ack.reject(failure);
+          } else {
+            ack.resolve();
+          }
+        });
+        const outcome = await closing;
+        if (rejectWrite) {
+          expect(outcome).toBe(failure);
+        } else {
+          expect(closed).toBe(true);
+        }
+        view.unmount();
+        writes.mockRestore();
+      }
+    }
+  );
+
+  it('terminal close joins an admitted file read and refuses subsequent indexing', async () => {
+    const read = Promise.withResolvers<string>();
+    const electronFileReader = vi.fn(() => read.promise);
+    const producers = new Set<() => Promise<void>>();
+    let preparing = false;
+    const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
+      isPreparing: () => preparing,
+      registerPersistence: () => () => {},
+      registerProducer: (prepare) => {
+        producers.add(prepare);
+        return () => {
+          producers.delete(prepare);
+        };
+      },
+    });
+    const view = renderIntegration(electronFileReader, lifecycle);
+    let dispatch!: Promise<void>;
+    act(() => {
+      dispatch = view.result.current.triggerIndexing([fileKey]);
+    });
+    await waitFor(() => expect(electronFileReader).toHaveBeenCalledTimes(1));
+    preparing = true;
+    let closed = false;
+    const closing = Promise.all([...producers].map((prepare) => prepare())).then(() => {
+      closed = true;
+    });
+    await act(async () => {
+      await view.result.current.triggerIndexing([fileKey]);
+    });
+    expect(closed).toBe(false);
+    expect(electronFileReader).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      read.resolve('export const done = true;');
+      await dispatch;
+      await closing;
+    });
+    expect(closed).toBe(true);
+    expect(mockWorkers).toHaveLength(0);
+    view.unmount();
+  });
+
   it('settles an in-flight batch as the reset cancellation before the remount terminates the worker', async () => {
     const { errors, stop } = recordErrors();
     let atPreparation: { settled: boolean; terminated: boolean } | undefined;

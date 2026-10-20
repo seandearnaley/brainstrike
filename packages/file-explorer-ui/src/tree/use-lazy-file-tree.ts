@@ -1,3 +1,7 @@
+import {
+  useExplorerCloseLifecycle,
+  useExplorerClosePreparation,
+} from '../shell/explorer-close-lifecycle';
 /**
  * Lazy File Tree Hook
  *
@@ -404,6 +408,8 @@ export function useLazyFileTree(
   rootDirectoryHandleInput: DirectoryHandle | null,
   options: UseLazyFileTreeOptions = {}
 ): UseLazyFileTreeReturn {
+  const closeLifecycle = useExplorerCloseLifecycle();
+  const rootPhysicalRunsRef = useRef(new Set<Promise<unknown>>());
   const { enabled = true, filterTreeFn, onNodesIndexed, onRootRefreshSnapshot, rootId } = options;
   // An inert tree sees no root, so it never loads one (BST-1957).
   const rootDirectoryHandle = enabled ? rootDirectoryHandleInput : null;
@@ -845,6 +851,9 @@ export function useLazyFileTree(
           resolvedRootFolderId,
           rootPath,
         });
+        if (closeLifecycle?.isPreparing()) {
+          return { status: 'cancelled' };
+        }
         rootConsumerController = createAbortController(null);
         const rootLoadRequest = loadRootChildren({
           consumerSignal: rootConsumerController.signal,
@@ -854,6 +863,12 @@ export function useLazyFileTree(
           rootPath,
         });
 
+        const physical = rootLoadRequest.request.promise;
+        rootPhysicalRunsRef.current.add(physical);
+        void physical.then(
+          () => rootPhysicalRunsRef.current.delete(physical),
+          () => rootPhysicalRunsRef.current.delete(physical)
+        );
         logStartedRootLoad(
           rootLoadRequest,
           fileTreeRef.current.length,
@@ -918,6 +933,7 @@ export function useLazyFileTree(
       syncNormalizedTree,
       dispatchRootRefreshSnapshot,
       resolvedRootFolderId,
+      closeLifecycle,
     ]
   );
 
@@ -1132,6 +1148,9 @@ export function useLazyFileTree(
    */
   const loadChildren = useCallback(
     async (path: string) => {
+      if (closeLifecycle?.isPreparing()) {
+        throw new DOMException('Renderer close retired directory loading', 'AbortError');
+      }
       if (!fileSystemAdapter) {
         return;
       }
@@ -1191,10 +1210,21 @@ export function useLazyFileTree(
         }
       });
 
+      rootPhysicalRunsRef.current.add(loadPromise);
+      void loadPromise.then(
+        () => rootPhysicalRunsRef.current.delete(loadPromise),
+        () => rootPhysicalRunsRef.current.delete(loadPromise)
+      );
       inFlightChildLoadsRef.current.set(path, { promise: loadPromise, token: loadToken });
       await loadPromise;
     },
-    [fileSystemAdapter, createAbortController, performDirectoryLoad, removeChildController]
+    [
+      fileSystemAdapter,
+      createAbortController,
+      performDirectoryLoad,
+      removeChildController,
+      closeLifecycle,
+    ]
   );
   loadChildrenRef.current = loadChildren;
 
@@ -1401,6 +1431,9 @@ export function useLazyFileTree(
    */
   const refreshDirectory = useCallback(
     async (path: string): Promise<FileTreeDirectorySnapshot | null> => {
+      if (closeLifecycle?.isPreparing()) {
+        throw new DOMException('Explorer directory refresh is retired', 'AbortError');
+      }
       if (!fileSystemAdapter) {
         return null;
       }
@@ -1472,6 +1505,11 @@ export function useLazyFileTree(
           removeChildController(path, abortController);
         }
       });
+      rootPhysicalRunsRef.current.add(loadPromise);
+      void loadPromise.then(
+        () => rootPhysicalRunsRef.current.delete(loadPromise),
+        () => rootPhysicalRunsRef.current.delete(loadPromise)
+      );
       inFlightChildLoadsRef.current.set(path, { promise: loadPromise, token: loadToken });
       await loadPromise;
 
@@ -1492,6 +1530,7 @@ export function useLazyFileTree(
     [
       cancelChildLoading,
       childAbortControllersRef,
+      closeLifecycle,
       commitNormalizedTree,
       createAbortController,
       fileSystemAdapter,
@@ -1672,12 +1711,30 @@ export function useLazyFileTree(
   // Store loadRoot in a ref to avoid effect dependency on the callback itself.
   // This prevents the effect from re-running when loadRoot's dependencies change,
   // which was causing multiple loadRoot calls during initialization.
+  const drainDirectoryReads = async (): Promise<void> => {
+    const results = await Promise.allSettled([...rootPhysicalRunsRef.current]);
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' && !isAbortError(result.reason) ? [result.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Directory reads failed to settle');
+    }
+  };
+  useExplorerClosePreparation(async () => {
+    cancelExpandAll();
+    cancelLoading();
+    await drainDirectoryReads();
+  }, drainDirectoryReads);
+
   const loadRootRef = useRef(loadRoot);
   loadRootRef.current = loadRoot;
 
   // Auto-load root when handle changes
   // Dependencies are minimal - only things that should actually trigger a reload
   useEffect(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     if (rootDirectoryPath && rootDirectoryHandle) {
       const nextRootIdentity = createRootIdentityKey(rootDirectoryPath, resolvedRootFolderId);
       const rootIdentityChanged = hasCommittedRootIdentityChanged(
@@ -1717,6 +1774,7 @@ export function useLazyFileTree(
       }
     };
   }, [
+    closeLifecycle,
     rootDirectoryPath,
     resolvedRootFolderId,
     cancelAllLoading,

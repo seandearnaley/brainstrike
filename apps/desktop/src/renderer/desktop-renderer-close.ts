@@ -10,6 +10,9 @@ export function installDesktopRendererClose(
     throw new Error('The desktop host lifecycle capability is unavailable');
   }
   bridge.onPrepareClose(async () => {
+    // The document is terminal. Native inert fences new pointer/keyboard work
+    // while already-admitted producers and persistence keep their ACK channel.
+    document.body.inert = true;
     await prepareRendererClose();
     await connection.close();
   });

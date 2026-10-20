@@ -3,32 +3,77 @@
  * This is not a cancellable window-close or navigation guard. Main's existing
  * shutdown policy ends this renderer lifetime on success, failure or deadline.
  */
-const preparations = new Set<() => Promise<void>>();
+type ClosePhase = 'producers' | 'persistence';
+const preparations = new Map<
+  () => Promise<void>,
+  { phase: ClosePhase; begin: (() => void) | undefined }
+>();
 let preparing: Promise<void> | undefined;
 
 export function hasRendererClosePreparationStarted(): boolean {
   return preparing !== undefined;
 }
 
-export function registerRendererClosePreparation(prepare: () => Promise<void>): () => void {
+export function registerRendererClosePreparation(
+  prepare: () => Promise<void>,
+  phase: ClosePhase = 'producers',
+  begin?: () => void
+): () => void {
   if (preparing) {
     throw new Error('The renderer is already preparing to close');
   }
-  preparations.add(prepare);
+  preparations.set(prepare, { begin, phase });
   return () => preparations.delete(prepare);
 }
 
+/** Enroll both phases before the resource starts any asynchronous work. */
+export function registerRendererCloseOwner(owner: {
+  readonly begin: () => void;
+  readonly prepareProducers: () => Promise<void>;
+  readonly preparePersistence: () => Promise<void>;
+}): () => void {
+  if (preparing) {
+    throw new Error('The renderer is already preparing to close');
+  }
+  const producers = () => owner.prepareProducers();
+  const persistence = () => owner.preparePersistence();
+  preparations.set(producers, { begin: undefined, phase: 'producers' });
+  preparations.set(persistence, { begin: owner.begin, phase: 'persistence' });
+  return () => {
+    preparations.delete(producers);
+    preparations.delete(persistence);
+  };
+}
+
 export function prepareRendererClose(): Promise<void> {
-  preparing ??= Promise.resolve().then(async () => {
-    const results = await Promise.allSettled(
-      [...preparations].map(async (prepare) => await prepare())
-    );
-    const failures = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
-    );
+  if (preparing) {
+    return preparing;
+  }
+  const completion = Promise.withResolvers<void>();
+  preparing = completion.promise;
+  const failures: unknown[] = [];
+  // Observe failures at close entry without fencing writes from admitted producers.
+  for (const { begin } of preparations.values()) {
+    try {
+      begin?.();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  void (async () => {
+    for (const phase of ['producers', 'persistence'] as const) {
+      const results = await Promise.allSettled(
+        [...preparations]
+          .filter(([, owner]) => owner.phase === phase)
+          .map(async ([prepare]) => await prepare())
+      );
+      failures.push(
+        ...results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+      );
+    }
     if (failures.length > 0) {
       throw new AggregateError(failures, 'Renderer producers failed to prepare for close');
     }
-  });
+  })().then(completion.resolve, completion.reject);
   return preparing;
 }

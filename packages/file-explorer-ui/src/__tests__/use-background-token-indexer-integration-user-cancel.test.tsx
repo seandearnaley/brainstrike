@@ -218,7 +218,7 @@ describe('background token indexing under a user cancel', () => {
       '../indexing/background-token-indexer-cancellation'
     );
     const factoryReset = await import('@brainstrike/app-state/factory-reset');
-    const indexer = { cancelIndexing: vi.fn(), retire: vi.fn() };
+    const indexer = { cancelIndexing: vi.fn(), drain: async () => {}, retire: vi.fn() };
     const { result, unmount } = renderHook(() => useIndexingCancellation({ current: indexer }));
     const lookalike = new Error('The selection was cleared; its token indexing is cancelled');
 

@@ -1,3 +1,4 @@
+import { useExplorerCloseProducer } from '../shell/explorer-close-lifecycle';
 /**
  * Per-provider bridge from FILE_EXPLORER_REFRESH_EVENT to the lazy file tree.
  *
@@ -475,7 +476,8 @@ async function runRefreshWork(
 async function processRefreshEventDetail(
   detail: FileExplorerRefreshEvent['detail'],
   current: UseFileTreeRefreshEventsParams,
-  isActive: RefreshLifecycleGuard
+  isActive: RefreshLifecycleGuard,
+  track: <T>(operation: Promise<T>) => Promise<T>
 ): Promise<void> {
   if (!isActive()) {
     return;
@@ -489,12 +491,14 @@ async function processRefreshEventDetail(
   if (detail.source === 'watcher' && detail.scope === 'incremental') {
     await runRefreshWork(
       () =>
-        handleWatcherIncrementalRefresh(
-          detail,
-          current,
-          effectiveRootId,
-          currentRootPath,
-          isActive
+        track(
+          handleWatcherIncrementalRefresh(
+            detail,
+            current,
+            effectiveRootId,
+            currentRootPath,
+            isActive
+          )
         ),
       'Watcher-driven tree refresh failed',
       currentRootPath
@@ -531,6 +535,10 @@ export function useFileTreeRefreshEvents({
   }));
   const [pendingFullRefreshRef] = useState<PendingFullRefreshRef>(() => ({ current: null }));
   const [lifecycleEpochRef] = useState<{ current: number }>(() => ({ current: 0 }));
+  const { isPreparing, track } = useExplorerCloseProducer(() => {
+    lifecycleEpochRef.current += 1;
+    pendingFullRefreshRef.current = null;
+  });
   const getCurrentRootIdentity = useEventCallback((): string =>
     createFullRefreshKey(rootId, rootPath)
   );
@@ -557,7 +565,7 @@ export function useFileTreeRefreshEvents({
         rootPath,
         skipManualFullEvents,
       };
-      await processRefreshEventDetail(detail, current, isActive);
+      await processRefreshEventDetail(detail, current, isActive, track);
     }
   );
 
@@ -573,8 +581,10 @@ export function useFileTreeRefreshEvents({
       };
       const key = createFullRefreshKey(rootId, rootPath);
       const isCurrentAndActive = (): boolean => isActive() && getCurrentRootIdentity() === key;
-      return enqueueCoalescedFullRefresh(refreshQueueRef, pendingFullRefreshRef, key, () =>
-        refreshTreeWithSelectionRevalidation(current, isCurrentAndActive)
+      return track(
+        enqueueCoalescedFullRefresh(refreshQueueRef, pendingFullRefreshRef, key, () =>
+          refreshTreeWithSelectionRevalidation(current, isCurrentAndActive)
+        )
       );
     }
   );
@@ -612,15 +622,18 @@ export function useFileTreeRefreshEvents({
 
   const refreshTreeWithSelection = useEventCallback((): Promise<FileTreeRefreshResult> => {
     const lifecycleEpoch = lifecycleEpochRef.current;
-    const isActive = (): boolean => lifecycleEpochRef.current === lifecycleEpoch;
+    const isActive = (): boolean => !isPreparing() && lifecycleEpochRef.current === lifecycleEpoch;
     return enqueueCurrentFullRefresh(isActive);
   });
 
   useEffect(() => {
     const lifecycleEpoch = lifecycleEpochRef.current + 1;
     lifecycleEpochRef.current = lifecycleEpoch;
-    const isActive = (): boolean => lifecycleEpochRef.current === lifecycleEpoch;
+    const isActive = (): boolean => !isPreparing() && lifecycleEpochRef.current === lifecycleEpoch;
     const handleRefreshEvent = (event: Event): void => {
+      if (!isActive()) {
+        return;
+      }
       const { detail } = event as FileExplorerRefreshEvent;
       if (enqueueFullRefreshEvent(detail, isActive)) {
         return;
@@ -628,8 +641,10 @@ export function useFileTreeRefreshEvents({
       if (detail.source !== 'watcher' || detail.scope !== 'incremental') {
         return;
       }
-      void enqueueOrdinaryRefreshWork(refreshQueueRef, pendingFullRefreshRef, () =>
-        processRefreshEvent(detail, isActive)
+      void track(
+        enqueueOrdinaryRefreshWork(refreshQueueRef, pendingFullRefreshRef, () =>
+          processRefreshEvent(detail, isActive)
+        )
       ).catch((error: unknown) => {
         logger.warn('Unexpected file tree refresh queue failure', {
           error: error instanceof Error ? error.message : String(error),
@@ -647,6 +662,8 @@ export function useFileTreeRefreshEvents({
     };
   }, [
     enqueueFullRefreshEvent,
+    isPreparing,
+    track,
     lifecycleEpochRef,
     pendingFullRefreshRef,
     processRefreshEvent,

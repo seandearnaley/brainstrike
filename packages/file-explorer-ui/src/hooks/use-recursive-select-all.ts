@@ -5,7 +5,7 @@ import {
   getFocusedSelectionCount,
   getForeignSelectionCount,
 } from '@brainstrike/file-explorer';
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
@@ -16,6 +16,7 @@ import type {
 } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useExplorerCloseProducer } from '../shell/explorer-close-lifecycle';
 
 import {
   useOptionalFileExplorerStoreContext,
@@ -145,7 +146,6 @@ async function commitSelectAllResult(args: {
       ) => void)
     | undefined;
   showToast: ReturnType<typeof useToastManager>['showToast'];
-  storageAdapter: ReturnType<typeof useAdapters>['storageAdapter'];
   store: ReturnType<typeof useOptionalFileExplorerStoreContext>;
   useRegex: boolean;
 }): Promise<SelectAllResult> {
@@ -199,7 +199,7 @@ async function commitSelectAllResult(args: {
   }
 
   if (hasPersistApi(args.store)) {
-    await persistFileExplorerStateImmediately(args.store, args.storageAdapter);
+    await persistFileExplorerStateImmediately(args.store);
   }
 
   // Keep the transition boundary for selection-driven row updates without
@@ -369,7 +369,6 @@ export function useRecursiveSelectAll(
 
   const store = useOptionalFileExplorerStoreContext();
   const db = useOptionalPGliteDatabase();
-  const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
   // the same derivation the tree display uses, so scans select exactly what
@@ -410,6 +409,8 @@ export function useRecursiveSelectAll(
     setState(RESET_STATE);
   }, [cancelLoadOperations]);
 
+  const { isPreparing, track } = useExplorerCloseProducer(cancelSelectAll);
+
   useEffect(
     () => () => {
       cancelSelectAll();
@@ -417,7 +418,7 @@ export function useRecursiveSelectAll(
     [cancelSelectAll]
   );
 
-  const selectAllRecursively = useCallback(
+  const runSelectAll = useCallback(
     async (
       filteredTree: IFileNode[],
       folderId: string,
@@ -426,6 +427,9 @@ export function useRecursiveSelectAll(
       addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked,
       options?: SelectAllOptions
     ): Promise<SelectAllResult> => {
+      if (isPreparing()) {
+        return { cancelled: true, filePaths: [], success: false };
+      }
       const validationError = validateSelectAllInput(fileSystemAdapter, filteredTree);
       if (validationError) {
         return validationError;
@@ -497,15 +501,9 @@ export function useRecursiveSelectAll(
           selectionLimit: maxSelectionCount,
           setQuerySelection,
           showToast,
-          storageAdapter,
           store,
           useRegex,
         });
-      } catch (err) {
-        if (!isAbortError(err)) {
-          logger.error('selectAllRecursively failed', { error: err });
-        }
-        return handleSelectAllError(err, onError);
       } finally {
         abortControllerRef.current = null;
         isOperationInProgressRef.current = false;
@@ -514,22 +512,40 @@ export function useRecursiveSelectAll(
       }
     },
     [
+      isPreparing,
       currentFolderId,
       excludeFilters,
       fileSystemAdapter,
       getCurrentTree,
       includeFilters,
       internalFilterTreeFn,
-      onError,
       onTreeUpdate,
       parentRootId,
       setQuerySelection,
       showToast,
-      storageAdapter,
       store,
       useRegex,
       db,
     ]
+  );
+
+  const selectAllRecursively = useCallback(
+    async (...args: Parameters<typeof runSelectAll>) => {
+      const operation = runSelectAll(...args);
+      const controller = abortControllerRef.current;
+      try {
+        return await track(
+          operation,
+          (error) => controller?.signal.aborted === true && isAbortError(error)
+        );
+      } catch (err) {
+        if (!isAbortError(err)) {
+          logger.error('selectAllRecursively failed', { error: err });
+        }
+        return handleSelectAllError(err, onError);
+      }
+    },
+    [runSelectAll, track, onError]
   );
 
   return {

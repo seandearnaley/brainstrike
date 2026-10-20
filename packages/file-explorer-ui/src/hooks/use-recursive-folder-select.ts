@@ -3,13 +3,14 @@ import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
 } from '@brainstrike/file-explorer';
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useExplorerCloseProducer } from '../shell/explorer-close-lifecycle';
 
 import {
   useOptionalFileExplorerStoreContext,
@@ -212,7 +213,6 @@ export function useRecursiveFolderSelect(
 
   const store = useOptionalFileExplorerStoreContext();
   const db = useOptionalPGliteDatabase();
-  const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
   // the same derivation the tree display uses, so scans select exactly what
@@ -274,6 +274,8 @@ export function useRecursiveFolderSelect(
     setState(RESET_STATE);
   }, [cancelLoadOperations]);
 
+  const { isPreparing, track } = useExplorerCloseProducer(cancelRecursiveSelect);
+
   useEffect(
     () => () => {
       cancelRecursiveSelect();
@@ -281,7 +283,7 @@ export function useRecursiveFolderSelect(
     [cancelRecursiveSelect]
   );
 
-  const selectFolderRecursively = useCallback(
+  const runFolderSelection = useCallback(
     async (
       node: IFileNode,
       folderId: string,
@@ -291,6 +293,9 @@ export function useRecursiveFolderSelect(
       currentDirectorySelectionSize = 0,
       addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
     ): Promise<SelectionResult> => {
+      if (isPreparing()) {
+        return { cancelled: true, filePaths: [], success: false };
+      }
       logger.debug('Recursive folder selection requested', {
         currentSelectionSize,
         folderId,
@@ -368,7 +373,7 @@ export function useRecursiveFolderSelect(
         // focus switch (every forest section click) cannot carry into a
         // folderState snapshot. Single-root keeps the query fast path; the
         // null-focus case keeps legacy single-root behavior.
-        const targetsFocusedRoot = currentFolderId === null || currentFolderId === folderId;
+        const targetsFocusedRoot = [null, folderId].includes(currentFolderId);
         const canUseQuerySelection =
           Boolean(setQuerySelection) &&
           targetsFocusedRoot &&
@@ -419,16 +424,13 @@ export function useRecursiveFolderSelect(
         }
 
         if (hasPersistApi(store)) {
-          await persistFileExplorerStateImmediately(store, storageAdapter);
+          await persistFileExplorerStateImmediately(store);
         }
 
         return {
           filePaths: result.filePaths,
           success: true,
         };
-      } catch (err) {
-        logger.error('selectFolderRecursively failed', { error: err });
-        return handleSelectionError(err, onError);
       } finally {
         abortControllerRef.current = null;
         isStartingRef.current = false;
@@ -437,6 +439,7 @@ export function useRecursiveFolderSelect(
       }
     },
     [
+      isPreparing,
       currentFolderId,
       excludeFilters,
       fileSystemAdapter,
@@ -444,16 +447,33 @@ export function useRecursiveFolderSelect(
       includeFilters,
       internalFilterTreeFn,
       onDirectoriesLoaded,
-      onError,
       parentRootId,
       quickFilter,
       setQuerySelection,
       showToast,
-      storageAdapter,
       store,
       useRegex,
       db,
     ]
+  );
+
+  const selectFolderRecursively = useCallback(
+    async (...args: Parameters<typeof runFolderSelection>) => {
+      const operation = runFolderSelection(...args);
+      const controller = abortControllerRef.current;
+      try {
+        return await track(
+          operation,
+          (error) => controller?.signal.aborted === true && isAbortError(error)
+        );
+      } catch (err) {
+        if (!isAbortError(err)) {
+          logger.error('selectFolderRecursively failed', { error: err });
+        }
+        return handleSelectionError(err, onError);
+      }
+    },
+    [runFolderSelection, track, onError]
   );
 
   return {

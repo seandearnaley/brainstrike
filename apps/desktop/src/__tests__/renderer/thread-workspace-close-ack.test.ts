@@ -98,6 +98,7 @@ test('joins an admitted workspace save ACK before closing the frame host connect
       await Promise.resolve();
     }
     expect(events).toEqual([]);
+    expect(document.body.inert).toBe(true);
     expect(connection.getSnapshot().kind).toBe('connected');
     release.resolve();
     await Promise.all([saved, closing]);

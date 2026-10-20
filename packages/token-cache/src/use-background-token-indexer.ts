@@ -1,3 +1,4 @@
+import { persistResultToStore } from './background-indexer-persistence';
 /**
  * useBackgroundTokenIndexer
  *
@@ -47,34 +48,6 @@ import {
 const logger = createLogger('BackgroundTokenIndexer');
 
 type TokenCacheStoreLike = Pick<TokenCacheStore, 'get' | 'getBatch' | 'set'>;
-
-async function persistResultToStore(
-  result: IndexerResult,
-  store: TokenCacheStoreLike,
-  onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void
-): Promise<void> {
-  if (result.skipped) {
-    const cached = await store.get(result.folderId, result.filePath);
-    if (cached) {
-      onFileIndexed?.(result.compositeKey, cached.tokenCount, cached.fileSize);
-    }
-    return;
-  }
-
-  const entry: TokenCacheEntry = {
-    contentHash: result.contentHash,
-    countingMode: result.mode,
-    filePath: result.filePath,
-    fileSize: result.fileSize,
-    folderId: result.folderId,
-    modelEncoding: result.mode === 'accurate' ? 'o200k_base' : null,
-    mtimeMs: null,
-    tokenCount: result.tokenCount,
-  };
-
-  await store.set(entry);
-  onFileIndexed?.(result.compositeKey, result.tokenCount, entry.fileSize);
-}
 
 /**
  * Electron-style handle with path property
@@ -131,6 +104,7 @@ export interface UseBackgroundTokenIndexerOptions {
 export interface UseBackgroundTokenIndexerReturn {
   /** Settle pending batches with `cancellation`, as `retire` does, and keep the worker. */
   cancelIndexing: (cancellation: Error) => void;
+  drain: () => Promise<void>;
   /** Queue files for background indexing */
   indexFiles: (files: FileToIndex[]) => Promise<void>;
   /** Whether indexing is in progress */
@@ -151,9 +125,6 @@ export interface UseBackgroundTokenIndexerReturn {
 /**
  * Create a unique ID for each indexing request
  */
-function createRequestId(): string {
-  return `req_${generateUUID()}`;
-}
 
 interface PendingBatchTracker {
   done: boolean;
@@ -217,6 +188,7 @@ export function useBackgroundTokenIndexer({
   const onProgressRef = useRef(onProgress);
   const onFileErrorRef = useRef(onFileError);
   const handleResultRef = useRef<((result: IndexerResult) => Promise<void>) | null>(null);
+  const resultPersistenceRef = useRef(new Set<Promise<void>>());
   const handleProgressRef = useRef<((progress: IndexerProgress) => void) | null>(null);
   const handleErrorRef = useRef<((error: IndexerError) => void) | null>(null);
   const storeRef = useRef(store);
@@ -714,6 +686,10 @@ export function useBackgroundTokenIndexer({
    */
   const handleResult = useCallback(
     async (result: IndexerResult) => {
+      if (retirementRef.current) {
+        logger.debug('Ignored background indexer result after owner retirement');
+        return;
+      }
       try {
         pendingFilesRef.current.delete(result.compositeKey);
         settleBatchTrackersForCompositeKey(result.compositeKey);
@@ -740,7 +716,13 @@ export function useBackgroundTokenIndexer({
           return;
         }
 
-        await persistResultToStore(result, currentStore, currentOnFileIndexed);
+        const persistence = persistResultToStore(result, currentStore, currentOnFileIndexed);
+        resultPersistenceRef.current.add(persistence);
+        const settled = () => {
+          resultPersistenceRef.current.delete(persistence);
+        };
+        void persistence.then(settled, settled);
+        await persistence;
       } catch (error) {
         logger.error('handleResult failed', {
           compositeKey: result.compositeKey,
@@ -929,7 +911,7 @@ export function useBackgroundTokenIndexer({
             compositeKey: file.compositeKey,
             filePath: file.filePath,
             folderId: file.folderId,
-            id: createRequestId(),
+            id: `req_${generateUUID()}`,
             mode: currentMode,
             // Include pre-loaded content for Electron files
             ...(file.content === undefined ? {} : { content: file.content }),
@@ -1033,6 +1015,23 @@ export function useBackgroundTokenIndexer({
 
   return {
     cancelIndexing,
+    drain: async () => {
+      const failures = new Set<unknown>();
+      do {
+        const results = await Promise.allSettled([...resultPersistenceRef.current]);
+        for (const result of results) {
+          if (result.status === 'rejected') {
+            failures.add(result.reason);
+          }
+        }
+      } while (resultPersistenceRef.current.size > 0);
+      if (failures.size === 1) {
+        throw [...failures][0];
+      }
+      if (failures.size > 1) {
+        throw new AggregateError([...failures], 'Background index results failed to settle');
+      }
+    },
     indexFiles,
     isIndexing,
     isReady,

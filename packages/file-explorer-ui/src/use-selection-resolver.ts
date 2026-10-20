@@ -8,6 +8,7 @@ import {
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useEffect, useMemo, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
+import { useExplorerCloseProducer } from './shell/explorer-close-lifecycle';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -307,10 +308,18 @@ export function useSelectionResolver(): SelectionResolverState {
       shallow
     );
   const loadTokenRef = useRef(0);
+  const cancelLoadRef = useRef<(() => void) | null>(null);
+  const { isPreparing, track } = useExplorerCloseProducer(() => {
+    cancelLoadRef.current?.();
+    loadTokenRef.current += 1;
+  });
   const loadingPromotionStartRef = useRef<LoadingPromotionStart | null>(null);
   const isQueryManifestInvalidated = querySelectionManifest === null;
 
   useEffect(() => {
+    if (isPreparing()) {
+      return;
+    }
     loadTokenRef.current += 1;
     const token = loadTokenRef.current;
     const latestState = store.getState();
@@ -372,7 +381,7 @@ export function useSelectionResolver(): SelectionResolverState {
     });
 
     const loadingPromotionTimer = setTimeout(() => {
-      if (token !== loadTokenRef.current) {
+      if (isPreparing() || token !== loadTokenRef.current) {
         return;
       }
       const currentState = store.getState();
@@ -402,87 +411,92 @@ export function useSelectionResolver(): SelectionResolverState {
       loadTokenRef.current += 1;
     };
 
+    cancelLoadRef.current = cancelPendingLoad;
     if (!db) {
       return cancelPendingLoad;
     }
 
-    void loadQuerySelectionSnapshotDeduped(db, snapshotId)
-      .then((filePaths) => {
-        clearTimeout(loadingPromotionTimer);
-        if (token !== loadTokenRef.current) {
-          return;
-        }
-        if (failedSnapshotKeyByDatabase.get(db) === snapshotAttemptKey) {
-          failedSnapshotKeyByDatabase.delete(db);
-        }
-        clearLoadingPromotionStart({
-          fingerprint: descriptor.manifestFingerprint,
-          snapshotId,
-          startRef: loadingPromotionStartRef,
-        });
-        const currentState = store.getState();
-        if (
-          !isCurrentQueryDescriptor(currentState, descriptor) ||
-          matchesDescriptorManifest({
-            descriptor,
-            manifest: currentState.querySelectionManifest,
-            status: 'ready',
-          })
-        ) {
-          return;
-        }
-        setManifest(
-          buildQuerySelectionManifest({
-            filePaths,
+    void track(
+      track(loadQuerySelectionSnapshotDeduped(db, snapshotId))
+        .then((filePaths) => {
+          clearTimeout(loadingPromotionTimer);
+          if (isPreparing() || token !== loadTokenRef.current) {
+            return;
+          }
+          if (failedSnapshotKeyByDatabase.get(db) === snapshotAttemptKey) {
+            failedSnapshotKeyByDatabase.delete(db);
+          }
+          clearLoadingPromotionStart({
             fingerprint: descriptor.manifestFingerprint,
-            snapshotId: descriptor.manifestSnapshotId,
-          })
-        );
-      })
-      .catch((error: unknown) => {
-        clearTimeout(loadingPromotionTimer);
-        if (token !== loadTokenRef.current) {
-          return;
-        }
-        clearLoadingPromotionStart({
-          fingerprint: descriptor.manifestFingerprint,
-          snapshotId,
-          startRef: loadingPromotionStartRef,
-        });
-        failedSnapshotKeyByDatabase.set(
-          db,
-          getSnapshotAttemptKey(descriptor.manifestFingerprint, snapshotId)
-        );
-        const currentState = store.getState();
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const currentManifest = currentState.querySelectionManifest;
-        if (
-          !isCurrentQueryDescriptor(currentState, descriptor) ||
-          matchesDescriptorManifest({
-            descriptor,
-            manifest: currentManifest,
-            status: 'ready',
-          }) ||
-          (matchesDescriptorManifest({
-            descriptor,
-            manifest: currentManifest,
-            status: 'error',
-          }) &&
-            currentManifest?.errorMessage === errorMessage)
-        ) {
-          return;
-        }
-        setManifest(
-          createErroredQuerySelectionManifest({
-            errorMessage,
+            snapshotId,
+            startRef: loadingPromotionStartRef,
+          });
+          const currentState = store.getState();
+          if (
+            !isCurrentQueryDescriptor(currentState, descriptor) ||
+            matchesDescriptorManifest({
+              descriptor,
+              manifest: currentState.querySelectionManifest,
+              status: 'ready',
+            })
+          ) {
+            return;
+          }
+          setManifest(
+            buildQuerySelectionManifest({
+              filePaths,
+              fingerprint: descriptor.manifestFingerprint,
+              snapshotId: descriptor.manifestSnapshotId,
+            })
+          );
+        })
+        .catch((error: unknown) => {
+          clearTimeout(loadingPromotionTimer);
+          if (isPreparing() || token !== loadTokenRef.current) {
+            return;
+          }
+          clearLoadingPromotionStart({
             fingerprint: descriptor.manifestFingerprint,
-            snapshotId: descriptor.manifestSnapshotId,
-          })
-        );
-      });
+            snapshotId,
+            startRef: loadingPromotionStartRef,
+          });
+          failedSnapshotKeyByDatabase.set(
+            db,
+            getSnapshotAttemptKey(descriptor.manifestFingerprint, snapshotId)
+          );
+          const currentState = store.getState();
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const currentManifest = currentState.querySelectionManifest;
+          if (
+            !isCurrentQueryDescriptor(currentState, descriptor) ||
+            matchesDescriptorManifest({
+              descriptor,
+              manifest: currentManifest,
+              status: 'ready',
+            }) ||
+            (matchesDescriptorManifest({
+              descriptor,
+              manifest: currentManifest,
+              status: 'error',
+            }) &&
+              currentManifest?.errorMessage === errorMessage)
+          ) {
+            return;
+          }
+          setManifest(
+            createErroredQuerySelectionManifest({
+              errorMessage,
+              fingerprint: descriptor.manifestFingerprint,
+              snapshotId: descriptor.manifestSnapshotId,
+            })
+          );
+        })
+    );
 
     return cancelPendingLoad;
   }, [
+    isPreparing,
+    track,
     db,
     // Folder hydration can clear a ready manifest while preserving descriptor
     // identity. Track only null/non-null invalidation so ready/loading/error

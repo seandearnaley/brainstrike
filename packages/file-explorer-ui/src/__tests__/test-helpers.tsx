@@ -4,6 +4,7 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
+import type { ExplorerCloseLifecycle } from '../shell/explorer-close-lifecycle';
 import { FileExplorerProvider } from '../shell/file-explorer-provider';
 import { type DeleteRootData, RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 
@@ -21,6 +22,7 @@ export function FileExplorerTestWrapper({
   mockFileSystemAdapter,
   mockStorageAdapter,
   actionRegistry,
+  closeLifecycle,
 }: {
   // Optional so callers may nest children as createElement's third argument
   // instead of a children prop (react-doctor/no-children-prop).
@@ -28,6 +30,7 @@ export function FileExplorerTestWrapper({
   mockFileSystemAdapter?: MockFileSystemAdapter;
   mockStorageAdapter?: MemoryStorageAdapter;
   actionRegistry?: ActionRegistry;
+  closeLifecycle?: ExplorerCloseLifecycle;
 }) {
   const fileSystemAdapter = mockFileSystemAdapter || defaultTestFileSystemAdapter;
   const storageAdapter = mockStorageAdapter || testStorageAdapter;
@@ -36,7 +39,9 @@ export function FileExplorerTestWrapper({
     <ActionRegistryProvider registry={actionRegistry ?? defaultActionRegistry}>
       <TooltipProvider>
         <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-          <FileExplorerProvider storageAdapter={storageAdapter}>{children}</FileExplorerProvider>
+          <FileExplorerProvider closeLifecycle={closeLifecycle} storageAdapter={storageAdapter}>
+            {children}
+          </FileExplorerProvider>
         </AdaptersProvider>
       </TooltipProvider>
     </ActionRegistryProvider>
@@ -72,5 +77,24 @@ export function createDeletionTestWrapper(
         )}
       </FileExplorerTestWrapper>
     );
+  };
+}
+
+/** Add paired provider admission to the existing test registry's phase model. */
+export function withProviderCloseOwner(
+  lifecycle: Omit<ExplorerCloseLifecycle, 'registerOwner'> & {
+    registerPersistence: (prepare: () => Promise<void>, begin: () => void) => () => void;
+  }
+): ExplorerCloseLifecycle {
+  return {
+    ...lifecycle,
+    registerOwner: ({ begin, prepareProducers, preparePersistence }) => {
+      const producer = lifecycle.registerProducer(prepareProducers);
+      const persistence = lifecycle.registerPersistence(preparePersistence, begin);
+      return () => {
+        producer();
+        persistence();
+      };
+    },
   };
 }

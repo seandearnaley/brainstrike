@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
 import { Effect, Schedule } from 'effect';
 import { app, BrowserWindow } from 'electron';
@@ -21,6 +22,7 @@ import {
   createDesktopIpcSenderFrameAllowlist,
   isAllowedDesktopIpcSenderFrameUrl,
 } from './platform/desktop-ipc-sender-frame';
+import { prepareDesktopRendererClose } from './prepare-desktop-renderer-close';
 import type { DesktopWindowState } from './store-schema';
 import { publishWindowFocus } from './window-focus-ipc';
 import { assignWindowRole, getWindowRole } from './window-role';
@@ -159,6 +161,202 @@ async function connectToDevServer(win: BrowserWindow, devRendererUrl: string): P
 
 export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadMetadata): void {
   pendingWindowReloadMetadata.set(win, metadata);
+}
+
+interface DesktopWindowReloadOptions {
+  readonly beforeReload?: () => Promise<void>;
+  readonly deadlineMs: number;
+  readonly ignoreCache?: boolean;
+  readonly reportFailure: (
+    window: BrowserWindow | undefined,
+    phase: 'admission' | 'preparation' | 'replacement'
+  ) => Promise<void>;
+  readonly shouldReload: () => boolean;
+}
+
+const pendingWindowReloads = new WeakMap<
+  BrowserWindow,
+  {
+    readonly operation: Promise<void>;
+    readonly isCurrent: () => boolean;
+  }
+>();
+
+/** Retire only the captured documents; their profile and host keep their existing owners. */
+export function reloadDesktopWindows(
+  requestedWindows: readonly BrowserWindow[],
+  metadata: WindowReloadMetadata,
+  options: DesktopWindowReloadOptions
+): Promise<void> {
+  const windows = [...new Set(requestedWindows)];
+  const pending = windows
+    .map((window) => pendingWindowReloads.get(window))
+    .find((entry) => entry?.isCurrent())?.operation;
+  if (pending) {
+    if (!options.beforeReload) {
+      return pending;
+    }
+    return options.reportFailure(windows[0], 'admission').then(() => {
+      throw refusalError(
+        'availability',
+        'desktop.reload-in-progress',
+        'A document reload is already in progress.'
+      );
+    });
+  }
+  for (const window of windows) {
+    if (window.isDestroyed() || getWindowRole(window) !== 'visible-ui') {
+      return Promise.reject(new Error('Renderer replacement requires a live visible window.'));
+    }
+  }
+  const documents = windows.map((window) => {
+    const contents = window.webContents;
+    let releaseAbort = (): void => undefined;
+    let current = true;
+    let committing = false;
+    const navigation = Promise.withResolvers<void>();
+    void navigation.promise.catch(() => undefined);
+    const changed = (): void => {
+      current = false;
+      if (committing) {
+        navigation.resolve();
+      } else {
+        navigation.reject(
+          new Error('The document was replaced before reload preparation settled.')
+        );
+      }
+    };
+    const closed = (): void => {
+      current = false;
+      navigation.reject(new Error('The reload window closed.'));
+    };
+    const failed = (
+      _event: Electron.Event,
+      _code: number,
+      _description: string,
+      _url: string,
+      main: boolean
+    ): void => {
+      if (main && committing) {
+        navigation.reject(new Error('The replacement document failed to load.'));
+      }
+    };
+    const crashed = (): void => navigation.reject(new Error('The renderer exited during reload.'));
+    const allowOwnedUnload = (event: Electron.Event): void => {
+      if (committing && current) {
+        event.preventDefault();
+      }
+    };
+    contents.on('did-navigate', changed);
+    contents.on('did-fail-load', failed);
+    contents.on('render-process-gone', crashed);
+    contents.on('will-prevent-unload', allowOwnedUnload);
+    window.once('closed', closed);
+    const isCurrent = (): boolean => current && !window.isDestroyed();
+    return {
+      cleanup: () => {
+        contents.removeListener('did-navigate', changed);
+        contents.removeListener('did-fail-load', failed);
+        contents.removeListener('render-process-gone', crashed);
+        contents.removeListener('will-prevent-unload', allowOwnedUnload);
+        window.removeListener('closed', closed);
+        releaseAbort();
+      },
+      commit: (signal: AbortSignal): Promise<void> => {
+        if (!isCurrent()) {
+          return Promise.reject(new Error('A replacement document superseded this reload.'));
+        }
+        const aborted = (): void => navigation.reject(signal.reason);
+        signal.addEventListener('abort', aborted, { once: true });
+        releaseAbort = () => signal.removeEventListener('abort', aborted);
+        committing = true;
+        noteNextWindowReload(window, metadata);
+        if (options.ignoreCache) {
+          contents.reloadIgnoringCache();
+        } else {
+          contents.reload();
+        }
+        return navigation.promise.finally(releaseAbort);
+      },
+      isCurrent,
+      window,
+    };
+  });
+  let phase: 'preparation' | 'replacement' = 'preparation';
+  const operation = Promise.resolve()
+    .then(async () => {
+      const started = performance.now();
+      await runWithTimeout(
+        async (signal) => {
+          const results = await Promise.allSettled(
+            documents.map(({ window }) => prepareDesktopRendererClose(window, signal))
+          );
+          const failures = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : []
+          );
+          if (failures.length) {
+            throw new AggregateError(failures, 'Renderer reload preparation failed.');
+          }
+        },
+        {
+          onTimeout: () => new Error('Renderer reload preparation reached its deadline.'),
+          timeoutMs: options.deadlineMs,
+        }
+      );
+      if (documents.some((document) => !document.isCurrent())) {
+        throw new Error('The reload document was superseded.');
+      }
+      const remainingMs = options.deadlineMs - (performance.now() - started);
+      phase = 'replacement';
+      // Destructive work remains under the existing reset owner and its own lifetime.
+      await options.beforeReload?.();
+      if (!options.shouldReload()) {
+        startupLogger.info('Skipped document replacement because the application is shutting down');
+        return;
+      }
+      await runWithTimeout(
+        async (signal) => {
+          await Promise.all(documents.map((document) => document.commit(signal)));
+        },
+        {
+          onTimeout: () => new Error('Renderer reload reached its deadline.'),
+          timeoutMs: remainingMs,
+        }
+      );
+    })
+    .catch(async (cause: unknown) => {
+      const current = documents.filter((document) => document.isCurrent());
+      if (current.length === 0 && documents.length > 0) {
+        throw refusalError(
+          'availability',
+          'desktop.reload-superseded',
+          'The reload target document is no longer current.'
+        );
+      }
+      startupLogger.error('Desktop document replacement failed', { cause, phase });
+      try {
+        await options.reportFailure(current[0]?.window, phase);
+      } finally {
+        for (const document of current) {
+          if (document.isCurrent()) {
+            document.window.destroy();
+          }
+        }
+      }
+      throw cause;
+    })
+    .finally(() => {
+      for (const document of documents) {
+        document.cleanup();
+        if (pendingWindowReloads.get(document.window)?.operation === operation) {
+          pendingWindowReloads.delete(document.window);
+        }
+      }
+    });
+  for (const document of documents) {
+    pendingWindowReloads.set(document.window, { isCurrent: document.isCurrent, operation });
+  }
+  return operation;
 }
 
 /**

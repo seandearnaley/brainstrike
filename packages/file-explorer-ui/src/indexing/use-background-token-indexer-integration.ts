@@ -1,3 +1,7 @@
+import {
+  useExplorerCloseLifecycle,
+  useExplorerClosePreparation,
+} from '../shell/explorer-close-lifecycle';
 /**
  * useBackgroundTokenIndexerIntegration
  *
@@ -222,6 +226,21 @@ export function useBackgroundTokenIndexerIntegration({
   webFileHandleResolver,
 }: UseBackgroundTokenIndexerIntegrationProps): UseBackgroundTokenIndexerIntegrationReturn {
   // Get the token cache context (may be null if not in provider)
+  const closeLifecycle = useExplorerCloseLifecycle();
+  const dispatchTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useExplorerClosePreparation(
+    async () => {
+      if (rebuildTimeoutRef.current !== null) {
+        clearTimeout(rebuildTimeoutRef.current);
+      }
+      rebuildTimeoutRef.current = null;
+      for (const timer of dispatchTimersRef.current) {
+        clearTimeout(timer);
+      }
+      dispatchTimersRef.current.clear();
+    },
+    async () => {}
+  );
   const tokenCache = useOptionalTokenCacheContext();
 
   // Get the FileTreeIndex context for O(1) handle lookups (optional - falls back to local map)
@@ -369,6 +388,9 @@ export function useBackgroundTokenIndexerIntegration({
    * Uses refs to avoid callback recreation on selection changes.
    */
   const scheduleRebuildIfNeeded = useCallback(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     // Skip rebuild entirely when FileTreeIndex is available - it provides O(1) lookups
     if (indexGetHandleRef.current) {
       logger.debug('Skipping handle map rebuild - using FileTreeIndex');
@@ -422,7 +444,7 @@ export function useBackgroundTokenIndexerIntegration({
         size: map.size,
       });
     }, 500); // Wait 500ms for tree to stabilize before rebuilding
-  }, []); // Empty deps - uses refs for all values
+  }, [closeLifecycle]); // Empty deps - uses refs for all values
 
   /**
    * Effect A (tree-driven): When fileTree changes, mark map as stale.
@@ -1185,11 +1207,18 @@ export function useBackgroundTokenIndexerIntegration({
       newFileCount: newFiles.length,
     });
 
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     const timeoutId = setTimeout(() => {
+      dispatchTimersRef.current.delete(timeoutId);
       void triggerIndexing(newFiles);
     }, debounceMs);
-
-    return () => clearTimeout(timeoutId);
+    dispatchTimersRef.current.add(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      dispatchTimersRef.current.delete(timeoutId);
+    };
   }, [
     selectedFiles,
     triggerIndexing,
@@ -1197,6 +1226,7 @@ export function useBackgroundTokenIndexerIntegration({
     fileHandleMapSize,
     indexGetHandle,
     ownedCancellation,
+    closeLifecycle,
   ]);
 
   useVisibleFileTokenIndexing({
@@ -1259,12 +1289,19 @@ export function useBackgroundTokenIndexerIntegration({
     });
 
     // Small debounce to allow index to settle
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     const timeoutId = setTimeout(() => {
+      dispatchTimersRef.current.delete(timeoutId);
       void triggerIndexing(pendingInSelection);
     }, 100);
-
-    return () => clearTimeout(timeoutId);
-  }, [indexVersion, selectedFiles, triggerIndexing]);
+    dispatchTimersRef.current.add(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      dispatchTimersRef.current.delete(timeoutId);
+    };
+  }, [indexVersion, selectedFiles, triggerIndexing, closeLifecycle]);
 
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
   // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.

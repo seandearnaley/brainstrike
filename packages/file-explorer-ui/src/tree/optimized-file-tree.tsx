@@ -33,6 +33,7 @@ import {
 import { fileNodeToTarget } from '../context-actions/file-entry-target';
 import { useWorkerFlattenedTree } from '../hooks/use-worker-flattened-tree';
 import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
+import { useExplorerCloseLifecycle } from '../shell/explorer-close-lifecycle';
 import { useExplorerColumns } from '../shell/explorer-columns-context';
 import { useOptionalExplorerSort } from '../shell/explorer-sort-context';
 import {
@@ -474,6 +475,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
+    const closeLifecycle = useExplorerCloseLifecycle();
     const isMountedRef = useRef(true);
     useEffect(() => {
       isMountedRef.current = true;
@@ -886,6 +888,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     const toggleDirectoryNode = useCallback(
       async (node: IFileNode, state: DirectoryToggleState): Promise<void> => {
+        if (closeLifecycle?.isPreparing()) {
+          return;
+        }
         if (state.isExpanded) {
           collapseExpandedDirectory(node, state);
           return;
@@ -897,7 +902,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
         await loadChildrenForExpansion(node);
 
-        if (!isMountedRef.current) {
+        if (!isMountedRef.current || closeLifecycle?.isPreparing()) {
           return;
         }
 
@@ -909,6 +914,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       },
       [
         collapseExpandedDirectory,
+        closeLifecycle,
         isPathExpandedNow,
         loadChildrenForExpansion,
         shouldSkipCollapsedExpansion,
@@ -956,7 +962,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // no-ops loaded nodes, and deeper restored expansions cascade as their
     // parents' children land (fileNodeByPath dependency).
     useEffect(() => {
-      if (!(expansionScope && onLoadChildren)) {
+      if (closeLifecycle?.isPreparing() || !(expansionScope && onLoadChildren)) {
         return;
       }
       for (const path of expansionScope.expandedPaths) {
@@ -973,7 +979,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           });
         }
       }
-    }, [expansionScope, fileNodeByPath, onLoadChildren]);
+    }, [expansionScope, fileNodeByPath, onLoadChildren, closeLifecycle]);
 
     // One-shot reveal (BST-1269): converge on the target across renders —
     // each pass expands the collapsed ancestors that are RENDERED (deeper
@@ -990,7 +996,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     });
     useEffect(() => {
       const revealKey = `${revealNonce}|${revealPath ?? ''}`;
-      if (!revealPath || lastRevealedPathRef.current === revealKey) {
+      if (
+        closeLifecycle?.isPreparing() ||
+        !revealPath ||
+        lastRevealedPathRef.current === revealKey
+      ) {
         return;
       }
       if (revealToggledRef.current.target !== revealKey) {
@@ -1019,6 +1029,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     }, [
       revealNonce,
       revealPath,
+      closeLifecycle,
       effectiveExpandedPaths,
       fileNodeByPath,
       handleToggleExpand,

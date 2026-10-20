@@ -3,6 +3,7 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { IFileNode } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { createPersistedFileExplorerSnapshot } from '../persistence/file-explorer-persistence';
 import { createFileExplorerStore } from '../store';
 
 // Skip NODE_ENV check in tests to avoid process mock conflicts
@@ -97,19 +98,22 @@ describe('Adapter Integration', () => {
       expect(newState.expandedDirectoryPaths.has('test-directory')).toBe(true);
     });
 
-    it('should handle storage errors gracefully', async () => {
-      // Create a storage adapter that throws errors
+    it('rejects an acknowledged persistence operation when the adapter fails', async () => {
       const errorStorage = new MemoryStorageAdapter();
       errorStorage.setItem = async () => {
         throw new Error('Storage error');
       };
-
       const store = createFileExplorerStore(errorStorage);
-
-      // This should not throw, errors should be handled internally
-      expect(() => {
-        store.getState().setCurrentFolderId('test-folder');
-      }).not.toThrow();
+      const storage = store.persist.getOptions().storage;
+      if (!storage) {
+        throw new Error('Explorer persistence storage is missing');
+      }
+      await expect(
+        storage.setItem(
+          'file-explorer-storage-v5',
+          createPersistedFileExplorerSnapshot(store.getState())
+        )
+      ).rejects.toThrow('Storage error');
     });
 
     it('should isolate data between different storage instances', async () => {
