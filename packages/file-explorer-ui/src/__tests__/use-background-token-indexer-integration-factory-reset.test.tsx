@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import type { ExplorerCloseLifecycle } from '../shell/explorer-close-lifecycle';
 import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';
+import { withProviderCloseOwner } from './test-helpers';
 
 const mockWorkers: MockWorker[] = [];
 
@@ -202,7 +203,7 @@ describe('background token indexing under a factory reset', () => {
         .mockImplementation(() => ack.promise);
       const producers = new Set<() => Promise<void>>();
       let preparing = false;
-      const lifecycle: ExplorerCloseLifecycle = {
+      const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
         isPreparing: () => preparing,
         registerPersistence: () => () => {},
         registerProducer: (prepare) => {
@@ -211,7 +212,7 @@ describe('background token indexing under a factory reset', () => {
             producers.delete(prepare);
           };
         },
-      };
+      });
       const view = renderIntegration(async () => 'export const result = true;', lifecycle);
       let dispatch!: Promise<void>;
       act(() => {
@@ -291,7 +292,7 @@ describe('background token indexing under a factory reset', () => {
     const electronFileReader = vi.fn(() => read.promise);
     const producers = new Set<() => Promise<void>>();
     let preparing = false;
-    const lifecycle: ExplorerCloseLifecycle = {
+    const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
       isPreparing: () => preparing,
       registerPersistence: () => () => {},
       registerProducer: (prepare) => {
@@ -300,7 +301,7 @@ describe('background token indexing under a factory reset', () => {
           producers.delete(prepare);
         };
       },
-    };
+    });
     const view = renderIntegration(electronFileReader, lifecycle);
     let dispatch!: Promise<void>;
     act(() => {

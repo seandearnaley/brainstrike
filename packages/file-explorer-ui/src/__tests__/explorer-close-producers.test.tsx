@@ -18,12 +18,13 @@ import { useOptionalForestTreeActions } from '../shell/forest-tree-actions-conte
 import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
 import { useFileTreeRefreshEvents } from '../tree/use-file-tree-refresh-events';
 import { useExpandedPathRestoration } from '../use-expanded-path-restoration';
+import { withProviderCloseOwner } from './test-helpers';
 
 function closeRegistry() {
   const producers = new Set<() => Promise<void>>();
   const persistence = new Map<() => Promise<void>, () => void>();
   let preparing = false;
-  const lifecycle: ExplorerCloseLifecycle = {
+  const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
     isPreparing: () => preparing,
     registerPersistence: (prepare, begin) => {
       persistence.set(prepare, begin);
@@ -37,7 +38,7 @@ function closeRegistry() {
         producers.delete(prepare);
       };
     },
-  };
+  });
   return {
     async close() {
       let producerResults!: Promise<PromiseSettledResult<void>[]>;

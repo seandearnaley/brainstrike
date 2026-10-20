@@ -10,6 +10,7 @@ import { expect, it, vi } from 'vitest';
 import type { ExplorerCloseLifecycle } from '../shell/explorer-close-lifecycle';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
+import { withProviderCloseOwner } from './test-helpers';
 
 vi.mock('@brainstrike/workers/file-content-worker', () => ({ createFileContentWorker: vi.fn() }));
 function createWrapper(adapter: MockFileSystemAdapter, closeLifecycle: ExplorerCloseLifecycle) {
@@ -33,7 +34,7 @@ it('joins an admitted dependent reload and cancels future child admission with i
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
   const producers = new Set<() => Promise<void>>();
   let preparing = false;
-  const lifecycle: ExplorerCloseLifecycle = {
+  const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
     isPreparing: () => preparing,
     registerPersistence: () => () => {},
     registerProducer: (prepare) => {
@@ -42,7 +43,7 @@ it('joins an admitted dependent reload and cancels future child admission with i
         producers.delete(prepare);
       };
     },
-  };
+  });
   const view = renderHook(() => useSharedFileContentLoading([node]), {
     wrapper: createWrapper(adapter, lifecycle),
   });
@@ -89,7 +90,7 @@ it('refuses a reload after close before clearing the existing shared contents', 
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
   let preparing = false;
   const producers = new Set<() => Promise<void>>();
-  const lifecycle: ExplorerCloseLifecycle = {
+  const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
     isPreparing: () => preparing,
     registerPersistence: () => () => {},
     registerProducer: (prepare) => {
@@ -98,7 +99,7 @@ it('refuses a reload after close before clearing the existing shared contents', 
         producers.delete(prepare);
       };
     },
-  };
+  });
   const view = renderHook(
     () => ({ loader: useSharedFileContentLoading([]), store: useFileExplorerStoreContext() }),
     { wrapper: createWrapper(adapter, lifecycle) }

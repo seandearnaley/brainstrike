@@ -11,7 +11,11 @@ import {
 /** Desktop injects its existing per-document close owner; web has no quit owner. */
 export interface ExplorerCloseLifecycle {
   readonly isPreparing: () => boolean;
-  readonly registerPersistence: (prepare: () => Promise<void>, begin: () => void) => () => void;
+  readonly registerOwner: (owner: {
+    readonly begin: () => void;
+    readonly prepareProducers: () => Promise<void>;
+    readonly preparePersistence: () => Promise<void>;
+  }) => () => void;
   readonly registerProducer: (prepare: () => Promise<void>) => () => void;
 }
 export const ExplorerCloseLifecycleContext = createContext<ExplorerCloseLifecycle | undefined>(

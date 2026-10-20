@@ -1,5 +1,5 @@
 export * from './adapters-context.js';
-export { registerClosePreparation } from './close-preparation';
+export { registerClosePreparation, registerClosePreparationPair } from './close-preparation';
 export * from './file-content-processor.js';
 export * from './file-system-error-helpers.js';
 export * from './inaccessible-content.js';

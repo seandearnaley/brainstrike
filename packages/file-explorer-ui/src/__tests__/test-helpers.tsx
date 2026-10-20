@@ -79,3 +79,22 @@ export function createDeletionTestWrapper(
     );
   };
 }
+
+/** Add paired provider admission to the existing test registry's phase model. */
+export function withProviderCloseOwner(
+  lifecycle: Omit<ExplorerCloseLifecycle, 'registerOwner'> & {
+    registerPersistence: (prepare: () => Promise<void>, begin: () => void) => () => void;
+  }
+): ExplorerCloseLifecycle {
+  return {
+    ...lifecycle,
+    registerOwner: ({ begin, prepareProducers, preparePersistence }) => {
+      const producer = lifecycle.registerProducer(prepareProducers);
+      const persistence = lifecycle.registerPersistence(preparePersistence, begin);
+      return () => {
+        producer();
+        persistence();
+      };
+    },
+  };
+}

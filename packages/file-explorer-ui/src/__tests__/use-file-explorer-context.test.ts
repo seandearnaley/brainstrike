@@ -6,6 +6,7 @@ import { act, renderHook } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExplorerCloseLifecycleContext } from '../shell/explorer-close-lifecycle';
+import { withProviderCloseOwner } from './test-helpers';
 
 // Mocks for internal context hooks
 vi.mock('../shell/file-explorer-provider', () => {
@@ -393,7 +394,7 @@ describe('useFileExplorer (context)', () => {
         storeState.expandedDirectoryPaths = new Set(['/src']);
         const producers = new Set<() => Promise<void>>();
         let preparing = false;
-        const lifecycle = {
+        const lifecycle = withProviderCloseOwner({
           isPreparing: () => preparing,
           registerPersistence: () => () => {},
           registerProducer: (prepare: () => Promise<void>) => {
@@ -402,7 +403,7 @@ describe('useFileExplorer (context)', () => {
               producers.delete(prepare);
             };
           },
-        };
+        });
         const { rerender } = renderHook(() => useFileExplorer(), {
           wrapper: ({ children }: { children: ReactNode }) =>
             createElement(ExplorerCloseLifecycleContext.Provider, { value: lifecycle }, children),

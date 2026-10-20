@@ -76,9 +76,9 @@ export const createPersistOptions = (
   storageAdapter: StorageAdapter,
   exposeLifetime?: (lifetime: PersistenceLifetime) => void
 ): PersistOptions<FileExplorerState, SerializedState> => {
-  const { workerStorage, useWorker } = initWorker(storageAdapter, isTest, shouldLog);
+  let worker: ReturnType<typeof initWorker> | undefined;
   const lifetime = new PersistenceLifetime(async () => {
-    await workerStorage?.drainPendingWrites();
+    await worker?.workerStorage?.drainPendingWrites();
   });
   exposeLifetime?.(lifetime);
   let pendingRecoveryNotice: PersistenceRecoveryNotice | null = null;
@@ -123,13 +123,26 @@ export const createPersistOptions = (
     }
   }
 
-  const persistedStorage = createStorageWrapper(
-    storageAdapter,
-    useWorker,
-    workerStorage,
-    shouldLog,
-    recordPersistedStateDiscard
-  ) as PersistStorage<SerializedState>;
+  let backend: PersistStorage<SerializedState> | undefined;
+  const storageBackend = (): PersistStorage<SerializedState> => {
+    if (backend) {
+      return backend;
+    }
+    worker = initWorker(storageAdapter, isTest, shouldLog);
+    backend = createStorageWrapper(
+      storageAdapter,
+      worker.useWorker,
+      worker.workerStorage,
+      shouldLog,
+      recordPersistedStateDiscard
+    ) as PersistStorage<SerializedState>;
+    return backend;
+  };
+  const persistedStorage: PersistStorage<SerializedState> = {
+    getItem: (name) => storageBackend().getItem(name),
+    removeItem: (name) => storageBackend().removeItem(name),
+    setItem: (name, value) => storageBackend().setItem(name, value),
+  };
   const shouldSkipUnreadSnapshotWrite = async (
     name: string,
     valueJson: string

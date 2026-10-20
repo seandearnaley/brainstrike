@@ -11,6 +11,7 @@ import {
   useFileExplorerStoreSelector,
   useOptionalFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
+import { withProviderCloseOwner } from './test-helpers';
 
 // Utility wrapper for provider
 function wrapper(storage: MemoryStorageAdapter) {
@@ -78,11 +79,11 @@ describe('FileExplorerProvider', () => {
       wrapper: ({ children }: { children: ReactNode }) => (
         <StrictMode>
           <FileExplorerProvider
-            closeLifecycle={{
+            closeLifecycle={withProviderCloseOwner({
               isPreparing: () => false,
               registerPersistence: register,
               registerProducer: () => () => {},
-            }}
+            })}
             storageAdapter={storage}
           >
             {children}
@@ -124,7 +125,7 @@ describe('FileExplorerProvider', () => {
       wrapper: wrapper(storage),
     });
 
-    expect(spy).toHaveBeenCalledWith(storage);
+    expect(spy).toHaveBeenCalledWith(storage, { skipHydration: true });
     expect(result.current).toBe(dummyStore);
 
     spy.mockRestore();
@@ -231,7 +232,7 @@ describe('FileExplorerProvider', () => {
       const storage = new MemoryStorageAdapter();
       const producers = new Set<() => Promise<void>>();
       let preparing = false;
-      const lifecycle = {
+      const lifecycle = withProviderCloseOwner({
         isPreparing: () => preparing,
         registerPersistence: () => () => {},
         registerProducer: (prepare: () => Promise<void>) => {
@@ -240,7 +241,7 @@ describe('FileExplorerProvider', () => {
             producers.delete(prepare);
           };
         },
-      };
+      });
       const { result, unmount } = renderHook(() => useFileContentLoadAuthority(), {
         wrapper: ({ children }: { children: ReactNode }) => (
           <FileExplorerProvider closeLifecycle={lifecycle} storageAdapter={storage}>

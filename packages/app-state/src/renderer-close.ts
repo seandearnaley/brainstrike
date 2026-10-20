@@ -26,6 +26,25 @@ export function registerRendererClosePreparation(
   return () => preparations.delete(prepare);
 }
 
+/** Enroll both phases before the resource starts any asynchronous work. */
+export function registerRendererCloseOwner(owner: {
+  readonly begin: () => void;
+  readonly prepareProducers: () => Promise<void>;
+  readonly preparePersistence: () => Promise<void>;
+}): () => void {
+  if (preparing) {
+    throw new Error('The renderer is already preparing to close');
+  }
+  const producers = () => owner.prepareProducers();
+  const persistence = () => owner.preparePersistence();
+  preparations.set(producers, { begin: undefined, phase: 'producers' });
+  preparations.set(persistence, { begin: owner.begin, phase: 'persistence' });
+  return () => {
+    preparations.delete(producers);
+    preparations.delete(persistence);
+  };
+}
+
 export function prepareRendererClose(): Promise<void> {
   if (preparing) {
     return preparing;

@@ -7,6 +7,7 @@ import {
   QUERY_SELECTION_LOADING_PROMOTION_MS,
   useSelectionResolver,
 } from '../use-selection-resolver';
+import { withProviderCloseOwner } from './test-helpers';
 
 const useOptionalPGliteDatabaseMock = vi.fn();
 const useFileExplorerStoreContextMock = vi.fn();
@@ -77,7 +78,7 @@ describe('useSelectionResolver', () => {
       loadQuerySelectionSnapshotMock.mockReturnValue(read.promise);
       const producers = new Set<() => Promise<void>>();
       let preparing = false;
-      const lifecycle = {
+      const lifecycle = withProviderCloseOwner({
         isPreparing: () => preparing,
         registerPersistence: () => () => {},
         registerProducer: (prepare: () => Promise<void>) => {
@@ -86,7 +87,7 @@ describe('useSelectionResolver', () => {
             producers.delete(prepare);
           };
         },
-      };
+      });
       const view = renderHook(() => useSelectionResolver(), {
         wrapper: ({ children }: { children: ReactNode }) =>
           createElement(ExplorerCloseLifecycleContext.Provider, { value: lifecycle }, children),
