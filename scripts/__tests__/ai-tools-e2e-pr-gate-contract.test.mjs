@@ -47,6 +47,7 @@ const DESKTOP_SMOKE_SPECS = [
   'e2e/terminal-panel.desktop.test.ts',
   'e2e/threads-panel-folders.desktop.test.ts',
   'e2e/tools-settings.desktop.test.ts',
+  'e2e/thread-workspace-close.desktop.test.ts',
   'e2e/workspace-bar.desktop.test.ts',
   'e2e/worktree-map.desktop.test.ts',
   'e2e/worktree-mode.desktop.test.ts',
