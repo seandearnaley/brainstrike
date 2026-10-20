@@ -1,8 +1,10 @@
 /**
  * E2E-only lifecycle delay seam (lifecycle redesign §6.1): one awaited delay
  * before a named lifecycle boundary proceeds, so a test can make any boundary
- * as slow as a loaded machine makes it, deterministically. Absent a point,
- * applying it is a no-op that arms no timer.
+ * as slow as a loaded machine makes it, deterministically. Each point fires
+ * once per process: the first boundary to apply it waits, every later one
+ * proceeds at once, so a delay on a repeated boundary (every indexer request)
+ * never multiplies. Absent or spent, applying a point arms no timer.
  *
  * Electron Main owns the gate (`apps/desktop/src/lifecycle-delay-seam.ts`): it
  * reads `BRAINSTRIKE_E2E_LIFECYCLE_DELAYS` only in an unpackaged test-mode
@@ -75,12 +77,23 @@ export function formatLifecycleDelays(
     .join(',');
 }
 
-/** Waits the delay set for `point`; resolves at once, arming no timer, when it is unset. */
+/** The points each delay set has already fired; a set's configured values stay unchanged. */
+const fired = new WeakMap<LifecycleDelays, Set<LifecycleDelayPoint>>();
+
+/**
+ * Waits the delay set for `point` the first time `point` is applied with
+ * `delays`, and consumes it: unset or already fired, it resolves at once,
+ * arming no timer. Forwarding (`formatLifecycleDelays`) still reads the
+ * configured value, so each child process applies its points once too.
+ */
 export function lifecycleDelay(delays: LifecycleDelays, point: LifecycleDelayPoint): Promise<void> {
   const ms = delays.get(point);
-  if (ms === undefined) {
+  const spent = fired.get(delays) ?? new Set<LifecycleDelayPoint>();
+  if (ms === undefined || spent.has(point)) {
     return Promise.resolve();
   }
+  spent.add(point);
+  fired.set(delays, spent);
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 

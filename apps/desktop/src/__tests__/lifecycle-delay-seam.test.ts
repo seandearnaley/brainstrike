@@ -36,6 +36,10 @@ it('applies Main points and forwards child points only in an unpackaged test-mod
   await waiting;
   await seam.delay('child-exit');
   expect(vi.getTimerCount()).toBe(0);
+  // A point fires once in Main; every child still receives its configured value.
+  await seam.delay('record-read');
+  expect(vi.getTimerCount()).toBe(0);
+  expect(seam.childEnv(['record-read'])).toEqual({ [LIFECYCLE_DELAYS_ENV]: 'record-read:3000' });
 });
 
 it('strips the variable from Main and forwards nothing in a packaged build or outside test mode', async () => {

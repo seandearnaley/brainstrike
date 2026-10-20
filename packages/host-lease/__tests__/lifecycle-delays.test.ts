@@ -61,6 +61,25 @@ describe('lifecycle delay seam', () => {
     expect(done).toBe(true);
   });
 
+  test('each point fires once per delay set; forwarding still carries its configured value', async () => {
+    vi.useFakeTimers();
+    const delays = parseLifecycleDelays('host-ready:5000,record-read:3000');
+    const first = lifecycleDelay(delays, 'host-ready');
+    expect(vi.getTimerCount()).toBe(1);
+    await lifecycleDelay(delays, 'host-ready');
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    await first;
+    await lifecycleDelay(delays, 'host-ready');
+    expect(vi.getTimerCount()).toBe(0);
+    expect(formatLifecycleDelays(delays)).toBe('host-ready:5000,record-read:3000');
+    // Another set (another process's) fires the same point once of its own.
+    const other = lifecycleDelay(parseLifecycleDelays('host-ready:5000'), 'host-ready');
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    await other;
+  });
+
   test('a child takes its forwarded entry once and removes it for its own children', () => {
     const env: Record<string, string | undefined> = {
       [LIFECYCLE_DELAYS_ENV]: 'host-ready:5000',

@@ -23,7 +23,10 @@ export interface LifecycleDelaySeam {
    * Empty when the seam is off or none of `points` is set: the child then has no entry at all.
    */
   childEnv(points: readonly LifecycleDelayPoint[]): Readonly<Record<string, string>>;
-  /** Main-side point: one awaited delay before the boundary proceeds; no timer when unset. */
+  /**
+   * Main-side point: the first boundary to apply it waits `ms`; every later one, and an unset
+   * point, proceeds at once with no timer. Forwarded child points are unaffected (`childEnv`).
+   */
   delay(point: LifecycleDelayPoint): Promise<void>;
 }
 
