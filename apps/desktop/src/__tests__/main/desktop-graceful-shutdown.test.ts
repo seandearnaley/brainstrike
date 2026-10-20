@@ -307,6 +307,38 @@ describe('desktop graceful shutdown', () => {
     );
   });
 
+  // The steps a 2-core Windows run found in flight when the old deadline forced exit 1.
+  it.each([
+    'snapshot-maintenance',
+    'main-catalog',
+    'native-index',
+    'forge',
+    'git-commands',
+  ] as const)(
+    'a %s step that takes 15 s is joined, every later step runs, and nothing forces an exit',
+    async (slow) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      const { events, logger, options } = createHarness(
+        { [slow]: () => new Promise<void>((resolve) => setTimeout(resolve, 15_000)) },
+        { now: () => Date.now() }
+      );
+
+      const running = createDesktopGracefulShutdown(options).run('signal');
+      await vi.advanceTimersByTimeAsync(15_000);
+      await running;
+
+      expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
+      expect(events).toContain('close:database');
+      expect(options.exitProcess).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Graceful shutdown step is slow', {
+        elapsedMs: 10_000,
+        step: slow,
+        trigger: 'signal',
+      });
+    }
+  );
+
   it('names a slow step only at the documented threshold, and a throwing slow log never fails the run', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const { events, logger, options } = createHarness(
