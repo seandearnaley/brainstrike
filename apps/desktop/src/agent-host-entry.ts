@@ -4,6 +4,7 @@
 import '@brainstrike/secure-fs-native/default-owner';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
+import { startProofCpuProfile } from './diagnostics/proof-cpu-profile';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
     // Deliver queued native parent/port events before synchronous CJS evaluation.
     await new Promise<void>((resolve) => setImmediate(resolve));
     controller.signal.throwIfAborted();
+    await loadUtilityStartup(() => startProofCpuProfile('agent-host'), controller.signal);
     const { runAgentHostProcess } = await loadUtilityStartup(
       () => import('@brainstrike/agent-host'),
       controller.signal

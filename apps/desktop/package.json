@@ -20,6 +20,7 @@
     "asarUnpack": [
       "dist/main-log-transport.js",
       "dist/main-watchdog-worker.js",
+      "dist/proof-cpu-profile-worker.js",
       "**/node_modules/node-pty/prebuilds/**",
       "**/node_modules/@brainstrike/secure-fs-native/build/Release/*.node",
       "**/node_modules/@brainstrike/windows-job-native/build/Release/*.node",

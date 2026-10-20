@@ -221,14 +221,21 @@ export class ElectronHarness {
     onAppAcquired?: (app: ElectronApplication) => void
   ): Promise<ElectronAppContext> {
     const { launchElectronApp } = await loadElectronHelpers();
+    const cpuProofEnvironment: Record<string, string> =
+      process.env['BRAINSTRIKE_PROOF_CPU_PROFILE'] === '1'
+        ? {
+            ['BRAINSTRIKE_PROOF_CPU_DIR']: this.testInfo.outputPath('proof-cpu'),
+            ['BRAINSTRIKE_PROOF_CPU_PROFILE']: '1',
+          }
+        : {};
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+      env: { ...this.electronEnv, ...cpuProofEnvironment },
       onAppAcquired: (app) => {
         this.app = app;
         this.exitGuard.observe(app.process());
         onAppAcquired?.(app);
       },
-      ...(this.electronEnv ? { env: this.electronEnv } : {}),
       ...(this.modelProvider ? { modelProvider: this.modelProvider } : {}),
       ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
     });

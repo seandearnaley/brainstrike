@@ -65,6 +65,7 @@ export const MAIN_PROCESS_ENTRY_POINTS = {
   'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
   'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
+  'proof-cpu-profile-worker': 'src/diagnostics/proof-cpu-profile-worker.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
 };
 
