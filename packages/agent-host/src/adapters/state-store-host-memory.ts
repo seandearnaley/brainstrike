@@ -5,7 +5,7 @@ import {
   preparedPromptBreakdown,
   preparedPromptToolCalls,
 } from '@brainstrike/agent/provider-request';
-import { memoryConfigurationError } from '@brainstrike/assistant-contract';
+import { describeBoundaryFailure, memoryConfigurationError } from '@brainstrike/assistant-contract';
 import {
   applyPromptToolCallWindow,
   diffPromptToolCallWindow,
@@ -135,6 +135,8 @@ export class StateStoreHostMemory implements HostRunOwner {
   private preparedRewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
   /** The tool calls this run's previous provider request carried; none before its first. */
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
+  /** The turn's recall, from its first step; every later step reuses it. */
+  private turnRecall: Promise<ReadonlySet<string>> | undefined;
 
   private constructor(
     readonly memory: HostMemory,
@@ -383,19 +385,27 @@ export class StateStoreHostMemory implements HostRunOwner {
     // Public getContext has no semantic query argument. Use the library's
     // recall primitive; it resolves returned IDs through committed storage.
     const started = performance.now();
-    const { messages } = await this.memory.recall({
+    const recall = await this.memory.recall({
       resourceId: this.identity.resourceId,
       threadConfig: { lastMessages: false },
       vectorSearchString: query,
     });
+    if ('failure' in recall) {
+      if (!this.identity.recordRecallFailed) {
+        throw new Error('A failed recall requires the host-owned notice writer');
+      }
+      // The turn answers without recall; its committed notice names why.
+      await this.identity.recordRecallFailed(describeBoundaryFailure(recall.failure.failure));
+      return new Set();
+    }
     // BST-2225: a live diagnostic of what recall found, never committed.
     this.identity.recordRecall?.({
       latencyMs: Math.max(0, Math.round(performance.now() - started)),
-      messages: messages.length,
+      messages: recall.messages.length,
       scope: this.resourceRecall ? 'resource' : 'thread',
       ...(this.recallTopK === undefined ? {} : { topK: this.recallTopK }),
     });
-    return new Set(messages.map((message) => message.id));
+    return new Set(recall.messages.map((message) => message.id));
   }
 
   async prepareHostStep(request: {
@@ -430,7 +440,12 @@ export class StateStoreHostMemory implements HostRunOwner {
         : current.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
     const step = await this.memory.prepareStep(request.stepNumber);
     const selected = new Set(step.messages.map((message) => message.id));
-    const recalled = await this.recallMessageIds(query);
+    // The query is the turn's user input, the same on every step (a steer ends
+    // the run). As Mastra's own recall runs once per agent call
+    // (`processInput`), it runs once per turn; observation and the history
+    // window still follow each step.
+    this.turnRecall ??= this.recallMessageIds(query);
+    const recalled = await this.turnRecall;
     for (const id of recalled) {
       selected.add(id);
     }

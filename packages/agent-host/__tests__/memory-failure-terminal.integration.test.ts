@@ -57,17 +57,18 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-/** An embedder whose first call with a value matching `fails` throws `failure()`. */
+/** An embedder whose first `times` calls with a value matching `fails` throw `failure()`. */
 function embedder(
   fails: RegExp,
   failure: () => unknown = () => new Error('Recorded embedder failure'),
-  dimensions = 4
+  dimensions = 4,
+  times = 1
 ): Extract<MastraEmbeddingModel<string>, { specificationVersion: 'v3' }> {
-  let failed = false;
+  let failed = 0;
   return {
     doEmbed: async ({ values }) => {
-      if (!failed && values.some((value) => fails.test(value))) {
-        failed = true;
+      if (failed < times && values.some((value) => fails.test(value))) {
+        failed += 1;
         throw failure();
       }
       return {
@@ -155,6 +156,11 @@ async function failureHost(memory: (run: number) => Memory) {
       await host.close();
       await rm(root, { force: true, recursive: true });
     },
+    /** The committed events of the thread's run `runId`. */
+    events: async (runId: string | undefined): Promise<HostEvent[]> =>
+      (await client.request('thread/read', { fromSeq: 0, threadId })).rows
+        .map((row) => row.event)
+        .filter((event) => 'runId' in event && event.runId === runId),
     run,
   };
 }
@@ -179,6 +185,23 @@ const rejected = (statusCode: number) => () =>
     statusCode,
     url: 'https://memory-provider.invalid/v1/embeddings',
   });
+
+/**
+ * A provider's rate limit, retryable at once: each of the AI SDK's attempts
+ * fails, so the step's failure is its RetryError over every attempt.
+ */
+const rateLimited = () =>
+  new APICallError({
+    isRetryable: true,
+    message: 'Rate limit reached for fixture-embedder-4',
+    requestBodyValues: {},
+    responseBody: '{"error":{"message":"Rate limit reached"}}',
+    responseHeaders: { 'retry-after-ms': '0' },
+    statusCode: 429,
+    url: 'https://memory-provider.invalid/v1/embeddings',
+  });
+/** Mastra embeds with `maxRetries: 3`: four attempts. */
+const ATTEMPTS = 4;
 
 const observing = (run: number): Memory => ({
   native: {
@@ -219,36 +242,28 @@ test.each([
     cause: 'Recorded embedder failure',
     code: 'memory.embedder-failed',
     detail:
-      'Memory recall failed because its embedding model (OpenAI fixture-embedder-4) failed. Retry, or review Settings → Assistant Memory.',
-    memory: recalling(embedder(/Which city/u)),
-    name: 'recall embedder',
-  },
-  {
-    cause: 'Recorded embedder failure',
-    code: 'memory.embedder-failed',
-    detail:
       'Memory save failed because its embedding model (OpenAI fixture-embedder-4) failed. Retry, or review Settings → Assistant Memory.',
     // Only the saved assistant reply embeds this text; recall never queries it.
     memory: recalling(embedder(/Host run completed/u)),
     name: 'save embedder',
   },
   {
-    cause: 'Incorrect API key provided',
+    cause: 'Rate limit reached',
     code: 'memory.embedder-failed',
-    // The run's chat provider is OpenAI; the memory embedder's own provider is named.
     detail:
-      'Memory recall failed because its embedding model (Google AI Studio fixture-embedder-4) failed. Check the Google AI Studio API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory. Provider response: Google AI Studio returned HTTP 401.',
-    memory: recalling(embedder(/Which city/u, rejected(401)), { ...profile, provider: 'google' }),
-    name: 'rejected embedder credential',
+      'Memory save failed because its embedding model (OpenAI fixture-embedder-4) failed. Retry, or review Settings → Assistant Memory. Provider response: OpenAI returned HTTP 429.',
+    memory: recalling(embedder(/Host run completed/u, rateLimited, 4, ATTEMPTS)),
+    name: 'rate-limited save embedder',
   },
   {
     cause: 'Native Memory index does not match the acquired vector profile',
     code: 'memory.vector-store-failed',
-    detail: 'Memory recall failed because its vector store failed.',
-    // The store refuses a query vector of another profile's dimensions.
+    detail: 'Memory save failed because its vector store failed.',
+    // The store refuses every vector of another profile's dimensions: the
+    // turn answers without its recall, then the save that writes one fails.
     memory: (run: number): Memory =>
       run === 0 ? recalling(embedder(/^$/u, undefined, 3))() : plain,
-    name: 'vector store',
+    name: 'save vector store',
   },
   {
     cause: 'Recorded observer failure',
@@ -288,6 +303,69 @@ test.each([
       diagnostics.expectCorrelatedCause(reference ?? 'no reference', { cause, code });
       // The owner was released: the same thread admits and completes another run.
       expect(await host.run('Report completion.')).toMatchObject({ outcome: 'completed' });
+      // Reported once: the settlement the next run joined does not repeat it.
+      expect(
+        (await host.events(failed?.runId)).some(
+          (event) => event.type === 'memory.settlement.failed'
+        )
+      ).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      await host.close();
+    }
+  }
+);
+
+test.each([
+  {
+    cause: 'Recorded embedder failure',
+    detail:
+      'Memory recall failed because its embedding model (OpenAI fixture-embedder-4) failed. Retry, or review Settings → Assistant Memory.',
+    memory: recalling(embedder(/Which city/u)),
+    name: 'embedder',
+  },
+  {
+    cause: 'Incorrect API key provided',
+    // The run's chat provider is OpenAI; the memory embedder's own provider is named.
+    detail:
+      'Memory recall failed because its embedding model (Google AI Studio fixture-embedder-4) failed. Check the Google AI Studio API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory. Provider response: Google AI Studio returned HTTP 401.',
+    memory: recalling(embedder(/Which city/u, rejected(401)), { ...profile, provider: 'google' }),
+    name: 'rejected embedder credential',
+  },
+  {
+    cause: 'Rate limit reached',
+    detail:
+      'Memory recall failed because its embedding model (OpenAI fixture-embedder-4) failed. Retry, or review Settings → Assistant Memory. Provider response: OpenAI returned HTTP 429.',
+    memory: recalling(embedder(/Which city/u, rateLimited, 4, ATTEMPTS)),
+    name: 'rate-limited embedder',
+  },
+])(
+  'a $name recall failure is the turn’s notice: the turn answers, and its typed reason commits once',
+  async ({ cause, detail, memory }) => {
+    const diagnostics = captureHostFailureDiagnostics();
+    const host = await failureHost(memory);
+    try {
+      const answered = await host.run('Which city did I mention?');
+      expect(answered).toMatchObject({ outcome: 'completed' });
+      // The next run joins this run's memory settlement before it starts.
+      expect(await host.run('Report completion.')).toMatchObject({ outcome: 'completed' });
+      const events = await host.events(answered?.runId);
+      const notice = events.find((event) => event.type === 'memory.recall.failed');
+      const reference = REFERENCE.exec(
+        notice?.type === 'memory.recall.failed' ? notice.detail : ''
+      )?.[1];
+      expect(notice).toEqual({
+        detail: `${detail} Reference: ${reference}`,
+        runId: answered?.runId,
+        type: 'memory.recall.failed',
+      });
+      diagnostics.expectCorrelatedCause(reference ?? 'no reference', {
+        cause,
+        code: 'memory.embedder-failed',
+        step: 'recall',
+      });
+      // The provider join that repeats the embedder's failure is not a settlement failure.
+      expect(events.some((event) => event.type === 'memory.settlement.failed')).toBe(false);
       expect(fetch).not.toHaveBeenCalled();
     } finally {
       await host.close();

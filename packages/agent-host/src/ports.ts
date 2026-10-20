@@ -195,6 +195,11 @@ export interface HostRunContext {
    * stream as uncommitted `run/telemetry` (ADR-0011 amendment).
    */
   recordRecall?(recall: MemoryRecallTelemetry): void;
+  /**
+   * A failed semantic recall's typed detail (BST-2202): the turn answers
+   * without recall, and Core commits this as the run's notice.
+   */
+  recordRecallFailed?(detail: string): Promise<void>;
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;

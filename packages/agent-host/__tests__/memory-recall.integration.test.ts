@@ -243,6 +243,98 @@ test('public vector bridge prepares actual committed SDK sources before save inf
   }
 });
 
+test('a turn of several steps recalls once, and every step carries what it recalled', async () => {
+  const recorded = recordedMemoryVectorPort();
+  const current = await fixture({
+    semanticScope: 'resource',
+    toolTurn: true,
+    vectorPort: recorded.port,
+  });
+  try {
+    const first = await current.core.startThread({ commandId: randomUUID() });
+    const fact = 'Paris source recalled once for the whole turn.';
+    await current.run(first.threadId, fact);
+    const rows = await current.core.read(first.threadId, 0);
+    const source = rows.findLast(
+      (row) => row.event.type === 'model.step' && row.event.messages.length > 0
+    );
+    const assistant = committedMemoryTranscript(rows, current.resourceId).findLast(
+      (message) => message.role === 'assistant'
+    );
+    if (!(source && assistant)) {
+      throw new Error('Actual committed SDK step has no source identity');
+    }
+    recorded.setHits([
+      {
+        messageId: assistant.id,
+        score: 1,
+        segmentOrdinal: 0,
+        seq: source.seq,
+        threadId: first.threadId,
+      },
+    ]);
+    const before = recorded.queries.length;
+    const target = await current.core.startThread({ commandId: randomUUID() });
+    await current.run(target.threadId, 'Recall the Paris source on every step.');
+    const steps = current.models.at(-1)?.doStreamCalls ?? [];
+    expect(steps).toHaveLength(2);
+    // The turn's query is its user input, the same on every step: like
+    // Mastra's own recall (`processInput`), it runs once per turn.
+    expect(recorded.queries.slice(before)).toHaveLength(1);
+    for (const step of steps) {
+      expect(JSON.stringify(step.prompt)).toContain(fact);
+    }
+  } finally {
+    await current.close();
+  }
+});
+
+test('a failed recall is the turn’s notice: the turn answers without it, and its typed reason commits once', async () => {
+  const diagnostics = captureHostFailureDiagnostics();
+  const recorded = recordedMemoryVectorPort();
+  const current = await fixture({
+    semanticScope: 'resource',
+    toolTurn: true,
+    vectorPort: recorded.port,
+  });
+  try {
+    const { threadId } = await current.core.startThread({ commandId: randomUUID() });
+    // BST-2272: the host's state-index worker failed the recall's vector query.
+    recorded.setQueryFailure(new Error('Recorded state-index query deadline'));
+    const runId = await current.run(threadId, 'Answer while recall fails.');
+    expect(current.models.at(-1)?.doStreamCalls).toHaveLength(2);
+    expect(recorded.queries).toHaveLength(1);
+    recorded.setQueryFailure(undefined);
+    // The next run joins the first run's memory settlement before it starts.
+    await current.run(threadId, 'Report completion.');
+    const events = (await current.core.read(threadId, 0))
+      .map((row) => row.event)
+      .filter((event) => 'runId' in event && event.runId === runId);
+    const notices = events.filter((event) => event.type === 'memory.recall.failed');
+    const detail = notices[0]?.type === 'memory.recall.failed' ? notices[0].detail : '';
+    const reference = / Reference: ([0-9a-f-]{36})$/u.exec(detail)?.[1] ?? 'no reference';
+    expect(notices).toEqual([
+      {
+        detail: `Memory recall failed because its vector store failed. Reference: ${reference}`,
+        runId,
+        type: 'memory.recall.failed',
+      },
+    ]);
+    diagnostics.expectCorrelatedCause(reference, {
+      cause: 'Recorded state-index query deadline',
+      code: 'memory.vector-store-failed',
+      step: 'recall',
+    });
+    // Reported once: neither the run's outcome nor its settlement repeats it.
+    expect(events.filter((event) => event.type === 'run.finished')).toEqual([
+      { outcome: 'completed', runId, type: 'run.finished' },
+    ]);
+    expect(events.some((event) => event.type === 'memory.settlement.failed')).toBe(false);
+  } finally {
+    await current.close();
+  }
+});
+
 test.each(['thread', 'resource'] as const)(
   'actual Core/indexer/public Memory recall preserves committed IDs and scores across reopen (%s)',
   async (scope) => {

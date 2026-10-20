@@ -90,7 +90,9 @@ test('public Memory preserves working memory and committed message IDs through r
     expect(step.messages.map((item) => item.id)).toEqual([user.id, assistant.id]);
     expect(step.workingMemory).toBe('Runtime fixture working memory');
     const recalled = await f.adapter.recall({ resourceId: f.identity.resourceId });
-    expect(recalled.messages.map((item) => item.id)).toEqual([user.id, assistant.id]);
+    expect(
+      'messages' in recalled ? recalled.messages.map((item) => item.id) : recalled.failure
+    ).toEqual([user.id, assistant.id]);
   } finally {
     await f.adapter.close();
     await f.storage.close();
@@ -296,10 +298,9 @@ test('explicitly disabled OM needs no concrete models and preserves ordinary rec
     await f.adapter.commitStep([user]);
     await f.adapter.beginTurn([user]);
     expect((await f.adapter.prepareStep(0)).observation).toBeUndefined();
+    const recalled = await f.adapter.recall({ resourceId: f.identity.resourceId });
     expect(
-      (await f.adapter.recall({ resourceId: f.identity.resourceId })).messages.map(
-        (item) => item.id
-      )
+      'messages' in recalled ? recalled.messages.map((item) => item.id) : recalled.failure
     ).toEqual([user.id]);
   } finally {
     await f.adapter.close();
