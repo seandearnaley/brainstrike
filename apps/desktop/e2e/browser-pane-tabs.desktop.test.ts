@@ -56,14 +56,14 @@ function countPaneWebContents(app: ElectronApplication): Promise<number> {
 }
 
 /**
- * Close the window that hosts the browser pane (not the app) and wait until
+ * Retire the window that hosts the browser pane (not the app) and wait until
  * it is destroyed. Returns after main has run the window's `closed` handlers.
  *
- * The pane host is the app's only window: macOS keeps the process alive when
- * its last window closes, but every other platform quits on
- * `window-all-closed`. A hidden second window gives all platforms the macOS
- * lifecycle, so the test observes the window's own teardown, not app shutdown
- * (which the harness's exit guard would also flag as an unexpected exit).
+ * The pane host is the app's only visible window, and closing the last visible
+ * window quits the app on every platform but macOS (`document-unload.ts`).
+ * Destroying it skips that user-close path on all platforms, so the test
+ * observes the window's own teardown, not app shutdown (which the harness's
+ * exit guard would also flag as an unexpected exit).
  */
 async function closePaneHostWindow(app: ElectronApplication): Promise<void> {
   const windowId = await app.evaluate(({ BrowserWindow, session, WebContentsView }, partition) => {
@@ -76,8 +76,7 @@ async function closePaneHostWindow(app: ElectronApplication): Promise<void> {
     if (!host) {
       throw new Error('No window hosts a browser pane view');
     }
-    new BrowserWindow({ show: false });
-    host.close();
+    host.destroy();
     return host.id;
   }, PANE_PARTITION);
   await expect

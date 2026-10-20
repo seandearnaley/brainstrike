@@ -197,18 +197,25 @@ test.describe('Electron App Launch', () => {
   });
 });
 
-// Drive the public preload ports continuously, as background indexing does.
-// This pins app-owned shutdown ordering without substituting a mocked host.
-test('joins renderer IPC producers before closing their hosts @smoke', async ({
+// Drive the public preload ports continuously, as background indexing does. Quit joins only
+// the document's durable writers (ADR-0026 R1), never these producers: they run until their
+// window closes, which quit does before it retires any host they call, and a read refused by
+// quit is a typed refusal, never a thrown error.
+test('renderer IPC producers are not joined at quit: they see only typed refusals and the app exits 0 @smoke', async ({
   electron,
 }, testInfo) => {
   const page = await electron.ensureWindow();
   const ownedProcess = (await electron.ensureContext()).app.process();
   const output: string[] = [];
   const producerErrors: string[] = [];
+  const refusals: string[] = [];
   page.on('console', (message) => {
-    if (message.text().startsWith('Renderer shutdown producer failed')) {
-      producerErrors.push(message.text());
+    const text = message.text();
+    if (text.startsWith('Renderer shutdown producer failed')) {
+      producerErrors.push(text);
+    }
+    if (text.startsWith('Renderer producer refused:')) {
+      refusals.push(text.slice('Renderer producer refused:'.length).trim());
     }
   });
   const capture = (chunk: Buffer) => output.push(chunk.toString());
@@ -231,9 +238,12 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
         await Promise.all([
           catalog.read().then((result) => {
             if (!result.ok) {
-              throw new Error(result.error.message);
+              // A typed refusal is the boundary's answer, not a producer failure.
+              console.info(
+                'Renderer producer refused:',
+                JSON.stringify({ category: result.error.category, code: result.error.code })
+              );
             }
-            return result.value;
           }),
           chunkingHost.ensureStarted(),
         ]);
@@ -263,6 +273,12 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
   expect(ownedProcess.exitCode).toBe(0);
   expect(ownedProcess.signalCode).toBeNull();
   expect(producerErrors).toEqual([]);
+  for (const refusal of refusals) {
+    expect(JSON.parse(refusal)).toEqual({
+      category: expect.any(String),
+      code: expect.any(String),
+    });
+  }
   expect(log).not.toContain('chunking-host lifecycle has been disposed');
   expect(log).not.toContain('Chunking host is not running (state: stopped)');
   expect(log).not.toContain('DB host manager is closing');
