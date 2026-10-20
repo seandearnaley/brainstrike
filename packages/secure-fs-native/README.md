@@ -54,6 +54,13 @@ with directory inheritance, compared ACE for ACE. Apply refuses a directory
 another principal owns without writing, never takes ownership, and throws unless
 it reads back private. Both throw typed errors, and `ENOTSUP` on POSIX.
 
+`setDefaultOwnerToCurrentUserSync` sets this process token's default owner to
+its own user SID and reads it back (BST-2246). It throws `ERR_DEFAULT_OWNER` and
+does nothing on POSIX. Objects the process creates afterwards, and children it
+starts afterwards, then belong to the user even under an elevated token whose
+default is `BUILTIN\Administrators`. Process entries import
+`@brainstrike/secure-fs-native/default-owner` first rather than calling it.
+
 Root establishment distinguishes genuine `ENOENT` from `ERR_SECURE_FS_ROOT`.
 `tryExclusiveFlock` is POSIX-only; inherited descriptors share its open-file lock,
 so close the owned descriptor rather than unlocking the shared lock. Windows

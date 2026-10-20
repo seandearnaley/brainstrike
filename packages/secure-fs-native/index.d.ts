@@ -101,3 +101,15 @@ export function verifyPrivateDirectorySync(absolutePath: string): PrivateDirecto
  * and never takes ownership. Starts no process; on POSIX, throws `ENOTSUP`.
  */
 export function applyPrivateDirectorySync(absolutePath: string): void;
+
+/**
+ * Windows: sets this process token's default owner (TOKEN_OWNER) to the token's
+ * own user SID and reads it back. Every object the process creates afterwards,
+ * and every child it starts afterwards (a child gets a copy of this token), is
+ * owned by the user, even in an elevated session whose token defaults to
+ * BUILTIN\Administrators. It never changes the owner of an existing object.
+ * Throws `ERR_DEFAULT_OWNER` with `win32Code` when the token cannot be opened,
+ * changed or read back. POSIX: does nothing. Process entries import
+ * `@brainstrike/secure-fs-native/default-owner` first instead of calling this.
+ */
+export function setDefaultOwnerToCurrentUserSync(): void;
