@@ -113,7 +113,7 @@ test('leaves Vitest transformed-module coverage to Vitest while collecting its n
     );
     writeFileSync(
       path.join(dir, 'vitest.config.mjs'),
-      `export default { test: { include: ['logic.test.mjs'], maxWorkers: 1, coverage: { include: ['src/*.mjs'], reporter: ['json'] } } };`
+      `export default { test: { fsModuleCachePath: ${JSON.stringify(path.join(dir, '.vitest-cache'))}, include: ['logic.test.mjs'], maxWorkers: 1, coverage: { include: ['src/*.mjs'], reporter: ['json'] } } };`
     );
     assert.equal(
       await runNativeCoverage(
