@@ -69,23 +69,6 @@ const UNTRUSTED_KEY_MODE: KeyMode = {
   trustedPaths: false,
 };
 
-export function assertEvidenceTextSanitized(text: string, path: string): void {
-  createEvidenceSanitizationSession().assertTextSanitized(text, path);
-}
-
-export function assertEvidenceValueSanitized(value: unknown, path: string): void {
-  createEvidenceSanitizationSession().assertValueSanitized(value, path);
-}
-
-/**
- * Scans a closed, already-validated schema. Its trusted field names remain in
- * diagnostics, while JSON decoded from schema string values is treated as
- * untrusted content and receives positional paths plus credential-key checks.
- */
-export function assertEvidenceMetadataSanitized(value: unknown, path: string): void {
-  createEvidenceSanitizationSession().assertMetadataSanitized(value, path);
-}
-
 export function createEvidenceSanitizationSession(): EvidenceSanitizationSession {
   const state = createScanState();
   return {

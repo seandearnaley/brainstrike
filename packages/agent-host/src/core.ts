@@ -93,8 +93,6 @@ import { HostToolRecords } from './tool-records.js';
 import { revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
-export { jsonValue } from './json-value.js';
-
 export type { HostEventStore } from './thread-catalog.js';
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */

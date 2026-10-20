@@ -128,20 +128,17 @@ function posixStartTime(pid: number): string | null {
   }
 }
 
-/**
- * Keep the same lossless FILETIME previously returned by .NET Process.StartTime.
- * Only a missing/exited process means null; access and identity-source failures
- * throw. Native handle queries avoid blocking every contender on PowerShell.
- */
-export const WIN_START_PS = (pid: number): string =>
-  `$ErrorActionPreference='Stop'; try { $p = [System.Diagnostics.Process]::GetProcessById(${pid}) } catch [System.ArgumentException] { 'NOPROC'; exit 0 }; 'START ' + $p.StartTime.ToFileTimeUtc()`;
-
 type ProcessIdentityAddon = Pick<
   typeof import('@brainstrike/windows-job-native'),
   'getProcessCreationTime'
 >;
 let processIdentityAddon: ProcessIdentityAddon | undefined;
 
+/**
+ * Keep the same lossless FILETIME previously returned by .NET Process.StartTime.
+ * Only a missing/exited process means null; access and identity-source failures
+ * throw. Native handle queries avoid blocking every contender on PowerShell.
+ */
 function windowsStartTime(pid: number): string | null {
   processIdentityAddon ??= createRequire(import.meta.url)(
     '@brainstrike/windows-job-native'

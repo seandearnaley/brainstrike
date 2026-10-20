@@ -139,9 +139,3 @@ export {
   type NativeToolRegistries,
   toNativeToolKey,
 } from './registries.js';
-export type {
-  NativeToolDefaultMetadata,
-  ToolCategory,
-  ToolLoadingTier,
-  ToolRiskCategory,
-} from './taxonomy.js';

@@ -1,9 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  type McpArtifactKind,
-  type McpEvidenceSchema,
-  parseMcpEvidenceSchema,
-} from './evidence-schema.js';
+import type { McpArtifactKind, McpEvidenceSchema } from './evidence-schema.js';
 
 export type McpArtifactIntegrityCode =
   | 'artifact_decode_failed'
@@ -58,14 +54,6 @@ export interface McpArtifactIntegrityResult {
 }
 
 export type McpExtractedTextVerifier = (text: string, artifactIndex: number) => void;
-
-export async function verifyMcpEvidenceArtifactIntegrity(
-  input: unknown,
-  dependencies: McpArtifactIntegrityDependencies
-): Promise<McpArtifactIntegrityResult> {
-  const schema = parseMcpEvidenceSchema(input);
-  return verifyParsedMcpEvidenceArtifactIntegrity(schema, dependencies, () => undefined);
-}
 
 export async function verifyParsedMcpEvidenceArtifactIntegrity(
   schema: McpEvidenceSchema,

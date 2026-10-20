@@ -5,11 +5,11 @@
   "dependencies": {
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
     "workerpool": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",

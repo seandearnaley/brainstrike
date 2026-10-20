@@ -1,7 +1,6 @@
 import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credential-contract';
 import { expect, test, vi } from 'vitest';
 import { createHostAuthority, createHostCredentials } from '../src/index.js';
-import { CODEX_TOKEN_URL } from '../src/provider-auth/descriptors/openai-codex.js';
 import { toStoredOAuthCredential } from '../src/provider-auth/oauth-flow.js';
 import { memoryCredentialBackend } from './fixtures/memory-credential-backend.js';
 
@@ -46,7 +45,7 @@ function hostAuthority(options: { readonly failWritesAfterSeed?: boolean } = {})
   const tokenRequests: URLSearchParams[] = [];
   const fetchFn = vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input);
-    if (url !== CODEX_TOKEN_URL) {
+    if (url !== 'https://auth.openai.com/oauth/token') {
       throw new Error(`Unexpected OAuth request to ${url}`);
     }
     tokenRequests.push(new URLSearchParams(String(init?.body)));

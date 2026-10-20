@@ -2692,9 +2692,6 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
-      '@huggingface/transformers':
-        specifier: 'catalog:'
-        version: 4.3.1(patch_hash=c72e645938ae767c79a557fa85c3a9f3d71e197a3b45203693aadea57c5d017b)(@types/node@24.19.2)
       effect:
         specifier: 'catalog:'
         version: 4.0.5
@@ -2714,6 +2711,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217)
+      '@huggingface/transformers':
+        specifier: 'catalog:'
+        version: 4.3.1(patch_hash=c72e645938ae767c79a557fa85c3a9f3d71e197a3b45203693aadea57c5d017b)(@types/node@24.19.2)
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -3842,9 +3842,6 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
-      '@brainstrike/utils':
-        specifier: workspace:*
-        version: link:../utils
       workerpool:
         specifier: 'catalog:'
         version: 10.0.3
@@ -3852,6 +3849,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2

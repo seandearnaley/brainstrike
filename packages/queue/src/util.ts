@@ -1,6 +1,3 @@
-// Re-export isAbortError from shared utils for backwards compatibility
-export { isAbortError } from '@brainstrike/utils';
-
 export type Listener<TEvent> = (event: TEvent) => void;
 
 export class ProgressEmitter<TEvent> {
