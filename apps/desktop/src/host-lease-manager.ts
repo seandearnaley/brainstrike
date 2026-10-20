@@ -407,10 +407,10 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   const acquire = async (): Promise<HostAttachment> => {
     try {
       const attachment = await launchHost(options.root, {
-        attach: (record, timeoutMs) =>
+        attach: (record, timeoutMs, signal) =>
           record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
-            ? attachAgentHost(record, timeoutMs)
-            : attachHost(record, timeoutMs),
+            ? attachAgentHost(record, timeoutMs, signal)
+            : attachHost(record, timeoutMs, signal),
         // Lifecycle R3: the host this lease forked is attached from its ready
         // record over its socket, with no deadline. Only its exit, its socket
         // closing or this lease closing ends the attach.
