@@ -424,12 +424,8 @@ describe('main workspace-open lifecycle', () => {
     openFileHandler({ preventDefault }, '/Users/dev/repo');
     expect(preventDefault).toHaveBeenCalledTimes(1);
 
-    // The window's `loadFile`/`loadURL` mock fires the load events to
-    // whichever listeners exist AT THAT MOMENT (see `simulateLoad`) — the
-    // queue's attach listener is registered inside `createMainWindow`, AFTER
-    // that call resolves, so `loadFinished` here can ONLY become true via the
-    // `isLoading()` fallback. No test-driven event firing for THIS half: this
-    // proves production wiring, not the harness poking the code from outside.
+    // The load mock emits to listeners installed before navigation, as real
+    // Electron does. No ready ping has arrived, so loading alone cannot flush.
     await vi.waitFor(() => {
       expect(mockWindowInstances).toHaveLength(1);
     });
@@ -483,6 +479,39 @@ describe('main workspace-open lifecycle', () => {
     expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
       origin: 'second-instance',
       path: resolve('/work/second-instance-repo'),
+    });
+  });
+
+  it('delivers an open-file request when the renderer subscribes before its initial load resolves', async () => {
+    mockBrowserWindow.mockImplementationOnce(function (this: Record<string, unknown>) {
+      const instance = createMockWindowInstance();
+      Object.assign(this, instance);
+      const window = this as unknown as MockWindowInstance;
+      mockWindowInstances.push(window);
+      window.loadURL.mockImplementation(() => {
+        // React can subscribe while the document still has resources loading.
+        // The one ready ping belongs to that document; it does not repeat
+        // when loadURL resolves or when a later open-file request arrives.
+        sendReadyPing(window);
+        fireHandlersRegisteredSoFar(window.webContents.on, 'did-finish-load');
+        fireHandlersRegisteredSoFar(window.webContents.on, 'did-stop-loading');
+        return Promise.resolve();
+      });
+    });
+
+    await import('../../main');
+    await vi.waitFor(() => {
+      expect(mockApp.on).toHaveBeenCalledWith('activate', expect.any(Function));
+    });
+    const openFileHandler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
+      mockApp.on,
+      'open-file'
+    );
+    openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/never-granted');
+
+    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
+      origin: 'open-file',
+      path: '/Users/dev/never-granted',
     });
   });
 
