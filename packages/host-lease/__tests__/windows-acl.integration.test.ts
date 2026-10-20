@@ -124,9 +124,18 @@ windowsTest(
   }
 );
 
+// The elevation of the token this lane runs under. BST-2210 item 4: the
+// BST-1941 proof below needs an unelevated token. An elevated one may hold
+// SeSecurityPrivilege, the privilege Set-Acl requested, so the title claims
+// "without elevation" only when the token has none. Either way the tests check
+// that the exact ACL is reapplied, and that elevation matches the token.
+const elevated =
+  process.platform === 'win32' && (await inspect(tmpdir(), 'directory'))['elevated'] === true;
+
 for (const kind of ['directory', 'file'] as const) {
   // BST-1941: repeating Set-Acl on a protected DACL requested SeSecurityPrivilege.
-  windowsTest(`reapplies exact private ${kind} ACL twice without elevation`, async () => {
+  const token = elevated ? 'under an elevated token' : 'without elevation';
+  windowsTest(`reapplies exact private ${kind} ACL twice ${token}`, async () => {
     const path = await freshPath(kind);
     for (let round = 0; round < 2; round++) {
       await windowsPrivateAcl(path, kind, 'set');
@@ -134,7 +143,7 @@ for (const kind of ['directory', 'file'] as const) {
       const actual = await inspect(path, kind);
       expect(actual).toEqual({
         currentSid: expect.stringMatching(/^S-1-\d+(?:-\d+)+$/),
-        elevated: false,
+        elevated,
         ownerSid: actual['currentSid'],
         protected: true,
         rules: [
