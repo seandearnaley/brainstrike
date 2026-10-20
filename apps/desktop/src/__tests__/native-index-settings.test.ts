@@ -1,10 +1,8 @@
 // @vitest-environment node
+
+import { readNativeManagedCollectionId } from '@brainstrike/canonical-ingestion';
 import { describe, expect, it } from 'vitest';
-import {
-  readNativeIndexSettings,
-  readNativeManagedCollectionId,
-  readNativeSavedPause,
-} from '../native-index-settings';
+import { readNativeIndexSettings, readNativeSavedPause } from '../native-index-settings';
 
 const state = {
   enabled: true,

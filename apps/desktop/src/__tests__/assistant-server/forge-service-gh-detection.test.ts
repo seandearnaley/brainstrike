@@ -1,3 +1,4 @@
+import { ForgeCacheReplySchema } from '@brainstrike/agent-host/catalog';
 import type { ForgeCachePort } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 /**
@@ -7,7 +8,6 @@ import { Schema } from 'effect';
  * keep both files under the repo's file-size guidance.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ForgeCacheReplySchema } from '../../agent-host-platform/worktree-forge-store';
 import type { ForgeCommandRun, ForgeCommandRunner } from '../../assistant-server/forge-gh-client';
 import {
   createForgeService,

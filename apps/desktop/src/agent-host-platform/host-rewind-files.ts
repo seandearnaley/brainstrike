@@ -271,7 +271,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
     },
   };
 }
-export type HostRewindFilesOwner = ReturnType<typeof createHostRewindFiles>;
 type Execute = <T>(
   token: CancellationToken,
   work: (signal: AbortSignal) => Promise<T>

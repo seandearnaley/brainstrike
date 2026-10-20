@@ -36,11 +36,11 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { resolveGrantedRootHandle as ResolveGrantedRootHandleType } from '@brainstrike/assistant-service/node-workspace-services';
 import type * as esbuildTypes from 'esbuild';
 import esbuild from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MAIN_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs';
-import type { resolveGrantedRootHandle as ResolveGrantedRootHandleType } from '../ipc-domains/workspace-recent-roots';
 import { createStorage } from './ipc-domains/workspace-root-registry-test-helpers';
 
 // apps/desktop/src/__tests__ -> apps/desktop (two levels up), the directory

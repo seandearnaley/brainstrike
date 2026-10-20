@@ -45,24 +45,20 @@ import type {
 import { resolveForgeRemoteName } from '@brainstrike/types';
 import { createHistoryOps } from './git-history';
 import { parseBranchSummaries, parseWorktreeSummaries } from './git-repository-parsers';
-import { createStructuredDiffOps, STRUCTURED_DIFF_CONTENT_CAP_BYTES } from './git-structured-diff';
+import { createStructuredDiffOps } from './git-structured-diff';
 
 export type {
   GitAheadBehind,
   GitBranchSummary,
-  GitCommitFile,
   GitCommitResult,
   GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitForgeRepositoryContext,
-  GitHistoryCommit,
-  GitHistoryPage,
   GitPushPullResult,
   GitRepository,
   GitResult,
   GitStatus,
-  GitStatusFile,
   GitSwitchBranchResult,
   GitWorktreeSummary,
 } from '@brainstrike/types';
@@ -86,12 +82,6 @@ export const GIT_MAX_OUTPUT_BYTES = 1_000_000;
  * than a null-exit error.
  */
 export const GIT_MAX_BUFFER_BYTES = GIT_MAX_OUTPUT_BYTES * 4;
-/**
- * Per-side full-content cap for `StructuredFileDiff`. Defined in
- * `git-structured-diff.ts` (the structured-diff engine's own cap); re-exported
- * here so existing importers of `git-service.ts` keep their import path.
- */
-export { STRUCTURED_DIFF_CONTENT_CAP_BYTES };
 
 /**
  * Distinguishes the cause of a non-clean `git` run so the service maps each to an
@@ -365,6 +355,7 @@ function parseStatusLine(line: string): GitStatusFile | null {
 /**
  * Parse `git status --porcelain=v2 --branch` output into a {@link GitStatus}.
  * Pure and exported for direct unit testing.
+ * @internal Git integration regressions exercise the newline status format directly.
  */
 export function parsePorcelainV2(stdout: string): Omit<GitStatus, 'isRepository'> {
   const header: BranchHeader = { ahead: null, behind: null, branch: null, upstream: null };

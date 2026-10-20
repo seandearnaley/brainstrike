@@ -315,6 +315,7 @@ export function registerRuntimeIpcHandlers(): () => void {
  * Test-only reset: drops the cached service instances so the next call
  * rebuilds from scratch with fresh fetch bindings. Intentionally not part
  * of the exported surface used by `main.ts`.
+ * @internal Isolates runtime IPC registration and disposal regressions.
  */
 export function __resetRuntimeIpcBridgeForTests(): void {
   cachedBridge = null;

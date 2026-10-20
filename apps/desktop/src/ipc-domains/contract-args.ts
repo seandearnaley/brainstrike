@@ -99,7 +99,3 @@ export function optionalBoolean(
   }
   return value;
 }
-
-export function hasOwn(record: ParamsRecord, key: string): boolean {
-  return Object.hasOwn(record, key);
-}

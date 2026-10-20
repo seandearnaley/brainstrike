@@ -1,8 +1,8 @@
+import { ForgeCacheReplySchema } from '@brainstrike/agent-host/catalog';
 import type { ForgeCachePort } from '@brainstrike/state-store';
 import type { ForgePullRequest } from '@brainstrike/types';
 import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { ForgeCacheReplySchema } from '../../agent-host-platform/worktree-forge-store';
 import {
   readForgePrCacheEntry,
   writeForgePrCacheEntry,

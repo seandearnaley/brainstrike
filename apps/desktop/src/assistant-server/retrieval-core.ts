@@ -22,7 +22,7 @@ import {
 import type { FileRecordRow, RetrievalStore } from './retrieval-store';
 import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
-export type { EmbeddingSetRow, FileRecordRow } from './retrieval-store';
+export type { FileRecordRow } from './retrieval-store';
 
 const logger = createLogger('AssistantRetrievalTool');
 

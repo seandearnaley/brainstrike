@@ -2,13 +2,11 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { StoredWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { StateStore } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  type StoredWorkspaceRoot,
-  WorkspaceRootRegistry,
-} from '../../ipc-domains/workspace-root-registry';
+import { WorkspaceRootRegistry } from '../../ipc-domains/workspace-root-registry';
 import { secureRoot } from './workspace-root-registry-test-helpers';
 
 function createStorage(): ElectronStorageAdapter {

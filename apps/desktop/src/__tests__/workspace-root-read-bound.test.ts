@@ -1,6 +1,6 @@
+import { readResolvedWorkspaceFile } from '@brainstrike/assistant-service/node-workspace-services';
 import { resetFileSizeConfig, setFileSizeConfig } from '@brainstrike/file-system';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readResolvedWorkspaceFile } from '../ipc-domains/workspace-root-read';
 
 afterEach(resetFileSizeConfig);
 

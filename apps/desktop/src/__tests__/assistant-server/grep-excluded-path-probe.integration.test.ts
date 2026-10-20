@@ -13,11 +13,11 @@ import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createGrepLineMatcher } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { probeExcludedPathMatches } from '../../assistant-server/live-grep';
 import {
   discoverRipgrepPathForTests,
-  probeExcludedPathMatches,
   resetRipgrepAvailabilityForTests,
-} from '../../assistant-server/live-grep';
+} from '../../assistant-server/live-grep-ripgrep';
 
 const { loggerWarnMock } = vi.hoisted(() => ({
   loggerWarnMock: vi.fn(),

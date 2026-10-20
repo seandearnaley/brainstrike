@@ -79,6 +79,7 @@ export function getDesktopCrashRecoverySnapshot(): DesktopRendererCrashRecoveryS
   return snapshot;
 }
 
+/** @internal Isolates crash-recovery diagnostics regressions. */
 export function resetDesktopCrashRecoveryDiagnosticsForTests(): void {
   snapshot = { ...INITIAL_SNAPSHOT };
 }

@@ -3,11 +3,11 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, expect, it } from 'vitest';
 import {
   readPrivateCredentialFile,
   writePrivateCredentialFile,
-} from '../agent-host-platform/private-credential-file.js';
+} from '@brainstrike/agent-host/file-credentials';
+import { afterEach, expect, it } from 'vitest';
 
 const execute = promisify(execFile);
 const roots: string[] = [];

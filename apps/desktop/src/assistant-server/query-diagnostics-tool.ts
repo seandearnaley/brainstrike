@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { QueryDiagnosticsInput } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type {
   DiagnosticEventsQueryFilter,
   DiagnosticEventsRepository,
@@ -20,8 +19,6 @@ import {
   type QueryDiagnosticsResult,
   runQueryDiagnosticsWith,
 } from './query-diagnostics-core';
-
-export const QUERY_DIAGNOSTICS_TOOL_ID = NATIVE_TOOL_ID.queryDiagnostics;
 
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_STACK_CHARS = 1500;
@@ -210,6 +207,7 @@ export const mainDiagnosticEventsReader: Pick<
     ),
 };
 
+/** @internal Diagnostics regressions run the shared core against Main's readers. */
 export function runQueryDiagnostics(input: QueryDiagnosticsInput): Promise<QueryDiagnosticsResult> {
   return runQueryDiagnosticsWith(input, mainDiagnosticsReader);
 }
