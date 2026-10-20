@@ -58,8 +58,10 @@ export const FORGE_REFRESH_MIN_INTERVAL_MS: Readonly<Record<ForgeRefreshReason, 
   window: 60_000,
 };
 
+/** `signal` aborts the resolution's git commands when the forge service stops. */
 export type ForgeRepositoryResolver = (
-  rootId: string
+  rootId: string,
+  signal: AbortSignal
 ) => Promise<ForgeResult<{ readonly context: GitForgeRepositoryContext; readonly cwd: string }>>;
 
 export interface ForgeServiceOptions {
@@ -80,9 +82,6 @@ export interface ForgeService {
   ) => Promise<ForgeResult<ForgePrStatus>>;
   readonly stop: () => Promise<void>;
 }
-
-/** Upper bound on waiting for a dependency that ignores the shutdown abort signal. */
-export const FORGE_STOP_DRAIN_TIMEOUT_MS = 2000;
 
 const FORGE_STOPPED_ERROR = 'Forge service has stopped.';
 
@@ -253,7 +252,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       ResolvedTarget | { readonly failure: ForgeUnavailable; readonly repoCommonDir: string }
     >
   > {
-    const resolved = await resolveRepository(rootId);
+    const resolved = await resolveRepository(rootId, abortController.signal);
     assertRunning();
     if (!resolved.ok) {
       return resolved;
@@ -697,37 +696,20 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     return track(toStoppedResult(statusFor(rootId, reason)));
   }
 
+  /**
+   * Aborts every gh command and repository resolution in flight, then joins
+   * the operations they belong to. It never gives up on one: an operation left
+   * running would let Main quit with its git or gh process — and, on Windows,
+   * its native Job join — still in flight (BST-2250). The graceful-shutdown
+   * step's own deadline bounds this wait.
+   */
   function stop(): Promise<void> {
     if (stopPromise) {
       return stopPromise;
     }
     stopped = true;
     abortController.abort();
-    const pending = [...inFlightOperations];
-    stopPromise = (async () => {
-      if (pending.length === 0) {
-        return;
-      }
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const settledInTime = await Promise.race([
-          Promise.allSettled(pending).then(() => true),
-          new Promise<boolean>((resolve) => {
-            timeout = setTimeout(() => resolve(false), FORGE_STOP_DRAIN_TIMEOUT_MS);
-          }),
-        ]);
-        if (!settledInTime) {
-          logger.error('Forge service stop timed out while draining in-flight operations', {
-            drainTimeoutMs: FORGE_STOP_DRAIN_TIMEOUT_MS,
-            pendingOperations: inFlightOperations.size,
-          });
-        }
-      } finally {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-      }
-    })();
+    stopPromise = Promise.allSettled([...inFlightOperations]).then(() => undefined);
     return stopPromise;
   }
 
