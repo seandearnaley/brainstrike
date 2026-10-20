@@ -29,6 +29,7 @@ export const QUERY_SELECTION_LOADING_PROMOTION_MS = 100;
 let inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
 let failedSnapshotKeyByDatabase = new WeakMap<DbHandle, string>();
 
+/** @internal Test seam: the use-selection-resolver suites reset the snapshot-load caches. */
 export function __resetSelectionResolverCachesForTests(): void {
   inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
   failedSnapshotKeyByDatabase = new WeakMap<DbHandle, string>();

@@ -4,7 +4,7 @@ import {
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { afterEach, describe, expect, it } from 'vitest';
-import { delegatedWorkspaceTabId, readDelegatedWorkspaceTab } from '../delegated-workspace-tab';
+import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
 
 afterEach(__resetWorkspaceTabSelectionStoreForTests);
 
@@ -31,7 +31,7 @@ describe('child identity in the existing workspace tabs', () => {
     });
     __resetWorkspaceTabSelectionStoreForTests();
     store.getState().hydrate(saved.openAppIds, saved.selection);
-    expect(store.getState().openAppIds.map(readDelegatedWorkspaceTab)).toEqual([first, second]);
+    expect(store.getState().openAppIds).toEqual([a, b]);
     expect(store.getState().selection).toEqual({ appId: a, kind: 'app' });
     store.getState().closeApp(a);
     store.getState().openApp(a);
@@ -49,14 +49,12 @@ describe('child identity in the existing workspace tabs', () => {
     expect(() => decodeFileSelection(id)).toThrow();
   });
 
-  it('leaves ordinary apps alone and rejects corrupted child addresses visibly', () => {
-    expect(readDelegatedWorkspaceTab('canvas')).toBeUndefined();
-    for (const id of [
-      'delegated-conversation:%zz',
-      'delegated-conversation:%5B%5D',
-      'delegated-conversation:%5B%22owner%22%2C%22root%22%2C%22root%22%5D',
+  it('rejects an invalid child identity visibly instead of minting an address', () => {
+    for (const tab of [
+      { ownerResourceId: ' ', rootThreadId: 'root', threadId: 'child' },
+      { ownerResourceId: 'owner', rootThreadId: 'root', threadId: 'root' },
     ]) {
-      expect(() => readDelegatedWorkspaceTab(id)).toThrow();
+      expect(() => delegatedWorkspaceTabId(tab)).toThrow();
     }
   });
 });

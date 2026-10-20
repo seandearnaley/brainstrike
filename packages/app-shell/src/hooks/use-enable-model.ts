@@ -8,9 +8,9 @@ import { useCallback } from 'react';
 
 /**
  * Enabling a model from a `ComposerModelPicker` search result — shared by the
- * main composer (`AssistantUiPanelWrapper`) and the delegated child's
- * next-run picker (`useChildNextRunControls`) so both surfaces enforce the
- * same enable rule instead of drifting (BST-1795 Task 7).
+ * main composer (`AssistantUiPanelWrapper`) and the desktop host presentation
+ * so both surfaces enforce the same enable rule instead of drifting (BST-1795
+ * Task 7).
  *
  * Only registry-backed providers (`getProviderDefinition(providerId).runtime`
  * is `'hosted'` or `'gateway'` — the same predicate the picker uses to offer

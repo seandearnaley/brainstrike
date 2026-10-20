@@ -10,18 +10,10 @@
 import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import {
   findNodeByPath as findNodeByPathGeneric,
-  isLoading as isLoadingGeneric,
   needsLoading as needsLoadingGeneric,
-  setNodeLoadState as setNodeLoadStateGeneric,
   sortTreeNodes,
-  updateNodeChildren as updateNodeChildrenGeneric,
 } from '@brainstrike/file-tree-worker';
-import type {
-  DirectoryHandle,
-  DirectoryLoadState,
-  FileSystemAdapter,
-  IFileNode,
-} from '@brainstrike/types';
+import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 
 export interface LazyLoadOptions {
@@ -190,35 +182,13 @@ export async function loadDirectoryChildren(
   return sortFileNodes(lazyNodes);
 }
 
-// Re-export generic functions typed for IFileNode for backward compatibility
-export function updateNodeChildren(
-  tree: IFileNode[],
-  targetPath: string,
-  children: IFileNode[],
-  loadState: DirectoryLoadState = 'loaded'
-): IFileNode[] {
-  return updateNodeChildrenGeneric(tree, targetPath, children, loadState);
-}
-
-export function setNodeLoadState(
-  tree: IFileNode[],
-  targetPath: string,
-  loadState: DirectoryLoadState,
-  error?: string
-): IFileNode[] {
-  return setNodeLoadStateGeneric(tree, targetPath, loadState, error);
-}
-
+// Generic tree operations typed for IFileNode
 export function findNodeByPath(tree: IFileNode[], targetPath: string): IFileNode | null {
   return findNodeByPathGeneric(tree, targetPath);
 }
 
 export function needsLoading(node: IFileNode): boolean {
   return needsLoadingGeneric(node);
-}
-
-export function isLoading(node: IFileNode): boolean {
-  return isLoadingGeneric(node);
 }
 
 // ============================================================================

@@ -333,17 +333,6 @@ function materializeNode(state: NormalizedFileTreeState, path: string): IFileNod
   return materializedNodes.get(path);
 }
 
-export function materializeNormalizedNode(
-  state: NormalizedFileTreeState,
-  path: string
-): IFileNode | undefined {
-  const node = state.nodeByPath.get(path);
-  if (!node) {
-    return;
-  }
-  return { ...node };
-}
-
 // Identity-stable shallow (childless) materializations, keyed by the immutable
 // normalized node object — the same invariant the subtree caches above rely
 // on. Row builders read through this so an unchanged normalized node projects
@@ -659,16 +648,6 @@ export function getNormalizedNode(
   return state.nodeByPath.get(path);
 }
 
-export function getNormalizedChildPaths(
-  state: NormalizedFileTreeState,
-  path: string | null
-): string[] {
-  if (path === null) {
-    return state.rootPaths;
-  }
-  return state.childPathsByPath.get(path) ?? [];
-}
-
 export function getNormalizedDescendantFileCount(
   state: NormalizedFileTreeState,
   path: string
@@ -725,13 +704,6 @@ export function listNormalizedDescendantFilePaths(
   }
 
   return filePaths;
-}
-
-export function getNormalizedParentPath(
-  state: NormalizedFileTreeState,
-  path: string
-): string | null | undefined {
-  return state.parentPathByPath.get(path);
 }
 
 export interface VisibleDirectoryAggregates {

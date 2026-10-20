@@ -1,6 +1,7 @@
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getAccurateRuntimeAvailabilityTestOverride,
   getAssistantConfiguredProvidersTestOverride,
   getLocalRuntimeStatusTestOverride,
   getModelRegistrySnapshotTestOverride,
@@ -80,6 +81,41 @@ describe('automation-overrides', () => {
     recordLocalRuntimeProbeForTests('ollama');
 
     expect(readLocalRuntimeProbeCountsForTests()).toEqual({ ollama: 2 });
+  });
+
+  describe('in a production build', () => {
+    const originalWebdriver = window.navigator.webdriver;
+    const setWebdriver = (value: boolean) => {
+      Object.defineProperty(window.navigator, 'webdriver', { configurable: true, value });
+    };
+
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', 'production');
+      window.__brainstrikePendingSettingsTestOverrides__ = { accurateRuntimeAvailable: false };
+    });
+
+    afterEach(() => {
+      setWebdriver(originalWebdriver);
+    });
+
+    it('ignores pending overrides without an automated browser', () => {
+      setWebdriver(false);
+
+      expect(getAccurateRuntimeAvailabilityTestOverride()).toBeUndefined();
+    });
+
+    it('ignores pending overrides without the explicit opt-in', () => {
+      setWebdriver(true);
+      Reflect.deleteProperty(window, '__brainstrike_e2e_enable_settings_test_api__');
+
+      expect(getAccurateRuntimeAvailabilityTestOverride()).toBeUndefined();
+    });
+
+    it('reads pending overrides when webdriver and the explicit opt-in are present', () => {
+      setWebdriver(true);
+
+      expect(getAccurateRuntimeAvailabilityTestOverride()).toBe(false);
+    });
   });
 
   it('returns deterministic unavailable local runtime status when E2E disables external probes', () => {

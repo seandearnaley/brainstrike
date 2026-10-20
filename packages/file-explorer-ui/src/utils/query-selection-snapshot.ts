@@ -48,6 +48,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
   }
 }
 
+/** @internal Test seam: query-selection-snapshot.test.ts primes a pending write lock. */
 export function primeSerializedSnapshotWriteLockForTests(db: DbHandle, tail: Promise<void>): void {
   snapshotWriteLocks.set(db as object, { tail });
 }

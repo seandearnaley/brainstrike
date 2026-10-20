@@ -20,12 +20,6 @@ function getLoadedAssistantUiPanelWrapper(): AssistantUiPanelWrapperComponent | 
   return assistantUiPanelWrapperComponent;
 }
 
-export function preloadAssistantUiPanelWrapper(): Promise<void> {
-  return loadAssistantUiPanelWrapperModule().then((module) => {
-    assistantUiPanelWrapperComponent = module.AssistantThreadTabsWorkspace;
-  });
-}
-
 export const AssistantUiPanelWrapperLazy = memo(function AssistantUiPanelWrapperLazy(
   props: AssistantThreadTabsWorkspaceProps
 ) {

@@ -29,10 +29,8 @@ export type {
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
-  WorktreeExternalTool,
   WorktreeListEntry,
   WorktreeSettings,
-  WorktreeSetupOutcome,
 } from '@brainstrike/types';
 
 const logger = createLogger('WorktreesBridge');

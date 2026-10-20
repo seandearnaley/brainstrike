@@ -7,10 +7,8 @@
  * add new consumers against the contract subpath directly.
  */
 export {
-  ACTION_MESSAGE_RUN_CONFIG_KEYS,
   ACTION_PAUSED_OWNER_MESSAGE_ID_KEY,
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
-  readActionMessageHostRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';

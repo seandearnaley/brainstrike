@@ -372,20 +372,3 @@ export function createDirectDirectoryTraversalSession(
     snapshot: (): DirectDirectoryTraversalResult => createSnapshot(state, false),
   };
 }
-
-export async function traverseDirectoriesDirect(
-  initialPaths: string[],
-  options: DirectDirectoryTraversalOptions
-): Promise<DirectDirectoryTraversalResult> {
-  const session = createDirectDirectoryTraversalSession(initialPaths, options);
-
-  while (true) {
-    const batch = await session.processNextBatch();
-    if (batch.cancelled || batch.complete) {
-      return {
-        ...session.snapshot(),
-        cancelled: batch.cancelled,
-      };
-    }
-  }
-}

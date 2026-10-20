@@ -133,58 +133,10 @@ function getPartData(part: unknown, name: string): unknown {
 }
 
 /**
- * Every `run.finished`/`run.failed` event across the thread, in the order
- * they appear. Malformed data parts are skipped (never thrown) since a
- * notification trigger must never crash the panel over a shape mismatch.
- */
-export function selectTerminalRunEvents(
-  messages: readonly unknown[]
-): readonly AssistantRunEvent[] {
-  const events: AssistantRunEvent[] = [];
-  for (const message of messages) {
-    for (const part of getMessageParts(message)) {
-      const event = readTerminalRunEvent(getPartData(part, ASSISTANT_RUN_EVENT_DATA_NAME));
-      if (event) {
-        events.push(event);
-      }
-    }
-  }
-  return events;
-}
-
-/**
- * Every distinct tool-approval-required request across the thread
- * (deduped by the leaf decision identity, first occurrence wins — the pause is a
- * point-in-time event, so a later re-render of the same part must not be
- * treated as a new approval request).
- */
-export function selectToolApprovalRequests(
-  messages: readonly unknown[]
-): readonly AssistantToolApprovalRequest[] {
-  const seen = new Set<string>();
-  const requests: AssistantToolApprovalRequest[] = [];
-  for (const message of messages) {
-    for (const part of getMessageParts(message)) {
-      const data = getPartData(part, TOOL_APPROVAL_DATA_NAME);
-      if (!isToolApprovalRequest(data)) {
-        continue;
-      }
-      const key = getToolActionIdentityKey(data);
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      requests.push(data);
-    }
-  }
-  return requests;
-}
-
-/**
  * `useAuiState` compares its selector's return value with `Object.is` and
  * REQUIRES either a primitive or a referentially-stable reference — returning
- * a freshly-built array/object on every call (as `selectTerminalRunEvents`
- * does) re-renders on every store update and blows the update-depth limit.
+ * a freshly-built array/object on every call re-renders on every store update
+ * and blows the update-depth limit.
  * Serializing to a string sidesteps that: two equal strings compare equal by
  * value, so the selector is only ever "changed" when the underlying events
  * actually differ.

@@ -107,5 +107,3 @@ export function TokenBudgetSummary({
     </div>
   );
 }
-
-export default TokenBudgetSummary;

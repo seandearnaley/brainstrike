@@ -9,10 +9,6 @@ import { isApprovalActionMessage } from './approval-action-message';
  * `resolveTurnAnchorMessageId` (snapshot-turn-boundaries.ts) with the
  * renderer-side extra of skipping action echoes, which never reach the server.
  * `null` when the thread has no real user message.
- *
- * Its own module rather than `data-stream-runtime.ts`: the Stop gate
- * (`undecided-pause-notices.ts`) scopes to the stopped turn with it, and must
- * not drag in the runtime module that several suites mock wholesale.
  */
 export function resolveTurnAnchorMessageId(messages: readonly ThreadMessage[]): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {

@@ -104,5 +104,3 @@ export function ToolCard({
     </div>
   );
 }
-
-export default ToolCard;

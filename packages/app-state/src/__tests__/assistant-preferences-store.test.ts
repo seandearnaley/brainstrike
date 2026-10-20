@@ -14,7 +14,7 @@ import {
 import {
   __resetSettingsTestOverridesForTests,
   __setSettingsTestOverridesForTests,
-} from '../testing/e2e-settings-test-overrides';
+} from './settings-test-overrides-test-helper';
 
 type PersistApi<T> = T & {
   persist?: {
