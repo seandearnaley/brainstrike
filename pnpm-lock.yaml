@@ -3433,6 +3433,9 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
       '@brainstrike/sqlite-native':
         specifier: workspace:*
         version: link:../sqlite-native
