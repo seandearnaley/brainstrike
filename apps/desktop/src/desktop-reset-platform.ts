@@ -5,7 +5,7 @@ import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
-import { isQuitTerminalRefusal } from './native-index-lifecycle-errors';
+import { isQuitTerminalRefusal } from './native-index-boundary-failure';
 
 export interface DesktopResetRuntime {
   readonly name: string;

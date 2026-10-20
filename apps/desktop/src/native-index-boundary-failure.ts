@@ -11,7 +11,6 @@ import {
 import { createLogger } from '@brainstrike/logging';
 
 import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
-import { isQuitTerminalRefusal } from './native-index-lifecycle-errors';
 
 const logger = createLogger('NativeIndexBoundary');
 
@@ -123,4 +122,16 @@ export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): Bo
     log('Native index refusal retained its original cause', retained);
   }
   return { ...failure, correlationId };
+}
+
+/**
+ * Quit's one terminal reason (ADR-0026): the typed refusal of a native index closed for
+ * shutdown. Classified by its kind and reason, never by message text.
+ */
+export function isQuitTerminalRefusal(error: unknown): error is NativeIndexRefusalError {
+  return (
+    error instanceof NativeIndexRefusalError &&
+    error.refusal.kind === 'closed' &&
+    error.refusal.reason === 'shutdown'
+  );
 }
