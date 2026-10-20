@@ -9,19 +9,26 @@ import { createVitest } from 'vitest/node';
 import desktopBase, { resolveDesktopTestProjects } from '../../apps/desktop/vitest.config.mts';
 import { createDesktopUnitConfig } from '../../apps/desktop/vitest.unit.config.mts';
 import { getExpectPollTimeout } from '../../packages/test-utils/src/test-timeouts.ts';
+import { withVitestModuleCache } from './helpers/vitest-module-cache.mjs';
 
 /** The `expect.poll` default and test timeout of every project a config resolves. */
 async function resolvePollDefaults(options, viteConfig) {
-  const vitest = await createVitest('test', { ...options, watch: false }, viteConfig);
-  try {
-    return vitest.projects.map((project) => ({
-      name: project.name,
-      poll: project.serializedConfig.expect?.poll,
-      testTimeout: project.config.testTimeout,
-    }));
-  } finally {
-    await vitest.close();
-  }
+  return withVitestModuleCache(async (fsModuleCachePath) => {
+    const vitest = await createVitest(
+      'test',
+      { ...options, fsModuleCachePath, watch: false },
+      viteConfig
+    );
+    try {
+      return vitest.projects.map((project) => ({
+        name: project.name,
+        poll: project.serializedConfig.expect?.poll,
+        testTimeout: project.config.testTimeout,
+      }));
+    } finally {
+      await vitest.close();
+    }
+  });
 }
 
 function assertPollDefault(lane, projects) {
