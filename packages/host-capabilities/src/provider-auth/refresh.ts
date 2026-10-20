@@ -1,6 +1,5 @@
 import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import type { OAuthProviderDescriptor, ProviderCredential } from '@brainstrike/assistant-contract';
-import { getOAuthProviderDescriptor } from './descriptor-registry.js';
 import { ProviderAuthFlowError } from './errors.js';
 import { guardedFetchText } from './fetch-guards.js';
 import { DEFAULT_TOKEN_EXPIRES_IN_SECONDS } from './oauth-flow.js';
@@ -42,8 +41,8 @@ export interface TokenRefresherDeps {
   readonly fetchFn: typeof fetch;
   /** Per-request timeout (finding 4); defaults to DEFAULT_FETCH_TIMEOUT_MS. */
   readonly fetchTimeoutMs?: number;
-  /** Descriptor lookup; defaults to the engine registry. */
-  readonly getDescriptor?: (providerId: string) => OAuthProviderDescriptor;
+  /** Descriptor lookup supplied by the host credential authority. */
+  readonly getDescriptor: (providerId: string) => OAuthProviderDescriptor;
   /** Per-provider generation counter; a refresh whose captured epoch is stale
    * by completion time discards its result (disconnect race, finding 5). */
   readonly getEpoch?: (providerId: string) => number;
@@ -75,7 +74,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const RECONNECT_REQUIRED_ERRORS = new Set(['invalid_grant', 'revoked', 'revoked_token']);
 
 export function createTokenRefresher(deps: TokenRefresherDeps): TokenRefresher {
-  const getDescriptor = deps.getDescriptor ?? getOAuthProviderDescriptor;
+  const getDescriptor = deps.getDescriptor;
   const getEpoch = deps.getEpoch ?? (() => 0);
   const now = deps.now ?? (() => Date.now());
   const inFlight = new Map<string, Promise<FreshAccessTokenResult>>();

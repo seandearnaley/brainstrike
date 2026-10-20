@@ -7,7 +7,6 @@ import type {
 } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { getOAuthProviderDescriptor } from './descriptor-registry.js';
 import { isProviderAuthFlowCancelled, ProviderAuthFlowError } from './errors.js';
 import type { startLoopbackServer } from './loopback-server.js';
 import { runDeviceOAuthFlow, runLoopbackOAuthFlow } from './oauth-flow.js';
@@ -49,8 +48,8 @@ export interface ProviderAuthEngineDeps {
   readonly fetchFn?: typeof fetch;
   /** Per-request network timeout for the engine's fetches. */
   readonly fetchTimeoutMs?: number;
-  /** Descriptor lookup; defaults to the engine registry (empty in BST-1355). */
-  readonly getDescriptor?: (providerId: string) => OAuthProviderDescriptor;
+  /** Descriptor lookup supplied by the host credential authority. */
+  readonly getDescriptor: (providerId: string) => OAuthProviderDescriptor;
   readonly loopbackTimeoutMs?: number;
   readonly now?: () => number;
   /** The app's validated external-browser opener (shell.openExternal path).
@@ -84,7 +83,7 @@ interface ActiveFlow {
 
 export function createProviderAuthEngine(deps: ProviderAuthEngineDeps): ProviderAuthEngine {
   const fetchFn = deps.fetchFn ?? fetch;
-  const getDescriptor = deps.getDescriptor ?? getOAuthProviderDescriptor;
+  const getDescriptor = deps.getDescriptor;
   const activeFlows = new Map<string, ActiveFlow>();
   /** Sticky terminal error per provider, cleared by the next start/disconnect
    * or a successful flow. */
