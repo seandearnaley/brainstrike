@@ -35,6 +35,14 @@ export class ElectronHarness {
     return this.context?.window;
   }
 
+  /** The disposable workspace retired by the fixture after its app closes. */
+  getWorkspaceRoot(): string {
+    if (!this.workspaceRoot) {
+      throw new Error('Electron harness requires a disposable workspace root.');
+    }
+    return this.workspaceRoot;
+  }
+
   getUserDataDir(): string {
     if (!this.userDataDir) {
       throw new Error('Electron harness requires an isolated userDataDir.');
