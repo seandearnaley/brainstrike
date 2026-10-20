@@ -22,7 +22,7 @@ import type { HostStartupContext } from './runtime.js';
 export const HOST_STATE_INDEX_FILE = 'state-index.sqlite';
 
 // The desktop native index owner's existing deadlines (native-index-activation.ts).
-const HOST_STATE_INDEX_DEADLINES = {
+export const HOST_STATE_INDEX_DEADLINES = {
   closeMs: 1000,
   exitMs: 1000,
   requestMs: 5000,

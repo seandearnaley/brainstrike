@@ -2,7 +2,6 @@
 // creates is owned by the user even when an elevated token defaults to
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
-import './agent-host-compile-cache';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
