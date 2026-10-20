@@ -43,7 +43,7 @@ describe('desktop reset profile ownership', () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     return createDesktopFactoryResetHandler({
       completeSuccessfulReset: state.renderer,
-      logger: { error: vi.fn(), info: vi.fn() },
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset: state.prepare,
       resetLocalDatabase: state.reset,
       resetPersistentStorageAfterDataDeletion: state.storage,

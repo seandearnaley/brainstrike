@@ -14,6 +14,18 @@ export function nativeIndexClosedError(
   );
 }
 
+/**
+ * Quit's one terminal reason (ADR-0026): the typed refusal of a native index closed for
+ * shutdown. Classified by its kind and reason, never by message text.
+ */
+export function isQuitTerminalRefusal(error: unknown): error is NativeIndexRefusalError {
+  return (
+    error instanceof NativeIndexRefusalError &&
+    error.refusal.kind === 'closed' &&
+    error.refusal.reason === 'shutdown'
+  );
+}
+
 export function nativeIndexStateError(state: NativeIndexState): Error {
   if (state.kind === 'failed' || state.kind === 'unconfigured') {
     const refusal = nativeIndexFailureRefusal(state.cause);

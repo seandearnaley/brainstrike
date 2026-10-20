@@ -5,6 +5,7 @@ import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
+import { isQuitTerminalRefusal } from './native-index-lifecycle-errors';
 
 export interface DesktopResetRuntime {
   readonly name: string;
@@ -14,6 +15,7 @@ export interface DesktopResetRuntime {
 }
 
 export interface DesktopResetLogger {
+  readonly debug: (message: string, error: unknown) => void;
   readonly error: (message: string, error: unknown) => void;
   readonly info: (message: string) => void;
 }
@@ -96,6 +98,7 @@ function combineResetFailure(failure: unknown, resumeFailure: unknown): unknown 
 
 async function resumeDesktopResetRuntime({
   failure,
+  logger,
   rendererReplacementSucceeded,
   resetDataSucceeded,
   resumeAfterReset,
@@ -103,6 +106,7 @@ async function resumeDesktopResetRuntime({
 }: {
   signal: AbortSignal;
   failure: ResetFailure;
+  logger: DesktopResetLogger;
   rendererReplacementSucceeded: boolean;
   resetDataSucceeded: boolean;
   resumeAfterReset: CreateDesktopFactoryResetHandlerOptions['resumeAfterReset'];
@@ -115,6 +119,13 @@ async function resumeDesktopResetRuntime({
     return failure;
   } catch (error) {
     if (signal.aborted && error === signal.reason) {
+      return failure;
+    }
+    // BST-2278: quit fences profile admission before its factory-reset step cancels this
+    // reopen, so a reopen that borrows the profile meanwhile gets quit's one terminal
+    // refusal (ADR-0026). The deletion is complete; quit retires what this would reopen.
+    if (resetDataSucceeded && isQuitTerminalRefusal(error)) {
+      logger.debug('Factory reset complete; resume skipped because the app is quitting', error);
       return failure;
     }
     return {
@@ -222,6 +233,7 @@ export function createDesktopFactoryResetHandler({
     // ready. Terminal quit never reopens; unrelated failures stay visible.
     failure = await resumeDesktopResetRuntime({
       failure,
+      logger,
       rendererReplacementSucceeded,
       resetDataSucceeded,
       resumeAfterReset,
