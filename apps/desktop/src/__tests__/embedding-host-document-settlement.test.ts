@@ -251,6 +251,31 @@ describe('document transport physical settlement', () => {
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     await expect(outcome).resolves.toBe(reason);
   });
+  // Lifecycle redesign PR D (R2): a slow cancel acknowledgement is load; no timer stops the host.
+  it('joins a cancel the host acknowledges after 12 s, and never stops the host', async () => {
+    const controller = new AbortController();
+    const reason = new Error('caller stopped');
+    const { outcome, settled } = await start(controller.signal);
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
+    expect(settled).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    manager.acceptDocumentEmbeddingsResponseReport(
+      91,
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        createEmbeddingHostDocumentCancellationError()
+      )
+    );
+    await expect(outcome).resolves.toBe(reason);
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
   // Lifecycle redesign PR D: the silent batch is refused typed (BST-2104 Retry restarts the host);
   // the window itself never stops the host.
   it('refuses a silent batch as unresponsive without stopping the host', async () => {

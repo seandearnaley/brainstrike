@@ -365,6 +365,30 @@ it('a late old-generation reply cannot settle a replacement with the same reques
   await closing;
 });
 
+// Lifecycle redesign PR D (R5(b)): after its kill, close joins the exit however long it takes.
+it('joins an exit that arrives 6 s after the kill: close resolves and nothing is abandoned', async () => {
+  vi.useFakeTimers();
+  try {
+    const owner = reader();
+    const opening = open(owner);
+    await vi.advanceTimersByTimeAsync(0);
+    const client = await opening;
+    let settled = false;
+    const closing = client.close().finally(() => {
+      settled = true;
+    });
+    closing.catch(() => undefined);
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5999);
+    expect(settled).toBe(false);
+    owner.exit();
+    await expect(closing).resolves.toBeUndefined();
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 // Lifecycle redesign PR D: background coverage opens with no deadline; only the exit ends it.
 it('a client opened with no deadline waits out a slow startup and read, and never stops its process', async () => {
   vi.useFakeTimers();

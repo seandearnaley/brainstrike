@@ -222,6 +222,28 @@ describe('query transport physical settlement', () => {
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     await expect(outcome).resolves.toBe(reason);
   });
+  // Lifecycle redesign PR D (R2): a slow cancel acknowledgement is load; no timer stops the host.
+  it('joins a cancel the host acknowledges after 12 s, and never stops the host', async () => {
+    const controller = new AbortController();
+    const reason = new Error('caller stopped');
+    const { outcome, settled } = await start(controller.signal);
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
+    expect(settled).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    manager.acceptQueryEmbeddingResponseReport(
+      91,
+      createEmbeddingHostQueryEmbeddingErrorReport(request, queryCancellation())
+    );
+    await expect(outcome).resolves.toBe(reason);
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
   it('refuses only a query past its bound, typed, and keeps the host running for the next', async () => {
     const { outcome, settled } = await start();
     await vi.advanceTimersByTimeAsync(60_000);
