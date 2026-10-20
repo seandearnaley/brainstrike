@@ -7,7 +7,13 @@ import {
 import { NativeCanonicalInference } from '@brainstrike/canonical-ingestion';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import { IndexerError } from '@brainstrike/indexer';
-import { addLogListener, type LogRecord } from '@brainstrike/logging';
+import {
+  addLogListener,
+  LogLevel,
+  type LogRecord,
+  resetLogger,
+  setLogLevel,
+} from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChannel } from '../canonical-utility-channel';
@@ -15,7 +21,7 @@ import { canonicalFault, decodeCanonicalFrame } from '../canonical-utility-proto
 import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { generateHostedEmbeddings } from '../hosted-embeddings';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
-import { nativeIndexStateError } from '../native-index-lifecycle-errors';
+import { nativeIndexClosedError, nativeIndexStateError } from '../native-index-lifecycle-errors';
 import { readNativeIndexSettings } from '../native-index-settings';
 
 vi.mock('../secrets', () => ({
@@ -312,5 +318,54 @@ it('names the rebuild as the remedy for a store that refused its index file', ()
   expect(log).toHaveBeenCalledWith(
     'Native index refusal retained its original cause',
     expect.objectContaining({ code: 'native-index-rebuild-required' })
+  );
+});
+
+// ADR-0026: quit's one terminal reason keeps its typed kind across the boundary,
+// and its cause stays correlated in Main at debug, never as an error record.
+describe('the terminal quit refusal', () => {
+  it('keeps the closed kind and logs its cause at debug, not through the error log', () => {
+    const records: LogRecord[] = [];
+    setLogLevel(LogLevel.DEBUG);
+    const stop = addLogListener((record) => {
+      if (record.scope === 'NativeIndexBoundary') {
+        records.push(record);
+      }
+    });
+    try {
+      const log = vi.fn();
+      const fenced = new Error('admission fenced for terminal retirement');
+      const failure = nativeIndexBoundaryFailure(nativeIndexClosedError('shutdown', fenced), log);
+
+      expect(failure).toMatchObject({
+        category: 'availability',
+        code: 'native-index-closed',
+        correlationId: expect.any(String),
+        kind: 'refusal',
+      });
+      expect(log).not.toHaveBeenCalled();
+      expect(records).toEqual([
+        expect.objectContaining({
+          level: 'debug',
+          message: 'Native index refusal retained its original cause',
+        }),
+      ]);
+      expect(JSON.stringify(records[0]?.args)).toContain(failure.correlationId ?? 'missing');
+    } finally {
+      stop();
+      resetLogger();
+    }
+  });
+
+  it.each(['reset', 'profile-retired'] as const)(
+    'still reports a %s closure’s cause through the caller’s log',
+    (reason) => {
+      const log = vi.fn();
+      nativeIndexBoundaryFailure(nativeIndexClosedError(reason, new Error('closed')), log);
+      expect(log).toHaveBeenCalledWith(
+        'Native index refusal retained its original cause',
+        expect.objectContaining({ code: 'native-index-closed' })
+      );
+    }
   );
 });

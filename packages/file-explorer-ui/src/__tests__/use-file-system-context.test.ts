@@ -154,6 +154,8 @@ describe('useFileSystem context hook', () => {
     expect((thrown as Error).message).toBe(
       'Permission denied: Unable to access the selected directory. Please check folder permissions and try again.'
     );
+    // The friendly message never erases the original failure: a typed refusal stays classifiable.
+    expect((thrown as Error).cause).toBe(error);
   });
 
   it('returns null when user cancels directory selection', async () => {
