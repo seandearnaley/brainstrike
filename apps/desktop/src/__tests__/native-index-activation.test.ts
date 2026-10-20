@@ -827,7 +827,7 @@ it('joins physical grep disposal before retiring read authority during a genuine
     rebuild: f.activation.rebuild,
     withRead: f.activation.withRead,
   });
-  // Boot's reader starts the index; reads never do (ADR 0026).
+  // Boot's reader starts the index; reads never do (BST-2277).
   await f.activation.acquireRead();
   const pending = capability
     .grep({

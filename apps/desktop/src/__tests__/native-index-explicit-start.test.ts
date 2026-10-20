@@ -2,7 +2,7 @@
 
 // Only explicit owners start Main's index: boot, reset resume and host-loss
 // recovery. A read finding it idle refuses at once and starts nothing, so run
-// admission's index-status read never waits on an open (ADR 0026, BST-2277).
+// admission's index-status read never waits on an open (BST-2277).
 import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';

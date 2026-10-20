@@ -570,7 +570,7 @@ it.each([
       withRead: f.activation.withRead,
     });
     try {
-      // Boot's reader starts the index; a status read never does (ADR 0026).
+      // Boot's reader starts the index; a status read never does (BST-2277).
       const failure = await f.activation.acquireRead().catch((error: unknown) => error);
       const observation = await capability.status();
       expect(failure).toBeInstanceOf(NativeIndexRefusalError);

@@ -759,7 +759,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     dispatch({ kind: 'stop-sources', reason: 'root-data-deletion' });
   /**
    * A resumed generation's starter (reset resume, host-loss recovery): open the idle index
-   * from its saved settings, as boot does. Reads never start it (ADR 0026). The outcome is
+   * from its saved settings, as boot does. Reads never start it (BST-2277). The outcome is
    * the lifecycle's state, which readers see with its cause; a refusal is reported here.
    */
   const openResumed = async (): Promise<void> => {

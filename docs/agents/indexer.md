@@ -133,7 +133,7 @@ admitted work that fails on that revocation settles as their cancellation
 Only explicit owners start Main's index: boot, `resume()` after a reset or
 deletion, and host-loss recovery once a replacement host is admitted (BST-2004).
 A read that finds the index idle refuses it as `transitioning` and starts
-nothing, so no read waits on an open (ADR 0026). A refused open stays the
+nothing, so no read waits on an open (BST-2277). A refused open stays the
 lifecycle's state, which readers see with its cause.
 
 Every root's scan shares one writer (BST-2055). Replacing its bindings or
