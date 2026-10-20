@@ -5,7 +5,6 @@ import {
   isDesktopNativeToolId,
 } from '@brainstrike/assistant-contract/tool-metadata';
 
-export * from './schemas-artifacts';
 export * from './schemas-browser';
 export * from './schemas-diagnostics';
 export * from './schemas-execution';

@@ -118,6 +118,15 @@ browser bundles; importing a subpath does not make its shared chunks browser-saf
 Do not introduce Harness, mastracode, libsql, server/deployer adapters or browser
 runtime without the corresponding owner decision.
 
+## Stream boundary (R6)
+
+`DataStreamMapper.handleChunk` is the live Brainstrike `StreamChunk` dispatch
+for host and web streams. Its unknown-chunk default must report the coded
+`data_stream_mapper_unrecognized_chunk` diagnostic rather than silently dropping
+input. The retired Mastra tool-event adapter is outside this boundary: no
+production caller feeds it. The executable guard and its mutation tests enforce
+the live dispatch; a future vendor stream consumer requires its own inventory.
+
 ## Memory and context
 
 Construct memory through the existing host resource/thread scope and storage

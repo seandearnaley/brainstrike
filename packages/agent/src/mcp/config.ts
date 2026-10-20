@@ -8,7 +8,21 @@ import {
 } from '@brainstrike/assistant-contract/mcp-config';
 import { Schema } from 'effect';
 
-export * from '@brainstrike/assistant-contract/mcp-config';
+export {
+  isInteractiveMcpStdioServer,
+  type McpConfig,
+  type McpConfigInput,
+  type McpProtocol,
+  McpProtocolEnum,
+  type McpProtocolMigration,
+  type McpServer,
+  type McpServerInput,
+  McpTransportEnum,
+  type ResolvedMcpConfig,
+  type ResolvedMcpServer,
+  resolveMcpStartupPolicy,
+  toMcpVersionNegotiation,
+} from '@brainstrike/assistant-contract/mcp-config';
 
 const UNSUPPORTED_BEARER_MESSAGE =
   'MCP bearer authentication requires a production credential resolver';
@@ -44,16 +58,6 @@ export const McpConfigSchema = SharedMcpConfigSchema.check(
     )
   )
 );
-export function parseMcpServerValue(value: unknown): typeof McpServerSchema.Type {
-  const parsed = Schema.decodeUnknownResult(McpServerSchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(value);
-  if (!(parsed._tag === 'Success')) {
-    return throwCapabilityValidationError(parsed.failure);
-  }
-  return parsed.success;
-}
 export function parseMcpConfigValue(value: unknown): ReturnType<typeof parseSharedMcpConfigValue> {
   const parsed = parseSharedMcpConfigValue(value);
   const capabilityScoped = Schema.decodeResult(McpConfigSchema, {

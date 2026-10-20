@@ -10,7 +10,6 @@ import type { ToolGuardBudget } from './resolve-tool-guard-budget';
 import type { ToolExecutionDurations } from './tool-execution-durations';
 import type { ToolLogger } from './types';
 
-export type { GuardedToolError } from '@brainstrike/assistant-contract';
 export { isGuardedToolError } from '@brainstrike/assistant-contract';
 
 const GUARDED_TOOL_ERROR_MESSAGE = 'The tool did not complete successfully. Try another approach.';

@@ -1,5 +1,6 @@
 import {
   buildNativeToolRiskMap,
+  NATIVE_TOOL_ID,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import {
@@ -10,12 +11,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createRunPythonTool } from '../../tools/run-python-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
-import {
-  ASK_USER_TOOL_ID,
-  filterToolsForPlanMode,
-  SUBMIT_PLAN_TOOL_ID,
-  SUSPENDING_NATIVE_TOOL_IDS,
-} from '../plan-mode-tool-gate';
+import { filterToolsForPlanMode } from '../plan-mode-tool-gate';
+
+const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
+const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 
 function makeLogger() {
   return { info: vi.fn() };
@@ -57,9 +56,8 @@ function makeToolMap() {
 // this build cannot answer. That direction has no compile-time guard, so it is
 // guarded here.
 describe('suspending tools vs the resume-UI registry', () => {
-  it('derives SUSPENDING_NATIVE_TOOL_IDS from REGISTERED_SUSPEND_RESUME_TOOL_IDS', () => {
-    expect([...SUSPENDING_NATIVE_TOOL_IDS]).toEqual([...REGISTERED_SUSPEND_RESUME_TOOL_IDS]);
-    for (const toolId of SUSPENDING_NATIVE_TOOL_IDS) {
+  it('every registered suspending id has a resume UI', () => {
+    for (const toolId of REGISTERED_SUSPEND_RESUME_TOOL_IDS) {
       expect(hasRegisteredSuspendResumeUi(toolId)).toBe(true);
     }
   });

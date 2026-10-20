@@ -3,8 +3,6 @@ import {
   ArtifactCursorSchema,
   ArtifactPageSizeSchema,
   ArtifactSearchPatternSchema,
-  type ReadToolOutputArtifactCursorInput,
-  ReadToolOutputArtifactCursorInputSchema,
   requireSearchPatternForFlags,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
@@ -49,8 +47,6 @@ const ToolOutputArtifactReferenceSchema = Schema.Struct({
     Schema.isPattern(/^[A-Za-z0-9_-]+$/u)
   ),
 });
-
-export { type ReadToolOutputArtifactCursorInput, ReadToolOutputArtifactCursorInputSchema };
 
 export const ReadToolOutputArtifactInputSchema = Schema.Struct({
   artifactRef: Schema.optionalKey(ToolOutputArtifactReferenceSchema),
