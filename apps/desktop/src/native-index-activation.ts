@@ -13,7 +13,6 @@ import {
   partitionAuthority,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
-import type { HostAttachment } from '@brainstrike/host-lease';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
 import type { CanonicalRemoteIngestion } from './canonical-utility-parent';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
@@ -52,6 +51,7 @@ import {
   NativeSourceRetirementFailure,
 } from './native-index-lifecycle-owner';
 import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
+import { createNativeIndexProfileAdmission } from './native-index-profile-admission';
 import { createNativeIndexFailures } from './native-index-reopen';
 import { createNativeIndexRetry } from './native-index-retry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
@@ -756,8 +756,10 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const stopSources = (): Promise<void> =>
     dispatch({ kind: 'stop-sources', reason: 'root-data-deletion' });
+  const admission = createNativeIndexProfileAdmission(lifecycle, runtime);
   const fenceTerminal = (): void => {
     failures.cancel();
+    admission.fenceTerminal();
     dispatch({ kind: 'fence', reason: 'shutdown' }).catch((error: unknown) =>
       dependencies.onError('terminal fence', error)
     );
@@ -803,53 +805,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     if (failures.length > 1) {
       throw new AggregateError(failures, 'Native reset resume and retirement failed');
-    }
-  };
-  const acquireProfile = async (): Promise<HostAttachment> => {
-    const owner = await lifecycle;
-    const recover = async (): Promise<boolean> => {
-      if (!(await runtime.retireFailedProfile())) {
-        return false;
-      }
-      const state = await owner.state();
-      if (state.kind === 'closed') {
-        if (state.reason !== 'host-released') {
-          return false;
-        }
-        const resuming = await owner.dispatch({ kind: 'profile-resume' });
-        await owner.dispatch({ generation: resuming.generation, kind: 'profile-resumed' });
-      }
-      return true;
-    };
-    // BST-2004: a lost ready host fails like a failed start; join its Root release first.
-    const recovered = await recover();
-    let state = await owner.state();
-    if (state.kind === 'closed' && !recovered) {
-      throw stateError(state);
-    }
-    const admit = async (): Promise<HostAttachment> => {
-      const attachment = await runtime.acquireProfile({ indexIndependent: true });
-      state = await owner.state();
-      if (state.kind === 'closed') {
-        throw stateError(state);
-      }
-      return attachment;
-    };
-    try {
-      return await admit();
-    } catch (cause) {
-      let recovered: boolean;
-      try {
-        recovered = await recover();
-      } catch (release) {
-        throw cause instanceof AggregateError && cause.errors.includes(release)
-          ? cause
-          : new AggregateError([cause, release], 'Host acquisition failed and its release failed');
-      }
-      if (!recovered) {
-        throw cause;
-      }
-      return admit();
     }
   };
   const reconfigure = async (roots = false): Promise<void> => {
@@ -945,7 +900,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       stopSources,
     }),
     acquire,
-    acquireProfile,
+    acquireProfile: admission.acquire,
     acquireRead,
     captureAcknowledgedAuthority: () => {
       const current = graph;

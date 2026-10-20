@@ -2,6 +2,18 @@ import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-nat
 import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
 import { type NativeIndexState, nativeIndexFailureRefusal } from './native-index-lifecycle';
 
+/** The typed refusal of a native index closed for good: shutdown, reset, or profile retirement. */
+export function nativeIndexClosedError(
+  reason: Extract<NativeIndexState, { readonly kind: 'closed' }>['reason'],
+  cause?: unknown
+): NativeIndexRefusalError {
+  return new NativeIndexRefusalError(
+    { kind: 'closed', reason },
+    'Native index activation is closed for terminal retirement.',
+    { cause }
+  );
+}
+
 export function nativeIndexStateError(state: NativeIndexState): Error {
   if (state.kind === 'failed' || state.kind === 'unconfigured') {
     const refusal = nativeIndexFailureRefusal(state.cause);
@@ -28,11 +40,7 @@ export function nativeIndexStateError(state: NativeIndexState): Error {
     );
   }
   if (state.kind === 'closed') {
-    return new NativeIndexRefusalError(
-      { kind: 'closed', reason: state.reason },
-      'Native index activation is closed for terminal retirement.',
-      { cause: state.cause }
-    );
+    return nativeIndexClosedError(state.reason, state.cause);
   }
   return new TransitionError(
     state.kind === 'validating'
