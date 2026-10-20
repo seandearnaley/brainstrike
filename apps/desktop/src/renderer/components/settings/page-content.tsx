@@ -68,6 +68,7 @@ import {
 import { createIpcCapability } from '../../ipc-capability';
 import {
   downloadDesktopEmbeddingModel,
+  readDesktopDownloadedEmbeddingModels,
   resolveModelDownloadDevice,
 } from '../../settings-model-download';
 import { DesktopLoggingSettings } from './logging-settings';
@@ -88,6 +89,19 @@ configureModelRuntimeServices({
       execution.webgpuAdapter()
     );
     await downloadDesktopEmbeddingModel(model, device, new AbortController().signal);
+  },
+  // BST-2241: "downloaded" is what the hidden host's cache holds for the same plan.
+  readDownloadedEmbeddingModels: async (models) => {
+    const bridge = window.embeddingHost;
+    if (!(bridge && 'modelCacheStatus' in bridge)) {
+      throw new Error('The embedding host is unavailable.');
+    }
+    const device = await resolveModelDownloadDevice(await ensureVectorPreferencesHydrated(), () =>
+      bridge.webgpuAdapter()
+    );
+    return await readDesktopDownloadedEmbeddingModels(models, device, (plans) =>
+      bridge.modelCacheStatus(plans)
+    );
   },
 });
 
@@ -449,8 +463,7 @@ export default function SettingsPageContent() {
       }),
       {
         content: <ModelSelectionPage />,
-        description:
-          'Browse every catalogued model, manage local downloads, and set the model cache directory.',
+        description: 'Browse every catalogued model and download on-device models.',
         headerActions: <ModelCatalogHeaderActions />,
         icon: Layers,
         id: 'embedding-models',
