@@ -24,7 +24,7 @@ after(() => rmSync(dir, { force: true, recursive: true }));
 const issueFile = path.join(dir, 'issue.md');
 // Filed by run 41: its description names that run, not tonight's.
 const ISSUE = {
-  assignee: { name: 'Sean Dearnaley' },
+  assignee: { id: 'user-1', name: 'Sean Dearnaley' },
   description: `Scheduled run of **Desktop E2E** failed this test.\n\n- Run: ${FIRST_RUN_URL}\n\nNightly identity: \`nightly-identity:abc\``,
   id: 'issue-uuid-1',
   identifier: 'BST-3000',
@@ -64,7 +64,7 @@ function fakeLinear({ comments = [TONIGHT], fail = [], issue = ISSUE } = {}) {
     issue: () => ({ issue: state.issue }),
     issueUpdate: ({ input }) => {
       state.issue.state = { name: 'In Progress', type: 'started' };
-      state.issue.assignee = { name: `viewer ${input.assigneeId}` };
+      state.issue.assignee = { id: input.assigneeId, name: `viewer ${input.assigneeId}` };
       return { issueUpdate: { success: true } };
     },
     viewer: () => ({ viewer: { id: 'user-1' } }),
@@ -112,6 +112,7 @@ async function run(argv, linear, env = { LINEAR_API_KEY: API_KEY }) {
     argv,
     env,
     fetchImpl: linear.fetchImpl,
+    github: () => ({ head: { sha: 'c'.repeat(40) } }),
     now: () => NOW,
     stderr,
     stdout,
@@ -235,7 +236,7 @@ test('RED-FIRST: a live claim is respected', async () => {
       [
         claimedBy('github-run:1', 600),
         {
-          body: 'Fix PR opened for review: https://github.com/x/pull/9',
+          body: 'Fix PR opened for review: https://github.com/o/r/pull/9',
           createdAt: minutesAgo(500),
         },
         TONIGHT,
@@ -293,7 +294,7 @@ test('comment posts the body file, and link-pr records the pull request', async 
   const linear = fakeLinear();
   const result = await run(['comment', '--issue', 'BST-3000', '--body-file', bodyFile], linear);
   const linked = await run(
-    ['link-pr', '--issue', 'BST-3000', '--pr-url', 'https://github.com/x/pull/9'],
+    ['link-pr', '--issue', 'BST-3000', '--pr-url', 'https://github.com/o/r/pull/9'],
     linear
   );
 
@@ -303,7 +304,7 @@ test('comment posts the body file, and link-pr records the pull request', async 
     linear.mutations().map(({ body }) => body.variables.input.body),
     [
       'Reproduced on run 77; root cause is the stale watcher.',
-      'Fix PR opened for review: https://github.com/x/pull/9',
+      'Fix PR opened for review: https://github.com/o/r/pull/9',
     ]
   );
 });
@@ -358,4 +359,215 @@ test('direct execution exits 1 with the key-missing message and no network', () 
 
   assert.equal(child.status, 1);
   assert.match(child.stderr, /LINEAR_API_KEY is not set/u);
+});
+
+test('BST-2261: a retained publication handoff is not silently reclaimed after the bot timeout', async () => {
+  const receipt = {
+    artifactDigest: `sha256:${'d'.repeat(64)}`,
+    artifactId: 9,
+    baseSha: 'a'.repeat(40),
+    branch: 'nightly-fix/bst-3000-1',
+    claimant: 'github-run:1',
+    controlSha: 'b'.repeat(40),
+    expiresAt: '2026-10-20T09:00:00.000Z',
+    headSha: 'c'.repeat(40),
+    issue: 'BST-3000',
+    repository: 'o/r',
+    runId: '1',
+    version: 1,
+  };
+  const linear = fakeLinear({
+    comments: [
+      claimedBy('github-run:1', 600),
+      { body: `Fix patch retained: ${JSON.stringify(receipt)}`, createdAt: minutesAgo(500) },
+      TONIGHT,
+    ],
+    issue: STARTED,
+  });
+  const result = await main({
+    argv: claimArgs(),
+    env: { LINEAR_API_KEY: API_KEY },
+    fetchImpl: linear.fetchImpl,
+    github: () => [
+      [
+        {
+          base: { ref: 'main' },
+          head: { ref: receipt.branch, repo: { full_name: 'o/r' }, sha: 'c'.repeat(40) },
+          html_url: 'https://github.com/o/r/pull/9',
+          number: 9,
+          state: 'open',
+        },
+      ],
+    ],
+    now: () => NOW,
+    stderr: sink(),
+    stdout: sink(),
+  });
+  assert.equal(result, ALREADY_CLAIMED);
+  assert.equal(linear.mutations().length, 0);
+});
+
+const retained = (changes = {}) => ({
+  artifactDigest: `sha256:${'d'.repeat(64)}`,
+  artifactId: 9,
+  baseSha: 'a'.repeat(40),
+  branch: 'nightly-fix/bst-3000-77',
+  claimant: CLAIMANT,
+  controlSha: 'b'.repeat(40),
+  expiresAt: '2026-10-20T09:00:00.000Z',
+  headSha: 'c'.repeat(40),
+  issue: 'BST-3000',
+  repository: 'o/r',
+  runId: '77',
+  version: 1,
+  ...changes,
+});
+function retainedGithub({
+  branch = false,
+  changed = false,
+  artifact = true,
+  expired = false,
+  pr = false,
+} = {}) {
+  return (endpoint, fields) => {
+    if (endpoint.endsWith('/pulls')) {
+      return [
+        pr
+          ? [
+              {
+                base: { ref: 'main' },
+                head: {
+                  ref: 'nightly-fix/bst-3000-77',
+                  repo: { full_name: 'o/r' },
+                  sha: 'c'.repeat(40),
+                },
+                html_url: 'https://github.com/o/r/pull/9',
+                number: 9,
+                state: 'open',
+              },
+            ]
+          : [],
+      ];
+    }
+    if (endpoint.includes('/matching-refs/')) {
+      return branch
+        ? [
+            {
+              object: { sha: (changed ? 'd' : 'c').repeat(40) },
+              ref: 'refs/heads/nightly-fix/bst-3000-77',
+            },
+          ]
+        : [];
+    }
+    if (endpoint.endsWith('/artifacts')) {
+      return [
+        artifact
+          ? [
+              {
+                digest: `sha256:${'d'.repeat(64)}`,
+                expired,
+                expires_at: '2026-10-20T09:00:00.000Z',
+                id: 9,
+                name: 'nightly-fix--BST-3000',
+                workflow_run: { head_sha: 'b'.repeat(40) },
+              },
+            ]
+          : [],
+      ];
+    }
+    throw new Error(`Unexpected GitHub endpoint ${endpoint}${JSON.stringify(fields)}`);
+  };
+}
+async function runRetained(argv, linear, github = retainedGithub()) {
+  const stdout = sink(),
+    stderr = sink();
+  const exitCode = await main({
+    argv,
+    env: { LINEAR_API_KEY: API_KEY },
+    fetchImpl: linear.fetchImpl,
+    github,
+    now: () => NOW,
+    stderr,
+    stdout,
+  });
+  return { exitCode, stderr: stderr.text, stdout: stdout.text };
+}
+const receiptFile = path.join(dir, 'retained.json');
+const retainArgs = () => [
+  'retain',
+  '--issue',
+  'BST-3000',
+  '--claimant',
+  CLAIMANT,
+  '--receipt-file',
+  receiptFile,
+];
+test('BST-2261: successful artifact handoff retains the current owner and records expiry without Done', async () => {
+  writeFileSync(receiptFile, JSON.stringify(retained()));
+  const linear = fakeLinear({ comments: [claimedBy(CLAIMANT, 10), TONIGHT], issue: STARTED });
+  const first = await runRetained(retainArgs(), linear);
+  assert.equal(first.exitCode, 0, first.stderr);
+  assert.equal(linear.named('issueUpdate').length, 0);
+  assert.equal(linear.named('commentCreate').length, 1);
+  assert.match(linear.state.comments.at(-1).body, /Patch retained, not Done/);
+  assert.match(linear.state.comments.at(-1).body, /expires/);
+  const twice = await runRetained(retainArgs(), linear);
+  assert.equal(twice.exitCode, 0);
+  assert.equal(linear.named('commentCreate').length, 1, 'same receipt is not posted twice');
+});
+test('BST-2261: another current owner cannot be replaced by a retained receipt', async () => {
+  writeFileSync(receiptFile, JSON.stringify(retained()));
+  const linear = fakeLinear({ comments: [claimedBy('sean', 10), TONIGHT], issue: STARTED });
+  const result = await runRetained(retainArgs(), linear);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /no longer owns/);
+  assert.equal(linear.mutations().length, 0);
+});
+function awaitingReceipt() {
+  return [
+    claimedBy(CLAIMANT, 600),
+    { body: `Fix patch retained: ${JSON.stringify(retained())}`, createdAt: minutesAgo(500) },
+    TONIGHT,
+  ];
+}
+test('BST-2261: an expired artifact remains held only when actual branch or PR preserves the patch', async () => {
+  for (const evidence of [
+    { artifact: false, branch: true },
+    { artifact: false, pr: true },
+  ]) {
+    const linear = fakeLinear({ comments: awaitingReceipt(), issue: STARTED });
+    const result = await runRetained(claimArgs(), linear, retainedGithub(evidence));
+    assert.equal(result.exitCode, ALREADY_CLAIMED, result.stderr);
+    assert.equal(linear.mutations().length, 0);
+  }
+});
+test('BST-2261: unavailable retained patch produces one explicit recovery comment, never regeneration', async () => {
+  const linear = fakeLinear({ comments: awaitingReceipt(), issue: STARTED });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await runRetained(claimArgs(), linear, retainedGithub({ artifact: false }));
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Manual recovery required; no automatic regeneration/);
+  }
+  assert.equal(linear.named('issueUpdate').length, 0);
+  assert.equal(linear.named('commentCreate').length, 1);
+  assert.match(linear.state.comments.at(-1).body, /Retained patch recovery required/);
+});
+test('BST-2261: changed branch evidence is an error, not permission to regenerate', async () => {
+  const linear = fakeLinear({ comments: awaitingReceipt(), issue: STARTED });
+  const result = await runRetained(
+    claimArgs(),
+    linear,
+    retainedGithub({ branch: true, changed: true })
+  );
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /branch head changed/);
+  assert.equal(linear.named('issueUpdate').length, 0);
+});
+test('BST-2261: a receipt preceding a newer claim cannot pin the newer stale claim', async () => {
+  const comments = awaitingReceipt();
+  comments.push(claimedBy('github-run:88', 400));
+  const linear = fakeLinear({ comments, issue: STARTED });
+  const result = await runRetained(claimArgs(), linear, retainedGithub({ artifact: false }));
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(linear.named('issueUpdate').length, 1);
 });
