@@ -38,8 +38,6 @@ import {
   approvedNotesVaultRootCountForTest,
   createNotesVaultIpcHandlers,
   DEFAULT_NOTES_VAULT_DIRECTORY_NAME,
-  disposeAllNotesVaultWatchers,
-  liveNotesVaultWatcherCountForTest,
   NOTES_VAULT_ROOTS_STORAGE_KEY,
   type NotesVaultChangedEvent,
   type NotesVaultIpcHandlers,
@@ -48,6 +46,10 @@ import {
   registerNotesVaultIpcHandlers,
   resetNotesVaultIpcStateForTest,
 } from '../../notes-vault-ipc-handlers';
+import {
+  disposeAllNotesVaultWatchers,
+  liveNotesVaultWatcherCountForTest,
+} from '../../notes-vault-watchers';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
@@ -133,6 +135,7 @@ function createWatchHarness(): WatchHarness {
       liveCallbacks.add(onChange);
       const stop = vi.fn(() => {
         liveCallbacks.delete(onChange);
+        return Promise.resolve();
       });
       stops.push(stop);
       return Promise.resolve(stop);
@@ -215,14 +218,14 @@ async function approveRoot(
   expect(result).toMatchObject({ ok: true });
 }
 
-beforeEach(() => {
-  resetNotesVaultIpcStateForTest();
+beforeEach(async () => {
+  await resetNotesVaultIpcStateForTest();
   registeredHandlers.clear();
   removeHandler.mockClear();
 });
 
 afterEach(async () => {
-  resetNotesVaultIpcStateForTest();
+  await resetNotesVaultIpcStateForTest();
   clearWindowRoleByWebContentsId(REGISTERED_OWNER_ID);
   clearWindowRoleByWebContentsId(FOREIGN_OWNER_ID);
   for (const dir of createdDirs.splice(0)) {
@@ -303,7 +306,7 @@ describe('notes vault IPC handlers', () => {
 
       // Simulate an app restart: the in-memory approved map is gone, the
       // durable storage survives.
-      resetNotesVaultIpcStateForTest();
+      await resetNotesVaultIpcStateForTest();
       expect(approvedNotesVaultRootCountForTest()).toBe(0);
       const second = createHandlers({ storage: first.storage });
 
@@ -351,7 +354,7 @@ describe('notes vault IPC handlers', () => {
       expect(await handlers.statEntry(outsideFile)).toMatchObject({ ok: false });
       expect(await handlers.readFile(outsideFile)).toMatchObject({ ok: false });
       // With NO approved roots at all, even the (former) root path is refused.
-      resetNotesVaultIpcStateForTest();
+      await resetNotesVaultIpcStateForTest();
       expect(await handlers.listDirectory(approved)).toMatchObject({ ok: false });
     });
 
@@ -820,11 +823,11 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('stops a subscription that becomes healthy after its owner is destroyed', async () => {
-      let resolveStart: ((stop: () => void) => void) | undefined;
-      const stop = vi.fn();
+      let resolveStart: ((stop: () => Promise<void>) => void) | undefined;
+      const stop = vi.fn(() => Promise.resolve());
       const startWatch = vi.fn(
         () =>
-          new Promise<() => void>((resolve) => {
+          new Promise<() => Promise<void>>((resolve) => {
             resolveStart = resolve;
           })
       );
@@ -869,7 +872,7 @@ describe('notes vault IPC handlers', () => {
       expect(liveNotesVaultWatcherCountForTest()).toBe(1);
 
       expect(handlers.unwatch(watchId, 21)).toEqual({ ok: true, value: null });
-      expect(watchHarness.stops[0]).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(watchHarness.stops[0]).toHaveBeenCalledTimes(1));
       expect(liveNotesVaultWatcherCountForTest()).toBe(0);
       expect(handlers.unwatch(watchId, 21)).toMatchObject({ ok: false });
     });
@@ -890,8 +893,10 @@ describe('notes vault IPC handlers', () => {
 
       owner.fireDestroyed();
       expect(liveNotesVaultWatcherCountForTest()).toBe(1);
-      expect(watchHarness.stops[0]).toHaveBeenCalledTimes(1);
-      expect(watchHarness.stops[1]).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => {
+        expect(watchHarness.stops[0]).toHaveBeenCalledTimes(1);
+        expect(watchHarness.stops[1]).toHaveBeenCalledTimes(1);
+      });
       expect(watchHarness.stops[2]).not.toHaveBeenCalled();
     });
 
@@ -903,7 +908,7 @@ describe('notes vault IPC handlers', () => {
       expect(await handlers.watch(castOwner(owner), approved)).toMatchObject({ ok: true });
       expect(await handlers.watch(castOwner(owner), approved)).toMatchObject({ ok: true });
 
-      expect(disposeAllNotesVaultWatchers()).toBe(2);
+      await disposeAllNotesVaultWatchers();
       expect(liveNotesVaultWatcherCountForTest()).toBe(0);
       for (const stop of watchHarness.stops) {
         expect(stop).toHaveBeenCalledTimes(1);
@@ -935,7 +940,7 @@ describe('notes vault IPC handlers', () => {
       )?.(createTrustedInvokeEvent('visible-ui', REGISTERED_OWNER_ID), approved);
       expect(listResult).toMatchObject({ ok: true });
 
-      dispose();
+      await dispose();
       expect(registeredHandlers.size).toBe(0);
       expect(liveNotesVaultWatcherCountForTest()).toBe(0);
       expect(approvedNotesVaultRootCountForTest()).toBe(0);
@@ -972,7 +977,7 @@ describe('notes vault IPC handlers', () => {
           registeredHandlers.get(DESKTOP_IPC_CHANNELS.notesVault.unwatch)?.(ownerEvent, watchId)
         ).resolves.toEqual({ ok: true, value: null });
       } finally {
-        dispose();
+        await dispose();
       }
     });
   });

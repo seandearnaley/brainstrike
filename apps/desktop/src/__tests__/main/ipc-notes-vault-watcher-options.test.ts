@@ -1,35 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { NotesVaultRootsStorage } from '../../notes-vault-ipc-handlers';
+import type {
+  NotesVaultIpcHandlersOptions,
+  NotesVaultRootsStorage,
+} from '../../notes-vault-ipc-handlers';
 
 const notesWatcherComposition = vi.hoisted(() => ({
-  change: null as (() => void) | null,
-  health: null as
-    | ((event: { backend: 'fs-events'; state: 'healthy'; timestamp: number }) => void)
-    | null,
-  options: null as Record<string, unknown> | null,
-  startWatch: null as ((directoryPath: string, onChange: () => void) => Promise<() => void>) | null,
-  stop: vi.fn(),
-  watchDirectory: vi.fn(
-    (
-      _handle: unknown,
-      onChange: () => void,
-      _onSignal: unknown,
-      options: {
-        onHealth: (event: { backend: 'fs-events'; state: 'healthy'; timestamp: number }) => void;
-      }
-    ) => {
-      notesWatcherComposition.change = onChange;
-      notesWatcherComposition.health = options.onHealth;
-      notesWatcherComposition.options = options as unknown as Record<string, unknown>;
-      return notesWatcherComposition.stop;
-    }
-  ),
+  startJoinedParcelWatch: vi.fn(),
+  startWatch: null as NotesVaultIpcHandlersOptions['startWatch'] | null,
 }));
 
-vi.mock('@brainstrike/file-system/electron', () => ({
-  ElectronFileSystemAdapter: class {
-    watchDirectory = notesWatcherComposition.watchDirectory;
-  },
+vi.mock('@brainstrike/file-system/native-watch', () => ({
+  startJoinedParcelWatch: notesWatcherComposition.startJoinedParcelWatch,
 }));
 
 vi.mock('electron', () => ({
@@ -39,43 +20,43 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('../../notes-vault-ipc-handlers', () => ({
-  createNotesVaultIpcHandlers: vi.fn(
-    (options: {
-      startWatch: (directoryPath: string, onChange: () => void) => Promise<() => void>;
-    }) => {
-      notesWatcherComposition.startWatch = options.startWatch;
-      return {};
-    }
-  ),
-  registerNotesVaultIpcHandlers: vi.fn(() => () => undefined),
+  createNotesVaultIpcHandlers: vi.fn((options: NotesVaultIpcHandlersOptions) => {
+    notesWatcherComposition.startWatch = options.startWatch;
+    return {};
+  }),
+  registerNotesVaultIpcHandlers: vi.fn(() => () => Promise.resolve()),
 }));
 
 import { registerNotesVaultIpc } from '../../ipc-notes-vault';
 
 describe('Notes Vault watcher composition', () => {
   beforeEach(() => {
-    notesWatcherComposition.change = null;
-    notesWatcherComposition.health = null;
-    notesWatcherComposition.options = null;
     notesWatcherComposition.startWatch = null;
-    notesWatcherComposition.stop.mockClear();
-    notesWatcherComposition.watchDirectory.mockClear();
+    notesWatcherComposition.startJoinedParcelWatch.mockReset();
   });
 
-  it('retains default native filtering and the existing change callback', async () => {
+  it('uses the joined native producer with default native filtering and the change callback', async () => {
+    const stop = vi.fn(() => Promise.resolve());
+    notesWatcherComposition.startJoinedParcelWatch.mockResolvedValue(stop);
     const onChange = vi.fn();
     const unregister = registerNotesVaultIpc({} as NotesVaultRootsStorage);
 
     expect(notesWatcherComposition.startWatch).not.toBeNull();
     const watchPromise = notesWatcherComposition.startWatch?.('/notes', onChange);
 
-    expect(notesWatcherComposition.options).toEqual(
-      expect.objectContaining({ reportDefaultFilteredChanges: false })
+    // BST-2244: the joined producer's disposer settles once the native
+    // unsubscribe has, so the shutdown dispose can join it.
+    expect(notesWatcherComposition.startJoinedParcelWatch).toHaveBeenCalledWith(
+      { kind: 'directory', name: 'notes', path: '/notes', platform: 'electron' },
+      expect.any(Function),
+      { reportDefaultFilteredChanges: false }
     );
-    notesWatcherComposition.change?.();
+    const change = notesWatcherComposition.startJoinedParcelWatch.mock.calls[0]?.[1] as
+      | (() => void)
+      | undefined;
+    change?.();
     expect(onChange).toHaveBeenCalledOnce();
-    notesWatcherComposition.health?.({ backend: 'fs-events', state: 'healthy', timestamp: 1 });
-    await expect(watchPromise).resolves.toBe(notesWatcherComposition.stop);
-    unregister();
+    await expect(watchPromise).resolves.toBe(stop);
+    await unregister();
   });
 });
