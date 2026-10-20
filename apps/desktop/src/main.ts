@@ -349,8 +349,8 @@ let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
-// `unregisterForgeIpc` below is the deliberate exception: it is torn down
-// inside the graceful shutdown's 'forge' step, BEFORE 'database-drain'.
+// Forge and Notes Vault retire inside their awaited graceful-shutdown steps;
+// the synchronous ledger must never start their physical cleanup again.
 const ipcDisposers = createDisposerStack();
 // Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
 // window (rebound on a macOS dock-reopen), so its handle is kept to retire the
@@ -1132,13 +1132,6 @@ ipcDisposers.add(
 );
 ipcDisposers.add('terminal', registerTerminalIpc(workspaceRootCatalog));
 const closeNotesVaultIpc = registerNotesVaultIpc(storage);
-ipcDisposers.add('notes-vault', () => {
-  // The graceful 'notes-vault' step joins physical retirement. This late ledger
-  // entry repeats idempotent bookkeeping and reports any retained cleanup error.
-  closeNotesVaultIpc().catch((error: unknown) => {
-    logger.error('Notes vault IPC cleanup failed during will-quit', { error });
-  });
-});
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -2214,8 +2207,8 @@ app.on('will-quit', () => {
   // AFTER the graceful shutdown (before-quit re-enters quit only once it has
   // settled): every IPC domain's disposer unwinds here, LIFO, each throw
   // isolated so a failing pty/watcher reap never leaves a later domain's
-  // handlers registered. Terminal's disposer also reaps every live pty and
-  // notes-vault's stops every live watcher.
+  // handlers registered. Native watcher retirement belongs to the awaited
+  // graceful steps above; this synchronous ledger must not retry it.
   for (const failure of ipcDisposers.disposeAll()) {
     logger.error('IPC domain disposer failed during will-quit', {
       error: failure.error,
