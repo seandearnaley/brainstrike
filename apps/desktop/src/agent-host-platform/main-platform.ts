@@ -188,6 +188,17 @@ function serveAdmissionReads(
     })
   );
   connection.onRequest(
+    'platform/admission/index-status',
+    (input: unknown, token: CancellationToken): Promise<unknown> =>
+      execute(token, async (signal) => {
+        wireDecoder(Schema.Record(Schema.String, Schema.Never), {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
+        return await reads.indexStatus(signal);
+      })
+  );
+  connection.onRequest(
     'platform/admission/worktrees',
     // The explicit result type keeps vscode-jsonrpc from narrowing it to a boolean literal.
     (input: unknown, token: CancellationToken): Promise<unknown> =>

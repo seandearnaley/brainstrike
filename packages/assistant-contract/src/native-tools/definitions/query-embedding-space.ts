@@ -10,7 +10,7 @@ export const queryEmbeddingSpace = defineNativeTool({
     requiresApproval: false,
   },
   description:
-    'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
+    'Search the Workspace Index by meaning. A companion to grepSearch for a conceptual question that exact-text search cannot find; omit embeddingSetId to use the Workspace Index',
   discovery: { family: 'embedding search', namespace: 'embeddings' },
   // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
   display: {

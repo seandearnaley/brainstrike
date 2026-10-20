@@ -66,7 +66,7 @@ import {
   PlatformTurnSnapshotResultSchema,
   PlatformWorkspaceAcquireResultSchema,
 } from './platform-wire';
-import { IndexSearchResultSchema } from './retrieval-wire';
+import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
 
 const logger = createLogger('DesktopNodePlatform');
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
@@ -187,6 +187,10 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/observers', { candidates }, signal)),
+    indexStatus: async (signal) =>
+      Schema.decodeUnknownSync(IndexStatusSchema, { errors: 'all', onExcessProperty: 'ignore' })(
+        await request('platform/admission/index-status', {}, signal)
+      ),
     liveWorkspaceRoots: async (signal) =>
       Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
         errors: 'all',

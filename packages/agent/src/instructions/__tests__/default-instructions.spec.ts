@@ -178,7 +178,9 @@ describe('default assistant instructions', () => {
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
     expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
     expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
-    expect(instructions).toContain('without embeddingSetId for purely conceptual Workspace Index');
+    expect(instructions).toContain(
+      'without embeddingSetId for a conceptual question that exact-text search cannot find'
+    );
     expect(instructions).toContain('Only run state-changing tools after the user confirms.');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
@@ -322,7 +324,20 @@ describe('grep-first search orientation', () => {
 
   it('positions semantic search as fallback when grep is registered', () => {
     const instructions = buildDefaultInstructions(WITH_GREP_MAP);
-    expect(instructions).toContain('for purely conceptual Workspace Index queries');
+    expect(instructions).toContain('for a conceptual question that exact-text search cannot find');
+  });
+
+  it('routes only conceptual questions to hybrid search, after grep (ADR 0026)', () => {
+    const instructions = buildDefaultInstructions(
+      new Map([...WITH_GREP_MAP, ['hybridSearch', 'brainstrike.hybridSearch']])
+    );
+    expect(instructions).toContain(
+      'Use hybridSearch for a conceptual question that also carries distinctive exact terms.'
+    );
+    expect(instructions).not.toContain('mixes conceptual intent');
+    expect(instructions.indexOf('Use grepSearch for exact strings')).toBeLessThan(
+      instructions.indexOf('Use hybridSearch for a conceptual question')
+    );
   });
 
   it('omits exact-text grep guidance when grepSearch is not registered', () => {
