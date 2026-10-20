@@ -65,6 +65,7 @@ import {
   worktreePathExists,
 } from './worktree-archive-preview';
 import { createWorktreeLedger } from './worktree-ledger';
+import { WorktreeOperationLifetime } from './worktree-operation-lifetime';
 import {
   assertWorktreeTargetOutsideRoots,
   generateWorktreeName,
@@ -95,6 +96,7 @@ export type {
 export function createWorktreeService(deps: WorktreeServiceDeps) {
   const ledger = createWorktreeLedger(deps.getWorktreeStore, deps.hasRunningThread);
   const serialize = createMutex();
+  const lifetime = new WorktreeOperationLifetime();
 
   function adoptDeps(): WorktreeAdoptDeps {
     return {
@@ -738,7 +740,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return await recordRestoredWorktree(row, snapshotRef);
   }
 
-  return {
+  const operations = {
     async adopt(params: WorktreeAdoptParams): Promise<GitResult<ManagedWorktreeRow>> {
       return await serialize(async () => {
         try {
@@ -746,7 +748,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return adopted;
         } catch (error) {
           logger.error('worktree adopt failed', { error, path: params.path });
-          return { error: toErrorMessage(error), ok: false };
+          return lifetime.faultResult(error);
         }
       });
     },
@@ -763,7 +765,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return await archiveUnserialized(params);
         } catch (error) {
           logger.error('worktree archive failed', { error, worktreeId: params.worktreeId });
-          return { error: toErrorMessage(error), ok: false };
+          return lifetime.faultResult(error);
         }
       });
     },
@@ -774,7 +776,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         return await readCheckoutStatus(adoptDeps(), params);
       } catch (error) {
         logger.error('worktree checkout status failed', { error, path: params.path });
-        return { error: toErrorMessage(error), ok: false };
+        return lifetime.faultResult(error);
       }
     },
     /** Create a managed worktree, record it, and run its setup. */
@@ -784,7 +786,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return await createUnserialized(params);
         } catch (error) {
           logger.error('worktree create failed', { error, name: params.name });
-          return { error: toErrorMessage(error), ok: false };
+          return lifetime.faultResult(error);
         }
       });
     },
@@ -835,7 +837,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           }
           return { ok: true, value: await ledger.updateBranch(row.id, params.branch) };
         } catch (error) {
-          return { error: toErrorMessage(error), ok: false };
+          return lifetime.faultResult(error);
         }
       });
     },
@@ -878,7 +880,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         };
       } catch (error) {
         logger.error('worktree create context failed', { error, rootId: params.rootId });
-        return { error: toErrorMessage(error), ok: false };
+        return lifetime.faultResult(error);
       }
     },
     async inspectArchive(params: {
@@ -898,7 +900,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           error,
           worktreeId: params.worktreeId,
         });
-        return { error: toErrorMessage(error), ok: false };
+        return lifetime.faultResult(error);
       }
     },
     /**
@@ -917,7 +919,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         return await listUnserialized();
       } catch (error) {
         logger.error('worktree list failed', { error });
-        return { error: toErrorMessage(error), ok: false };
+        return lifetime.faultResult(error);
       }
     },
     async listManagedPaths(): Promise<GitResult<readonly ManagedWorktreePathEntry[]>> {
@@ -935,7 +937,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         } else {
           logger.error('managed worktree path list failed', { error });
         }
-        return { error: toErrorMessage(error), ok: false };
+        return lifetime.faultResult(error);
       }
     },
     async reconcileFromShell(params: {
@@ -959,7 +961,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
             runId: params.runId ?? null,
             threadId: params.threadId ?? null,
           });
-          return { error: toErrorMessage(error), ok: false };
+          return lifetime.faultResult(error);
         }
       });
     },
@@ -975,10 +977,27 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return await restoreUnserialized(params);
         } catch (error) {
           logger.error('worktree restore failed', { error, worktreeId: params.worktreeId });
-          return { error: toErrorMessage(error), ok: false };
+          return lifetime.faultResult(error);
         }
       });
     },
+  };
+  return {
+    adopt: lifetime.admit(operations.adopt),
+    archive: lifetime.admit(operations.archive),
+    checkoutStatus: lifetime.admit(operations.checkoutStatus),
+    create: lifetime.admit(operations.create),
+    createBranchHere: lifetime.admit(operations.createBranchHere),
+    createContext: lifetime.admit(operations.createContext),
+    inspectArchive: lifetime.admit(operations.inspectArchive),
+    isManagedWorktreePath: (candidate: string): Promise<boolean> =>
+      lifetime.track(() => operations.isManagedWorktreePath(candidate)),
+    list: lifetime.admit(operations.list),
+    listManagedPaths: lifetime.admit(operations.listManagedPaths),
+    prepareClose: () => lifetime.prepareClose(),
+    reconcileFromShell: lifetime.admit(operations.reconcileFromShell),
+    repositoryContextForRoot: lifetime.admit(operations.repositoryContextForRoot),
+    restore: lifetime.admit(operations.restore),
   };
 }
 
