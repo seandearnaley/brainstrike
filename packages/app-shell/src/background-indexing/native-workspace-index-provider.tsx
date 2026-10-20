@@ -20,9 +20,14 @@ import type {
   IndexSearchCapability,
   NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { createLogger } from '@brainstrike/logging';
+import { beginWorkspacePhaseProof } from '@brainstrike/logging/workspace-phase-proof';
 import { type ReactNode, useEffect, useRef } from 'react';
+
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
+
+const phaseProofLogger = createLogger('NativeWorkspaceIndexProvider');
 
 async function readNativeProgress(
   capability: IndexSearchCapability,
@@ -297,19 +302,30 @@ export function NativeWorkspaceIndexProvider({
   });
   useEffect(() => {
     let disposed = false;
+    let status: 'success' | 'failure' = 'success';
+    const proof = beginWorkspacePhaseProof(phaseProofLogger, 'renderer.restore-observer', {
+      count: rootDirectoryHandles.length,
+      rootId: rootDirectoryHandles[0]?.rootId,
+    });
     void fileSystemAdapter
       .restoreRoots?.()
       // The mounted set as a whole: a removed folder is forgotten, so re-adding
       // it under its one id registers it again (BST-1990).
-      .then((roots) => (disposed ? undefined : syncMountedRoots(roots)))
-      .catch((error: unknown) =>
+      .then((roots) => {
+        proof.mark('ready', { count: roots.length, disposed });
+        return disposed ? undefined : syncMountedRoots(roots);
+      })
+      .catch((error: unknown) => {
+        status = 'failure';
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
           lastError: nativeProgressError(error),
           state: 'error',
-        })
-      );
+        });
+      })
+      .finally(() => proof.mark('settle', { disposed, status }));
     return () => {
       disposed = true;
+      proof.mark('cleanup', { disposed });
     };
   }, [fileSystemAdapter, syncMountedRoots, rootDirectoryHandles]);
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);

@@ -1,12 +1,25 @@
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { createLogger } from '@brainstrike/logging';
+import {
+  beginWorkspacePhaseProof,
+  type WorkspacePhaseProof,
+  type WorkspacePhaseProofFields,
+} from '@brainstrike/logging/workspace-phase-proof';
+
+const logger = createLogger('WorkspaceRootMutationLifetime');
 
 /** Terminal preparation joins accepted workflows without disposing their mounted capabilities. */
 export class WorkspaceRootMutationLifetime {
   private tail: Promise<void> = Promise.resolve();
+  private proofTailId = 0;
   private closing = false;
   private preparation: Promise<void> | undefined;
   private reservation: Promise<void> | undefined;
   private readonly failures: unknown[] = [];
+
+  get proofPredecessorId(): number {
+    return this.proofTailId;
+  }
 
   get settled(): Promise<void> {
     return this.tail;
@@ -24,33 +37,45 @@ export class WorkspaceRootMutationLifetime {
   }
 
   run<T>(
-    operation: () => Promise<T>,
+    operation: (proof: WorkspacePhaseProof) => Promise<T>,
     assertOwned: () => void,
-    admittedReservation: boolean
+    admittedReservation: boolean,
+    mutationName: NonNullable<WorkspacePhaseProofFields['mutationName']> = 'other'
   ): Promise<T> {
+    const proof = beginWorkspacePhaseProof(logger, 'registry.mutation', {
+      mutationName,
+      queuedAfter: this.proofTailId,
+    });
     try {
       assertOwned();
     } catch (cause) {
+      proof.mark('settle', { status: 'failure' });
       return Promise.reject(cause);
     }
     if (!admittedReservation) {
       try {
         this.assertAdmission();
       } catch (cause) {
+        proof.mark('settle', { status: 'failure' });
         return Promise.reject(cause);
       }
     }
     const execute = async (): Promise<T> => {
+      proof.mark('start');
       assertOwned();
-      return operation();
+      return operation(proof);
     };
     const result = this.tail.then(execute, execute);
+    this.proofTailId = proof.id;
     this.tail = result.then(
-      () => undefined,
+      () => {
+        proof.mark('settle', { status: 'success' });
+      },
       (cause: unknown) => {
         if (this.closing) {
           this.failures.push(cause);
         }
+        proof.mark('settle', { status: 'failure' });
       }
     );
     return result;

@@ -5,7 +5,7 @@ import {
   refusal,
   refusalError,
 } from '@brainstrike/assistant-contract';
-import type { HostRecord } from '@brainstrike/host-lease';
+import { type HostRecord, writeHostAttachmentDiagnostic } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
@@ -216,6 +216,7 @@ export function bindHostConnection(
     return { outcome: 'stopped', rootReleased: true };
   });
   handle('initialize', async (params) => {
+    writeHostAttachmentDiagnostic('host-initialize-received', record);
     if (
       initialized ||
       params.protocolVersion !== record.protocolVersion ||
@@ -268,6 +269,7 @@ export function bindHostConnection(
       }) as MessageConnection['onRequest'],
     });
     attached();
+    writeHostAttachmentDiagnostic('host-initialize-reply-ready', record);
     return {
       hostVersion: record.hostVersion,
       pid: record.pid,

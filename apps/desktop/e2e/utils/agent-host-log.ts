@@ -6,7 +6,11 @@ import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client
 import type { HostChildStatus, HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { foldHostRuns, type HostRunView } from '@brainstrike/agent-host/thread-view';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import { decodeHostRecord } from '@brainstrike/host-lease';
+import {
+  decodeHostRecord,
+  hostAttachmentDiagnosticId,
+  writeHostAttachmentDiagnostic,
+} from '@brainstrike/host-lease';
 import type { Page } from '@playwright/test';
 
 /** One committed MCP input fact, reduced to the fields a spec asserts on. */
@@ -92,6 +96,18 @@ export async function waitForAppHost(page: Page): Promise<void> {
 async function hostRecordPath(userDataDir: string): Promise<string> {
   const entries = await readdir(userDataDir, { recursive: true });
   const match = entries.find((entry) => path.basename(String(entry)) === 'host.json');
+  if (process.env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] === '1') {
+    const candidates = entries.filter((entry) => path.basename(String(entry)) === 'host.json');
+    writeHostAttachmentDiagnostic('reader-record-candidates', undefined, {
+      candidateCount: candidates.length,
+      candidatePathIds: candidates
+        .slice(0, 16)
+        .map((entry) => hostAttachmentDiagnosticId(path.join(userDataDir, String(entry)))),
+      selectedPathId: match
+        ? hostAttachmentDiagnosticId(path.join(userDataDir, String(match)))
+        : undefined,
+    });
+  }
   if (!match) {
     throw new Error(`No host.json under ${userDataDir}`);
   }
@@ -109,9 +125,11 @@ export async function readHostProcess(
 }
 
 export async function attachAppHost(userDataDir: string): Promise<HostClient> {
-  const record = decodeHostRecord(
-    JSON.parse(await readFile(await hostRecordPath(userDataDir), 'utf8'))
-  );
+  const recordPath = await hostRecordPath(userDataDir);
+  const record = decodeHostRecord(JSON.parse(await readFile(recordPath, 'utf8')));
+  writeHostAttachmentDiagnostic('reader-selected-record', record, {
+    selectedPathId: hostAttachmentDiagnosticId(recordPath),
+  });
   return attachAgentHost(record);
 }
 

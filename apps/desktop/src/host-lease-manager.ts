@@ -12,6 +12,7 @@ import {
   startupFailure as hostStartupFailure,
   launchHost,
   type StartupMessage,
+  writeHostAttachmentDiagnostic,
 } from '@brainstrike/host-lease';
 import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
@@ -110,6 +111,11 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void)
     exited: completion.promise,
     exitListener: (code) => {
       child.exitCode = code;
+      writeHostAttachmentDiagnostic('utility-exit', undefined, {
+        childPid: handle.pid,
+        closeRequested: child.closing,
+        exitCode: code,
+      });
       completion.resolve(code);
       if (!child.closing) {
         child.lost = true;
@@ -178,10 +184,18 @@ function readyIdentity(child: OwnedChild): { pid: number; start: string } {
 /** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
 async function closeChild(child: OwnedChild): Promise<void> {
   child.closing = true;
+  writeHostAttachmentDiagnostic('utility-close-request', undefined, {
+    childPid: child.handle.pid,
+    closeRequested: true,
+  });
   if (child.exitCode === undefined && !child.clearRequested) {
     child.handle.postMessage({ method: 'close' });
   }
   const code = await child.exited;
+  writeHostAttachmentDiagnostic('utility-close-joined', undefined, {
+    childPid: child.handle.pid,
+    exitCode: code,
+  });
   child.handle.off('exit', child.exitListener);
   if (child.clearRequested && !child.clearReceipt) {
     throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
@@ -234,7 +248,12 @@ async function ownLifetime(
   child: OwnedChild
 ): Promise<void> {
   const channel = (options.lifetimeChannel ?? (() => new MessageChannelMain()))();
-  await addFinalizer(scope, async () => channel.port1.close());
+  await addFinalizer(scope, async () => {
+    writeHostAttachmentDiagnostic('utility-lifetime-port-close', undefined, {
+      childPid: child.handle.pid,
+    });
+    channel.port1.close();
+  });
   child.handle.postMessage({ event: 'lifetime' }, [channel.port2]);
 }
 /** The platform an owned host borrows, and Main's supervisor of its native processes (ADR-0017). */
@@ -283,7 +302,13 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
     }
     const joined = releasing;
     return runWithTimeout(() => joined, {
-      onTimeout: () => new Error(`Owned host utility pid ${ownedPid} did not exit after close`),
+      onTimeout: () => {
+        writeHostAttachmentDiagnostic('utility-close-timeout', undefined, {
+          childPid: ownedPid,
+          timeoutMs: closeTimeoutMs,
+        });
+        return new Error(`Owned host utility pid ${ownedPid} did not exit after close`);
+      },
       timeoutMs: closeTimeoutMs,
     });
   };
@@ -333,6 +358,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             ownedPid = child.handle.pid;
+            writeHostAttachmentDiagnostic('utility-spawned', undefined, { childPid: ownedPid });
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
@@ -344,6 +370,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           options.onChildStarted?.();
           await ready;
           const identity = readyIdentity(child);
+          writeHostAttachmentDiagnostic('utility-ready', identity);
           child.ready = true;
           options.onChildReady?.({
             exited: child.exited,

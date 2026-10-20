@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
+import { beginWorkspacePhaseProof } from '@brainstrike/logging/workspace-phase-proof';
 import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
@@ -435,8 +436,10 @@ async function startNewFileSystemWatcher(
   owner: WebContents,
   resolvedPath: string,
   watchId: string,
-  startWatch: StartFileSystemWatch
+  startWatch: StartFileSystemWatch,
+  rootId?: unknown
 ): Promise<FileSystemWatchRegistration> {
+  const proof = beginWorkspacePhaseProof(logger, 'ipc.watch', { ownerId: owner.id, rootId });
   // Register BEFORE starting the engine. Engines can emit health synchronously
   // during setup, and retry bookkeeping must observe those transitions.
   const key = subscriptionKey(owner.id, resolvedPath);
@@ -463,9 +466,10 @@ async function startNewFileSystemWatcher(
   liveWatchersById.set(watchId, entry);
 
   let acquired = false;
-  const starting = Promise.resolve().then(() =>
-    startWatch(resolvedPath, makeChangeSink(owner, entry), makeHealthSink(owner, entry))
-  );
+  const starting = Promise.resolve().then(() => {
+    proof.mark('start');
+    return startWatch(resolvedPath, makeChangeSink(owner, entry), makeHealthSink(owner, entry));
+  });
   entry.acquisition = starting.then(() => {
     acquired = true;
   });
@@ -486,26 +490,33 @@ async function startNewFileSystemWatcher(
   };
   try {
     const subscription = await starting;
+    proof.mark('ready');
     entry.stop = () => subscription.close();
     entry.retry = () => subscription.retry();
   } catch (error) {
+    proof.mark('ready', { status: 'failure' });
     forgetWatcherRegistrations(entry);
     if (acquired || entry.retiring || error instanceof ParcelWatchRetirementError) {
       try {
         await stopWatcher(entry);
       } catch (retirementError) {
+        proof.mark('settle', { status: 'failure' });
         throw new ParcelWatchRetirementError([error, retirementError], () => stopWatcher(entry));
       }
     }
+    proof.mark('settle', { status: 'failure' });
     throw error;
   }
 
   // Path resolution raced renderer teardown: its reaper already ran, so stop
   // this just-created watcher immediately instead of leaking it.
   if (owner.isDestroyed() || entry.retiring || !liveWatchersById.has(watchId)) {
+    proof.mark('discard', { disposed: owner.isDestroyed() });
     await forgetWatcher(entry);
+    proof.mark('settle', { status: 'cancelled' });
     throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
   }
+  proof.mark('settle', { status: 'success' });
   logger.debug('Started file system watcher', { path: resolvedPath, watchId });
   return watchRegistration(watchId, entry);
 }
@@ -587,7 +598,7 @@ export function registerFileSystemWatchIpcHandlers({
           `fs:watch: per-renderer watcher limit reached (${MAX_FS_WATCHERS_PER_OWNER}).`
         );
       }
-      return startNewFileSystemWatcher(owner, resolvedPath, watchId, startWatch);
+      return startNewFileSystemWatcher(owner, resolvedPath, watchId, startWatch, handle.rootId);
     }
   );
 

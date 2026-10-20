@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/logging';
+import { createLogger, proofPersistence } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { WorkerStorage } from './worker-storage';
 
@@ -134,10 +134,20 @@ async function setItemWithWorker(
   value: unknown,
   shouldLog: boolean
 ): Promise<StorageOperationResult> {
+  const operationId = proofPersistence('wrapper-save-start', {
+    layer: 'storage-wrapper',
+    object: workerStorage,
+  });
   try {
     await workerStorage.setItem(name, value);
+    proofPersistence('wrapper-save-ack', { layer: 'storage-wrapper', operationId });
     return { success: true };
   } catch (error) {
+    proofPersistence('wrapper-save-rejected', {
+      layer: 'storage-wrapper',
+      operationId,
+      reason: error,
+    });
     if (shouldLog) {
       logger.error('Worker setItem failed:', getErrorMetadata(error, name));
     }

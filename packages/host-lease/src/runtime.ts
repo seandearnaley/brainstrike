@@ -6,6 +6,7 @@ import { isAbsolute, join } from 'node:path';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { assertNotSyncedRoot, processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
+import { startHostAttachmentDiagnostics } from './attachment-diagnostics.js';
 import { destroySocket, receiveFrames, sendFrame } from './frames.js';
 import {
   decodeRequest,
@@ -118,6 +119,13 @@ export async function startHost(
   assertNotSyncedRoot(options.root);
   await secureDirectory(options.root);
   const owner = new ResourceOwner();
+  const diagnostics = startHostAttachmentDiagnostics('host-runtime');
+  if (diagnostics) {
+    await owner.acquire(
+      async () => diagnostics,
+      async (probe) => probe.finish('host-runtime-monitor-stopped')
+    );
+  }
   const sockets = new Set<Socket>();
   const admitted = new WeakMap<Socket, () => Promise<void>>();
   const completion = Promise.withResolvers<void>();
@@ -135,6 +143,7 @@ export async function startHost(
   let graceElapsed = false;
   const close = (cause?: unknown): Promise<void> => {
     if (!closing) {
+      diagnostics?.phase('host-close-start');
       // BST-1977: fence Core before metadata/ACL and transport finalizers.
       // Latch first: retirement can synchronously release a run or reenter close.
       closing = completion.promise;
@@ -240,7 +249,9 @@ export async function startHost(
       start: lease.owner.start,
       token,
     };
+    diagnostics?.phase('host-record-created', record);
     const server = createServer((socket: Socket) => {
+      diagnostics?.phase('host-socket-accepted', record);
       sockets.add(socket);
       let initialized = false;
       let attached = false;
@@ -372,7 +383,9 @@ export async function startHost(
       async () => record,
       (value) => removeOwnHostRecord(canonicalRoot, value)
     );
+    diagnostics?.phase('host-record-publish-start', record);
     await publishHostRecord(canonicalRoot, record);
+    diagnostics?.phase('host-record-published', record);
     signal?.throwIfAborted();
     if (closing) {
       await closing;

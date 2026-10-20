@@ -5,7 +5,7 @@
  * to a Web Worker to prevent UI blocking during large state saves.
  */
 
-import { createLogger } from '@brainstrike/logging';
+import { createLogger, isPersistenceProofEnabled, proofPersistence } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 
 const logger = createLogger('worker-storage');
@@ -107,7 +107,12 @@ export class WorkerStorage {
     }
 
     try {
-      this.worker = new Worker(workerUrl, { type: 'module' });
+      let url = workerUrl;
+      if (isPersistenceProofEnabled()) {
+        url = new URL(workerUrl);
+        url.searchParams.set('brainstrikeProofPersistence', '1');
+      }
+      this.worker = new Worker(url, { type: 'module' });
       this.registerWorkerListeners();
     } catch (error) {
       logger.warn('Failed to initialize Web Worker for state persistence:', error);
@@ -136,6 +141,14 @@ export class WorkerStorage {
 
   private handleWorkerResponse({ id, type, result, error }: WorkerResponse) {
     const request = this.takePendingRequest(id);
+    if (request) {
+      proofPersistence('request-response', {
+        layer: 'worker-storage',
+        object: this,
+        operation: request.type,
+        requestId: id,
+      });
+    }
     if (!request) {
       return;
     }
@@ -167,6 +180,11 @@ export class WorkerStorage {
 
   private async handleStorageRequest(data: StorageRequest) {
     const { id, operation, key, value, opId } = data;
+    proofPersistence('worker-storage-request-received', {
+      layer: 'worker-storage',
+      object: this,
+      requestId: id,
+    });
 
     // A timed-out or retired request must never start a late adapter operation.
     const request = this.pendingRequests.get(id);
@@ -233,14 +251,24 @@ export class WorkerStorage {
       throw new Error('Cannot store undefined value');
     }
 
+    proofPersistence('adapter-queue', {
+      layer: 'worker-storage',
+      object: this,
+      queued: this.adapterWrites.has(key),
+      requestId: id,
+    });
     const written = await this.writeToAdapter(
       key,
-      () => this.storageAdapter.setItem(key, value),
+      () => {
+        proofPersistence('adapter-start', { layer: 'worker-storage', object: this, requestId: id });
+        return this.storageAdapter.setItem(key, value);
+      },
       () => this.admitMutation(id)
     );
     // The adapter owns durability. Its ACK completes the save without another
     // worker hop that could time out after the write has already committed.
     if (written) {
+      proofPersistence('adapter-ack', { layer: 'worker-storage', object: this, requestId: id });
       this.handleWorkerResponse({ id, type: 'success' });
     }
   }
@@ -251,6 +279,12 @@ export class WorkerStorage {
       return false;
     }
     request.admitted = true;
+    proofPersistence('adapter-admitted', {
+      admitted: true,
+      layer: 'worker-storage',
+      object: this,
+      requestId: id,
+    });
     return true;
   }
 
@@ -398,14 +432,43 @@ export class WorkerStorage {
         message.value = value;
       }
 
+      const sentAt = isPersistenceProofEnabled() ? performance.now() : undefined;
+      proofPersistence('worker-post', {
+        layer: 'worker-storage',
+        object: this,
+        operation: type,
+        pendingCount: this.pendingRequests.size,
+        requestId: id,
+      });
       this.worker.postMessage(message);
+      proofPersistence('worker-posted', {
+        durationMs: sentAt === undefined ? undefined : performance.now() - sentAt,
+        layer: 'worker-storage',
+        object: this,
+        operation: type,
+        requestId: id,
+      });
+      const timeoutArmedAt = isPersistenceProofEnabled() ? performance.now() : undefined;
 
       // Set a timeout to prevent hanging requests
       const timeout = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
+          const pending = this.pendingRequests.get(id);
           this.pendingRequests.delete(id);
           this.timeouts.delete(id);
-          reject(new Error('Worker request timeout'));
+          const error = new Error('Worker request timeout');
+          proofPersistence('worker-timeout', {
+            admitted: pending?.admitted,
+            durationMs:
+              timeoutArmedAt === undefined ? undefined : performance.now() - timeoutArmedAt,
+            layer: 'worker-storage',
+            object: this,
+            operation: type,
+            reason: error,
+            requestId: id,
+            retired: pending?.retired,
+          });
+          reject(error);
         }
       }, 5000); // 5 s timeout – faster failure recovery
 
@@ -452,7 +515,13 @@ export class WorkerStorage {
         clearTimeout(existing.timer);
       }
       const callers = existing?.callers ?? [];
-      callers.push({ reject, resolve });
+      const caller = { reject, resolve };
+      callers.push(caller);
+      proofPersistence('save-caller', {
+        callerCount: callers.length,
+        layer: 'worker-storage',
+        object: caller,
+      });
       const resolveCallers = () => {
         for (const caller of callers) {
           caller.resolve();
@@ -460,6 +529,12 @@ export class WorkerStorage {
       };
       const rejectCallers = (error: unknown) => {
         for (const caller of callers) {
+          proofPersistence('save-caller-rejected', {
+            callerCount: callers.length,
+            layer: 'worker-storage',
+            object: caller,
+            reason: error,
+          });
           caller.reject(error);
         }
       };
@@ -473,6 +548,11 @@ export class WorkerStorage {
           resolveCallers();
         } catch (error) {
           this.clearTrackedPendingSave(key, value);
+          proofPersistence('save-rejected', {
+            layer: 'worker-storage',
+            object: this,
+            reason: error,
+          });
           logger.error('Worker setItem failed:', error);
           rejectCallers(error);
         }

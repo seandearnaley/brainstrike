@@ -1,6 +1,6 @@
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import type { HostAttachment } from '@brainstrike/host-lease';
+import { type HostAttachment, writeHostAttachmentDiagnostic } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
 import { ipcMain, type MessagePortMain } from 'electron';
 import {
@@ -45,6 +45,7 @@ export function registerAgentHostClientIpc(
           throw new Error('Agent client has no authorized frame');
         }
         const attachment = await acquireProfile();
+        writeHostAttachmentDiagnostic('relay-profile-acquired', attachment.record);
         if (attachment.record.protocolVersion !== AGENT_HOST_PROTOCOL_VERSION) {
           throw new Error('The current profile host does not support assistant commands');
         }
@@ -52,6 +53,7 @@ export function registerAgentHostClientIpc(
         const relay = privatePort
           ? openAgentHostChildRelay(privatePort)
           : await openAgentHostPortRelay(attachment.record);
+        writeHostAttachmentDiagnostic('relay-opened', attachment.record);
         relays.add(relay);
         let clientGone = false;
         const retire = (): void => {

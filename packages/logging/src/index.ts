@@ -7,5 +7,6 @@ export {
   type RendererErrorEventPayload,
   type RendererErrorHooksOptions,
 } from './logging/install-renderer-error-hooks.js';
+export { isPersistenceProofEnabled, proofPersistence } from './logging/proof-persistence.js';
 export * from './logging-initializer.js';
 export * from './logging-preferences.js';

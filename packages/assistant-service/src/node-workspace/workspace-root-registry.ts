@@ -1,3 +1,4 @@
+// biome-ignore-all lint/style/noExcessiveLinesPerFile: temporary BST-2269 proof probes; remove this waiver with the instrumentation after the causal run.
 import path from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
@@ -16,6 +17,11 @@ import {
   MAX_DIRECTORY_ENTRIES,
 } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
+import {
+  beginWorkspacePhaseProof,
+  type WorkspacePhaseProof,
+  type WorkspacePhaseProofFields,
+} from '@brainstrike/logging/workspace-phase-proof';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { projectReadDenialDiagnostic, withReadDenialLogging } from './read-denial-diagnostic.js';
@@ -132,7 +138,7 @@ export class WorkspaceRootRegistry {
     handle: DirectoryHandle,
     { recordInRecentRoots = true }: AddRootOptions = {}
   ): Promise<RootDescriptor> {
-    return this.serializeMutation(async () => {
+    return this.serializeMutation('add-root', async (proof) => {
       const presentationPath = path.normalize(handle.path);
       // Read storage before opening the probe so a failed read cannot leak it.
       // serializeMutation already orders callers; these reads need no parallelism.
@@ -155,13 +161,16 @@ export class WorkspaceRootRegistry {
 
         const db = await this.getRootsCatalog();
         // Reuse the retained folder identity after disconnect, including path aliases (BST-1990).
+        proof.mark('start', { stage: 'catalog-find' });
         const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
           this.findExistingStoredRoot(records, undefined, canonicalPath)
         );
+        proof.mark('start', { stage: 'catalog-register' });
         const rootId = await recordWorkspaceRoot(db, {
           path: recorded?.path ?? presentationPath,
           preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
         });
+        proof.mark('ready', { rootId, stage: 'catalog-register' });
         const entry: StoredWorkspaceRoot = {
           addedAt: Date.now(),
           path: recorded?.path ?? presentationPath,
@@ -386,7 +395,7 @@ export class WorkspaceRootRegistry {
   }
 
   listRecentRoots(): Promise<readonly RecentRootEntry[]> {
-    return this.serializeMutation(() => listRecentRootEntries(this.storage));
+    return this.serializeMutation('list-recents', () => listRecentRootEntries(this.storage));
   }
 
   readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
@@ -399,25 +408,39 @@ export class WorkspaceRootRegistry {
   }
 
   private async readDirectoryUnlogged(handle: DirectoryHandle): Promise<IFileNode[]> {
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-    await this.mutations.settled;
-    this.assertActive();
-    const resolved = await this.resolveRead(handle.path, handle.rootId);
-    const listing = await resolved.mounted.root.listDir(
-      resolved.relativePath,
-      MAX_DIRECTORY_ENTRIES
-    );
-    if (!listing) {
-      throw refusalError(
-        'availability',
-        'workspace.directory-unavailable',
-        'Directory is not accessible.',
-        'Check that the folder is available, then refresh.'
+    const proof = beginWorkspacePhaseProof(logger, 'registry.directory-read', {
+      rootId: handle.rootId,
+    });
+    try {
+      if (this.rootDataDeletion) {
+        throw new Error('Root data deletion owns workspace read admission.');
+      }
+      proof.mark('wait', { queuedAfter: this.mutations.proofPredecessorId });
+      await this.mutations.settled;
+      proof.mark('start');
+      this.assertActive();
+      const resolved = await this.resolveRead(handle.path, handle.rootId);
+      proof.mark('start', { stage: 'list' });
+      const listing = await resolved.mounted.root.listDir(
+        resolved.relativePath,
+        MAX_DIRECTORY_ENTRIES
       );
+      proof.mark('ready', { stage: 'list' });
+      if (!listing) {
+        throw refusalError(
+          'availability',
+          'workspace.directory-unavailable',
+          'Directory is not accessible.',
+          'Check that the folder is available, then refresh.'
+        );
+      }
+      const nodes = buildDirectoryListing(resolved.mounted, handle.path, listing);
+      proof.mark('settle', { count: nodes.length, status: 'success' });
+      return nodes;
+    } catch (error) {
+      proof.mark('settle', { status: 'failure' });
+      throw error;
     }
-    return buildDirectoryListing(resolved.mounted, handle.path, listing);
   }
 
   readFile(request: FileHandle | string): Promise<string> {
@@ -559,10 +582,14 @@ export class WorkspaceRootRegistry {
       },
       run: (operation) =>
         lifetime.track(
-          this.serializeMutation(async () => {
-            assertCurrent();
-            await operation();
-          }, reservation)
+          this.serializeMutation(
+            'root-deletion',
+            async () => {
+              assertCurrent();
+              await operation();
+            },
+            reservation
+          )
         ),
     };
     this.rootDataDeletion = reservation;
@@ -571,7 +598,7 @@ export class WorkspaceRootRegistry {
 
   /** The content-reset owner already closes native writers; do not reopen the catalog here. */
   clearForContent(): Promise<void> {
-    return this.serializeMutation(async () => {
+    return this.serializeMutation('clear-content', async () => {
       await this.retireSourceLeases();
       for (const rootId of this.mounts.ids()) {
         await this.retireMount(rootId);
@@ -582,7 +609,7 @@ export class WorkspaceRootRegistry {
   }
 
   removeRoot(rootId: string): Promise<void> {
-    return this.serializeMutation(() => this.removeRootOwned(rootId));
+    return this.serializeMutation('remove-root', () => this.removeRootOwned(rootId));
   }
 
   private async removeRootOwned(rootId: string, resourcesRetired = false): Promise<void> {
@@ -635,7 +662,7 @@ export class WorkspaceRootRegistry {
   }
 
   restoreLastFolder(): Promise<DirectoryHandle | null> {
-    return this.serializeMutation(async () => {
+    return this.serializeMutation('restore-last-folder', async () => {
       const lastFolder = await readLastFolder(this.storage);
       if (!lastFolder) {
         return null;
@@ -660,7 +687,7 @@ export class WorkspaceRootRegistry {
   }: {
     readonly persistPreferences?: boolean;
   } = {}): Promise<RootDescriptor[]> {
-    return this.serializeMutation(async () => {
+    return this.serializeMutation('restore-roots', async (proof) => {
       const entries = await readStoredRoots(this.storage);
       this.availability.retain(entries);
       const descriptors: RootDescriptor[] = [];
@@ -716,8 +743,12 @@ export class WorkspaceRootRegistry {
         );
         await recordRecentRootsIfNew(this.storage, newRecentCandidates);
       }
+      proof.mark('start', { count: recentRootCandidates.length, stage: 'catalog-restore' });
       await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
+      proof.mark('ready', { stage: 'catalog-restore' });
+      proof.mark('start', { stage: 'catalog-converge' });
       await this.convergeDatabase();
+      proof.mark('ready', { stage: 'catalog-converge' });
       return descriptors;
     });
   }
@@ -745,7 +776,7 @@ export class WorkspaceRootRegistry {
   }
 
   setLastFolder(folderPath: string): Promise<void> {
-    return this.serializeMutation(async () => {
+    return this.serializeMutation('set-last-folder', async () => {
       const mounted = this.mounts.findByEitherPath(path.normalize(folderPath));
       if (!(mounted && !this.mounts.isSessionMount(mounted.rootId))) {
         throw new Error('The last-folder preference must reference a persisted mounted root.');
@@ -977,7 +1008,8 @@ export class WorkspaceRootRegistry {
   }
 
   private serializeMutation<T>(
-    operation: () => Promise<T>,
+    mutationName: NonNullable<WorkspacePhaseProofFields['mutationName']>,
+    operation: (proof: WorkspacePhaseProof) => Promise<T>,
     deletion?: RootDataDeletionReservation
   ): Promise<T> {
     return this.mutations.run(
@@ -988,7 +1020,8 @@ export class WorkspaceRootRegistry {
           throw new Error('Root data deletion owns workspace mutation admission.');
         }
       },
-      deletion !== undefined && deletion === this.rootDataDeletion
+      deletion !== undefined && deletion === this.rootDataDeletion,
+      mutationName
     );
   }
 

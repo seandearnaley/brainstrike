@@ -75,6 +75,67 @@ afterEach(() => {
   vi.resetModules();
 });
 
+it('observes real worker admission and adapter ACK without exposing stored values', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('brainstrikeWorkspacePhaseProof', true);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await workerBoundary();
+  const ack = Promise.withResolvers<void>();
+  const adapter = new MemoryStorageAdapter();
+  adapter.setItem = vi.fn(() => ack.promise);
+  const storage = new WorkerStorage(new URL('file:///controlled-worker.mjs'), adapter);
+  const outcome = storage.setItem('file-explorer-storage-v5', { secret: 'SECRET snapshot' });
+  const phases = () =>
+    warn.mock.calls
+      .filter(([line]) => String(line).startsWith('[persistence-proof] '))
+      .map(([line]) => JSON.parse(String(line).slice('[persistence-proof] '.length)));
+  try {
+    await vi.advanceTimersByTimeAsync(100);
+    expect(phases().map((event) => event.phase)).toContain('adapter-admitted');
+    expect(phases().map((event) => event.phase)).not.toContain('adapter-ack');
+    ack.resolve();
+    await outcome;
+    expect(phases().map((event) => event.phase)).toContain('adapter-ack');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('SECRET');
+  } finally {
+    ack.resolve();
+    await outcome;
+    storage.destroy();
+    warn.mockRestore();
+  }
+});
+
+it('records four distinct coalesced callers sharing one rejected adapter operation', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('brainstrikeWorkspacePhaseProof', true);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await workerBoundary();
+  const reason = new Error('SECRET adapter failure');
+  const adapter = new MemoryStorageAdapter();
+  const write = vi.spyOn(adapter, 'setItem').mockRejectedValue(reason);
+  const storage = new WorkerStorage(new URL('file:///controlled-worker.mjs'), adapter);
+  const promises = [1, 2, 3, 4].map((value) => storage.setItem('file-explorer-storage-v5', value));
+  const joined = Promise.allSettled(promises);
+  try {
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await joined).toEqual([1, 2, 3, 4].map(() => ({ reason, status: 'rejected' })));
+    expect(new Set(promises).size).toBe(4);
+    expect(write).toHaveBeenCalledTimes(1);
+    const rejected = warn.mock.calls
+      .filter(([line]) => String(line).startsWith('[persistence-proof] '))
+      .map(([line]) => JSON.parse(String(line).slice('[persistence-proof] '.length)))
+      .filter((event) => event.phase === 'save-caller-rejected');
+    expect(rejected).toHaveLength(4);
+    expect(new Set(rejected.map((event) => event.objectId)).size).toBe(4);
+    expect(new Set(rejected.map((event) => event.reasonId)).size).toBe(1);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('SECRET');
+  } finally {
+    await joined;
+    storage.destroy();
+    warn.mockRestore();
+  }
+});
+
 it('completes an adapter-acknowledged save without waiting for a final worker reply', async () => {
   vi.useFakeTimers();
   const boundary = await workerBoundary();

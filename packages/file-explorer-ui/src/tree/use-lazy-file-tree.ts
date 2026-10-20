@@ -16,6 +16,10 @@ import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import { canLoadNode } from '@brainstrike/file-tree-worker';
 import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
+import {
+  beginWorkspacePhaseProof,
+  type WorkspacePhaseProof,
+} from '@brainstrike/logging/workspace-phase-proof';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -465,6 +469,9 @@ export function useLazyFileTree(
   // This handles React StrictMode double-mount and rapid re-renders
   const isLoadingRootRef = useRef(false);
   const loadRootRunIdRef = useRef(0);
+  const pendingProofAckRef = useRef<{ proof: WorkspacePhaseProof; generation: number } | null>(
+    null
+  );
   const lastAppliedRootLoadRef = useRef<InFlightRootLoad | null>(null);
   const committedRootIdentityRef = useRef<string | null>(null);
   /**
@@ -826,6 +833,11 @@ export function useLazyFileTree(
         return preflight.outcome;
       }
       const { rootIdentity, rootPath } = preflight;
+      const proof = beginWorkspacePhaseProof(logger, 'renderer.root-load', {
+        generation: currentRunId,
+        rootId: resolvedRootFolderId,
+      });
+      let proofStatus: 'success' | 'failure' | 'cancelled' = 'failure';
       // Publish loading before a possible forced-boundary await. Ordinary
       // initial loads must not expose a transient false-idle frame, and a
       // forced load waiting out another provider remains visibly in progress.
@@ -846,6 +858,7 @@ export function useLazyFileTree(
           rootPath,
         });
         rootConsumerController = createAbortController(null);
+        proof.mark('start');
         const rootLoadRequest = loadRootChildren({
           consumerSignal: rootConsumerController.signal,
           fileSystemAdapter: preflight.fileSystemAdapter,
@@ -864,15 +877,24 @@ export function useLazyFileTree(
         const requestAlreadyApplied = lastAppliedRootLoadRef.current === rootLoadRequest.request;
 
         const children = await rootLoadRequest.consumerPromise;
+        proof.mark('ready', { count: children.length });
 
         if (!isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
+          proofStatus = 'cancelled';
+          proof.mark('discard', {
+            disposed: isUnmountedRef.current,
+            generation: loadRootRunIdRef.current,
+          });
           return { status: 'cancelled' };
         }
         if (requestAlreadyApplied || lastAppliedRootLoadRef.current === rootLoadRequest.request) {
+          pendingProofAckRef.current = { generation: currentRunId, proof };
           setState((currentState) => ({ ...currentState, isInitialLoading: false }));
+          proofStatus = 'success';
           return { status: 'completed' };
         }
 
+        pendingProofAckRef.current = { generation: currentRunId, proof };
         handleLoadRootSuccess(
           children,
           rootPath,
@@ -891,9 +913,10 @@ export function useLazyFileTree(
         committedRootIdentityRef.current = rootIdentity;
         lastAppliedRootLoadRef.current = rootLoadRequest.request;
         notifyRootNodesIndexed(children, onNodesIndexedRef);
+        proofStatus = 'success';
         return { status: 'completed' };
       } catch (err) {
-        return resolveRootLoadError({
+        const outcome = resolveRootLoadError({
           currentRunId,
           error: err,
           isUnmountedRef,
@@ -901,7 +924,10 @@ export function useLazyFileTree(
           rootConsumerController,
           setState,
         });
+        proofStatus = outcome.status === 'cancelled' ? 'cancelled' : 'failure';
+        return outcome;
       } finally {
+        proof.mark('settle', { status: proofStatus });
         if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
           isLoadingRootRef.current = false;
         }
@@ -920,6 +946,19 @@ export function useLazyFileTree(
       resolvedRootFolderId,
     ]
   );
+
+  // Proof acknowledgement runs after React commits the loaded state.
+  useEffect(() => {
+    const pending = pendingProofAckRef.current;
+    if (!pending || state.isInitialLoading) {
+      return;
+    }
+    pendingProofAckRef.current = null;
+    pending.proof.mark(pending.generation === loadRootRunIdRef.current ? 'ack' : 'discard', {
+      count: state.fileTree.length,
+      generation: loadRootRunIdRef.current,
+    });
+  }, [state.fileTree, state.isInitialLoading]);
 
   /**
    * Handle successful directory load.

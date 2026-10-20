@@ -1,4 +1,5 @@
 import { createLogger } from '../logger.js';
+import { isPersistenceProofEnabled, proofPersistence } from './proof-persistence.js';
 
 export interface RendererErrorEventPayload {
   column?: number;
@@ -49,6 +50,12 @@ export function installRendererErrorHooks(options: RendererErrorHooksOptions = {
 
   const handleRejection = (event: PromiseRejectionEvent) => {
     const reason = event.reason;
+    proofPersistence('unhandled-rejection', {
+      layer: 'renderer-error-hooks',
+      object: event,
+      promise: event.promise,
+      reason,
+    });
     const payload: RendererErrorEventPayload = {
       message:
         reason instanceof Error
@@ -66,9 +73,24 @@ export function installRendererErrorHooks(options: RendererErrorHooksOptions = {
 
   window.addEventListener('error', handleError);
   window.addEventListener('unhandledrejection', handleRejection);
+  const observeHandled = isPersistenceProofEnabled();
+  const handleHandled = (event: PromiseRejectionEvent) => {
+    proofPersistence('rejection-handled', {
+      layer: 'renderer-error-hooks',
+      object: event,
+      promise: event.promise,
+      reason: event.reason,
+    });
+  };
+  if (observeHandled) {
+    window.addEventListener('rejectionhandled', handleHandled);
+  }
 
   return () => {
     window.removeEventListener('error', handleError);
     window.removeEventListener('unhandledrejection', handleRejection);
+    if (observeHandled) {
+      window.removeEventListener('rejectionhandled', handleHandled);
+    }
   };
 }

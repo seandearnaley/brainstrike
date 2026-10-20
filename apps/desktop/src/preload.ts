@@ -144,6 +144,9 @@ const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE =
 
 if (DESKTOP_TEST_MODE) {
   contextBridge.exposeInMainWorld('__brainstrike_e2e_expose_file_explorer_store__', true);
+  if (process.env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] === '1') {
+    contextBridge.exposeInMainWorld('brainstrikeWorkspacePhaseProof', true);
+  }
 }
 
 const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);

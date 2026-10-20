@@ -1,3 +1,10 @@
+export {
+  type HostAttachmentDiagnosticFields,
+  type HostAttachmentDiagnostics,
+  hostAttachmentDiagnosticId,
+  startHostAttachmentDiagnostics,
+  writeHostAttachmentDiagnostic,
+} from './attachment-diagnostics.js';
 export { attachHost, type HostAttachment } from './client.js';
 export {
   type HostLaunchOptions,

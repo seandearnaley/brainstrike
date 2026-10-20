@@ -1,5 +1,5 @@
 import { wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { createLogger } from '@brainstrike/logging';
+import { createLogger, proofPersistence } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
 import { Schema, SchemaIssue } from 'effect';
@@ -88,10 +88,30 @@ export function registerStoragePreferencesIpcHandlers({
     },
     setItem: async (key, value) => {
       assertRendererWritableDesktopStorageKey(key);
-      const previous = await storage.getItem(key);
-      await storage.setItem(key, value);
-      if (previous !== value) {
-        onStorageChanged?.(key);
+      const observed = key === 'file-explorer-storage-v5';
+      const operationId = observed
+        ? proofPersistence('storage-ipc-received', { layer: 'storage-ipc' })
+        : undefined;
+      try {
+        const previous = await storage.getItem(key);
+        if (observed) {
+          proofPersistence('storage-ipc-read-previous', { layer: 'storage-ipc', operationId });
+        }
+        await storage.setItem(key, value);
+        if (observed) {
+          proofPersistence('storage-ipc-written', { layer: 'storage-ipc', operationId });
+        }
+        if (previous !== value) {
+          onStorageChanged?.(key);
+        }
+        if (observed) {
+          proofPersistence('storage-ipc-ack-ready', { layer: 'storage-ipc', operationId });
+        }
+      } catch (reason) {
+        if (observed) {
+          proofPersistence('storage-ipc-rejected', { layer: 'storage-ipc', operationId, reason });
+        }
+        throw reason;
       }
     },
   });

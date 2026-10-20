@@ -43,6 +43,12 @@ type EmbeddingHostWebGpuAdapterResponseReport =
 type HiddenRendererRole = 'chunking-host' | 'embedding-host';
 
 const HIDDEN_RENDERER_ROLE_ARGUMENT = '--brainstrike-hidden-renderer-role=' as const;
+if (
+  process.env['ELECTRON_IS_E2E_TEST'] === 'true' &&
+  process.env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] === '1'
+) {
+  contextBridge.exposeInMainWorld('brainstrikeWorkspacePhaseProof', true);
+}
 
 function resolveHiddenRendererRole(argv: readonly string[]): HiddenRendererRole {
   const roleArguments = argv.filter((argument) =>

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/logging';
+import { createLogger, isPersistenceProofEnabled, proofPersistence } from '@brainstrike/logging';
 import type { StorageAdapter } from '../types.js';
 
 const logger = createLogger('ElectronStorageAdapter');
@@ -256,9 +256,35 @@ export class ElectronStorageAdapter implements StorageAdapter {
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    return this.mutate((stagedCache) => {
-      stagedCache[key] = value;
-    });
+    const observed = key === 'file-explorer-storage-v5' && isPersistenceProofEnabled();
+    if (!observed) {
+      return this.mutate((stagedCache) => {
+        stagedCache[key] = value;
+      });
+    }
+    const operationId = observed
+      ? proofPersistence('storage-mutation-queued', { layer: 'electron-storage' })
+      : undefined;
+    try {
+      await this.mutate((stagedCache) => {
+        if (observed) {
+          proofPersistence('storage-mutation-admitted', { layer: 'electron-storage', operationId });
+        }
+        stagedCache[key] = value;
+      });
+      if (observed) {
+        proofPersistence('storage-mutation-ack', { layer: 'electron-storage', operationId });
+      }
+    } catch (reason) {
+      if (observed) {
+        proofPersistence('storage-mutation-rejected', {
+          layer: 'electron-storage',
+          operationId,
+          reason,
+        });
+      }
+      throw reason;
+    }
   }
 
   async removeItem(key: string): Promise<void> {

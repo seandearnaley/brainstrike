@@ -6,6 +6,7 @@ import {
   HOST_VERSION,
   HostLeaseRefusalError,
   type HostRecord,
+  startHostAttachmentDiagnostics,
 } from '@brainstrike/host-lease';
 import {
   createMessageConnection,
@@ -29,6 +30,10 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
     throw new Error('Host has an incompatible protocol or version');
   }
   const socket = new Socket();
+  const diagnostics = startHostAttachmentDiagnostics('agent-socket', record, {
+    budget: 'raw-client',
+    timeoutMs,
+  });
   let reader: StreamMessageReader | undefined;
   let connection: MessageConnection | undefined;
   const receivedFailures = new Set<unknown>();
@@ -47,7 +52,7 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
     await completion.promise;
   };
   try {
-    return await runWithTimeout(
+    const client = await runWithTimeout(
       async (signal) => {
         const aborted = (): void => {
           socket.destroy();
@@ -55,7 +60,10 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
         signal.addEventListener('abort', aborted, { once: true });
         try {
           await new Promise<void>((resolve, reject) => {
-            socket.once('connect', resolve);
+            socket.once('connect', () => {
+              diagnostics?.phase('socket-connected');
+              resolve();
+            });
             socket.once('error', reject);
             socket.once('close', () =>
               reject(
@@ -65,24 +73,38 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
                 )
               )
             );
+            diagnostics?.phase('socket-connect');
             socket.connect(record.endpoint);
           });
           reader = new StreamMessageReader(socket);
           connection = createMessageConnection(reader, new StreamMessageWriter(socket));
           connection.onError(([cause]) => receivedFailures.add(cause));
-          return await authenticateHostClient(connection, record, close, completion.promise);
+          return await authenticateHostClient(
+            connection,
+            record,
+            close,
+            completion.promise,
+            (phase) => diagnostics?.phase(phase)
+          );
         } finally {
           signal.removeEventListener('abort', aborted);
         }
       },
       {
-        onTimeout: () => new Error(`Host pid ${record.pid} initialize/attach timed out`),
+        onTimeout: () => {
+          diagnostics?.phase('attach-timeout');
+          return new Error(`Host pid ${record.pid} initialize/attach timed out`);
+        },
         timeoutMs,
       }
     );
+    diagnostics?.phase('attach-succeeded');
+    return client;
   } catch (cause) {
     socket.destroy();
     await completion.promise.catch(() => undefined);
     throw cause;
+  } finally {
+    diagnostics?.finish('attach-settled');
   }
 }
