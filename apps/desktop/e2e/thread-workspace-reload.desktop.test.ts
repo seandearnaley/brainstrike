@@ -134,7 +134,7 @@ for (const entry of ['menu', 'failed-chunk UI']) {
       } finally {
         page.off('console', onConsole);
         page.off('framenavigated', onNavigation);
-        if (!(navigated || page.isClosed())) {
+        if (held && !(navigated || page.isClosed())) {
           await page.evaluate(() => window.__BRAINSTRIKE_WORKSPACE_ACK_GATE__?.release());
         }
         await navigation;
