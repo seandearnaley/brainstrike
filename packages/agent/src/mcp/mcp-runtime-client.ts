@@ -54,6 +54,7 @@ export { MCP_PROGRESS_STREAM_PART_TYPE };
  * forged by model input and survives Mastra's execution-context reconstruction
  * without adding a parallel transport callback.
  */
+/** @internal Test seam: mcp-runtime-client.spec.ts arms the authority-signal retention branch to verify raw result and guard identity. */
 export function retainRawMcpCallToolResult(signal: AbortSignal): AbortSignal {
   rawCallToolResultSignals.add(signal);
   return signal;
@@ -617,6 +618,7 @@ function defineOwn<T>(target: Record<string, T>, key: string, value: T): void {
   });
 }
 
+/** @internal Test seam: mcp-runtime-client.spec.ts verifies normalized real progress callback writes. */
 export function mapMcpProgressStreamPart(part: unknown): StreamChunk | undefined {
   if (!(part && typeof part === 'object')) {
     return;

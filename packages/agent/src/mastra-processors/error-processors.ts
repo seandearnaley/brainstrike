@@ -11,30 +11,14 @@ import {
   type ProviderCallProvenance,
 } from '../providers/foreign-provider-history';
 
-/**
- * Bounded retry budget for the error-processor layer.
- *
- * Configuring ANY `errorProcessors` flips Mastra's implicit
- * `maxProcessorRetries` from unset to 10 (verified in the compiled loop:
- * `maxProcessorRetries ?? (errorProcessors?.length ? 10 : void 0)`). Ten
- * transient retries — with the stream-retry backoff below stacking up to 30s
- * each — can inflate wall-clock latency well past a user's patience even though
- * no single silent gap ever trips the 120s stream inactivity watchdog. Pin a
- * small, observable ceiling so the layer stays inside the no-silent-fallbacks
- * posture: bounded retries, then a real terminal error the watchdog + renderer
- * boundary still surface.
- */
-export const ASSISTANT_MAX_PROCESSOR_RETRIES = 3;
-
-/** StreamErrorRetry's own per-processor cap (<= the agent-level ceiling). */
+/** Retry cap for the retained vendor-processor regression harness. */
 const STREAM_ERROR_MAX_RETRIES = 2;
 /**
  * Exponential-backoff ceiling for a transient retry. Doubles as the explicit
  * `maxRetryAfterMs` clamp on provider `Retry-After` headers (1.51): the two
  * caps are deliberately the SAME value so no retry wait — ours or the
  * provider's — can exceed it. 1.51's default happens to match today; pinning
- * it here guards against upstream drift (same posture as
- * {@link ASSISTANT_MAX_PROCESSOR_RETRIES}).
+ * it here guards against upstream drift in the processor regression harness.
  */
 const STREAM_ERROR_BACKOFF_CAP_MS = 30_000;
 
@@ -177,6 +161,7 @@ export function isSubscriptionAuthProvider(provider: string): boolean {
  *    the bounded ~3s retry budget before surfacing — accepted for the
  *    transient-error recovery the option buys.
  */
+/** @internal Test seam: error-processors.spec.ts and subscription-rate-limit.spec.ts exercise vendor processor ordering and the live subscription quota classifier. */
 export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[] | undefined {
   const retryProcessor = new StreamErrorRetryProcessor({
     delayMs: ({ retryCount }) => Math.min(1000 * 2 ** retryCount, STREAM_ERROR_BACKOFF_CAP_MS),

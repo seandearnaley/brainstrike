@@ -12,20 +12,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  ASSISTANT_MAX_PROCESSOR_RETRIES,
   buildAssistantErrorProcessors,
   buildProviderHistoryCompatInputProcessor,
   isEconnResetStreamError,
 } from '../mastra-processors/error-processors';
 
 describe('error-processor builders', () => {
-  it('pins the retry budget to a small explicit value (not Mastra default 10)', () => {
-    // Adding any errorProcessors flips Mastra's implicit maxProcessorRetries to
-    // 10; we pin a bounded, observable ceiling.
-    expect(ASSISTANT_MAX_PROCESSOR_RETRIES).toBe(3);
-    expect(ASSISTANT_MAX_PROCESSOR_RETRIES).toBeLessThan(10);
-  });
-
   it('builds the three-processor error stack for hosted providers in order', () => {
     const processors = buildAssistantErrorProcessors('anthropic');
     expect(processors).toBeDefined();

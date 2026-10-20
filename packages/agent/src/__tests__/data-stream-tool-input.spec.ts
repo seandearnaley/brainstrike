@@ -6,7 +6,6 @@ import {
 import { describe, expect, it } from 'vitest';
 import { createStatelessAssistantDataStreamResponse } from '../stream/data-stream';
 import { DataStreamMapper } from '../stream/data-stream-mapper';
-import { mapMastraToolEvent } from '../tool-projection/tool-event-mapper';
 import type { StreamChunk } from '../types';
 
 async function decodeMessage(chunks: StreamChunk[]) {
@@ -76,22 +75,12 @@ describe('tool input through the installed assistant-stream decoder', () => {
     }
   );
 
-  it('retains complete native tool-error arguments through the production mapper', async () => {
-    const terminal = mapMastraToolEvent(
-      {
-        payload: {
-          args: { pattern: 'flag' },
-          error: new Error('search failed'),
-          toolCallId: 'call',
-          toolName: call.name,
-        },
-        type: 'tool-error',
-      },
-      new Map()
-    );
-    if (!terminal) {
-      throw new Error('Native tool-error did not map');
-    }
+  it('retains complete native tool-error arguments through the live data-stream mapper', async () => {
+    const terminal: StreamChunk = {
+      ...call,
+      payload: { ...id, args: { pattern: 'flag' }, error: 'search failed' },
+      status: 'error',
+    };
     const tool = await decodeTool([
       { ...call, payload: { ...id, step: 'input_stream_start' }, status: 'progress' },
       {

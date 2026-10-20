@@ -1,3 +1,4 @@
+import type { GuardedToolError } from '@brainstrike/assistant-contract';
 import {
   BoundaryFailureError,
   INTERNAL_FAULT,
@@ -10,7 +11,6 @@ import {
   formatToolInactivityMessage,
   formatToolTimeoutMessage,
   formatToolTotalBudgetMessage,
-  type GuardedToolError,
   guardToolExecution,
   isGuardedToolError,
 } from '../tools/guard-tool-execution';

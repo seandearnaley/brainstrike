@@ -9,31 +9,9 @@
  * mutation tool is dropped regardless of allow/ask/deny). `submitPlan`/`askUser`
  * survive because they are classified `read` — NOT because they suspend
  * (BST-1073).
- *
- * {@link SUSPENDING_NATIVE_TOOL_IDS} names the suspending native tools for
- * registry/UX purposes and is DERIVED from the resume-UI registry, so a
- * suspending tool can never be listed here without a way to answer its pause.
  */
 
-import {
-  NATIVE_TOOL_ID,
-  type ToolRiskCategory,
-} from '@brainstrike/assistant-contract/tool-metadata';
-import { REGISTERED_SUSPEND_RESUME_TOOL_IDS } from '@brainstrike/assistant-contract/tool-suspend';
-
-export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
-export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
-
-/**
- * The suspending native tools. They survive plan mode on their `read` risk
- * classification rather than on suspending — a suspend schema is not a
- * plan-mode admission ticket (BST-1073).
- * DERIVED from `REGISTERED_SUSPEND_RESUME_TOOL_IDS` — a tool that can `suspend()`
- * but has no registered typed resume UI would pause a run this build cannot
- * answer, so the two lists are one list by construction rather than two
- * hardcoded copies that can drift.
- */
-export const SUSPENDING_NATIVE_TOOL_IDS: readonly string[] = REGISTERED_SUSPEND_RESUME_TOOL_IDS;
+import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 
 export interface PlanModeToolGateLogger {
   info: (message: string, context?: Record<string, unknown>) => void;

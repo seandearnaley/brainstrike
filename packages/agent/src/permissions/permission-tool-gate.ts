@@ -1,56 +1,14 @@
 /**
- * Permission tool gate (permission engine, step 3/4).
- *
- * This module FILTERS the agent's tool map by the user's permission policy
- * BEFORE the immutable Mastra `Agent` is constructed. It is the runtime
- * enforcement seam that consumes the pure decision resolver
- * (`resolvePermissionDecision`) and the risk taxonomy (`ToolRiskCategory`) from
- * `@brainstrike/assistant-contract`.
- *
- * How each decision is enforced:
- *   - `'allow'` → keep the tool unchanged (normal path); NOT in `askToolIds`.
- *   - `'deny'`  → omit the tool; the model never sees it.
- *   - `'ask'`   → keep the tool UNCHANGED here and record its sanitized id in
- *                 `askToolIds`/`askTools`. The composition site then clones it
- *                 with the FUNCTION form of Mastra's PER-TOOL `requireApproval`
- *                 (`applyLiveApprovalGate`, approval-gate.ts), which Mastra
- *                 evaluates on every call against the leg's live gate: it
- *                 SUSPENDS the step ONLY when that specific tool is actually
- *                 called and no remembered session grant allows it, and emits a
- *                 `tool-call-approval` part. The existing approval UI +
- *                 `streamMastraToolApprovalAction` resume chain turns that pause
- *                 into a prompt-then-resume ("Apply this edit? / Run this
- *                 command?"): approve → execute, decline → skip.
- *
- *                 PER-TOOL, not global: we DO NOT force the run-wide
- *                 `requireToolApproval` (a truthy one suspends EVERY tool call
- *                 and forces sequential steps, agent-DsRUDsS_.js:24054). The
- *                 flag is a FUNCTION, never a static `true` (settled
- *                 2026-09-15): a static flag is a copy Mastra takes once per
- *                 stream, so a remembered grant could never lift it — every
- *                 later read would still park, card and resume (70 cards on
- *                 the GLM run).
- *
- *                 We must NEVER silently downgrade `'ask'` to `'allow'` and run
- *                 an approval-required tool without prompting (no-silent-
- *                 fallbacks). The record and the clone move together: a kept ask
- *                 tool NOT in `askTools` is never cloned and would execute
- *                 unprompted (a security bug).
- *
- * Risk classification is CALLER-PROVIDED (`riskByTool` / `defaultRisk`). We do
- * NOT introspect Mastra tool objects for brainstrike metadata: the brainstrike
- * risk taxonomy is registry-side metadata that never rides on the Mastra tool
- * instance. The registry that builds the tool map owns the mapping.
+ * Shared permission-risk lookup and direct-invocation approval decision.
+ * The host owns production tool admission. The older map filter remains an
+ * internal regression harness for policy/risk lookup and native-search tests.
  */
-
 import {
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
-
-export type { PermissionToolGateSnapshot };
 
 /**
  * Minimal logger surface the gate needs. A structural subset of the project
@@ -130,36 +88,6 @@ export interface PermissionDeniedToolMetadata {
 }
 
 /**
- * Resolve an `'ask'` tool's risk metadata by EITHER name form: the sanitized
- * registered id (the map key — Mastra's approval parts carry it today) or the
- * ORIGINAL pre-sanitization name (`meta.originalName` — what every client-facing
- * approval surface is keyed by, and what a future Mastra emitting original names
- * would carry). Returns `undefined` on a miss; the caller decides how loudly to
- * surface that (a policy-driven pause with unresolved metadata is an error-level
- * event — see `makeApprovalRequiredChunks`).
- *
- * DELIBERATELY a lookup helper, NOT a dual-keyed map: `askTools` must stay
- * single-keyed by sanitized id because `askTools.size === 0` denotes an explicit
- * GLOBAL approval request (see `resolveRequireToolApproval`, approval-gate.ts) and the gate logs
- * one entry per ask tool — dual-keying would corrupt both.
- */
-export function resolveAskToolMetadata(
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata>,
-  name: string
-): PermissionAskToolMetadata | undefined {
-  const direct = askTools.get(name);
-  if (direct) {
-    return direct;
-  }
-  for (const meta of askTools.values()) {
-    if (meta.originalName === name) {
-      return meta;
-    }
-  }
-  return;
-}
-
-/**
  * The result of gating a tool map: the (possibly reduced) tool map — every kept
  * tool unchanged — plus the set of sanitized ids of the `'ask'` tools.
  * `askToolIds`/`askTools` drive the runtime's storage fail-safe, the
@@ -207,6 +135,7 @@ export interface FilterToolsByPermissionResult<TMap extends Record<string, unkno
  *
  * @throws {InvalidPermissionPolicyError} when a policy/override value is invalid.
  */
+/** @internal Test seam: permission-tool-gate.spec.ts and native-web-search.spec.ts drive the shared policy/risk lookup and native-search composition. */
 export function filterToolsByPermissionWithMetadata<TMap extends Record<string, unknown>>(
   guardedTools: TMap,
   snapshot: PermissionToolGateSnapshot | undefined,

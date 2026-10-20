@@ -2,7 +2,11 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import {
+  type GuardedToolError,
+  type McpHostPort,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { HostToolExecutionContext } from '../host-tool-definition';
@@ -11,7 +15,6 @@ import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
 import {
   applyToolGuards,
-  type GuardedToolError,
   guardToolExecution,
   isGuardedToolError,
 } from '../tools/guard-tool-execution';
