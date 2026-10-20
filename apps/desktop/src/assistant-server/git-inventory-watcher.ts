@@ -104,10 +104,12 @@ export interface GitInventoryWatchers {
    * acquired native subscription is unsubscribed (BST-2244); a failed
    * unsubscribe rejects, as an `AggregateError`, after the others settle.
    * Safe to call at any time, including while a `sync()` subscribe is in
-   * flight. Idempotent: a later call joins the first. TERMINAL: once called,
-   * this instance never subscribes again, even if a later `sync()` lists a
-   * common dir — matches the service `stop()` lifecycle this pairs with
-   * (`createGitInventoryWatchers` is called again to start fresh).
+   * flight. A later call joins retirements still in flight and retries, once,
+   * each one whose unsubscribe failed, here or in an earlier `sync()`: a
+   * failed retirement stays owned until its unsubscribe succeeds. TERMINAL:
+   * once called, this instance never subscribes again, even if a later
+   * `sync()` lists a common dir — matches the service `stop()` lifecycle this
+   * pairs with (`createGitInventoryWatchers` is called again to start fresh).
    */
   readonly disposeAll: () => Promise<void>;
   /**
@@ -130,7 +132,10 @@ export interface GitInventoryWatchers {
    * disposed and resubscribed — this is the only retry path ("no
    * auto-restart" means nothing resubscribes on a timer or on its own; it
    * only happens because the caller invoked `sync()` again, i.e. an explicit
-   * rebuild). Calling `sync()` on an instance after `disposeAll()` is a
+   * rebuild). A failed unsubscribe rejects `sync()`, as an `AggregateError`,
+   * after its subscribes ran; that subscription stays owned (its common dir
+   * is not resubscribed) and the next `sync()` or `disposeAll()` retries it.
+   * Calling `sync()` on an instance after `disposeAll()` is a
    * deliberate, silent no-op — TERMINAL per `disposeAll`'s own contract — NOT
    * a gap in this module's own NO-SILENT-FALLBACKS posture: the one caller
    * (`git-inventory-service.ts`) never reuses a disposed instance past
@@ -168,6 +173,10 @@ interface Subscription {
   dispose: () => Promise<void>;
   /** Arrival time (ms, `Date.now()`) of the first event in the CURRENT batch; `null` when no batch is pending. Drives the {@link GIT_INVENTORY_WATCH_MAX_BATCH_MS} cap. */
   firstEventAt: number | null;
+  /** The retirement in flight, or the one that succeeded; cleared when one rejects, so the next attempt retries. */
+  retirement: Promise<void> | undefined;
+  /** The claim was removed; the entry stays in the map until its native unsubscribe succeeds. */
+  retiring: boolean;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -214,6 +223,15 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function throwRetirementFailures(results: readonly PromiseSettledResult<void>[]): void {
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Git inventory watcher retirement failed.');
+  }
+}
+
 /**
  * Wire per-repo git-metadata watchers. Deliberately takes no discovery/DB
  * dependency — `commonDirs` is handed in by the caller (`sync`), which is
@@ -223,7 +241,6 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
   const realpath = deps.realpath ?? ((targetPath: string) => fsPromises.realpath(targetPath));
   const subscriptions = new Map<string, Subscription>();
   let disposed = false;
-  let disposing: Promise<void> | undefined;
 
   /**
    * Zero-cost measurement seam (no new infra, no persistence, no new
@@ -291,7 +308,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     // A torn-down (or superseded/replaced) subscription must never keep
     // arming timers or invoking onInvalidate — checked BEFORE doing any
     // path filtering work, not just before scheduling.
-    if (disposed || subscriptions.get(commonDir) !== sub) {
+    if (isStaleAttempt(commonDir, sub)) {
       return;
     }
     // Relative-path base MUST be `watchRoot` (what the subscription was
@@ -319,7 +336,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     // Same post-teardown guard as handleChanges: a disposed or
     // superseded/replaced subscription must never fire onInvalidate or write
     // dead state.
-    if (disposed || subscriptions.get(commonDir) !== sub) {
+    if (isStaleAttempt(commonDir, sub)) {
       return;
     }
     if (signal.type === 'overflow') {
@@ -357,13 +374,14 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
 
   /**
    * Is `sub` no longer the live claim for `commonDir` — because `disposeAll()`
-   * ran, or a dispose/resubscribe race replaced it with a fresh retry
-   * Subscription? Shared by every point in {@link subscribe} that must not
-   * act (write dead state, log, or open/keep a real watch) on behalf of a
-   * superseded attempt.
+   * ran, `sync()` removed its claim (it may still be retiring), or a
+   * dispose/resubscribe race replaced it with a fresh retry Subscription?
+   * Shared by the event handlers and every point in {@link subscribe} that
+   * must not act (write dead state, log, or open/keep a real watch) on behalf
+   * of a superseded attempt.
    */
   function isStaleAttempt(commonDir: string, sub: Subscription): boolean {
-    return disposed || subscriptions.get(commonDir) !== sub;
+    return disposed || sub.retiring || subscriptions.get(commonDir) !== sub;
   }
 
   async function subscribe(commonDir: string): Promise<void> {
@@ -387,6 +405,8 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       deadReason: null,
       dispose: () => Promise.resolve(),
       firstEventAt: null,
+      retirement: undefined,
+      retiring: false,
       timer: null,
     };
     subscriptions.set(commonDir, sub);
@@ -489,19 +509,39 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     }
   }
 
-  async function disposeOne(commonDir: string): Promise<void> {
+  /**
+   * Removes `commonDir`'s claim and retires its native subscription. The
+   * entry leaves the map only once the unsubscribe succeeds: a rejected
+   * retirement is still owned, and the next call retries it, matching the
+   * joined producer's retryable disposer. A call while one is in flight
+   * joins it.
+   */
+  function disposeOne(commonDir: string): Promise<void> {
     const sub = subscriptions.get(commonDir);
     if (!sub) {
-      return;
+      return Promise.resolve();
     }
-    subscriptions.delete(commonDir);
+    sub.retiring = true;
     if (sub.timer) {
       clearTimeout(sub.timer);
+      sub.timer = null;
+    }
+    if (sub.retirement) {
+      return sub.retirement;
     }
     // A subscribe still in flight must not outlive its disposal: join it,
     // then retire whatever it acquired.
-    await sub.acquisition;
-    await sub.dispose();
+    const retirement = sub.acquisition.then(() => sub.dispose());
+    sub.retirement = retirement;
+    retirement.then(
+      () => {
+        subscriptions.delete(commonDir);
+      },
+      () => {
+        sub.retirement = undefined;
+      }
+    );
+    return retirement;
   }
 
   async function sync(commonDirs: readonly string[]): Promise<void> {
@@ -512,8 +552,9 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     for (const [commonDir, sub] of subscriptions) {
       if (!desired.has(commonDir)) {
         toDispose.push(commonDir);
-      } else if (sub.dead) {
-        // Explicit-rebuild retry: dispose the dead entry, then resubscribe.
+      } else if (sub.dead || sub.retiring) {
+        // Explicit-rebuild retry: dispose the dead (or still retiring) entry,
+        // then resubscribe once its unsubscribe has succeeded.
         toDispose.push(commonDir);
         toSubscribe.push(commonDir);
       }
@@ -524,24 +565,20 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       }
     }
 
-    await Promise.all(toDispose.map((commonDir) => disposeOne(commonDir)));
+    const retirements = await Promise.allSettled(
+      toDispose.map((commonDir) => disposeOne(commonDir))
+    );
+    // A failed retirement keeps its entry, so subscribe() skips that common
+    // dir; every other common dir is still subscribed before sync() rejects.
     await Promise.all(toSubscribe.map((commonDir) => subscribe(commonDir)));
+    throwRetirementFailures(retirements);
   }
 
-  function disposeAll(): Promise<void> {
+  async function disposeAll(): Promise<void> {
     disposed = true;
-    disposing ??= (async (): Promise<void> => {
-      const results = await Promise.allSettled(
-        [...subscriptions.keys()].map((commonDir) => disposeOne(commonDir))
-      );
-      const failures = results.flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : []
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Git inventory watcher retirement failed.');
-      }
-    })();
-    return disposing;
+    throwRetirementFailures(
+      await Promise.allSettled([...subscriptions.keys()].map((commonDir) => disposeOne(commonDir)))
+    );
   }
 
   function getDeadCommonDirs(): ReadonlySet<string> {

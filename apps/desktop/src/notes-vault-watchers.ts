@@ -1,15 +1,17 @@
 /**
  * Main's Notes Vault watcher owner: the ONE registry of live vault watchers,
- * keyed by watchId, plus the native retirements still in flight.
+ * keyed by watchId, plus the removed watchers whose native unsubscribe has
+ * not yet succeeded.
  *
  * A watch is registered while its native subscription is still starting, so
  * the owner's renderer reaper or the terminal shutdown dispose joins that
  * acquisition and retires what it acquires. Renderer reapers (ONE per
  * WebContents via a WeakSet, mirroring terminal-ipc-handlers.ts) and unwatch
- * retire in the background; the shutdown dispose closes admission and joins
- * them all. A @parcel/watcher subscribe or unsubscribe still on the libuv pool
- * when Electron frees Main's Node environment completes into a dead JS context
- * and aborts Main (BST-2244).
+ * retire in the background; the shutdown dispose closes admission, joins
+ * them all and retries, once, each one that failed. A @parcel/watcher
+ * subscribe or unsubscribe still on the libuv pool when Electron frees Main's
+ * Node environment completes into a dead JS context and aborts Main
+ * (BST-2244).
  */
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
@@ -36,12 +38,17 @@ export type NotesVaultWatchStart =
 
 interface LiveNotesVaultWatcher {
   readonly ownerId: number;
-  /** Joins the native acquisition, then retires it; settles once its unsubscribe has. */
+  /**
+   * Joins the native acquisition, then retires it; settles once its
+   * unsubscribe has. A call while one is in flight joins it; a call after one
+   * rejected retries it, matching the joined producer's retryable disposer.
+   */
   readonly stop: () => Promise<void>;
 }
 
 const liveWatchers = new Map<string, LiveNotesVaultWatcher>();
-const retiringWatchers = new Set<Promise<void>>();
+/** Removed watchers, kept until their native unsubscribe succeeds. */
+const retiringWatchers = new Map<string, LiveNotesVaultWatcher>();
 const reaperAttachedOwners = new WeakSet<WebContents>();
 let admissionOpen = true;
 
@@ -57,29 +64,38 @@ function createLiveWatcher(
   return {
     ownerId,
     stop: () => {
-      retirement ??= starting.then(
+      if (retirement) {
+        return retirement;
+      }
+      retirement = starting.then(
         (stop) => stop(),
         // The watch caller reports the startup failure; only a late acquisition is owned.
         (error: unknown) =>
           error instanceof ParcelWatchRetirementError ? error.retire() : undefined
       );
+      retirement.catch(() => {
+        retirement = undefined;
+      });
       return retirement;
     },
   };
 }
 
-/** Starts a removed watcher's retirement, which the shutdown dispose joins. */
+/**
+ * Starts (or joins, or retries) a removed watcher's retirement. The watcher
+ * stays owned in `retiringWatchers` until its unsubscribe succeeds, so the
+ * shutdown dispose joins it or retries it.
+ */
 function stopWatcher(watchId: string, entry: LiveNotesVaultWatcher): Promise<void> {
+  retiringWatchers.set(watchId, entry);
   const retirement = entry.stop();
-  retiringWatchers.add(retirement);
   retirement.then(
     () => {
-      retiringWatchers.delete(retirement);
+      retiringWatchers.delete(watchId);
     },
     (error: unknown) => {
-      retiringWatchers.delete(retirement);
-      // Logged, never swallowed silently (no-silent-fallbacks); the map entry is
-      // already removed, so a failed close cannot leak a live id.
+      // Logged, never swallowed silently (no-silent-fallbacks); the watcher
+      // stays owned, and the shutdown dispose retries it.
       logger.warn('Failed to stop notes vault watcher', {
         error: toErrorMessage(error),
         watchId,
@@ -186,17 +202,18 @@ export function disposeNotesVaultWatchersForWebContents(ownerId: number): number
  * The terminal shutdown dispose: closes watch admission, stops every live
  * watcher (including ones still starting), and resolves only once every
  * native subscribe and unsubscribe this owner started has settled, unwatch and
- * renderer reaper retirements included. A failed unsubscribe rejects, as an
- * `AggregateError`, after the others settle.
+ * renderer reaper retirements included. Each call retries, once, every
+ * retirement whose unsubscribe failed earlier. A failed unsubscribe rejects,
+ * as an `AggregateError`, after the others settle, and its watcher stays
+ * owned for the next call.
  */
 export async function disposeAllNotesVaultWatchers(): Promise<void> {
   admissionOpen = false;
   const entries = Array.from(liveWatchers.entries());
   liveWatchers.clear();
-  const retirements = [
-    ...retiringWatchers,
-    ...entries.map(([watchId, entry]) => stopWatcher(watchId, entry)),
-  ];
+  const retirements = [...retiringWatchers, ...entries].map(([watchId, entry]) =>
+    stopWatcher(watchId, entry)
+  );
   if (entries.length > 0) {
     logger.info('Reaped live notes vault watchers on dispose', { count: entries.length });
   }
