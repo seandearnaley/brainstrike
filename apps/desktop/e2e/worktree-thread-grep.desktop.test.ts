@@ -128,7 +128,7 @@ test('an agent in a new worktree greps the unindexed worktree', async ({
       .toBe('completed');
     const [run] = await readCommittedRuns(electron.getUserDataDir(), threadId);
     expect(run?.results[0]?.output).toMatchObject({
-      files: [expect.objectContaining({ path: 'only-in-worktree.txt', source: 'live' })],
+      files: [expect.objectContaining({ path: 'only-in-worktree.txt' })],
       outputMode: 'files',
     });
     expect(modelProvider.refusals()).toEqual([]);

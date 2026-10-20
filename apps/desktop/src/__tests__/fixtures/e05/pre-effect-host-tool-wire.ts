@@ -34,48 +34,6 @@ export const WorktreePathsResultSchema = z.strictObject({
   paths: z.array(z.string()).nullable(),
 });
 
-/** `GrepSearchOptions` of the indexed grep half (`@brainstrike/db`). */
-export const GrepIndexOptionsSchema = z.strictObject({
-  candidateLimit: z.number().int().positive().exactOptional(),
-  caseSensitive: z.boolean().exactOptional(),
-  contextLines: z.number().int().nonnegative().exactOptional(),
-  embeddingSetId: Id.exactOptional(),
-  filePaths: z.array(z.string()).exactOptional(),
-  isRegex: z.boolean().exactOptional(),
-  maxResults: z.number().int().positive().exactOptional(),
-  pattern: z.string().min(1),
-  rootId: Id.exactOptional(),
-  rootIds: z.array(Id).exactOptional(),
-});
-
-export const GrepIndexRequestSchema = z.strictObject({
-  options: GrepIndexOptionsSchema,
-  threadId: Id,
-});
-
-/** `GrepSearchResult` of the indexed grep half (`@brainstrike/db`). */
-export const GrepIndexResultSchema = z.strictObject({
-  candidatesTruncated: z.boolean(),
-  matches: z.array(
-    z.strictObject({
-      after: z.array(z.string()),
-      before: z.array(z.string()),
-      chunkEndLine: z.number().int().exactOptional(),
-      chunkId: z.string().exactOptional(),
-      chunkStartLine: z.number().int().exactOptional(),
-      line: z.number().int(),
-      lineText: z.string(),
-      path: z.string(),
-      rootId: z.string().nullable().exactOptional(),
-      rootName: z.string().nullable().exactOptional(),
-    })
-  ),
-  scanLimited: z.boolean(),
-  skippedMissingLineMetadata: z.number().int().nonnegative(),
-  totalMatches: z.number().int().nonnegative(),
-  truncated: z.boolean(),
-});
-
 const GitError = z.object({ error: z.string(), ok: z.literal(false) });
 function gitResult<T extends z.ZodType>(value: T) {
   return z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), value }), GitError]);

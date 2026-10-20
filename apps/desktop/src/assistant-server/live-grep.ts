@@ -711,6 +711,8 @@ interface CandidateGatherState {
   partialReadErrors: boolean;
   prefilterTruncated: boolean;
   scanLimited: boolean;
+  /** Folders whose root could not be opened; the result names them (ADR 0026). */
+  unreadableRoots: string[];
 }
 
 async function gatherScopedCandidates(args: {
@@ -771,6 +773,7 @@ async function gatherRootCandidates(args: {
       error: redactErrorForLog(error),
       rootId: root.rootId,
     });
+    state.unreadableRoots.push(root.displayName);
     return;
   }
   state.anyRootAccessible = true;
@@ -906,6 +909,7 @@ export async function runLiveGrep(
     partialReadErrors: false,
     prefilterTruncated: false,
     scanLimited: false,
+    unreadableRoots: [],
   };
 
   for (const root of options.roots) {
@@ -968,6 +972,7 @@ export async function runLiveGrep(
     rgPresent,
     rgUsed,
     scanLimited: state.scanLimited,
+    unreadableRoots: state.unreadableRoots,
   });
 
   return {

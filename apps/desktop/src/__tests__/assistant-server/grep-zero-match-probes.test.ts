@@ -85,7 +85,7 @@ describe('resolveZeroMatchProbeNote', () => {
     const note = await resolveZeroMatchProbeNote({ caseSensitive: false, isRegex: false }, deps);
 
     expect(note).toBe(
-      '0 matches in indexed/visible files, but 7 matches in excluded or ignored paths (e.g. node_modules/dep/index.ts, dist/bundle.js) — grepSearch cannot reach these; call globWorkspace with includeIgnored: true to list them, then readWorkspaceFile to inspect.'
+      '0 matches in visible files, but 7 matches in excluded or ignored paths (e.g. node_modules/dep/index.ts, dist/bundle.js) — grepSearch cannot reach these; call globWorkspace with includeIgnored: true to list them, then readWorkspaceFile to inspect.'
     );
   });
 
