@@ -57,6 +57,23 @@ Workspace root disposal fences direct read/list admission and joins their path
 resolution and native completion alongside mutations and source leases before
 closing mounted capabilities (BST-2251). Read errors remain owned by their callers.
 
+App-owned quit prepares visible renderers before DOM unload. Workspace producers
+fence new edits, flush pending snapshots and join admitted hydration/save operations;
+only then does the frame close its host transport and acknowledge Main's private
+reply port. This preparation is terminal: failure is reported and shutdown still
+ends the renderer lifetime under the existing deadline, including a cancelled
+native window close. Hidden hosts retain their existing retirement order.
+
+Menu reload, desktop failed-chunk recovery and developer database reset use the
+same terminal renderer preparation before navigation; developer reset prepares
+before clearing the old profile. `noteReloadIntent` only attributes navigation.
+The narrow reload request requires the current visible main frame. Preparation
+and navigation share the existing 5s macOS/Linux or 10s Windows renderer budget;
+the profile reset retains its own owner. Failure shows a fixed native notice and
+retires only still-matching terminal documents. Late replies cannot reload or
+destroy a replacement generation. Factory reset, crash recovery and browser-pane
+reload retain their existing owners.
+
 Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
 each joins its subscribes and unsubscribes in a graceful-shutdown step. One still

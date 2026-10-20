@@ -54,10 +54,31 @@ const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // Only the visible preload receives this client transport. Main authorizes the
 // requesting frame before transferring a port; the host authenticates commands.
+const frameClosePreparations = new Set<() => Promise<void>>();
 contextBridge.exposeInMainWorld('agentHost', {
   connect: (requestId: string): Promise<IpcResult<void>> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
+  onPrepareClose: (prepare: () => Promise<void>): (() => void) => {
+    frameClosePreparations.add(prepare);
+    return () => frameClosePreparations.delete(prepare);
+  },
 });
+ipcRenderer.on(
+  DESKTOP_IPC_CHANNELS.agent.prepareClose,
+  (event: { ports: readonly MessagePort[] }) => {
+    const reply = event.ports[0];
+    if (!reply) {
+      throw new Error('Renderer close preparation has no private reply port');
+    }
+    const preparation = Promise.allSettled(
+      [...frameClosePreparations].map(async (prepare) => await prepare())
+    );
+    void preparation.then((results) => {
+      reply.postMessage({ prepared: results.every((result) => result.status === 'fulfilled') });
+      reply.close();
+    });
+  }
+);
 ipcRenderer.on(
   DESKTOP_IPC_CHANNELS.agent.hostConnected,
   (event: { ports: readonly MessagePort[] }, payload: unknown) => {
@@ -330,6 +351,8 @@ contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,
   noteReloadIntent: (reason: string) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.noteReloadIntent, reason),
+  requestReload: (reason: string): Promise<void> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.requestReload, reason),
 });
 
 // Parser host bridge — exposed for the chunking-host renderer so its

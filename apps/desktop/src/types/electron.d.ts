@@ -45,7 +45,10 @@ import type {
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
-    agentHost?: { connect(requestId: string): Promise<BoundaryResult<void>> };
+    agentHost?: {
+      connect(requestId: string): Promise<BoundaryResult<void>>;
+      onPrepareClose(prepare: () => Promise<void>): () => void;
+    };
     /** Desktop-only recovery actions for a damaged state store (BST-1880). */
     agentHostRecovery?: TransportBridge<typeof agentHostRecoveryContract>;
     /**
@@ -126,6 +129,7 @@ declare global {
     desktopLifecycle?: {
       isTestMode: boolean;
       noteReloadIntent: (reason: string) => Promise<void>;
+      requestReload: (reason: string) => Promise<void>;
     };
     electronAPI?: DesktopElectronApi;
     embeddingHost?: EmbeddingHostRuntimeBridge | VisibleEmbeddingHostBridge;

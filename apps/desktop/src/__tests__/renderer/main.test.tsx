@@ -4,7 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The gate and the recovery wiring have their own suites in app-shell; here they are
 // stubs, so main.tsx's own orchestration (order, build id, which windows) stays in focus.
-const { startAppReloadRecoveryMock, stopAppReloadRecoveryMock } = vi.hoisted(() => ({
+const {
+  startAppReloadRecoveryMock,
+  stopAppReloadRecoveryMock,
+  onPrepareCloseMock,
+  hostPermissionPolicyPersistenceMock,
+} = vi.hoisted(() => ({
+  hostPermissionPolicyPersistenceMock: vi.fn(() => ({
+    getItem: async () => null,
+    removeItem: async () => {},
+    setItem: async () => {},
+  })),
+  onPrepareCloseMock: vi.fn((_callback: () => Promise<void>) => () => undefined),
   startAppReloadRecoveryMock: vi.fn(),
   stopAppReloadRecoveryMock: vi.fn(),
 }));
@@ -59,6 +70,11 @@ vi.mock('../../renderer/components/chunking-host-app', () => ({
 
 vi.mock('../../renderer/log-buffer', () => ({}));
 
+// Bootstrap checks registration order; host persistence has its own transport tests.
+vi.mock('../../renderer/host-permission-policy', () => ({
+  hostPermissionPolicyPersistence: hostPermissionPolicyPersistenceMock,
+}));
+
 // The renderer transport uses vscode-jsonrpc's browser-only export. This Node
 // bootstrap suite does not connect a host; the desktop E2E covers that boundary.
 vi.mock('../../renderer/agent-host-client', () => ({
@@ -77,6 +93,10 @@ describe('renderer main entry', () => {
     vi.resetModules();
     mockCreateRoot.mockClear();
     mockRender.mockClear();
+    onPrepareCloseMock.mockClear();
+    hostPermissionPolicyPersistenceMock.mockClear();
+    vi.stubGlobal('agentHost', { onPrepareClose: onPrepareCloseMock });
+    vi.stubGlobal('desktopLifecycle', { requestReload: vi.fn(async () => undefined) });
     vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
     startAppReloadRecoveryMock.mockReset();
     startAppReloadRecoveryMock.mockReturnValue(stopAppReloadRecoveryMock);
@@ -175,6 +195,45 @@ describe('renderer main entry', () => {
     expect(rendered.type).toBe(StrictMode);
   });
 
+  it('installs the close fence before persistence producers, preference requests and the first render', async () => {
+    await import('../../renderer/main.tsx');
+    expect(onPrepareCloseMock).toHaveBeenCalledExactlyOnceWith(expect.any(Function));
+    expect(hostPermissionPolicyPersistenceMock).toHaveBeenCalledOnce();
+    const installed = onPrepareCloseMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    expect(installed).toBeLessThan(
+      hostPermissionPolicyPersistenceMock.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(installed).toBeLessThan(
+      vi.mocked(window.logging.getPreferences).mock.invocationCallOrder[0] ?? 0
+    );
+    expect(installed).toBeLessThan(mockRender.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it.each([undefined, { onPrepareClose: 42 }])(
+    'renders a fatal startup failure for an invalid lifecycle capability: %j',
+    async (agentHost) => {
+      vi.stubGlobal('agentHost', agentHost);
+      Object.defineProperty(window.navigator, 'userAgent', {
+        configurable: true,
+        value: 'Electron/43.0.0',
+      });
+      try {
+        await import('../../renderer/main.tsx');
+      } finally {
+        Reflect.deleteProperty(window.navigator, 'userAgent');
+      }
+      const rendered = mockRender.mock.calls[0]?.[0];
+      if (!isReactElement(rendered) || typeof rendered.type !== 'function') {
+        throw new Error('Expected a fatal startup screen');
+      }
+      expect(rendered.type.name).toBe('DesktopStartupFailure');
+      expect(rendered.props).toMatchObject({
+        validation: { missing: expect.arrayContaining(['window.agentHost.onPrepareClose']) },
+      });
+      expect(hostPermissionPolicyPersistenceMock).not.toHaveBeenCalled();
+    }
+  );
+
   it('starts failed-chunk recovery with this build id before the first render', async () => {
     await import('../../renderer/main.tsx');
 
@@ -189,11 +248,13 @@ describe('renderer main entry', () => {
   it.each(['embedding-host', 'chunking-host'])(
     'leaves the hidden %s window without chunk recovery, which has no UI to offer a reload',
     async (mode) => {
+      vi.stubGlobal('agentHost', undefined);
       window.history.replaceState({}, '', `/?mode=${mode}&runtimeId=${mode}:test`);
 
       await import('../../renderer/main.tsx');
 
       expect(startAppReloadRecoveryMock).not.toHaveBeenCalled();
+      expect(onPrepareCloseMock).not.toHaveBeenCalled();
     },
     30_000
   );
@@ -383,6 +444,7 @@ describe('renderer main entry', () => {
       throw new Error('Expected startup failure to render a component');
     }
     expect(renderArg.type.name).toBe('DesktopStartupFailure');
+    expect(onPrepareCloseMock).not.toHaveBeenCalled();
   });
 
   it('renders the outside-Electron notice when the bridge is absent in a plain browser', async () => {
@@ -402,5 +464,6 @@ describe('renderer main entry', () => {
       throw new Error('Expected outside-Electron notice to render a component');
     }
     expect(renderArg.type.name).toBe('DesktopRendererOutsideElectron');
+    expect(onPrepareCloseMock).not.toHaveBeenCalled();
   });
 });
