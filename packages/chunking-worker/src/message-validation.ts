@@ -92,13 +92,11 @@ const guardFor = <S extends Schema.Top>(schema: S) => {
       matches(value);
 };
 
-const matchesOptions = guardFor(chunkingRequestOptions)<ChunkingRequestOptions>();
+// Keep the options-level drift check: the enclosing request checks cannot
+// detect an optional interface key absent from the nested options schema.
+guardFor(chunkingRequestOptions)<ChunkingRequestOptions>();
 const matchesRequest = guardFor(chunkRequest)<ChunkRequest>();
 const matchesBatch = guardFor(chunkBatchRequest)<ChunkBatchRequest>();
-
-export function isChunkingRequestOptions(value: unknown): value is ChunkingRequestOptions {
-  return matchesOptions(value);
-}
 
 export function isChunkRequest(value: unknown): value is ChunkRequest {
   return matchesRequest(value);

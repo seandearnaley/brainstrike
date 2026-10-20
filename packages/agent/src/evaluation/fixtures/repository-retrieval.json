@@ -1,7 +1,7 @@
 {
   "name": "brainstrike-repository-retrieval",
   "version": "1.0.0",
-  "sourceCommit": "f7e7160dea8851b56883ee26ec492326e5b3a343",
+  "sourceCommit": "608deb39f71928b71024a4718aaded23a0c5e2be",
   "judgmentMethod": "Source inspection by the author before retrieval; positive answer spans, not output-derived or exhaustive relevance labels. Each judgment identifies the implementation line answering a concrete query.",
   "sources": [
     {
@@ -22,7 +22,7 @@
     },
     {
       "relativePath": "packages/chunking-worker/src/message-validation.ts",
-      "sha256": "419648e7858d69e4699dd21c3b2a95c36c808312ed35c4b4e645d6bece6c3e6f"
+      "sha256": "c2e8c1bb831f5a68b532f5dad8a230a66607e171c045962ded062bfb3c704241"
     },
     {
       "relativePath": "packages/chunking-worker/src/chunking-config.ts",
@@ -451,8 +451,8 @@
         {
           "id": "repo-023-answer-1",
           "relativePath": "packages/chunking-worker/src/message-validation.ts",
-          "startLine": 108,
-          "endLine": 108,
+          "startLine": 106,
+          "endLine": 106,
           "evidence": "return matchesBatch(value);",
           "rationale": "The worker batch guard uses the typed runtime schema."
         }

@@ -1,102 +1,116 @@
 import { describe, expect, it } from 'vitest';
 import { CHUNKING_CONFIG } from '../chunking-config';
-import {
-  isChunkBatchRequest,
-  isChunkingRequestOptions,
-  isChunkRequest,
-} from '../message-validation';
+import { isChunkBatchRequest, isChunkRequest } from '../message-validation';
 
 describe('chunking worker message validation', () => {
-  it('accepts every canonical chunking strategy', () => {
-    const strategies = [
-      'auto',
-      'character',
-      'recursive',
-      'token',
-      'markdown',
-      'semantic-markdown',
-      'html',
-      'json',
-      'latex',
-      'sentence',
-    ] as const;
+  const request = {
+    content: 'text',
+    fileName: 'a.ts',
+    filePath: '/w/a.ts',
+    fileRecordId: 'rec-1',
+    id: 'req-1',
+  };
 
-    for (const strategy of strategies) {
-      expect(isChunkingRequestOptions({ strategy })).toBe(true);
-    }
-  });
+  describe.each([
+    [
+      'single request',
+      (options: unknown) => isChunkRequest({ ...request, options, type: 'chunk' }),
+    ],
+    [
+      'batch request',
+      (options: unknown) =>
+        isChunkBatchRequest({ requests: [{ ...request, options }], type: 'chunk-batch' }),
+    ],
+  ] as const)('%s options', (_name, isValidOptions) => {
+    it('accepts every canonical chunking strategy', () => {
+      const strategies = [
+        'auto',
+        'character',
+        'recursive',
+        'token',
+        'markdown',
+        'semantic-markdown',
+        'html',
+        'json',
+        'latex',
+        'sentence',
+      ] as const;
 
-  it('keeps the historical leniency: extra keys and undefined optional keys pass', () => {
-    // Senders spread optional fields, so an explicit `undefined` must stay valid,
-    // and a newer host may add fields an older worker does not know yet.
-    expect(
-      isChunkingRequestOptions({
-        maxTokens: undefined,
-        separators: undefined,
-        strategy: 'auto',
-        unknownFutureOption: true,
-      })
-    ).toBe(true);
-    expect(
-      isChunkRequest({
-        content: 'text',
-        extra: { traceId: 't-1' },
-        fileName: 'a.ts',
-        filePath: '/w/a.ts',
-        fileRecordId: 'rec-1',
-        id: 'req-1',
-        options: { strategy: 'auto' },
-        type: 'chunk',
-      })
-    ).toBe(true);
-  });
+      for (const strategy of strategies) {
+        expect(isValidOptions({ strategy })).toBe(true);
+      }
+    });
 
-  it('rejects non-integer and non-finite numeric options', () => {
-    expect(isChunkingRequestOptions({ maxTokens: 1.5, strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ overlap: Number.NaN, strategy: 'auto' })).toBe(false);
-    expect(
-      isChunkingRequestOptions({ maxTokens: Number.POSITIVE_INFINITY, strategy: 'auto' })
-    ).toBe(false);
-  });
+    it('keeps the historical leniency: extra keys and undefined optional keys pass', () => {
+      // Senders spread optional fields, so an explicit `undefined` must stay valid,
+      // and a newer host may add fields an older worker does not know yet.
+      expect(
+        isValidOptions({
+          maxTokens: undefined,
+          separators: undefined,
+          strategy: 'auto',
+          unknownFutureOption: true,
+        })
+      ).toBe(true);
+      expect(
+        isChunkRequest({
+          content: 'text',
+          extra: { traceId: 't-1' },
+          fileName: 'a.ts',
+          filePath: '/w/a.ts',
+          fileRecordId: 'rec-1',
+          id: 'req-1',
+          options: { strategy: 'auto' },
+          type: 'chunk',
+        })
+      ).toBe(true);
+    });
 
-  it('rejects unknown chunking strategies', () => {
-    expect(isChunkingRequestOptions({ strategy: 'bogus' })).toBe(false);
-  });
+    it('rejects non-integer and non-finite numeric options', () => {
+      expect(isValidOptions({ maxTokens: 1.5, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ overlap: Number.NaN, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ maxTokens: Number.POSITIVE_INFINITY, strategy: 'auto' })).toBe(false);
+    });
 
-  it('rejects invalid numeric and typed request option fields', () => {
-    expect(isChunkingRequestOptions({ maxTokens: 0, strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ maxTokensCap: -1, strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ overlap: -1, strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ maxTokens: 999_999_999, strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ maxTokensCap: 999_999_999, strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ overlap: 999_999_999, strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ allowLargeFiles: 'yes', strategy: 'auto' })).toBe(false);
-    expect(isChunkingRequestOptions({ separators: ['\n', 1], strategy: 'auto' })).toBe(false);
-  });
+    it('rejects unknown chunking strategies', () => {
+      expect(isValidOptions({ strategy: 'bogus' })).toBe(false);
+    });
 
-  it('accepts valid optional request option fields', () => {
-    expect(
-      isChunkingRequestOptions({
-        allowLargeFiles: true,
-        forceStrategy: false,
-        ignoreFileTypeRecommendations: true,
-        maxTokens: 256,
-        maxTokensCap: 4096,
-        overlap: 32,
-        separators: ['\n\n', '\n'],
-        strategy: 'recursive',
-        tokenTrueSizing: false,
-      })
-    ).toBe(true);
-  });
+    it('rejects invalid numeric and typed request option fields', () => {
+      expect(isValidOptions({ maxTokens: 0, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ maxTokensCap: -1, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ overlap: -1, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ maxTokens: 999_999_999, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ maxTokensCap: 999_999_999, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ overlap: 999_999_999, strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ allowLargeFiles: 'yes', strategy: 'auto' })).toBe(false);
+      expect(isValidOptions({ separators: ['\n', 1], strategy: 'auto' })).toBe(false);
+    });
 
-  it('rejects separator arrays that exceed the hard worker limit', () => {
-    expect(
-      isChunkingRequestOptions({
-        separators: Array.from({ length: CHUNKING_CONFIG.maxSeparatorsCount + 1 }, () => '\n'),
-        strategy: 'recursive',
-      })
-    ).toBe(false);
+    it('accepts valid optional request option fields', () => {
+      expect(
+        isValidOptions({
+          allowLargeFiles: true,
+          forceStrategy: false,
+          ignoreFileTypeRecommendations: true,
+          maxTokens: 256,
+          maxTokensCap: 4096,
+          overlap: 32,
+          separators: ['\n\n', '\n'],
+          strategy: 'recursive',
+          tokenTrueSizing: false,
+        })
+      ).toBe(true);
+    });
+
+    it('rejects separator arrays that exceed the hard worker limit', () => {
+      expect(
+        isValidOptions({
+          separators: Array.from({ length: CHUNKING_CONFIG.maxSeparatorsCount + 1 }, () => '\n'),
+          strategy: 'recursive',
+        })
+      ).toBe(false);
+    });
   });
 
   it('accepts chunk requests with expanded strategies', () => {
