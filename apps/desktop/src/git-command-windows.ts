@@ -13,6 +13,31 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 
 // Retain failed native joins; a failed wait is not evidence that the Git tree exited.
 const liveCommands = new Set<ReturnType<typeof createWindowsCommandProcess>>();
+// Closed by the shutdown dispose: no Windows git command starts once quit has begun.
+let admissionOpen = true;
+
+/**
+ * Graceful-shutdown join for every Windows git command, whoever started it
+ * (BST-2250). Fences new commands, retires each live one (terminating its Job)
+ * and resolves only once every native Job join has settled. That join,
+ * `CommandJob.terminateAndWait`, is an N-API AsyncWorker built with C++
+ * exceptions: one still on the libuv pool when Electron frees Main's Node
+ * environment throws an uncaught `Napi::Error` and terminates Main. A failed
+ * join stays retained and rejects, as an `AggregateError`, after the others
+ * settle. Resolves with the number of commands retired.
+ */
+export async function disposeLiveWindowsGitCommands(): Promise<number> {
+  admissionOpen = false;
+  const entries = [...liveCommands];
+  const results = await Promise.allSettled(entries.map((owner) => owner.retire()));
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Windows git command retirement failed.');
+  }
+  return entries.length;
+}
 
 /** Git's Windows launcher has a child: overflow/abort must join their shared Job. */
 export async function runWindowsGitCommand({
@@ -25,6 +50,9 @@ export async function runWindowsGitCommand({
 }: Omit<Parameters<GitCommandRunner>[0], 'env'> & {
   readonly env: NodeJS.ProcessEnv;
 }): Promise<GitCommandRun> {
+  if (!admissionOpen) {
+    throw new Error('Windows git commands are shut down.');
+  }
   const wrapperPath = resolveBundledSiblingPath('Windows Git', 'windows-command-entry.js');
   const userEnvironment = Object.fromEntries(
     Object.entries(env).filter(

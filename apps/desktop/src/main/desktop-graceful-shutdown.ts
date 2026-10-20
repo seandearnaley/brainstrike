@@ -34,6 +34,7 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'embedding-host',
   'git-inventory',
   'forge',
+  'git-commands',
   'database-drain',
 ] as const;
 

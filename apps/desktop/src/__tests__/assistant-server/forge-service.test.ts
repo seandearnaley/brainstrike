@@ -9,7 +9,6 @@ import type { ForgeCommandRun, ForgeCommandRunner } from '../../assistant-server
 import {
   createForgeService,
   FORGE_REFRESH_MIN_INTERVAL_MS,
-  FORGE_STOP_DRAIN_TIMEOUT_MS,
   type ForgeRepositoryResolver,
 } from '../../assistant-server/forge-service';
 import { desktopAssistantServerLogger } from '../../assistant-server/logger';
@@ -106,13 +105,13 @@ describe('createForgeService', () => {
     clock = 1_000_000;
   });
   const now = () => clock;
-  it('never free-runs: the module contains only the sanctioned shutdown timer', () => {
+  it('never free-runs and never times out its own shutdown join', () => {
     const source = readFileSync(
       path.join(import.meta.dirname, '../../assistant-server/forge-service.ts'),
       'utf8'
     );
     expect(source).not.toContain('setInterval');
-    expect(source.match(/setTimeout\(/gu)).toHaveLength(1);
+    expect(source).not.toContain('setTimeout(');
     expect(source).toContain('AbortSignal.any([params.signal, abortController.signal])');
   });
   it('fetches, caches and reports a pull request', async () => {
@@ -798,7 +797,38 @@ describe('createForgeService', () => {
       loggerInfo.mockRestore();
     }
   });
-  it('bounds stop when an aborted gh command does not settle and fences its late continuation from the database', async () => {
+  it('aborts an in-flight repository resolution on stop, so its git commands do not outlive it', async () => {
+    // BST-2250: resolution spawns git (on Windows, a wrapper under a native
+    // Job). Stop must cancel it rather than leave it running past quit.
+    let resolutionSignal: AbortSignal | undefined;
+    const resolutionStarted = Promise.withResolvers<void>();
+    const service = createForgeService({
+      getForgeCache: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: async (_rootId, signal) => {
+        resolutionSignal = signal;
+        resolutionStarted.resolve();
+        await new Promise<void>((resolve) =>
+          signal.addEventListener('abort', () => resolve(), { once: true })
+        );
+        return { error: 'git was aborted.', ok: false };
+      },
+      run: ghRunner(HEALTHY_GH),
+    });
+    const identity = service.identity(ROOT_ID);
+    await resolutionStarted.promise;
+    expect(resolutionSignal?.aborted).toBe(false);
+
+    await service.stop();
+
+    expect(resolutionSignal?.aborted).toBe(true);
+    await expect(identity).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
+  });
+  it('joins an aborted in-flight operation instead of giving up on it, and fences its late continuation from the database', async () => {
+    // BST-2250: a stop that resolves while an operation is still running let
+    // Main quit with that operation's git or gh process (and native Job join)
+    // in flight. The shutdown step's own deadline is the only bound.
     vi.useFakeTimers();
     const loggerError = vi
       .spyOn(desktopAssistantServerLogger, 'error')
@@ -835,12 +865,12 @@ describe('createForgeService', () => {
       getForgeCache,
       now,
       onPrUpdated: vi.fn(),
-      resolveRepository: async (rootId) => {
+      resolveRepository: async (rootId, signal) => {
         if (rootId === 'slow-identity') {
           resolveIdentityStarted?.();
           await pendingIdentity;
         }
-        return await resolver()(rootId);
+        return await resolver()(rootId, signal);
       },
       run,
     });
@@ -856,16 +886,13 @@ describe('createForgeService', () => {
       expect(signal.aborted).toBe(true);
       resolveIdentity?.();
       await expect(identity).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
-      await vi.advanceTimersByTimeAsync(FORGE_STOP_DRAIN_TIMEOUT_MS - 1);
+      // The gh command ignores its abort: stop stays joined to it, however long.
+      await vi.advanceTimersByTimeAsync(60_000);
       expect(stopSettled).toBe(false);
-      await vi.advanceTimersByTimeAsync(1);
+      expect(loggerError).not.toHaveBeenCalled();
+      resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
       await stop;
       expect(stopSettled).toBe(true);
-      expect(loggerError).toHaveBeenCalledWith(
-        'Forge service stop timed out while draining in-flight operations',
-        { drainTimeoutMs: FORGE_STOP_DRAIN_TIMEOUT_MS, pendingOperations: 1 }
-      );
-      resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
       await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
       expect(getForgeCache).toHaveBeenCalledTimes(1);
     } finally {

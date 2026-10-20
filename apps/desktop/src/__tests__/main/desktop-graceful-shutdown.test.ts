@@ -125,6 +125,7 @@ describe('desktop graceful shutdown', () => {
       'embedding-host',
       'git-inventory',
       'forge',
+      'git-commands',
       'database-drain',
     ]);
   });
