@@ -17,7 +17,6 @@ import {
   resolveProviderEgressEnvironment,
   startModelProviderShim,
 } from './model-provider-shim.ts';
-import { withWindowsCiOcclusionDisabled } from './windows-ci-occlusion.ts';
 
 declare const process: NodeJS.Process;
 const require = createRequire(import.meta.url);
@@ -507,7 +506,7 @@ function createLaunchOptions(
   // #endregion
 
   const options: Parameters<typeof electron.launch>[0] = {
-    args: withWindowsCiOcclusionDisabled([...baseArgs, ...ciArgs], process.env, process.platform),
+    args: [...baseArgs, ...ciArgs],
     env: {
       ...(workspaceRoot ? { [e2eRealRootPathEnv]: workspaceRoot } : {}),
       ...baseEnv,
