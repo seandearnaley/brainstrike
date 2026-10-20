@@ -1,6 +1,10 @@
 import { assertCoverageAuthority, fault } from '@brainstrike/indexer/coverage-reader';
 import { describe, expect, it, vi } from 'vitest';
-import { SqliteQueryClient, SqliteQueryDeadlineError } from '../client.js';
+import {
+  SqliteQueryClient,
+  SqliteQueryDeadlineError,
+  SqliteQueryProcessExitedError,
+} from '../client.js';
 import type { QueryProcess } from '../process.js';
 import type { QueryRequest, SqliteGrepOptions } from '../protocol.js';
 
@@ -113,7 +117,12 @@ describe('owned grep reader stop paths', () => {
     await posted(owner, 2);
     owner.exit();
     const error = await outcome;
-    expect(error).toMatchObject({ message: 'SQLite query process exited.' });
+    // Typed, so Main classifies a signal's exit while quitting by its type (BST-2192).
+    expect(error).toMatchObject({
+      message: 'SQLite query process exited.',
+      name: 'SqliteQueryProcessExitedError',
+    });
+    expect(error).toBeInstanceOf(SqliteQueryProcessExitedError);
     await expect(client.grep(options)).rejects.toBe(error);
     await client.close();
     expect(owner.process.kill).not.toHaveBeenCalled();

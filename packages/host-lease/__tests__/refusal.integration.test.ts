@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, hostname, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { applyPrivateDirectorySync } from '@brainstrike/secure-fs-native';
 import {
   canonicalRoot,
   ForeignLockError,
@@ -15,7 +16,7 @@ import type { HostAttachment } from '../src/client.js';
 import { launchHost } from '../src/launcher.js';
 import { HOST_VERSION, PROTOCOL_VERSION } from '../src/record.js';
 import { type HostRuntime, startHost } from '../src/runtime.js';
-import { windowsPrivateAcl } from '../src/windows-acl.js';
+import { windowsPrivateAcl } from './fixtures/powershell-acl.js';
 
 /** Whether the temp directory's file system ignores case: macOS and Windows by default, not Linux. */
 const tmpFoldsCase = ((): boolean => {
@@ -166,7 +167,7 @@ test('a reused PID with a different start identity is stale even though that PID
     { mode: 0o600 }
   );
   if (process.platform === 'win32') {
-    await windowsPrivateAcl(root, 'directory', 'set');
+    applyPrivateDirectorySync(root);
     await windowsPrivateAcl(join(root, 'host.json'), 'file', 'set');
   }
   const client = await launchHost(root, {

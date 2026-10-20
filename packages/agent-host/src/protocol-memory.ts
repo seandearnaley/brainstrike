@@ -108,3 +108,19 @@ export const HostMemoryCycleEventSchema = Schema.Struct({
   ),
 });
 export type HostMemoryCycleEvent = (typeof HostMemoryCycleEventSchema)['Type'];
+/** The text `memory/embedder/probe` embeds: short, fixed, and free of user content. */
+export const HOST_MEMORY_EMBEDDER_PROBE_TEXT = 'Brainstrike memory embedder test.';
+/**
+ * BST-2227: the memory settings whose embedder Settings → Assistant Memory
+ * tests, as a run's configuration carries them; the platform decodes them.
+ */
+export const HostMemoryEmbedderProbeParamsSchema = Schema.Struct({
+  memorySettings: Schema.Record(Schema.String, Schema.MutableJson),
+});
+/** The probe's embedding: its catalog `provider::model`, its length and the call's latency. */
+export const HostMemoryEmbedderProbeResultSchema = Schema.Struct({
+  dimensions: ObservationThreshold,
+  latencyMs: NonNegativeInt,
+  modelId: Id,
+});
+export type HostMemoryEmbedderProbeResult = (typeof HostMemoryEmbedderProbeResultSchema)['Type'];

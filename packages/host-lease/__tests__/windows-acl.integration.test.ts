@@ -3,10 +3,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { applyPrivateDirectorySync } from '@brainstrike/secure-fs-native';
 import { afterEach, expect, test } from 'vitest';
 import { publishHostRecord, readHostRecord, removeOwnHostRecord } from '../src/record-file.js';
 import { startHost } from '../src/runtime.js';
-import { type AclKind, windowsPrivateAcl } from '../src/windows-acl.js';
+import { verifyWindowsPrivateDirectory } from '../src/windows-acl.js';
+import { type AclKind, windowsPrivateAcl } from './fixtures/powershell-acl.js';
 
 const execute = promisify(execFile);
 const roots: string[] = [];
@@ -166,3 +168,99 @@ for (const kind of ['directory', 'file'] as const) {
     });
   }
 }
+
+// BST-2237: host start applies, and every lease check verifies, the directory's
+// privacy natively. These mirror the PowerShell directory cases above.
+windowsTest('natively reapplies the exact private directory ACL twice', async () => {
+  const path = await freshPath('directory');
+  for (let round = 0; round < 2; round++) {
+    applyPrivateDirectorySync(path);
+    verifyWindowsPrivateDirectory(path);
+    const actual = await inspect(path, 'directory');
+    expect(actual).toEqual({
+      currentSid: expect.stringMatching(/^S-1-\d+(?:-\d+)+$/),
+      elevated: actual['elevated'],
+      ownerSid: actual['currentSid'],
+      protected: true,
+      rules: [
+        {
+          inheritance: 3,
+          isInherited: false,
+          propagation: 0,
+          rights: 2_032_127,
+          sid: actual['currentSid'],
+          type: 'Allow',
+        },
+      ],
+    });
+  }
+});
+
+for (const mutation of [
+  'extra-principal',
+  'insufficient-rights',
+  'unprotected',
+  'wrong-inheritance',
+]) {
+  windowsTest(`natively rejects real directory ACL with ${mutation}`, async () => {
+    const path = await freshPath('directory');
+    applyPrivateDirectorySync(path);
+    const mutated = await inspect(path, 'directory', mutation);
+    expect(() => verifyWindowsPrivateDirectory(path)).toThrow(
+      'Host metadata Windows ACL must grant only its current user full control'
+    );
+    expect(await inspect(path, 'directory')).toEqual(mutated);
+  });
+}
+
+windowsTest('natively rejects a directory another principal owns', () => {
+  // TrustedInstaller owns the Windows directory; the verify only reads it.
+  const systemRoot = process.env['SystemRoot'];
+  expect(systemRoot).toEqual(expect.any(String));
+  expect(() => verifyWindowsPrivateDirectory(systemRoot ?? '')).toThrow(
+    'Host metadata belongs to another user'
+  );
+});
+
+const sddlCommand = `
+$ErrorActionPreference = 'Stop'
+$sections = [System.Security.AccessControl.AccessControlSections]::Owner -bor [System.Security.AccessControl.AccessControlSections]::Access
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+# How SDDL spells this user: its SID, or an alias for a well-known account.
+$token = [System.Security.AccessControl.RawSecurityDescriptor]::new("O:$($user.Value)").GetSddlForm([System.Security.AccessControl.AccessControlSections]::Owner).Substring(2)
+$sddl = [System.IO.DirectoryInfo]::new($env:BRAINSTRIKE_ACL_TEST_PATH).GetAccessControl($sections).GetSecurityDescriptorSddlForm($sections)
+[ordered]@{ sddl = $sddl; user = $token } | ConvertTo-Json -Compress
+`;
+
+/** The directory's owner and DACL as SDDL, the current user spelled USER. */
+async function ownerAndDacl(path: string): Promise<string> {
+  const result = await execute(
+    'powershell.exe',
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', sddlCommand],
+    { env: { ...process.env, BRAINSTRIKE_ACL_TEST_PATH: path }, windowsHide: true }
+  );
+  const decoded: unknown = JSON.parse(result.stdout);
+  const sddl =
+    typeof decoded === 'object' && decoded !== null ? Reflect.get(decoded, 'sddl') : null;
+  const user =
+    typeof decoded === 'object' && decoded !== null ? Reflect.get(decoded, 'user') : null;
+  if (typeof sddl !== 'string' || typeof user !== 'string' || user.length === 0) {
+    throw new Error('Expected a real Windows SDDL observation');
+  }
+  return sddl.split(user).join('USER');
+}
+
+windowsTest(
+  'the native apply writes exactly the owner and DACL the PowerShell set writes',
+  async () => {
+    const native = await freshPath('directory');
+    const powershell = await freshPath('directory');
+    applyPrivateDirectorySync(native);
+    await windowsPrivateAcl(powershell, 'directory', 'set');
+    const expected = await ownerAndDacl(powershell);
+    expect(await ownerAndDacl(native)).toBe(expected);
+    // One explicit Allow of FILE_ALL_ACCESS to the owner, inherited by containers
+    // and objects, in a protected DACL (SDDL flags P, then optionally AR and AI).
+    expect(expected).toMatch(/^O:USERD:P(?:AR)?(?:AI)?\(A;OICI;FA;;;USER\)$/);
+  }
+);
