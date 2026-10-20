@@ -2,6 +2,33 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 beforeEach(() => vi.resetModules());
 
+it('paired admission observes begin before producers and retains both phases with a shared callback', async () => {
+  const close = await import('./renderer-close');
+  let observing = false;
+  const events: string[] = [];
+  const prepare = async () => {
+    expect(observing).toBe(true);
+    events.push('phase');
+  };
+  close.registerRendererCloseOwner({
+    begin: () => {
+      observing = true;
+      events.push('begin');
+    },
+    preparePersistence: prepare,
+    prepareProducers: prepare,
+  });
+  await close.prepareRendererClose();
+  expect(events).toEqual(['begin', 'phase', 'phase']);
+  expect(() =>
+    close.registerRendererCloseOwner({
+      begin: () => {},
+      preparePersistence: prepare,
+      prepareProducers: prepare,
+    })
+  ).toThrow('already preparing to close');
+});
+
 it('begins observing synchronously before an already queued rejection reaction drains', async () => {
   const { registerRendererClosePreparation: register, prepareRendererClose: prepare } =
     await import('./renderer-close');

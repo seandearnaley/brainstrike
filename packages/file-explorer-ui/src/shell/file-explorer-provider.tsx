@@ -1,6 +1,6 @@
 import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
-import { registerClosePreparation, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { registerClosePreparationPair, useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
 import { type FileExplorerState, FileExplorerStrings } from '@brainstrike/types';
@@ -10,7 +10,6 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -453,23 +452,38 @@ export function FileExplorerProvider({
   closeLifecycle,
   children,
 }: FileExplorerProviderProps) {
-  const [fileContentResetRevision, setFileContentResetRevision] = useState(0);
-  // Store and content-read authority share one lifecycle: replacing the
-  // storage adapter must never carry active reads into the replacement store.
-  const { fileContentLoadAuthority, store } = useMemo(
-    () => ({
-      fileContentLoadAuthority: createFileContentLoadAuthority(),
-      store: createFileExplorerStore(storageAdapter),
-    }),
-    [storageAdapter]
-  );
-
+  interface Resources {
+    activation: Promise<void> | undefined;
+    readonly fileContentLoadAuthority: FileContentLoadAuthority;
+    readonly storageAdapter: StorageAdapter;
+    readonly store: FileExplorerStore;
+  }
+  const resourceRef = useRef<Resources | undefined>(undefined);
+  const [resources, setResources] = useState<Resources | undefined>(undefined);
   useLayoutEffect(() => {
-    if (!closeLifecycle) {
+    // Commit owns acquisition. Abandoned renders allocate no store/worker,
+    // and a terminal document retains its existing resource instead of replacing it.
+    if (closeLifecycle?.isPreparing()) {
       return;
     }
+    let owned = resourceRef.current;
+    if (!owned || owned.storageAdapter !== storageAdapter) {
+      owned = {
+        activation: undefined,
+        fileContentLoadAuthority: createFileContentLoadAuthority(),
+        storageAdapter,
+        store: createFileExplorerStore(storageAdapter, { skipHydration: true }),
+      };
+      resourceRef.current = owned;
+    }
+    const current = owned;
+    const { fileContentLoadAuthority, store } = current;
     const settle = async (content: Promise<void>): Promise<void> => {
-      const results = await Promise.allSettled([content, store.drainHydration()]);
+      const results = await Promise.allSettled([
+        content,
+        current.activation,
+        store.drainHydration(),
+      ]);
       const failures = [
         ...new Set(
           results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
@@ -482,28 +496,68 @@ export function FileExplorerProvider({
         throw new AggregateError(failures, 'Explorer producers failed to settle');
       }
     };
-    return registerClosePreparation(
-      {
-        drain: () => settle(fileContentLoadAuthority.drain()),
-        prepareClose: () => settle(fileContentLoadAuthority.prepareClose()),
-      },
-      closeLifecycle.registerProducer
-    );
-  }, [fileContentLoadAuthority, closeLifecycle, store]);
-
-  useLayoutEffect(() => {
-    if (!closeLifecycle) {
-      return;
+    const detach = closeLifecycle
+      ? registerClosePreparationPair(
+          {
+            begin: store.beginPersistenceClose,
+            persistence: {
+              drain: () => store.drainPersistence(),
+              prepareClose: () => store.preparePersistenceClose(),
+            },
+            producers: {
+              drain: () => settle(fileContentLoadAuthority.drain()),
+              prepareClose: () => settle(fileContentLoadAuthority.prepareClose()),
+            },
+          },
+          closeLifecycle.registerOwner
+        )
+      : undefined;
+    // Both phases are now owned. A reentrant close at admission must not start
+    // hydration or publish a new child producer after the terminal fence.
+    if (!closeLifecycle?.isPreparing()) {
+      if (!current.activation) {
+        current.activation = (async () => {
+          await store.persist.rehydrate();
+        })();
+        // The retained producer joins this exact promise (including failure).
+        // Hydration's existing recovery path reports its own input failures.
+        void current.activation.then(
+          () => {},
+          () => {}
+        );
+      }
+      if (!closeLifecycle?.isPreparing()) {
+        setResources(current);
+      }
     }
-    return registerClosePreparation(
-      {
-        drain: () => store.drainPersistence(),
-        prepareClose: () => store.preparePersistenceClose(),
-      },
-      (prepare) => closeLifecycle.registerPersistence(prepare, store.beginPersistenceClose)
-    );
-  }, [store, closeLifecycle]);
+    return detach;
+  }, [storageAdapter, closeLifecycle]);
+  if (!resources) {
+    return null;
+  }
+  return (
+    <OwnedFileExplorerProvider
+      closeLifecycle={closeLifecycle}
+      {...(fileSystemAdapter ? { fileSystemAdapter } : {})}
+      resources={resources}
+    >
+      {children}
+    </OwnedFileExplorerProvider>
+  );
+}
 
+function OwnedFileExplorerProvider({
+  resources: { fileContentLoadAuthority, store },
+  closeLifecycle,
+  fileSystemAdapter,
+  children,
+}: Omit<FileExplorerProviderProps, 'storageAdapter'> & {
+  resources: {
+    readonly fileContentLoadAuthority: FileContentLoadAuthority;
+    readonly store: FileExplorerStore;
+  };
+}) {
+  const [fileContentResetRevision, setFileContentResetRevision] = useState(0);
   useLayoutEffect(
     () => () => {
       fileContentLoadAuthority.invalidateAll();
@@ -514,11 +568,11 @@ export function FileExplorerProvider({
   // Set up inline fixture subscription when adapter is available.
   // Runs once on mount, outside the React render cycle.
   useEffect(() => {
-    if (!fileSystemAdapter) {
+    if (!fileSystemAdapter || closeLifecycle?.isPreparing()) {
       return;
     }
     return setupInlineFixtureSubscription(store, fileSystemAdapter);
-  }, [store, fileSystemAdapter]);
+  }, [store, fileSystemAdapter, closeLifecycle]);
 
   useEffect(() => {
     const env = (

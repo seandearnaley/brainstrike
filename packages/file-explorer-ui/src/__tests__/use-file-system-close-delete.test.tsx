@@ -8,7 +8,7 @@ import type { ExplorerCloseLifecycle } from '../shell/explorer-close-lifecycle';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 import { useFileSystemInstance } from '../shell/use-file-system-context';
-import { FileExplorerTestWrapper } from './test-helpers';
+import { FileExplorerTestWrapper, withProviderCloseOwner } from './test-helpers';
 
 function originalCauses(error: unknown): unknown[] {
   return error instanceof AggregateError ? error.errors.flatMap(originalCauses) : [error];
@@ -29,7 +29,7 @@ it.each([false, true])(
     const producers = new Set<() => Promise<void>>();
     const persistence = new Map<() => Promise<void>, () => void>();
     let preparing = false;
-    const lifecycle: ExplorerCloseLifecycle = {
+    const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
       isPreparing: () => preparing,
       registerPersistence: (prepare, begin) => {
         persistence.set(prepare, begin);
@@ -43,7 +43,7 @@ it.each([false, true])(
           producers.delete(prepare);
         };
       },
-    };
+    });
     const view = renderHook(
       () => ({ fs: useFileSystemInstance(), store: useFileExplorerStoreContext() }),
       {

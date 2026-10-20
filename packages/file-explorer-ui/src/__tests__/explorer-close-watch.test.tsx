@@ -5,11 +5,12 @@ import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
 import { ExplorerCloseLifecycleContext } from '../shell/explorer-close-lifecycle';
 import { useFactoryResetWatchFence } from '../shell/use-factory-reset-watch-fence';
+import { withProviderCloseOwner } from './test-helpers';
 
 it('terminal preparation disposes the existing watch and blocks later callbacks and admissions', async () => {
   const prepare = new Set<() => Promise<void>>();
   let closing = false;
-  const lifecycle = {
+  const lifecycle = withProviderCloseOwner({
     isPreparing: () => closing,
     registerPersistence: () => () => {},
     registerProducer: (callback: () => Promise<void>) => {
@@ -18,7 +19,7 @@ it('terminal preparation disposes the existing watch and blocks later callbacks 
         prepare.delete(callback);
       };
     },
-  };
+  });
   type Watch = Parameters<NonNullable<FileSystemAdapter['watchDirectory']>>;
   let delivered: Watch[1] | undefined;
   const dispose = vi.fn();

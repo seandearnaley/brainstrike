@@ -111,7 +111,10 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
 };
 
 // Factory function to create store with custom storage adapter
-export function createFileExplorerStore(storageAdapter: StorageAdapter) {
+export function createFileExplorerStore(
+  storageAdapter: StorageAdapter,
+  configuration: { readonly skipHydration?: boolean } = {}
+) {
   let lifetime: import('./persistence/persistence-lifetime').PersistenceLifetime | undefined;
   const options = createPersistOptions(storageAdapter, (owner) => {
     lifetime = owner;
@@ -120,7 +123,12 @@ export function createFileExplorerStore(storageAdapter: StorageAdapter) {
     throw new Error('Explorer persistence lifetime was not created');
   }
   const owner = lifetime;
-  const store = create<FileExplorerState>()(persist(stateCreator, options));
+  const store = create<FileExplorerState>()(
+    persist(stateCreator, {
+      ...options,
+      skipHydration: configuration.skipHydration ?? false,
+    })
+  );
   return Object.assign(store, {
     beginPersistenceClose: () => owner.beginCloseObservation(),
     drainHydration: () => owner.drainHydration(),

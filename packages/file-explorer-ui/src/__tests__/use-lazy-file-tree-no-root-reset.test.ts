@@ -16,10 +16,9 @@ import { type DirectoryHandle, MockFileSystemAdapter } from '@brainstrike/file-s
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { useFileTree } from '../tree/use-file-tree-context';
 import { __resetInFlightRootLoads } from '../tree/use-lazy-file-tree';
-import { FileExplorerTestWrapper } from './test-helpers';
+import { FileExplorerTestWrapper, withProviderCloseOwner } from './test-helpers';
 
 const mockWorkerPort = {
   abort: vi.fn(),
@@ -83,7 +82,7 @@ describe('useLazyFileTree no-root reset', () => {
       });
     const producers = new Set<() => Promise<void>>();
     let closing = false;
-    const lifecycle = {
+    const lifecycle = withProviderCloseOwner({
       isPreparing: () => closing,
       registerPersistence: () => () => {},
       registerProducer: (prepare: () => Promise<void>) => {
@@ -92,7 +91,7 @@ describe('useLazyFileTree no-root reset', () => {
           producers.delete(prepare);
         };
       },
-    };
+    });
     const handle: DirectoryHandle = {
       kind: 'directory',
       name: 'fixture',

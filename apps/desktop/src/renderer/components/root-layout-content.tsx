@@ -28,6 +28,7 @@ import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
 import {
   hasRendererClosePreparationStarted,
+  registerRendererCloseOwner,
   registerRendererClosePreparation,
 } from '@brainstrike/app-state/renderer-close';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
@@ -74,8 +75,7 @@ const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes'
 
 const explorerCloseLifecycle = {
   isPreparing: hasRendererClosePreparationStarted,
-  registerPersistence: (prepare: () => Promise<void>, begin: () => void) =>
-    registerRendererClosePreparation(prepare, 'persistence', begin),
+  registerOwner: registerRendererCloseOwner,
   registerProducer: registerRendererClosePreparation,
 };
 

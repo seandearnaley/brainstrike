@@ -9,6 +9,7 @@ import {
   ExplorerCloseLifecycleContext,
 } from '../shell/explorer-close-lifecycle';
 import { ViewFilterPresetDropdown } from '../view-filter-preset-dropdown';
+import { withProviderCloseOwner } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => <TooltipProvider>{children}</TooltipProvider>);
 const renderWithProviders = makeRenderWithProviders(Wrapper);
@@ -61,7 +62,7 @@ function getPresetRow(label: string): HTMLElement {
 function createCloseScope() {
   let preparing = false;
   const producers = new Set<() => Promise<void>>();
-  const lifecycle: ExplorerCloseLifecycle = {
+  const lifecycle: ExplorerCloseLifecycle = withProviderCloseOwner({
     isPreparing: () => preparing,
     registerPersistence: () => {
       throw new Error('The preset dropdown must not register a persistence owner');
@@ -70,7 +71,7 @@ function createCloseScope() {
       producers.add(prepare);
       return () => producers.delete(prepare);
     },
-  };
+  });
   return {
     lifecycle,
     prepareClose: () => {
