@@ -461,18 +461,21 @@ function retainedGithub({
     }
     if (endpoint.endsWith('/artifacts')) {
       return [
-        artifact
-          ? [
-              {
-                digest: `sha256:${'d'.repeat(64)}`,
-                expired,
-                expires_at: '2026-10-20T09:00:00.000Z',
-                id: 9,
-                name: 'nightly-fix--BST-3000',
-                workflow_run: { head_sha: 'b'.repeat(40) },
-              },
-            ]
-          : [],
+        {
+          artifacts: artifact
+            ? [
+                {
+                  digest: `sha256:${'d'.repeat(64)}`,
+                  expired,
+                  expires_at: '2026-10-20T09:00:00.000Z',
+                  id: 9,
+                  name: 'nightly-fix--BST-3000',
+                  workflow_run: { head_sha: 'b'.repeat(40) },
+                },
+              ]
+            : [],
+          total_count: artifact ? 1 : 0,
+        },
       ];
     }
     throw new Error(`Unexpected GitHub endpoint ${endpoint}${JSON.stringify(fields)}`);
@@ -514,6 +517,81 @@ test('BST-2261: successful artifact handoff retains the current owner and record
   const twice = await runRetained(retainArgs(), linear);
   assert.equal(twice.exitCode, 0);
   assert.equal(linear.named('commentCreate').length, 1, 'same receipt is not posted twice');
+});
+test('BST-2275: retention finds the exact artifact on a later object response page', async () => {
+  writeFileSync(receiptFile, JSON.stringify(retained()));
+  const linear = fakeLinear({ comments: [claimedBy(CLAIMANT, 10), TONIGHT], issue: STARTED });
+  const normal = retainedGithub();
+  const artifact = normal('repos/o/r/actions/runs/77/artifacts')[0].artifacts[0];
+  const github = (endpoint, fields, paginate) => {
+    if (endpoint.endsWith('/artifacts')) {
+      assert.equal(paginate, true);
+      return [
+        {
+          artifacts: Array.from({ length: 100 }, (_, index) => ({ ...artifact, id: index + 100 })),
+          total_count: 101,
+        },
+        { artifacts: [artifact], total_count: 101 },
+      ];
+    }
+    return normal(endpoint, fields, paginate);
+  };
+  const result = await runRetained(retainArgs(), linear, github);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /actions\/runs\/77\/artifacts\/9/u);
+  assert.equal(linear.named('issueUpdate').length, 0);
+  assert.equal(linear.named('commentCreate').length, 1);
+});
+test('BST-2275: array response pages still preserve an exact existing PR', async () => {
+  writeFileSync(receiptFile, JSON.stringify(retained()));
+  const linear = fakeLinear({ comments: [claimedBy(CLAIMANT, 10), TONIGHT], issue: STARTED });
+  const normal = retainedGithub({ pr: true });
+  const github = (endpoint, fields, paginate) => {
+    assert.ok(
+      !endpoint.endsWith('/artifacts'),
+      'an existing PR preserves the patch without an artifact lookup'
+    );
+    const response = normal(endpoint, fields, paginate);
+    return endpoint.endsWith('/pulls') ? [[], ...response] : response;
+  };
+  const result = await runRetained(retainArgs(), linear, github);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /https:\/\/github\.com\/o\/r\/pull\/9/u);
+  assert.equal(linear.named('issueUpdate').length, 0);
+});
+test('BST-2275: malformed object or array pagination never retains or mutates a claim', async () => {
+  writeFileSync(receiptFile, JSON.stringify(retained()));
+  const normal = retainedGithub();
+  const page = normal('repos/o/r/actions/runs/77/artifacts')[0];
+  const artifact = page.artifacts[0];
+  const malformed = [
+    null,
+    page,
+    [null],
+    [{}],
+    [{ artifacts: null }],
+    [{ artifacts: {} }],
+    [[artifact]],
+    [page, []],
+  ];
+  for (const response of malformed) {
+    const linear = fakeLinear({ comments: [claimedBy(CLAIMANT, 10), TONIGHT], issue: STARTED });
+    const result = await runRetained(retainArgs(), linear, (endpoint, fields, paginate) =>
+      endpoint.endsWith('/artifacts') ? response : normal(endpoint, fields, paginate)
+    );
+    assert.equal(result.exitCode, 1, JSON.stringify(response));
+    assert.match(result.stderr, /GitHub returned malformed paginated results/u);
+    assert.equal(linear.mutations().length, 0);
+  }
+  for (const response of [null, [page], [[], page]]) {
+    const linear = fakeLinear({ comments: [claimedBy(CLAIMANT, 10), TONIGHT], issue: STARTED });
+    const result = await runRetained(retainArgs(), linear, (endpoint, fields, paginate) =>
+      endpoint.endsWith('/pulls') ? response : normal(endpoint, fields, paginate)
+    );
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /GitHub returned malformed paginated results/u);
+    assert.equal(linear.mutations().length, 0);
+  }
 });
 test('BST-2261: another current owner cannot be replaced by a retained receipt', async () => {
   writeFileSync(receiptFile, JSON.stringify(retained()));

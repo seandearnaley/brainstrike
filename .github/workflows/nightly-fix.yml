@@ -1,100 +1,164 @@
-# Runs after each scheduled nightly on main (owner decision 2026-10-19).
-# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
+# PROOF ONLY: never merge this branch or its generated fix PR.
+# Main's scheduled-origin caller is unchanged at the reviewed BASE in control.mjs.
+name: Nightly Fix Qualification
 
-name: Nightly Fix
-
-# BST-2235: the fix agents (BST-2189) act on a night's results; they are not
-# part of them. GitHub starts this workflow as a run of its own once a Nightly
-# run has completed, whatever its conclusion, so an agent's failure turns this
-# run red, never the night: the night's verdict judges only tests, and a
-# release resolves a commit by it. Under workflow_run GitHub runs this file
-# from the default branch, with main's head as GITHUB_SHA, so the agents work
-# from the night's run and commit, which the triggering run names.
-# https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run
-# scripts/__tests__/nightly-fix-agent-contract.test.mjs pins this workflow.
 on:
-  workflow_run:
-    workflows: [Nightly]
-    types: [completed]
-  # A manual run for a past scheduled night, while its artifacts are kept.
   workflow_dispatch:
     inputs:
-      run_id:
-        description: The scheduled Nightly run whose failing and flaky tests to fix.
+      expected_head:
+        description: Exact reviewed full commit of this proof branch.
         required: true
         type: string
+      proof_id:
+        description: Fixed reviewed identity pv67-nonempty-20261020-v2.
+        required: true
+        type: string
+      phase:
+        description: First agent/publication or repeat held-claim receipt.
+        required: true
+        type: choice
+        options: [first, repeat]
 
 permissions: {}
 
 jobs:
-  # Desktop E2E's Notify Linear uploads the night's queue, nightly-fix-issues:
-  # the failing and flaky tests' issues it filed or commented on, and the
-  # runner image of the lanes that ran them. A night without it fails here.
+  guard:
+    name: Admit the reviewed manual proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Read every open PR for proof capacity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" > "$RUNNER_TEMP/proof-pulls.json"
+      - name: Verify identity, proof-only paths and unchanged owners
+        env:
+          EXPECTED_HEAD: ${{ inputs.expected_head }}
+          PROOF_ID: ${{ inputs.proof_id }}
+          PROOF_PHASE: ${{ inputs.phase }}
+          PULL_PAGES: ${{ runner.temp }}/proof-pulls.json
+        run: node apps/desktop/e2e/fixtures/nightly-fix-proof/control.mjs guard
+
+  proof-fix-case:
+    name: Intentionally failing proof assertion
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      validated: ${{ steps.validate.outputs.validated }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_head }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - name: Run the real Playwright canary
+        id: canary
+        working-directory: apps/desktop
+        env:
+          NIGHTLY_PROOF_RESULTS_DIR: ${{ runner.temp }}/nightly-results/proof-fix-case/single
+          NIGHTLY_PROOF_DIAGNOSTICS_DIR: ${{ runner.temp }}/proof-fix-case-test-results
+        run: pnpm exec playwright test --config e2e/fixtures/nightly-fix-proof/playwright.config.mjs
+      - name: Admit only the intended assertion failure
+        id: validate
+        if: ${{ always() }}
+        env:
+          CANARY_OUTCOME: ${{ steps.canary.outcome }}
+          JOB_STATUS: ${{ job.status }}
+          REPORT_FILE: ${{ runner.temp }}/nightly-results/proof-fix-case/single/canary.json
+        run: node apps/desktop/e2e/fixtures/nightly-fix-proof/control.mjs report
+      - name: Record the actual job status
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PART_DIR: ${{ runner.temp }}/nightly-results/proof-fix-case/single
+        run: |
+          mkdir -p "$PART_DIR"
+          printf '%s\n' "$JOB_STATUS" > "$PART_DIR/job.status"
+      - name: Upload canonical nightly results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--proof-fix-case
+          path: ${{ runner.temp }}/nightly-results/
+          retention-days: 1
+          if-no-files-found: error
+      - name: Upload proof diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: proof-fix-case-test-results
+          path: ${{ runner.temp }}/proof-fix-case-test-results/
+          retention-days: 1
+          if-no-files-found: error
+
+  notify:
+    needs: [guard, proof-fix-case]
+    if: ${{ always() && needs.guard.result == 'success' && needs.proof-fix-case.outputs.validated == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: Nightly Fix Qualification
+      results: proof-fix-case=failure
+      fix_runs_on: ubuntu-latest
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+
   queue:
-    name: Read the night's fix queue
-    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule')
+    name: Read the single proof issue
+    needs: [guard, proof-fix-case, notify]
+    if: ${{ always() && needs.guard.result == 'success' && needs.proof-fix-case.outputs.validated == 'true' && needs.notify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
+      contents: read
     outputs:
-      head_sha: ${{ steps.nightly.outputs.head_sha }}
       queue: ${{ steps.queue.outputs.queue }}
-      run_id: ${{ steps.nightly.outputs.run_id }}
     steps:
-      # A dispatch names its night by run id, and that run must be a
-      # scheduled Nightly run; its commit then comes from the run itself.
-      - name: Name the night's run and commit
-        id: nightly
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NIGHTLY_RUN_ID: ${{ github.event.workflow_run.id }}
-          NIGHTLY_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          DISPATCHED_RUN_ID: ${{ inputs.run_id }}
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            NIGHTLY_RUN_ID=$DISPATCHED_RUN_ID
-            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$NIGHTLY_RUN_ID" --jq '[.path, .event, .head_sha] | @tsv')
-            IFS=$'\t' read -r workflow event NIGHTLY_HEAD_SHA <<< "$run"
-            if [ "$workflow" != .github/workflows/nightly.yml ] || [ "$event" != schedule ]; then
-              echo "::error::Run $NIGHTLY_RUN_ID is a $event run of $workflow, not a scheduled Nightly run."
-              exit 1
-            fi
-          fi
-          if ! [[ "$NIGHTLY_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Nightly run $NIGHTLY_RUN_ID names no commit SHA (\"$NIGHTLY_HEAD_SHA\")."
-            exit 1
-          fi
-          printf 'run_id=%s\nhead_sha=%s\n' "$NIGHTLY_RUN_ID" "$NIGHTLY_HEAD_SHA" >> "$GITHUB_OUTPUT"
-
-      # By name from the night's run: a missing queue fails the download.
-      - name: Download the night's fix queue
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_head }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Download this run's actual notifier queue
         uses: actions/download-artifact@v8
         with:
           name: nightly-fix-issues
           path: ${{ runner.temp }}/nightly-fix
-          run-id: ${{ steps.nightly.outputs.run_id }}
+          run-id: ${{ github.run_id }}
           github-token: ${{ github.token }}
-
-      - name: List the issues to fix
+      - name: Validate and map the queue
         id: queue
+        env:
+          QUEUE_FILE: ${{ runner.temp }}/nightly-fix/fix-issues.json
         run: |
-          set -euo pipefail
-          queue=$(jq -c '.runs_on as $runs_on | [.issues[] | {issue: ., runs_on: $runs_on}]' "$RUNNER_TEMP/nightly-fix/fix-issues.json")
+          node apps/desktop/e2e/fixtures/nightly-fix-proof/control.mjs queue
+          queue=$(jq -c '.runs_on as $runs_on | [.issues[] | {issue: ., runs_on: $runs_on}]' "$QUEUE_FILE")
           echo "queue=$queue" >> "$GITHUB_OUTPUT"
-          echo "Fix queue: $queue" >> "$GITHUB_STEP_SUMMARY"
 
-  # One agent per issue, on the image of the lanes that ran its test. The claim
-  # (scripts/nightly-fix-issue.mjs) and the per-issue concurrency group in
-  # nightly-fix-agent.yml hold each issue to one attempt.
   fix:
-    name: Fix nightly test
+    name: Fix the proof canary
     needs: [queue]
-    if: needs.queue.outputs.queue != '[]'
+    if: ${{ always() && needs.queue.result == 'success' }}
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include: ${{ fromJSON(needs.queue.outputs.queue) }}
     permissions:
@@ -105,8 +169,53 @@ jobs:
     with:
       issue: ${{ matrix.issue }}
       runs_on: ${{ matrix.runs_on }}
-      nightly_run_id: ${{ needs.queue.outputs.run_id }}
-      head_sha: ${{ needs.queue.outputs.head_sha }}
+      nightly_run_id: ${{ github.run_id }}
+      head_sha: ${{ inputs.expected_head }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+
+  receipt:
+    name: Check the requested phase receipt
+    needs: [queue, fix]
+    if: ${{ always() && needs.queue.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_head }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v8
+        with:
+          name: nightly-fix-issues
+          path: ${{ runner.temp }}/proof-receipt
+      - name: Read actual jobs and retained artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/proof-receipt/jobs.json"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/proof-receipt/artifacts.json"
+      - name: Require first publication or repeat skip
+        env:
+          PROOF_PHASE: ${{ inputs.phase }}
+          PROOF_ISSUE: ${{ fromJSON(needs.queue.outputs.queue)[0].issue }}
+          QUEUE_FILE: ${{ runner.temp }}/proof-receipt/fix-issues.json
+          JOBS_FILE: ${{ runner.temp }}/proof-receipt/jobs.json
+          ARTIFACTS_FILE: ${{ runner.temp }}/proof-receipt/artifacts.json
+          RECEIPT_FILE: ${{ runner.temp }}/proof-receipt/receipt.json
+        run: node apps/desktop/e2e/fixtures/nightly-fix-proof/control.mjs receipt
+      - name: Retain the phase receipt even when its checks fail
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-proof-phase-receipt
+          path: ${{ runner.temp }}/proof-receipt/
+          retention-days: 7
+          if-no-files-found: error
