@@ -1,6 +1,6 @@
 // Every request on the state index stays bounded: a read that would catch its
 // threads up first sends that catch-up as bounded steps, so the read request
-// itself never carries a backlog past its connection's deadline.
+// itself never carries the whole backlog.
 import { expect, it } from 'vitest';
 import { STATE_CATCH_UP_STEP_EVENTS } from '../src/contracts.js';
 import { createIndexerConnection, type IndexerTransport } from '../src/transport.js';
@@ -91,7 +91,7 @@ function worker(steps: number, behind = 0) {
   };
   const port = createIndexerConnection(
     { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] },
-    { closeMs: 50, exitMs: 50, requestMs: 1000, startupMs: 1000 },
+    { closeMs: 50, exitMs: 50 },
     transport
   ).ready;
   return { port, sent };

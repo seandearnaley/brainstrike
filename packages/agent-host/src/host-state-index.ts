@@ -14,19 +14,24 @@ import {
   validateIndexerDeadlines,
   validateIndexerOptions,
 } from '@brainstrike/indexer/transport';
+import { createLogger } from '@brainstrike/logging';
 import { canonicalRoot, type IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import { createStateIndexOwner } from './host-state-index-owner.js';
 import type { HostStartupContext } from './runtime.js';
 
+const logger = createLogger('AgentHostStateIndex');
+
 /** Derived and rebuildable from the state log; lives inside the host's own state root. */
 export const HOST_STATE_INDEX_FILE = 'state-index.sqlite';
 
-// The desktop native index owner's existing deadlines (native-index-activation.ts).
+/**
+ * The worker's close ladder (lifecycle R5(b)): a cooperative close gets `closeMs` before the
+ * worker is terminated, and its exit `exitMs` before ownership is reported retained. Requests
+ * and startup have no deadline: a slow worker is load, never retired for it (R2).
+ */
 export const HOST_STATE_INDEX_DEADLINES = {
   closeMs: 1000,
   exitMs: 1000,
-  requestMs: 5000,
-  startupMs: 60_000,
 } as const;
 
 export interface HostStateIndex {
@@ -138,6 +143,13 @@ function startStateIndexWorker(options: { readonly dbPath: string }): IndexerCon
       return () => {
         worker.off('message', listener);
       };
+    },
+    onStall: (stage, elapsedMs) => {
+      logger.warn('Host state index worker is slow; still joined, never retired for it', {
+        code: 'host_state_index_stalled',
+        elapsedMs,
+        stage,
+      });
     },
     send: (message) => worker.postMessage(message),
   });

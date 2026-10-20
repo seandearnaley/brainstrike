@@ -28,9 +28,15 @@ function startupError(reply: { readonly message: string; readonly name: string }
 
 export interface OpenSqliteQueryOptions {
   readonly databasePath: string;
-  readonly deadlineMs: number;
+  /**
+   * R5(a): the bound of one read the user waits on, refused as `SqliteQueryDeadlineError` with
+   * the read's own process stopped. Absent, a read has no deadline (background work, lifecycle
+   * R2): the process's exit is its only end.
+   */
+  readonly deadlineMs?: number | undefined;
   readonly spawn: () => QueryProcess;
-  readonly startupDeadlineMs: number;
+  /** R5(a): the bound of the startup such a read waits on, as `deadlineMs`. Absent, none. */
+  readonly startupDeadlineMs?: number | undefined;
 }
 
 export interface OpenNativeCoverageOptions extends Omit<OpenSqliteQueryOptions, 'databasePath'> {
@@ -39,7 +45,7 @@ export interface OpenNativeCoverageOptions extends Omit<OpenSqliteQueryOptions, 
 
 export class SqliteQueryClient {
   readonly #process: QueryProcess;
-  readonly #deadlineMs: number;
+  readonly #deadlineMs: number | undefined;
   readonly #pending = new Map<
     number,
     {
@@ -55,7 +61,7 @@ export class SqliteQueryClient {
   #hasExited = false;
   #killRequested = false;
 
-  private constructor(process: QueryProcess, deadlineMs: number) {
+  private constructor(process: QueryProcess, deadlineMs: number | undefined) {
     this.#process = process;
     this.#deadlineMs = deadlineMs;
     this.#exited = new Promise((resolve) => {
@@ -129,7 +135,7 @@ export class SqliteQueryClient {
     body: RequestBody
   ): Promise<SqliteQueryClient> {
     for (const timeout of [options.deadlineMs, options.startupDeadlineMs]) {
-      if (!(Number.isFinite(timeout) && timeout > 0)) {
+      if (timeout !== undefined && !(Number.isFinite(timeout) && timeout > 0)) {
         throw new RangeError('SQLite query deadlines must be positive finite milliseconds.');
       }
     }
@@ -213,7 +219,7 @@ export class SqliteQueryClient {
     this.#pending.clear();
   }
 
-  #call(body: RequestBody, timeoutMs: number): Promise<QueryResponse> {
+  #call(body: RequestBody, timeoutMs: number | undefined): Promise<QueryResponse> {
     if (this.#terminal) {
       return Promise.reject(this.#terminal);
     }
@@ -227,24 +233,26 @@ export class SqliteQueryClient {
     } catch (error) {
       return Promise.reject(error);
     }
-    return runWithTimeout(
-      () =>
-        new Promise<QueryResponse>((resolve, reject) => {
-          this.#pending.set(id, { kind: request.kind, reject, resolve });
-          try {
-            this.#process.postMessage(request);
-          } catch (error) {
-            this.#stop(error instanceof Error ? error : new Error(String(error)));
-          }
-        }),
-      {
-        onTimeout: () => {
-          this.#stop(new SqliteQueryDeadlineError(timeoutMs));
-          return this.#terminal;
-        },
-        timeoutMs,
-      }
-    ).finally(() => {
+    const response = () =>
+      new Promise<QueryResponse>((resolve, reject) => {
+        this.#pending.set(id, { kind: request.kind, reject, resolve });
+        try {
+          this.#process.postMessage(request);
+        } catch (error) {
+          this.#stop(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+    const settled =
+      timeoutMs === undefined
+        ? response()
+        : runWithTimeout(response, {
+            onTimeout: () => {
+              this.#stop(new SqliteQueryDeadlineError(timeoutMs));
+              return this.#terminal;
+            },
+            timeoutMs,
+          });
+    return settled.finally(() => {
       this.#pending.delete(id);
     });
   }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { openIndexer } from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const hash = (text: string): string => createHash('sha256').update(text).digest('hex');
 it('verifies exact authorized native manifests instead of equal file counts and survives reopen', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-index-manifest-'));

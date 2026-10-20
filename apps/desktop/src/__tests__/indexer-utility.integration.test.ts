@@ -57,7 +57,7 @@ describe('actual Electron indexer utility process', () => {
               ELECTRON_RUN_AS_NODE: undefined,
             },
             maxBuffer: 1024 * 1024,
-            timeout: mode === 'startup' ? 1500 : 20_000,
+            timeout: 20_000,
           }
         );
         console.log(stdout);

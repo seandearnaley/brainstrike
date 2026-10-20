@@ -364,3 +364,33 @@ it('a late old-generation reply cannot settle a replacement with the same reques
   replacement.exit();
   await closing;
 });
+
+// Lifecycle redesign PR D: background coverage opens with no deadline; only the exit ends it.
+it('a client opened with no deadline waits out a slow startup and read, and never stops its process', async () => {
+  vi.useFakeTimers();
+  try {
+    const owner = reader(false);
+    const opening = SqliteQueryClient.open({
+      databasePath: '/recorded/index.sqlite',
+      spawn: () => owner.process,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(owner.requests).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    owner.message({ id: owner.requests[0]?.id, kind: 'ready' });
+    const client = await opening;
+
+    const read = client.grep(options);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(owner.requests).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    owner.message(grepRows(owner.requests[1]?.id ?? 0));
+    expect(await read).toMatchObject({ rows: [['chunk-2']] });
+    expect(owner.process.kill).not.toHaveBeenCalled();
+    const closing = client.close();
+    owner.exit();
+    await closing;
+  } finally {
+    vi.useRealTimers();
+  }
+});

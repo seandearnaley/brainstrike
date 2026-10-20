@@ -27,7 +27,7 @@ it('removes the same inactive native database and sidecars before the live profi
     createIndexOwner: async (authority) => {
       const starting = openIndexer(
         { ...authority, dbPath, embedding: { indexMode: 'text-only' } },
-        { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+        { closeMs: 5000, exitMs: 5000 }
       );
       return {
         close: async () => (await starting).close(),

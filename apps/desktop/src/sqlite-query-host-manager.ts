@@ -1,6 +1,7 @@
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import {
+  type QueryProcess,
   SqliteQueryClient,
   SqliteQueryStartupCleanupError,
   spawnUtilityQueryProcess,
@@ -13,13 +14,18 @@ interface IndexQueryTarget {
   readonly databasePath: string;
 }
 
+/**
+ * R5(a): the bounds of a user-facing grep, refused typed with its own query process stopped.
+ * Coverage reads are background work and have none (lifecycle R2).
+ */
 interface IndexQueryDeadlines {
   readonly deadlineMs: number;
   readonly startupDeadlineMs: number;
 }
 
 const owners = new Set<SqliteQueryClient>();
-const acquisitions = new Set<Promise<SqliteQueryClient>>();
+/** Each acquisition still starting, with the stop of the process it spawned, for close. */
+const acquisitions = new Map<Promise<SqliteQueryClient>, () => void>();
 let target:
   | { readonly acquire: () => IndexQueryTarget; readonly deadlines: IndexQueryDeadlines }
   | undefined;
@@ -53,6 +59,7 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
   if (!app.isReady()) {
     throw new Error('Index query utility process requires Electron app readiness.');
   }
+  let spawned: QueryProcess | undefined;
   const acquisition = SqliteQueryClient.open({
     databasePath: index.databasePath,
     ...registered.deadlines,
@@ -60,17 +67,18 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('The authoritative index owner changed before query acquisition.');
       }
-      return spawnUtilityQueryProcess(
+      spawned = spawnUtilityQueryProcess(
         (entryPath) =>
           utilityProcess.fork(entryPath, [], { serviceName: 'brainstrike-index-query' }),
         resolveBundledSiblingPath('SQLite index query', 'sqlite-query-host-entry.js')
       );
+      return spawned;
     },
   });
-  return ownIndexReader(acquisition, registered);
+  return ownIndexReader(acquisition, registered, () => spawned?.kill());
 }
 
-/** Main-only coverage owner; grep keeps its own sandbox and deadline. */
+/** Main-only coverage owner, with no deadline (background work); grep keeps its sandbox and bound. */
 export async function openIndexCoverage(
   authority: CoverageAuthority
 ): Promise<NativeCoverageReader> {
@@ -85,29 +93,30 @@ export async function openIndexCoverage(
   if (!app.isReady()) {
     throw new Error('Native coverage utility requires Electron app readiness.');
   }
+  let spawned: QueryProcess | undefined;
   const acquisition = SqliteQueryClient.openNativeCoverage({
     authority,
-    deadlineMs: 5000,
     spawn: () => {
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('Native coverage owner changed before acquisition.');
       }
-      return spawnUtilityQueryProcess(
+      spawned = spawnUtilityQueryProcess(
         (entryPath) =>
           utilityProcess.fork(entryPath, [], { serviceName: 'brainstrike-index-coverage' }),
         resolveBundledSiblingPath('SQLite index coverage', 'sqlite-query-host-entry.js')
       );
+      return spawned;
     },
-    startupDeadlineMs: registered.deadlines.startupDeadlineMs,
   });
-  return ownIndexReader(acquisition, registered);
+  return ownIndexReader(acquisition, registered, () => spawned?.kill());
 }
 
 async function ownIndexReader(
   acquisition: Promise<SqliteQueryClient>,
-  registered: NonNullable<typeof target>
+  registered: NonNullable<typeof target>,
+  stop: () => void
 ): Promise<Pick<SqliteQueryClient, 'grep' | 'nativeCoverage' | 'close'>> {
-  acquisitions.add(acquisition);
+  acquisitions.set(acquisition, stop);
   try {
     const client = await acquisition;
     owners.add(client);
@@ -134,10 +143,17 @@ async function ownIndexReader(
   }
 }
 
-/** Close admission before joining in-flight startup and read-only hosts; reset may delete files only after this resolves. */
+/**
+ * Close admission, stop every query process still starting (a startup may have no deadline),
+ * and join those startups and the read-only hosts; reset may delete files only after this resolves.
+ */
 export async function closeAllIndexQueries(): Promise<void> {
   target = undefined;
-  await Promise.allSettled([...acquisitions]);
+  const stopping = [...acquisitions].map(async ([acquisition, stop]) => {
+    stop();
+    await acquisition.catch(() => undefined);
+  });
+  const stopped = await Promise.allSettled(stopping);
   const closing = [...owners];
   const outcomes = await Promise.allSettled(
     closing.map(async (owner) => {
@@ -145,7 +161,7 @@ export async function closeAllIndexQueries(): Promise<void> {
       owners.delete(owner);
     })
   );
-  const errors = outcomes.flatMap((outcome) =>
+  const errors = [...stopped, ...outcomes].flatMap((outcome) =>
     outcome.status === 'rejected' ? [outcome.reason as unknown] : []
   );
   if (errors.length > 0) {

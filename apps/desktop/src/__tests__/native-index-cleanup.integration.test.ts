@@ -7,7 +7,7 @@ import { expect, test, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createNativeIndexRuntime } from '../native-index-runtime';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 test('inactive persisted collection cleanup removes only its native rows without a saved search configuration', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'native-collection-cleanup-'));
   const dbPath = join(directory, 'index.sqlite');

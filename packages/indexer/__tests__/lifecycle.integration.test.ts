@@ -45,7 +45,7 @@ async function fixture(killMode: 'real' | 'refuse' | 'throw') {
       embedding: { indexMode: 'vector-configured', profile },
       rootIds: ['root-a'],
     },
-    { closeMs: 100, exitMs: 100, requestMs: 100, startupMs: 100 },
+    { closeMs: 100, exitMs: 100 },
     {
       kill: () => {
         attempts += 1;
@@ -81,10 +81,18 @@ async function fixture(killMode: 'real' | 'refuse' | 'throw') {
     connection,
   };
 }
-describe('real process deadline ownership', () => {
-  it('bounds startup and joins a single confirmed termination', async () => {
+describe('real process close ladder ownership', () => {
+  // Lifecycle R2/R3: no clock retires a process that has not reported ready; close is
+  // what ends it, escalating its unanswered cooperative close to one kill whose exit is
+  // joined (R5(b)). The escalation is not a failure; a refused kill is.
+  it('waits for a never-ready process, then close joins a single confirmed termination', async () => {
     const host = await fixture('real');
-    await expect(host.connection.ready).rejects.toThrow('startup exceeded');
+    const ready = host.connection.ready.catch((failure: unknown) => failure);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(host.connection.exited).toBe(false);
+    expect(host.attempts()).toBe(0);
+    await expect(host.connection.close()).resolves.toBeUndefined();
+    expect(await ready).toBeInstanceOf(Error);
     expect(host.connection.exited).toBe(true);
     expect(host.attempts()).toBe(1);
     expect(() => process.kill(host.child.pid!, 0)).toThrow();
@@ -94,13 +102,13 @@ describe('real process deadline ownership', () => {
   for (const mode of ['refuse', 'throw'] as const) {
     it(`retains live ownership after kill ${mode} and allows explicit joined cleanup`, async () => {
       const host = await fixture(mode);
-      const error = await host.connection.ready.catch((failure: unknown) => failure);
+      const error = await host.connection.close().catch((failure: unknown) => failure);
       expect(error).toBeInstanceOf(IndexerLifecycleError);
       expect(host.connection.exited).toBe(false);
       expect(host.attempts()).toBe(1);
       expect(() => process.kill(host.child.pid!, 0)).not.toThrow();
       host.allowKill();
-      await expect(host.connection.close()).rejects.toThrow('close failed');
+      await expect(host.connection.close()).resolves.toBeUndefined();
       expect(host.connection.exited).toBe(true);
       expect(host.attempts()).toBe(2);
       await host.connection.close();

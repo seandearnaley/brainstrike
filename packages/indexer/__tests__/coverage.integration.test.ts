@@ -12,7 +12,7 @@ const profile = {
   revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   tokenCap: 512,
 } as const;
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const vector = Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0));
 it('reports only actual authorized native coverage and never equates empty roots with vector readiness', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-index-coverage-'));

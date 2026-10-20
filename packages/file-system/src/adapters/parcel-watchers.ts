@@ -2,9 +2,9 @@
 // `watchDirectory(handle, cb) => disposer` contract.
 //
 // Invariants (docs/agents/research/bst-568-parcel-watcher-spike.md):
-// - One native subscription per root; subscribe is bounded by a timeout and a
-//   late-resolving subscription after timeout/dispose is unsubscribed, never
-//   leaked.
+// - One native subscription per root. The native subscribe is joined however
+//   long it takes (lifecycle R2, PR D): health stays `starting` until it
+//   settles, and no clock reports a slow subscribe as a failure.
 // - Known FSEvents rescan-required errors retain their native subscription,
 //   degraded health and root-level invalidation. Unknown backend errors keep
 //   their actual error severity; log each failure class once per episode.
@@ -81,18 +81,7 @@ const BOUNDED_NATIVE_DEFAULT_IGNORE_PATTERN_SET: ReadonlySet<string> = new Set(
   BOUNDED_NATIVE_DEFAULT_IGNORE_PATTERNS
 );
 
-export const PARCEL_SUBSCRIBE_TIMEOUT_MS = 10_000;
-
-export class ParcelSubscribeTimeoutError extends Error {
-  readonly code = 'subscribe-timeout';
-
-  constructor(path: string, timeoutMs: number) {
-    super(`@parcel/watcher subscribe for ${path} timed out after ${timeoutMs}ms`);
-    this.name = 'ParcelSubscribeTimeoutError';
-  }
-}
-
-/** Failed late acquisition cleanup remains physically owned and retryable. */
+/** A watch owner's failed retirement of an acquired subscription: still owned, and retryable. */
 export class ParcelWatchRetirementError extends AggregateError {
   constructor(
     errors: readonly unknown[],
@@ -104,6 +93,11 @@ export class ParcelWatchRetirementError extends AggregateError {
 }
 
 export interface StartParcelWatchOptions {
+  /**
+   * E2E seam: awaited before the native subscribe starts, so a test can make it
+   * as slow as a loaded machine (Main's `parcel-subscribe` lifecycle delay).
+   */
+  beforeSubscribe?: () => Promise<void>;
   /**
    * Per-subscription ignore override (BST-1112): when provided, REPLACES
    * DEFAULT_IGNORE_PATTERNS for THIS subscription only. Explicit overrides
@@ -117,8 +111,9 @@ export interface StartParcelWatchOptions {
   loadModule?: () => Promise<ParcelWatcherModule>;
   /**
    * Receives typed health transitions on state or failure-class change:
-   * starting -> healthy | failed; healthy <-> degraded per backend-error
-   * episode (a clean batch recovers degraded to healthy); stopped once.
+   * starting (until the native subscribe settles, however long) -> healthy |
+   * failed; healthy <-> degraded per backend-error episode (a clean batch
+   * recovers degraded to healthy); stopped once.
    */
   onHealth?: (event: WatcherHealthTransition) => void;
   /**
@@ -130,8 +125,6 @@ export interface StartParcelWatchOptions {
    * including `[]`.
    */
   reportDefaultFilteredChanges?: boolean;
-  /** Test seam: overrides PARCEL_SUBSCRIBE_TIMEOUT_MS. */
-  subscribeTimeoutMs?: number;
 }
 
 export function assertValidParcelWatchFilterOptions(
@@ -177,7 +170,6 @@ async function startParcelWatchOwned(
 ): Promise<() => Promise<void>> {
   assertValidParcelWatchFilterOptions(options);
   const backend = selectParcelBackend();
-  const timeoutMs = options.subscribeTimeoutMs ?? PARCEL_SUBSCRIBE_TIMEOUT_MS;
   const reportDefaultFilteredChanges = options.reportDefaultFilteredChanges ?? false;
   const ignorePatterns = options.ignorePatterns;
   // A provided array (including []) REPLACES the default at both native and
@@ -411,91 +403,43 @@ async function startParcelWatchOwned(
     }
   };
 
-  const subscribePromise = module.subscribe(handle.path, handleBackendCallback, {
-    backend,
-    // Explicit overrides still agree with `ignoreRegex` exactly. Legacy
-    // default consumers retain DEFAULT_IGNORE_PATTERNS natively. The opted-in
-    // Explorer owner broadens only bounded output defaults. Parcel matches
-    // glob patterns against paths RELATIVE to the watched root, so an ancestor
-    // segment named build/dist/node_modules cannot swallow the subscription.
-    ignore:
-      ignorePatterns === undefined
-        ? [
-            ...nativeIgnoreGlobs(
-              reportDefaultFilteredChanges
-                ? BOUNDED_NATIVE_DEFAULT_IGNORE_PATTERNS
-                : DEFAULT_IGNORE_PATTERNS
-            ),
-            ...(rootInsideExcludedTree ? [] : UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS),
-          ]
-        : nativeIgnoreGlobs(ignorePatterns),
-  });
+  const subscribe = () =>
+    module.subscribe(handle.path, handleBackendCallback, {
+      backend,
+      // Explicit overrides still agree with `ignoreRegex` exactly. Legacy
+      // default consumers retain DEFAULT_IGNORE_PATTERNS natively. The opted-in
+      // Explorer owner broadens only bounded output defaults. Parcel matches
+      // glob patterns against paths RELATIVE to the watched root, so an ancestor
+      // segment named build/dist/node_modules cannot swallow the subscription.
+      ignore:
+        ignorePatterns === undefined
+          ? [
+              ...nativeIgnoreGlobs(
+                reportDefaultFilteredChanges
+                  ? BOUNDED_NATIVE_DEFAULT_IGNORE_PATTERNS
+                  : DEFAULT_IGNORE_PATTERNS
+              ),
+              ...(rootInsideExcludedTree ? [] : UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS),
+            ]
+          : nativeIgnoreGlobs(ignorePatterns),
+    });
 
-  let timedOut = false;
-  const subscription = await Promise.race([
-    subscribePromise,
-    new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => {
-        timedOut = true;
-        reject(new ParcelSubscribeTimeoutError(handle.path, timeoutMs));
-      }, timeoutMs);
-      // Cancel the timer on either outcome of the real subscribe so a
-      // completed watch never holds a live timer.
-      subscribePromise.then(
-        () => clearTimeout(timer),
-        () => clearTimeout(timer)
-      );
-    }),
-  ]).catch(async (error: unknown) => {
+  // Joined however long it takes (lifecycle R2): a slow subscribe is load, so health stays
+  // `starting` until it settles. Only the subscribe's own failure fails the watch, and a
+  // rejected subscribe owns no subscription.
+  const subscribed = options.beforeSubscribe
+    ? options.beforeSubscribe().then(subscribe)
+    : subscribe();
+  const subscription = await subscribed.catch(async (error: unknown) => {
     stopped = true;
     batcher.dispose();
     transitionHealth('failed', {
-      code: timedOut ? 'subscribe-timeout' : 'subscribe-failed',
+      code: 'subscribe-failed',
       message: error instanceof Error ? error.message : String(error),
       retryable: true,
       terminal: false,
     });
-    if (timedOut) {
-      if (!joinRetirement) {
-        subscribePromise
-          .then(
-            (late) => retireParcelSubscription(late, eventQueue),
-            () => eventQueue
-          )
-          .catch(() => undefined);
-        throw error;
-      }
-      // A rejected acquisition owns no subscription. Join admitted event work
-      // and preserve both startup failures without inventing an unsubscribe retry.
-      const acquisition = await subscribePromise.then(
-        (late) => ({ status: 'acquired' as const, subscription: late }),
-        (acquisitionError: unknown) => ({ error: acquisitionError, status: 'failed' as const })
-      );
-      if (acquisition.status === 'failed') {
-        const results = await Promise.allSettled([eventQueue]);
-        const failures = results.flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : []
-        );
-        throw new AggregateError(
-          [error, acquisition.error, ...failures],
-          'Parcel subscription acquisition failed after timeout.'
-        );
-      }
-      // An acquired subscription remains owned until actual unsubscribe succeeds.
-      let cleanup: Promise<void> | undefined;
-      const retire = (): Promise<void> => {
-        cleanup ??= retireParcelSubscription(acquisition.subscription, eventQueue);
-        cleanup.catch(() => {
-          cleanup = undefined;
-        });
-        return cleanup;
-      };
-      try {
-        await retire();
-      } catch (cleanupError) {
-        throw new ParcelWatchRetirementError([error, cleanupError], retire);
-      }
-    } else if (joinRetirement) {
+    if (joinRetirement) {
       await eventQueue;
     }
     throw error;

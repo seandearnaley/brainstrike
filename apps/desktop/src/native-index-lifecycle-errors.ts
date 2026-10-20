@@ -42,6 +42,12 @@ export function nativeIndexStateError(state: NativeIndexState): Error {
   if (state.kind === 'closed') {
     return nativeIndexClosedError(state.reason, state.cause);
   }
+  if (state.kind === 'transitioning' && state.retrying) {
+    // The status reason keeps the failure this re-open retries until the open settles.
+    return new TransitionError(
+      `Native index is re-opening after a failure: ${nativeIndexFailureRefusal(state.retrying).message}`
+    );
+  }
   return new TransitionError(
     state.kind === 'validating'
       ? 'Native saved configuration is being revalidated.'

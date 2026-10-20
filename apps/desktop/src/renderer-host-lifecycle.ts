@@ -11,7 +11,6 @@ import {
   resolveDesktopRendererTarget,
 } from './desktop-renderer-target';
 import { resolveDistRoot } from './dist-root';
-import { waitForWindowClosed } from './window-lifecycle-utils';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -19,9 +18,7 @@ import {
   getTrackedWindowsByRole,
 } from './window-role';
 
-const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
 const HOST_LOAD_RETRY_ATTEMPTS = 3;
-const HOST_LOAD_RETRY_DELAY_MS = 300;
 const logger = createLogger('RendererHostLifecycle');
 const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
 
@@ -64,6 +61,7 @@ interface RendererHostLifecycleOptions<TStatus extends RendererHostStatusShape> 
   readonly role: Exclude<DesktopWindowRole, 'visible-ui'>;
   readonly startupQuery?: () => Readonly<Record<string, string>>;
   readonly statusEventName: string;
+  /** The refusal of a `waitForStatus` whose caller gave it a bound (`timeoutMs`). */
   readonly timeoutMessage: string;
 }
 
@@ -88,11 +86,19 @@ function isLifecycleDisposedError(error: unknown): boolean {
   );
 }
 
+/**
+ * One hidden renderer host window (lifecycle R2/R3). Readiness is the host's own `running` or
+ * `error` report, never a clock; death is the window's `closed` or its renderer's
+ * `render-process-gone`. A replacement window is created only after the one it replaces has
+ * closed, so two renderers of one role never overlap.
+ */
 export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   private readonly events = new EventEmitter();
   private hostWindow: BrowserWindow | null = null;
   private readonly pendingWaiterRejectors = new Set<(error: Error) => void>();
   private disposed = false;
+  /** The `closed` of the windows this lifecycle destroyed and is still waiting on. */
+  private retiring: Promise<void> | undefined;
   private startupPromise: Promise<TStatus> | null = null;
   private status: TStatus;
 
@@ -136,19 +142,15 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           return this.getStatus();
         }
         return this.waitForStatus(
-          (status) => status.state === 'running' || status.state === 'error',
-          DEFAULT_HOST_READY_TIMEOUT_MS
+          (status) => status.state === 'running' || status.state === 'error'
         );
       }
 
       if (this.status.state === 'stopping') {
         // A stop owner is awaiting this window's cooperative 'stopped' report.
-        // Replacing the window here would orphan that wait for its full timeout
-        // and let the stop then destroy the replacement. Let the stop settle.
-        await this.waitForStatus(
-          (status) => status.state !== 'stopping',
-          DEFAULT_HOST_READY_TIMEOUT_MS
-        );
+        // Replacing the window here would orphan that wait and let the stop then
+        // destroy the replacement. Let the stop settle.
+        await this.waitForStatus((status) => status.state !== 'stopping');
         return this.ensureStarted(options);
       }
 
@@ -195,16 +197,16 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       }
 
       try {
+        // Readiness is the host's report (R3); no clock fails it. A closed window or a gone
+        // renderer rejects this wait instead.
         return await this.waitForStatus(
-          (status) => status.state === 'running' || status.state === 'error',
-          DEFAULT_HOST_READY_TIMEOUT_MS
+          (status) => status.state === 'running' || status.state === 'error'
         );
       } catch (error) {
         if (isLifecycleDisposedError(error)) {
           return this.getStatus();
         }
         const message = error instanceof Error ? error.message : String(error);
-        this.destroyHostWindow();
         this.setStatus(
           this.options.createStatus({
             active: false,
@@ -230,7 +232,12 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     return startupPromise;
   }
 
-  waitForStatus(predicate: (status: TStatus) => boolean, timeoutMs: number): Promise<TStatus> {
+  /**
+   * Waits for a status matching `predicate`. It rejects when the host window closes, its
+   * renderer is gone or the lifecycle is disposed, and, only when the caller bounds its own
+   * operation with `timeoutMs` (R5), with `timeoutMessage` at that bound.
+   */
+  waitForStatus(predicate: (status: TStatus) => boolean, timeoutMs?: number): Promise<TStatus> {
     try {
       if (predicate(this.status)) {
         return Promise.resolve(this.getStatus());
@@ -254,10 +261,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           resume(Effect.sync(() => this.createStatusSnapshot(status)));
         }
       };
-      const timeoutId = setTimeout(
-        () => rejectPendingWaiter(new Error(this.options.timeoutMessage)),
-        timeoutMs
-      );
+      const timeoutId =
+        timeoutMs === undefined
+          ? undefined
+          : setTimeout(
+              () => rejectPendingWaiter(new Error(this.options.timeoutMessage)),
+              timeoutMs
+            );
       release = () => {
         clearTimeout(timeoutId);
         this.pendingWaiterRejectors.delete(rejectPendingWaiter);
@@ -293,6 +303,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.hostWindow = null;
   }
 
+  /** Destroys the host window; the next window this lifecycle creates first joins its `closed`. */
   destroyHostWindow(): void {
     const window = this.hostWindow;
     this.hostWindow = null;
@@ -304,9 +315,22 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       );
     }
     if (window && !window.isDestroyed()) {
+      void this.retire(window);
       clearWindowRoleByWebContentsId(window.webContents.id);
       window.destroy();
     }
+  }
+
+  /** Records the `closed` of a window about to be destroyed; register it before `destroy()`. */
+  private retire(window: BrowserWindow): Promise<void> {
+    const closed = joinWindowClosed(window);
+    const retiring: Promise<void> = Promise.all([this.retiring, closed]).then(() => {
+      if (this.retiring === retiring) {
+        this.retiring = undefined;
+      }
+    });
+    this.retiring = retiring;
+    return closed;
   }
 
   dispose(): void {
@@ -408,6 +432,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {
+    // Two renderers of one role never overlap: every window this lifecycle destroyed has closed.
+    if (this.retiring) {
+      await this.retiring;
+    }
     // Resolved once, before the retry loop: an unconfigured target is a boot
     // ordering bug, not a transient load failure, so it fails by name here
     // instead of being retried and reported as a generic load error.
@@ -449,18 +477,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
             );
             owner.clearHostWindow(window);
             clearWindowRoleByWebContentsId(window.webContents.id);
-            if (attempt < HOST_LOAD_RETRY_ATTEMPTS) {
-              // Register the closed listener BEFORE destroy() — Electron's destroy()
-              // synchronously sets isDestroyed()=true, so waitForWindowClosed must
-              // capture the 'closed' event while the window is still alive. The 300ms
-              // timeout acts as a maximum wait; if 'closed' fires sooner, we retry
-              // immediately (the goal is resource release, not a guaranteed backoff).
-              const closedPromise = waitForWindowClosed(window, HOST_LOAD_RETRY_DELAY_MS);
-              window.destroy();
-              yield* Effect.promise(() => closedPromise);
-            } else {
-              window.destroy();
-            }
+            // The failed window's renderer is released before any retry or later start.
+            const closed = owner.retire(window);
+            window.destroy();
+            yield* Effect.promise(() => closed);
             return yield* Effect.fail(failure);
           })
         )
@@ -497,12 +517,15 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       if (this.hostWindow?.id !== window.id) {
         return;
       }
+      const message = `${this.options.role} renderer exited (${details.reason}, code ${details.exitCode})`;
       this.options.onRenderProcessGone?.({
         exitCode: details.exitCode,
-        message: `${this.options.role} renderer exited (${details.reason}, code ${details.exitCode})`,
+        message,
         reason: details.reason,
         window,
       });
+      // R2: a gone renderer never reports again. A wait its owner's report did not settle ends now.
+      this.rejectPendingStatusWaiters(new Error(message));
     });
 
     window.webContents.on(
@@ -548,4 +571,17 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         JSON.stringify((right as Record<string, unknown>)[key])
     );
   }
+}
+
+/**
+ * Resolves on the window's `closed`, which Electron emits for every window it destroys. Register
+ * it before `destroy()`: a destroyed window can take no listener.
+ */
+function joinWindowClosed(window: BrowserWindow): Promise<void> {
+  if (window.isDestroyed()) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    window.once('closed', () => resolve());
+  });
 }

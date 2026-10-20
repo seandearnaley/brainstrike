@@ -33,7 +33,7 @@ const profile: VectorProfile = {
   tokenCap: 256,
 };
 const chunker = createNodeChunker({ parser: 'oxc' });
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 
 it.each([
   { kind: 'workspace', rootId: 'root' },

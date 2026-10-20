@@ -620,7 +620,10 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
 
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
-const embeddingHostManager = new EmbeddingHostManager({ storage });
+const embeddingHostManager = new EmbeddingHostManager({
+  lifecycleDelays: lifecycleDelaySeam,
+  storage,
+});
 
 const profileReset = createDesktopProfileResetOwner({
   profilePath: () => {
@@ -851,6 +854,7 @@ const nativeIndexActivation = createNativeIndexActivation({
   application: applicationIpcDomain,
   catalog: workspaceRootCatalog,
   embedding: embeddingHostManager,
+  lifecycleDelays: lifecycleDelaySeam,
   modelCatalog,
   onError: (operation, error) =>
     reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),

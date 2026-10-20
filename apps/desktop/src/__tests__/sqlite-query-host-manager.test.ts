@@ -96,17 +96,16 @@ it('retains a failed reader exit through reset and joins it on retry', async () 
   await manager.closeAllIndexQueries();
 });
 
-it('joins a held startup before reset allows a replacement owner', async () => {
-  vi.useFakeTimers();
+it('stops and joins a held startup before reset allows a replacement owner', async () => {
   mocks.heldStartup = true;
   const manager = await import('../sqlite-query-host-manager');
   const index = { databasePath: authority.dbPath };
   manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
   const acquisition = manager.openIndexCoverage(authority).catch((error: unknown) => error);
-  const reset = manager.closeAllIndexQueries();
-  await vi.advanceTimersByTimeAsync(5001);
-  expect(await acquisition).toMatchObject({ name: 'SqliteQueryDeadlineError' });
-  await reset;
+  await vi.waitFor(() => expect(mocks.children).toHaveLength(1));
+  // Coverage startup has no deadline: reset is what ends it, by stopping its process.
+  await manager.closeAllIndexQueries();
+  expect(await acquisition).toMatchObject({ name: 'SqliteQueryProcessExitedError' });
   expect(mocks.children[0]?.kill).toHaveBeenCalledOnce();
   manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
   await manager.closeAllIndexQueries();

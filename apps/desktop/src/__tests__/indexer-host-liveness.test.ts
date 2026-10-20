@@ -10,6 +10,7 @@ import {
   isCanonicalFrame,
 } from '../canonical-utility-protocol';
 import { IndexerHostManager } from '../indexer-host-manager';
+import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 
 const SLOW_MS = 7000;
 const dbPath = '/explicit/derived.sqlite';
@@ -25,6 +26,8 @@ const info = {
 };
 
 type FakeUtility = EventEmitter & {
+  /** Every canonical call the utility received, by op. */
+  canonicalOps: string[];
   kill: () => boolean;
   kills: number;
   postMessage: (message: unknown) => void;
@@ -42,9 +45,15 @@ vi.mock('electron', () => ({
 }));
 
 /** An indexer utility that answers indexer requests and canonical `attach` after `SLOW_MS`. */
-function slowUtility(slow: { readonly attach: boolean; readonly request: boolean }): FakeUtility {
+function slowUtility(slow: {
+  readonly attach: boolean;
+  readonly request: boolean;
+  /** It never answers a canonical attachment's `close`: alive, but wedged. */
+  readonly wedgedClose?: boolean;
+}): FakeUtility {
   let started = false;
   const utility: FakeUtility = Object.assign(new EventEmitter(), {
+    canonicalOps: [] as string[],
     kill: () => {
       utility.kills += 1;
       queueMicrotask(() => utility.emit('exit', null));
@@ -62,6 +71,7 @@ function slowUtility(slow: { readonly attach: boolean; readonly request: boolean
         if (frame.kind !== 'call') {
           return;
         }
+        utility.canonicalOps.push(frame.op);
         const answer = (): void => {
           utility.emit('message', {
             channel: CANONICAL_CHANNEL,
@@ -72,6 +82,9 @@ function slowUtility(slow: { readonly attach: boolean; readonly request: boolean
             value: null,
           });
         };
+        if (frame.op === 'close' && slow.wedgedClose) {
+          return;
+        }
         setTimeout(answer, frame.op === 'attach' && slow.attach ? SLOW_MS : 0);
         return;
       }
@@ -142,7 +155,7 @@ async function manager(utility: FakeUtility): Promise<IndexerHostManager> {
       ],
     },
     // Desktop's production native-index deadlines (native-index-activation.ts).
-    { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 60_000 },
+    { closeMs: 30_000, exitMs: 1000 },
     '/explicit/entry.js'
   );
 }
@@ -168,28 +181,59 @@ it('answers an indexer request slower than any former deadline from the one util
   expect(utility.kills).toBe(0);
   expect(host.exited).toBe(false);
   expect(forks.count).toBe(1);
-  const closing = host.close();
-  await vi.advanceTimersByTimeAsync(0);
-  await closing;
+  // The close itself is cooperative and prompt here; it runs on real timers.
+  vi.useRealTimers();
+  await host.close();
+  expect(utility.kills).toBe(0);
 });
 
 it('attaches a canonical source slower than any former deadline and keeps admission open', async () => {
   vi.useFakeTimers();
   const utility = slowUtility({ attach: true, request: false });
   const host = await manager(utility);
+  const starting = host.start();
+  await vi.advanceTimersByTimeAsync(0);
+  await starting;
 
   const first = host.attachCanonicalCollection(collection('first'));
   first.catch(() => undefined);
+  await vi.waitFor(() => expect(utility.canonicalOps).toEqual(['attach']));
   await vi.advanceTimersByTimeAsync(SLOW_MS);
   await expect(first).resolves.toBeDefined();
 
   const second = host.attachCanonicalCollection(collection('second'));
   second.catch(() => undefined);
+  await vi.waitFor(() => expect(utility.canonicalOps).toEqual(['attach', 'attach']));
   await vi.advanceTimersByTimeAsync(SLOW_MS);
   await expect(second).resolves.toBeDefined();
   expect(utility.kills).toBe(0);
   expect(forks.count).toBe(1);
-  const closing = host.close();
+  // The close itself is cooperative and prompt here; it runs on real timers.
+  vi.useRealTimers();
+  await host.close();
+  expect(utility.kills).toBe(0);
+});
+
+// R5(b): the one clock is the close ladder's. A wedged utility is killed and its exit joined.
+it('escalates a close the utility never answers to one kill after closeMs, then joins its exit', async () => {
+  vi.useFakeTimers();
+  const utility = slowUtility({ attach: false, request: false, wedgedClose: true });
+  const host = await manager(utility);
+  const starting = host.start();
   await vi.advanceTimersByTimeAsync(0);
-  await closing;
+  await starting;
+  const attaching = host.attachCanonicalCollection(collection('first'));
+  await vi.waitFor(() => expect(utility.canonicalOps).toEqual(['attach']));
+  await vi.advanceTimersByTimeAsync(0);
+  await attaching;
+
+  const closing = host.close().catch((error: unknown) => error);
+  await vi.waitFor(() => expect(utility.canonicalOps).toContain('close'));
+  await vi.advanceTimersByTimeAsync(29_000);
+  expect(utility.kills).toBe(0);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(utility.kills).toBe(1);
+  // The attachment ended with the exit it joined: the typed exit, never a retained live owner.
+  expect(await closing).toBeInstanceOf(IndexerUtilityExitedError);
+  expect(host.exited).toBe(true);
 });

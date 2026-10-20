@@ -79,7 +79,7 @@ it.each(['mounted-first', 'retained-first'] as const)(
       createIndexOwner: async (owned) => {
         const starting = openIndexer(
           { ...owned, dbPath, embedding: { indexMode: 'text-only' } },
-          { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+          { closeMs: 5000, exitMs: 5000 }
         );
         starting.catch(() => undefined);
         return {

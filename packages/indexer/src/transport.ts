@@ -87,18 +87,40 @@ import { RpcClient } from './rpc-client.js';
 import { validateStateModule } from './state-projection.js';
 
 const duration = Schema.Finite.check(Schema.isGreaterThan(0));
+/**
+ * The connection's only clocks: its close ladder (lifecycle R5(b)), cooperative close, then a
+ * kill we own, then the exit, which is always joined. A request and the startup have no
+ * deadline: a slow reply is load, never death, so the process is retired only on its exit or a
+ * transport or protocol fault (R2).
+ */
 const deadlinesSchema = Schema.Struct({
+  /** R5(b): how long the cooperative `close` request may take before the process is killed. */
   closeMs: duration,
+  /**
+   * R5(b): how long the process may take to exit after its close ACK before it is killed; after
+   * a kill, how long before the still-joined exit is reported slow. Never abandons the join.
+   */
   exitMs: duration,
-  requestMs: duration,
-  startupMs: duration,
 });
 export type IndexerDeadlines = typeof deadlinesSchema.Type;
+/**
+ * R3: a startup with no ready report after this long is reported stalled, once. It never fails
+ * or retires the process; startup fails only on a startup error, a fault or the exit.
+ */
+export const INDEXER_STARTUP_STALL_WARN_MS = 10_000;
+/**
+ * A stage that is taking longer than its window: `startup` (R3, nothing happens), `close` (the
+ * cooperative close escalates to a kill) or `exit` (the exit is late; after a kill it is still
+ * joined). The host logs it; none is a failure.
+ */
+export type IndexerStallStage = 'startup' | 'close' | 'exit';
 export interface IndexerTransport {
   kill(): boolean;
   onError(listener: (error: unknown) => void): () => void;
   onExit(listener: () => void): () => void;
   onMessage(listener: (message: unknown) => void): () => void;
+  /** The host's log of a slow stage (`IndexerStallStage`), at the window it outlived. */
+  onStall?(stage: IndexerStallStage, elapsedMs: number): void;
   send(message: object): void;
 }
 export class IndexerLifecycleError extends AggregateError {
@@ -170,42 +192,38 @@ export function createIndexerConnection(
   let retirement: Promise<void> | undefined;
   let killRequested = false;
   let cleanupFailure: unknown;
-  const bounded = <T>(work: Promise<T>, timeoutMs: number, stage: string): Promise<T> =>
-    runWithTimeout(() => work, {
-      onTimeout: () =>
-        new IndexerError(
-          `indexer-${stage}-timeout`,
-          `Indexer ${stage} exceeded its caller-provided deadline.`
-        ),
-      timeoutMs,
+  /** Whether the process exits within `ms`; the exit itself stays joinable either way. */
+  const exitsWithin = (ms: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      const window = setTimeout(() => resolve(false), ms);
+      void exit.then(() => {
+        clearTimeout(window);
+        resolve(true);
+      });
     });
+  /** R5(b): after a kill the exit is joined for as long as it takes; a late one is reported. */
+  const joinExit = async (): Promise<void> => {
+    if (!(await exitsWithin(deadlines.exitMs))) {
+      transport.onStall?.('exit', deadlines.exitMs);
+      await exit;
+    }
+  };
   const retire = (): Promise<void> => {
     if (exited) {
       return Promise.resolve();
     }
     retirement ??= (async () => {
-      const failures: unknown[] = [];
-      try {
-        if (!killRequested) {
-          if (!transport.kill()) {
-            throw new IndexerError(
-              'indexer-kill-failed',
-              'Indexer termination was refused; its process owner remains retained.'
-            );
-          }
-          killRequested = true;
+      if (!killRequested) {
+        // A refused kill is a fault, not a clock: the live process stays owned for a retry.
+        if (!transport.kill()) {
+          throw new IndexerError(
+            'indexer-kill-failed',
+            'Indexer termination was refused; its process owner remains retained.'
+          );
         }
-      } catch (error) {
-        failures.push(error);
+        killRequested = true;
       }
-      try {
-        await bounded(exit, deadlines.exitMs, 'exit');
-      } catch (error) {
-        failures.push(error);
-      }
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Indexer termination did not complete cleanly.');
-      }
+      await joinExit();
     })();
     // Retain the cleanup outcome, including failed kill/exit joins, for close and
     // startup/request callers. The live transport is never discarded on failure.
@@ -250,11 +268,11 @@ export function createIndexerConnection(
       throw new IndexerError('indexer-closed', 'Indexer is closing.');
     }
     try {
-      return await bounded(client.call(op, payload, decode), deadlines.requestMs, 'request');
+      return await client.call(op, payload, decode);
     } catch (error) {
-      // Expected remote validation failures leave the host usable. A deadline
-      // or transport/protocol failure retires it; never retry the operation.
-      if (error instanceof IndexerError && !error.code.endsWith('-timeout')) {
+      // A remote refusal leaves the process serving. A transport or protocol failure, or
+      // the process's exit, retires it; the operation is never retried.
+      if (error instanceof IndexerError) {
         try {
           client.assertActive();
         } catch {
@@ -263,6 +281,34 @@ export function createIndexerConnection(
         throw error;
       }
       return failAndJoin(error);
+    }
+  };
+  /**
+   * The cooperative `close` request. Outliving `closeMs` is the R5(b) escalation, not a failure;
+   * any other failure is returned. Either way the client fails with it, which retires the
+   * process: a kill, then the joined exit.
+   */
+  const requestClose = async (): Promise<unknown> => {
+    let escalated = false;
+    try {
+      await runWithTimeout(() => client.call('close', null, decoder(Schema.Boolean)), {
+        onTimeout: () => {
+          escalated = true;
+          return new IndexerError(
+            'indexer-close-escalated',
+            'Indexer close outlived its cooperative window; the process was killed.'
+          );
+        },
+        timeoutMs: deadlines.closeMs,
+      });
+      return undefined;
+    } catch (error) {
+      client.fail(error);
+      if (escalated) {
+        transport.onStall?.('close', deadlines.closeMs);
+        return undefined;
+      }
+      return error;
     }
   };
   let closeAttempt: Promise<void> | undefined;
@@ -277,25 +323,19 @@ export function createIndexerConnection(
         cleanupFailure = undefined;
       }
       const failures: unknown[] = [];
-      try {
-        await bounded(
-          client.call('close', null, decoder(Schema.Boolean)),
-          deadlines.closeMs,
-          'close'
-        );
-      } catch (error) {
-        failures.push(error);
-        client.fail(error);
+      const refused = await requestClose();
+      if (refused !== undefined) {
+        failures.push(refused);
+      }
+      // After its close ACK the process exits on its own; one that has not within `exitMs` is
+      // killed. A process already being killed goes straight to the joined exit.
+      if (!(exited || killRequested || (await exitsWithin(deadlines.exitMs)))) {
+        transport.onStall?.('exit', deadlines.exitMs);
       }
       try {
-        await bounded(exit, deadlines.exitMs, 'exit');
-      } catch (error) {
-        failures.push(error);
-        try {
-          await retire();
-        } catch (failure) {
-          failures.push(failure);
-        }
+        await retire();
+      } catch (failure) {
+        failures.push(failure);
       }
       if (failures.length > 0) {
         if (!exited) {
@@ -310,8 +350,8 @@ export function createIndexerConnection(
     });
     return closeAttempt;
   };
-  // Catch-up is a series of bounded steps, so no request carries a backlog past its
-  // deadline; a read that catches up first then finds its threads current.
+  // Catch-up is a series of bounded steps, so no request carries a whole backlog; a read
+  // that catches up first then finds its threads current.
   const catchUp = async (threads: readonly string[]): Promise<void> => {
     const step = decoder(stateCatchUpStepSchema)({
       maxEvents: STATE_CATCH_UP_STEP_EVENTS,
@@ -563,12 +603,21 @@ export function createIndexerConnection(
       ),
   };
   const ready = (async () => {
+    const stall =
+      transport.onStall &&
+      setTimeout(
+        () => transport.onStall?.('startup', INDEXER_STARTUP_STALL_WARN_MS),
+        INDEXER_STARTUP_STALL_WARN_MS
+      );
+    stall?.unref?.();
     try {
       transport.send(options);
-      decoder(infoSchema)(await bounded(client.ready, deadlines.startupMs, 'startup'));
+      decoder(infoSchema)(await client.ready);
       return port;
     } catch (error) {
       return failAndJoin(error);
+    } finally {
+      clearTimeout(stall);
     }
   })();
   return {
