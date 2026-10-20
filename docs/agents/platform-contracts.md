@@ -54,6 +54,12 @@ notice, closed transport or deleted row does not prove physical work stopped.
 Stale callbacks cannot affect replacement generations. Debug sessions use
 isolated disposable profiles and own their whole spawned process tree.
 
+Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
+never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
+each joins its subscribes and unsubscribes in a graceful-shutdown step. One still
+on the libuv thread pool when Electron frees Main's Node environment completes
+into a dead JS context and aborts Main (BST-2244).
+
 Parser host Stop joins every owned generation’s exit and listeners with a 500ms
 caller wait; timeout rejects while actual cleanup stays owned. A failed kill
 remains visible and retryable, blocks parsing on that generation, and never
