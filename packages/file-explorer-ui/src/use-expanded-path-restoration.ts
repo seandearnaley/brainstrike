@@ -5,6 +5,7 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useExplorerCloseProducer } from './shell/explorer-close-lifecycle';
 import { isPathWithinRoot, normalizePathForRootScope } from './utils/root-scoped-paths';
 
 const logger = createLogger('ExpandedPathRestoration');
@@ -556,6 +557,13 @@ export function useExpandedPathRestoration(
    * other — each provider instance has its own independent tracking.
    */
   const instanceInProgressFolderIdRef = useRef<string | null>(null);
+  const { isPreparing, track } = useExplorerCloseProducer(() => {
+    for (const [folderId, lock] of restorationLocks) {
+      if (lock.ownerToken === restorationOwnerToken) {
+        releaseRestorationLock(folderId, restorationOwnerToken);
+      }
+    }
+  });
 
   useLayoutEffect(() => {
     currentRootFolderIdRef.current = currentRootFolderId;
@@ -589,7 +597,7 @@ export function useExpandedPathRestoration(
 
   // biome-ignore lint/plugin: Restores persisted local tree state after the matching root commits; no remote fetch occurs.
   useEffect(() => {
-    if (disabled) {
+    if (disabled || isPreparing()) {
       return;
     }
 
@@ -694,25 +702,29 @@ export function useExpandedPathRestoration(
       total,
     });
 
-    void restoreExpandedPaths({
-      currentRootFolderId,
-      currentRootFolderIdRef,
-      instanceInProgressFolderIdRef,
-      loadSpecificPaths,
-      plan,
-      restorationKey,
-      restorationOwnerToken,
-      restorationRunToken,
-      setExpandedPaths,
-      setIsRestoringExpandedPaths,
-      setRestorationCompletionVersion,
-      setRestorationProgress,
-      setSettledFolderId,
-      setSettledRestorationKey,
-      sortedPaths,
-      store,
-    });
+    void track(
+      restoreExpandedPaths({
+        currentRootFolderId,
+        currentRootFolderIdRef,
+        instanceInProgressFolderIdRef,
+        loadSpecificPaths: (...params) => track(loadSpecificPaths(...params)),
+        plan,
+        restorationKey,
+        restorationOwnerToken,
+        restorationRunToken,
+        setExpandedPaths,
+        setIsRestoringExpandedPaths,
+        setRestorationCompletionVersion,
+        setRestorationProgress,
+        setSettledFolderId,
+        setSettledRestorationKey,
+        sortedPaths,
+        store,
+      })
+    );
   }, [
+    isPreparing,
+    track,
     currentRootFolderId,
     currentRootPath,
     disabled,
@@ -768,12 +780,15 @@ export function useExpandSelectedFileParentDirectories(
     store,
   } = args;
   const latestExpansionRequestRef = useRef(0);
+  const { isPreparing, track } = useExplorerCloseProducer(() => {
+    latestExpansionRequestRef.current += 1;
+  });
 
   useEffect(() => {
     latestExpansionRequestRef.current += 1;
     const expansionRequestId = latestExpansionRequestRef.current;
 
-    if (disabled || !currentRootFolderId || !isRestorationSettled) {
+    if (isPreparing() || disabled || !currentRootFolderId || !isRestorationSettled) {
       return;
     }
 
@@ -805,18 +820,22 @@ export function useExpandSelectedFileParentDirectories(
       });
     }
 
-    void loadSpecificPaths(boundedParents)
-      .then(() => {
-        if (latestExpansionRequestRef.current !== expansionRequestId) {
-          return;
-        }
-        const latestExpanded = store.getState().expandedDirectoryPaths;
-        setExpandedPaths(new Set([...latestExpanded, ...boundedParents]));
-      })
-      .catch((error: unknown) => {
-        logger.warn('Failed to expand parent directories for selected files', { error });
-      });
+    void track(
+      track(loadSpecificPaths(boundedParents))
+        .then(() => {
+          if (isPreparing() || latestExpansionRequestRef.current !== expansionRequestId) {
+            return;
+          }
+          const latestExpanded = store.getState().expandedDirectoryPaths;
+          setExpandedPaths(new Set([...latestExpanded, ...boundedParents]));
+        })
+        .catch((error: unknown) => {
+          logger.warn('Failed to expand parent directories for selected files', { error });
+        })
+    );
   }, [
+    isPreparing,
+    track,
     currentRootFolderId,
     currentRootPath,
     disabled,

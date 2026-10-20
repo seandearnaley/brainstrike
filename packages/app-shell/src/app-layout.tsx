@@ -30,6 +30,7 @@ export function AppLayout({
   nativeIndexRetry,
   nativeIndexSearch,
   stateHealth,
+  explorerCloseLifecycle,
 }: AppLayoutProps) {
   useDatabaseStatusSync();
   // Session-wide, mounted once: retired-model remap toasts (BST-565).
@@ -43,7 +44,11 @@ export function AppLayout({
       storageKey={config.themeStorageKey}
     >
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
-        <FileExplorerProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+        <FileExplorerProvider
+          closeLifecycle={explorerCloseLifecycle}
+          fileSystemAdapter={fileSystemAdapter}
+          storageAdapter={storageAdapter}
+        >
           {/* ONE shared file-system instance for the entire app surface
               (explorer, database panel, assistant, settings). MUST mount
               BELOW FileExplorerProvider — the instance reads the store. */}

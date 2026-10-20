@@ -1,6 +1,6 @@
 import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
-import { useToastManager } from '@brainstrike/file-explorer-hooks';
+import { registerClosePreparation, useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
 import { type FileExplorerState, FileExplorerStrings } from '@brainstrike/types';
@@ -15,8 +15,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import type { StoreApi } from 'zustand';
-import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
 import {
   type FileContentBatchPriority,
   type FileContentLoadAuthority,
@@ -24,8 +23,13 @@ import {
 } from '../file-content-load-authority-context';
 import { setupInlineFixtureSubscription } from '../setup-inline-fixture-subscription';
 import { shouldExposeAutomatedTestApis } from '../utils/fixture-test-exposure';
+import {
+  type ExplorerCloseLifecycle,
+  ExplorerCloseLifecycleContext,
+  useExplorerCloseLifecycle,
+} from './explorer-close-lifecycle';
 
-type FileExplorerStore = UseBoundStoreWithEqualityFn<StoreApi<FileExplorerState>>;
+type FileExplorerStore = ReturnType<typeof createFileExplorerStore>;
 type FileExplorerStoreSelector<T> = (state: FileExplorerState) => T;
 type EqualityFn<T> = (left: T, right: T) => boolean;
 
@@ -62,6 +66,9 @@ let nextFileContentLifecycleId = 0;
 
 function createFileContentLoadAuthority(): FileContentLoadAuthority {
   const activeLoads = new Map<string, Promise<void>>();
+  const physicalRuns = new Set<Promise<void>>();
+  let retiring = false;
+  let preparation: Promise<void> | undefined;
   const activeBatches = new Map<number, PendingFileContentBatch>();
   const errorListeners = new Set<() => void>();
   const generations = new Map<string, number>();
@@ -258,12 +265,31 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       } catch (error) {
         physicalWork = Promise.reject(error);
       }
+      physicalRuns.add(physicalWork);
       void settleTicketFromWork(pending, physicalWork);
       const releaseSlot = (): void => {
+        physicalRuns.delete(physicalWork);
         activeBatches.delete(batchId);
         drainBatchQueue();
       };
       void physicalWork.then(releaseSlot, releaseSlot);
+    }
+  };
+  const drain = async (): Promise<void> => {
+    const failures = new Set<unknown>();
+    do {
+      const results = await Promise.allSettled([...physicalRuns, ...activeLoads.values()]);
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          failures.add(result.reason);
+        }
+      }
+    } while (physicalRuns.size > 0 || pendingBatches.length > 0);
+    if (failures.size === 1) {
+      throw [...failures][0];
+    }
+    if (failures.size > 1) {
+      throw new AggregateError([...failures], 'File-content reads failed to settle');
     }
   };
   return {
@@ -296,6 +322,7 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       }
     },
     currentGeneration: (compositeKey) => generations.get(compositeKey) ?? lifecycleGeneration,
+    drain,
     getActiveLoad: (compositeKey) => activeLoads.get(compositeKey),
     getErrorsSnapshot: () => errorsSnapshot,
     invalidateAll: () => {
@@ -319,6 +346,11 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
     isCurrentGeneration: (compositeKey, expectedGeneration) =>
       (generations.get(compositeKey) ?? lifecycleGeneration) === expectedGeneration,
     lifecycleId,
+    prepareClose: () => {
+      retiring = true;
+      preparation ??= drain();
+      return preparation;
+    },
     promoteQueuedLoad: (compositeKey) => {
       const queued = queuedBatchByKey.get(compositeKey);
       if (!queued) {
@@ -375,6 +407,9 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       pruneUnownedErrors(compositeKeys);
     },
     scheduleBatch: (compositeKeys, task, priority) => {
+      if (retiring) {
+        return Promise.reject(new Error('File-content owner is preparing to close'));
+      }
       const ownedKeys = [...new Set(compositeKeys)];
       if (ownedKeys.length === 0) {
         return Promise.resolve();
@@ -406,6 +441,7 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
 
 export interface FileExplorerProviderProps {
   children: React.ReactNode;
+  closeLifecycle?: ExplorerCloseLifecycle | undefined;
   /** Optional file system adapter — when provided, enables inline fixture subscription */
   fileSystemAdapter?: FileSystemAdapter;
   storageAdapter: StorageAdapter;
@@ -414,6 +450,7 @@ export interface FileExplorerProviderProps {
 export function FileExplorerProvider({
   storageAdapter,
   fileSystemAdapter,
+  closeLifecycle,
   children,
 }: FileExplorerProviderProps) {
   const [fileContentResetRevision, setFileContentResetRevision] = useState(0);
@@ -426,6 +463,46 @@ export function FileExplorerProvider({
     }),
     [storageAdapter]
   );
+
+  useLayoutEffect(() => {
+    if (!closeLifecycle) {
+      return;
+    }
+    const settle = async (content: Promise<void>): Promise<void> => {
+      const results = await Promise.allSettled([content, store.drainHydration()]);
+      const failures = [
+        ...new Set(
+          results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+        ),
+      ];
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Explorer producers failed to settle');
+      }
+    };
+    return registerClosePreparation(
+      {
+        drain: () => settle(fileContentLoadAuthority.drain()),
+        prepareClose: () => settle(fileContentLoadAuthority.prepareClose()),
+      },
+      closeLifecycle.registerProducer
+    );
+  }, [fileContentLoadAuthority, closeLifecycle, store]);
+
+  useLayoutEffect(() => {
+    if (!closeLifecycle) {
+      return;
+    }
+    return registerClosePreparation(
+      {
+        drain: () => store.drainPersistence(),
+        prepareClose: () => store.preparePersistenceClose(),
+      },
+      (prepare) => closeLifecycle.registerPersistence(prepare, store.beginPersistenceClose)
+    );
+  }, [store, closeLifecycle]);
 
   useLayoutEffect(
     () => () => {
@@ -485,24 +562,27 @@ export function FileExplorerProvider({
   const fileContentLifecycleKey = `${fileContentLoadAuthority.lifecycleId}:${fileContentResetRevision}`;
 
   return (
-    <FileExplorerStoreContext.Provider value={store}>
-      <FileContentLoadAuthorityContext.Provider value={fileContentLoadAuthority}>
-        <Fragment key={fileContentLifecycleKey}>
-          <PersistenceRecoveryNotifier />
-          {children}
-        </Fragment>
-      </FileContentLoadAuthorityContext.Provider>
-    </FileExplorerStoreContext.Provider>
+    <ExplorerCloseLifecycleContext.Provider value={closeLifecycle}>
+      <FileExplorerStoreContext.Provider value={store}>
+        <FileContentLoadAuthorityContext.Provider value={fileContentLoadAuthority}>
+          <Fragment key={fileContentLifecycleKey}>
+            <PersistenceRecoveryNotifier />
+            {children}
+          </Fragment>
+        </FileContentLoadAuthorityContext.Provider>
+      </FileExplorerStoreContext.Provider>
+    </ExplorerCloseLifecycleContext.Provider>
   );
 }
 
 function PersistenceRecoveryNotifier() {
+  const closeLifecycle = useExplorerCloseLifecycle();
   const store = useFileExplorerStoreContext();
   const notice = useFileExplorerStoreSelector((state) => state.persistenceRecoveryNotice);
   const { showToast } = useToastManager();
 
   useEffect(() => {
-    if (notice === null) {
+    if (notice === null || closeLifecycle?.isPreparing()) {
       return;
     }
     if (!store.getState().consumePersistenceRecoveryNotice()) {
@@ -517,7 +597,7 @@ function PersistenceRecoveryNotifier() {
         ? FileExplorerStrings.recovery.unavailableTitle
         : FileExplorerStrings.recovery.title,
     });
-  }, [notice, showToast, store]);
+  }, [notice, showToast, store, closeLifecycle]);
 
   return null;
 }

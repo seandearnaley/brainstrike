@@ -14,6 +14,7 @@ import type {
 } from '@brainstrike/types';
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
 import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
+import { PersistenceLifetime } from './persistence-lifetime';
 import {
   isSerializedStateCandidate,
   migrateState,
@@ -72,9 +73,14 @@ export function createPersistedFileExplorerSnapshot(state: FileExplorerState): {
 }
 
 export const createPersistOptions = (
-  storageAdapter: StorageAdapter
+  storageAdapter: StorageAdapter,
+  exposeLifetime?: (lifetime: PersistenceLifetime) => void
 ): PersistOptions<FileExplorerState, SerializedState> => {
   const { workerStorage, useWorker } = initWorker(storageAdapter, isTest, shouldLog);
+  const lifetime = new PersistenceLifetime(async () => {
+    await workerStorage?.drainPendingWrites();
+  });
+  exposeLifetime?.(lifetime);
   let pendingRecoveryNotice: PersistenceRecoveryNotice | null = null;
   let currentReadWasUnavailable = false;
   let recoveryProbeValueJson: string | null = null;
@@ -149,49 +155,93 @@ export const createPersistOptions = (
   };
   const validatedPersistedStorage: PersistStorage<SerializedState> = {
     ...persistedStorage,
-    getItem: async (name) => {
-      currentReadWasUnavailable = false;
-      const envelope = (await persistedStorage.getItem(name)) as unknown;
-      if (!currentReadWasUnavailable) {
-        shouldPreserveUnreadSnapshot = false;
-      }
-      if (name !== FILE_EXPLORER_STORAGE_KEY || envelope === null || isPersistEnvelope(envelope)) {
-        return envelope as Awaited<ReturnType<PersistStorage<SerializedState>['getItem']>>;
-      }
-      if (isSerializedStateCandidate(envelope)) {
-        return {
-          state: validateAndRecoverSerializedState(
-            envelope,
-            shouldLog,
-            recordPersistedStateDiscard
-          ),
-          version: FILE_EXPLORER_STORAGE_VERSION,
-        };
-      }
-
-      recordPersistedStateDiscard('malformed-value');
-      if (shouldLog) {
-        logger.error('Persisted storage envelope missing state; clearing value', { name });
-      }
-      await persistedStorage.removeItem(name);
-      return null;
-    },
-    setItem: async (name, value) => {
-      if (name === FILE_EXPLORER_STORAGE_KEY) {
-        const valueJson = JSON.stringify(value);
-        if (await shouldSkipUnreadSnapshotWrite(name, valueJson)) {
-          return;
+    getItem: (name) =>
+      lifetime.run(async () => {
+        currentReadWasUnavailable = false;
+        const envelope = (await persistedStorage.getItem(name)) as unknown;
+        if (!currentReadWasUnavailable) {
+          shouldPreserveUnreadSnapshot = false;
         }
-        if (recoveryProbeValueJson !== null) {
-          const isRepeatedRecoveryWrite = valueJson === recoveryProbeValueJson;
-          recoveryProbeValueJson = null;
-          if (isRepeatedRecoveryWrite) {
+        if (
+          name !== FILE_EXPLORER_STORAGE_KEY ||
+          envelope === null ||
+          isPersistEnvelope(envelope)
+        ) {
+          return envelope as Awaited<ReturnType<PersistStorage<SerializedState>['getItem']>>;
+        }
+        if (isSerializedStateCandidate(envelope)) {
+          return {
+            state: validateAndRecoverSerializedState(
+              envelope,
+              shouldLog,
+              recordPersistedStateDiscard
+            ),
+            version: FILE_EXPLORER_STORAGE_VERSION,
+          };
+        }
+
+        recordPersistedStateDiscard('malformed-value');
+        if (shouldLog) {
+          logger.error('Persisted storage envelope missing state; clearing value', { name });
+        }
+        await persistedStorage.removeItem(name);
+        return null;
+      }),
+    removeItem: (name) =>
+      lifetime.run(async () => {
+        await lifetime.joinWrite(persistedStorage.removeItem(name));
+      }),
+    setItem: (name, value) =>
+      lifetime.run(async () => {
+        if (name === FILE_EXPLORER_STORAGE_KEY) {
+          const valueJson = JSON.stringify(value);
+          if (await shouldSkipUnreadSnapshotWrite(name, valueJson)) {
             return;
           }
+          if (recoveryProbeValueJson !== null) {
+            const isRepeatedRecoveryWrite = valueJson === recoveryProbeValueJson;
+            recoveryProbeValueJson = null;
+            if (isRepeatedRecoveryWrite) {
+              return;
+            }
+          }
         }
-      }
-      await persistedStorage.setItem(name, value);
-    },
+        await lifetime.joinWrite(persistedStorage.setItem(name, value));
+      }),
+  };
+
+  const completeHydration = (
+    preHydrationState: FileExplorerState,
+    state: FileExplorerState | undefined,
+    error: unknown
+  ): void => {
+    const failureStage = storageReadDidDiscard ? 'storage-read' : 'merge-or-set';
+    if (pendingRecoveryNotice !== null) {
+      const notice = pendingRecoveryNotice;
+      pendingRecoveryNotice = null;
+      preHydrationState.reportPersistedStateDiscard(notice);
+    }
+    storageReadDidDiscard = false;
+    if (!shouldLog) {
+      return;
+    }
+    if (error) {
+      logger.warn('onRehydrateStorage - Storage rehydration failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+        stage: failureStage,
+      });
+      return;
+    }
+    if (!isRehydratedFileExplorerState(state)) {
+      logger.warn('onRehydrateStorage - Rehydrated state shape was invalid');
+      return;
+    }
+    logger.debug(
+      'onRehydrateStorage - Storage rehydrated. Folder count:',
+      Object.keys(state.folderStates).length,
+      'Has current folder:',
+      state.currentFolderId !== null
+    );
   };
 
   return {
@@ -211,34 +261,19 @@ export const createPersistOptions = (
       migrateState(rawPersistedState, version, shouldLog, recordPersistedStateDiscard),
     name: FILE_EXPLORER_STORAGE_KEY,
 
-    onRehydrateStorage: (preHydrationState) => (state, error) => {
-      const failureStage = storageReadDidDiscard ? 'storage-read' : 'merge-or-set';
-      if (pendingRecoveryNotice !== null) {
-        const notice = pendingRecoveryNotice;
-        pendingRecoveryNotice = null;
-        preHydrationState.reportPersistedStateDiscard(notice);
-      }
-      storageReadDidDiscard = false;
-      if (!shouldLog) {
-        return;
-      }
-      if (error) {
-        logger.warn('onRehydrateStorage - Storage rehydration failed', {
-          errorName: error instanceof Error ? error.name : typeof error,
-          stage: failureStage,
-        });
-        return;
-      }
-      if (!isRehydratedFileExplorerState(state)) {
-        logger.warn('onRehydrateStorage - Rehydrated state shape was invalid');
-        return;
-      }
-      logger.debug(
-        'onRehydrateStorage - Storage rehydrated. Folder count:',
-        Object.keys(state.folderStates).length,
-        'Has current folder:',
-        state.currentFolderId !== null
-      );
+    onRehydrateStorage: (preHydrationState) => {
+      const finish = lifetime.beginHydration();
+      return (state, error) => {
+        let failure = error;
+        try {
+          completeHydration(preHydrationState, state, error);
+        } catch (cause) {
+          failure = cause;
+          throw cause;
+        } finally {
+          finish(failure);
+        }
+      };
     },
 
     partialize: (state) => createPersistedFileExplorerSnapshot(state).state,

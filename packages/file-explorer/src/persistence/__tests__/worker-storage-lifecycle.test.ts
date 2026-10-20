@@ -75,6 +75,130 @@ afterEach(() => {
   vi.resetModules();
 });
 
+it.each(['before-deadline', 'after-deadline'] as const)(
+  'keeps the physical adapter join when preparation starts %s',
+  async (phase) => {
+    vi.useFakeTimers();
+    await workerBoundary();
+    const ack = Promise.withResolvers<void>();
+    const write = vi.fn(async () => {
+      await ack.promise;
+    });
+    const adapter: StorageAdapter = {
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: write,
+    };
+    const storage = new WorkerStorage(new URL('file:///controlled-worker.mjs'), adapter);
+    const saving = storage.setItem('settings', 'latest').catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(100);
+    if (phase === 'after-deadline') {
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    let joined = false;
+    const draining = storage.drainPendingWrites().then(
+      () => {
+        joined = true;
+      },
+      (error: unknown) => {
+        joined = true;
+        return error;
+      }
+    );
+    if (phase === 'before-deadline') {
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    const failure = await saving;
+    expect(failure).toEqual(new Error('Worker request timeout'));
+    expect(joined).toBe(false);
+    ack.resolve();
+    expect(await draining).toBe(failure);
+    expect(write).toHaveBeenCalledTimes(1);
+    storage.destroy();
+  }
+);
+
+it.each(['debounced', 'posted'] as const)(
+  'drains %s coalesced callers and fences late worker admission',
+  async (phase) => {
+    vi.useFakeTimers();
+    const boundary = await workerBoundary();
+    boundary.holdRequests(true);
+    const ack = Promise.withResolvers<void>();
+    const values = new Map<string, string>();
+    const write = vi.fn(async (key: string, value: string) => {
+      await ack.promise;
+      values.set(key, value);
+    });
+    const adapter: StorageAdapter = {
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async (key) => values.get(key) ?? null,
+      removeItem: async () => {},
+      setItem: write,
+    };
+    const storage = new WorkerStorage(new URL('file:///controlled-worker.mjs'), adapter);
+    const first = storage.setItem('settings', 'first');
+    const latest = storage.setItem('settings', 'latest');
+    if (phase === 'posted') {
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    let closed = false;
+    const draining = storage.drainPendingWrites().then(() => {
+      closed = true;
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(closed).toBe(false);
+    ack.resolve();
+    await Promise.all([first, latest, draining]);
+    if (phase === 'posted') {
+      boundary.releaseRequest(0);
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(await adapter.getItem('settings')).toBe('latest');
+    storage.destroy();
+  }
+);
+
+it.each(['ack', 'reject'] as const)(
+  'joins an admitted original adapter %s without issuing a duplicate write',
+  async (outcome) => {
+    vi.useFakeTimers();
+    await workerBoundary();
+    const ack = Promise.withResolvers<void>();
+    const failure = new Error('controlled original write failure');
+    const write = vi.fn(async () => {
+      await ack.promise;
+    });
+    const adapter: StorageAdapter = {
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: write,
+    };
+    const storage = new WorkerStorage(new URL('file:///controlled-worker.mjs'), adapter);
+    const saved = storage.setItem('settings', 'latest');
+    const observedSave = saved.catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(100);
+    const draining = storage.drainPendingWrites();
+    const observedDrain = draining.catch((error: unknown) => error);
+    expect(write).toHaveBeenCalledTimes(1);
+    if (outcome === 'ack') {
+      ack.resolve();
+    } else {
+      ack.reject(failure);
+    }
+    const results = await Promise.all([observedSave, observedDrain]);
+    expect(results).toEqual(outcome === 'ack' ? [undefined, undefined] : [failure, failure]);
+    expect(write).toHaveBeenCalledTimes(1);
+    storage.destroy();
+  }
+);
+
 it('completes an adapter-acknowledged save without waiting for a final worker reply', async () => {
   vi.useFakeTimers();
   const boundary = await workerBoundary();

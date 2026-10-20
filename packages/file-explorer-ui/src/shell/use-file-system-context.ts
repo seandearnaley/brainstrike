@@ -24,6 +24,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
 import { hasPersistHydrationApi } from '../utils/persist-hydration';
+import { useExplorerCloseLifecycle, useExplorerClosePreparation } from './explorer-close-lifecycle';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -42,6 +43,17 @@ const WATCHER_DISPATCH_DEBOUNCE_MS = 300;
  * without this cap nothing would ever dispatch while a build keeps writing.
  */
 const WATCHER_DISPATCH_MAX_WAIT_MS = 1000;
+
+function hasWatcherChangeEvidence(
+  changes: readonly FileSystemChange[],
+  metadata: FileSystemWatchBatchMetadata | undefined
+): boolean {
+  return (
+    changes.length > 0 ||
+    (metadata?.filteredChangeBoundaries?.length ?? 0) > 0 ||
+    metadata?.filteredChangeBoundariesOverflow === true
+  );
+}
 
 // Error message mappings for consistent user experience
 const ERROR_MESSAGES = {
@@ -113,6 +125,7 @@ async function selectDirectoryWithErrorMapping(
  * Consumers use useFileSystem() below, which reads the shared instance.
  */
 export function useFileSystemInstance() {
+  const closeLifecycle = useExplorerCloseLifecycle();
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = useFileExplorerStoreSelector((s) => s.setCurrentFolderId);
   const hydrateFolderState = useFileExplorerStoreSelector((s) => s.hydrateFolderState);
@@ -217,6 +230,7 @@ export function useFileSystemInstance() {
 
   const coreApi = useCoreFileSystem({
     addActiveRoot,
+    closeLifecycle,
     getFolderAccessOrder,
     getPersistedCurrentFolderId,
     removeActiveRoot,
@@ -225,22 +239,33 @@ export function useFileSystemInstance() {
     waitForHydration,
   });
 
+  const { isPreparing: isRootWrapperRetiring, track: trackRootWrapper } =
+    useExplorerCloseProducer();
   const selectRootDirectory = useCallback(async (): Promise<DirectoryHandle | null> => {
-    const handle = await selectDirectoryWithErrorMapping(
-      coreApi.isFileSystemAccessSupported,
-      coreApi.selectRootDirectory
-    );
-    if (handle) {
-      // v5: currentFolderId is now a RootId UUID (set by coreApi.selectRootDirectory
-      // → addRootDirectory → updateCurrentFolderId(rootId)).  Read it from the store
-      // rather than using handle.path so the rehydration key matches the store key.
-      const rootId = store.getState().currentFolderId;
-      if (rootId) {
-        rehydrateCurrentFolderStateIfNeeded(rootId);
-      }
+    if (isRootWrapperRetiring()) {
+      throw new DOMException('Explorer root selection is retired', 'AbortError');
     }
-    return handle;
+    return await trackRootWrapper(
+      (async () => {
+        const handle = await selectDirectoryWithErrorMapping(
+          coreApi.isFileSystemAccessSupported,
+          coreApi.selectRootDirectory
+        );
+        if (handle) {
+          // v5: currentFolderId is now a RootId UUID (set by coreApi.selectRootDirectory
+          // → addRootDirectory → updateCurrentFolderId(rootId)).  Read it from the store
+          // rather than using handle.path so the rehydration key matches the store key.
+          const rootId = store.getState().currentFolderId;
+          if (rootId) {
+            rehydrateCurrentFolderStateIfNeeded(rootId);
+          }
+        }
+        return handle;
+      })()
+    );
   }, [
+    isRootWrapperRetiring,
+    trackRootWrapper,
     coreApi.isFileSystemAccessSupported,
     coreApi.selectRootDirectory,
     store,
@@ -264,15 +289,31 @@ export function useFileSystemInstance() {
    * disconnect is ABORTED (toast + root stays connected, so the user can
    * retry). The reverse order would orphan rows with no UI left to retry.
    */
-  const removeRootDirectory = useCallback(
+  const runRootRemoval = useCallback(
     async (rootId: string, options?: { deleteData?: boolean }): Promise<void> => {
-      if (options?.deleteData) {
-        try {
-          if (!deleteRootData) {
-            throw new Error('Root data deletion is not available in this environment.');
+      if (isRootWrapperRetiring()) {
+        throw new DOMException('Explorer root removal is retired', 'AbortError');
+      }
+      let deletionFailed = false;
+      const beforeRemove = options?.deleteData
+        ? async () => {
+            try {
+              if (!deleteRootData) {
+                throw new Error('Root data deletion is not available in this environment.');
+              }
+              await deleteRootData(rootId);
+            } catch (error) {
+              deletionFailed = true;
+              throw error;
+            }
           }
-          await deleteRootData(rootId);
-        } catch (error) {
+        : undefined;
+      try {
+        // Core admission precedes deletion: accepted work must finish its existing
+        // adapter transition, focus shift and snapshot purge before storage retires.
+        await trackRootWrapper(coreApi.removeRootDirectory(rootId, beforeRemove));
+      } catch (error) {
+        if (deletionFailed) {
           logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
             error,
             rootId,
@@ -280,18 +321,6 @@ export function useFileSystemInstance() {
           showToast('Could not delete the folder’s indexed data. The folder stays connected.');
           return;
         }
-      }
-      // The core hook performs the snapshot → focus-shift → store-purge sequence
-      // internally; the reducer is the sole handle owner, so there is no store
-      // handle to sync here (B3: the redundant second focus-write is dropped).
-      // The platform-authority adapter call (forgetRootInAdapter) runs BEFORE
-      // any renderer state change, so a rejection here means the root is still
-      // connected — mirror the deleteRootData pattern above: log + toast + a
-      // silent return, never letting the failure vanish uncaught (NO SILENT
-      // FALLBACKS — this makes the failure visible instead of losing it).
-      try {
-        await coreApi.removeRootDirectory(rootId);
-      } catch (error) {
         logger.error('removeRootDirectory: adapter disconnect failed — root stays connected', {
           error,
           rootId,
@@ -299,7 +328,6 @@ export function useFileSystemInstance() {
         showToast('Could not disconnect the folder. The folder stays connected.');
         return;
       }
-      // Token cache: best-effort — a failure must not block the disconnect.
       if (tokenCacheStore) {
         try {
           await tokenCacheStore.clearFolder(rootId);
@@ -308,7 +336,18 @@ export function useFileSystemInstance() {
         }
       }
     },
-    [deleteRootData, showToast, coreApi.removeRootDirectory, tokenCacheStore]
+    [
+      deleteRootData,
+      showToast,
+      coreApi.removeRootDirectory,
+      tokenCacheStore,
+      isRootWrapperRetiring,
+      trackRootWrapper,
+    ]
+  );
+  const removeRootDirectory = useCallback(
+    (...args: Parameters<typeof runRootRemoval>) => trackRootWrapper(runRootRemoval(...args)),
+    [runRootRemoval, trackRootWrapper]
   );
 
   /**
@@ -320,17 +359,30 @@ export function useFileSystemInstance() {
    */
   const registerRestoredHandles = useCallback(
     async (handles: readonly DirectoryHandle[]): Promise<void> => {
-      await coreApi.registerRestoredHandles(handles);
-      const first = handles[0];
-      if (first) {
-        // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
-        const rootId = store.getState().currentFolderId;
-        if (rootId) {
-          rehydrateCurrentFolderStateIfNeeded(rootId);
-        }
+      if (isRootWrapperRetiring()) {
+        throw new DOMException('Explorer root restore is retired', 'AbortError');
       }
+      await trackRootWrapper(
+        (async () => {
+          await coreApi.registerRestoredHandles(handles);
+          const first = handles[0];
+          if (first) {
+            // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
+            const rootId = store.getState().currentFolderId;
+            if (rootId) {
+              rehydrateCurrentFolderStateIfNeeded(rootId);
+            }
+          }
+        })()
+      );
     },
-    [coreApi.registerRestoredHandles, store, rehydrateCurrentFolderStateIfNeeded]
+    [
+      coreApi.registerRestoredHandles,
+      store,
+      rehydrateCurrentFolderStateIfNeeded,
+      isRootWrapperRetiring,
+      trackRootWrapper,
+    ]
   );
 
   /**
@@ -383,12 +435,15 @@ export function useFileSystemInstance() {
   const hasRehydratedRestoredRootRef = useRef(false);
   // biome-ignore lint/plugin: one-time rehydrate of the auto-restored root's folder state
   useLayoutEffect(() => {
-    if (!hasRehydratedRestoredRootRef.current && coreApi.rootDirectoryHandle) {
+    if (
+      !(closeLifecycle?.isPreparing() || hasRehydratedRestoredRootRef.current) &&
+      coreApi.rootDirectoryHandle
+    ) {
       hasRehydratedRestoredRootRef.current = true;
       const rootId = store.getState().currentFolderId ?? coreApi.rootDirectoryHandle.path;
       rehydrateCurrentFolderStateIfNeeded(rootId);
     }
-  }, [coreApi.rootDirectoryHandle, rehydrateCurrentFolderStateIfNeeded, store]);
+  }, [coreApi.rootDirectoryHandle, rehydrateCurrentFolderStateIfNeeded, store, closeLifecycle]);
 
   // CRITICAL: Sync isAccessLoading from core hook to store.
   // The stale state clearing effect in use-file-explorer-context checks the STORE's
@@ -396,8 +451,11 @@ export function useFileSystemInstance() {
   // isAccessLoading but not the store's. Without this sync, the stale clearing effect
   // sees store.isAccessLoading=false and incorrectly clears selections/expansions.
   useEffect(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     setStoreIsAccessLoading(coreApi.isAccessLoading);
-  }, [coreApi.isAccessLoading, setStoreIsAccessLoading]);
+  }, [coreApi.isAccessLoading, setStoreIsAccessLoading, closeLifecycle]);
 
   // Per-root file watcher lifecycle (multi-root, Phase 4+).
   // Dispatches the file-explorer refresh event whenever any root reports changes,
@@ -478,6 +536,9 @@ export function useFileSystemInstance() {
   // continuously-busy root (a build writing every <300ms) from resetting the
   // trailing window forever and starving every root's refresh.
   const flushPendingWatcherChanges = useCallback((): void => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     if (refreshTimerRef.current !== null) {
       clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = null;
@@ -506,7 +567,7 @@ export function useFileSystemInstance() {
         source: 'watcher',
       })
     );
-  }, [prunePendingRefreshRoots]);
+  }, [prunePendingRefreshRoots, closeLifecycle]);
 
   const handleWatcherChanges = useCallback(
     (
@@ -514,14 +575,15 @@ export function useFileSystemInstance() {
       changes: FileSystemChange[],
       metadata?: FileSystemWatchBatchMetadata
     ): void => {
+      if (closeLifecycle?.isPreparing()) {
+        return;
+      }
       const watcherRoot = watcherRootMetadataRef.current.get(rootId);
       if (!watcherRoot) {
         return;
       }
       const filteredChangeBoundaries = metadata?.filteredChangeBoundaries ?? [];
-      const hasFilteredEvidence =
-        filteredChangeBoundaries.length > 0 || metadata?.filteredChangeBoundariesOverflow === true;
-      if (changes.length === 0 && !hasFilteredEvidence) {
+      if (!hasWatcherChangeEvidence(changes, metadata)) {
         return;
       }
 
@@ -571,7 +633,7 @@ export function useFileSystemInstance() {
         WATCHER_DISPATCH_DEBOUNCE_MS
       );
     },
-    [flushPendingWatcherChanges]
+    [flushPendingWatcherChanges, closeLifecycle]
   );
 
   // Watcher health signals (overflow / errored) — see FileSystemWatchSignal.
@@ -579,8 +641,27 @@ export function useFileSystemInstance() {
   // single full-refresh dispatch per root, not a refresh storm. The rootId is
   // released after the dispatch window so a LATER overflow refreshes again.
   const overflowDispatchedRootsRef = useRef<Set<string>>(new Set());
+  const overflowTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useExplorerClosePreparation(
+    async () => {
+      if (refreshTimerRef.current !== null) {
+        clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = null;
+      pendingRefreshRootsRef.current.clear();
+      firstPendingAtRef.current = null;
+      for (const timer of overflowTimersRef.current) {
+        clearTimeout(timer);
+      }
+      overflowTimersRef.current.clear();
+    },
+    async () => {}
+  );
   const handleWatcherSignal = useCallback(
     (rootId: string, signal: FileSystemWatchSignal): void => {
+      if (closeLifecycle?.isPreparing()) {
+        return;
+      }
       const watcherRoot = watcherRootMetadataRef.current.get(rootId);
       if (!watcherRoot) {
         return;
@@ -607,9 +688,11 @@ export function useFileSystemInstance() {
         return;
       }
       overflowDispatchedRootsRef.current.add(rootId);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        overflowTimersRef.current.delete(timer);
         overflowDispatchedRootsRef.current.delete(rootId);
       }, 300);
+      overflowTimersRef.current.add(timer);
       pendingRefreshRootsRef.current.delete(rootId);
       logger.warn('File watcher overflow — dispatching full refresh for root', {
         rootId,
@@ -623,7 +706,7 @@ export function useFileSystemInstance() {
         })
       );
     },
-    [showToastRaw]
+    [showToastRaw, closeLifecycle]
   );
 
   // Clear any pending debounced dispatch on unmount to avoid dispatching after
@@ -717,3 +800,5 @@ export function useFileSystemInstance() {
     ]
   );
 }
+
+import { useExplorerCloseProducer } from './explorer-close-lifecycle';

@@ -12,7 +12,7 @@
  * "loadRoot running". The desktop startup-restore regression E2E caught it
  * only through the worker's own "tree initialized" record (4, expected <= 1).
  */
-import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { type DirectoryHandle, MockFileSystemAdapter } from '@brainstrike/file-system';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -71,6 +71,62 @@ describe('useLazyFileTree no-root reset', () => {
     mockAdapter = new MockFileSystemAdapter();
     vi.clearAllMocks();
     __resetInFlightRootLoads();
+  });
+
+  it('close joins a physical root read after cancellation and unmount', async () => {
+    const read = Promise.withResolvers<[]>();
+    const reading = vi
+      .spyOn(mockAdapter, 'readDirectoryStreaming')
+      .mockImplementation(async (_handle, onBatch) => {
+        await read.promise;
+        onBatch([], { done: true, total: 0 });
+      });
+    const producers = new Set<() => Promise<void>>();
+    let closing = false;
+    const lifecycle = {
+      isPreparing: () => closing,
+      registerPersistence: () => () => {},
+      registerProducer: (prepare: () => Promise<void>) => {
+        producers.add(prepare);
+        return () => {
+          producers.delete(prepare);
+        };
+      },
+    };
+    const handle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'fixture',
+      path: '/fixture',
+      platform: 'electron',
+      rootId: 'root-fixture',
+    };
+    const { result, unmount } = renderHook(() => useFileTree(handle), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({
+          children,
+          closeLifecycle: lifecycle,
+          mockFileSystemAdapter: mockAdapter,
+        }),
+    });
+    await waitFor(() => expect(reading).toHaveBeenCalled());
+    closing = true;
+    let settled = false;
+    const preparation = Promise.all([...producers].map((prepare) => prepare())).then(() => {
+      settled = true;
+    });
+    await expect(result.current.refreshDirectory('/fixture/late')).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    unmount();
+    expect(settled).toBe(false);
+    await act(async () => {
+      read.resolve([]);
+      await preparation;
+    });
+    expect(settled).toBe(true);
   });
 
   it('does not re-initialize the worker when the no-root reset repeats', async () => {

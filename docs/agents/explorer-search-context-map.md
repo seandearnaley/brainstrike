@@ -24,6 +24,17 @@ restore old values. Worker or adapter write failures reject without a fallback w
 Admitted mutations retain their original ACK, failure and deadline through flush
 and worker retirement.
 
+Desktop composition injects the existing renderer close registry for quit and
+native reload. The document becomes inert, then producers stop new work and join
+accepted hydration, restore, content reads and indexing before Explorer persistence
+fences and drains its existing adapter. Both phases attempt all owners and retain
+failures from close entry; admitted physical writes keep their original ACK,
+rejection and deadline. Initial store hydration and accepted workspace hydration
+finish their canonical publications during the producer phase.
+DOM unload flushes are cleanup, not the awaited lifetime barrier. Detached owners
+retain registration until their admitted physical work settles. Factory reset
+keeps its separate preparation and live-store clearing lifecycle.
+
 ## Thread context map
 
 The Context tab and the explorer's This thread column show what the active

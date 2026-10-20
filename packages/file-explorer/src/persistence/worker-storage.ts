@@ -65,10 +65,15 @@ export class WorkerStorage {
       type: 'save' | 'load' | 'remove';
       admitted: boolean;
       retired: boolean;
+      value: unknown;
+      completion: Promise<unknown> | undefined;
     }
   >();
   private readonly activeSaveOps = new Map<string, number>();
   private readonly adapterWrites = new Map<string, Promise<void>>();
+  // A caller can time out while its already-admitted adapter work still runs.
+  // Retain that exact settlement until the physical operation has finished.
+  private readonly admittedCompletions = new Map<string, Promise<unknown>>();
   private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly debounceState = new Map<
     string,
@@ -190,6 +195,8 @@ export class WorkerStorage {
       }
     } catch (error) {
       this.takePendingRequest(id)?.reject(error);
+    } finally {
+      this.admittedCompletions.delete(id);
     }
   }
 
@@ -251,6 +258,9 @@ export class WorkerStorage {
       return false;
     }
     request.admitted = true;
+    if (request.completion) {
+      this.admittedCompletions.set(id, request.completion);
+    }
     return true;
   }
 
@@ -347,8 +357,20 @@ export class WorkerStorage {
     return callers;
   }
 
-  private flushPendingSaveValues(): void {
+  private flushPendingSaveValues(): Promise<PromiseSettledResult<void>[]> {
+    const writes: Promise<void>[] = [];
     for (const [key, value] of this.pendingSaveValues.entries()) {
+      const admitted = [...this.pendingRequests.values()].find(
+        (request) =>
+          request.type === 'save' &&
+          request.key === key &&
+          request.admitted &&
+          request.value === value
+      );
+      if (admitted?.completion) {
+        writes.push(admitted.completion.then(() => undefined));
+        continue;
+      }
       const callers = this.detachPendingSaveCallers(key);
       const reject = (error: unknown) => {
         for (const caller of callers) {
@@ -360,20 +382,58 @@ export class WorkerStorage {
         const serialized = typeof value === 'string' ? value : JSON.stringify(value);
         // Starts synchronous adapters immediately; an admitted asynchronous write
         // joins first so its old value cannot commit after this latest snapshot.
-        this.writeToAdapter(key, () => this.storageAdapter.setItem(key, serialized)).then(() => {
-          for (const caller of callers) {
-            caller.resolve();
+        const writing = this.writeToAdapter(key, () =>
+          this.storageAdapter.setItem(key, serialized)
+        ).then(
+          () => {
+            for (const caller of callers) {
+              caller.resolve();
+            }
+          },
+          (error: unknown) => {
+            reject(error);
+            throw error;
           }
-        }, reject);
+        );
+        writes.push(writing);
       } catch (error) {
         reject(error);
+        writes.push(Promise.reject(error));
       }
     }
     this.pendingSaveValues.clear();
+    return Promise.allSettled(writes);
   }
 
   flushPendingWrites(): void {
-    this.flushPendingSaveValues();
+    void this.flushPendingSaveValues();
+  }
+
+  /** Await the same flush through its authoritative adapter completion. */
+  async drainPendingWrites(): Promise<void> {
+    const mutations = [...this.pendingRequests.values()].flatMap((request) =>
+      request.type !== 'load' && request.completion ? [request.completion] : []
+    );
+    const [flushed, admitted] = await Promise.all([
+      this.flushPendingSaveValues(),
+      Promise.allSettled([
+        ...this.adapterWrites.values(),
+        ...this.admittedCompletions.values(),
+        ...mutations,
+      ]),
+    ]);
+    const results = [...flushed, ...admitted];
+    const failures = [
+      ...new Set(
+        results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+      ),
+    ];
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Explorer writes failed to flush');
+    }
   }
 
   private sendMessage(
@@ -381,14 +441,23 @@ export class WorkerStorage {
     key?: string,
     value?: unknown
   ): Promise<unknown> {
-    return new Promise((resolve, reject) => {
+    const id = (++this.messageId).toString();
+    const completion = new Promise((resolve, reject) => {
       if (!this.worker) {
         reject(new Error('Web Worker not available'));
         return;
       }
 
-      const id = (++this.messageId).toString();
-      this.pendingRequests.set(id, { admitted: false, key, reject, resolve, retired: false, type });
+      this.pendingRequests.set(id, {
+        admitted: false,
+        completion: undefined,
+        key,
+        reject,
+        resolve,
+        retired: false,
+        type,
+        value,
+      });
 
       const message: WorkerMessage = { id, type };
       if (key !== undefined) {
@@ -411,6 +480,14 @@ export class WorkerStorage {
 
       this.timeouts.set(id, timeout);
     });
+    const request = this.pendingRequests.get(id);
+    if (request) {
+      request.completion = completion;
+      if (request.admitted) {
+        this.admittedCompletions.set(id, completion);
+      }
+    }
+    return completion;
   }
 
   async getItem<T = unknown>(key: string): Promise<T | null> {
@@ -517,7 +594,7 @@ export class WorkerStorage {
    * Cleanup worker resources
    */
   destroy() {
-    this.flushPendingSaveValues();
+    void this.flushPendingSaveValues();
 
     if (this.worker) {
       this.worker.terminate();

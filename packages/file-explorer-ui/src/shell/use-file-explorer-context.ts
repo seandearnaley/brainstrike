@@ -1,3 +1,4 @@
+import { useExplorerCloseLifecycle, useExplorerClosePreparation } from './explorer-close-lifecycle';
 /**
  * File Explorer Hook (Context-aware)
  *
@@ -207,6 +208,7 @@ export { __resetRestorationLock } from '../use-expanded-path-restoration';
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   const store = useFileExplorerStoreContext();
+  const closeLifecycle = useExplorerCloseLifecycle();
   const includeFilters = useFileExplorerStoreSelector(selectIncludeFilters);
   const excludeFilters = useFileExplorerStoreSelector(selectExcludeFilters);
   const useRegex = useFileExplorerStoreSelector(selectUseRegex);
@@ -422,6 +424,15 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Track the stale clearing timer ID so we can cancel it from outside the effect
   const staleClearingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentRootFolderIdRef = useRef<string | null>(currentRootFolderId);
+  useExplorerClosePreparation(
+    async () => {
+      if (staleClearingTimerRef.current !== null) {
+        clearTimeout(staleClearingTimerRef.current);
+      }
+      staleClearingTimerRef.current = null;
+    },
+    async () => {}
+  );
 
   useLayoutEffect(() => {
     currentRootFolderIdRef.current = currentRootFolderId;
@@ -459,6 +470,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
    * no longer matches.
    */
   useEffect(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     // Wait for initial mount to complete (not loading tree)
     if (isTreeLoading) {
       return;
@@ -491,6 +505,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     staleClearingTimerRef.current = setTimeout(() => {
       // Clear the ref since the timer is now executing
       staleClearingTimerRef.current = null;
+      if (closeLifecycle?.isPreparing()) {
+        return;
+      }
 
       // CRITICAL: Check isAccessLoading directly from the store at callback time.
       // This ensures we see the current value, not a stale closure-captured value.
@@ -544,6 +561,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     expandedDirectoryPaths,
     clearSelectedFiles,
     setExpandedPaths,
+    closeLifecycle,
   ]);
 
   const localRestorationState = useExpandedPathRestoration({

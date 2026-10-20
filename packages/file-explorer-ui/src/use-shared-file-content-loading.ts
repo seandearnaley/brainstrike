@@ -6,6 +6,11 @@ import { fileNodeToFileHandle } from '@brainstrike/file-system/file-node-handles
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { getKnownFileSize } from '@brainstrike/utils/file-content';
+import {
+  useExplorerCloseLifecycle,
+  useExplorerClosePreparation,
+  useExplorerCloseProducer,
+} from './shell/explorer-close-lifecycle';
 
 const logger = createLogger('SharedFileContentLoading');
 
@@ -507,6 +512,7 @@ async function prepareFileReadRequest(
 }
 
 export function useSharedFileContentLoading(fileTree: IFileNode[]) {
+  const closeLifecycle = useExplorerCloseLifecycle();
   const [isLoading, setIsLoading] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
   const loadingPathsRef = useRef(new Set<string>());
@@ -538,6 +544,15 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   // Debounce timeout ref for cache rebuild (only used as fallback when index unavailable)
   const cacheRebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useExplorerClosePreparation(
+    async () => {
+      if (cacheRebuildTimeoutRef.current !== null) {
+        clearTimeout(cacheRebuildTimeoutRef.current);
+      }
+      cacheRebuildTimeoutRef.current = null;
+    },
+    async () => {}
+  );
 
   // Build cache in effect (async) - only when FileTreeIndex is not available
   // When index is available, this expensive O(N) traversal is skipped entirely
@@ -579,7 +594,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         clearTimeout(cacheRebuildTimeoutRef.current);
       }
     };
-  }, [fileTree, indexGetNode]);
+  }, [fileTree, indexGetNode, closeLifecycle]);
 
   useEffect(() => {
     workerRef.current = initFileContentWorker(fileSystemAdapter);
@@ -756,55 +771,82 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     [runFileContentLoading]
   );
 
+  const reloadRetirementRef = useRef<DOMException | null>(null);
+  const { isPreparing: isReloadRetiring, track: trackReload } = useExplorerCloseProducer(() => {
+    reloadRetirementRef.current ??= new DOMException(
+      'Explorer content reload is retired',
+      'AbortError'
+    );
+  });
+  const assertReloadAdmission = useCallback(() => {
+    if (isReloadRetiring()) {
+      reloadRetirementRef.current ??= new DOMException(
+        'Explorer content reload is retired',
+        'AbortError'
+      );
+      throw reloadRetirementRef.current;
+    }
+  }, [isReloadRetiring]);
+
   const reloadFileContents = useCallback(
     async (compositeKeys: readonly string[], intent: FileContentLoadIntent): Promise<void> => {
-      const uniqueKeys = [...new Set(compositeKeys)];
-      if (uniqueKeys.length === 0) {
-        return;
-      }
+      assertReloadAdmission();
+      await trackReload(
+        (async () => {
+          const uniqueKeys = [...new Set(compositeKeys)];
+          if (uniqueKeys.length === 0) {
+            return;
+          }
 
-      loadAuthority.clearErrors(uniqueKeys);
+          loadAuthority.clearErrors(uniqueKeys);
 
-      // Explicit tab Retry is allowed to promote/join an already queued read.
-      // Starting a replacement generation first would turn that queued read
-      // into a stale predecessor, forcing duplicate I/O before Retry could run.
-      // Background watcher refreshes deliberately keep replacement semantics:
-      // a mutation may have happened after an older read began.
-      const joinedInteractiveLoads = new Set<Promise<void>>();
-      const keysToReload: string[] = [];
-      for (const key of uniqueKeys) {
-        const activeLoad = intent === 'interactive' ? loadAuthority.getActiveLoad(key) : undefined;
-        if (!activeLoad) {
-          keysToReload.push(key);
-          continue;
-        }
-        joinedInteractiveLoads.add(loadAuthority.promoteQueuedLoad(key) ?? activeLoad);
-      }
+          // Explicit tab Retry is allowed to promote/join an already queued read.
+          // Starting a replacement generation first would turn that queued read
+          // into a stale predecessor, forcing duplicate I/O before Retry could run.
+          // Background watcher refreshes deliberately keep replacement semantics:
+          // a mutation may have happened after an older read began.
+          const joinedInteractiveLoads = new Set<Promise<void>>();
+          const keysToReload: string[] = [];
+          for (const key of uniqueKeys) {
+            const activeLoad =
+              intent === 'interactive' ? loadAuthority.getActiveLoad(key) : undefined;
+            if (!activeLoad) {
+              keysToReload.push(key);
+              continue;
+            }
+            joinedInteractiveLoads.add(loadAuthority.promoteQueuedLoad(key) ?? activeLoad);
+          }
 
-      if (keysToReload.length === 0) {
-        await settleFileContentPromises(joinedInteractiveLoads);
-        return;
-      }
+          if (keysToReload.length === 0) {
+            await settleFileContentPromises(joinedInteractiveLoads);
+            return;
+          }
 
-      const requestedGenerations = loadAuthority.beginReload(keysToReload);
+          const requestedGenerations = loadAuthority.beginReload(keysToReload);
 
-      // Evict synchronously before awaiting any older read. Every consumer of
-      // the shared cache sees a loading boundary instead of stale disk bytes.
-      store.getState().clearFileContents(keysToReload);
+          // Evict synchronously before awaiting any older read. Every consumer of
+          // the shared cache sees a loading boundary instead of stale disk bytes.
+          store.getState().clearFileContents(keysToReload);
 
-      const replacement = runFileContentReloadGroups({
-        clearGeneration: loadAuthority.clearGeneration,
-        compositeKeys: keysToReload,
-        getActiveLoad: loadAuthority.getActiveLoad,
-        intent,
-        isCurrentGeneration: loadAuthority.isCurrentGeneration,
-        reload: (keys, reloadIntent) => runFileContentLoading(keys, false, reloadIntent),
-        requestedGenerations,
-      });
-      joinedInteractiveLoads.add(replacement);
-      await settleFileContentPromises(joinedInteractiveLoads);
+          const replacement = runFileContentReloadGroups({
+            clearGeneration: loadAuthority.clearGeneration,
+            compositeKeys: keysToReload,
+            getActiveLoad: loadAuthority.getActiveLoad,
+            intent,
+            isCurrentGeneration: loadAuthority.isCurrentGeneration,
+            reload: (keys, reloadIntent) => {
+              assertReloadAdmission();
+              return runFileContentLoading(keys, false, reloadIntent);
+            },
+            requestedGenerations,
+          });
+          joinedInteractiveLoads.add(replacement);
+          await settleFileContentPromises(joinedInteractiveLoads);
+        })(),
+        (error) => reloadRetirementRef.current !== null && error === reloadRetirementRef.current
+      );
     },
-    [loadAuthority, runFileContentLoading, store]
+    [loadAuthority, runFileContentLoading, store, assertReloadAdmission, trackReload]
   );
 
   // Content loading is demand-driven via handleFileContentLoading() when:

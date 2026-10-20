@@ -13,6 +13,7 @@ import type {
   WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-data';
 import { ThreadWorkspaceUnavailableError } from '@brainstrike/assistant-data';
+import { registerClosePreparation } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useEffectEvent, useMemo, useRef, useSyncExternalStore } from 'react';
 import { isDelegatedWorkspaceTabId } from '../delegated-workspace-tab';
@@ -456,21 +457,7 @@ export function useThreadWorkspaceCoordinator({
     }
     logFailure(message, error, { threadId });
   });
-  const prepareClose = useEffectEvent(async () => {
-    closePreparedRef.current = true;
-    const flush = saveTimerRef.current !== null;
-    clearWorkspaceSaveTimer(saveTimerRef);
-    if (flush && repository && activeThreadId !== null && !resetPreparedRef.current) {
-      const snapshot = captureWorkspaceSnapshot(facadeRef.current);
-      cacheRef.current.set(activeThreadId, snapshot);
-      repository.setThreadWorkspace(activeThreadId, resourceId, snapshot).catch((error) => {
-        handlePersistError(
-          activeThreadId,
-          error,
-          'Failed to persist closing thread workspace snapshot'
-        );
-      });
-    }
+  const drainCloseOperations = useEffectEvent(async () => {
     const failures: unknown[] = [];
     // An admitted hydration can produce an inherited/live-edit save when its read settles.
     while (pendingOperationsRef.current.size > 0) {
@@ -486,12 +473,32 @@ export function useThreadWorkspaceCoordinator({
       );
     }
   });
+  const prepareClose = useEffectEvent(async () => {
+    closePreparedRef.current = true;
+    const flush = saveTimerRef.current !== null;
+    clearWorkspaceSaveTimer(saveTimerRef);
+    if (flush && repository && activeThreadId !== null && !resetPreparedRef.current) {
+      const snapshot = captureWorkspaceSnapshot(facadeRef.current);
+      cacheRef.current.set(activeThreadId, snapshot);
+      repository.setThreadWorkspace(activeThreadId, resourceId, snapshot).catch((error) => {
+        handlePersistError(
+          activeThreadId,
+          error,
+          'Failed to persist closing thread workspace snapshot'
+        );
+      });
+    }
+    await drainCloseOperations();
+  });
   useEffect(() => {
     if (hasRendererClosePreparationStarted()) {
       closePreparedRef.current = true;
       return;
     }
-    return registerRendererClosePreparation(prepareClose);
+    return registerClosePreparation(
+      { drain: () => drainCloseOperations(), prepareClose: () => prepareClose() },
+      registerRendererClosePreparation
+    );
   }, []);
   // Before workspace effects: later effects in this hook read facadeRef, and
   // same-commit effect order is declaration order.

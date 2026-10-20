@@ -158,6 +158,9 @@ export interface RootLayoutContentProps {
    * Omit when the app has no such registry; diagnostics surfaces that absence.
    */
   readonly diagnosticFeatureFlags?: readonly string[];
+  readonly explorerCloseLifecycle?:
+    | import('@brainstrike/file-explorer-ui/shell').ExplorerCloseLifecycle
+    | undefined;
   /**
    * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
    *
@@ -586,6 +589,7 @@ export function RootLayoutContent({
   nativeIndexRetry,
   nativeIndexSearch,
   stateHealth,
+  explorerCloseLifecycle,
   deleteRootData: platformDeleteRootData,
   browserPageContent,
   canvasPanelContent,
@@ -684,6 +688,7 @@ export function RootLayoutContent({
       <AppLayout
         config={appConfig}
         currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
+        explorerCloseLifecycle={explorerCloseLifecycle}
         nativeIndexRetry={nativeIndexRetry ?? null}
         nativeIndexSearch={nativeIndexSearch ?? null}
         onNavigationClick={handleNavigationClick}

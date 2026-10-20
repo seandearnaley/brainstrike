@@ -3,12 +3,18 @@ import {
   registerFactoryResetPreparation,
 } from '@brainstrike/app-state/factory-reset';
 import { createLogger } from '@brainstrike/logging';
-import { type RefObject, useEffect, useMemo, useRef } from 'react';
+import { type RefObject, useCallback, useEffect, useMemo, useRef } from 'react';
+
+import {
+  useExplorerCloseLifecycle,
+  useExplorerClosePreparation,
+} from '../shell/explorer-close-lifecycle';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 
 interface CancellableIndexer {
   readonly cancelIndexing: (cancellation: Error) => void;
+  readonly drain: () => Promise<void>;
   readonly retire: (retirement: Error) => void;
 }
 
@@ -42,29 +48,57 @@ export interface IndexingCancellation {
 export function useIndexingCancellation(
   indexerRef: RefObject<CancellableIndexer>
 ): IndexingCancellation {
+  const closeLifecycle = useExplorerCloseLifecycle();
   const retirementRef = useRef<Error | null>(null);
   const cancellationsRef = useRef(new WeakSet<Error>());
   const runsRef = useRef(new Set<Promise<void>>());
 
-  useEffect(() => {
-    const retire = (): void => {
+  const retire = useCallback(
+    (message: string): void => {
       if (retirementRef.current) {
         return;
       }
-      const retirement = new Error('Factory reset retired background token indexing');
+      const retirement = new Error(message);
       retirementRef.current = retirement;
       indexerRef.current.retire(retirement);
-    };
+    },
+    [indexerRef]
+  );
+  const drainIndexingRuns = async (): Promise<void> => {
+    const results = await Promise.allSettled([...runsRef.current, indexerRef.current.drain()]);
+    // Batch callers settle before result persistence. Join it only after dispatch
+    // completion so ordinary detach cannot miss a result admitted in the meantime.
+    results.push(...(await Promise.allSettled([indexerRef.current.drain()])));
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' &&
+      result.reason !== retirementRef.current &&
+      !(result.reason instanceof Error && cancellationsRef.current.has(result.reason))
+        ? [result.reason]
+        : []
+    );
+    const originalFailures = [...new Set(failures)];
+    if (originalFailures.length === 1) {
+      throw originalFailures[0];
+    }
+    if (originalFailures.length > 1) {
+      throw new AggregateError(originalFailures, 'Token indexing failed to settle');
+    }
+  };
+  useExplorerClosePreparation(async () => {
+    retire('Renderer close retired background token indexing');
+    await drainIndexingRuns();
+  }, drainIndexingRuns);
+  useEffect(() => {
     // An owner remounted after preparation began belongs to the same terminal reset.
     if (hasFactoryResetPreparationStarted()) {
-      retire();
+      retire('Factory reset retired background token indexing');
       return;
     }
     return registerFactoryResetPreparation(async () => {
-      retire();
+      retire('Factory reset retired background token indexing');
       await Promise.allSettled([...runsRef.current]);
     });
-  }, [indexerRef]);
+  }, [retire]);
 
   return useMemo(
     () => ({
@@ -75,7 +109,7 @@ export function useIndexingCancellation(
         cancellationsRef.current.add(cancellation);
         indexerRef.current.cancelIndexing(cancellation);
       },
-      isRetired: () => retirementRef.current !== null,
+      isRetired: () => retirementRef.current !== null || closeLifecycle?.isPreparing() === true,
       settledByOwner: (error: unknown, dispatch: string): boolean => {
         if (retirementRef.current !== null && error === retirementRef.current) {
           logger.debug('triggerIndexing settled by factory reset retirement', { dispatch });
@@ -96,6 +130,6 @@ export function useIndexingCancellation(
         return run;
       },
     }),
-    [indexerRef]
+    [indexerRef, closeLifecycle]
   );
 }

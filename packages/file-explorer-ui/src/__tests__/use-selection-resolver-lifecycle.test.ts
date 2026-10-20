@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ExplorerCloseLifecycleContext } from '../shell/explorer-close-lifecycle';
 import {
   __resetSelectionResolverCachesForTests,
   QUERY_SELECTION_LOADING_PROMOTION_MS,
@@ -27,6 +29,106 @@ vi.mock('../utils/query-selection-snapshot', () => ({
 }));
 
 describe('useSelectionResolver', () => {
+  it.each([false, true])(
+    'retires the promotion timer and joins an admitted manifest DB read (reject=%s)',
+    async (rejectRead) => {
+      vi.useFakeTimers();
+      const state = {
+        currentFolderId: 'folder-1',
+        querySelectionManifest: null as null | {
+          filePaths: string[];
+          pathSet: Set<string>;
+          directoryCounts: Map<string, number>;
+          fingerprint: string;
+          snapshotId: string;
+          status: 'loading';
+          errorMessage: null;
+        },
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: new Set<string>(),
+          mode: 'query' as const,
+          queryDescriptor: {
+            coveredDirectoryPaths: ['/src'],
+            excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder-1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all' as const,
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
+            totalSelectedCount: 600,
+            useRegex: false,
+          },
+        },
+        setQuerySelectionManifest: vi.fn((manifest) => {
+          state.querySelectionManifest = manifest;
+        }),
+      };
+
+      const read = Promise.withResolvers<string[]>();
+      const failure = new Error('original manifest read failure');
+      useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+      useFileExplorerStoreContextMock.mockReturnValue({ getState: () => state });
+      loadQuerySelectionSnapshotMock.mockReturnValue(read.promise);
+      const producers = new Set<() => Promise<void>>();
+      let preparing = false;
+      const lifecycle = {
+        isPreparing: () => preparing,
+        registerPersistence: () => () => {},
+        registerProducer: (prepare: () => Promise<void>) => {
+          producers.add(prepare);
+          return () => {
+            producers.delete(prepare);
+          };
+        },
+      };
+      const view = renderHook(() => useSelectionResolver(), {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(ExplorerCloseLifecycleContext.Provider, { value: lifecycle }, children),
+      });
+      expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledOnce();
+      let closed = false;
+      let closing!: Promise<unknown>;
+      act(() => {
+        preparing = true;
+        closing = Promise.all([...producers].map((prepare) => prepare())).then(
+          () => {
+            closed = true;
+          },
+          (error: unknown) => error
+        );
+      });
+      try {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(QUERY_SELECTION_LOADING_PROMOTION_MS * 2);
+        });
+        expect(state.setQuerySelectionManifest).not.toHaveBeenCalled();
+        expect(closed).toBe(false);
+      } finally {
+        await act(async () => {
+          if (rejectRead) {
+            read.reject(failure);
+          } else {
+            read.resolve(['/src/result.ts']);
+          }
+        });
+        const outcome = await closing;
+        if (rejectRead) {
+          expect(outcome).toBe(failure);
+        } else {
+          expect(closed).toBe(true);
+        }
+        expect(state.setQuerySelectionManifest).not.toHaveBeenCalled();
+        view.unmount();
+      }
+    }
+  );
+
   beforeEach(() => {
     __resetSelectionResolverCachesForTests();
     useOptionalPGliteDatabaseMock.mockReset();

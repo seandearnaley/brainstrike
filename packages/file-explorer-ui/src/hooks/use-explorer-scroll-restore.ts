@@ -27,6 +27,10 @@
  */
 import type { RefObject } from 'react';
 import { useCallback, useEffect, useRef } from 'react';
+import {
+  useExplorerCloseLifecycle,
+  useExplorerClosePreparation,
+} from '../shell/explorer-close-lifecycle';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 
 /** Trailing debounce for the persisted scroll commit. */
@@ -140,6 +144,17 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
   const store = useFileExplorerStoreContext();
   const hasRestoredRef = useRef(false);
   const captureEnabledRef = useRef(false);
+  const closeLifecycle = useExplorerCloseLifecycle();
+  const stopCaptureRef = useRef<(() => void) | null>(null);
+  const stopRestoreRef = useRef<(() => void) | null>(null);
+  useExplorerClosePreparation(
+    async () => {
+      captureEnabledRef.current = false;
+      stopCaptureRef.current?.();
+      stopRestoreRef.current?.();
+    },
+    async () => {}
+  );
 
   // The ACTIVE scroll container, in priority order:
   //  1. forest mode → the shared inner `forest-sections-scroll` (external scroll)
@@ -161,6 +176,9 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
 
   // Capture: trailing-debounced persisted commit. Disabled until restore resolves.
   useEffect(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     const root = rootRef.current;
     if (!root) {
       return;
@@ -176,7 +194,7 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
       }
     };
     const onScroll = (event: Event): void => {
-      if (!captureEnabledRef.current) {
+      if (!captureEnabledRef.current || closeLifecycle?.isPreparing()) {
         return;
       }
       const target = event.target as HTMLElement | null;
@@ -191,7 +209,7 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
     };
 
     root.addEventListener('scroll', onScroll, { capture: true, passive: true });
-    return () => {
+    const stop = () => {
       root.removeEventListener('scroll', onScroll, { capture: true });
       if (commitTimer !== null) {
         clearTimeout(commitTimer);
@@ -199,14 +217,21 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
         commit();
       }
     };
-  }, [rootRef, getScrollEl, store]);
+    stopCaptureRef.current = stop;
+    return () => {
+      stop();
+      if (stopCaptureRef.current === stop) {
+        stopCaptureRef.current = null;
+      }
+    };
+  }, [rootRef, getScrollEl, store, closeLifecycle]);
 
   // Restore, once, after hydration — retrying as the tree grows.
   useEffect(() => {
     let cleanupController: (() => void) | null = null;
 
     const run = (): void => {
-      if (hasRestoredRef.current || cleanupController) {
+      if (closeLifecycle?.isPreparing() || hasRestoredRef.current || cleanupController) {
         return;
       }
       cleanupController = startScrollRestore(
@@ -217,7 +242,7 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
         },
         () => {
           hasRestoredRef.current = true;
-          captureEnabledRef.current = true;
+          captureEnabledRef.current = !closeLifecycle?.isPreparing();
         }
       );
     };
@@ -234,9 +259,16 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
         run();
       }
     }
-    return () => {
+    const stop = () => {
       unsubscribe?.();
       cleanupController?.();
     };
-  }, [store, getScrollEl, rootRef]);
+    stopRestoreRef.current = stop;
+    return () => {
+      stop();
+      if (stopRestoreRef.current === stop) {
+        stopRestoreRef.current = null;
+      }
+    };
+  }, [store, getScrollEl, rootRef, closeLifecycle]);
 }
