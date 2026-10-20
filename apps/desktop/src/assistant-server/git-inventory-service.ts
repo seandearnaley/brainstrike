@@ -412,8 +412,8 @@ async function buildRepository(
  * stops queueing new `readdir`s once aborted) and every `git` invocation in
  * `buildRepository` (killing an in-flight process immediately via
  * `execFileGitRunner`'s `signal` passthrough). `createGitInventoryService`'s
- * `stop()` is the caller that wires this up, so a slow build does not hold a
- * graceful shutdown open past its own drain timeout.
+ * `stop()` is the caller that wires this up: it aborts, then joins the build,
+ * so the abort is what keeps that join short.
  */
 export async function buildInventorySnapshot(
   deps: GitInventoryServiceDeps,
@@ -474,18 +474,6 @@ export async function buildInventorySnapshot(
  * marked the cache dirty (see {@link createGitInventoryService}) — the next
  * call rebuilds. */
 export const GIT_INVENTORY_SNAPSHOT_TTL_MS = 5000;
-
-/**
- * Upper bound on how long `stop()` will await an in-flight build before
- * abandoning it (BST-1112 review, codex P1 3712467640). `stop()` aborts the
- * build's `AbortSignal` first — this is the fallback for a build that does
- * not honor it (an `InventoryFs`/`GitCommandRunner` that ignores `signal`,
- * or work already past its last abort check). It was sized against Main's
- * quit deadline, which ADR-0026 deleted: quit now waits for every step and
- * skips none, so this bound no longer protects a deadline. It still lets
- * `stop()` resolve while such a build runs on.
- */
-export const GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS = 2000;
 
 /**
  * Thrown by `getSnapshot()` for any call made after `stop()` and before the
@@ -555,10 +543,8 @@ export interface GitInventoryService {
    * possibly-closed DB. Concurrent calls join; a failed watcher retirement
    * stays owned and is retried by the next stop.
    *
-   * Bounds its wait for an in-flight build to
-   * {@link GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS} — see the function doc comment
-   * for the abort-then-bounded-wait mechanics and why an unbounded await was
-   * itself a shutdown-deadline hazard (BST-1112 review, codex P1 3712467640).
+   * Aborts an in-flight build, then joins it: resolves only once that build
+   * has settled (ADR-0026 R4). See the function doc comment.
    */
   readonly stop: () => Promise<void>;
 }
@@ -622,30 +608,9 @@ export function createGitInventoryService(
   // caller share?" — and `startTrackedBuild()` clears it the moment a build
   // actually starts, whether or not that promise has settled yet: a caller
   // arriving after that point needs a build starting AFTER it, not this one.
-  // `pendingForcedRejects` below tracks the OTHER concern — "which forced
-  // promises can `stop()` still settle?" — and does not share this slot's
-  // lifetime (PR #2685 review, item 10 fold-in #2: clearing this slot used
-  // to ALSO drop `stop()`'s only handle on the promise, exactly at the
-  // moment the follow-up PROMOTES into being the tracked build itself — see
-  // that set's doc comment for the full scenario).
-  let forcedFollowUpWaiter: {
-    readonly promise: Promise<GitInventorySnapshot>;
-    readonly reject: (error: unknown) => void;
-  } | null = null;
-  // Every forced-follow-up `reject` handle whose promise has NOT settled
-  // yet — independent of `forcedFollowUpWaiter` above, and outliving it: a
-  // follow-up that starts its own build (`startTrackedBuild()`, inside
-  // `awaitForcedFollowUp`'s chain) clears the coalescing slot immediately,
-  // but its promise is still unsettled at that point, chained to the build
-  // it just started. If `stop()` then ABANDONS that build (does not settle
-  // within `GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS`), the promise's only other
-  // settle path is gone — `forcedFollowUpWaiter` was already null, so the
-  // single-slot version of this fix (BST-1400 item 10) had nothing left to
-  // reject, and the caller hung forever even though `stop()` itself already
-  // resolved. Entries are added when `awaitForcedFollowUp` creates a promise
-  // and removed the moment that SAME promise settles (by either path) —
-  // `stop()` rejects whatever is still in the set at abandonment time.
-  const pendingForcedRejects = new Set<(error: unknown) => void>();
+  // stop() needs no handle on it: it joins the build every follow-up is
+  // chained to, so each one settles (ADR-0026 R4).
+  let forcedFollowUpWaiter: Promise<GitInventorySnapshot> | null = null;
   // The AbortController for whichever build `inFlightBuild` currently points
   // at, if any (BST-1112 review, codex P1 3712467640). stop() aborts it so a
   // build blocked on a slow walk/git spawn unblocks (or at least stops doing
@@ -777,66 +742,38 @@ export function createGitInventoryService(
    * the two builds share `deps` and running them concurrently would double
    * the git spawn rate `buildInventorySnapshot` deliberately bounds.
    *
-   * The returned promise is externally settleable (BST-1400 item 10), not a
-   * bare `.then()` chain off `current`: if `stop()` ABANDONS the build this
-   * promise is currently depending on (it did not settle within
-   * `GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS`), a chain with no other settle
-   * path would wait on a build that may never resolve — hanging every
-   * forced caller forever even though `stop()` itself already returned.
-   * `stop()` holds the `reject` for exactly that case, via
-   * `pendingForcedRejects` — NOT via `forcedFollowUpWaiter`, which stops
-   * pointing at this promise the moment `startTrackedBuild()` runs below
-   * (review fold-in #2: the promise depends on a DIFFERENT build — its OWN
-   * — from that point on, but is still unsettled, so it must stay
-   * reject-able under its own handle regardless of what the coalescing slot
-   * currently holds). Once settled (by either path), later calls to it are
-   * no-ops — Promises settle once — so no coordination is needed between the
-   * two settle sites beyond both having a handle to the same promise.
+   * A plain chain off `current` is enough: `stop()` joins the build this
+   * promise depends on (`current`, or the build it promoted into), never
+   * abandons it, so the promise always settles — rejected with
+   * {@link GitInventoryStoppedError} when the service stopped first.
    */
   function awaitForcedFollowUp(
     current: Promise<GitInventorySnapshot>
   ): Promise<GitInventorySnapshot> {
     if (forcedFollowUpWaiter) {
-      return forcedFollowUpWaiter.promise;
+      return forcedFollowUpWaiter;
     }
     const myGeneration = generation;
-    let reject!: (error: unknown) => void;
-    const promise = new Promise<GitInventorySnapshot>((resolve, rejectFn) => {
-      reject = rejectFn;
-      void current
-        .then(
-          () => undefined,
-          () => undefined
-        )
-        .then(() => {
-          // stop() may have run while the build above was draining — either
-          // still torn down (`stopped`), or already restarted into a lifecycle
-          // this caller never asked about (`generation` moved). Same rule as
-          // getSnapshot()'s prologue: report the teardown, do not build.
-          if (stopped || generation !== myGeneration) {
-            throw new GitInventoryStoppedError();
-          }
-          // The build we just waited on cleared `dirty` when it started, so a
-          // change that landed after it began would otherwise leave the cache
-          // looking clean. Re-dirty so this build is unconditional.
-          dirty = true;
-          return startTrackedBuild();
-        })
-        .then(resolve, reject);
-    });
-    forcedFollowUpWaiter = { promise, reject };
-    pendingForcedRejects.add(reject);
-    // Removed the instant THIS promise settles, by either path — not tied to
-    // `forcedFollowUpWaiter`'s own lifetime, which (per the doc above) can
-    // clear well before this promise actually settles.
-    void promise.then(
-      () => {
-        pendingForcedRejects.delete(reject);
-      },
-      () => {
-        pendingForcedRejects.delete(reject);
-      }
-    );
+    const promise = current
+      .then(
+        () => undefined,
+        () => undefined
+      )
+      .then(() => {
+        // stop() may have run while the build above was draining — either
+        // still torn down (`stopped`), or already restarted into a lifecycle
+        // this caller never asked about (`generation` moved). Same rule as
+        // getSnapshot()'s prologue: report the teardown, do not build.
+        if (stopped || generation !== myGeneration) {
+          throw new GitInventoryStoppedError();
+        }
+        // The build we just waited on cleared `dirty` when it started, so a
+        // change that landed after it began would otherwise leave the cache
+        // looking clean. Re-dirty so this build is unconditional.
+        dirty = true;
+        return startTrackedBuild();
+      });
+    forcedFollowUpWaiter = promise;
     return promise;
   }
 
@@ -946,28 +883,19 @@ export function createGitInventoryService(
    * watcher retirement keeps the existing owner and refuses restart; a later
    * stop retries it once and preserves its failure if it rejects again.
    *
-   * Bounds its wait for an in-flight build to
-   * {@link GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS} (BST-1112 review, codex P1
-   * 3712467640) rather than awaiting it unconditionally: the caller's "torn
-   * down while the DB is still available" ordering — `main.ts` runs this step
-   * BEFORE the `database` shutdown step precisely because `loadRoots` reads
-   * the DB — wants that DB read settled before `stop()` resolves. The bound
-   * was added when an unconditional await made `stop()` a hazard for Main's
-   * quit deadline: a build can hold up to `GIT_DEFAULT_TIMEOUT_MS` (30s) PER
-   * git spawn, and that deadline then skipped every later shutdown step.
-   * ADR-0026 deleted the deadline (quit joins every step and skips none), so
-   * the bound no longer protects it. `buildAbortController.abort()` is tried FIRST — it kills an in-flight
-   * `git` child process immediately (`execFileGitRunner`'s `signal`
-   * passthrough) and stops the walk from queueing further `readdir`s — so the
-   * bounded wait below is normally a formality, not the common path. If the
-   * build still has not settled once the bound elapses (an `InventoryFs` or
-   * `GitCommandRunner` that ignores `signal`, or work already past its last
-   * abort check), the build is ABANDONED, visibly logged, and `stop()`
-   * resolves anyway: the `stopped` flag (checked in `getSnapshot()`, set
-   * below before this wait even starts) guarantees no caller can observe or
-   * trigger a NEW build off the abandoned one's eventual — possibly very
-   * late — settlement, so there is nothing left for that stale promise to
-   * corrupt; it is simply left to resolve into the void.
+   * Aborts an in-flight build, then JOINS it (ADR-0026 R4): `stop()` resolves
+   * only once that build has settled, however long it takes. The caller's
+   * "torn down while the DB is still available" ordering — `main.ts` runs
+   * this step BEFORE the `database` shutdown step precisely because
+   * `loadRoots` reads the DB — needs that DB read and every `git` child and
+   * `readdir` the build started to be finished, not abandoned, before Main
+   * frees its Node environment. `buildAbortController.abort()` kills an
+   * in-flight `git` child process immediately (`execFileGitRunner`'s `signal`
+   * passthrough) and stops the walk from queueing further `readdir`s, so the
+   * join is normally short. A build that rejects after its abort is the
+   * expected cancellation (logged at debug). The `stopped` flag (checked in
+   * `getSnapshot()`, set below before the join starts) guarantees no caller
+   * can trigger a NEW build while this one settles.
    *
    * `generation` is bumped BEFORE the wait, and `rebuild()` re-checks it
    * after every `await` point: a build already in flight when `stop()` runs
@@ -976,11 +904,11 @@ export function createGitInventoryService(
    * `dirty = true` below) nor sync the new lifecycle's watcher set (the
    * generation check also prevents it from syncing the retained OLD owner).
    *
-   * Note for future refactors: BECAUSE of that drain, `cachedSnapshot = null`
+   * Note for future refactors: BECAUSE of that join, `cachedSnapshot = null`
    * below and `rebuild()`'s post-sync generation re-check are both currently
    * unobservable (removing either in isolation breaks no test) — they are
-   * duals, and BOTH become load-bearing the moment the drain is removed.
-   * Dropping the drain would silently un-cover them; keep them.
+   * duals, and BOTH become load-bearing the moment the join is removed.
+   * Dropping the join would silently un-cover them; keep them.
    */
   function stop(): Promise<void> {
     if (stopping) {
@@ -996,43 +924,21 @@ export function createGitInventoryService(
     // A follow-up queued behind `pendingBuild` belongs to the lifecycle being
     // torn down: leaving it in the slot would let a forced call made after
     // the next start() coalesce onto a build scheduled before that call ever
-    // happened. `pendingForcedRejects` (below) is what still lets abandonment
-    // settle any of those promises that are not done yet — this slot itself
-    // carries no reject handle of its own to preserve any more (review
-    // fold-in #2: it used to, and clearing it here was exactly what dropped
-    // that handle at the wrong moment — see the slot's own doc comment).
+    // happened. The promise itself still settles: it is chained to the build
+    // joined below.
     forcedFollowUpWaiter = null;
     const toDispose = watchers;
     const retirement = (async () => {
       if (pendingBuild) {
         buildAbortController?.abort();
-        const settledInTime = await Promise.race([
-          pendingBuild.then(
-            () => true,
-            () => true
-          ),
-          new Promise<boolean>((resolve) => {
-            setTimeout(() => resolve(false), GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
-          }),
-        ]);
-        if (!settledInTime) {
-          logger.error(
-            'git inventory service: stop() abandoned an in-flight build that did not settle within the drain timeout',
-            { drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS }
-          );
-          // Without this, every forced getSnapshot() caller still waiting on a
-          // promise from `awaitForcedFollowUp` would hang forever: each one's
-          // only other settle path is chained off the very build just
-          // abandoned above (directly, or via a promotion that made this build
-          // its own), which may never resolve. Every entry still in the set at
-          // this point depends on `pendingBuild` — there is only ever one
-          // in-flight build at a time, so nothing here can belong to some
-          // OTHER build that is still healthy.
-          for (const rejectPendingForcedWaiter of pendingForcedRejects) {
-            rejectPendingForcedWaiter(new GitInventoryStoppedError());
+        await pendingBuild.then(
+          () => undefined,
+          (error: unknown) => {
+            logger.debug('git inventory service: the build stop() aborted settled as cancelled', {
+              error: toErrorMessage(error),
+            });
           }
-          pendingForcedRejects.clear();
-        }
+        );
       }
       cachedSnapshot = null;
       dirty = true;

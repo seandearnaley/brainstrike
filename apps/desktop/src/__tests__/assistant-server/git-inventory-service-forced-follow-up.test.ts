@@ -21,10 +21,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-import {
-  GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS,
-  GitInventoryStoppedError,
-} from '../../assistant-server/git-inventory-service';
+import { GitInventoryStoppedError } from '../../assistant-server/git-inventory-service';
 import type { GitCommandRun, GitCommandRunner } from '../../assistant-server/git-service';
 import {
   cleanupTempDirs,
@@ -41,11 +38,14 @@ afterEach(async () => {
 /**
  * A `loadRoots` whose FIRST call resolves immediately (so an initial build
  * settles and a follow-up can PROMOTE off it), and every call from the
- * second onward never settles — models the follow-up's own promoted build
- * being the one `stop()` must abandon, not the build it originally waited
- * on.
+ * second onward settles only `lateMs` later — models the follow-up's own
+ * promoted build being the one `stop()` joins, not the build it originally
+ * waited on.
  */
-function makeLoadRootsSecondCallHangs(roots: { id: string; path: string }[]): {
+function makeLoadRootsSecondCallLate(
+  roots: { id: string; path: string }[],
+  lateMs: number
+): {
   readonly loadRootsSpy: ReturnType<
     typeof vi.fn<() => Promise<readonly { id: string; path: string }[]>>
   >;
@@ -54,8 +54,8 @@ function makeLoadRootsSecondCallHangs(roots: { id: string; path: string }[]): {
   const loadRootsSpy = vi.fn(async (): Promise<readonly { id: string; path: string }[]> => {
     calls += 1;
     if (calls >= 2) {
-      return new Promise<readonly { id: string; path: string }[]>(() => {
-        // Intentionally never settles.
+      return new Promise<readonly { id: string; path: string }[]>((resolve) => {
+        setTimeout(() => resolve([...roots]), lateMs);
       });
     }
     return [...roots];
@@ -188,170 +188,148 @@ describe('createGitInventoryService', () => {
     });
   });
 
-  describe('stop() bounds its drain of a build that never settles (BST-1112 P1, codex 3712467640)', () => {
-    it('aborts the build signal, resolves within GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS, and logs the abandonment', async () => {
+  describe('stop() joins its in-flight build (ADR-0026 R4)', () => {
+    it('does not resolve until a build that ignores its abort for 5 s settles, and logs no abandonment', async () => {
       const { fs, rootDir, rootId } = await makeSingleRepoRoot(
-        'brainstrike-git-inv-svc-drain-bound-'
+        'brainstrike-git-inv-svc-join-late-build-'
       );
       const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
-
       let resolveRunCalled: (() => void) | undefined;
       const runCalled = new Promise<void>((resolve) => {
         resolveRunCalled = resolve;
       });
       let capturedSignal: AbortSignal | undefined;
-      // Never resolves — simulates a git child process that ignores the
-      // abort signal (e.g. unresponsive/zombied), so this test proves
-      // stop()'s own TIMEOUT bound protects the shutdown deadline, not the
-      // abort mechanism itself (that wiring is asserted separately below via
-      // `capturedSignal`).
+      // A git child that ignores the abort and only fails 5 s later, longer
+      // than the 2 s the old drain bound waited before abandoning the build.
       const run: GitCommandRunner = (params) => {
         capturedSignal = params.signal;
         resolveRunCalled?.();
-        return new Promise<GitCommandRun>(() => {
-          // Intentionally never settles.
+        return new Promise<GitCommandRun>((_resolve, reject) => {
+          setTimeout(() => reject(new Error('git exited late after its abort')), 5000);
         });
       };
       const fake = createFakeWatchDirectory();
-      const service = makeService({
-        fs,
-        loadRootsSpy,
-        run,
-        watchDirectory: fake.watchDirectory,
-      });
+      const service = makeService({ fs, loadRootsSpy, run, watchDirectory: fake.watchDirectory });
 
       service.start();
-      // Real awaits (not fake-timer-dependent) until the build's git spawn —
-      // resolveRoots()'s realpath and the FakeFs walk are all real
-      // microtask/IO work, not timer-scheduled.
       await runCalled;
-      expect(capturedSignal?.aborted).toBe(false);
+      let stopResolved = false;
+      const stopPromise = service.stop().then(() => {
+        stopResolved = true;
+      });
+      expect(capturedSignal?.aborted).toBe(true);
 
+      await vi.advanceTimersByTimeAsync(2000);
+      const resolvedAtTwoSeconds = stopResolved;
+      await vi.advanceTimersByTimeAsync(2999);
+      const resolvedBeforeTheBuildSettled = stopResolved;
+      await vi.advanceTimersByTimeAsync(1);
+      await stopPromise;
+
+      expect({ resolvedAtTwoSeconds, resolvedBeforeTheBuildSettled }).toEqual({
+        resolvedAtTwoSeconds: false,
+        resolvedBeforeTheBuildSettled: false,
+      });
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
+      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
+    });
+  });
+
+  describe('a forced follow-up settles once stop() has joined the build it depends on (BST-1400 item 10)', () => {
+    // A forced (maxAgeMs: 0) caller waits on the build stop() aborts. stop()
+    // joins that build instead of abandoning it, so the caller's chain settles
+    // with it: rejected as stopped, never left hanging.
+    it('rejects a forced follow-up caller once the build stop() joins has settled', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-forced-join-'
+      );
+      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
+      let resolveRunCalled: (() => void) | undefined;
+      const runCalled = new Promise<void>((resolve) => {
+        resolveRunCalled = resolve;
+      });
+      // The git child ignores the abort and only fails 5 s later.
+      const run: GitCommandRunner = () => {
+        resolveRunCalled?.();
+        return new Promise<GitCommandRun>((_resolve, reject) => {
+          setTimeout(() => reject(new Error('git exited late after its abort')), 5000);
+        });
+      };
+      const fake = createFakeWatchDirectory();
+      const service = makeService({ fs, loadRootsSpy, run, watchDirectory: fake.watchDirectory });
+
+      service.start();
+      await runCalled;
+      // Queues onto awaitForcedFollowUp(inFlightBuild): start()'s own build.
+      let forcedOutcome: unknown = 'pending';
+      const forced = service.getSnapshot({ maxAgeMs: 0 }).then(
+        () => {
+          forcedOutcome = 'resolved';
+        },
+        (error: unknown) => {
+          forcedOutcome = error;
+        }
+      );
       let stopResolved = false;
       const stopPromise = service.stop().then(() => {
         stopResolved = true;
       });
 
-      // stop() aborts synchronously, before it ever awaits the drain race.
-      expect(capturedSignal?.aborted).toBe(true);
-
-      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS - 1);
-      expect(stopResolved).toBe(false);
-
+      await vi.advanceTimersByTimeAsync(4999);
+      expect({ forcedOutcome, stopResolved }).toEqual({
+        forcedOutcome: 'pending',
+        stopResolved: false,
+      });
       await vi.advanceTimersByTimeAsync(1);
-      await stopPromise;
-      expect(stopResolved).toBe(true);
-      expect(loggerErrorSpy).toHaveBeenCalledExactlyOnceWith(
-        expect.stringContaining('abandoned'),
-        expect.objectContaining({ drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS })
-      );
-
-      // The `stopped` flag (set synchronously, before this whole drain even
-      // started) still rejects any post-stop getSnapshot() — the abandoned
-      // build's eventual (here: never) settlement has no way back in.
-      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
+      await Promise.all([stopPromise, forced]);
+      expect(forcedOutcome).toMatchObject({ code: 'inventory-stopped' });
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
     });
 
-    // BST-1400 item 10: a FORCED (maxAgeMs: 0) caller awaiting the build
-    // stop() is about to abandon has, before this fix, no OTHER settle path —
-    // its follow-up promise was a bare `.then()` chain off the abandoned
-    // build, which (as this same suite's "never settles" run fakes above)
-    // may never resolve. Without stop() explicitly rejecting it, the forced
-    // caller hangs forever even though stop() itself already returned.
-    it('rejects a forced follow-up caller instead of leaving it hanging on the build stop() abandons', async () => {
-      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
-        'brainstrike-git-inv-svc-forced-abandon-'
-      );
-      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
-
-      let resolveRunCalled: (() => void) | undefined;
-      const runCalled = new Promise<void>((resolve) => {
-        resolveRunCalled = resolve;
-      });
-      // Same "never settles" fake as the sibling test above — the forced
-      // waiter's ONLY other settle path is chained off this build, so if
-      // stop() did not settle it directly, the assertions below would hang
-      // the test rather than fail it cleanly.
-      const run: GitCommandRunner = () => {
-        resolveRunCalled?.();
-        return new Promise<GitCommandRun>(() => {
-          // Intentionally never settles.
-        });
-      };
-      const fake = createFakeWatchDirectory();
-      const service = makeService({
-        fs,
-        loadRootsSpy,
-        run,
-        watchDirectory: fake.watchDirectory,
-      });
-
-      service.start();
-      await runCalled;
-
-      // Queues onto awaitForcedFollowUp(inFlightBuild) — the in-flight build
-      // (start()'s own eager getSnapshot()) is the one that never settles.
-      const forced = service.getSnapshot({ maxAgeMs: 0 });
-      const forcedOutcome = forced.then(
-        () => 'resolved' as const,
-        (error: unknown) => ({ error, kind: 'rejected' as const })
-      );
-
-      const stopPromise = service.stop();
-      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
-      await stopPromise;
-
-      // Settles promptly — bounded by stop()'s own drain timeout, not left to
-      // whatever "eventually, maybe never" the abandoned build does.
-      const outcome = await forcedOutcome;
-      expect(outcome).toMatchObject({ error: { code: 'inventory-stopped' }, kind: 'rejected' });
-    });
-
-    // PR #2685 review, item 10 fold-in #2: the sibling test above abandons
-    // the build the forced caller ORIGINALLY waited on (start()'s own
-    // eager build), which never settles — `forcedFollowUpWaiter` is still
-    // populated when stop() runs. This test instead lets that first build
-    // SETTLE, so the follow-up PROMOTES into its own build (clearing the
-    // coalescing slot as part of that), and only THEN does stop() abandon —
-    // the exact window where the single-slot version of this fix had
-    // nothing left to reject, and the caller hung forever.
-    it('rejects a forced follow-up whose OWN promoted build is what stop() abandons, not just the build it originally waited on', async () => {
+    // PR #2685 review, item 10 fold-in #2: the first build SETTLES, so the
+    // follow-up PROMOTES into its own build (clearing the coalescing slot), and
+    // only THEN does stop() run. stop() joins that promoted build, so the forced
+    // caller still settles, with the build it was promised.
+    it('settles a forced follow-up whose OWN promoted build is the one stop() joins', async () => {
       const roots: { id: string; path: string }[] = [];
-      const { loadRootsSpy } = makeLoadRootsSecondCallHangs(roots);
+      const { loadRootsSpy } = makeLoadRootsSecondCallLate(roots, 5000);
       const fake = createFakeWatchDirectory();
       const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
 
-      // B1: start()'s own eager build (loadRootsSpy call 1) — resolves on
-      // its own, no gate needed.
+      // B1: resolves on its own. The forced call is made in the SAME tick, so
+      // it queues onto awaitForcedFollowUp(B1) before B1 can settle.
       const inFlight = service.getSnapshot();
-      // Forced call made in the SAME synchronous tick, before anything has
-      // had a chance to let B1 settle: inFlightBuild is definitely still
-      // set here, so this correctly queues onto awaitForcedFollowUp(B1) —
-      // flushing first (as the sibling tests above do, where it is safe
-      // because their loadRoots is explicitly gated) would let B1 resolve
-      // and clear inFlightBuild first, racing this call past the wrapper
-      // entirely and into its own unwrapped build with no
-      // pendingForcedRejects registration to falsify against.
-      const forced = service.getSnapshot({ maxAgeMs: 0 });
-      const forcedOutcome = forced.then(
-        () => 'resolved' as const,
-        (error: unknown) => ({ error, kind: 'rejected' as const })
+      let forcedOutcome: unknown = 'pending';
+      const forced = service.getSnapshot({ maxAgeMs: 0 }).then(
+        () => {
+          forcedOutcome = 'resolved';
+        },
+        (error: unknown) => {
+          forcedOutcome = error;
+        }
       );
 
-      // B1 settles, which promotes the follow-up into starting B2
-      // (loadRootsSpy call 2) — the fixture makes THIS ONE hang forever.
+      // B1 settles, which promotes the follow-up into starting B2 (loadRoots
+      // call 2), which settles only 5 s later.
       await inFlight;
       await vi.advanceTimersByTimeAsync(0);
       expect(loadRootsSpy).toHaveBeenCalledTimes(2);
 
-      const stopPromise = service.stop();
-      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
-      await stopPromise;
-
-      // Still settles promptly — the forced caller's promise now depends on
-      // B2, not B1, and stop() must still be able to reject it.
-      const outcome = await forcedOutcome;
-      expect(outcome).toMatchObject({ error: { code: 'inventory-stopped' }, kind: 'rejected' });
+      let stopResolved = false;
+      const stopPromise = service.stop().then(() => {
+        stopResolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(4999);
+      expect({ forcedOutcome, stopResolved }).toEqual({
+        forcedOutcome: 'pending',
+        stopResolved: false,
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      await Promise.all([stopPromise, forced]);
+      // The promoted build started after the forced call, as promised.
+      expect(forcedOutcome).toBe('resolved');
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
     });
   });
 });
