@@ -33,6 +33,8 @@ interface NativeAssistantRequest {
   signal?: AbortSignal | undefined;
   threshold: number;
   vectorWeight?: number | undefined;
+  /** The run's open folders, which name a folder the index leaves out. */
+  workspaceRoots?: readonly { readonly displayName: string; readonly rootId: string }[] | undefined;
 }
 export interface NativeAssistantHit {
   ftsRank?: number;
@@ -59,6 +61,39 @@ function executionIdentity(status: IndexerStatus): string {
 
 function refuse(message: string): never {
   throw new ToolInputError(message);
+}
+
+/** Folders the index leaves out, such as a worktree not opted in (BST-1988), and how to read them. */
+function unindexedFoldersNote(
+  rootIds: readonly string[],
+  roots: NativeAssistantRequest['workspaceRoots']
+): string {
+  const names = rootIds.map(
+    (rootId) => `"${roots?.find((root) => root.rootId === rootId)?.displayName ?? rootId}"`
+  );
+  return `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} not in the search index. A worktree is indexed only once indexing is turned on for it in Search & Indexing settings; grepSearch and readWorkspaceFile read any open folder directly.`;
+}
+
+/**
+ * The requested folders the index authorizes. Main refuses a folder it does
+ * not authorize, so one the index leaves out is named to the model rather than
+ * asked for, and a request for none of its folders is refused.
+ */
+function indexedScope(
+  requested: readonly string[],
+  authorized: readonly string[],
+  roots: NativeAssistantRequest['workspaceRoots']
+): { readonly rootIds: readonly string[]; readonly unindexedNote: string | undefined } {
+  const rootIds = requested.filter((rootId) => authorized.includes(rootId));
+  const unindexed = requested.filter((rootId) => !authorized.includes(rootId));
+  if (unindexed.length === 0) {
+    return { rootIds, unindexedNote: undefined };
+  }
+  const unindexedNote = unindexedFoldersNote(unindexed, roots);
+  if (rootIds.length === 0) {
+    refuse(unindexedNote);
+  }
+  return { rootIds, unindexedNote };
 }
 
 /** BST-1943: an omitted root queried the whole collection despite Main's CLI subset. */
@@ -185,7 +220,11 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   const { profile } = status.embedding;
   const plan = status.queryPlan;
   assertSelectedQueryIdentity(profile, plan, embeddingSet);
-  const rootIds = admitted ?? (request.rootId === undefined ? [] : [request.rootId]);
+  const { rootIds, unindexedNote } = indexedScope(
+    admitted ?? (request.rootId === undefined ? [] : [request.rootId]),
+    status.authorizedRootIds,
+    request.workspaceRoots
+  );
   // Main authorizes only the active collection's bindings. A root scope intersects
   // those bindings; verify membership again on every returned canonical hit.
   const scope = {
@@ -350,7 +389,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     truncated = fused.truncated || fused.candidatesTruncated || fused.hits.length > limit;
   }
   await assertCurrent();
-  const hint = retrievalHint(coverageHint, scanLimited, truncated);
+  const hint = retrievalHint(unindexedNote, coverageHint, scanLimited, truncated);
   return {
     assertCurrent,
     ftsResultCount,
@@ -363,11 +402,15 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
 }
 
 function retrievalHint(
+  unindexedNote: string | undefined,
   coverageHint: string | undefined,
   scanLimited: boolean,
   truncated: boolean
 ): string | undefined {
   const hints = [
+    unindexedNote === undefined
+      ? undefined
+      : `Results cover only the indexed folders: ${unindexedNote}`,
     coverageHint ??
       (scanLimited
         ? 'Partial index coverage: results cover the indexed subset while source scanning is incomplete.'
