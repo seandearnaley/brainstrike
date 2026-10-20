@@ -108,20 +108,38 @@ describe('model-registry-store', () => {
   });
 
   // BST-2241: only the embedding realm's model cache says what is downloaded.
-  describe('setDownloadedModels', () => {
+  describe('applyDownloadedModelsRead', () => {
     it("replaces every earlier answer with the realm's", () => {
-      useModelRegistryStore.getState().setDownloadedModels(['a', 'b']);
-      useModelRegistryStore.getState().setDownloadedModels(['b']);
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['a', 'b'], 0);
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['b'], 0);
       expect(useModelRegistryStore.getState().downloadedModels).toEqual({ b: true });
     });
 
+    it('keeps a download that completed while the read ran', () => {
+      const readStartedAt = useModelRegistryStore.getState().downloadSequence;
+      useModelRegistryStore.getState().setDownloadProgress('x', 100);
+
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['y'], readStartedAt);
+
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({ x: true, y: true });
+    });
+
+    it('lets a read that began after a download decide it', () => {
+      useModelRegistryStore.getState().setDownloadProgress('x', 100);
+      const readStartedAt = useModelRegistryStore.getState().downloadSequence;
+
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['y'], readStartedAt);
+
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({ y: true });
+    });
+
     it('is never persisted, so a cleared cache is never claimed from storage', () => {
-      useModelRegistryStore.getState().setDownloadedModels(['a']);
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['a'], 0);
       expect(window.localStorage.getItem('model-registry-storage')).toBeNull();
     });
 
     it('survives a registry fetch, which reads no disk path or flag', async () => {
-      useModelRegistryStore.getState().setDownloadedModels(['local-model']);
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['local-model'], 0);
       await useModelRegistryStore.getState().fetchRegistry({
         read: async () => ({ models: [createMockModel({ id: 'local-model' })], providers: [] }),
       } as never);

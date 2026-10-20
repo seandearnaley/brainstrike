@@ -39,13 +39,15 @@ export function decodeLocalEmbeddingModels(
 /**
  * BST-2241: which on-device models are downloaded, read from the embedding
  * realm's model cache whenever the catalog's local models change. Only the
- * latest read applies. A failed read leaves no model marked downloaded, and
- * says why in the log.
+ * latest read applies, and it keeps downloads completed while it ran. A
+ * failed read leaves no earlier answer standing, and says why in the log.
  */
 export function useDownloadedModelsRead(): void {
   const hasLoaded = useModelRegistryStore((state) => state.hasLoaded);
   const models = useModelRegistryStore((state) => state.models);
-  const setDownloadedModels = useModelRegistryStore((state) => state.setDownloadedModels);
+  const applyDownloadedModelsRead = useModelRegistryStore(
+    (state) => state.applyDownloadedModelsRead
+  );
   const local = useMemo(() => decodeLocalEmbeddingModels(models), [models]);
 
   useEffect(() => {
@@ -53,18 +55,22 @@ export function useDownloadedModelsRead(): void {
       return;
     }
     let current = true;
+    // Downloads that complete while this read runs are kept when it applies.
+    const readStartedAt = useModelRegistryStore.getState().downloadSequence;
     void (async () => {
+      let downloaded: readonly string[] = [];
       try {
-        const downloaded = await getModelRuntimeServices().readDownloadedEmbeddingModels(local);
-        if (current) {
-          setDownloadedModels(downloaded);
-        }
+        downloaded = await getModelRuntimeServices().readDownloadedEmbeddingModels(local);
       } catch (error) {
+        // The realm cannot tell now, so no earlier answer stands either.
         logger.warn('Could not read which on-device models are downloaded', { error });
+      }
+      if (current) {
+        applyDownloadedModelsRead(downloaded, readStartedAt);
       }
     })();
     return () => {
       current = false;
     };
-  }, [hasLoaded, local, setDownloadedModels]);
+  }, [applyDownloadedModelsRead, hasLoaded, local]);
 }

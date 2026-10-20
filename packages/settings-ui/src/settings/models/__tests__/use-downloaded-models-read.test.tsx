@@ -104,14 +104,41 @@ describe('useDownloadedModelsRead', () => {
     expect(useModelRegistryStore.getState().downloadedModels).toEqual({ minilm: true });
   });
 
-  it('marks nothing downloaded when the realm cannot tell', async () => {
-    read.mockRejectedValue(new Error('WebGPU is not available on this device'));
+  it('leaves no earlier answer standing when the realm cannot tell', async () => {
+    read
+      .mockResolvedValueOnce(['granite'])
+      .mockRejectedValueOnce(new Error('WebGPU is not available on this device'));
+    loaded([GRANITE, MINILM]);
+    renderHook(() => useDownloadedModelsRead());
+    await waitFor(() =>
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({ granite: true })
+    );
+
     loaded([GRANITE]);
 
-    renderHook(() => useDownloadedModelsRead());
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(useModelRegistryStore.getState().downloadedModels).toEqual({}));
+  });
 
+  it('keeps a download that completes while the read runs', async () => {
+    const pending = Promise.withResolvers<readonly string[]>();
+    read.mockReturnValueOnce(pending.promise);
+    loaded([GRANITE, MINILM]);
+    renderHook(() => useDownloadedModelsRead());
     await waitFor(() => expect(read).toHaveBeenCalledOnce());
-    expect(useModelRegistryStore.getState().downloadedModels).toEqual({});
+
+    act(() => {
+      useModelRegistryStore.getState().setDownloadProgress('minilm', 100);
+    });
+    await act(async () => {
+      pending.resolve(['granite']);
+      await pending.promise;
+    });
+
+    expect(useModelRegistryStore.getState().downloadedModels).toEqual({
+      granite: true,
+      minilm: true,
+    });
   });
 
   it('reads nothing before the registry loads, or without on-device models', () => {
