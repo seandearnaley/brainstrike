@@ -143,7 +143,9 @@ test.describe('Local Runtimes desktop probe integration', { tag: '@smoke' }, () 
       .getByRole('heading', { exact: true, name: 'Ollama' })
       .locator('..')
       .locator('..');
-    await expect(ollamaCard).toContainText(/Available/i, { timeout: 15_000 });
+    await expect(ollamaCard.getByText('Available', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
 
     // If the probe silently drifted back into the renderer, Chromium's CORS
     // policy would block it even with Access-Control-Allow-Origin:* because
@@ -153,13 +155,12 @@ test.describe('Local Runtimes desktop probe integration', { tag: '@smoke' }, () 
     // (short-circuits on success), so matching on a specific path like
     // `/api/tags` would only succeed if the catalog also ran, which the
     // Settings card's Probe Now / Save flow does NOT currently trigger.
-    expect(
-      ollama?.requestLog.some(
-        (entry) =>
-          entry.includes('/v1/models') ||
-          entry.includes('/api/tags') ||
-          entry.includes('/api/version')
+    await expect
+      .poll(() =>
+        ollama?.requestLog.some((entry) =>
+          /^GET \/(?:v1\/models|api\/tags|api\/version)(?:\?|$)/u.test(entry)
+        )
       )
-    ).toBe(true);
+      .toBe(true);
   });
 });
