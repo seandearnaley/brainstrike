@@ -57,12 +57,37 @@ Workspace root disposal fences direct read/list admission and joins their path
 resolution and native completion alongside mutations and source leases before
 closing mounted capabilities (BST-2251). Read errors remain owned by their callers.
 
+## Graceful shutdown ownership
+
+Quit is one ordered, joined retirement with no global deadline
+([ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md) R4). Main runs
+`DESKTOP_SHUTDOWN_STEP_ORDER` once, each step until it settles, then the database
+close, then exits 0. A failed step is recorded and the next step still runs. A step
+still running after 10 s is named once at warn; it is waited for, never abandoned, so
+a later physical join is never skipped. Only an orchestration that breaks before its
+steps can run exits 1. The sequence is finite because each owner's close is a bounded
+ladder it owns, not because a clock gives up on it.
+
+A timeout on this path may only escalate a cooperative close of a child Main owns to
+a kill Main owns, after which the exit or `closed` is still joined (R5(b)); each such
+constant says so in its doc comment. Escalating is a warn, never a failed close:
+
+- A visible renderer gets Main's close preparation and is joined to its ACK.
+  `render-process-gone` or `unresponsive` destroys it; no ACK within 30 s destroys
+  it; either way its `closed` is joined before the preparation reports the failure.
+  The window close that follows overrides a page's beforeunload veto and destroys a
+  renderer that crashes or hangs mid-close: app-owned quit is terminal.
+- The agent host is asked to close and its exit joined; after 30 s Main calls
+  `kill()` and joins the exit. A content clear is never killed: its deletion
+  completes under the lease, whose exit is joined without a rung.
+- Hidden renderer hosts are destroyed and their `closed` joined.
+
 App-owned quit prepares visible renderers before DOM unload. Workspace producers
 fence new edits, flush pending snapshots and join admitted hydration/save operations;
 only then does the frame close its host transport and acknowledge Main's private
-reply port. This preparation is terminal: failure is reported and shutdown still
-ends the renderer lifetime under the existing deadline, including a cancelled
-native window close. Hidden hosts retain their existing retirement order.
+reply port. This preparation is terminal: a failed or escalated preparation is
+reported and shutdown still ends the renderer lifetime. Hidden hosts retain their
+existing retirement order.
 
 Terminal quit prepares Main's workspace mutations and worktree operations before
 child-process or profile retirement. Accepted workflows finish while mounts, git,
@@ -70,9 +95,13 @@ setup and the authenticated catalog remain available; new mutations are refused.
 The catalog borrower then fences new calls and joins admitted acquisitions and
 replies through ACK or error. A failed deletion retains its reservation and reports
 its cause. A borrower not authenticated before quit may receive the existing
-terminal native-index refusal; that is not a persistence ACK.
-This preparation uses the existing shutdown deadline, leaves physical
-root cleanup in its later step, and never changes raw transport close or reset/reopen.
+terminal native-index refusal; that is not a persistence ACK. This preparation
+leaves physical root cleanup in its later step and never changes raw transport close
+or reset/reopen.
+
+Quit has one terminal reason: the typed native-index refusal of kind `closed`,
+reason `shutdown`. Boundaries keep it as the cause of whatever they rethrow, and a
+log site that classifies it records it at debug, never as an error.
 
 Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
@@ -85,10 +114,14 @@ The Git inventory service retains its watcher generation through failed stop and
 refuses restart until retirement succeeds. Notes Vault cleanup runs only in its
 awaited graceful step; the synchronous `will-quit` ledger never launches a retry.
 
-Parser host Stop joins every owned generation’s exit and listeners with a 500ms
-caller wait; timeout rejects while actual cleanup stays owned. A failed kill
-remains visible and retryable, blocks parsing on that generation, and never
-acknowledges successful cleanup.
+Parser host Stop joins every owned generation’s exit and listeners; there is no
+caller-side wait to give up on it. A failed kill remains visible and retryable,
+blocks parsing on that generation, and never acknowledges successful cleanup.
 
-Decision: [ADR-0015](../adr/0015-desktop-platform-ipc-reset-diagnostics.md).
-Implementation: desktop platform/IPC/reset owners and `packages/app-state`.
+The E2E harness joins the app's exit under the test timeout and requires exit code
+0. A SIGTERM from the harness is cleanup after a failed close, and the test fails.
+
+Decisions: [ADR-0015](../adr/0015-desktop-platform-ipc-reset-diagnostics.md);
+graceful shutdown, [ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md).
+Implementation: desktop platform/IPC/reset owners, `packages/app-state` and
+`apps/desktop/src/main/desktop-graceful-shutdown.ts`.
