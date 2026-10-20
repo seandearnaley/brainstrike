@@ -22,7 +22,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { ProviderGroupConfig } from './assistant-ui-panel';
 import { buildComposerPickerSections, type ComposerPickerEntry } from './composer-picker-sections';
 
-export { composerModelCompositeKey, modelIdFromCompositeKey } from './composer-picker-sections';
+export { modelIdFromCompositeKey } from './composer-picker-sections';
 
 export interface ComposerModelPickerProps {
   disabled?: boolean | undefined;

@@ -132,7 +132,10 @@ function reportMalformedKey(compositeKey: string, error: unknown): void {
   });
 }
 
-/** Test seam: the dedupe set is module state and would leak across cases. */
+/**
+ * Test seam: the dedupe set is module state and would leak across cases.
+ * @internal Used by file-row-metadata-source-registry.test.ts.
+ */
 export function __resetMalformedKeyReportingForTests(): void {
   reportedMalformedKeys.clear();
 }

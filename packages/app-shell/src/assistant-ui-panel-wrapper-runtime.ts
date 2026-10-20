@@ -812,12 +812,6 @@ export function resolveAssistantProviderDisabledNotice(args: {
   return;
 }
 
-export function resolveAssistantProviderDisabledReason(
-  args: Parameters<typeof resolveAssistantProviderDisabledNotice>[0]
-): string | undefined {
-  return resolveAssistantProviderDisabledNotice(args)?.message;
-}
-
 export function resolveProviderModelSelection(args: {
   getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
   isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;

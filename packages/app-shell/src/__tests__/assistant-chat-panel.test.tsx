@@ -41,7 +41,6 @@ vi.mock('../hooks/use-assistant-availability', async (importOriginal) => ({
 
 vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
   AssistantUiPanelWrapperLazy: assistantUiPanelWrapperLazyMock,
-  preloadAssistantUiPanelWrapper: vi.fn(() => Promise.resolve()),
 }));
 
 // Import after mock to get the mocked version

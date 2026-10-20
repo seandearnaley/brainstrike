@@ -29,7 +29,6 @@ import type {
 
 export type {
   GitAheadBehind,
-  GitBranchSummary,
   GitCommitFile,
   GitCommitResult,
   GitCreateBranchResult,

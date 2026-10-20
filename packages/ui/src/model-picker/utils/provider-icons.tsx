@@ -67,30 +67,3 @@ export function ProviderIcon({
   }
   return <Bot className={className} style={style} />;
 }
-
-/** @deprecated Use ProviderIcon component instead */
-export function getProviderIcon(
-  providerId: string
-): React.ComponentType<{ className?: string; style?: React.CSSProperties }> {
-  const icons: Record<
-    string,
-    React.ComponentType<{ className?: string; style?: React.CSSProperties }>
-  > = {
-    anthropic: Brain,
-    bedrock: BedrockIcon,
-    cohere: Cpu,
-    google: Globe,
-    openai: Sparkles,
-    openrouter: Cloud,
-    voyage: Bot,
-  };
-  return icons[providerId] ?? Bot;
-}
-
-/** @deprecated Use ProviderIcon component instead */
-export function renderProviderIcon(
-  providerId: string,
-  props: { className?: string; style?: React.CSSProperties }
-) {
-  return <ProviderIcon providerId={providerId} {...props} />;
-}

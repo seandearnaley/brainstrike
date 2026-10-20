@@ -119,5 +119,3 @@ export function McpConfigAlert({
     </section>
   );
 }
-
-export default McpConfigAlert;

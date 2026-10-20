@@ -162,5 +162,3 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
 });
 
 ExpandableTextarea.displayName = 'ExpandableTextarea';
-
-export default ExpandableTextarea;

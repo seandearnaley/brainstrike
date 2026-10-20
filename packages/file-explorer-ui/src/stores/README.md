@@ -5,9 +5,8 @@ Persisted stores keep lightweight UI metadata, not file bytes or runtime grants:
 - `tab-manager-store.ts`: open file-tab identities/paths and active tab; hydration
   clears content/loading/error state. Existing legacy-key/version handling is
   implementation history, not a new migration obligation.
-- `editor-view-state-store.ts` and `editor-cursor-store.ts`: per-file scroll and
-  cursor/selection presentation.
-- `inspector-view-store.ts`: context-specific inspector presentation.
+- `editor-view-state-store.ts`: per-file scroll, selection and view-mode
+  presentation.
 - `workspace-tab-selection-store.ts`: application/tab selection, including an
   intentionally empty open set; transient activation/hydration state stays transient.
 

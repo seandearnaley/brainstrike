@@ -57,8 +57,8 @@ const GROWTH_HEIGHT_PX = 400;
 
 /**
  * Mirrors the panel's thread layout, using the panel's OWN scroll region (which
- * publishes `data-pinned`), follow engine, and button — the same real wiring
- * ThreadMessagesRegion uses (useThreadFollowScrollerRef).
+ * publishes `data-pinned`), follow engine, and button, attached through the
+ * engine's `attach` seam (useThreadFollowScrollerRef).
  *
  * `growth` injects a block either BELOW the messages (streaming a reply) or
  * ABOVE them (async markdown/Shiki, images, folding tool cards) — the two

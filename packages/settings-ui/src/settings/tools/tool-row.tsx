@@ -145,5 +145,3 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
     </div>
   );
 }
-
-export default ToolRow;

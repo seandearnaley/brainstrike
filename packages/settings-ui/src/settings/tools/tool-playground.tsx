@@ -327,5 +327,3 @@ export function ToolPlayground({
     </div>
   );
 }
-
-export default ToolPlayground;

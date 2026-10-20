@@ -9,7 +9,7 @@ import {
   LocalStoragePanelPersistenceAdapter,
 } from '../hooks/panel-persistence-adapters';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
-import { getElectronAPI, hasElectronAPI } from '../lib/electron-utils';
+import { getElectronAPI } from '../lib/electron-utils';
 
 vi.mock('@brainstrike/utils/env-utils', () => ({
   isDevEnv: vi.fn(() => false),
@@ -67,17 +67,15 @@ describe('usePanelPersistence', () => {
   });
 
   describe('Electron API helpers', () => {
-    it('returns undefined and false when electronAPI is absent', () => {
+    it('returns undefined when electronAPI is absent', () => {
       (window as { electronAPI?: unknown }).electronAPI = undefined;
       expect(getElectronAPI()).toBeUndefined();
-      expect(hasElectronAPI()).toBe(false);
     });
 
-    it('returns the object and true when electronAPI is defined', () => {
+    it('returns the object when electronAPI is defined', () => {
       const api = {} as unknown as typeof electronAPIMock;
       (window as { electronAPI?: unknown }).electronAPI = api;
       expect(getElectronAPI()).toBe(api);
-      expect(hasElectronAPI()).toBe(true);
     });
   });
 

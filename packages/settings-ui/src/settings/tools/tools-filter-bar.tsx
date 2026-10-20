@@ -121,5 +121,3 @@ export function ToolsFilterBar({
     </div>
   );
 }
-
-export default ToolsFilterBar;

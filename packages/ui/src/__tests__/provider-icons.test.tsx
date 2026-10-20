@@ -1,10 +1,6 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import {
-  getProviderIcon,
-  ProviderIcon,
-  renderProviderIcon,
-} from '../model-picker/utils/provider-icons';
+import { ProviderIcon } from '../model-picker/utils/provider-icons';
 
 describe('provider icons', () => {
   it('renders supported provider icons', () => {
@@ -19,12 +15,9 @@ describe('provider icons', () => {
   });
 
   it('falls back to the Bot icon for unknown providers', () => {
-    expect(getProviderIcon('unknown-provider')).toBe(getProviderIcon('voyage'));
-  });
+    const unknown = render(<ProviderIcon providerId="unknown-provider" />).container.innerHTML;
+    const bot = render(<ProviderIcon providerId="voyage" />).container.innerHTML;
 
-  it('renders the deprecated helper through ProviderIcon', () => {
-    const { container } = render(renderProviderIcon('openai', { className: 'deprecated-icon' }));
-
-    expect(container.querySelector('svg.deprecated-icon')).not.toBeNull();
+    expect(unknown).toBe(bot);
   });
 });

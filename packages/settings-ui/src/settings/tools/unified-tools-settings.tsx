@@ -641,8 +641,6 @@ export function UnifiedToolsSettings({
   );
 }
 
-export default UnifiedToolsSettings;
-
 interface ToolsPanelContentProps {
   budgetData: {
     criticalTokens: number;

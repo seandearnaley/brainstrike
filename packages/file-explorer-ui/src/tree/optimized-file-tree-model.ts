@@ -175,9 +175,10 @@ function compareFileTreeSiblingsWithMetadata(
 }
 
 /**
- * Compare one pair of siblings, reading the metadata seam on demand. The
- * single-pair entry point (tests, ad-hoc callers); row sorting goes through
- * `sortRowsPerDirectory`, which precomputes instead.
+ * Compare one pair of siblings, reading the metadata seam on demand. Row
+ * sorting goes through `sortRowsPerDirectory`, which precomputes instead.
+ * @internal Test seam: optimized-file-tree-sort-parity.test.ts pins the
+ * comparator directly.
  */
 export function compareFileTreeSiblings(
   a: IFileNode,

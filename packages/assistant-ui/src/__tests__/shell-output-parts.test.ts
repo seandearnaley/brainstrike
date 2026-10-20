@@ -1,7 +1,11 @@
 // @vitest-environment node
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { collectShellOutputs, createShellOutputAccumulator } from '../shell-output-parts';
+import { createShellOutputAccumulator } from '../shell-output-parts';
+
+/** A whole-message scan: one fresh accumulator over every part. */
+const collectShellOutputs = (parts: readonly unknown[]) =>
+  createShellOutputAccumulator()('message', parts);
 
 // Mirrors the REAL data part the DataStreamMapper emits for a live shell slice:
 // `{ name, data: { chunk, stream, toolCallId, truncated? } }`.
@@ -16,7 +20,7 @@ const slice = (
   type: 'data',
 });
 
-describe('collectShellOutputs', () => {
+describe('createShellOutputAccumulator on a whole message', () => {
   it('accumulates slices per tool call in emission order', () => {
     const result = collectShellOutputs([
       slice('call-1', 'first\n'),
@@ -63,7 +67,7 @@ describe('collectShellOutputs', () => {
 describe('createShellOutputAccumulator', () => {
   const textDelta = (text: string) => ({ text, type: 'text' });
 
-  it('matches collectShellOutputs across growing part prefixes', () => {
+  it('matches a whole-message scan across growing part prefixes', () => {
     const accumulate = createShellOutputAccumulator();
     const parts: unknown[] = [];
     const grow = (part: unknown) => {

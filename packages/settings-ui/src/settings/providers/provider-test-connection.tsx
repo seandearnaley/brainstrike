@@ -8,18 +8,6 @@ import {
   type ProviderVerificationTone,
 } from './provider-verification-presentation';
 
-/**
- * A hook that owns the probe lifecycle. INJECTED by the host: the
- * implementation lives in `@brainstrike/app-shell`, which depends on this
- * package, so importing it here would close a dependency cycle. The prop is
- * required and supplied from a static import, keeping its identity stable for
- * the lifetime of a mount (rules of hooks).
- */
-export type ProviderVerificationHook = (providerId: string | undefined) => {
-  readonly lookup: ProviderVerificationLookup;
-  readonly verify: () => void;
-};
-
 const TONE_CLASSES: Record<ProviderVerificationTone, string> = {
   danger: 'text-destructive',
   neutral: 'text-muted-foreground',

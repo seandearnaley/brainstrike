@@ -97,6 +97,7 @@ export function acquireAssistantForegroundActivity(
   };
 }
 
+/** @internal Test seam: clears leases between the request-lifecycle and sync-provider suites. */
 export function __resetAssistantForegroundActivityForTests(): void {
   for (const lease of activeLeases) {
     if (lease.timeout) {

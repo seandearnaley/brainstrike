@@ -1,5 +1,5 @@
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
-import { Badge, Button, cn, Switch } from '@brainstrike/ui';
+import { Badge, cn, Switch } from '@brainstrike/ui';
 import { useState } from 'react';
 
 /**
@@ -138,29 +138,5 @@ export function ProviderModelSection({
         })}
       </ul>
     </div>
-  );
-}
-
-export interface ProviderModelCatalogLinkProps {
-  readonly onNavigate: (() => void) | undefined;
-}
-
-/**
- * Downloads, cross-provider search and the local model cache stay in the Model
- * Catalog category — this surface owns connection and enablement only.
- */
-export function ProviderModelCatalogLink({ onNavigate }: ProviderModelCatalogLinkProps) {
-  if (!onNavigate) {
-    return null;
-  }
-  return (
-    <Button
-      className="h-auto p-0 text-xs"
-      data-testid="provider-model-catalog-link"
-      onClick={onNavigate}
-      variant="link"
-    >
-      Browse and download all models
-    </Button>
   );
 }

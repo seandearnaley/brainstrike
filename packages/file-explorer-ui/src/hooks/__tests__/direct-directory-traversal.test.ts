@@ -4,8 +4,23 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createDirectDirectoryTraversalSession,
-  traverseDirectoriesDirect,
+  type DirectDirectoryTraversalOptions,
+  type DirectDirectoryTraversalResult,
 } from '../direct-directory-traversal';
+
+/** Drives the shipped session to completion, the loop use-expand-all runs batch by batch. */
+async function traverseToCompletion(
+  initialPaths: string[],
+  options: DirectDirectoryTraversalOptions
+): Promise<DirectDirectoryTraversalResult> {
+  const session = createDirectDirectoryTraversalSession(initialPaths, options);
+  while (true) {
+    const batch = await session.processNextBatch();
+    if (batch.cancelled || batch.complete) {
+      return { ...session.snapshot(), cancelled: batch.cancelled };
+    }
+  }
+}
 
 function createDirectory(
   path: string,
@@ -54,7 +69,7 @@ function findDirectoryByPath(node: IFileNode, path: string): IFileNode | undefin
   return;
 }
 
-describe('traverseDirectoriesDirect', () => {
+describe('createDirectDirectoryTraversalSession', () => {
   it('processes discovered directories across multiple batches', async () => {
     const root = createDirectory('/root', 'loaded', [
       createDirectory('/root/src', 'loaded', [
@@ -126,7 +141,7 @@ describe('traverseDirectoriesDirect', () => {
       createDirectory('/root/b', 'unloaded'),
     ]);
 
-    const result = await traverseDirectoriesDirect(['/root/a', '/root/b'], {
+    const result = await traverseToCompletion(['/root/a', '/root/b'], {
       getDirectoryByPath: (path) => findDirectoryByPath(root, path),
       isActive: () => true,
       loadDirectoryPath: async (path) => {
@@ -151,7 +166,7 @@ describe('traverseDirectoriesDirect', () => {
   it('discovers nested directories after direct loads', async () => {
     const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'unloaded')]);
 
-    const result = await traverseDirectoriesDirect(['/root/src'], {
+    const result = await traverseToCompletion(['/root/src'], {
       getDirectoryByPath: (path) => findDirectoryByPath(root, path),
       isActive: () => true,
       loadDirectoryPath: async (path) => {
@@ -179,7 +194,7 @@ describe('traverseDirectoriesDirect', () => {
     let active = true;
     let resolveLoad!: () => void;
 
-    const traversalPromise = traverseDirectoriesDirect(['/root/src'], {
+    const traversalPromise = traverseToCompletion(['/root/src'], {
       getDirectoryByPath: (path) => findDirectoryByPath(root, path),
       isActive: () => active,
       loadDirectoryPath: () =>
@@ -209,7 +224,7 @@ describe('traverseDirectoriesDirect', () => {
   it('treats a directory removed during async load as completed without dereferencing it', async () => {
     const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'unloaded')]);
 
-    const result = await traverseDirectoriesDirect(['/root/src'], {
+    const result = await traverseToCompletion(['/root/src'], {
       getDirectoryByPath: (path) => findDirectoryByPath(root, path),
       isActive: () => true,
       loadDirectoryPath: async () => {
@@ -228,7 +243,7 @@ describe('traverseDirectoriesDirect', () => {
       createDirectory('/root/src', 'unloaded', [staleChild]),
     ]);
 
-    const result = await traverseDirectoriesDirect(['/root/src'], {
+    const result = await traverseToCompletion(['/root/src'], {
       getDirectoryByPath: (path) => findDirectoryByPath(root, path),
       isActive: () => true,
       loadDirectoryPath: async (path) => {
@@ -304,7 +319,7 @@ describe('traverseDirectoriesDirect', () => {
     src.children = [createDirectory('/root/src/nested', 'loaded')];
 
     await expect(
-      traverseDirectoriesDirect(['/root/src'], {
+      traverseToCompletion(['/root/src'], {
         getDirectoryByPath: (path) => findDirectoryByPath(root, path),
         isActive: () => true,
         loadDirectoryPath: async () => undefined,

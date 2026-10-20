@@ -34,7 +34,7 @@ import {
   resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantOperatingRootBinding,
-  resolveAssistantProviderDisabledReason,
+  resolveAssistantProviderDisabledNotice,
   resolveComposerAttachmentsAvailability,
   resolveHostedMemoryBackendAvailable,
   resolveHostedMemoryUnavailableNotice,
@@ -1429,27 +1429,27 @@ describe('assistant runtime helpers', () => {
 
   it('reports provider disabled reasons for unavailable provider states', () => {
     expect(
-      resolveAssistantProviderDisabledReason({
+      resolveAssistantProviderDisabledNotice({
         configuredProviders: [],
         currentModel: null,
         getProviderLlmModels: () => [],
         localRuntimeHint: 'Detected Ollama.',
         providerHasEnabledModels: () => false,
         selectedProvider: null,
-      })
+      })?.message
     ).toContain('Detected Ollama.');
     expect(
-      resolveAssistantProviderDisabledReason({
+      resolveAssistantProviderDisabledNotice({
         configuredProviders: ['openai'],
         currentModel: 'missing',
         getProviderLlmModels: () => [],
         localRuntimeHint: undefined,
         providerHasEnabledModels: () => false,
         selectedProvider: 'openai',
-      })
+      })?.message
     ).toBe('Enable at least one model for OpenAI to continue.');
     expect(
-      resolveAssistantProviderDisabledReason({
+      resolveAssistantProviderDisabledNotice({
         configuredProviders: ['openrouter'],
         currentModel: 'openrouter::openai/gpt-5.4-mini',
         getProviderLlmModels: () => [],
@@ -1459,7 +1459,7 @@ describe('assistant runtime helpers', () => {
           openrouter: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
         },
         selectedProvider: 'openrouter',
-      })
+      })?.message
     ).toBe('Stored OpenRouter key is unreadable. Re-enter it to repair access.');
   });
 });

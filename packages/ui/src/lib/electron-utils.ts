@@ -10,5 +10,3 @@ export const getElectronAPI = (): LayoutElectronAPI | undefined => {
   }
   return (window as WindowWithElectronAPI).electronAPI;
 };
-
-export const hasElectronAPI = (): boolean => !!getElectronAPI();

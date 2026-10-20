@@ -59,24 +59,11 @@ export interface McpPromptBridge {
   ) => (() => void) | undefined;
 }
 
-// Compile-time exact-set proof: excess or missing keys fail the build, so the
-// runtime pin can never drift from the interface.
-const MCP_PROMPT_BRIDGE_REQUIRED_METHOD_SET = {
-  complete: true,
-  getPrompt: true,
-  getServerStatusSnapshot: true,
-  onServerStatusUpdated: true,
-} as const satisfies Record<keyof McpPromptBridge, true>;
-
 /**
- * Every member the affordance requires. All four must be present: a partial
- * bridge disables the whole surface rather than degrading it.
+ * The members the content capability supplies; the status capability supplies
+ * the rest. All four must be present: a partial bridge disables the whole
+ * surface rather than degrading it.
  */
-export const MCP_PROMPT_BRIDGE_REQUIRED_METHODS = Object.keys(
-  MCP_PROMPT_BRIDGE_REQUIRED_METHOD_SET
-) as readonly (keyof McpPromptBridge)[];
-
-/** The members the content capability supplies; the status capability supplies the rest. */
 const MCP_PROMPT_CONTENT_METHODS = [
   'complete',
   'getPrompt',
