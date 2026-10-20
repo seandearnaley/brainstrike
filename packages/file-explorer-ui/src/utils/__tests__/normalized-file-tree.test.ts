@@ -5,14 +5,11 @@ import * as normalizedFileTreeModule from '../normalized-file-tree';
 import {
   createEmptyNormalizedFileTreeState,
   createNormalizedFileTreeState,
-  getNormalizedChildPaths,
   getNormalizedDescendantFileCount,
   getNormalizedNode,
-  getNormalizedParentPath,
   getNormalizedRootDirectoryPaths,
   listNormalizedDescendantFilePaths,
   materializeNormalizedFileTree,
-  materializeNormalizedNode,
   materializeNormalizedShallowNode,
   materializeNormalizedSubtree,
   replaceNormalizedDirectoryChildren,
@@ -62,7 +59,6 @@ describe('normalized-file-tree', () => {
     const state = createEmptyNormalizedFileTreeState();
 
     expect(state.rootPaths).toEqual([]);
-    expect(getNormalizedChildPaths(state, null)).toEqual([]);
     expect(getNormalizedRootDirectoryPaths(state)).toEqual([]);
   });
 
@@ -342,7 +338,7 @@ describe('normalized-file-tree', () => {
       createFileNode({ depth: 0, name: 'readme.md', path: '/root/readme.md' }),
     ]);
 
-    expect(materializeNormalizedNode(state, '/root/src')).toMatchObject({
+    expect(getNormalizedNode(state, '/root/src')).toMatchObject({
       path: '/root/src',
       type: 'directory',
     });
@@ -359,15 +355,15 @@ describe('normalized-file-tree', () => {
         path: '/root/src',
       })
     );
-    expect(getNormalizedChildPaths(state, '/root/src')).toEqual(['/root/src/nested']);
-    expect(getNormalizedParentPath(state, '/root/src/nested')).toBe('/root/src');
+    expect(state.childPathsByPath.get('/root/src')).toEqual(['/root/src/nested']);
+    expect(state.parentPathByPath.get('/root/src/nested')).toBe('/root/src');
     expect(getNormalizedRootDirectoryPaths(state)).toEqual(['/root/src']);
   });
 
   it('returns stable empty results for missing nodes and no-op replacements', () => {
     const state = createNormalizedFileTreeState([createFileNode({ path: '/root/file.ts' })]);
 
-    expect(materializeNormalizedNode(state, '/missing')).toBeUndefined();
+    expect(getNormalizedNode(state, '/missing')).toBeUndefined();
     expect(materializeNormalizedSubtree(state, '/missing')).toBeUndefined();
     expect(materializeNormalizedShallowNode(state, '/missing')).toBeUndefined();
     expect(getNormalizedDescendantFileCount(state, '/missing')).toBe(0);
@@ -425,7 +421,7 @@ describe('normalized-file-tree', () => {
       createFileNode({ depth: 1, name: 'replacement.ts', path: '/root/src/replacement.ts' }),
     ]);
 
-    expect(getNormalizedChildPaths(nextState, '/root/src')).toEqual(['/root/src/replacement.ts']);
+    expect(nextState.childPathsByPath.get('/root/src')).toEqual(['/root/src/replacement.ts']);
     expect(getNormalizedNode(nextState, '/root/src/nested')).toBeUndefined();
   });
 
@@ -468,7 +464,7 @@ describe('normalized-file-tree', () => {
       }),
     ]);
 
-    expect(getNormalizedParentPath(nextState, '/root/src/nested')).toBe('/root/src');
+    expect(nextState.parentPathByPath.get('/root/src/nested')).toBe('/root/src');
     expect(getNormalizedDescendantFileCount(nextState, '/root/src/nested')).toBe(1);
     expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
     expect(getNormalizedDescendantFileCount(nextState, '/root')).toBe(1);

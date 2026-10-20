@@ -9,7 +9,7 @@ import {
 import {
   __resetSettingsTestOverridesForTests,
   __setSettingsTestOverridesForTests,
-} from '../testing/e2e-settings-test-overrides';
+} from './settings-test-overrides-test-helper';
 
 // Mock @brainstrike/logging logger
 vi.mock('@brainstrike/logging', async (importOriginal) => {

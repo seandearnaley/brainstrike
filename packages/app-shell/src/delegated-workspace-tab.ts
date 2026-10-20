@@ -35,11 +35,3 @@ export function delegatedWorkspaceTabId(tab: DelegatedWorkspaceTab): string {
 export function isDelegatedWorkspaceTabId(id: string): boolean {
   return id.startsWith(PREFIX);
 }
-
-/** Preserve ordinary app ids; corrupted child ids must produce visible errors. */
-export function readDelegatedWorkspaceTab(id: string): DelegatedWorkspaceTab | undefined {
-  if (!id.startsWith(PREFIX)) {
-    return undefined;
-  }
-  return requireTab(JSON.parse(decodeURIComponent(id.slice(PREFIX.length))));
-}

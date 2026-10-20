@@ -30,6 +30,10 @@ export const APP_SHELL_SESSION_STORE_RESETTERS: readonly (() => void)[] = [
   resetThreadSearchStore,
 ];
 
+/**
+ * @internal Test seam: app-shell's vitest.setup.ts runs it before each case.
+ * Production registers each resetter separately (see above).
+ */
 export function resetAppShellSessionStores(): void {
   for (const reset of APP_SHELL_SESSION_STORE_RESETTERS) {
     reset();

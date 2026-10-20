@@ -15,9 +15,7 @@ import {
   loadRootDirectory,
   loadRootDirectoryStreaming,
   needsLoading,
-  setNodeLoadState,
   supportsStreaming,
-  updateNodeChildren,
 } from '../lazy-tree-loader';
 
 // Mock file filter while preserving real tree operations
@@ -373,76 +371,6 @@ describe('lazy-tree-loader', () => {
       await expect(
         loadDirectoryChildren(adapter, parentNode, { abortSignal: abortController.signal })
       ).rejects.toBe(abortReason);
-    });
-  });
-
-  describe('updateNodeChildren', () => {
-    it('updates children of target node', () => {
-      const tree: IFileNode[] = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
-      const newChildren = [createFileNode({ path: '/root/dir/file.ts' })];
-
-      const result = updateNodeChildren(tree, '/root/dir', newChildren, 'loaded');
-
-      expect(result[0]!.children).toEqual(newChildren);
-      expect(result[0]!.loadState).toBe('loaded');
-    });
-
-    it('traverses nested paths', () => {
-      const tree: IFileNode[] = [
-        createDirectoryNode({
-          children: [createDirectoryNode({ loadState: 'loading', path: '/root/parent/child' })],
-          path: '/root/parent',
-        }),
-      ];
-      const newChildren = [createFileNode({ path: '/root/parent/child/file.ts' })];
-
-      const result = updateNodeChildren(tree, '/root/parent/child', newChildren, 'loaded');
-
-      const parent = result[0]!;
-      const child = parent.children?.[0];
-      expect(child?.children).toEqual(newChildren);
-      expect(child?.loadState).toBe('loaded');
-    });
-
-    it('returns unmodified tree if path not found', () => {
-      const tree: IFileNode[] = [createDirectoryNode({ path: '/root/dir' })];
-
-      const result = updateNodeChildren(tree, '/nonexistent', [], 'loaded');
-
-      expect(result).toEqual(tree);
-    });
-  });
-
-  describe('setNodeLoadState', () => {
-    it('sets loadState on target node', () => {
-      const tree: IFileNode[] = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
-
-      const result = setNodeLoadState(tree, '/root/dir', 'loading');
-
-      expect(result[0]!.loadState).toBe('loading');
-    });
-
-    it('sets error message when provided', () => {
-      const tree: IFileNode[] = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
-
-      const result = setNodeLoadState(tree, '/root/dir', 'error', 'Failed to load');
-
-      expect(result[0]!.loadState).toBe('error');
-      expect(result[0]!.loadError).toBe('Failed to load');
-    });
-
-    it('clears error when not provided', () => {
-      const tree: IFileNode[] = [
-        createDirectoryNode({
-          loadError: 'Previous error',
-          loadState: 'error',
-          path: '/root/dir',
-        }),
-      ];
-
-      const result = setNodeLoadState(tree, '/root/dir', 'loaded');
-
-      expect(result[0]!.loadError).toBeUndefined();
     });
   });
 

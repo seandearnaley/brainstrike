@@ -306,5 +306,3 @@ export function ProvidersSettings({
     </div>
   );
 }
-
-export default ProvidersSettings;

@@ -204,6 +204,7 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
   }
 }
 
+/** @internal Test seam: workspace-collection-sync-scan-paths.test.ts drives the path helpers. */
 export const __workspaceCollectionSyncScanInternalsForTests = {
   collectScopedRemovalInvalidations,
   countRelativePathSegments,

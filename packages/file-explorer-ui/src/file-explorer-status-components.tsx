@@ -1,9 +1,7 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { Check, Code, Search, X } from 'lucide-react';
 import * as React from 'react';
-import { FolderBadge } from './folder-badge';
 
 // Stable module-level icon elements to avoid creating new JSX on each render
 // (avoids breaking memo() on FilterChip)
@@ -11,20 +9,6 @@ const INCLUDE_ICON = <Check className="h-3 w-3" />;
 const EXCLUDE_ICON = <X className="h-3 w-3" />;
 const SEARCH_ICON = <Search className="h-3 w-3" />;
 const REGEX_ICON = <Code className="h-3 w-3" />;
-
-export const DirectoryStatus = React.memo(
-  ({ rootDirectoryHandle }: { rootDirectoryHandle: DirectoryHandle | null }) => {
-    if (!rootDirectoryHandle) {
-      return null;
-    }
-    return (
-      <div className="flex items-center gap-2 border-b px-2 py-2 text-muted-foreground text-sm">
-        <span>{FileExplorerStrings.status.currentDirectory}</span>
-        <FolderBadge folderId={rootDirectoryHandle.name} />
-      </div>
-    );
-  }
-);
 
 /**
  * FilterChip - Unified filter chip matching the Collection Browser style

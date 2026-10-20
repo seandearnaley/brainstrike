@@ -311,5 +311,3 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
 });
 
 SearchConfigPanel.displayName = 'SearchConfigPanel';
-
-export default SearchConfigPanel;

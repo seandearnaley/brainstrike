@@ -22,44 +22,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `toolCallId → { text, truncated }`. stdout and stderr are interleaved in the
  * order they streamed (matching what the user saw live). These parts are NEVER
  * persisted (see SHELL_OUTPUT_DATA_NAME), so on a reloaded thread this map is
- * empty and the tool card falls back to the persisted final result. Pure +
- * unit-tested.
- */
-export function collectShellOutputs(
-  parts: readonly unknown[]
-): Record<string, ShellOutputAccumulation> {
-  const byToolCall: Record<string, { text: string; truncated: boolean }> = {};
-
-  for (const part of parts) {
-    if (!(isRecord(part) && part['name'] === SHELL_OUTPUT_DATA_NAME)) {
-      continue;
-    }
-    const data = part['data'];
-    if (!isRecord(data)) {
-      continue;
-    }
-    const toolCallId = data['toolCallId'];
-    const chunk = data['chunk'];
-    if (typeof toolCallId !== 'string' || typeof chunk !== 'string') {
-      continue;
-    }
-    const existing = byToolCall[toolCallId] ?? { text: '', truncated: false };
-    existing.text += chunk;
-    if (data['truncated'] === true) {
-      existing.truncated = true;
-    }
-    byToolCall[toolCallId] = existing;
-  }
-
-  return byToolCall;
-}
-
-/**
- * Incremental variant of {@link collectShellOutputs} for the streaming path,
- * where the message's parts array is append-only and re-derived per streamed
- * update. Only parts appended since the previous call are processed
- * (O(new parts) per update instead of O(all parts) — the full rebuild is
- * quadratic over a long-running command). Identity contract:
+ * empty and the tool card falls back to the persisted final result.
+ *
+ * Incremental for the streaming path, where the message's parts array is
+ * append-only and re-derived per streamed update. Only parts appended since
+ * the previous call are processed (O(new parts) per update instead of O(all
+ * parts) — the full rebuild is quadratic over a long-running command).
+ * Identity contract:
  *
  * - No new shell slices since the last call → the PREVIOUS record identity is
  *   returned, so context providers fed from it do not re-render consumers on

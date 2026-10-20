@@ -384,8 +384,9 @@ export function useThreadScrollFollow(): ThreadScrollFollow {
 /**
  * Callback ref that attaches the follow engine to a scroller element, with
  * the engine's stable-lifecycle guarantee (identity changes only with the
- * provider's engine instance). Shared by the tier-1 region and the browser
- * test harnesses so both exercise the same real wiring.
+ * provider's engine instance).
+ * @internal Test seam: the scroll-to-bottom and follow-up-queue browser
+ * harnesses. ThreadMessagesRegion attaches through its own tier-aware callback.
  */
 export function useThreadFollowScrollerRef(): (
   element: HTMLDivElement | null

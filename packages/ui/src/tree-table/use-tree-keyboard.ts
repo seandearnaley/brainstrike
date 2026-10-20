@@ -560,5 +560,3 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     state,
   };
 }
-
-export default useTreeKeyboard;

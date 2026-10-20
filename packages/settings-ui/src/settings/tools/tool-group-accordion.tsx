@@ -242,5 +242,3 @@ export function ToolGroupAccordion({
     </AccordionItem>
   );
 }
-
-export default ToolGroupAccordion;

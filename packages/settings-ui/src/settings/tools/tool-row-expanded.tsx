@@ -67,5 +67,3 @@ export function ToolRowExpanded({ tool, onExecuteTest }: ToolRowExpandedProps): 
     </div>
   );
 }
-
-export default ToolRowExpanded;

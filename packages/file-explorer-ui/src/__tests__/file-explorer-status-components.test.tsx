@@ -1,29 +1,8 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
-import { FileExplorerStrings } from '@brainstrike/types';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { DirectoryStatus, FilterStatus } from '../file-explorer-status-components';
-
-describe('DirectoryStatus', () => {
-  it('renders folder badge when handle is provided', () => {
-    const handle: DirectoryHandle = {
-      kind: 'directory',
-      name: 'root',
-      path: '/root',
-      platform: 'web',
-    };
-    render(<DirectoryStatus rootDirectoryHandle={handle} />);
-    expect(screen.getByText(FileExplorerStrings.status.currentDirectory)).toBeInTheDocument();
-    expect(screen.getByText('root')).toBeInTheDocument();
-  });
-
-  it('returns null when handle is not provided', () => {
-    const { container } = render(<DirectoryStatus rootDirectoryHandle={null} />);
-    expect(container.firstChild).toBeNull();
-  });
-});
+import { FilterStatus } from '../file-explorer-status-components';
 
 describe('FilterStatus', () => {
   it('shows badges for include, exclude, quick filter and regex mode', () => {
