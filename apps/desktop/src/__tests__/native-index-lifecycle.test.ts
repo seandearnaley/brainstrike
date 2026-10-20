@@ -203,7 +203,7 @@ describe('terminal closure', () => {
       { kind: 'terminal', reason: 'shutdown' },
       { kind: 'terminal', reason: 'reset' },
       { kind: 'terminal', reason: 'root-data-deletion' },
-      { kind: 'resume', settings: VECTOR },
+      { kind: 'profile-resume' },
     ];
     for (const state of states) {
       for (const event of events) {
@@ -217,17 +217,17 @@ describe('terminal closure', () => {
     ).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
   });
 
-  it('a folder’s data deleted with its native owner closed reopens on resume (BST-2001)', () => {
+  it('a folder’s data deleted with its native owner closed resumes idle for its starter (BST-2001)', () => {
     const deleting = reduceNativeIndex(ready, { kind: 'terminal', reason: 'root-data-deletion' });
     expect(deleting.actions).toEqual([{ kind: 'close' }]);
-    expect(
-      reduceNativeIndex(
-        reduceNativeIndex(deleting.state, { generation: 4, kind: 'retired' }).state,
-        { kind: 'resume', settings: VECTOR }
-      )
-    ).toEqual({
-      actions: [openAction(5)],
-      state: { generation: 5, kind: 'opening', settings: VECTOR },
+    const resuming = reduceNativeIndex(
+      reduceNativeIndex(deleting.state, { generation: 4, kind: 'retired' }).state,
+      { kind: 'profile-resume' }
+    );
+    expect(resuming).toEqual({ actions: [], state: { generation: 5, kind: 'resuming' } });
+    expect(reduceNativeIndex(resuming.state, { generation: 5, kind: 'profile-resumed' })).toEqual({
+      actions: [],
+      state: { generation: 5, kind: 'idle' },
     });
   });
 
@@ -235,9 +235,9 @@ describe('terminal closure', () => {
     const refused = reduceNativeIndex(closed, saved(VECTOR));
     expect(refused.actions).toEqual([]);
     expect(refused.refused).toEqual({ kind: 'closed', reason: 'shutdown' });
-    expect(reduceNativeIndex(closed, { kind: 'resume', settings: VECTOR })).toEqual({
-      actions: [openAction(4)],
-      state: { generation: 4, kind: 'opening', settings: VECTOR },
+    expect(reduceNativeIndex(closed, { kind: 'profile-resume' })).toEqual({
+      actions: [],
+      state: { generation: 4, kind: 'resuming' },
     });
   });
 });

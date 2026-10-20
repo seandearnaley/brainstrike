@@ -140,9 +140,7 @@ export type NativeIndexEvent =
   /** Close for good: shutdown, reset, or profile retirement. */
   | { readonly kind: 'terminal'; readonly reason: NativeIndexCloseReason; readonly cause?: unknown }
   /** Every physical close action has joined successfully. */
-  | { readonly kind: 'retired'; readonly generation: number }
-  /** Reset finished; open again from the saved settings. */
-  | { readonly kind: 'resume'; readonly settings: NativeIndexSettings };
+  | { readonly kind: 'retired'; readonly generation: number };
 
 /** IO the owner performs for a transition; the reducer never performs IO. */
 export type NativeIndexAction =
@@ -365,11 +363,6 @@ function closedTransition(
       return event.generation === state.generation
         ? { actions: [], state: { ...state, retirement: 'complete' } }
         : unchanged(state);
-    case 'resume':
-      if (state.retirement === 'complete') {
-        return open(state, event.settings);
-      }
-      break;
     case 'fence':
     case 'opened':
     case 'failure':
@@ -469,8 +462,6 @@ export function reduceNativeIndex(
     case 'rebuild':
       return rebuild(state);
     case 'retired':
-      return unchanged(state);
-    case 'resume':
       return unchanged(state);
     case 'roots-changed':
       return rootsChanged(state, event.settings);
