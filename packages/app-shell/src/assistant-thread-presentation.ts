@@ -299,7 +299,6 @@ export const UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION = {
  * 28px/12px and 36px/13px respectively.
  */
 export const THREAD_CONTROL_HEIGHT_PX = 28;
-export const THREAD_CONTROL_HEIGHT_CLASS_NAME = 'h-7';
 export const THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME = 'min-h-7';
 /** Control height plus the 2px vertical margin on each side of a panel row. */
 export const THREAD_CONTROL_ROW_PITCH_PX = THREAD_CONTROL_HEIGHT_PX + 4;

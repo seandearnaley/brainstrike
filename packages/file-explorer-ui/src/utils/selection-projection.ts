@@ -1,5 +1,4 @@
 import { resolveQuerySelection } from '@brainstrike/file-explorer';
-import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
 import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type {
   QuerySelectionManifest,
@@ -282,6 +281,7 @@ export function acquireSelectionProjectionStructuralCache(): () => void {
   };
 }
 
+/** @internal Test seam: the selection-projection and use-selection-resolver suites. */
 export function __resetSelectionProjectionCachesForTests(limits?: {
   maxMaterializedStructuralEntries: number;
   maxMaterializedStructuralWeight: number;
@@ -300,6 +300,7 @@ export function __resetSelectionProjectionCachesForTests(limits?: {
   materializedStructuralPrecheckRejections = 0;
 }
 
+/** @internal Test seam: the selection-projection and use-selection-resolver suites. */
 export function __getSelectionProjectionCacheStatsForTests(): {
   activeStructuralCacheConsumers: number;
   materializedDirectoryCountBuilds: number;
@@ -393,29 +394,6 @@ export function isQuerySelectionPathSelected(
   return materializedPaths?.has(path) ?? false;
 }
 
-export function isSelectionPathSelected(params: {
-  currentFolderId: string | null;
-  path: string;
-  querySelectionManifest?: QuerySelectionManifest | null;
-  selectedFilePaths: Set<string>;
-  selectionModel: SelectionModel;
-}): boolean {
-  const { currentFolderId, path, querySelectionManifest, selectedFilePaths, selectionModel } =
-    params;
-
-  if (selectionModel.mode === 'query') {
-    return isQuerySelectionPathSelected(
-      selectionModel.queryDescriptor,
-      querySelectionManifest ?? null,
-      currentFolderId,
-      path,
-      selectionModel.materializedPaths
-    );
-  }
-
-  return currentFolderId ? isPathSelectedInFolder(selectedFilePaths, currentFolderId, path) : false;
-}
-
 export function getSelectionCount(
   selectionModel: SelectionModel,
   selectedFilePaths: Set<string>,
@@ -426,29 +404,6 @@ export function getSelectionCount(
       .selectedCount;
   }
   return selectedFilePaths.size;
-}
-
-export function materializeCompositeKeysForSelectionModel(params: {
-  currentFolderId: string | null;
-  querySelectionManifest?: QuerySelectionManifest | null;
-  selectedFilePaths: Set<string>;
-  selectionModel: SelectionModel;
-}): Set<string> {
-  const { currentFolderId, querySelectionManifest, selectedFilePaths, selectionModel } = params;
-
-  if (selectionModel.mode === 'query' && currentFolderId) {
-    const compositeKeys = new Set<string>();
-    const relativePaths =
-      querySelectionManifest?.status === 'ready'
-        ? resolveQuerySelection(selectionModel.queryDescriptor, querySelectionManifest).filePaths
-        : Array.from(selectionModel.materializedPaths ?? []);
-    for (const relativePath of relativePaths) {
-      compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
-    }
-    return compositeKeys;
-  }
-
-  return selectedFilePaths;
 }
 
 export function isDirectoryCoveredByQuerySelection(
@@ -478,6 +433,11 @@ export function isDirectoryCoveredByQuerySelection(
   return getDescriptorMatchers(descriptor).coveredDirectoryPaths.has(directoryPath);
 }
 
+/**
+ * @internal Test driver for the materialized directory-count cache, which
+ * production reaches through isDirectoryCoveredByQuerySelection; the cache
+ * suites need the count, not just the boolean.
+ */
 export function getDirectorySelectedCount(
   descriptor: SelectionQueryDescriptor | null,
   manifest: QuerySelectionManifest | null,

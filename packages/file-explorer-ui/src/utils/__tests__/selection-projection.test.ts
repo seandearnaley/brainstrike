@@ -14,8 +14,6 @@ import {
   getSelectionCount,
   isDirectoryCoveredByQuerySelection,
   isQuerySelectionPathSelected,
-  isSelectionPathSelected,
-  materializeCompositeKeysForSelectionModel,
   __resetSelectionProjectionCachesForTests as resetSelectionProjectionCaches,
 } from '../selection-projection';
 
@@ -528,22 +526,6 @@ describe('selection-projection', () => {
     ).toBe(false);
   });
 
-  it('propagates materialized path fallback through isSelectionPathSelected in query mode', () => {
-    const selectionModel = createSelectionModel({
-      materializedPaths: new Set(['/src/index.ts']),
-    });
-
-    expect(
-      isSelectionPathSelected({
-        currentFolderId: 'folder-1',
-        path: '/src/index.ts',
-        querySelectionManifest: null,
-        selectedFilePaths: new Set<string>(),
-        selectionModel,
-      })
-    ).toBe(true);
-  });
-
   it('returns false for query lookups when folder id or root path do not match', () => {
     const descriptor = createDescriptor({ rootPath: '/src' });
     const manifest = createManifest();
@@ -558,18 +540,6 @@ describe('selection-projection', () => {
       false
     );
     expect(getDirectorySelectedCount(descriptor, manifest, 'other-folder', '/src')).toBe(0);
-  });
-
-  it('materializes composite keys from query selections', () => {
-    const manifest = createManifest();
-
-    const queryKeys = materializeCompositeKeysForSelectionModel({
-      currentFolderId: 'folder-1',
-      querySelectionManifest: manifest,
-      selectedFilePaths: new Set<string>(),
-      selectionModel: createSelectionModel(),
-    });
-    expect(queryKeys).toEqual(new Set(['folder-1|@|/src/index.ts', 'folder-1|@|/src/utils.ts']));
   });
 
   it('returns selection counts for explicit and query modes', () => {

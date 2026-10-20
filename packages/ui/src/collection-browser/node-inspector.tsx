@@ -478,5 +478,3 @@ export function NodeInspector({
 }
 
 NodeInspector.displayName = 'NodeInspector';
-
-export default NodeInspector;

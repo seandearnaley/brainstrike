@@ -13,8 +13,8 @@
  * Larger batches get longer debounce times to allow selection to stabilize.
  * This prevents thrashing during "select all" operations.
  */
-export const LARGE_BATCH_THRESHOLD = 500;
-export const MEDIUM_BATCH_THRESHOLD = 100;
+const LARGE_BATCH_THRESHOLD = 500;
+const MEDIUM_BATCH_THRESHOLD = 100;
 
 /**
  * Debounce delays in milliseconds for different batch sizes.
@@ -23,9 +23,9 @@ export const MEDIUM_BATCH_THRESHOLD = 100;
  * - Medium batch (100-500 files): Moderate wait for stability
  * - Small batch (<100 files): Quick response for interactive use
  */
-export const LARGE_BATCH_DEBOUNCE_MS = 500;
-export const MEDIUM_BATCH_DEBOUNCE_MS = 300;
-export const SMALL_BATCH_DEBOUNCE_MS = 100;
+const LARGE_BATCH_DEBOUNCE_MS = 500;
+const MEDIUM_BATCH_DEBOUNCE_MS = 300;
+const SMALL_BATCH_DEBOUNCE_MS = 100;
 
 /**
  * Maximum number of files to index in a single batch.
@@ -97,14 +97,6 @@ export const RECONCILE_METADATA_DEBOUNCE_MS = 250;
  * visible even when the stream never becomes quiet.
  */
 export const RECONCILE_METADATA_MAX_WAIT_MS = 1000;
-
-/**
- * Debounce delay for file handle map rebuild in milliseconds.
- *
- * Waits for the tree to stabilize before rebuilding the expensive
- * handle map. This avoids multiple rebuilds during expand-all operations.
- */
-export const HANDLE_MAP_REBUILD_DEBOUNCE_MS = 500;
 
 /**
  * Calculate adaptive debounce time based on batch size.

@@ -190,6 +190,7 @@ export function awaitRootRegistration(
 /**
  * Test-only: clears every registration generation and pending waiter so test
  * files that import this module do not leak state across test cases.
+ * @internal Test seam: the roots and workspace-bar suites.
  */
 export function resetRootRegistrationEventsForTests(): void {
   seqByKey.clear();

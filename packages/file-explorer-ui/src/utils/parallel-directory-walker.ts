@@ -1,5 +1,1 @@
-export {
-  DirectoryListingTruncatedError,
-  type ParallelWalkerOptions,
-  walkDirectoryParallel,
-} from '@brainstrike/file-system/directory-tree';
+export { DirectoryListingTruncatedError } from '@brainstrike/file-system/directory-tree';

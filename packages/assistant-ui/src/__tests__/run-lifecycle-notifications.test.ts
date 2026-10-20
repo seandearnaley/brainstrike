@@ -1,15 +1,30 @@
 // @vitest-environment node
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+} from '@brainstrike/assistant-contract';
+import {
+  type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
 import {
   createEditActivityRunEventsSelector,
   createTerminalRunEventsSelector,
   createToolApprovalRequestsSelector,
-  selectTerminalRunEvents,
-  selectToolApprovalRequests,
 } from '../run-lifecycle-notifications';
+
+// One fresh shipped selector per call: a whole-thread scan of `messages`.
+function selectTerminalRunEvents(messages: readonly unknown[]): AssistantRunEvent[] {
+  return JSON.parse(createTerminalRunEventsSelector()(messages)) as AssistantRunEvent[];
+}
+
+function selectToolApprovalRequests(messages: readonly unknown[]): AssistantToolApprovalRequest[] {
+  return JSON.parse(
+    createToolApprovalRequestsSelector()(messages)
+  ) as AssistantToolApprovalRequest[];
+}
 
 function runEventMessage(event: Record<string, unknown>) {
   return { content: [{ data: event, name: ASSISTANT_RUN_EVENT_DATA_NAME }] };

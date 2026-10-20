@@ -3,7 +3,7 @@ import {
   type ProviderDefinition,
   providerVendorEnvKey,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { TAVILY_VENDOR_ENV_KEY as TAVILY_VENDOR_ENV_KEY_VALUE } from '@brainstrike/assistant-contract/tavily-env-keys';
+import { TAVILY_VENDOR_ENV_KEY } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { TAVILY_SECRET_PROVIDER } from '../provider-key-types';
 
 /**
@@ -37,16 +37,11 @@ export interface CredentialSlot {
   readonly keyNotes: string | null;
 }
 
-// Canonical Tavily names live in the contract so desktop and settings-ui
-// cannot drift (BST-1363 review). Re-exported here to keep existing importers
-// working — never re-spelled.
-export { TAVILY_VENDOR_ENV_KEY } from '@brainstrike/assistant-contract/tavily-env-keys';
-
 const TAVILY_SLOT: CredentialSlot = {
   authType: 'api_key',
   displayName: 'Tavily Web Search',
   docsUrl: null,
-  envVar: TAVILY_VENDOR_ENV_KEY_VALUE,
+  envVar: TAVILY_VENDOR_ENV_KEY,
   id: TAVILY_SECRET_PROVIDER,
   keyFormatHint: null,
   keyNotes:

@@ -20,11 +20,6 @@ export {
   splitHeadline,
 } from './search-results-tree';
 export {
-  SEMANTIC_UNAVAILABLE_NO_CHUNKS,
-  type SemanticAvailability,
-  useSemanticAvailability,
-} from './use-semantic-availability';
-export {
   WorkspaceSearchPanel,
   type WorkspaceSearchPanelProps,
 } from './workspace-search-panel';

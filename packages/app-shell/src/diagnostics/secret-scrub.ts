@@ -1,4 +1,1 @@
-export {
-  type SecretScrubResult,
-  scrubLikelySecretValues,
-} from '@brainstrike/utils/diagnostics';
+export { scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';

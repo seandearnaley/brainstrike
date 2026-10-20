@@ -201,5 +201,8 @@ export function useThreadBranchByRootPath({
   return { available, byRootId, byRootIdAndPath, byRootPath, loaded: inventory !== null };
 }
 
-/** Exported for the projection test — the hook itself is the only production caller. */
+/**
+ * @internal Test seam: use-thread-branch-by-root-path.test.ts; the hook itself
+ * is the only production caller.
+ */
 export { projectBranches as projectBranchesForTest };

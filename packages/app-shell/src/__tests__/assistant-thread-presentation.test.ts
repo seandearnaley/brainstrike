@@ -7,7 +7,6 @@ import {
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
   getAssistantThreadIconPresentation,
-  THREAD_CONTROL_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_HEIGHT_PX,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
@@ -97,7 +96,6 @@ describe('assistant thread presentation', () => {
 
   it('publishes one density contract for every surface that renders a thread', () => {
     expect(THREAD_CONTROL_HEIGHT_PX).toBe(28);
-    expect(THREAD_CONTROL_HEIGHT_CLASS_NAME).toBe('h-7');
     expect(THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME).toBe('min-h-7');
     // 28px control + the 2px vertical margin on each side of a panel row.
     expect(THREAD_CONTROL_ROW_PITCH_PX).toBe(THREAD_CONTROL_HEIGHT_PX + 4);

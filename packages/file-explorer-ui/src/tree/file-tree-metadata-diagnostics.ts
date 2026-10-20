@@ -12,7 +12,10 @@ const logger = createLogger('FileTreeMetadataCells');
 const reportedUnidentifiedRows = new Set<string>();
 const MAX_REPORTED_UNIDENTIFIED_ROWS = 100;
 
-/** Reset the module-scoped once-per-row diagnostic ledger between tests. */
+/**
+ * Reset the module-scoped once-per-row diagnostic ledger between tests.
+ * @internal Test seam: the metadata-diagnostics and explorer-tree-grid suites.
+ */
 export function resetReportedUnidentifiedRowsForTests(): void {
   reportedUnidentifiedRows.clear();
 }

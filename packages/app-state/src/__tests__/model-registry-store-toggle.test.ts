@@ -4,7 +4,7 @@ import {
   type DbModel,
   useModelRegistryStore,
 } from '../stores/model-registry-store';
-import { __resetSettingsTestOverridesForTests } from '../testing/e2e-settings-test-overrides';
+import { __resetSettingsTestOverridesForTests } from './settings-test-overrides-test-helper';
 
 // Mock @brainstrike/logging logger
 vi.mock('@brainstrike/logging', async (importOriginal) => {
