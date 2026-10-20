@@ -17,11 +17,11 @@ import {
 } from './chunking-host-shared';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
-import { waitForWindowClosed } from './window-lifecycle-utils';
+import { joinWindowClosed } from './window-lifecycle-utils';
 
 const logger = createLogger('ChunkingHostManager');
+/** R5(a) (ADR-0026): bounds one chunking request; on expiry only that request is refused. */
 const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
-const CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 
 type ChunkingRequestKind = 'batch' | 'file';
 
@@ -135,12 +135,11 @@ export class ChunkingHostManager {
 
     const window = this.lifecycle.getHostWindow();
     if (window && !window.isDestroyed()) {
-      // Register the closed listener BEFORE destroy() — Electron's destroy()
-      // synchronously sets isDestroyed()=true, so waitForWindowClosed must be
-      // called while the window is still alive to capture the 'closed' event.
-      const closedPromise = waitForWindowClosed(window, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
+      // Joined, never bounded (ADR-0026 R4): destroy() guarantees 'closed'. Register
+      // the listener BEFORE destroy(), which synchronously sets isDestroyed()=true.
+      const closed = joinWindowClosed(window);
       this.lifecycle.destroyHostWindow();
-      await closedPromise;
+      await closed;
     }
 
     this.lifecycle.clearHostWindow();

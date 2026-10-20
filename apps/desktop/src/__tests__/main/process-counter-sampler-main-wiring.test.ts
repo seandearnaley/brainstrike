@@ -71,7 +71,6 @@ describe('Main process sampler owner composition', () => {
       };
       steps['database-drain'] = () => sampler.stop();
       const shutdown = createDesktopGracefulShutdown({
-        deadlineMs: 5000,
         exitProcess: exit,
         logger,
         markShuttingDown: vi.fn(),
@@ -85,7 +84,7 @@ describe('Main process sampler owner composition', () => {
         }),
         retireBackgroundAdmission: vi.fn(),
       });
-      const closing = shutdown.run('before-quit', 'before-quit');
+      const closing = shutdown.run('before-quit');
       try {
         await enteredClose.promise;
         await sampler.sample(process.memoryUsage());

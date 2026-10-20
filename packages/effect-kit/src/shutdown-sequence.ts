@@ -3,8 +3,7 @@ import { runAtPromiseBoundary } from './promise-boundary.js';
 
 export interface ShutdownStep {
   readonly name: string;
-  /** The signal aborts when the sequence deadline passes while this step runs. */
-  readonly run: (signal: AbortSignal) => PromiseLike<void> | void;
+  readonly run: () => PromiseLike<void> | void;
 }
 
 export interface ShutdownStepInFlight {
@@ -22,31 +21,33 @@ export type ShutdownStepOutcome =
     };
 
 export interface ShutdownSequenceOptions {
-  /** Milliseconds for the whole sequence: a positive, finite number. */
-  readonly deadlineMs: number;
   /** Clock for step durations; defaults to `Date.now`. */
   readonly now?: (() => number) | undefined;
   /**
-   * Called once if the deadline passes, AFTER the step still running was
-   * interrupted (its signal aborted), with that step and its elapsed time.
-   * Steps not yet started do not run.
+   * Log only: called once for a step still running `slowAfterMs` after it started, with that
+   * step and its elapsed time. The sequence keeps waiting for the step and runs every later one.
    */
-  readonly onDeadline: (inFlight: ShutdownStepInFlight | null) => void;
+  readonly onSlow?: ((inFlight: ShutdownStepInFlight) => void) | undefined;
   /** Called after each step settles, in order, before the next step starts. */
   readonly onStepSettled?: ((outcome: ShutdownStepOutcome) => void) | undefined;
+  /** When `onSlow` names a running step: a positive, finite number of milliseconds. */
+  readonly slowAfterMs?: number | undefined;
 }
 
 export interface ShutdownSequenceReport {
-  /** Every step that settled, in order; an interrupted step is not listed. */
+  /** Every step, in order: each one runs until it settles. */
   readonly steps: readonly ShutdownStepOutcome[];
-  readonly timedOut: boolean;
 }
 
-/** The options error to reject with, or null: a bad deadline, or empty or duplicate step names. */
-function validate(steps: readonly ShutdownStep[], deadlineMs: number): Error | null {
-  if (!(Number.isFinite(deadlineMs) && deadlineMs > 0)) {
+/** The options error to reject with, or null: a bad slow report, or empty or duplicate step names. */
+function validate(steps: readonly ShutdownStep[], options: ShutdownSequenceOptions): Error | null {
+  const { onSlow, slowAfterMs } = options;
+  if ((onSlow === undefined) !== (slowAfterMs === undefined)) {
+    return new TypeError('runShutdownSequence takes onSlow and slowAfterMs together.');
+  }
+  if (slowAfterMs !== undefined && !(Number.isFinite(slowAfterMs) && slowAfterMs > 0)) {
     return new RangeError(
-      `runShutdownSequence needs a positive, finite deadlineMs; got ${deadlineMs}.`
+      `runShutdownSequence needs a positive, finite slowAfterMs; got ${slowAfterMs}.`
     );
   }
   const seen = new Set<string>();
@@ -60,83 +61,91 @@ function validate(steps: readonly ShutdownStep[], deadlineMs: number): Error | n
 }
 
 /**
- * Runs shutdown steps one at a time, in order, under ONE deadline.
+ * Names `step` once through `onSlow` if it is still running after `slowAfterMs`. The returned
+ * disarm runs when the step settles, so the report never outlives its step. A throw from
+ * `onSlow` is kept for `failed`, never thrown from the timer.
+ */
+function armSlowReport(
+  options: ShutdownSequenceOptions,
+  step: string,
+  startedAt: number,
+  now: () => number,
+  failed: (error: unknown) => void
+): () => void {
+  const { onSlow, slowAfterMs } = options;
+  if (onSlow === undefined || slowAfterMs === undefined) {
+    return () => undefined;
+  }
+  const timer = setTimeout(() => {
+    try {
+      onSlow({ elapsedMs: now() - startedAt, step });
+    } catch (error) {
+      failed(error);
+    }
+  }, slowAfterMs);
+  return () => clearTimeout(timer);
+}
+
+/**
+ * Runs shutdown steps one at a time, in order, each until it settles. There is
+ * no deadline: a slow step is waited for, never abandoned, so a later step (a
+ * physical native join, say) is never skipped (ADR-0026 R4).
  *
  * - A step that rejects or throws is recorded as `failed` and the next step
  *   still runs: one broken owner never skips a later owner's teardown.
- * - The deadline passes: the running step is interrupted (its `AbortSignal`
- *   aborts, so cooperative work stops), `onDeadline` receives that step and
- *   its elapsed time, and the remaining steps do not run. A caller that must
- *   exit anyway does so from `onDeadline`.
+ * - A step still running `slowAfterMs` after it started is named once through
+ *   `onSlow`; that is a log, and the sequence keeps waiting for it.
  *
  * Invalid options are reported as a rejected promise. A throw from
- * `onStepSettled` or `onDeadline` also rejects it.
+ * `onStepSettled`, or from `onSlow` once its step settles, also rejects it: the
+ * orchestration itself is broken.
  */
 export function runShutdownSequence(
   steps: readonly ShutdownStep[],
-  options: ShutdownSequenceOptions
+  options: ShutdownSequenceOptions = {}
 ): Promise<ShutdownSequenceReport> {
-  const { deadlineMs, onDeadline, onStepSettled } = options;
-  const invalid = validate(steps, deadlineMs);
+  const invalid = validate(steps, options);
   if (invalid) {
     return Promise.reject(invalid);
   }
   const now = options.now ?? Date.now;
   const settled: ShutdownStepOutcome[] = [];
-  let inFlight: { readonly startedAt: number; readonly step: string } | null = null;
-
-  const settle = (outcome: ShutdownStepOutcome): void => {
-    inFlight = null;
-    settled.push(outcome);
-    onStepSettled?.(outcome);
-  };
 
   const runStep = (step: ShutdownStep) =>
     Effect.suspend(() => {
       const startedAt = now();
-      inFlight = { startedAt, step: step.name };
+      let slowReportFailure: { readonly error: unknown } | undefined;
+      const disarm = armSlowReport(options, step.name, startedAt, now, (error) => {
+        slowReportFailure = { error };
+      });
       // A step's rejection is recorded, never propagated, so its error type is
       // whatever the owner threw.
       // @effect-diagnostics-next-line unknownInEffectCatch:off
       const attempt = Effect.tryPromise({
         catch: (error) => error,
-        try: async (signal) => {
-          await step.run(signal);
+        try: async () => {
+          await step.run();
         },
       });
-      // Effect.exit keeps a failure as a value; interruption still propagates,
-      // so an interrupted step is never recorded as settled.
+      // Effect.exit keeps a failure as a value: every step settles and is recorded.
       return Effect.exit(attempt).pipe(
+        Effect.ensuring(Effect.sync(disarm)),
         Effect.flatMap((exit) =>
           Effect.sync(() => {
             const elapsedMs = now() - startedAt;
-            settle(
-              Exit.isSuccess(exit)
-                ? { elapsedMs, outcome: 'succeeded', step: step.name }
-                : { elapsedMs, error: Cause.squash(exit.cause), outcome: 'failed', step: step.name }
-            );
+            const outcome: ShutdownStepOutcome = Exit.isSuccess(exit)
+              ? { elapsedMs, outcome: 'succeeded', step: step.name }
+              : { elapsedMs, error: Cause.squash(exit.cause), outcome: 'failed', step: step.name };
+            settled.push(outcome);
+            options.onStepSettled?.(outcome);
+            if (slowReportFailure) {
+              throw slowReportFailure.error;
+            }
           })
         )
       );
     });
 
-  const program = Effect.forEach(steps, runStep, { discard: true }).pipe(
-    Effect.as(false),
-    Effect.timeoutOrElse({
-      duration: deadlineMs,
-      orElse: () =>
-        Effect.sync(() => {
-          const interrupted = inFlight;
-          inFlight = null;
-          onDeadline(
-            interrupted
-              ? { elapsedMs: now() - interrupted.startedAt, step: interrupted.step }
-              : null
-          );
-          return true;
-        }),
-    })
-  );
-
-  return runAtPromiseBoundary(program).then((timedOut) => ({ steps: [...settled], timedOut }));
+  const program = Effect.forEach(steps, runStep, { discard: true });
+  return runAtPromiseBoundary(program).then(() => ({ steps: [...settled] }));
 }

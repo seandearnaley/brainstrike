@@ -11,67 +11,65 @@ class HeldParserProcess extends EventEmitter {
   readonly postMessage = vi.fn();
 }
 
-it('keeps a held parser exit under the shutdown sequence deadline', async () => {
+const request: ParserHostParseRequest = {
+  content: 'const value = 1;',
+  options: { errorRecovery: true, jsx: false, language: 'javascript' },
+  requestId: 'held-parser',
+};
+
+async function turns(count: number): Promise<void> {
+  for (let turn = 0; turn < count; turn += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+it('joins a held parser exit before any later shutdown step runs (ADR-0026 R4)', async () => {
   const host = new HeldParserProcess();
   forkMock.mockReturnValue(host);
   const { ParserHostManager } = await import('../../parser-host-manager');
   const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
-  const request: ParserHostParseRequest = {
-    content: 'const value = 1;',
-    options: { errorRecovery: true, jsx: false, language: 'javascript' },
-    requestId: 'held-parser',
-  };
   const parse = manager.parse(request);
   const later = vi.fn();
-  const onDeadline = vi.fn();
-  try {
-    const report = await runShutdownSequence(
-      [
-        { name: 'parser-host', run: () => manager.stop() },
-        { name: 'database', run: later },
-      ],
-      { deadlineMs: 20, onDeadline }
-    );
-    expect(report.timedOut).toBe(true);
-    expect(onDeadline).toHaveBeenCalledWith(expect.objectContaining({ step: 'parser-host' }));
-    expect(host.kill).toHaveBeenCalledTimes(1);
-    expect(later).not.toHaveBeenCalled();
-    await expect(parse).resolves.toMatchObject({ error: 'parser host stopped', ok: false });
-    expect(host.listenerCount('exit')).toBe(1);
-  } finally {
-    host.emit('exit', 0);
-    await manager.stop();
-  }
+  const running = runShutdownSequence([
+    { name: 'parser-host', run: () => manager.stop() },
+    { name: 'database', run: later },
+  ]);
+  await expect(parse).resolves.toMatchObject({ error: 'parser host stopped', ok: false });
+  await turns(5);
+  expect(host.kill).toHaveBeenCalledTimes(1);
+  // The killed utility has not exited yet: nothing after it runs, nothing gives up.
+  expect(later).not.toHaveBeenCalled();
+  expect(host.listenerCount('exit')).toBe(1);
+
+  host.emit('exit', 0);
+  const report = await running;
+  expect(report.steps).toEqual([
+    expect.objectContaining({ outcome: 'succeeded', step: 'parser-host' }),
+    expect.objectContaining({ outcome: 'succeeded', step: 'database' }),
+  ]);
+  expect(later).toHaveBeenCalledTimes(1);
   expect(host.listenerCount('exit')).toBe(0);
   expect(host.listenerCount('message')).toBe(0);
 });
 
-it('reports local timeout while later shutdown owners proceed and exit stays owned', async () => {
+it('reports a failed kill while later shutdown owners proceed and the generation stays owned', async () => {
   const host = new HeldParserProcess();
+  host.kill.mockReturnValue(false);
   forkMock.mockReturnValue(host);
   const { ParserHostManager } = await import('../../parser-host-manager');
-  const manager = new ParserHostManager({ entryPath: '/fake/entry.js', stopTimeoutMs: 20 });
-  const parse = manager.parse({
-    content: 'x',
-    options: { errorRecovery: true, jsx: false, language: 'javascript' },
-    requestId: 'local',
-  });
+  const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+  const parse = manager.parse({ ...request, requestId: 'local' });
   const database = vi.fn();
   const errorLog = vi.fn();
-  const onDeadline = vi.fn();
   try {
-    const report = await runShutdownSequence(
-      [
-        { name: 'parser-host', run: () => manager.stop() },
-        { name: 'database', run: database },
-        { name: 'error-log-sink', run: errorLog },
-      ],
-      { deadlineMs: 200, onDeadline }
-    );
-    expect(report.timedOut).toBe(false);
+    const report = await runShutdownSequence([
+      { name: 'parser-host', run: () => manager.stop() },
+      { name: 'database', run: database },
+      { name: 'error-log-sink', run: errorLog },
+    ]);
     expect(report.steps).toEqual([
       expect.objectContaining({
-        error: new Error('parser host stop timeout after 20ms'),
+        error: new Error('parser host could not be stopped'),
         outcome: 'failed',
         step: 'parser-host',
       }),
@@ -80,16 +78,17 @@ it('reports local timeout while later shutdown owners proceed and exit stays own
     ]);
     expect(database).toHaveBeenCalledTimes(1);
     expect(errorLog).toHaveBeenCalledTimes(1);
-    expect(onDeadline).not.toHaveBeenCalled();
     await expect(parse).resolves.toMatchObject({ error: 'parser host stopped', ok: false });
+    // A failed kill stays visible and retryable: the generation is still owned.
     expect(host.listenerCount('exit')).toBe(1);
     expect(host.listenerCount('message')).toBe(1);
-    await expect(manager.stop()).rejects.toThrow('parser host stop timeout after 20ms');
-    expect(host.kill).toHaveBeenCalledTimes(1);
   } finally {
+    host.kill.mockReturnValue(true);
+    const retried = manager.stop();
     host.emit('exit', 0);
-    await manager.stop();
+    await retried;
   }
+  expect(host.kill).toHaveBeenCalledTimes(2);
   expect(host.listenerCount('exit')).toBe(0);
   expect(host.listenerCount('message')).toBe(0);
 });

@@ -18,11 +18,9 @@ describe('git command shutdown wiring', () => {
         throw new Error('Main did not publish its shutdown owner');
       }
       let joined = false;
-      const step = Promise.resolve(plan.steps['git-commands'](new AbortController().signal)).then(
-        () => {
-          joined = true;
-        }
-      );
+      const step = Promise.resolve(plan.steps['git-commands']()).then(() => {
+        joined = true;
+      });
       await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
       expect(joined).toBe(false);
       held.resolve(0);
@@ -31,7 +29,7 @@ describe('git command shutdown wiring', () => {
 
       const failure = new Error('Windows git Job join failed');
       dispose.mockRejectedValueOnce(failure);
-      await expect(plan.steps['git-commands'](new AbortController().signal)).rejects.toBe(failure);
+      await expect(plan.steps['git-commands']()).rejects.toBe(failure);
     } finally {
       held.resolve(0);
       vi.restoreAllMocks();

@@ -762,8 +762,8 @@ test('parser host generations scope exit and listeners without replacing the req
   assert.match(source, /Promise\.allSettled/u);
   assert.match(source, /generation\.host\.kill\(\)/u);
   assert.match(source, /retry stop before parsing/u);
-  assert.match(source, /DEFAULT_STOP_TIMEOUT_MS = 500/u);
-  assert.match(source, /runWithTimeout\(\(\) => closing/u);
+  // ADR-0026 R4: Stop joins every generation's exit; no caller-side deadline gives up on it.
+  assert.doesNotMatch(source, /runWithTimeout|STOP_TIMEOUT/u);
   assert.match(source, /this\.#current === generation && generation\.state === 'live'/u);
   assert.match(source, /removeListener\('message', onMessage\)/u);
   assert.match(source, /removeListener\('exit', onExit\)/u);

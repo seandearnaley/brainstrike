@@ -87,22 +87,11 @@ describe('ParserHostManager', () => {
     vi.resetModules();
   });
 
-  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
-    'rejects invalid stop timeout %s',
-    async (stopTimeoutMs) => {
-      const { ParserHostManager } = await import('../../parser-host-manager');
-      expect(() => new ParserHostManager({ entryPath: '/fake/entry.js', stopTimeoutMs })).toThrow(
-        'parser host stopTimeoutMs must be positive and finite'
-      );
-      expect(forkMock).not.toHaveBeenCalled();
-    }
-  );
-
   it.each(['false', 'throw'] as const)(
-    'preserves settled %s kill failure alongside a held-generation timeout',
+    'joins a held generation’s exit with no caller deadline, then reports its settled %s kill failure',
     async (mode) => {
       const { ParserHostManager } = await import('../../parser-host-manager');
-      const manager = new ParserHostManager({ entryPath: '/fake/entry.js', stopTimeoutMs: 20 });
+      const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
       const first = manager.parse(baseRequest);
       const old = latestProcess();
       old.kill.mockImplementation(() => true);
@@ -117,32 +106,37 @@ describe('ParserHostManager', () => {
         }
         return false;
       });
+      let outcome: unknown = 'pending';
+      const stopping = manager.stop().then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error;
+        }
+      );
       try {
-        const outcome = await manager.stop().catch((error: unknown) => error);
-        expect(outcome).toBeInstanceOf(AggregateError);
-        if (!(outcome instanceof AggregateError)) {
-          throw new Error('Expected aggregate stop failure');
-        }
-        expect(outcome.errors).toHaveLength(2);
-        if (mode === 'throw') {
-          expect(outcome.errors[0]).toBe(failure);
-        } else {
-          expect(outcome.errors[0]).toEqual(new Error('parser host could not be stopped'));
-        }
-        expect(outcome.errors[1]).toEqual(new Error('parser host stop timeout after 20ms'));
-        const serialized = serializeDesktopError(outcome);
-        expect(serialized.errors).toHaveLength(2);
-        expect(serialized.errors?.[0]?.message).toBe(
-          mode === 'throw' ? 'native kill threw' : 'parser host could not be stopped'
-        );
-        expect(serialized.errors?.[1]?.message).toBe('parser host stop timeout after 20ms');
-        expect(old.kill).toHaveBeenCalledTimes(1);
-        expect(current.kill).toHaveBeenCalledTimes(1);
-        expect(old.listenerCount('exit')).toBe(1);
         await expect(replacement).resolves.toMatchObject({
           error: 'parser host stopped',
           ok: false,
         });
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
+        });
+        // The held generation's exit is joined; nothing gives up on it.
+        expect(outcome).toBe('pending');
+        old.exit();
+        await stopping;
+        if (mode === 'throw') {
+          expect(outcome).toBe(failure);
+        } else {
+          expect(outcome).toEqual(new Error('parser host could not be stopped'));
+        }
+        expect(serializeDesktopError(outcome).message).toBe(
+          mode === 'throw' ? 'native kill threw' : 'parser host could not be stopped'
+        );
+        expect(old.kill).toHaveBeenCalledTimes(1);
+        expect(current.kill).toHaveBeenCalledTimes(1);
       } finally {
         old.exit();
         current.kill.mockImplementation(() => {

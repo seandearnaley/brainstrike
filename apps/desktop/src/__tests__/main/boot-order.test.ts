@@ -35,9 +35,8 @@ describe('main boot order', () => {
       if (!plan) {
         throw new Error('Missing actual Main shutdown plan');
       }
-      const signal = new AbortController().signal;
       let nativeSettled = false;
-      const nativeStep = Promise.resolve(plan.steps['native-index'](signal)).then(
+      const nativeStep = Promise.resolve(plan.steps['native-index']()).then(
         () => {
           nativeSettled = true;
           return null;
@@ -66,7 +65,7 @@ describe('main boot order', () => {
         physical.resolve();
       }
       expect(await nativeStep).toBe(fail ? nativeError : null);
-      const embeddingStep = Promise.resolve(plan.steps['embedding-host'](signal)).catch(
+      const embeddingStep = Promise.resolve(plan.steps['embedding-host']()).catch(
         (error: unknown) => error
       );
       expect(await embeddingStep).toBe(fail ? embeddingError : undefined);
@@ -115,11 +114,9 @@ describe('main boot order', () => {
     await entered.promise;
     const reset = options.onResetLocal();
     let closed = false;
-    const close = Promise.resolve(plan.steps['factory-reset'](new AbortController().signal)).then(
-      () => {
-        closed = true;
-      }
-    );
+    const close = Promise.resolve(plan.steps['factory-reset']()).then(() => {
+      closed = true;
+    });
     onTestFinished(async () => {
       held.resolve();
       await Promise.allSettled([reset, close]);
@@ -208,7 +205,7 @@ describe('main boot order', () => {
         if (!plan) {
           throw new Error('Missing actual Main shutdown plan');
         }
-        closing = Promise.resolve(plan.steps['factory-reset'](new AbortController().signal));
+        closing = Promise.resolve(plan.steps['factory-reset']());
       }
       if (outcome === 'replacement-failed') {
         replacement.reject(failure);
@@ -415,11 +412,9 @@ describe('main boot order', () => {
     const held = Promise.withResolvers<void>();
     nativeCloseForShutdown.mockReturnValue(held.promise);
     let settled = false;
-    const step = Promise.resolve(plan.steps['native-index'](new AbortController().signal)).then(
-      () => {
-        settled = true;
-      }
-    );
+    const step = Promise.resolve(plan.steps['native-index']()).then(() => {
+      settled = true;
+    });
     await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
     expect(settled).toBe(false);
     held.resolve();
@@ -437,11 +432,9 @@ describe('main boot order', () => {
     const retirement = Promise.withResolvers<void>();
     close.mockReturnValueOnce(retirement.promise);
     let settled = false;
-    const step = Promise.resolve(planRun().steps['file-system'](new AbortController().signal)).then(
-      () => {
-        settled = true;
-      }
-    );
+    const step = Promise.resolve(planRun().steps['file-system']()).then(() => {
+      settled = true;
+    });
     expect(close).toHaveBeenCalledTimes(1);
     await Promise.resolve();
     expect(settled).toBe(false);
@@ -460,11 +453,9 @@ describe('main boot order', () => {
     const retirement = Promise.withResolvers<void>();
     close.mockReturnValueOnce(retirement.promise);
     let settled = false;
-    const step = Promise.resolve(planRun().steps['notes-vault'](new AbortController().signal)).then(
-      () => {
-        settled = true;
-      }
-    );
+    const step = Promise.resolve(planRun().steps['notes-vault']()).then(() => {
+      settled = true;
+    });
     expect(close).toHaveBeenCalledTimes(1);
     await Promise.resolve();
     expect(settled).toBe(false);
@@ -494,7 +485,7 @@ describe('main boot order', () => {
       throw new Error('Shutdown plan was not registered');
     }
     close.mockRejectedValueOnce(undefined);
-    await expect(plan.steps['file-system'](new AbortController().signal)).rejects.toBeUndefined();
+    await expect(plan.steps['file-system']()).rejects.toBeUndefined();
     await plan.closeDatabase();
     expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
   });
@@ -657,7 +648,7 @@ describe('main boot order', () => {
       listeners('SIGTERM')[0]?.('SIGTERM');
       listeners('SIGINT')[0]?.('SIGINT');
 
-      expect(shutdownPlanCapture.run).toHaveBeenCalledExactlyOnceWith('signal', 'SIGINT');
+      expect(shutdownPlanCapture.run).toHaveBeenCalledExactlyOnceWith('signal');
       expect(requireMainLogger().info).toHaveBeenCalledWith(
         'Shutdown already in progress; ignoring signal',
         { signal: 'SIGTERM' }

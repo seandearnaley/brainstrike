@@ -1,5 +1,8 @@
-import { runShutdownSequence, type ShutdownStepOutcome } from '@brainstrike/effect-kit';
-import { DB_HOST_CLOSE_BUDGET_MS } from '../db-host-close-budget';
+import {
+  runShutdownSequence,
+  type ShutdownStepInFlight,
+  type ShutdownStepOutcome,
+} from '@brainstrike/effect-kit';
 import { type SerializedDesktopError, serializeDesktopError } from '../desktop-error-serialization';
 
 /**
@@ -14,11 +17,11 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * roots, Notes Vault, git metadata) joining its native subscribes and
  * unsubscribes before Electron frees Main's Node environment (BST-2244), git
  * and forge before the database they read, and `database-drain` last: it stops everything that
- * issues database work. Two things deliberately sit OUTSIDE this sequence and
- * its budget: the database close itself (`DesktopShutdownRunPlan.closeDatabase`,
- * its own reserved slice that always runs) and the durable error-log close
- * (last of all, so the log can record every earlier failure). See
- * platform-contracts.md § "Graceful shutdown ownership".
+ * issues database work. Two things deliberately sit OUTSIDE this sequence: the
+ * database close itself (`DesktopShutdownRunPlan.closeDatabase`, which always
+ * runs after it) and the durable error-log close (last of all, so the log can
+ * record every earlier failure). See platform-contracts.md § "Graceful
+ * shutdown ownership" and ADR-0026.
  */
 export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'factory-reset',
@@ -44,26 +47,19 @@ export type DesktopShutdownStepName = (typeof DESKTOP_SHUTDOWN_STEP_ORDER)[numbe
 export type DesktopShutdownTrigger = 'before-quit' | 'signal';
 
 /**
- * How long past the step deadline AND the reserved database-close slice
- * (`DB_HOST_CLOSE_BUDGET_MS`) the backstop exits. The step deadline normally
- * fires first, aborting and naming the stuck step, and the close ladder bounds
- * itself; the backstop only acts when the orchestration itself failed (a
- * throwing `planRun`, say) and the steps never got their deadline.
+ * Log only, never a timeout (ADR-0026 R4/R5): a step still running this long
+ * after it started is named once at warn, and the run keeps waiting for it.
+ * Nothing abandons a step, skips a later one or forces an exit.
  */
-export const DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS = 250;
+export const DESKTOP_SHUTDOWN_SLOW_STEP_MS = 10_000;
 
-/** What the forced-exit log names as its trigger: the signal, or `before-quit`. */
-export type DesktopForcedExitTrigger = NodeJS.Signals | 'before-quit';
-
-export type DesktopShutdownStepRun = (signal: AbortSignal) => Promise<void> | void;
+export type DesktopShutdownStepRun = () => Promise<void> | void;
 
 /** One run's step bodies, built when that run starts so they capture its state. */
 export interface DesktopShutdownRunPlan {
   /**
-   * The reserved database-close slice. Runs after the ordered steps whether they
-   * finished or the deadline aborted one: the only step whose skip damages durable
-   * state. It bounds itself (`DB_HOST_CLOSE_BUDGET_MS`); a failure is recorded as the
-   * `database-close` step.
+   * The database close. Runs after the ordered steps settle, whatever their
+   * outcome; a failure is recorded as the `database-close` step.
    */
   readonly closeDatabase: () => Promise<void>;
   /** Closes the durable NDJSON error log. Runs last, after the aggregate failure warn. */
@@ -78,8 +74,7 @@ export interface DesktopShutdownLogger {
 }
 
 export interface DesktopGracefulShutdownOptions {
-  /** The single forced-exit budget for every step (`SIGNAL_SHUTDOWN_TIMEOUT_MS`). */
-  readonly deadlineMs: number;
+  /** Called only when the orchestration itself fails, so no step could run: exits 1. */
   readonly exitProcess: (code: number) => void;
   readonly logger: DesktopShutdownLogger;
   /** Latched on every call, including a call that joins a run already in flight. */
@@ -92,11 +87,11 @@ export interface DesktopGracefulShutdownOptions {
 
 export interface DesktopGracefulShutdown {
   /**
-   * Runs the ordered steps once. A later call, from any trigger, joins the
-   * first run. Never rejects: step failures and an orchestration failure are
-   * logged, and the process exit stays bounded either way.
+   * Runs the ordered steps once, each until it settles. A later call, from any
+   * trigger, joins the first run. Never rejects: step failures are logged, and
+   * an orchestration failure is logged and exits 1.
    */
-  run(trigger: DesktopShutdownTrigger, forcedExitTrigger: DesktopForcedExitTrigger): Promise<void>;
+  run(trigger: DesktopShutdownTrigger): Promise<void>;
 }
 
 /** A failed step’s serialized failure record; null on success. */
@@ -106,7 +101,7 @@ function toFailure(outcome: ShutdownStepOutcome): SerializedDesktopError | null 
     : null;
 }
 
-/** The reserved slice's own step name: it is not part of `DESKTOP_SHUTDOWN_STEP_ORDER`. */
+/** The database close's own step name: it is not part of `DESKTOP_SHUTDOWN_STEP_ORDER`. */
 const DATABASE_CLOSE_STEP = 'database-close' as const;
 
 interface DatabaseCloseResult {
@@ -114,7 +109,7 @@ interface DatabaseCloseResult {
   readonly failure: SerializedDesktopError | null;
 }
 
-/** Runs the reserved database close. Never rejects: a failure is returned, to be recorded. */
+/** Runs the database close. Never rejects: a failure is returned, to be recorded. */
 async function runDatabaseClose(
   plan: DesktopShutdownRunPlan,
   now: () => number
@@ -158,53 +153,20 @@ function closeErrorLogSinkAfterFailureWarn(
 
 /**
  * Builds desktop main's one graceful-shutdown runner. `run()` latches the
- * shutdown flag, retires background admission, and runs
- * `DESKTOP_SHUTDOWN_STEP_ORDER` once under `deadlineMs`, then ALWAYS runs the
- * reserved database-close slice, then closes the durable error log (or, after a
- * deadline, exits 1). An unref'd backstop keeps the exit bounded even if the
- * orchestration itself fails.
+ * shutdown flag, retires background admission, runs `DESKTOP_SHUTDOWN_STEP_ORDER`
+ * once, each step until it settles, then the database close, then closes the
+ * durable error log. There is no deadline (ADR-0026 R4): Main exits 0 once every
+ * owner settled, and a slow step is named at warn, never abandoned. Only an
+ * orchestration that fails before any step can run exits 1.
  */
 export function createDesktopGracefulShutdown(
   options: DesktopGracefulShutdownOptions
 ): DesktopGracefulShutdown {
-  const { deadlineMs, exitProcess, logger, markShuttingDown, planRun } = options;
+  const { exitProcess, logger, markShuttingDown, planRun } = options;
   const now = options.now ?? Date.now;
   let running: Promise<void> | null = null;
-  let backstop: ReturnType<typeof setTimeout> | null = null;
 
-  // A throwing logger must never cancel the exit, and rethrowing its error
-  // from a timer would only add an uncaught exception to a dying process.
-  const logErrorBeforeExit = (message: string, data: Record<string, unknown>): void => {
-    try {
-      logger.error(message, data);
-    } catch {
-      // The exit that follows is what matters; there is nowhere left to report this.
-    }
-  };
-  const logForcedExit = (data: Record<string, unknown>): void => {
-    logErrorBeforeExit('Timed out waiting for graceful shutdown; forcing exit', data);
-  };
-
-  // Armed before anything that can throw, so a broken orchestration still
-  // exits within the budget. Unref'd: it never holds the process open itself.
-  const armBackstop = (forcedExitTrigger: DesktopForcedExitTrigger): void => {
-    if (backstop) {
-      return;
-    }
-    backstop = setTimeout(
-      () => {
-        logForcedExit({ backstop: true, inFlightStep: null, trigger: forcedExitTrigger });
-        exitProcess(1);
-      },
-      deadlineMs + DB_HOST_CLOSE_BUDGET_MS + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS
-    );
-    backstop.unref?.();
-  };
-
-  const runOnce = async (
-    trigger: DesktopShutdownTrigger,
-    forcedExitTrigger: DesktopForcedExitTrigger
-  ): Promise<void> => {
+  const runOnce = async (trigger: DesktopShutdownTrigger): Promise<void> => {
     options.retireBackgroundAdmission();
     const plan = planRun();
     const failures: SerializedDesktopError[] = [];
@@ -215,35 +177,27 @@ export function createDesktopGracefulShutdown(
         failures.push(failure);
       }
     };
+    // Only a log: a logger that throws must not turn a slow step into a broken run.
+    const reportSlow = ({ elapsedMs, step }: ShutdownStepInFlight): void => {
+      try {
+        logger.warn('Graceful shutdown step is slow', { elapsedMs, step, trigger });
+      } catch {
+        // The step is still joined; there is nowhere left to report this.
+      }
+    };
 
     const report = await runShutdownSequence(
       DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => ({ name, run: plan.steps[name] })),
       {
-        deadlineMs,
         now: options.now,
-        // Only logs: the exit waits for the database close below.
-        onDeadline: (inFlight) => {
-          logForcedExit({ inFlightStep: inFlight, trigger: forcedExitTrigger });
-        },
+        onSlow: reportSlow,
         onStepSettled: recordSettled,
+        slowAfterMs: DESKTOP_SHUTDOWN_SLOW_STEP_MS,
       }
     );
 
-    // The one step whose skip damages durable state (every other skipped step
-    // loses only in-memory work): it runs after the steps finished AND after
-    // the deadline aborted one.
-    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- ordered after the sequence, not independent of it: `database-drain` stops everything that still issues database work, so it must finish (or the deadline abort it) before the close; running them together would close PGlite under admitted work.
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- ordered after the sequence, not independent of it: `database-drain` stops everything that still issues database work, so it must finish before the close; running them together would close the database under admitted work.
     const databaseClose = await runDatabaseClose(plan, now);
-    if (report.timedOut) {
-      if (databaseClose.failure) {
-        logErrorBeforeExit('Database close failed during a forced shutdown', {
-          failure: databaseClose.failure,
-          trigger,
-        });
-      }
-      exitProcess(1);
-      return;
-    }
     if (databaseClose.failure) {
       failures.push(databaseClose.failure);
     }
@@ -255,8 +209,7 @@ export function createDesktopGracefulShutdown(
         trigger,
       });
     }
-    // Per-step durations are the only record that explains a slow (but not
-    // forced) exit; the forced-exit path logs the in-flight step instead.
+    // Per-step durations are the record that explains a slow exit.
     const completed = [
       ...report.steps.map(({ elapsedMs, outcome, step }) => ({
         elapsedMs,
@@ -277,12 +230,7 @@ export function createDesktopGracefulShutdown(
   };
 
   return {
-    run: async (trigger, forcedExitTrigger) => {
-      // Only the first run arms it: a later trigger joins a run that already
-      // has one, or that finished and cleared it.
-      if (!running) {
-        armBackstop(forcedExitTrigger);
-      }
+    run: async (trigger) => {
       // Latch before any teardown so work torn down mid-flight (an in-flight
       // embedding backfill, say) logs as a benign stop, not a failure.
       markShuttingDown();
@@ -290,27 +238,19 @@ export function createDesktopGracefulShutdown(
         await running;
         return;
       }
-      running = runOnce(trigger, forcedExitTrigger).then(
-        () => {
-          // Finished, or the step deadline already forced the exit.
-          if (backstop) {
-            clearTimeout(backstop);
-            backstop = null;
-          }
-        },
-        (error: unknown) => {
-          // The steps may not have run; the armed backstop keeps the exit
-          // bounded, and callers still go on to quit — even if this log throws.
-          try {
-            logger.error('Graceful shutdown orchestration failed', {
-              error: serializeDesktopError(error),
-              trigger,
-            });
-          } catch {
-            // run() must not reject; the backstop still bounds the exit.
-          }
+      running = runOnce(trigger).catch((error: unknown) => {
+        // The orchestration broke before or between its steps: nothing is left
+        // to join, so the failure is the exit. A throwing log never cancels it.
+        try {
+          logger.error('Graceful shutdown orchestration failed', {
+            error: serializeDesktopError(error),
+            trigger,
+          });
+        } catch {
+          // The exit below is what matters; there is nowhere left to report this.
         }
-      );
+        exitProcess(1);
+      });
       await running;
     },
   };
