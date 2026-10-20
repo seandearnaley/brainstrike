@@ -105,7 +105,9 @@ function requestSkillSet(params: PrepareRequestSkillsParams): RequestSkillSet | 
   };
 }
 
-/** Resolve the per-request skills engine from runtime data + preference. */
+/** Resolve the per-request skills engine from runtime data + preference.
+ * @internal Skill-context regressions exercise request preparation directly.
+ */
 export function prepareRequestSkills(params: PrepareRequestSkillsParams): PreparedRequestSkills {
   const set = requestSkillSet(params);
   return set ? { workspaceSkills: createScannedWorkspaceSkills({ deps: params.fs, ...set }) } : {};

@@ -243,5 +243,3 @@ export function DesktopLoggingSettings() {
     />
   );
 }
-
-export default DesktopLoggingSettings;

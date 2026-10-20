@@ -85,6 +85,7 @@ export const changesContract = {
   }),
 } as const satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type ChangesBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof changesContract, ChangesBridge>
 >;

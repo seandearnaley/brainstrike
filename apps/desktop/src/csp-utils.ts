@@ -22,6 +22,7 @@ export function getCSP(env: CspEnvironment): string {
 /**
  * Get development-mode Content Security Policy.
  * Helper for Vite config where environment is implicitly development.
+ * @internal Vite consumes the development policy; CSP regressions pin its restrictions.
  */
 export function getDevCSP(): string {
   return getCSP('development');

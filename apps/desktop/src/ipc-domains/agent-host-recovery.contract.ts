@@ -5,7 +5,7 @@
  * profile's data folder. PURE — bundled into the preload and imported by main.
  */
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { type Bridge, type Contract, channel, parseNoArgs } from '../platform/ipc-contract';
+import { type Contract, channel, parseNoArgs } from '../platform/ipc-contract';
 
 export const agentHostRecoveryContract = {
   restartHost: channel<[], void>({
@@ -19,5 +19,3 @@ export const agentHostRecoveryContract = {
     roles: ['visible-ui'],
   }),
 } satisfies Contract;
-
-export type AgentHostRecoveryBridge = Bridge<typeof agentHostRecoveryContract>;

@@ -26,8 +26,6 @@ import { getSecretsService } from './secrets';
 
 const logger = createLogger('DesktopHostedEmbeddings');
 
-export { HostedEmbeddingError, type HostedEmbeddingErrorKind } from './hosted-embedding-error';
-
 const ERROR_MESSAGES = {
   missingApiKey: HOSTED_EMBEDDING_MISSING_KEY_MESSAGE,
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',

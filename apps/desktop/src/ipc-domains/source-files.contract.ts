@@ -115,6 +115,7 @@ export const sourceFilesContract = {
     roles: ['visible-ui', 'chunking-host'],
   }),
 };
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type SourceFilesBridgeProof = AssertTrue<
   BridgeMatches<typeof sourceFilesContract, SourceFilesCapability>
 >;

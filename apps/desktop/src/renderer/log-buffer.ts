@@ -39,6 +39,7 @@ export function getRendererLogBuffer(): LogBuffer {
 /**
  * Manually pause the log buffer during intensive operations.
  * Prefer using withBulkOperation() which handles this automatically.
+ * @internal Log-buffer regressions control flush admission deterministically.
  */
 export function pauseRendererLogBuffer(): void {
   rendererLogBuffer.pause();
@@ -46,6 +47,7 @@ export function pauseRendererLogBuffer(): void {
 
 /**
  * Resume the log buffer after intensive operations.
+ * @internal Log-buffer regressions resume the same bounded flush queue.
  */
 export function resumeRendererLogBuffer(): void {
   rendererLogBuffer.resume();

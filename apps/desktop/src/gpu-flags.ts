@@ -30,6 +30,7 @@ export const DISABLED_CHROMIUM_FEATURES = [
  *
  * If a future performance optimization tempts re-enabling these, it MUST be
  * validated with a 10+ minute background idle test with active embedding load.
+ * @internal GPU policy regressions assert that these switches never reach the app.
  */
 export const FORBIDDEN_GPU_SWITCHES = [
   'enable-gpu-rasterization',

@@ -2,14 +2,14 @@
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  createNativeSecureRoot,
+  resolveCanonicalRootPath,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import { DesktopWorkspaceBindingAuthority } from '../agent-host-platform/desktop-workspace-binding';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
-import {
-  createNativeSecureRoot,
-  resolveCanonicalRootPath,
-} from '../ipc-domains/workspace-root-seams';
 import { createStorage, rootHandle } from './ipc-domains/workspace-root-registry-test-helpers';
 
 const unavailablePg = vi.hoisted(() =>

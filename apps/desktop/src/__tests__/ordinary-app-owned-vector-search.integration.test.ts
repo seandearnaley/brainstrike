@@ -24,7 +24,7 @@ import {
   type ModelProviderRequest,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
-import { APP_RENDERER_ORIGIN } from '../desktop-renderer-target';
+import { APP_RENDERER_ORIGIN } from '../desktop-renderer-origin';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import { electronExecutablePath } from './helpers/electron-executable';
 

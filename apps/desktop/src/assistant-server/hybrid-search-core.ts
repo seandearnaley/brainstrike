@@ -10,11 +10,7 @@
 
 import { fitItemsToCharBudget, type HybridSearchInput, type RuntimeData } from '@brainstrike/agent';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
-import {
-  BoundaryFailureError,
-  NATIVE_TOOL_ID,
-  ToolInputError,
-} from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
   resolveAdmittedRetrievalRoots,
@@ -26,8 +22,6 @@ import type { RetrievalStore } from './retrieval-store';
 import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantHybridSearchTool');
-
-export const HYBRID_SEARCH_TOOL_ID = NATIVE_TOOL_ID.hybridSearch;
 
 const NO_NATIVE_INDEX_HYBRID_SEARCH =
   'Retrieval without a native index runs only on Main’s database.';

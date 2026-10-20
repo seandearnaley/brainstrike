@@ -304,10 +304,12 @@ async function joinWatcherRetirement(retiring: readonly Promise<void>[]): Promis
   }
 }
 
+/** @internal Filesystem watch regressions verify physical owner retirement. */
 export function liveFileSystemWatcherCountForTest(): number {
   return liveWatchersBySubscription.size;
 }
 
+/** @internal Watch startup regressions verify registration cleanup. */
 export function liveFileSystemWatchRegistrationCountForTest(): number {
   return liveWatchersById.size;
 }

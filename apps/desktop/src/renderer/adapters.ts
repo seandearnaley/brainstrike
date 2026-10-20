@@ -218,7 +218,9 @@ function forgetWatchHealth(watchId: string): void {
   tearDownSharedHealthSubscriptionIfIdle();
 }
 
-/** Test-only: reset the module-level shared dispatcher between test cases. */
+/** Test-only: reset the module-level shared dispatcher between test cases.
+ * @internal Isolates renderer watch-dispatch lifecycle regressions.
+ */
 export function __resetFsWatchDispatcherForTest(): void {
   watchCallbacksById.clear();
   sharedWatchUnsubscribe = null;

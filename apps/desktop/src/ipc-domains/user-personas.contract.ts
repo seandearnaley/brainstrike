@@ -24,6 +24,7 @@ export const userPersonasContract = {
   }),
 } satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type UserPersonasBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof userPersonasContract, AssistantPersonasBridge>
 >;

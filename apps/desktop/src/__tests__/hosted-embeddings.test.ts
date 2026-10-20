@@ -3,11 +3,8 @@
 import type { HostedProviderType } from '@brainstrike/embeddings/provider-core';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  createHostedProvider,
-  generateHostedEmbeddings,
-  HostedEmbeddingError,
-} from '../hosted-embeddings';
+import { HostedEmbeddingError } from '../hosted-embedding-error';
+import { createHostedProvider, generateHostedEmbeddings } from '../hosted-embeddings';
 
 vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => 'test-key' }) }));
 const existing = [

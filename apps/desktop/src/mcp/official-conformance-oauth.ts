@@ -20,6 +20,7 @@ const AbsoluteUrl = Schema.String.check(
   Schema.makeFilter((value) => (URL.canParse(value) ? undefined : 'Invalid URL'))
 );
 const CIMD_CLIENT_METADATA_URL = 'https://conformance-test.local/client-metadata.json';
+/** @internal Conformance regressions pin the supported OAuth scenario names. */
 export const OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_BASELINE_SCENARIOS;
 export const MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
 export type { OfficialAuthScenarioName };

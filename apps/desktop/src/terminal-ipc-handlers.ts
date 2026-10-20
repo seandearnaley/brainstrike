@@ -570,7 +570,9 @@ export function disposeTerminalsForWebContents(ownerId: number): number {
   return reaped;
 }
 
-/** Test-only: current count of live terminals. */
+/** Test-only: current count of live terminals.
+ * @internal Terminal IPC regressions verify that sessions are retired.
+ */
 export function liveTerminalCountForTest(): number {
   return liveTerminals.size;
 }

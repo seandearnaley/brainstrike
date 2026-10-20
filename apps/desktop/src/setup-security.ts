@@ -6,6 +6,7 @@ import { installMcpAppSessionPolicy } from './mcp/apps-session-policy';
 import { MCP_APP_SHELL_PROTOCOL_SCHEME } from './mcp/apps-shell-protocol';
 
 const logger = createLogger('DesktopSecurity');
+/** @internal Security setup regressions assert the emitted refusal diagnostics. */
 export const desktopSecurityLogger = logger;
 
 // Type definitions for Electron's webRequest

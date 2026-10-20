@@ -19,7 +19,7 @@ import type { MainRequest } from '../agent-host-platform/host-retrieval-clients'
 import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
-import { HostedEmbeddingError } from '../hosted-embeddings';
+import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { UtilityPort } from './fixtures/admitted-host-tools';

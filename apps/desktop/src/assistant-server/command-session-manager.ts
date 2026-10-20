@@ -995,14 +995,3 @@ export async function disposeDesktopCommandSessionsForRoot(rootId: string): Prom
   }
   return await desktopCommandSessionManager.disposeRoot(rootId);
 }
-
-/** No manager means no process could have been admitted. Once configured, join
- * only sessions owned by the native child identities already authorized by DB. */
-export async function stopDesktopDelegatedCommandSessions(
-  threadIds: readonly string[]
-): Promise<void> {
-  if (!desktopCommandSessionManager) {
-    return;
-  }
-  await desktopCommandSessionManager.stopDelegatedThreads(threadIds);
-}

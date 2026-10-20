@@ -40,10 +40,7 @@ import {
   boundQueryFailureDetail,
   clipHover,
   DIAGNOSTIC_TIMEOUT_MS,
-  type InspectLocation,
   type LspInspectionResult,
-  type LspInspectQuery,
-  type LspQueryFailure,
   QUERY_TIMEOUT_MS,
   type RawLocation,
   type RawQueryFailure,
@@ -73,7 +70,7 @@ import { LspReadPolicyError, withLspDocument } from './lsp-document-session';
 // Re-exported so `lsp-diagnostics` stays the single import surface for the
 // inspect tool + its model projection (the split is an internal file boundary,
 // not a new public seam).
-export type { InspectLocation, LspInspectionResult, LspInspectQuery, LspQueryFailure };
+export type { LspInspectionResult };
 
 // LSP method names used verbatim (string overloads avoid the branded-type
 // identity mismatch between vscode-jsonrpc and -protocol under the main
@@ -940,18 +937,24 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
   }
 }
 
-/** Number of pooled servers (test/observability). */
+/** Number of pooled servers (test/observability).
+ * @internal LSP integration regressions verify process-pool retirement.
+ */
 export function countPooledLspServers(): number {
   return pool.size;
 }
 
-/** Pooled server pids (test only — no-orphan proof). */
+/** Pooled server pids (test only — no-orphan proof).
+ * @internal LSP integration regressions inspect the admitted child identities.
+ */
 export async function __getPooledPidsForTest(): Promise<number[]> {
   const settled = await Promise.allSettled(pool.values());
   return settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value.pid] : []));
 }
 
-/** Direct lifecycle controls for deterministic disposal tests. */
+/** Direct lifecycle controls for deterministic disposal tests.
+ * @internal LSP integration regressions inspect retained cleanup ownership.
+ */
 export async function __getPooledLifecycleForTest(rootId: string): Promise<{
   dispose: () => Promise<void>;
   emitChildError: (error: Error) => void;
