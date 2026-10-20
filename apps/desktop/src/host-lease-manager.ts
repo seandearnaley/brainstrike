@@ -23,6 +23,7 @@ import {
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
+import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 
 export interface HostLeaseUtilityProcess {
   off(event: 'message', listener: (message: unknown) => void): unknown;
@@ -49,6 +50,11 @@ export interface DesktopHostLeaseOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly fork?: HostLeaseFork;
+  /**
+   * Main's E2E lifecycle delay seam (`installLifecycleDelaySeam`): Main-side points this owner
+   * applies, and the child points it forwards to the host it forks. Absent, nothing is delayed.
+   */
+  readonly lifecycleDelays?: LifecycleDelaySeam;
   /** The owned host's lifetime channel (ADR-0017); Main keeps `port1`. Defaults to a new channel. */
   readonly lifetimeChannel?: () => {
     readonly port1: MessagePortMain;
