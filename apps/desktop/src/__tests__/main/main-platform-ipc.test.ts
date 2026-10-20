@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMainPlatformIpcHandlers } from '../../main-platform-ipc';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
   getWindowRoleByWebContentsIdMock: vi.fn(),
@@ -98,6 +99,53 @@ describe('main platform IPC', () => {
     ).rejects.toThrow('Renderer reload intent must originate from a live BrowserWindow.');
   });
 
+  it('accepts a normalized reload request only from the current visible main frame', async () => {
+    const window = { isDestroyed: () => false };
+    const mainFrame = createAllowlistedSenderFrame();
+    const sender = { id: 101, mainFrame };
+    const requestReload = vi.fn();
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as BrowserWindow);
+    registerPartialMainPlatformIpcHandlers({ noteNextWindowReload, requestReload });
+    await handlers.get('app:lifecycle:request-reload')?.(
+      { sender, senderFrame: mainFrame },
+      ' failed-chunk-recovery '
+    );
+    expect(requestReload).toHaveBeenCalledWith(window, 'failed-chunk-recovery');
+    expect(noteNextWindowReload).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'hidden host',
+    'untrusted URL',
+    'subframe',
+    'stale main frame',
+    'empty reason',
+    'destroyed window',
+  ])('refuses a reload from %s before starting document retirement', async (control) => {
+    const window = { isDestroyed: () => control === 'destroyed window' };
+    const mainFrame = createAllowlistedSenderFrame();
+    const sender = { id: 102, mainFrame };
+    const senderFrame =
+      control === 'untrusted URL'
+        ? { url: 'https://untrusted.invalid/' }
+        : control === 'subframe' || control === 'stale main frame'
+          ? createAllowlistedSenderFrame()
+          : mainFrame;
+    if (control === 'hidden host') {
+      getWindowRoleByWebContentsIdMock.mockReturnValue('embedding-host');
+    }
+    const requestReload = vi.fn();
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as BrowserWindow);
+    registerPartialMainPlatformIpcHandlers({ noteNextWindowReload, requestReload });
+    await expect(
+      handlers.get('app:lifecycle:request-reload')?.(
+        { sender, senderFrame },
+        control === 'empty reason' ? ' ' : 'reload'
+      )
+    ).rejects.toThrow();
+    expect(requestReload).not.toHaveBeenCalled();
+  });
+
   it('unregisters its channels', () => {
     const unregister = registerPartialMainPlatformIpcHandlers({
       noteNextWindowReload,
@@ -106,5 +154,6 @@ describe('main platform IPC', () => {
     unregister();
 
     expect(ipcMain.removeHandler).toHaveBeenCalledWith('app:lifecycle:note-reload-intent');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('app:lifecycle:request-reload');
   });
 });

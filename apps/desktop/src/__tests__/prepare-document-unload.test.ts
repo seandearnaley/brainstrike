@@ -3,10 +3,7 @@ import { LIFECYCLE_DELAYS_ENV } from '@brainstrike/host-lease/lifecycle-delays';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createLifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import {
-  prepareDesktopRendererClose,
-  RENDERER_CLOSE_PREPARATION_MS,
-} from '../prepare-desktop-renderer-close';
+import { prepareDocumentUnload, RENDERER_CLOSE_PREPARATION_MS } from '../prepare-document-unload';
 
 const channels = vi.hoisted(() => ({
   created: [] as Array<{
@@ -66,7 +63,7 @@ afterEach(() => {
 test('waits for its private producer ACK before releasing the close owner', async () => {
   const window = windowFixture();
   let prepared = false;
-  const preparing = prepareDesktopRendererClose(window, noDelays).then(() => {
+  const preparing = prepareDocumentUnload(window, noDelays).then(() => {
     prepared = true;
   });
   expect(window.webContents.mainFrame.postMessage).toHaveBeenCalledWith(
@@ -92,7 +89,7 @@ test.each(['negative ACK', 'port loss', 'send failure'])(
         throw new Error('send failed');
       });
     }
-    const preparing = prepareDesktopRendererClose(window, noDelays);
+    const preparing = prepareDocumentUnload(window, noDelays);
     const rejected = expect(preparing).rejects.toBeInstanceOf(Error);
     const channel = channels.created[0];
     if (!channel) {
@@ -119,7 +116,7 @@ test.each([
   'a renderer that reports %s is destroyed and its closed joined',
   async (event, message) => {
     const window = windowFixture();
-    const preparing = prepareDesktopRendererClose(window, noDelays);
+    const preparing = prepareDocumentUnload(window, noDelays);
     const rejected = expect(preparing).rejects.toThrow(message);
     let destroyedDuringDispatch: boolean | undefined;
     // The remaining listeners still read the window during this event's dispatch.
@@ -142,7 +139,7 @@ test('escalates a renderer that never answers to destroy after its ladder, then 
   // destroy() guarantees `closed`, which may arrive after the call returns.
   window.destroy.mockImplementation(() => undefined);
   let outcome: unknown;
-  const preparing = prepareDesktopRendererClose(window, noDelays).catch((error: unknown) => {
+  const preparing = prepareDocumentUnload(window, noDelays).catch((error: unknown) => {
     outcome = error;
   });
 
@@ -174,7 +171,7 @@ test('a slow ACK (E2E renderer-flush point) still resolves inside the ladder', a
     () => true
   );
   let prepared = false;
-  const preparing = prepareDesktopRendererClose(window, delays).then(() => {
+  const preparing = prepareDocumentUnload(window, delays).then(() => {
     prepared = true;
   });
   channels.created[0]?.port1.emit('message', { data: { prepared: true } });

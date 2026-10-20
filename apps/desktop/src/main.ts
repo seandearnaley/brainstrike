@@ -106,6 +106,14 @@ import { createProcessCounterSampler } from './diagnostics/process-counter-sampl
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import { installWebAssemblyCounter } from './diagnostics/webassembly-counter';
 import { resolveBuiltRendererPath } from './dist-root';
+import {
+  admitDocumentClose,
+  type DocumentUnloadOwner,
+  flushDocumentBeforeUnload,
+  installDocumentUnload,
+  reloadDocument,
+  visibleDocumentWindows,
+} from './document-unload';
 import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
@@ -193,7 +201,7 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
-import { prepareDesktopRendererClose } from './prepare-desktop-renderer-close';
+import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -386,6 +394,26 @@ let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
+
+/** Every unload of a visible document flushes it first (ADR-0026 R1, `document-unload.ts`). */
+function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
+  return {
+    delays: lifecycleDelaySeam(),
+    isQuitting: isDesktopShuttingDown,
+    lastWindowQuits: process.platform !== 'darwin',
+    quit: () => app.quit(),
+    visibleWindows: visibleDocumentWindows,
+  };
+}
+
+/** Menu Reload and a renderer's reload request: flush the document, then replace it. */
+function reloadVisibleDocument(window: BrowserWindow, reason: string, source: 'main' | 'renderer') {
+  void reloadDocument(window, documentUnloadOwner(), () => {
+    noteNextWindowReload(window, { reason, source });
+    window.webContents.reload();
+  });
+}
+
 let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
 
 // One shutdown run's step BODIES, built when the run starts so they capture
@@ -524,8 +552,12 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         const preparations = await Promise.allSettled(
           windows
             .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
-            .map((window) => prepareDesktopRendererClose(window, lifecycleDelaySeam()))
+            .map((window) => prepareDocumentUnload(window, lifecycleDelaySeam()))
         );
+        // Prepared or not, quit closes them: past the user-close interception.
+        for (const window of windows) {
+          admitDocumentClose(window);
+        }
         const closes = await Promise.allSettled([
           closeDesktopRenderers(
             windows,
@@ -1611,11 +1643,7 @@ if (singleInstanceLockAcquired) {
                   logger.warn('Skipped menu reload because no target window was focused');
                   return;
                 }
-                noteNextWindowReload(targetWindow, {
-                  reason: 'menu-reload',
-                  source: 'main',
-                });
-                targetWindow.webContents.reload();
+                reloadVisibleDocument(targetWindow, 'menu-reload', 'main');
               },
               label: 'Reload',
             },
@@ -1660,6 +1688,13 @@ if (singleInstanceLockAcquired) {
                   return;
                 }
                 developerDatabaseResetInFlight = true;
+                // The visible documents flush into the profile BEFORE it is cleared, and are
+                // replaced afterwards whatever the reset's outcome: a flushed document is fenced.
+                const documents = visibleDocumentWindows();
+                await Promise.all(
+                  documents.map((window) => flushDocumentBeforeUnload(window, lifecycleDelaySeam()))
+                );
+                let replaced: readonly BrowserWindow[] = documents;
                 try {
                   // BST-1330: same drains as shutdown/factory reset — a bare
                   // resetLocalDatabase() could race in-flight live refreshes.
@@ -1674,19 +1709,14 @@ if (singleInstanceLockAcquired) {
                     }
                     await nativeIndexActivation.resume();
                   });
+                  // The hidden hosts reload with the visible documents after a reset.
+                  replaced = BrowserWindow.getAllWindows();
                   await dialog.showMessageBox({
                     buttons: ['OK'],
                     message: 'Local database has been reset. The app will reload.',
                     title: 'Database Reset',
                     type: 'info',
                   });
-                  for (const win of BrowserWindow.getAllWindows()) {
-                    noteNextWindowReload(win, {
-                      reason: 'developer-reset-local-database',
-                      source: 'main',
-                    });
-                    win.webContents.reloadIgnoringCache();
-                  }
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error);
                   dialog.showErrorBox(
@@ -1695,6 +1725,19 @@ if (singleInstanceLockAcquired) {
                   );
                 } finally {
                   developerDatabaseResetInFlight = false;
+                }
+                if (isDesktopShuttingDown()) {
+                  return;
+                }
+                for (const win of replaced) {
+                  if (win.isDestroyed()) {
+                    continue;
+                  }
+                  noteNextWindowReload(win, {
+                    reason: 'developer-reset-local-database',
+                    source: 'main',
+                  });
+                  win.webContents.reloadIgnoringCache();
                 }
               },
               id: 'dev-reset-db',
@@ -1793,6 +1836,7 @@ if (singleInstanceLockAcquired) {
         registerMainPlatformIpcHandlers({
           getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
           noteNextWindowReload,
+          requestReload: (window, reason) => reloadVisibleDocument(window, reason, 'renderer'),
         })
       );
 
@@ -1804,7 +1848,10 @@ if (singleInstanceLockAcquired) {
         }
         const storedWindowState = readStoredWindowState(store);
         const win = await createWindow({
-          onBeforeLoad: bindWorkspaceOpenWindow,
+          onBeforeLoad: (window) => {
+            installDocumentUnload(window, documentUnloadOwner());
+            bindWorkspaceOpenWindow(window);
+          },
           windowState: storedWindowState,
         });
         // app.on('activate') recreates this window; dispose the persistence
@@ -2080,11 +2127,10 @@ if (singleInstanceLockAcquired) {
   app.quit();
 }
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+// Quit on the last visible window's close is decided where that close is intercepted, so the
+// quit prepares the window first (`installDocumentUnload`). Subscribing still matters: without a
+// listener Electron itself quits whenever every window, hidden hosts included, has closed.
+app.on('window-all-closed', () => undefined);
 
 // Clean shutdown
 app.on('before-quit', (event) => {

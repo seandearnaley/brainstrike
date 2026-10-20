@@ -13,7 +13,7 @@ const logger = createLogger('RendererClose');
  */
 export const RENDERER_CLOSE_PREPARATION_MS = 30_000;
 
-interface RendererCloseWindow {
+export interface RendererCloseWindow {
   destroy(): void;
   isDestroyed(): boolean;
   once(event: 'closed', listener: () => void): unknown;
@@ -28,13 +28,15 @@ interface RendererCloseWindow {
 }
 
 /**
- * Asks a visible renderer to prepare its document for close and joins its ACK. A renderer that
+ * Asks a visible renderer to prepare its document for unload (quit, window close or reload: it
+ * fences its UI, flushes its durable writers and closes its host transport) and joins its ACK.
+ * A renderer that
  * cannot answer is retired, never waited on forever: one that crashes or becomes unresponsive,
  * or that has not answered within `RENDERER_CLOSE_PREPARATION_MS`, is destroyed and its
  * `closed` joined before this rejects. A negative ACK, a lost port or an undeliverable request
  * rejects at once. `delays` is the E2E lifecycle seam's Main-side `renderer-flush` point.
  */
-export function prepareDesktopRendererClose(
+export function prepareDocumentUnload(
   window: RendererCloseWindow,
   delays: Pick<LifecycleDelaySeam, 'delay'>
 ): Promise<void> {
