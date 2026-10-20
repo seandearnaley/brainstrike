@@ -16,6 +16,7 @@ import type { IpcResult } from './platform/ipc-contract';
 // graph, and build-main.mjs refuses a bundle that requires anything else.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+import { createDocumentCloseProof } from './document-close-proof';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
 import { changesContract } from './ipc-domains/changes.contract';
@@ -55,6 +56,11 @@ const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // Only the visible preload receives this client transport. Main authorizes the
 // requesting frame before transferring a port; the host authenticates commands.
 const frameClosePreparations = new Set<() => Promise<void>>();
+const observeClose = process.env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] === '1';
+const closeProof = createDocumentCloseProof(observeClose, 'preload');
+if (observeClose) {
+  contextBridge.exposeInMainWorld('brainstrikeWorkspacePhaseTrace', true);
+}
 contextBridge.exposeInMainWorld('agentHost', {
   connect: (requestId: string): Promise<IpcResult<void>> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
@@ -70,11 +76,15 @@ ipcRenderer.on(
     if (!reply) {
       throw new Error('Renderer close preparation has no private reply port');
     }
+    closeProof('preload-prepare-begin');
     const preparation = Promise.allSettled(
       [...frameClosePreparations].map(async (prepare) => await prepare())
     );
     void preparation.then((results) => {
-      reply.postMessage({ prepared: results.every((result) => result.status === 'fulfilled') });
+      const prepared = results.every((result) => result.status === 'fulfilled');
+      closeProof(prepared ? 'preload-prepare-end' : 'preload-prepare-failure');
+      closeProof(prepared ? 'preload-ack-success-dispatch' : 'preload-ack-failure-dispatch');
+      reply.postMessage({ prepared });
       reply.close();
     });
   }

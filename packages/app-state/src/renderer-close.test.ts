@@ -2,6 +2,29 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 beforeEach(() => vi.resetModules());
 
+it('observes held producer and persistence phases without changing their original failure', async () => {
+  const close = await import('./renderer-close');
+  const producer = Promise.withResolvers<void>();
+  const adapter = Promise.withResolvers<void>();
+  const failure = new Error('controlled producer failure');
+  const phases: string[] = [];
+  close.registerRendererClosePreparation(async () => await producer.promise);
+  close.registerRendererClosePreparation(async () => await adapter.promise, 'persistence');
+  const result = close
+    .prepareRendererClose((phase, settlement) => phases.push(`${phase}-${settlement}`))
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(phases).toEqual(['producers-begin']));
+  producer.reject(failure);
+  await vi.waitFor(() =>
+    expect(phases).toEqual(['producers-begin', 'producers-failure', 'persistence-begin'])
+  );
+  adapter.resolve();
+  const caught = await result;
+  expect(caught).toBeInstanceOf(AggregateError);
+  expect((caught as AggregateError).errors).toEqual([failure]);
+  expect(phases.at(-1)).toBe('persistence-end');
+});
+
 it('paired admission observes begin before producers and retains both phases with a shared callback', async () => {
   const close = await import('./renderer-close');
   let observing = false;

@@ -71,8 +71,8 @@ function desktopSmokeLaneCommand(specs) {
     '--project=smoke',
     '--workers=1',
     '--retries=0',
-    '--max-failures=1',
-    '--global-timeout=900000',
+    '--max-failures=0',
+    '--global-timeout=3600000',
     '--grep="@smoke"',
   ].join(' ');
 }

@@ -3,8 +3,7 @@
  * reason (BST-2190). The packaged desktop smoke runs nightly on windows-2025;
  * every test named here calls `test.fixme(process.platform === 'win32', …)`
  * with its entry, so Playwright reports it as fixme with this text instead of
- * filtering it out. The first two are gaps in POSIX-only test fixtures, not in
- * the app; the third is a suspected product race with its own issue.
+ * filtering it out. These are gaps in POSIX-only test fixtures, not in the app.
  */
 export const WINDOWS_SMOKE_EXCLUSIONS = {
   /** forge-pr.desktop.test.ts: every test, including both @smoke tests. */
@@ -13,7 +12,4 @@ export const WINDOWS_SMOKE_EXCLUSIONS = {
   /** add-root-ui.smoke.desktop.test.ts: "…opens a shell at that root". */
   posixShellCommand:
     'The test types the POSIX command `[ "$(pwd)" = … ] && echo …` into the terminal, but the Windows terminal shell is %ComSpec%, cmd.exe (terminal-ipc-handlers.ts).',
-  /** host-thread-unavailable-root-reopen.desktop.test.ts: its one test. */
-  staleCatalogModelSelection:
-    'BST-2242, suspected product race, not a fixture gap: on hosted windows-2025 (run 39336738388) the catalog read back openrouter::anthropic/claude-sonnet-4.6 as enabled, yet the composer stayed disabled for 30 s on "The selected catalog model is disabled".',
 } as const;

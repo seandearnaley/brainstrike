@@ -83,7 +83,8 @@ export async function authenticateHostClient(
   connection: MessageConnection,
   record: HostRecord,
   closeTransport: () => Promise<void>,
-  transportClosed: Promise<void>
+  transportClosed: Promise<void>,
+  observeInitialize?: (phase: 'initialize-send' | 'initialize-reply') => void
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
   const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
@@ -163,6 +164,7 @@ export async function authenticateHostClient(
   });
   connection.listen();
   try {
+    observeInitialize?.('initialize-send');
     const reply = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS.initialize, {
       errors: 'all',
       onExcessProperty: 'error',
@@ -181,6 +183,7 @@ export async function authenticateHostClient(
     ) {
       throw new Error('Host initialize reply does not match its lease record');
     }
+    observeInitialize?.('initialize-reply');
   } catch (cause) {
     try {
       await closeConnection();

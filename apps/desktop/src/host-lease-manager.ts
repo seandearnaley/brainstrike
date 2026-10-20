@@ -12,16 +12,23 @@ import {
   startupFailure as hostStartupFailure,
   launchHost,
   type StartupMessage,
+  writeHostAttachmentDiagnostic,
 } from '@brainstrike/host-lease';
 import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
-import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
+import {
+  type ForkOptions,
+  MessageChannelMain,
+  type MessagePortMain,
+  utilityProcess,
+} from 'electron';
 import {
   createHostNativeChildren,
   type HostNativeChildren,
 } from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
+import { collectHostAttachmentProofStderr } from './host-attachment-proof-stderr';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 
 export interface HostLeaseUtilityProcess {
@@ -110,6 +117,11 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void)
     exited: completion.promise,
     exitListener: (code) => {
       child.exitCode = code;
+      writeHostAttachmentDiagnostic('utility-exit', undefined, {
+        childPid: handle.pid,
+        closeRequested: child.closing,
+        exitCode: code,
+      });
       completion.resolve(code);
       if (!child.closing) {
         child.lost = true;
@@ -178,10 +190,18 @@ function readyIdentity(child: OwnedChild): { pid: number; start: string } {
 /** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
 async function closeChild(child: OwnedChild): Promise<void> {
   child.closing = true;
+  writeHostAttachmentDiagnostic('utility-close-request', undefined, {
+    childPid: child.handle.pid,
+    closeRequested: true,
+  });
   if (child.exitCode === undefined && !child.clearRequested) {
     child.handle.postMessage({ method: 'close' });
   }
   const code = await child.exited;
+  writeHostAttachmentDiagnostic('utility-close-joined', undefined, {
+    childPid: child.handle.pid,
+    exitCode: code,
+  });
   child.handle.off('exit', child.exitListener);
   if (child.clearRequested && !child.clearReceipt) {
     throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
@@ -234,7 +254,12 @@ async function ownLifetime(
   child: OwnedChild
 ): Promise<void> {
   const channel = (options.lifetimeChannel ?? (() => new MessageChannelMain()))();
-  await addFinalizer(scope, async () => channel.port1.close());
+  await addFinalizer(scope, async () => {
+    writeHostAttachmentDiagnostic('utility-lifetime-port-close', undefined, {
+      childPid: child.handle.pid,
+    });
+    channel.port1.close();
+  });
   child.handle.postMessage({ event: 'lifetime' }, [channel.port2]);
 }
 /** The platform an owned host borrows, and Main's supervisor of its native processes (ADR-0017). */
@@ -256,6 +281,23 @@ async function ownPlatform(
   // Runs after closeChild has joined the host's exit, never during its cleanup.
   await addFinalizer(scope, () => platform.close());
   return { nativeChildren, platform };
+}
+
+/** The production utility adapter, also exercised by the real Electron proof fixture. */
+export function forkDesktopHostLeaseUtility(
+  path: string,
+  args: readonly string[]
+): ReturnType<typeof utilityProcess.fork> {
+  const proof = process.env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] === '1';
+  const forkOptions: ForkOptions = { serviceName: 'Brainstrike Host Lease' };
+  if (proof) {
+    forkOptions.stdio = ['ignore', 'inherit', 'pipe'];
+  }
+  const handle = utilityProcess.fork(path, [...args], forkOptions);
+  if (proof) {
+    collectHostAttachmentProofStderr(handle.stderr);
+  }
+  return handle;
 }
 
 /** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
@@ -283,7 +325,13 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
     }
     const joined = releasing;
     return runWithTimeout(() => joined, {
-      onTimeout: () => new Error(`Owned host utility pid ${ownedPid} did not exit after close`),
+      onTimeout: () => {
+        writeHostAttachmentDiagnostic('utility-close-timeout', undefined, {
+          childPid: ownedPid,
+          timeoutMs: closeTimeoutMs,
+        });
+        return new Error(`Owned host utility pid ${ownedPid} did not exit after close`);
+      },
       timeoutMs: closeTimeoutMs,
     });
   };
@@ -304,10 +352,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
               'Host lease entry',
               options.platformModule === undefined ? 'host-lease-entry.js' : 'agent-host-entry.js'
             );
-          const fork: HostLeaseFork =
-            options.fork ??
-            ((path, args) =>
-              utilityProcess.fork(path, [...args], { serviceName: 'Brainstrike Host Lease' }));
+          const fork: HostLeaseFork = options.fork ?? forkDesktopHostLeaseUtility;
           const platformOptions =
             options.platformModule === undefined ? undefined : await options.platformOptions?.();
           combined.throwIfAborted();
@@ -333,6 +378,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             ownedPid = child.handle.pid;
+            writeHostAttachmentDiagnostic('utility-spawned', undefined, { childPid: ownedPid });
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
@@ -344,6 +390,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           options.onChildStarted?.();
           await ready;
           const identity = readyIdentity(child);
+          writeHostAttachmentDiagnostic('utility-ready', identity);
           child.ready = true;
           options.onChildReady?.({
             exited: child.exited,

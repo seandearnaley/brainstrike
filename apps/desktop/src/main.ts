@@ -107,6 +107,7 @@ import { createProcessCounterSampler } from './diagnostics/process-counter-sampl
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import { installWebAssemblyCounter } from './diagnostics/webassembly-counter';
 import { resolveBuiltRendererPath } from './dist-root';
+import { createDocumentCloseProof } from './document-close-proof';
 import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
@@ -337,6 +338,10 @@ loggingPreferences.applyInitial();
 
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
+const resetProof = createDocumentCloseProof(
+  process.env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] === '1',
+  'main'
+);
 let developerDatabaseResetInFlight = false;
 // NOT a replay buffer, despite the name's "pending" framing: a grant recorded
 // before this is assigned (inside app.whenReady()'s menu block) is a silent
@@ -1697,6 +1702,7 @@ if (singleInstanceLockAcquired) {
                   return;
                 }
                 developerDatabaseResetInFlight = true;
+                resetProof('reset-begin');
                 try {
                   const windows = BrowserWindow.getAllWindows().filter(
                     (window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui'
@@ -1710,22 +1716,36 @@ if (singleInstanceLockAcquired) {
                     {
                       beforeReload: async () => {
                         // Retiring documents have drained before the reset owner clears their profile.
+                        resetProof('reset-transition-begin');
                         await nativeRootDataDeletion.transition(async () => {
+                          resetProof('reset-stop-sources-begin');
                           await nativeIndexActivation.stopSources();
+                          resetProof('reset-stop-sources-end');
+                          resetProof('reset-lease-begin');
                           const lease = await profileReset.prepare();
+                          resetProof('reset-lease-end');
                           try {
+                            resetProof('reset-clear-begin');
                             await profileReset.clear(lease);
+                            resetProof('reset-clear-end');
                           } finally {
+                            resetProof('reset-release-begin');
                             lease.release();
+                            resetProof('reset-release-end');
                           }
+                          resetProof('reset-resume-begin');
                           await nativeIndexActivation.resume();
+                          resetProof('reset-resume-end');
                         });
+                        resetProof('reset-transition-end');
+                        resetProof('reset-dialog-begin');
                         await dialog.showMessageBox({
                           buttons: ['OK'],
                           message: 'Local database has been reset. The app will reload.',
                           title: 'Database Reset',
                           type: 'info',
                         });
+                        resetProof('reset-dialog-end');
                         if (isDesktopShuttingDown()) {
                           return;
                         }
@@ -1747,7 +1767,9 @@ if (singleInstanceLockAcquired) {
                       shouldReload: () => !isDesktopShuttingDown(),
                     }
                   );
+                  resetProof('reset-end');
                 } catch (cause) {
+                  resetProof('reset-failure');
                   logger.error('Developer database reset did not complete', { cause });
                 } finally {
                   developerDatabaseResetInFlight = false;

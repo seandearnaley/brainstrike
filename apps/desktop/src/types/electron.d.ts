@@ -58,6 +58,8 @@ declare global {
      * user-defined personas (including invalid files with their error).
      */
     assistantPersonas?: TransportBridge<typeof userPersonasContract>;
+    /** PROOF ONLY: admitted by the existing workspace-phase trace environment flag. */
+    brainstrikeWorkspacePhaseTrace?: boolean;
     /**
      * Embedded browser pane bridge (BST-1174). Desktop-only; absent on web.
      * MUST stay in sync with `BrowserBridge` in

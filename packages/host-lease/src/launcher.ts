@@ -11,6 +11,10 @@ import {
   RootLock,
   RootLockedError,
 } from '@brainstrike/state-store';
+import {
+  type HostAttachmentDiagnosticFields,
+  startHostAttachmentDiagnostics,
+} from './attachment-diagnostics.js';
 import { attachHost, type HostAttachment } from './client.js';
 import type { HostRecord } from './record.js';
 import { readHostRecord } from './record-file.js';
@@ -125,29 +129,50 @@ async function pause(signal: AbortSignal): Promise<void> {
 async function publishedRecord(
   root: string,
   lease: LockOwner,
-  timeoutMs: number
+  timeoutMs: number,
+  budget: HostAttachmentDiagnosticFields['budget']
 ): Promise<HostRecord | null> {
-  return runWithTimeout(
-    async (signal) => {
-      for (;;) {
-        signal.throwIfAborted();
-        const current = await liveLease(root);
-        if (!current || current.token !== lease.token) {
-          return null;
+  const diagnostics = startHostAttachmentDiagnostics('record-publication', lease, {
+    budget,
+    timeoutMs,
+  });
+  try {
+    return await runWithTimeout(
+      async (signal) => {
+        for (;;) {
+          signal.throwIfAborted();
+          diagnostics?.publicationStage('liveLease-before');
+          const current = await liveLease(root);
+          if (!current || current.token !== lease.token) {
+            diagnostics?.publicationStage('liveLease-after', current ? 'mismatched' : 'missing');
+            return null;
+          }
+          diagnostics?.publicationStage('liveLease-after', 'matched');
+          diagnostics?.publicationStage('readHostRecord-before');
+          const record = await readHostRecord(root);
+          if (record && matches(record, current)) {
+            diagnostics?.publicationStage('readHostRecord-after', 'matched');
+            diagnostics?.phase('record-matched', record);
+            return record;
+          }
+          diagnostics?.publicationStage('readHostRecord-after', record ? 'mismatched' : 'missing');
+          await pause(signal);
         }
-        const record = await readHostRecord(root);
-        if (record && matches(record, current)) {
-          return record;
-        }
-        await pause(signal);
+      },
+      {
+        onTimeout: () => {
+          diagnostics?.phase('record-publication-timeout');
+          return new LiveHostUnavailableError(
+            lease.pid,
+            new Error('Host record publication timed out')
+          );
+        },
+        timeoutMs,
       }
-    },
-    {
-      onTimeout: () =>
-        new LiveHostUnavailableError(lease.pid, new Error('Host record publication timed out')),
-      timeoutMs,
-    }
-  );
+    );
+  } finally {
+    diagnostics?.finish('record-publication-settled');
+  }
 }
 /**
  * Whether the owner `record` names stops holding the root before `deadline`:
@@ -255,28 +280,53 @@ async function existingRecord(root: string, lease: LockOwner | null): Promise<Ho
 async function liveOwnerRecord(root: string, timeoutMs: number): Promise<HostRecord | null> {
   const waitUntil = Date.now() + timeoutMs;
   for (;;) {
-    const lease = await liveLease(root);
-    const existing = await existingRecord(root, lease);
-    const live = existing !== null && isLive(existing);
-    if (live && !lease) {
-      throw new LiveHostUnavailableError(
-        existing.pid,
-        new Error('Host record has no matching root lease')
-      );
-    }
-    if (!lease) {
-      return null;
-    }
-    if (live && matches(existing, lease)) {
-      return existing;
-    }
-    const remaining = waitUntil - Date.now();
-    if (remaining <= 0) {
-      throw new LiveHostUnavailableError(lease.pid, new Error('Host record publication timed out'));
-    }
-    const record = await publishedRecord(root, lease, remaining);
-    if (record) {
-      return record;
+    const observedBudget: { budget: 'existing-owner'; timeoutMs: number; remainingMs?: number } = {
+      budget: 'existing-owner',
+      timeoutMs,
+    };
+    const diagnostics = startHostAttachmentDiagnostics(
+      'record-discovery',
+      undefined,
+      observedBudget
+    );
+    try {
+      diagnostics?.publicationStage('liveLease-before');
+      const lease = await liveLease(root);
+      diagnostics?.publicationStage('liveLease-after');
+      diagnostics?.phase('record-discovery-owner', lease ?? undefined);
+      diagnostics?.publicationStage('existingRecord-before');
+      const existing = await existingRecord(root, lease);
+      diagnostics?.publicationStage('existingRecord-after');
+      const live = existing !== null && isLive(existing);
+      if (live && !lease) {
+        throw new LiveHostUnavailableError(
+          existing.pid,
+          new Error('Host record has no matching root lease')
+        );
+      }
+      if (!lease) {
+        return null;
+      }
+      if (live && matches(existing, lease)) {
+        return existing;
+      }
+      const remaining = waitUntil - Date.now();
+      observedBudget.remainingMs = remaining;
+      if (remaining <= 0) {
+        diagnostics?.phase('record-discovery-timeout', lease);
+        throw new LiveHostUnavailableError(
+          lease.pid,
+          new Error('Host record publication timed out')
+        );
+      }
+      // Initial discovery and the publication wait are distinct, non-overlapping observations.
+      diagnostics?.finish('record-discovery-settled');
+      const record = await publishedRecord(root, lease, remaining, 'existing-owner');
+      if (record) {
+        return record;
+      }
+    } finally {
+      diagnostics?.finish('record-discovery-settled');
     }
   }
 }
@@ -331,7 +381,12 @@ async function attachWinner(launch: Launch, cause: unknown): Promise<Step> {
   if (!winner) {
     return AGAIN;
   }
-  const record = await publishedRecord(launch.root, winner, remaining(launch.deadline));
+  const record = await publishedRecord(
+    launch.root,
+    winner,
+    remaining(launch.deadline),
+    'race-winner'
+  );
   return record ? attachOwner(launch, record, launch.deadline) : AGAIN;
 }
 /** Retire a host the launch gave up on; a failed retirement joins the launch's own failure. */
@@ -393,7 +448,7 @@ async function attachStarted(
   // The host this launch started may itself be leaving by now (an idle CLI
   // host with no client yet): the same exit-aware attach as any other owner,
   // and one that released before publishing sends the launch back to the start.
-  const record = await publishedRecord(launch.root, acquired, remaining(deadline));
+  const record = await publishedRecord(launch.root, acquired, remaining(deadline), 'self-started');
   return record ? attachOwner(launch, record, deadline) : AGAIN;
 }
 /**

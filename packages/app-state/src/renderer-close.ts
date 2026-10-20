@@ -45,7 +45,9 @@ export function registerRendererCloseOwner(owner: {
   };
 }
 
-export function prepareRendererClose(): Promise<void> {
+export function prepareRendererClose(
+  observe?: (phase: ClosePhase, settlement: 'begin' | 'end' | 'failure') => void
+): Promise<void> {
   if (preparing) {
     return preparing;
   }
@@ -62,11 +64,13 @@ export function prepareRendererClose(): Promise<void> {
   }
   void (async () => {
     for (const phase of ['producers', 'persistence'] as const) {
+      observe?.(phase, 'begin');
       const results = await Promise.allSettled(
         [...preparations]
           .filter(([, owner]) => owner.phase === phase)
           .map(async ([prepare]) => await prepare())
       );
+      observe?.(phase, results.some((result) => result.status === 'rejected') ? 'failure' : 'end');
       failures.push(
         ...results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
       );

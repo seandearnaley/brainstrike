@@ -31,6 +31,26 @@ const decodeReport = makeThrowingDecoder(
   }),
   { onExcessProperty: 'error' }
 );
+const decodeHostProof = makeThrowingDecoder(
+  Schema.Struct({
+    phase: Schema.String,
+    processPid: Schema.Number,
+    scope: Schema.optional(Schema.String),
+    timeOrigin: Schema.Number,
+  })
+);
+const decodeCollectionProof = makeThrowingDecoder(
+  Schema.Struct({
+    observationLimited: Schema.optional(Schema.Boolean),
+    observed: Schema.optional(Schema.Number),
+    oversizedLines: Schema.optional(Schema.Number),
+    partialLines: Schema.optional(Schema.Number),
+    phase: Schema.String,
+    sampledBytes: Schema.optional(Schema.Number),
+    streamError: Schema.optional(Schema.Boolean),
+    unclassifiedLines: Schema.optional(Schema.Number),
+  })
+);
 interface AppChild {
   readonly attached: Promise<HostRecord>;
   close(): Promise<void>;
@@ -38,6 +58,7 @@ interface AppChild {
   ownsHost(): boolean;
   readonly process: ChildProcessWithoutNullStreams;
   sendControl(command: 'close' | 'release-lifetime'): Promise<void>;
+  stderr(): string;
 }
 let directory: string;
 let entrypoint: string;
@@ -122,10 +143,19 @@ async function waitGone(pid: number, start: string): Promise<void> {
     { onTimeout: () => new Error(`Host pid ${pid} stayed alive`), timeoutMs: 5000 }
   );
 }
-function startApp(root: string, startupTimeoutMs?: number, platformModule?: string): AppChild {
+function startApp(
+  root: string,
+  startupTimeoutMs?: number,
+  platformModule?: string,
+  proofFlag?: '0' | '1'
+): AppChild {
   const env = { ...process.env };
   Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
   env['NODE_PATH'] = resolve('node_modules');
+  if (proofFlag !== undefined) {
+    env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] = proofFlag;
+    env['BRAINSTRIKE_TEST_PRODUCTION_HOST_FORK'] = '1';
+  }
   if (platformModule) {
     env['BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE'] = platformModule;
   } else {
@@ -244,6 +274,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     ownsHost: () => owned,
     process: child,
     sendControl,
+    stderr: () => stderr,
   };
   app.attached.catch(() => undefined);
   activeApps.add(app);
@@ -262,6 +293,50 @@ async function cli(root: string): Promise<HostAttachment> {
 }
 
 describe('real Electron host lease acquisition', () => {
+  it.each(['1', '0'] as const)(
+    'collects existing utility monitor/initialize records only with the proof flag (%s)',
+    async (proofFlag) => {
+      const root = join(directory, `proof-stderr-${proofFlag}`);
+      const app = startApp(root, undefined, agentPlatform, proofFlag);
+      const record = await app.attached;
+      const captured = new Promise<void>((resolve) => app.process.once('close', () => resolve()));
+      await app.close();
+      await captured;
+      const events = app
+        .stderr()
+        .split('\n')
+        .filter((line) => line.startsWith('[host-attach-proof] '))
+        .map((line) => decodeHostProof(JSON.parse(line.slice('[host-attach-proof] '.length))))
+        .filter((event) => event.processPid === record.pid);
+      const collection = app
+        .stderr()
+        .split('\n')
+        .filter((line) => line.startsWith('[host-attach-proof-collection] '))
+        .map((line) =>
+          decodeCollectionProof(JSON.parse(line.slice('[host-attach-proof-collection] '.length)))
+        );
+      if (proofFlag === '1') {
+        expect(events).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ phase: 'monitor-start', scope: 'host-runtime' }),
+            expect.objectContaining({ phase: 'host-socket-accepted' }),
+            expect.objectContaining({ phase: 'host-initialize-received' }),
+            expect.objectContaining({ phase: 'host-initialize-reply-ready' }),
+          ])
+        );
+        expect(collection).toEqual([
+          expect.objectContaining({ partialLines: 0, phase: 'closed', streamError: false }),
+        ]);
+      } else {
+        expect(events).toEqual([]);
+        expect(collection).toEqual([]);
+      }
+      console.info(
+        '[utility-stderr-collection-proof]',
+        JSON.stringify({ collection, events, proofFlag })
+      );
+    }
+  );
   it('M3 utility kernel serves CLI approvals and commits through its acquired SQLite writer', async () => {
     const root = join(directory, 'm3-app-first');
     const app = startApp(root, undefined, agentPlatform);
