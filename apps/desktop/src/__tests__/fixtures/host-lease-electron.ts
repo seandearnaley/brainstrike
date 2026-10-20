@@ -1,6 +1,6 @@
 import { app, MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
-import { createDesktopHostLease } from '../../host-lease-manager';
+import { createDesktopHostLease, forkDesktopHostLeaseUtility } from '../../host-lease-manager';
 import { createNativeIndexRuntime } from '../../native-index-runtime';
 
 function report(value: unknown): void {
@@ -17,12 +17,21 @@ report({
 });
 const startupTimeoutMs = process.argv[4] === undefined ? undefined : Number(process.argv[4]);
 let ownPid: number | undefined;
+let stderrClosed: Promise<unknown> | undefined;
 // Main's end of each host's lifetime channel, so a live Main can let its host go.
 const lifetimeEnds: MessagePortMain[] = [];
 const owner = createDesktopHostLease({
   entryPath,
   fork: (entry, args) => {
-    const child = utilityProcess.fork(entry, [...args]);
+    const production = process.env['BRAINSTRIKE_TEST_PRODUCTION_HOST_FORK'] === '1';
+    const child = production
+      ? forkDesktopHostLeaseUtility(entry, args)
+      : utilityProcess.fork(entry, [...args]);
+    if (production && child.stderr) {
+      // The proof parent stays alive through the real stream end. Product ownership never waits on it.
+      stderrClosed = once(child.stderr, 'end');
+      stderrClosed.catch(() => undefined);
+    }
     child.once('spawn', () => {
       ownPid = child.pid;
     });
@@ -48,7 +57,10 @@ const runtime = createNativeIndexRuntime({
 });
 let closing: Promise<void> | undefined;
 function close(): void {
-  closing ??= runtime.retireProfile().then(() => {
+  closing ??= runtime.retireProfile().then(async () => {
+    if (stderrClosed !== undefined) {
+      await stderrClosed;
+    }
     report({ event: 'closed' });
     app.exit(0);
   });
@@ -92,3 +104,5 @@ app
     report({ event: 'failed', message: String(cause) });
     close();
   });
+
+import { once } from 'node:events';

@@ -15,13 +15,19 @@ import {
 } from '@brainstrike/host-lease';
 import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
-import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
+import {
+  type ForkOptions,
+  MessageChannelMain,
+  type MessagePortMain,
+  utilityProcess,
+} from 'electron';
 import {
   createHostNativeChildren,
   type HostNativeChildren,
 } from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
+import { collectHostAttachmentProofStderr } from './host-attachment-proof-stderr';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 
 export interface HostLeaseUtilityProcess {
@@ -258,6 +264,23 @@ async function ownPlatform(
   return { nativeChildren, platform };
 }
 
+/** The production utility adapter, also exercised by the real Electron proof fixture. */
+export function forkDesktopHostLeaseUtility(
+  path: string,
+  args: readonly string[]
+): ReturnType<typeof utilityProcess.fork> {
+  const proof = process.env['BRAINSTRIKE_E2E_WORKSPACE_PHASE_TRACE'] === '1';
+  const forkOptions: ForkOptions = { serviceName: 'Brainstrike Host Lease' };
+  if (proof) {
+    forkOptions.stdio = ['ignore', 'inherit', 'pipe'];
+  }
+  const handle = utilityProcess.fork(path, [...args], forkOptions);
+  if (proof) {
+    collectHostAttachmentProofStderr(handle.stderr);
+  }
+  return handle;
+}
+
 /** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
 export function createDesktopHostLease(options: DesktopHostLeaseOptions): DesktopHostLease {
   const closeTimeoutMs = options.closeTimeoutMs ?? 1500;
@@ -304,10 +327,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
               'Host lease entry',
               options.platformModule === undefined ? 'host-lease-entry.js' : 'agent-host-entry.js'
             );
-          const fork: HostLeaseFork =
-            options.fork ??
-            ((path, args) =>
-              utilityProcess.fork(path, [...args], { serviceName: 'Brainstrike Host Lease' }));
+          const fork: HostLeaseFork = options.fork ?? forkDesktopHostLeaseUtility;
           const platformOptions =
             options.platformModule === undefined ? undefined : await options.platformOptions?.();
           combined.throwIfAborted();
