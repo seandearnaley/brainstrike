@@ -956,7 +956,9 @@ export function createNotesVaultIpcHandlers(
   };
 }
 
-/** Test-only: current count of approved roots. */
+/** Test-only: current count of approved roots.
+ * @internal Notes Vault IPC regressions verify root authorization lifetime.
+ */
 export function approvedNotesVaultRootCountForTest(): number {
   return approvedRoots.size;
 }
@@ -964,6 +966,7 @@ export function approvedNotesVaultRootCountForTest(): number {
 /**
  * Test-only: forget every approved root, reap watchers (joined by the returned
  * promise) and admit watches again (module state reset).
+ * @internal Isolates Notes Vault IPC authorization regressions.
  */
 export function resetNotesVaultIpcStateForTest(): Promise<void> {
   approvedRoots.clear();

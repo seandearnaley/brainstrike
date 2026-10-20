@@ -1,10 +1,12 @@
 import path from 'node:path';
+import type {
+  SecureWorkspaceRoot,
+  SubscribeMountedWorkspaceRoot,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { describe, expect, it, vi } from 'vitest';
-import type { SubscribeMountedWorkspaceRoot } from '../../ipc-domains/workspace-root-registry';
-import type { SecureWorkspaceRoot } from '../../ipc-domains/workspace-root-types';
 import { createRegistry, rootHandle, secureRoot } from './workspace-root-registry-test-helpers';
 
 function deferred<T>(): {

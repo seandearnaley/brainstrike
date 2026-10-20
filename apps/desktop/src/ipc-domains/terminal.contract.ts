@@ -83,6 +83,7 @@ export const terminalContract = {
   }),
 } as const satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type TerminalBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof terminalContract, TerminalBridge>
 >;

@@ -1,10 +1,9 @@
 // @vitest-environment node
+
+import type { RootDataDeletionReservation } from '@brainstrike/assistant-service/node-workspace-services';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import { expect, it, onTestFinished, vi } from 'vitest';
-import {
-  createNativeRootDataDeletion,
-  type RootDataDeletionReservation,
-} from '../native-root-data-deletion';
+import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 
 function fixture() {
   const events: string[] = [];

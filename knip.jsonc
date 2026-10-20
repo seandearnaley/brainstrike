@@ -234,6 +234,9 @@
         // `resolveLspModule` (a createRequire(...).resolve knip cannot follow) and
         // unpacked from app.asar by package.json `asarUnpack`.
         "typescript-language-server",
+        // resolveBundledTsserverPath resolves this from the TypeScript compatibility
+        // wrapper's scope. Build-config tests pin its runtime dependency and asar unpacking.
+        "@typescript/old",
         // e2e/mcp-apps-production-lifecycle.desktop.test.ts resolves it from this
         // app with createRequire(import.meta.url).resolve, which knip cannot follow.
         "@modelcontextprotocol/ext-apps",

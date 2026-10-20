@@ -25,6 +25,7 @@ export const contextFilesContract = {
   }),
 } satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type ContextFilesBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof contextFilesContract, ContextFilesBridge>
 >;

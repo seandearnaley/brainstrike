@@ -19,8 +19,6 @@ import {
   nativeIndexPublicFailure,
 } from './native-index-workflow-errors';
 
-export { NativeIndexEventRefusedError } from './native-index-workflow-errors';
-
 /** Performs the reducer's actions. An opened generation reports `opened` back. */
 export interface NativeIndexLifecycleExecutor {
   execute(action: NativeIndexAction): Promise<NativeIndexEvent | undefined>;

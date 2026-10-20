@@ -1,5 +1,1 @@
-export {
-  createPromptLibraryClient,
-  type PromptLibraryPort,
-  servePromptLibrary,
-} from '@brainstrike/agent-host/catalog';
+export type { PromptLibraryPort } from '@brainstrike/agent-host/catalog';

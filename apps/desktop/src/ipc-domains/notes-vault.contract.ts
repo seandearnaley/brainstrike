@@ -132,6 +132,7 @@ export const notesVaultContract = {
   }),
 } as const satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type NotesVaultBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof notesVaultContract, NotesVaultBridge>
 >;

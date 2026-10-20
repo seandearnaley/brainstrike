@@ -10,8 +10,12 @@ import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createGrepLineMatcher } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetRipgrepAvailabilityForTests, runLiveGrep } from '../../assistant-server/live-grep';
-import { discoverRipgrepPathForTests, runRipgrep } from '../../assistant-server/live-grep-ripgrep';
+import { runLiveGrep } from '../../assistant-server/live-grep';
+import {
+  discoverRipgrepPathForTests,
+  resetRipgrepAvailabilityForTests,
+  runRipgrep,
+} from '../../assistant-server/live-grep-ripgrep';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();

@@ -14,7 +14,6 @@ import {
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
-import { z } from 'zod';
 import {
   PlatformMemoryOptionsSchema,
   PlatformMemorySettingsSchema,
@@ -24,12 +23,8 @@ import { InferencePlanSchema, QueryEmbeddingPayloadSchema } from './retrieval-wi
 
 export {
   PlatformClientConfigurationSchema,
-  PlatformMemoryOptionsSchema,
   PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
-  PlatformPolicySchema,
-  type PlatformSubagentsIntent,
-  PlatformSubagentsIntentSchema,
   platformPermissionPolicy,
 } from './platform-client-configuration';
 
@@ -217,25 +212,6 @@ export const PlatformRewindConflictsSchema = Schema.mutable(Schema.Array(HostRew
 export const PlatformRewindOutcomesSchema = Schema.mutable(
   Schema.Array(HostRewindFileOutcomeSchema)
 );
-/** Confidential, private launcher channel only; absent from client protocol and log. */
-export const PlatformAuthSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal('custom_fetch') }),
-  Schema.Struct({ apiKey: Schema.String, kind: Schema.Literal('api_key') }),
-  Schema.Struct({ apiKey: Schema.String, kind: Schema.Literal('aws'), region: Id }),
-  Schema.Struct({
-    identity: Schema.Struct({
-      accessKeyId: Id,
-      accountId: Schema.optional(Schema.String),
-      credentialScope: Schema.optional(Schema.String),
-      expiration: Schema.optional(Schema.String.check(Schema.isPattern(z.regexes.datetime({})))),
-      secretAccessKey: Id,
-      sessionToken: Schema.optional(Schema.String),
-    }),
-    kind: Schema.Literal('aws'),
-    region: Id,
-  }),
-  Schema.Null,
-]);
 export type PlatformSelection = (typeof PlatformSelectionSchema)['Type'];
 /**
  * thread/memory/read: the admission's pure preconditions, with nothing

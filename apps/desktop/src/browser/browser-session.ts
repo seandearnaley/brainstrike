@@ -182,7 +182,9 @@ export async function clearDesktopBrowserSessions(): Promise<void> {
   logger.info('Desktop browser sessions cleared (factory reset)');
 }
 
-/** Test-only reset of the memoized session (the module is a singleton). */
+/** Test-only reset of the memoized session (the module is a singleton).
+ * @internal Isolates browser-pane session lifecycle regressions.
+ */
 export function __resetBrowserPaneSessionForTests(): void {
   configured = null;
   agentConfigured = null;

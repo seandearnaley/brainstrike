@@ -123,6 +123,7 @@ export function resolveSnapshotTurnBrackets(
  * the abandoned turn — and checkpoint undo derives its restore baseline from
  * this lookup, so the backwards match was a wrong-baseline destructive
  * restore, not a display bug.
+ * @internal Snapshot ledger regressions verify run-to-bracket lookup.
  */
 export function findBracketByRunId(
   brackets: readonly SnapshotTurnBracket[],
@@ -133,41 +134,4 @@ export function findBracketByRunId(
     brackets.find((bracket) => bracket.endRunId === runId) ??
     null
   );
-}
-
-/**
- * Locate the bracket containing a run that appears on NO snapshot row (a
- * mid-turn resume leg), from the run row's own timestamps. The turn-start
- * snapshot of the run's turn is always captured BEFORE the run completes
- * (first leg: request handling precedes completion; resume leg: the start
- * predates the leg entirely), and the NEXT turn's start is always captured
- * after this run's terminal status write — so the containing bracket is the
- * LAST one whose `startCreatedAt` precedes the run's completion, provided
- * the run did not start after that bracket's successor opened. All
- * comparisons are lexicographic over same-session `::text` timestamps (see
- * the module doc comment).
- *
- * `completedAt: null` (in-flight or never-finished run) matches the last
- * bracket the run could belong to.
- */
-export function findBracketByRunAnchor(
-  brackets: readonly SnapshotTurnBracket[],
-  anchor: { readonly completedAt: string | null; readonly startedAt: string }
-): SnapshotTurnBracket | null {
-  for (let index = brackets.length - 1; index >= 0; index -= 1) {
-    const bracket = brackets[index];
-    if (!bracket) {
-      continue;
-    }
-    if (anchor.completedAt !== null && bracket.startCreatedAt >= anchor.completedAt) {
-      continue;
-    }
-    const successor = brackets[index + 1];
-    if (successor && anchor.startedAt >= successor.startCreatedAt) {
-      // The run started after the next turn opened — it cannot belong here.
-      return null;
-    }
-    return bracket;
-  }
-  return null;
 }

@@ -99,6 +99,7 @@ export interface LegPauseState {
  * `tool-suspend-required` chunk whose `resumeSupported` is not `false` (a
  * non-resumable suspend settles as a tool error and never pauses the turn).
  * Errors and completion propagate unchanged.
+ * @internal Turn-boundary regressions exercise pause classification.
  */
 export async function* observeTurnPauseChunks(
   stream: AsyncIterable<StreamChunk>,
@@ -115,7 +116,9 @@ export async function* observeTurnPauseChunks(
   }
 }
 
-/** The turn anchor: the request's last user message id, or null. */
+/** The turn anchor: the request's last user message id, or null.
+ * @internal Turn-boundary regressions pin anchor lookup.
+ */
 export function resolveTurnAnchorMessageId(messages: readonly AgentMessage[]): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -155,6 +158,7 @@ export async function captureRootSnapshot(
   }
 }
 
+/** @internal Turn-boundary regressions drive the snapshot recorder directly. */
 export function createTurnBoundaryController(
   options: TurnBoundaryControllerOptions
 ): TurnBoundaryController {

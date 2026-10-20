@@ -3,6 +3,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import {
+  createViewFilterPresetClient,
+  serveViewFilterPresets,
+} from '@brainstrike/agent-host/catalog';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import {
@@ -10,10 +14,6 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import {
-  createViewFilterPresetClient,
-  serveViewFilterPresets,
-} from '../agent-host-platform/view-filter-preset-store';
 
 test('the private host connection returns committed preset identities and drains before closing', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'native-preset-wire-'));

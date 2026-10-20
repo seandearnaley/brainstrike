@@ -4,6 +4,11 @@ import { mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
+import {
+  createNativeSecureRoot,
+  resolveCanonicalRootPath,
+  resolveValidatedReadPath,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
@@ -14,11 +19,6 @@ import {
 import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { createWorktreeLedger } from '../assistant-server/worktree-ledger';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
-import {
-  createNativeSecureRoot,
-  resolveCanonicalRootPath,
-  resolveValidatedReadPath,
-} from '../ipc-domains/workspace-root-seams';
 import { createStorage, rootHandle } from './ipc-domains/workspace-root-registry-test-helpers';
 
 async function disconnectRoot(database: StateStore, rootId: string): Promise<void> {

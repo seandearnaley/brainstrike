@@ -120,9 +120,11 @@ export const vectorPreferencesContract = {
   }),
 } as const satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type StorageBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof storageContract, StorageAdapter>
 >;
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type LayoutBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof layoutContract, LayoutElectronAPI>
 >;

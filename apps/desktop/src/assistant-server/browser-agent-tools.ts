@@ -293,6 +293,7 @@ async function navigateOnce(
 const SNAPSHOT_REF_CACHE_MAX_ENTRIES = 8;
 const snapshotRefsByWebContentsId = new Map<number, AccessibilitySnapshot['refs']>();
 
+/** @internal Browser tool regressions inspect the current snapshot reference cache. */
 export function getCachedSnapshotRefs(
   webContentsId: number
 ): AccessibilitySnapshot['refs'] | undefined {

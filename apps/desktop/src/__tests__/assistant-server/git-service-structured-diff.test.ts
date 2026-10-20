@@ -26,8 +26,8 @@ import {
   createGitService,
   type GitCommandRun,
   type GitCommandRunner,
-  STRUCTURED_DIFF_CONTENT_CAP_BYTES,
 } from '../../assistant-server/git-service';
+import { STRUCTURED_DIFF_CONTENT_CAP_BYTES } from '../../assistant-server/git-structured-diff';
 
 const createdRoots: string[] = [];
 

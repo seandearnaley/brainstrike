@@ -54,6 +54,7 @@ export async function readProviderSecretKey(
   }
 }
 
+/** @internal Provider credential regressions exercise environment and vault precedence. */
 export async function readProviderApiKey(provider: SupportedProvider): Promise<string | undefined> {
   const envValue = resolveProviderEnvKey(provider);
   if (envValue) {
@@ -74,7 +75,6 @@ export async function readProviderCredential(
 
 export {
   type ProviderKeyInspection,
-  type ProviderKeyReadFailure,
   storedAuthMode,
 } from '@brainstrike/host-capabilities/provider-status';
 
@@ -88,6 +88,7 @@ export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
   });
 }
 
+/** @internal Provider status regressions verify configured-provider projection. */
 export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
   return (await inspectProviderKeys()).configuredProviders.map(({ provider }) => provider);
 }

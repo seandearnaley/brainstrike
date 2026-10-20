@@ -1,16 +1,18 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
 import {
   enrichRuntimeDataWithWorkspaceRoots,
-  getWorkspaceRoots,
   loadWorkspaceRootsFromDatabase,
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
   orderWorkspaceRoots,
+  type WorkspaceRootsQueryable,
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  getWorkspaceRoots,
   resolveOptionalWorkspaceRoot,
   resolveWorkspaceRoot,
-  type WorkspaceRootsQueryable,
 } from '../../assistant-server/workspace-roots';
 
 function mockDb(rows: unknown[]): WorkspaceRootsQueryable {

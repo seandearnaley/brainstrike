@@ -168,6 +168,7 @@ type GeneratedFileSystemBridge = Bridge<typeof fileSystemContract> &
 type AdaptedFileSystemBridge = Omit<GeneratedFileSystemBridge, ReadMethod> &
   Pick<DesktopFileSystemBridge, ReadMethod>;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type FileSystemBridgeDerivationProof = AssertTrue<
   [AdaptedFileSystemBridge] extends [DesktopFileSystemBridge]
     ? [DesktopFileSystemBridge] extends [AdaptedFileSystemBridge]
