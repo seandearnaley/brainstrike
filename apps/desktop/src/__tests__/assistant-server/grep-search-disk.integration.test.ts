@@ -174,6 +174,33 @@ describe('grepSearch — FRESHNESS (the point)', () => {
   });
 });
 
+describe('grepSearch — an unreadable thread folder (non-silent)', () => {
+  // Grep's disk pass is its only source (ADR 0026): a folder it could not open
+  // is named in the result, so a partial answer never reads as complete.
+  it('searches the readable folders and names the one it could not read', async () => {
+    const readable = await makeWorkspace({ 'notes.txt': 'GONE_TOKEN here\n' });
+    const deleted = await makeWorkspace({ 'notes.txt': 'GONE_TOKEN there\n' });
+    await fsPromises.rm(deleted, { force: true, recursive: true });
+    const runtimeData = {
+      workspaceRoots: [
+        { displayName: 'readable-folder', path: readable, rootId: 'root-readable' },
+        { displayName: 'deleted-folder', path: deleted, rootId: 'root-deleted' },
+      ],
+    } as RuntimeData;
+
+    const result = await runGrepSearch({ pattern: 'GONE_TOKEN' }, runtimeData);
+
+    expect(result).toMatchObject({
+      files: [expect.objectContaining({ path: 'notes.txt', rootId: 'root-readable' })],
+      totalMatches: 1,
+    });
+    expect(result.liveNote).toMatch(/"deleted-folder" could not be read on disk/);
+    expect(projectGrepSearchModelOutput(result).value).toMatch(
+      /"deleted-folder" could not be read on disk/
+    );
+  });
+});
+
 describe('grepSearch — rg-absent fallback (non-silent)', () => {
   it('falls back to the JS file-walk and still finds fresh content, with a note', async () => {
     const root = await makeWorkspace({ 'src/walked.ts': 'WALK_TOKEN present\n' });
