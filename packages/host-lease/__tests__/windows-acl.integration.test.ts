@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -47,8 +48,7 @@ if ($env:BRAINSTRIKE_ACL_TEST_MUTATION) {
 $rules = @($acl.GetAccessRules($true, $true, $identityType) | ForEach-Object {
   [ordered]@{ sid = $_.IdentityReference.Value; rights = [int]$_.FileSystemRights; type = $_.AccessControlType.ToString(); isInherited = $_.IsInherited; inheritance = [int]$_.InheritanceFlags; propagation = [int]$_.PropagationFlags }
 })
-$principal = [System.Security.Principal.WindowsPrincipal]::new([System.Security.Principal.WindowsIdentity]::GetCurrent())
-[ordered]@{ ownerSid = $acl.GetOwner($identityType).Value; currentSid = $sid.Value; protected = $acl.AreAccessRulesProtected; rules = @($rules); elevated = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator) } | ConvertTo-Json -Depth 4 -Compress
+[ordered]@{ ownerSid = $acl.GetOwner($identityType).Value; currentSid = $sid.Value; protected = $acl.AreAccessRulesProtected; rules = @($rules) } | ConvertTo-Json -Depth 4 -Compress
 `;
 
 async function inspect(
@@ -125,8 +125,7 @@ windowsTest(
 );
 
 for (const kind of ['directory', 'file'] as const) {
-  // BST-1941: repeating Set-Acl on a protected DACL requested SeSecurityPrivilege.
-  windowsTest(`reapplies exact private ${kind} ACL twice without elevation`, async () => {
+  windowsTest(`the PowerShell oracle reapplies the exact private ${kind} ACL twice`, async () => {
     const path = await freshPath(kind);
     for (let round = 0; round < 2; round++) {
       await windowsPrivateAcl(path, kind, 'set');
@@ -134,7 +133,6 @@ for (const kind of ['directory', 'file'] as const) {
       const actual = await inspect(path, kind);
       expect(actual).toEqual({
         currentSid: expect.stringMatching(/^S-1-\d+(?:-\d+)+$/),
-        elevated: false,
         ownerSid: actual['currentSid'],
         protected: true,
         rules: [
@@ -179,7 +177,6 @@ windowsTest('natively reapplies the exact private directory ACL twice', async ()
     const actual = await inspect(path, 'directory');
     expect(actual).toEqual({
       currentSid: expect.stringMatching(/^S-1-\d+(?:-\d+)+$/),
-      elevated: actual['elevated'],
       ownerSid: actual['currentSid'],
       protected: true,
       rules: [
@@ -195,6 +192,108 @@ windowsTest('natively reapplies the exact private directory ACL twice', async ()
     });
   }
 });
+
+// BST-1941: the old Set-Acl path asked for SeSecurityPrivilege when it reapplied a
+// protected DACL, and an elevated token holds that privilege, so a plain run there
+// proves nothing. This PowerShell removes the privilege from its own token, which
+// processes it starts inherit, shows the token can no longer enable it, the request
+// BST-1941's Set-Acl made, then has Node run the native apply and verify twice under
+// that token. A .NET SACL read is no control, because on Windows 11 it succeeded
+// without the privilege (20 Oct, Sean's box).
+const withoutSecurityPrivilegeCommand = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class BrainstrikeTokenPrivilege {
+  [StructLayout(LayoutKind.Sequential)]
+  struct Luid { public uint Low; public int High; }
+  [StructLayout(LayoutKind.Sequential)]
+  struct TokenPrivileges { public uint Count; public Luid Luid; public uint Attributes; }
+  [DllImport("advapi32.dll", SetLastError = true)]
+  static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+  [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  static extern bool LookupPrivilegeValue(string system, string name, out Luid luid);
+  [DllImport("advapi32.dll", SetLastError = true)]
+  static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TokenPrivileges state, uint length, IntPtr previous, IntPtr returnLength);
+  [DllImport("kernel32.dll")]
+  static extern IntPtr GetCurrentProcess();
+  [DllImport("kernel32.dll")]
+  static extern bool CloseHandle(IntPtr handle);
+  // 0 once applied, or 1300 (ERROR_NOT_ALL_ASSIGNED) when the token does not hold the privilege.
+  static int Adjust(string name, uint attributes) {
+    IntPtr token;
+    // TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY
+    if (!OpenProcessToken(GetCurrentProcess(), 0x28, out token)) { return Marshal.GetLastWin32Error(); }
+    try {
+      TokenPrivileges state = new TokenPrivileges();
+      state.Count = 1;
+      state.Attributes = attributes;
+      if (!LookupPrivilegeValue(null, name, out state.Luid)) { return Marshal.GetLastWin32Error(); }
+      if (!AdjustTokenPrivileges(token, false, ref state, 0, IntPtr.Zero, IntPtr.Zero)) { return Marshal.GetLastWin32Error(); }
+      return Marshal.GetLastWin32Error();
+    } finally { CloseHandle(token); }
+  }
+  public static int Remove(string name) { return Adjust(name, 4); } // SE_PRIVILEGE_REMOVED
+  public static int Enable(string name) { return Adjust(name, 2); } // SE_PRIVILEGE_ENABLED
+}
+'@
+$removal = [BrainstrikeTokenPrivilege]::Remove('SeSecurityPrivilege')
+$enable = [BrainstrikeTokenPrivilege]::Enable('SeSecurityPrivilege')
+$native = & $env:BRAINSTRIKE_NODE -e $env:BRAINSTRIKE_NATIVE_SCRIPT
+[ordered]@{ enable = $enable; native = "$native"; nativeExit = $LASTEXITCODE; removal = $removal } | ConvertTo-Json -Compress
+`;
+// One line, single quotes only: Windows PowerShell 5.1 does not escape double
+// quotes in arguments to native commands.
+const nativeReapplyScript =
+  "const n = require(process.env.BRAINSTRIKE_SECURE_FS); const p = process.env.BRAINSTRIKE_ACL_TEST_PATH; const s = []; for (let r = 0; r < 2; r++) { n.applyPrivateDirectorySync(p); s.push(n.verifyPrivateDirectorySync(p).status); } process.stdout.write(s.join(' '));";
+
+windowsTest(
+  'the native apply and verify never need SeSecurityPrivilege, on any token',
+  async () => {
+    const path = await freshPath('directory');
+    const result = await execute(
+      'powershell.exe',
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', withoutSecurityPrivilegeCommand],
+      {
+        env: {
+          ...process.env,
+          BRAINSTRIKE_ACL_TEST_PATH: path,
+          BRAINSTRIKE_NATIVE_SCRIPT: nativeReapplyScript,
+          BRAINSTRIKE_NODE: process.execPath,
+          BRAINSTRIKE_SECURE_FS: createRequire(import.meta.url).resolve(
+            '@brainstrike/secure-fs-native'
+          ),
+        },
+        windowsHide: true,
+      }
+    );
+    const observed: unknown = JSON.parse(result.stdout);
+    expect(observed).toEqual({
+      enable: 1300,
+      native: 'private private',
+      nativeExit: 0,
+      removal: expect.any(Number),
+    });
+    expect([0, 1300]).toContain(Reflect.get(observed as object, 'removal'));
+    const actual = await inspect(path, 'directory');
+    expect(actual).toEqual({
+      currentSid: expect.stringMatching(/^S-1-\d+(?:-\d+)+$/),
+      ownerSid: actual['currentSid'],
+      protected: true,
+      rules: [
+        {
+          inheritance: 3,
+          isInherited: false,
+          propagation: 0,
+          rights: 2_032_127,
+          sid: actual['currentSid'],
+          type: 'Allow',
+        },
+      ],
+    });
+  }
+);
 
 for (const mutation of [
   'extra-principal',
