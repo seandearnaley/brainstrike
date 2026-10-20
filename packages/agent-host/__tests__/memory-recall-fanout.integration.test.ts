@@ -1,13 +1,16 @@
 /**
  * Delegated children started together each recall their Memory resource at
  * once, through the host's one state-index worker and its production request
- * deadline. A recall verifies against truth only the threads that hold its
- * candidate vectors, so the resource's settled history costs it nothing.
+ * deadline. A recall verifies each candidate vector by reading the committed
+ * rows its message identity was derived from, so the history of the threads
+ * holding vectors costs it nothing.
  *
  * Recorded on a desktop profile (2026-10-20): 110 resource threads, 81,197
  * events, 7 vectors in 2 threads. Each recall projected the truth of all 110
  * threads (~3 s in the one writer). The second recall's deadline, queued
  * behind the first, retired the worker, and the other two failed with it.
+ * Projecting only the threads holding vectors fixed that profile, but not the
+ * steady state, where every thread holds them.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
@@ -31,8 +34,9 @@ const recorded = Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema), {
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 /**
  * The incident's resource: its 110 settled threads, most of whose events were
- * stream chunks. The replayed chunks are sized so that one recall that projects
- * them costs what the incident's did on the recording machine (~3 s).
+ * stream chunks, each holding a recalled answer. The replayed chunks are sized
+ * so that one recall that projects them costs what the incident's did on the
+ * recording machine (~3 s).
  */
 const SETTLED_THREADS = 110;
 const CHUNKS_PER_THREAD = 1300;
@@ -45,6 +49,8 @@ const profile = {
   provider: 'local',
 } as const;
 const vector = [1, 0, 0, 0];
+/** Each settled answer is orthogonal to the recall, so the parent's answer ranks first. */
+const settledVector = [0, 1, 0, 0];
 
 /** The recorded approved run as a fresh thread: its own IDs, and its stream replayed `chunks` more times before it finishes. */
 function recordedThread(chunks: number): {
@@ -79,7 +85,7 @@ function recordedThread(chunks: number): {
 }
 
 test(
-  'children started together each recall a large settled resource within one worker deadline',
+  'children started together each recall a resource whose every thread holds vectors within one worker deadline',
   async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-recall-fanout-')));
     onTestFinished(() => rm(root, { force: true, recursive: true }));
@@ -114,22 +120,31 @@ test(
 
     const index = await openHostStateIndex(root, [resourceId]);
     onTestFinished(() => index.close());
-    // The parent's answer is the resource's one recalled message, as in the incident.
-    const answer = parent.rows.findLast((row) => row.event.type === 'model.step');
-    if (!answer) {
-      throw new Error('The recorded run has no committed answer');
+    const remember = async (
+      thread: ReturnType<typeof recordedThread>,
+      embedding: readonly number[]
+    ): Promise<{ readonly messageId: string; readonly seq: number }> => {
+      const answer = thread.rows.findLast((row) => row.event.type === 'model.step');
+      if (!answer) {
+        throw new Error('The recorded run has no committed answer');
+      }
+      const message = { messageId: JSON.stringify([thread.threadId, answer.seq]), seq: answer.seq };
+      const plan = await index.vectors.prepareStateMessageVectors({
+        messages: [message],
+        profile,
+        scope: { resourceId, rootId: index.rootId, threadId: thread.threadId },
+      });
+      await index.vectors.upsertStateMessageVectors({
+        embeddings: [{ messageId: message.messageId, vectors: [[...embedding]] }],
+        plan,
+      });
+      return message;
+    };
+    for (const thread of settled) {
+      await remember(thread, settledVector);
     }
-    const message = { messageId: JSON.stringify([parent.threadId, answer.seq]), seq: answer.seq };
+    const message = await remember(parent, vector);
     const scope = { resourceId, rootId: index.rootId, threadId: parent.threadId };
-    const plan = await index.vectors.prepareStateMessageVectors({
-      messages: [message],
-      profile,
-      scope,
-    });
-    await index.vectors.upsertStateMessageVectors({
-      embeddings: [{ messageId: message.messageId, vectors: [vector] }],
-      plan,
-    });
 
     const recalls = await Promise.allSettled(
       children.map(({ threadId }) =>
@@ -144,7 +159,10 @@ test(
     expect(recalls).toEqual(
       children.map(() => ({
         status: 'fulfilled',
-        value: [expect.objectContaining({ ...message, score: 1, threadId: parent.threadId })],
+        value: [
+          expect.objectContaining({ ...message, score: 1, threadId: parent.threadId }),
+          ...Array.from({ length: 4 }, () => expect.objectContaining({ score: 0 })),
+        ],
       }))
     );
   },
