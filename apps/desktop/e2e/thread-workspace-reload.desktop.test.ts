@@ -22,8 +22,9 @@ async function reloadFromMenu(app: ElectronApplication, page: Page): Promise<voi
 }
 
 for (const entry of ['menu', 'failed-chunk UI']) {
-  for (const held of [true, false]) {
-    test(`${entry} reload joins ${held ? 'held' : 'acknowledged'} workspace ACK and the fresh frame saves`, async ({
+  for (const acknowledgement of ['held', 'acknowledged']) {
+    const held = acknowledgement === 'held';
+    test(`${entry} reload joins ${acknowledgement} workspace ACK and the fresh frame saves`, async ({
       electron,
       electronApp,
       modelProvider,
