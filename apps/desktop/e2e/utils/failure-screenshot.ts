@@ -3,7 +3,7 @@ import type { Page, TestInfo } from '@playwright/test';
 /** Playwright's own screenshot timeout for its automatic captures. */
 const SCREENSHOT_TIMEOUT_MS = 5000;
 
-type FailureScreenshotTestInfo = Pick<
+export type FailureScreenshotTestInfo = Pick<
   TestInfo,
   'attach' | 'expectedStatus' | 'outputPath' | 'status'
 >;

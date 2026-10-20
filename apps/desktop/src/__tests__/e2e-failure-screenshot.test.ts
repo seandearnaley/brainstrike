@@ -38,7 +38,7 @@ describe('desktop E2E failure screenshot (BST-2239)', () => {
   });
 
   it('the fixture keeps the failure visual: it screenshots the main window before disposing the app', () => {
-    const fixture = readFileSync(join(process.cwd(), 'e2e/fixtures/electron-fixture.ts'), 'utf8');
+    const fixture = readFileSync(join(process.cwd(), 'e2e/fixtures/electron-teardown.ts'), 'utf8');
     const captured = fixture.indexOf(
       'await attachFailureScreenshot(harness.currentWindow(), testInfo)'
     );
