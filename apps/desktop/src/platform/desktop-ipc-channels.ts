@@ -230,8 +230,6 @@ export const DESKTOP_IPC_CHANNELS = {
     writeFile: 'notes-vault:write-file',
   },
   preferences: {
-    layoutLoad: 'layout:load',
-    layoutSave: 'layout:save',
     settingsClearAll: 'settings:clearAll',
   },
   promptLibrary: { request: 'prompt-library:request' },

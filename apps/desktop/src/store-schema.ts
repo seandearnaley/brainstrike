@@ -1,5 +1,4 @@
 import type { LoggingPreferences } from '@brainstrike/logging';
-import type { PanelPersistenceState } from '@brainstrike/ui';
 
 export interface DesktopWindowBounds {
   height: number;
@@ -17,9 +16,6 @@ export interface DesktopWindowState {
 export interface DesktopSettingsStoreSchema {
   loggingPreferences?: {
     v1: LoggingPreferences;
-  };
-  panelLayout?: {
-    v1: PanelPersistenceState;
   };
   windowState?: {
     v1: DesktopWindowState;
