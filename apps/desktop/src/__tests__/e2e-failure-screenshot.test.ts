@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page, TestInfo } from '@playwright/test';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { tearDownElectronTest } from '../../e2e/fixtures/electron-teardown';
 import { attachFailureScreenshot } from '../../e2e/utils/failure-screenshot';
 
 type Attachment = Parameters<TestInfo['attach']>[1] & { readonly name: string };
@@ -38,6 +41,9 @@ describe('desktop E2E failure screenshot (BST-2239)', () => {
   });
 
   it('the fixture keeps the failure visual: it screenshots the main window before disposing the app', () => {
+    expect(readFileSync(join(process.cwd(), 'e2e/fixtures/electron-fixture.ts'), 'utf8')).toContain(
+      'await tearDownElectronTest(harness, testInfo, userDataDir, workspaceRoot);'
+    );
     const fixture = readFileSync(join(process.cwd(), 'e2e/fixtures/electron-teardown.ts'), 'utf8');
     const captured = fixture.indexOf(
       'await attachFailureScreenshot(harness.currentWindow(), testInfo)'
@@ -88,5 +94,37 @@ describe('desktop E2E failure screenshot (BST-2239)', () => {
         name: 'screenshot-failed',
       }),
     ]);
+  });
+});
+
+describe('desktop E2E fixture teardown (BST-2239)', () => {
+  it('a failure screenshot that cannot be attached still disposes the app and removes its profile and workspace, then fails the teardown with that error', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'bs-teardown-profile-'));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'bs-teardown-workspace-'));
+    onTestFinished(async () => {
+      await rm(userDataDir, { force: true, recursive: true });
+      await rm(workspaceRoot, { force: true, recursive: true });
+    });
+    const dispose = vi.fn(async () => undefined);
+    const unwritable = new Error('ENOSPC: no space left on device, write');
+    const info = {
+      ...testInfo('failed').info,
+      attach: async () => {
+        throw unwritable;
+      },
+    };
+
+    await expect(
+      tearDownElectronTest(
+        { currentWindow: () => undefined, dispose },
+        info,
+        userDataDir,
+        workspaceRoot
+      )
+    ).rejects.toBe(unwritable);
+
+    expect(dispose).toHaveBeenCalledOnce();
+    await expect(stat(userDataDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(workspaceRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
