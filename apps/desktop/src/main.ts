@@ -398,7 +398,8 @@ const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 /** Every unload of a visible document flushes it first (ADR-0026 R1, `document-unload.ts`). */
 function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
   return {
-    delays: lifecycleDelaySeam(),
+    // Resolved when a document unloads, not when its window is created.
+    delays: { delay: (point) => lifecycleDelaySeam().delay(point) },
     isQuitting: isDesktopShuttingDown,
     lastWindowQuits: process.platform !== 'darwin',
     quit: () => app.quit(),

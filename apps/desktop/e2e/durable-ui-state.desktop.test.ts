@@ -34,10 +34,10 @@ test.describe('durable UI state across document unload', () => {
         expect(closed.exitCode).toBe(0);
       } else {
         // macOS keeps the app and its host running windowless: no new document can rewrite them.
-        expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
-          fixture.expandedPath
-        );
-        expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
+        expect
+          .soft(await readCommittedThreadExpansion(userDataDir, fixture.threadId))
+          .toContain(fixture.expandedPath);
+        expect.soft(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
         await electron.dispose();
       }
       expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
@@ -139,6 +139,7 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
         await resizeFirstPanel(page);
         // No wait: every writer's tail is still buffered when the unload starts.
         const started = Date.now();
+        let unloadMs: number | undefined;
         let reopened = page;
         if (unload === 'reload') {
           const navigated = page.waitForEvent('framenavigated', {
@@ -147,7 +148,7 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
           });
           await reloadFromMenu(app, page);
           await navigated;
-          expect(Date.now() - started).toBeGreaterThanOrEqual(RENDERER_FLUSH_MS);
+          unloadMs = Date.now() - started;
           const { waitForAppReady } = await loadElectronHelpers();
           await waitForAppReady(page);
         } else {
@@ -157,9 +158,12 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
               code: 0,
               signal: null,
             });
+            unloadMs = parse(output)
+              .find((record) => record.msg === 'Graceful shutdown completed')
+              ?.steps?.find((step) => step.step === 'renderers')?.elapsedMs;
           } else {
             const closed = await closeLastWindowLikeTheUser(electron, page);
-            expect(Date.now() - started).toBeGreaterThanOrEqual(RENDERER_FLUSH_MS);
+            unloadMs = Date.now() - started;
             if (closed.quit) {
               expect(closed.exitCode).toBe(0);
             } else {
@@ -169,14 +173,18 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
           }
           reopened = await electron.ensureWindow({ preserveState: true });
         }
-        expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
-        expect(await readPanelLayout(reopened)).not.toBe(panelBefore);
-        expect(await readPanelLayout(reopened)).not.toBeNull();
+        // Each writer reports on its own, so one run names every write that was lost.
+        expect.soft(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
+        const panelAfter = await readPanelLayout(reopened);
+        expect.soft(panelAfter).not.toBeNull();
+        expect.soft(panelAfter).not.toBe(panelBefore);
         await ensureAssistantShellVisible(reopened);
         await waitForAppHost(reopened);
-        expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
-          fixture.expandedPath
-        );
+        expect
+          .soft(await readCommittedThreadExpansion(userDataDir, fixture.threadId))
+          .toContain(fixture.expandedPath);
+        // The unload waited for the late flush instead of racing it.
+        expect(unloadMs).toBeGreaterThanOrEqual(RENDERER_FLUSH_MS);
         const records = parse(output);
         expect(records.filter((record) => (record.level ?? 0) >= 50)).toEqual([]);
       } finally {
