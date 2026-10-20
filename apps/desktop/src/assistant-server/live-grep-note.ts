@@ -15,8 +15,17 @@ export function buildLiveNote(args: {
   scanLimited: boolean;
   candidateTruncated: boolean;
   prefilterTruncated: boolean;
+  /** Display names of folders whose root could not be opened, so they were not searched. */
+  unreadableRoots?: readonly string[];
 }): string | undefined {
   const parts: string[] = [];
+  const unreadable = args.unreadableRoots ?? [];
+  if (unreadable.length > 0) {
+    const names = unreadable.map((name) => `"${name}"`).join(', ');
+    parts.push(
+      `${unreadable.length === 1 ? 'Folder' : 'Folders'} ${names} could not be read on disk and ${unreadable.length === 1 ? 'was' : 'were'} not searched.`
+    );
+  }
   if (args.partialReadErrors) {
     parts.push(
       'ripgrep reported unreadable files during the live pass; matches inside unreadable files may be missing.'

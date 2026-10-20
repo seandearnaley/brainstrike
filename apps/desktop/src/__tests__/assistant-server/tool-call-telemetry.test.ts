@@ -79,7 +79,6 @@ describe('search tool-call telemetry extraction', () => {
           path: 'src/a.ts',
           rootId: 'root',
           rootName: 'workspace',
-          source: 'index',
         },
       ],
       liveEngine: 'ripgrep',

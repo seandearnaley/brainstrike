@@ -9,7 +9,6 @@ import {
 import type { GlobWorkspaceMatch, GlobWorkspaceToolResult } from './glob-workspace-tool.js';
 import {
   type GrepFileSummary,
-  type GrepMatchSource,
   type GrepToolResult,
   grepProjectionHeaderPrefix,
   type ModelFacingGrepMatch,
@@ -39,10 +38,6 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
-function isGrepMatchSource(value: unknown): value is GrepMatchSource {
-  return value === 'index' || value === 'live' || value === 'both';
-}
-
 function isGrepFileSummary(value: unknown): value is GrepFileSummary {
   if (!isRecord(value)) {
     return false;
@@ -52,8 +47,7 @@ function isGrepFileSummary(value: unknown): value is GrepFileSummary {
     isNonNegativeInteger(value['matchCount']) &&
     typeof value['path'] === 'string' &&
     isOptionalString(value['rootId']) &&
-    isOptionalString(value['rootName']) &&
-    isGrepMatchSource(value['source'])
+    isOptionalString(value['rootName'])
   );
 }
 
@@ -68,8 +62,7 @@ function isGrepMatch(value: unknown): value is ModelFacingGrepMatch {
     typeof value['lineText'] === 'string' &&
     typeof value['path'] === 'string' &&
     isOptionalString(value['rootId']) &&
-    isOptionalString(value['rootName']) &&
-    isGrepMatchSource(value['source'])
+    isOptionalString(value['rootName'])
   );
 }
 
@@ -271,9 +264,6 @@ function buildGrepHeader(result: GrepToolResult, kept: number): string {
   }
   if (result.scanLimited) {
     flags.push('scan_limited');
-  }
-  if (result.outputMode === 'content' && result.skippedMissingLineMetadata > 0) {
-    flags.push(`skipped_lines=${result.skippedMissingLineMetadata}`);
   }
   return flags.length > 0 ? `${header} | ${flags.join(' | ')}` : header;
 }

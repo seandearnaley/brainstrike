@@ -11,7 +11,6 @@ import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { GitResult } from '@brainstrike/types';
-import type { GrepSearchOptions, GrepSearchResult } from '@brainstrike/utils/grep-search';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
@@ -24,12 +23,12 @@ import { isActionableHostedEmbeddingError } from '../hosted-embedding-error';
 import { attachHostCommandSessions } from './host-command-session-client';
 import {
   DiagnosticsReadRequestSchema,
-  GrepIndexRequestSchema,
   PlatformShellCompletedResultSchema,
   PlatformShellCompletedSchema,
   parseBrowserNavigateRequest,
   parseBrowserPageTextRequest,
   parseBrowserReadPageRequest,
+  ThreadRequestSchema,
   WorktreeArchiveRequestSchema,
   WorktreeCreateRequestSchema,
   WorktreePathsResultSchema,
@@ -40,8 +39,6 @@ import {
   IndexSearchRequestSchema,
   threadScoped,
 } from './retrieval-wire';
-
-const ThreadRequestSchema = Schema.Struct({ threadId: GrepIndexRequestSchema.fields.threadId });
 
 /** Main's worktree/forge side of a host command, until the worktree ledger is a host fact. */
 export interface DesktopShellCorrelation {
@@ -59,8 +56,6 @@ export interface HostToolServiceCapabilities {
   readonly browser?: BrowserToolRunner;
   /** The diagnostic events store, projected and scrubbed before a row leaves Main. */
   readonly diagnostics?: DiagnosticsReader;
-  /** grep's indexed half over Main's PGlite file chunks. */
-  readonly grepIndex?: (options: GrepSearchOptions) => Promise<GrepSearchResult>;
   /** Main's workspace index (search, grep, coverage); it stays Main-owned in M3. */
   readonly indexSearch?: IndexSearchCapability;
   /** The retrieval catalog over Main's PGlite (embedding sets, file records, spaces). */
@@ -139,15 +134,6 @@ export function serveHostToolServices(
       })({
         adopted: services?.shell ? await services.shell.completed(completed) : [],
       });
-    })
-  );
-  connection.onRequest('desktop-read/grep-index', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const { options } = wireDecoder(GrepIndexRequestSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(input);
-      return await required(services?.grepIndex, 'grep index')(options);
     })
   );
   // The Terminal panel reaches this host's command sessions over the same connection.

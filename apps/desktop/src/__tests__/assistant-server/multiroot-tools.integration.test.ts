@@ -20,7 +20,6 @@ vi.mock('electron', () => ({
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { grepSearchExecutor } from '../../assistant-server/native-tool-executors-grep';
-import { nativeGrepFixture } from './_c1-a-helpers';
 import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
@@ -41,32 +40,10 @@ function twoRootRuntime(): RuntimeData {
   } as unknown as RuntimeData;
 }
 
-/**
- * The host's grep: the live ripgrep pass over both roots plus Main's native
- * grep index (`nativeGrepIndex`) serving the indexed README chunks.
- */
+/** The host's grep: the live pass over both roots on disk (ADR 0026). */
 function hostGrepTools() {
-  // The native index authorizes the runtime's workspace-index collection and both roots.
-  const grep = nativeGrepFixture({
-    authorizedCollectionIds: ['set-1'],
-    authorizedRootIds: [ROOT_A.rootId, ROOT_B.rootId],
-  });
-  grep.serve([
-    {
-      content: 'const sharedMarker = "alpha";',
-      path: 'README.md',
-      root_id: ROOT_A.rootId,
-      start_line: 3,
-    },
-    {
-      content: 'const sharedMarker = "beta";',
-      path: 'README.md',
-      root_id: ROOT_B.rootId,
-      start_line: 3,
-    },
-  ]);
   return buildHostNativeTools(twoRootRuntime(), {
-    executors: { [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(grep.index) },
+    executors: { [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor() },
     ids: [NATIVE_TOOL_ID.grepSearch],
   });
 }
