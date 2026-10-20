@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  browserBareDynamicImportGuardPlugin,
   buildIdPlugin,
   createCspQualifiedEvalWarningFilter,
   fullReloadOnCompilerHotspots,
@@ -165,6 +166,8 @@ export default defineConfig({
   },
   plugins: [
     rendererIsolationPlugin(),
+    // A bare dynamic import fails in the renderer at runtime, never at build (BST-2230).
+    browserBareDynamicImportGuardPlugin(),
     // ONNX Runtime's WASM, emitted from the onnxruntime-web Transformers.js itself depends
     // on, for the one realm that runs it: the embedding worker (BST-2003, BST-2231).
     transformersOnnxRuntimeWasmUrlsPlugin([
@@ -304,6 +307,6 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [preserveWorkerEntryPlugin(), wasm()],
+    plugins: () => [preserveWorkerEntryPlugin(), wasm(), browserBareDynamicImportGuardPlugin()],
   },
 });

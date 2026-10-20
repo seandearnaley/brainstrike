@@ -14,6 +14,7 @@ import {
 } from '@brainstrike/app-shell/diagnostics';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
@@ -46,13 +47,11 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
+import { downloadWebEmbeddingModel } from '../../settings-model-download';
 
 configureModelRuntimeServices({
-  downloadEmbeddingModel: async (modelId, options) => {
-    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
-    const service = new SimpleEmbeddingService();
-    await service.downloadModel(modelId, options);
-  },
+  downloadEmbeddingModel: (model) =>
+    downloadWebEmbeddingModel(model, useVectorPreferencesStore.getState().devicePref),
 });
 
 /**

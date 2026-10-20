@@ -7,7 +7,6 @@
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/queue": "workspace:*",
-    "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "catalog:",
@@ -19,6 +18,7 @@
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
     "@effect/tsgo": "catalog:",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",

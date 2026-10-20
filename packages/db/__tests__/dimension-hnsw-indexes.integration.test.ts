@@ -21,7 +21,6 @@ import {
   dimensionIndexExists,
   dropDimensionIndex,
   ensureDimensionIndexExists,
-  getDistinctDimensions,
   hnswParams,
   MAX_DIMENSION_INDEX_BUILD_ATTEMPTS,
   MAX_HNSW_DIMENSION,
@@ -130,25 +129,6 @@ describe('Dimension HNSW Index Helpers', () => {
     it('should not error when dropping non-existent index', async () => {
       // Use a valid dimension (within 1-65535 range) that doesn't have an index
       await dropDimensionIndex(db, 9999); // Should not throw
-    });
-  });
-
-  describe('getDistinctDimensions', () => {
-    it('should return distinct dimensions from embedding_sets', async () => {
-      // Insert embedding sets with different dimensions
-      await db.query(
-        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance)
-         VALUES ('set-768', 'model-a', 'model-a-id', 768, 'cosine'),
-                ('set-1024', 'model-b', 'model-b-id', 1024, 'cosine'),
-                ('set-768-2', 'model-c', 'model-c-id', 768, 'l2')
-         ON CONFLICT (id) DO NOTHING`
-      );
-
-      const dims = await getDistinctDimensions(db);
-      expect(dims).toContain(768);
-      expect(dims).toContain(1024);
-      // 768 should only appear once (distinct)
-      expect(dims.filter((d) => d === 768)).toHaveLength(1);
     });
   });
 

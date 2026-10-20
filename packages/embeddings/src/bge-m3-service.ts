@@ -15,11 +15,6 @@ import type {
   SimilarityResult,
 } from './types.js';
 
-export interface DownloadModelOptions {
-  cacheDir?: string;
-  onProgress?: (progress: EmbeddingProgress) => void;
-}
-
 export interface SimpleEmbeddingServiceOptions {
   readonly streamBatchSize?: number;
   readonly streamingWorkerUrl?: string;
@@ -251,34 +246,5 @@ export class SimpleEmbeddingService implements EmbeddingService {
     this._status = 'idle';
     this._currentModelKey = null;
     this._currentModelConfig = null;
-  }
-
-  /**
-   * Download a model to the cache directory
-   */
-  /**
-   * Download a model to the cache directory
-   */
-  async downloadModel(
-    modelId: string,
-    options?: DownloadModelOptions & { modelConfig?: ModelConfig }
-  ): Promise<void> {
-    // If modelConfig is provided, we can use it to set up any necessary state
-    // For now, TransformersBackend.downloadModel just needs the ID, but this
-    // future-proofs the API and matches the initialize pattern
-    return this._backend.downloadModel(modelId, {
-      ...(options?.cacheDir ? { cacheDir: options.cacheDir } : {}),
-      onProgress: (p) => {
-        // transformers.js uses 'progress' status (not 'downloading') for progress updates
-        if (options?.onProgress && p.status === 'progress' && p.loaded && p.total) {
-          const progressPercent = Math.round((p.loaded / p.total) * 100);
-          options.onProgress({
-            message: `Downloading ${p.file || 'model'}... ${progressPercent}%`,
-            progress: progressPercent,
-            stage: 'downloading',
-          });
-        }
-      },
-    });
   }
 }
