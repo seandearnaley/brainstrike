@@ -24,8 +24,7 @@ export function resolveViteOnnxWasmPaths(): OnnxWasmPaths {
 
 /**
  * Returns the Vite-emitted worker asset URL, carrying the ONNX Runtime WASM URLs in its
- * fragment. Import this source-only entry from Vite renderer bundles; non-Vite runtimes
- * use `worker-url.ts` instead.
+ * fragment. Import this source-only entry from Vite renderer bundles.
  */
 export function resolveViteEmbeddingWorkerUrlHref(): string {
   return withOnnxWasmPathsFragment(

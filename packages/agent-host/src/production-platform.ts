@@ -141,6 +141,8 @@ export interface ProductionHostPlatformOptions {
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
+  /** BST-2227: the embedder `memory/embedder/probe` tests, resolved as a run's admission does. */
+  readonly resolveMemoryEmbedder?: HostPlatform['resolveMemoryEmbedder'];
   /** Trusted concrete model seam, including scripted qualification with real IPC/tools/storage. */
   resolveModel?: (
     configuration: RuntimeData,
@@ -266,15 +268,23 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
     },
   };
 }
-/** thread/memory/read: the preconditions, then the observation record they locate. */
+/**
+ * thread/memory/read: the preconditions, then the observation record they
+ * locate; and the embedder `memory/embedder/probe` tests (BST-2227).
+ */
 function productionMemoryReadiness(
-  options: Pick<ProductionHostPlatformOptions, 'readMemoryPreconditions' | 'startup'>
-): Pick<HostPlatform, 'readMemoryReadiness'> {
-  const read = options.readMemoryPreconditions;
+  options: Pick<
+    ProductionHostPlatformOptions,
+    'readMemoryPreconditions' | 'resolveMemoryEmbedder' | 'startup'
+  >
+): Pick<HostPlatform, 'readMemoryReadiness' | 'resolveMemoryEmbedder'> {
+  const { readMemoryPreconditions: read, resolveMemoryEmbedder } = options;
+  const probe = resolveMemoryEmbedder ? { resolveMemoryEmbedder } : {};
   if (!read) {
-    return {};
+    return probe;
   }
   return {
+    ...probe,
     readMemoryReadiness: async (request, threadId) => {
       const preconditions = await read(request);
       if (!preconditions.ready) {

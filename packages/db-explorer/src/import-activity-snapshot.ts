@@ -11,7 +11,10 @@ const IDLE: ImportActivitySnapshot = { progress: null, selectedFileCount: 0 };
 
 let current: ImportActivitySnapshot = IDLE;
 
-/** Test-only reset helper for the module-scoped import activity slot. */
+/**
+ * Test-only reset helper for the module-scoped import activity slot.
+ * @internal Test seam: database-demo-panel and explorer-import-action tests.
+ */
 export function __resetImportActivitySnapshotForTests(): void {
   current = IDLE;
 }

@@ -14,6 +14,7 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract/provider
 import { Badge, Card, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
+import { MemoryEmbedderTest, type TestMemoryEmbedder } from './assistant-memory-embedder-test';
 import { MemoryNumberField, OnDeviceEmbeddingDeviceField } from './assistant-memory-fields';
 import {
   formatMemoryScopeLabel,
@@ -48,6 +49,8 @@ export interface AssistantMemorySettingsSectionProps {
   /** The host runs local embedders in its embedding host, whose device the user may choose. */
   readonly onDeviceEmbedding?: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+  /** The host's test of the selected hosted embedder (BST-2227); absent where it has none. */
+  readonly testEmbedder?: TestMemoryEmbedder;
 }
 
 interface ObservationalMemoryModelFieldProps {
@@ -132,6 +135,7 @@ export function AssistantMemorySettingsSection({
   assistantMemoryBackendAvailable,
   onDeviceEmbedding = false,
   providerKeySources,
+  testEmbedder,
 }: AssistantMemorySettingsSectionProps) {
   useEnsureModelRegistry();
 
@@ -190,9 +194,14 @@ export function AssistantMemorySettingsSection({
   const hasObservationModel =
     isAutoObservationTarget ||
     observationOptions.some((option) => option.target === observationalMemory.modelTarget);
-  const hasEmbeddingModel =
-    semanticRecall.embeddingModelTarget !== null &&
-    embeddingOptions.some((option) => option.target === semanticRecall.embeddingModelTarget);
+  const selectedEmbedding = embeddingOptions.find(
+    (option) => option.target === semanticRecall.embeddingModelTarget
+  );
+  const hasEmbeddingModel = semanticRecall.embeddingModelTarget !== null && !!selectedEmbedding;
+  const hostedEmbeddingTarget =
+    selectedEmbedding && selectedEmbedding.providerId !== 'local'
+      ? selectedEmbedding.target
+      : undefined;
   // Recall embeds, and so does vector observation retrieval, even with recall off.
   const embedderInUse =
     semanticRecall.enabled ||
@@ -363,6 +372,9 @@ export function AssistantMemorySettingsSection({
                 available. Choose an enabled OpenAI, Google, or local embedding model, or turn off
                 semantic recall and semantic observation recall.
               </p>
+            )}
+            {testEmbedder && (
+              <MemoryEmbedderTest target={hostedEmbeddingTarget} testEmbedder={testEmbedder} />
             )}
           </div>
 

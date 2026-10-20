@@ -21,18 +21,6 @@ interface DbModelRow {
 
 const dbModelConfigCache = new Map<string, ModelConfig | null>();
 
-/**
- * Invalidate cached model configs.
- * Passing a modelId clears just that entry; omitting clears everything.
- */
-export function invalidateModelConfigCache(modelId?: string): void {
-  if (modelId) {
-    dbModelConfigCache.delete(modelId);
-    return;
-  }
-  dbModelConfigCache.clear();
-}
-
 function parseCapabilities(raw: DbModelRow['capabilities']): {
   type?: string;
   defaultDimension?: number;
@@ -150,6 +138,7 @@ export async function getModelConfigFromDb(
 
 /**
  * Clear the model config cache.
+ * @internal Test seam: the worker suites reset the cache between cases.
  */
 export function clearModelConfigCache(): void {
   dbModelConfigCache.clear();

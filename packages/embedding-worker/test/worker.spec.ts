@@ -5,7 +5,6 @@ import {
   truncateVector,
   vectorsFromPipelineOutput,
 } from '../src';
-import { resolveEmbeddingWorkerUrl } from '../src/worker-url';
 
 describe('shared math helpers', () => {
   it('normalizes vectors to unit length', () => {
@@ -96,12 +95,5 @@ describe('vectorsFromPipelineOutput', () => {
     // Undefined should be converted to 0, not NaN
     expect(normalized).toBeInstanceOf(Float32Array);
     expect(Number.isNaN(normalized[1])).toBe(false);
-  });
-});
-
-describe('resolveEmbeddingWorkerUrl', () => {
-  it('points to the source worker asset when imported from source', () => {
-    const url = resolveEmbeddingWorkerUrl();
-    expect(url.pathname.endsWith('embedding.worker.ts')).toBe(true);
   });
 });

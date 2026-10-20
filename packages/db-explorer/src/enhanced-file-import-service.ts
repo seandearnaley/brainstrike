@@ -53,7 +53,10 @@ const QUEUE_PROGRESS_THROTTLE_MS = 100;
  */
 let queueProgressSubscriberCount = 0;
 
-/** Test-only reset helper for the module-scoped queue-progress subscriber count. */
+/**
+ * Test-only reset helper for the module-scoped queue-progress subscriber count.
+ * @internal Test seam: enhanced-file-import-service.test.ts.
+ */
 export function __resetQueueProgressSubscriberCountForTests(): void {
   queueProgressSubscriberCount = 0;
 }

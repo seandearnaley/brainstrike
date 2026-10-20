@@ -4,6 +4,11 @@ import {
   type NativeIndexRefusalCause,
   NativeIndexRefusalError,
 } from '@brainstrike/indexing-contract/indexer-client';
+import {
+  type QueryProcess,
+  SqliteQueryClient,
+  SqliteQueryProcessExitedError,
+} from '@brainstrike/sqlite-query';
 import { afterEach, expect, it, vi } from 'vitest';
 import { canonicalError, canonicalFault } from '../../canonical-utility-protocol';
 import {
@@ -161,5 +166,78 @@ it.each([false, true])(
       fields
     );
     expect(quitting ? log : info).not.toHaveBeenCalled();
+  }
+);
+
+/** What a SQLite query client rejects a read with when its process exits under it, unasked. */
+async function sqliteExitUnderRead(): Promise<unknown> {
+  let reply: (message: unknown) => void = () => undefined;
+  let exit: () => void = () => undefined;
+  const posted = Promise.withResolvers<void>();
+  const queryProcess: QueryProcess = {
+    kill: vi.fn(),
+    onError: () => () => undefined,
+    onExit: (listener) => {
+      exit = listener;
+      return () => undefined;
+    },
+    onMessage: (listener) => {
+      reply = listener;
+      return () => undefined;
+    },
+    postMessage: (request) => {
+      if (request.kind === 'open') {
+        queueMicrotask(() => reply({ id: request.id, kind: 'ready' }));
+      } else {
+        posted.resolve();
+      }
+    },
+  };
+  const client = await SqliteQueryClient.open({
+    databasePath: '/owned/profile/index.sqlite',
+    deadlineMs: 1000,
+    spawn: () => queryProcess,
+    startupDeadlineMs: 1000,
+  });
+  const read = client
+    .grep({ caseSensitive: false, isRegex: false, maxRows: 10, pattern: 'x', rootIds: ['root'] })
+    .then(
+      () => new Error('The read resolved.'),
+      (error: unknown) => error
+    );
+  await posted.promise;
+  exit();
+  return read;
+}
+
+// Hosted run 39314780076: a signal to Main's process group ended the SQLite query process
+// under a renderer's in-flight index read. The spec excused that record by its message; its
+// typed exit is now the expected outcome while quitting, and stays a failure otherwise.
+it.each([false, true])(
+  'logs a SQLite query exit under an index read at error, or at info while quitting (quitting=%s)',
+  async (quitting) => {
+    if (quitting) {
+      markDesktopShuttingDown();
+    }
+    const exited = await sqliteExitUnderRead();
+    // The record the spec's message matcher excused: DesktopIpcRegistry, this message, this error.
+    expect(exited).toMatchObject({ message: 'SQLite query process exited.' });
+    const wire = await settleIpcResult(
+      { category: 'native-index', code: 'native-index-failed' },
+      () => {
+        throw exited;
+      }
+    );
+    expect(wire).toMatchObject({ error: { code: 'boundary.internal' }, ok: false });
+    expect(quitting ? info : log).toHaveBeenCalledExactlyOnceWith(
+      'Untyped failure crossed a process boundary',
+      {
+        correlationId: expect.any(String),
+        error: exited,
+        operation: { category: 'native-index', code: 'native-index-failed' },
+      }
+    );
+    expect(quitting ? log : info).not.toHaveBeenCalled();
+    expect(exited).toBeInstanceOf(SqliteQueryProcessExitedError);
   }
 );

@@ -12,7 +12,7 @@ import type {
   ModelConfig,
   SimilarityResult,
 } from '../types.js';
-import { clearModelConfigCache } from '../worker/embedding-worker.js';
+import { clearModelConfigCache } from '../worker/embedding-model-config.js';
 
 const { mockState } = vi.hoisted(() => ({
   mockState: {

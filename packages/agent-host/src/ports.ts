@@ -28,6 +28,7 @@ import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/su
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { MemoryRecallTelemetry } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
+import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import type {
   FlexibleSchema,
   LanguageModel,
@@ -39,6 +40,7 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
+import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
 import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostApprovalTargetRoot,
@@ -571,6 +573,19 @@ export interface HostTool {
  * Provider reads a client makes by id: availability, a credential probe and
  * OpenRouter model metadata. Keys resolve inside the host and never cross.
  */
+/** What `memory/embedder/probe` asks a platform to resolve (BST-2227). */
+export interface HostMemoryEmbedderRequest {
+  /** The client's Assistant Memory settings, as a run's configuration carries them. */
+  readonly memorySettings: Readonly<Record<string, unknown>>;
+  /** The requesting client: credentials resolve for it, as a run's do. */
+  readonly origin: HostClientOrigin;
+  readonly signal: AbortSignal;
+}
+/** A resolved memory embedder and the identity its failures name. */
+export interface HostMemoryEmbedderTarget {
+  readonly embedder: MastraEmbeddingModel<string>;
+  readonly identity: HostMemoryEmbedderIdentity;
+}
 export interface HostProviderService {
   /** `signal` is the request's: its abort cancels this caller's network wait with its reason. */
   openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
@@ -731,6 +746,13 @@ export interface HostPlatform {
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
+  /**
+   * BST-2227 `memory/embedder/probe`: the embedder these memory settings
+   * select, resolved and credentialed as a run's admission resolves it, with
+   * the identity its failures are read against. Absent where the host has no
+   * composer.
+   */
+  resolveMemoryEmbedder?(request: HostMemoryEmbedderRequest): Promise<HostMemoryEmbedderTarget>;
   resolveModel?(modelId: string): Promise<LanguageModel>;
   /**
    * The live absolute path of a mounted workspace root, for revert

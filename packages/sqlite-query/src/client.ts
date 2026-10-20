@@ -62,7 +62,7 @@ export class SqliteQueryClient {
       this.#detach.push(
         process.onExit(() => {
           this.#hasExited = true;
-          this.#fail(this.#terminal ?? new Error('SQLite query process exited.'));
+          this.#fail(this.#terminal ?? new SqliteQueryProcessExitedError());
           for (const detach of this.#detach.splice(0)) {
             detach();
           }
@@ -260,6 +260,18 @@ export class SqliteQueryDeadlineError extends Error {
       `SQLite index read exceeded its ${deadlineMs} ms deadline and its owned process was stopped.`
     );
     this.name = 'SqliteQueryDeadlineError';
+  }
+}
+
+/**
+ * The query process exited while its owner had not asked it to: a crash, or a signal sent to the
+ * owner's whole process group. Every request it had admitted, and every later one, rejects with
+ * this one error. A stop the owner asked for keeps its own reason instead.
+ */
+export class SqliteQueryProcessExitedError extends Error {
+  constructor() {
+    super('SQLite query process exited.');
+    this.name = 'SqliteQueryProcessExitedError';
   }
 }
 
