@@ -1,7 +1,8 @@
 // A Memory recall authorizes its candidate vectors against their threads' committed
-// truth. It projects the truth of only the threads that hold a candidate, never the
-// rest of its resource: on a desktop profile (2026-10-20), projecting all 110 threads
-// of a resource cost each recall ~3 s in the one writer, though 2 held vectors.
+// truth by reading only the rows each candidate's identity was read from. It projects
+// no thread's history: on a desktop profile (2026-10-20), projecting all 110 threads
+// of a resource cost each recall ~3 s in the one writer, though 2 held vectors, and
+// projecting the threads holding vectors grows to the same cost once all of them do.
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,7 +29,7 @@ afterEach(async () => {
   }
 });
 
-it('a resource recall projects the truth of only the threads holding its candidate vectors', async () => {
+it('a resource recall verifies its candidates without projecting any thread history', async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'state-message-query-scope-')));
   owned.push(() => rm(root, { force: true, recursive: true }));
   const store = await StateStore.open(root);
@@ -105,9 +106,9 @@ it('a resource recall projects the truth of only the threads holding its candida
     vector,
   });
   expect(hits.map((hit) => hit.threadId).sort()).toEqual(['one', 'two']);
-  expect(projected.sort()).toEqual(['one', 'two']);
+  expect(projected).toEqual([]);
 
-  // An explicit thread list is authorized against membership, and projects only its candidates.
+  // An explicit thread list is authorized against membership, and projects nothing either.
   projected.length = 0;
   expect(
     vectors.query({
@@ -118,5 +119,5 @@ it('a resource recall projects the truth of only the threads holding its candida
       vector,
     })
   ).toEqual([expect.objectContaining({ threadId: 'two' })]);
-  expect(projected).toEqual(['two']);
+  expect(projected).toEqual([]);
 });

@@ -159,7 +159,11 @@ export function search(input: unknown): {
       : runHistoryText(event);
   return text ? { role: 'assistant', runId: event.runId, text } : null;
 }
-/** Existing command and row addresses; no vendor IDs, timestamp guesses or ID writer. */
+/**
+ * Existing command and row addresses; no vendor IDs, timestamp guesses or ID
+ * writer. Each message lists the rows its identity is read from: its own, and
+ * for a run's messages the run's start and admission.
+ */
 export function messages(
   input: readonly {
     readonly threadId: string;
@@ -169,6 +173,7 @@ export function messages(
 ): readonly {
   readonly messageId: string;
   readonly seq: number;
+  readonly sources: readonly number[];
 }[] {
   const rows: HostLogRow[] = input.flatMap((row) => {
     const event = projectedEvent(row.event);
@@ -185,21 +190,23 @@ export function messages(
   const selected: {
     messageId: string;
     seq: number;
+    sources: readonly number[];
   }[] = [];
   const ids = new Set<string>();
-  const append = (messageId: string, seq: number): void => {
+  const append = (messageId: string, seq: number, sources: readonly number[]): void => {
     if (ids.has(messageId)) {
       throw new Error('Committed conversation identities collide');
     }
     ids.add(messageId);
-    selected.push({ messageId, seq });
+    selected.push({ messageId, seq, sources });
   };
   for (const row of rows) {
     if (row.event.type === 'run.started') {
-      const { admissionId } = committedRunSource(rows, row.event.runId);
+      const admission = committedRunSource(rows, row.event.runId);
+      const run = [row.seq, ...admission.sources];
       // A regeneration answers its committed user message again; it adds no message.
       if (row.event.userMessageId === undefined) {
-        append(admissionId, row.seq);
+        append(admission.admissionId, row.seq, run);
       }
       for (const segment of rows) {
         const event = segment.event;
@@ -214,7 +221,7 @@ export function messages(
         for (const message of event.messages) {
           modelMessageSchema.parse(message);
         }
-        append(committedRowAddress(segment), segment.seq);
+        append(committedRowAddress(segment), segment.seq, [segment.seq, ...run]);
       }
     }
   }

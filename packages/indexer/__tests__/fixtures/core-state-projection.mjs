@@ -39,10 +39,12 @@ export function messages(rows) {
           row.event.payload?.threadId === threadId &&
           row.event.payload?.prompt === event.prompt
       );
-      return accepted ? [{ messageId: accepted.event.commandId, seq }] : [];
+      return accepted
+        ? [{ messageId: accepted.event.commandId, seq, sources: [seq, accepted.seq] }]
+        : [];
     }
     if (event.type === 'model.step' || event.type === 'model.messages') {
-      return [{ messageId: JSON.stringify([threadId, seq]), seq }];
+      return [{ messageId: JSON.stringify([threadId, seq]), seq, sources: [seq] }];
     }
     return [];
   });
