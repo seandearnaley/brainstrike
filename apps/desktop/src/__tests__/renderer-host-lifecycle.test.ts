@@ -1369,6 +1369,41 @@ describe('RendererHostLifecycle', () => {
     vi.useRealTimers();
   });
 
+  // Lifecycle redesign PR D: readiness is the host's report, never a clock.
+  it('waits for a host that reports running later than any former ready deadline, in one window', async () => {
+    vi.useFakeTimers();
+    try {
+      const hostWindow = createFakeWindow(93);
+      hostWindow.loadURL.mockResolvedValue(undefined);
+      MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+        Object.assign(this, hostWindow);
+      });
+      Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [hostWindow]) });
+      const lifecycle = createWaitLifecycle();
+
+      const startup = lifecycle.ensureStarted({ waitForRunning: true });
+      await vi.advanceTimersByTimeAsync(35_000);
+      lifecycle.setStatus(
+        createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: lifecycle.getStatus().runtimeId,
+          state: 'running',
+        })
+      );
+
+      await expect(startup).resolves.toMatchObject({ state: 'running' });
+      expect(hostWindow.destroy).not.toHaveBeenCalled();
+      expect(lifecycle.getHostWindow()).not.toBeNull();
+      await expect(lifecycle.ensureStarted({ waitForRunning: true })).resolves.toMatchObject({
+        state: 'running',
+      });
+      expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([false, true])(
     'destroys a newly created window if dispose races with in-flight startup (load rejects: %s)',
     async (rejectLoad) => {

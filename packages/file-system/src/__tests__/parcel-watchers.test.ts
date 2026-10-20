@@ -18,6 +18,7 @@ import { classifyParcelWatchFailure } from '../adapters/parcel-watch-failure.js'
 import {
   PARCEL_SUBSCRIBE_TIMEOUT_MS,
   ParcelSubscribeTimeoutError,
+  startJoinedParcelWatch,
   startParcelWatch,
 } from '../adapters/parcel-watchers.js';
 import type { DirectoryHandle, FileSystemChange } from '../types.js';
@@ -767,6 +768,40 @@ describe('startParcelWatch', () => {
     ['windows', 'Buffer overflow. Some events may have been lost.'],
   ] as const)('preserves backend failure for %s: %s', (backend, message) => {
     expect(classifyParcelWatchFailure(backend, new Error(message))).toBe('backend-error');
+  });
+
+  // Lifecycle redesign PR D: a slow native subscribe is joined; health stays `starting` until it settles.
+  it('joins a subscribe slower than any former deadline and reports starting, then healthy', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let subscribed = false;
+      const unsubscribe = vi.fn(() => Promise.resolve());
+      const module = {
+        subscribe: () => {
+          subscribed = true;
+          return new Promise((resolve) => {
+            setTimeout(() => resolve({ unsubscribe }), 12_000);
+          });
+        },
+      } as unknown as ParcelWatcherModule;
+      const health: import('../types.js').WatcherHealthTransition[] = [];
+      const watching = startJoinedParcelWatch(makeHandle(root), collect, {
+        loadModule: () => Promise.resolve(module),
+        onHealth: (event) => health.push(event),
+      });
+      watching.catch(() => undefined);
+      await vi.waitFor(() => expect(subscribed).toBe(true));
+      await vi.advanceTimersByTimeAsync(11_999);
+      expect(health.map((event) => event.state)).toEqual(['starting']);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const stop = await watching;
+      expect(health.map((event) => event.state)).toEqual(['starting', 'healthy']);
+      await stop();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('emits failed with a structured failure when subscribe times out', async () => {

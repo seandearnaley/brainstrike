@@ -273,6 +273,31 @@ describe('document transport physical settlement', () => {
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     await expect(outcome).resolves.toBe(reason);
   });
+  // Lifecycle redesign PR D: the silent batch is refused typed (BST-2104 Retry restarts the host);
+  // the window itself never stops the host.
+  it('refuses a silent batch as unresponsive without stopping the host', async () => {
+    const { outcome, settled } = await start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flush();
+    expect(settled).toHaveBeenCalledOnce();
+    expect(await outcome).toEqual(
+      expect.objectContaining({
+        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
+        message: expect.stringContaining('It sent no progress for 1 min'),
+      })
+    );
+    expect(window.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:document-embeddings-cancel',
+      expect.objectContaining({ requestId: request.requestId })
+    );
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
   it('keeps a timed-out request owned until Stop physically joins', async () => {
     const { outcome, settled } = await start();
     await vi.advanceTimersByTimeAsync(60_000);

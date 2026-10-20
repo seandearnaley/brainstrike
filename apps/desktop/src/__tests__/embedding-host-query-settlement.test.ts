@@ -233,6 +233,32 @@ describe('query transport physical settlement', () => {
       expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') })
     );
   });
+  // Lifecycle redesign PR D (R5a): the bound refuses that query; it never stops the host.
+  it('refuses only a query past its bound, typed, and keeps the host running for the next', async () => {
+    const { outcome, settled } = await start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flush();
+    expect(settled).toHaveBeenCalledOnce();
+    expect(await outcome).toMatchObject({
+      failure: { category: 'timeout', code: 'embedding-host.query-timeout', kind: 'refusal' },
+    });
+    expect(window.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:query-embedding-cancel',
+      expect.objectContaining({ requestId: request.requestId })
+    );
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+
+    window.webContents.send.mockClear();
+    const next = await start();
+    complete();
+    await expect(next.outcome).resolves.toHaveLength(384);
+  });
   it('joins retirement after cancellation delivery fails and keeps both causes', async () => {
     const controller = new AbortController();
     const reason = new Error('caller stopped');

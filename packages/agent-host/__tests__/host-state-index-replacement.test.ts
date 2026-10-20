@@ -1,6 +1,7 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createIndexerConnection, type IndexerTransport } from '@brainstrike/indexer/transport';
 import { expect, it, vi } from 'vitest';
+import { HOST_STATE_INDEX_DEADLINES } from '../src/host-state-index.js';
 import { createStateIndexOwner } from '../src/host-state-index-owner.js';
 
 const dbPath = '/state/state-index.sqlite';
@@ -23,7 +24,10 @@ const healthy = { indexerErrors: [] };
  * retires it), served, refused by a live worker, or with a frame no request
  * asked for (a protocol failure, which also retires it).
  */
-type Answer = 'hang' | 'serve' | 'refuse' | 'garble';
+type Answer = 'hang' | 'serve' | 'refuse' | 'garble' | 'slow';
+
+/** How long a `slow` worker takes to answer: longer than any former request deadline. */
+const SLOW_ANSWER_MS = 7000;
 
 /** One fake worker, speaking the real indexer frames over the real connection. */
 interface FakeWorker {
@@ -108,6 +112,11 @@ function transport(worker: FakeWorker): IndexerTransport {
       const answer = worker.answers[Math.min(served++, worker.answers.length - 1)];
       if (answer === 'serve') {
         deliver({ id, kind: 'response', ok: true, value: healthy });
+      } else if (answer === 'slow') {
+        setTimeout(
+          () => deliver({ id, kind: 'response', ok: true, value: healthy }),
+          SLOW_ANSWER_MS
+        );
       } else if (answer === 'refuse') {
         deliver({
           error: { code: 'invalid-request', message: 'refused' },
@@ -126,7 +135,10 @@ function transport(worker: FakeWorker): IndexerTransport {
 const unspawnable = 'unspawnable';
 
 /** An owner whose nth worker is `workers[n]`; later workers repeat the last. */
-function owner(workers: readonly (FakeWorker | typeof unspawnable)[]) {
+function owner(
+  workers: readonly (FakeWorker | typeof unspawnable)[],
+  workerDeadlines: unknown = deadlines
+) {
   let starts = 0;
   const index = createStateIndexOwner({
     dbPath,
@@ -136,7 +148,7 @@ function owner(workers: readonly (FakeWorker | typeof unspawnable)[]) {
       if (worker === unspawnable) {
         throw new Error('Worker thread could not be created.');
       }
-      return createIndexerConnection(options, deadlines, transport(worker));
+      return createIndexerConnection(options, workerDeadlines, transport(worker));
     },
   });
   return { index, starts: () => starts };
@@ -159,6 +171,23 @@ it('a request deadline retires its worker: that request fails typed and unretrie
   await expect(index.port.stateHealth()).resolves.toEqual(healthy);
   expect(starts()).toBe(2);
   await index.close();
+});
+
+// Lifecycle redesign PR D: a slow answer is load, not death. The production deadlines retire nothing.
+it('serves a request slower than any former deadline from the same worker, with no replacement', async () => {
+  vi.useFakeTimers();
+  try {
+    const { index, starts } = owner([fake(['slow'])], HOST_STATE_INDEX_DEADLINES);
+    await index.open();
+    const answer = index.port.stateHealth();
+    answer.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(SLOW_ANSWER_MS);
+    await expect(answer).resolves.toEqual(healthy);
+    expect(starts()).toBe(1);
+    await index.close();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('a protocol failure retires its worker the same way', async () => {
