@@ -789,7 +789,7 @@ if(tool==='git'){ if(a[0]==='rev-parse') console.log('c'.repeat(40)); process.ex
 if(a[0]==='pr'&&a[1]==='create'){state.pages[0].push({number:99});fs.writeFileSync(file,JSON.stringify(state));console.log('https://github.com/o/r/pull/99');process.exit(0);}
 if(state.apiError){console.error('HTTP 503');process.exit(1);}
 if(a.some(x=>x.includes('/actions/artifacts/'))){console.log(JSON.stringify({id:9,name:'nightly-fix--BST-3000',expired:false,expires_at:'2099-01-01T00:00:00.000Z',digest:'sha256:'+(state.badDigest?'e':'d').repeat(64),workflow_run:{head_sha:'b'.repeat(40)}}));process.exit(0);}
-if(a.some(x=>x.includes('/actions/runs/')&&x.endsWith('/artifacts'))){console.log(JSON.stringify([[{id:9,name:'nightly-fix--BST-3000',expired:false,expires_at:'2099-01-01T00:00:00.000Z',digest:'sha256:'+(state.badDigest?'e':'d').repeat(64),workflow_run:{head_sha:'b'.repeat(40)}}]]));process.exit(0);}
+if(a.some(x=>x.includes('/actions/runs/')&&x.endsWith('/artifacts'))){console.log(JSON.stringify([{total_count:1,artifacts:[{id:9,name:'nightly-fix--BST-3000',expired:false,expires_at:'2099-01-01T00:00:00.000Z',digest:'sha256:'+(state.badDigest?'e':'d').repeat(64),workflow_run:{head_sha:'b'.repeat(40)}}]}]));process.exit(0);}
 if(a.includes('state=all')){console.log(JSON.stringify([state.existing]));process.exit(0);}
 if(a.some(x=>x.includes('/matching-refs/'))){console.log('[]');process.exit(0);}
 console.log(JSON.stringify(state.pages));
