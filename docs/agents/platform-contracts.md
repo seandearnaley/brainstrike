@@ -74,6 +74,16 @@ retires only still-matching terminal documents. Late replies cannot reload or
 destroy a replacement generation. Factory reset, crash recovery and browser-pane
 reload retain their existing owners.
 
+Terminal quit prepares Main's workspace mutations and worktree operations before
+child-process or profile retirement. Accepted workflows finish while mounts, git,
+setup and the authenticated catalog remain available; new mutations are refused.
+The catalog borrower then fences new calls and joins admitted acquisitions and
+replies through ACK or error. A failed deletion retains its reservation and reports
+its cause. A borrower not authenticated before quit may receive the existing
+terminal native-index refusal; that is not a persistence ACK.
+This preparation uses the existing shutdown deadline, leaves physical
+root cleanup in its later step, and never changes raw transport close or reset/reopen.
+
 Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
 each joins its subscribes and unsubscribes in a graceful-shutdown step. One still
