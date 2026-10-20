@@ -1,6 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { WorkerStorage } from './worker-storage';
 
 const logger = createLogger('Persistence');
 
@@ -17,41 +16,6 @@ const getErrorMetadata = (error: unknown, name: string): { errorName: string; na
   errorName: error instanceof Error ? error.name : typeof error,
   name,
 });
-
-async function getItemFromWorker(
-  workerStorage: WorkerStorage,
-  storageAdapter: StorageAdapter,
-  name: string,
-  shouldLog: boolean,
-  onDiscard?: (reason?: PersistedStateDiscardReason) => void
-): Promise<unknown> {
-  const value = await workerStorage.getItem(name);
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value);
-    } catch {
-      onDiscard?.('malformed-value');
-      if (shouldLog) {
-        logger.error('Invalid JSON from worker storage; clearing value', { name });
-      }
-      try {
-        await storageAdapter.removeItem(name);
-      } catch (removeError) {
-        if (shouldLog) {
-          logger.error('Failed to remove invalid storage entry', {
-            errorName: removeError instanceof Error ? removeError.name : typeof removeError,
-            name,
-          });
-        }
-      }
-      return null;
-    }
-  }
-  return value;
-}
 
 async function getItemFromStorage(
   storageAdapter: StorageAdapter,
@@ -84,26 +48,6 @@ async function getItemFromStorage(
   }
 }
 
-async function getItemWithWorkerFallback(
-  workerStorage: WorkerStorage,
-  storageAdapter: StorageAdapter,
-  name: string,
-  shouldLog: boolean,
-  onDiscard?: (reason?: PersistedStateDiscardReason) => void
-): Promise<unknown> {
-  try {
-    return await getItemFromWorker(workerStorage, storageAdapter, name, shouldLog, onDiscard);
-  } catch (error) {
-    if (shouldLog) {
-      logger.error(
-        'Worker getItem failed, falling back to main thread',
-        getErrorMetadata(error, name)
-      );
-    }
-    return await getItemWithStorageOnly(storageAdapter, name, shouldLog, onDiscard);
-  }
-}
-
 async function getItemWithStorageOnly(
   storageAdapter: StorageAdapter,
   name: string,
@@ -131,35 +75,6 @@ async function getItemWithStorageOnly(
   }
 }
 
-async function setItemWithWorker(
-  workerStorage: WorkerStorage,
-  storageAdapter: StorageAdapter,
-  name: string,
-  value: unknown,
-  shouldLog: boolean
-): Promise<StorageOperationResult> {
-  try {
-    await workerStorage.setItem(name, value);
-    return { success: true };
-  } catch (error) {
-    if (shouldLog) {
-      logger.error(
-        'Worker setItem failed, falling back to immediate approach:',
-        getErrorMetadata(error, name)
-      );
-    }
-    try {
-      await storageAdapter.setItem(name, JSON.stringify(value));
-      return { success: true };
-    } catch (fallbackError) {
-      if (shouldLog) {
-        logger.error('Error setting item in storage:', getErrorMetadata(fallbackError, name));
-      }
-      return { error: fallbackError, message: getErrorMessage(fallbackError), success: false };
-    }
-  }
-}
-
 async function setItemWithStorage(
   storageAdapter: StorageAdapter,
   name: string,
@@ -175,24 +90,12 @@ async function setItemWithStorage(
 
 export function createStorageWrapper(
   storageAdapter: StorageAdapter,
-  useWorker: boolean,
-  workerStorage: WorkerStorage | null,
   shouldLog: boolean,
   onDiscard?: (reason?: PersistedStateDiscardReason) => void
 ) {
   return {
-    getItem: async (name: string) => {
-      if (useWorker && workerStorage) {
-        return await getItemWithWorkerFallback(
-          workerStorage,
-          storageAdapter,
-          name,
-          shouldLog,
-          onDiscard
-        );
-      }
-      return await getItemWithStorageOnly(storageAdapter, name, shouldLog, onDiscard);
-    },
+    getItem: async (name: string) =>
+      await getItemWithStorageOnly(storageAdapter, name, shouldLog, onDiscard),
     removeItem: async (name: string) => {
       try {
         await storageAdapter.removeItem(name);
@@ -205,9 +108,6 @@ export function createStorageWrapper(
       }
     },
     setItem: async (name: string, value: unknown) => {
-      if (useWorker && workerStorage) {
-        return await setItemWithWorker(workerStorage, storageAdapter, name, value, shouldLog);
-      }
       const result = await setItemWithStorage(storageAdapter, name, value);
       if (!result.success && shouldLog) {
         logger.error('Error setting item in storage:', getErrorMetadata(result.error, name));

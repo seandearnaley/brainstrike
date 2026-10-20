@@ -539,7 +539,6 @@
         "packages/file-explorer/src/__tests__/context-generation.test.ts",
         "packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts",
         "packages/file-explorer/src/persistence/__tests__/state-serialization.test.ts",
-        "packages/file-explorer/src/persistence/__tests__/worker-storage.test.ts",
         "packages/file-import/src/__tests__/chunking-worker-context.test.tsx",
         "packages/file-import/src/__tests__/chunking.test.ts",
         "packages/file-import/src/__tests__/enhanced-import.test.ts",

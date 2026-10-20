@@ -290,14 +290,6 @@ export default defineConfig({
         find: '@brainstrike/ui/globals.css',
         replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
       },
-      // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the emitted
-      // worker-storage.worker.mjs artifact is available to the module Worker. Aliasing to
-      // src would point at a worker artifact that has not been built for browser execution.
-      // The web:dev script has a predev step that ensures file-explorer is built first.
-      {
-        find: '@brainstrike/file-explorer',
-        replacement: path.resolve(__dirname, '../../packages/file-explorer/dist'),
-      },
       // @brainstrike/file-tree-worker's root `exports['.']` targets a
       // Node-worker_threads entry (dist/index.js); the registry would derive
       // that same Node-targeted src/index.ts. vite.ts is the deliberate

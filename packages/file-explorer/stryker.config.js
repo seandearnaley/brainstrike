@@ -18,15 +18,7 @@ const config = {
   ignorePatterns: ['dist/**', 'node_modules/**', 'coverage/**', 'reports/**'],
 
   // Specify which files to mutate (only source files, exclude tests and problematic async files)
-  mutate: [
-    'src/**/*.ts',
-    '!src/**/*.test.ts',
-    '!src/**/__tests__/**',
-    '!src/**/__mocks__/**',
-    '!src/persistence/worker-storage.worker.js',
-    '!src/persistence/worker-storage.ts',
-    '!src/persistence/worker-init.ts',
-  ],
+  mutate: ['src/**/*.ts', '!src/**/*.test.ts', '!src/**/__tests__/**', '!src/**/__mocks__/**'],
   // Specify which plugins to load
   plugins: ['@stryker-mutator/vitest-runner', '@stryker-mutator/typescript-checker'],
 
