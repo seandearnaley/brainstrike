@@ -10,7 +10,7 @@ import { readHostThreadWorkspace, waitForAppHost, withAppHost } from './agent-ho
 import { configureAssistantProvider } from './assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './context-explorer-locators';
 import { ensureAssistantShellVisible } from './layout-helpers';
-import { seedRoot } from './seed-root';
+import { loadElectronHelpers } from './load-electron-helpers';
 
 /**
  * The three renderer writers with a write-behind tail (ADR-0026 R1), driven through the real UI
@@ -30,19 +30,52 @@ const ROOT_ID = 'durable-ui-root-0000-4000-8000-000000000001';
 const FOLDER = 'src';
 const PANEL_LAYOUT_KEY = 'panel-layout-store.v1';
 
-/** A seeded root with one folder, and one thread whose workspace the host has stored. */
+/**
+ * A seeded root with one folder, and one thread whose workspace the host has stored. The root is
+ * seeded, then the app relaunches on it: the test's own unload is then the launch's first, which
+ * is the one the E2E lifecycle seam's one-shot `renderer-flush` delay applies to.
+ */
 export async function openDurableUiFixture(
   electron: ElectronHarness,
-  page: Page
-): Promise<DurableUiFixture & { readonly dispose: () => Promise<void> }> {
+  seedPage: Page
+): Promise<DurableUiFixture & { readonly dispose: () => Promise<void>; readonly page: Page }> {
   const rootPath = await realpath(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-durable-ui-')));
   await mkdir(path.join(rootPath, FOLDER));
   await writeFile(path.join(rootPath, FOLDER, 'index.ts'), 'export const durable = true;\n');
-  await seedRoot(page, rootPath, {
-    disableBackgroundIndexing: true,
-    reloadReason: 'durable-ui-seeded-root',
-    rootId: ROOT_ID,
-  });
+  await seedPage.evaluate(
+    async ({ root, rootId }) => {
+      const storage = (
+        globalThis as typeof globalThis & {
+          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
+        }
+      ).electronAPI?.storage;
+      if (!storage?.setItem) {
+        throw new Error('electronAPI.storage.setItem unavailable');
+      }
+      await storage.setItem('lastFolderPath', root);
+      await storage.setItem(
+        'rootsList',
+        JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId }])
+      );
+      localStorage.setItem(
+        'background-indexing-preferences.v1',
+        JSON.stringify({
+          state: {
+            enabled: false,
+            indexingPolicyPreset: 'full-root',
+            managedCollectionId: null,
+            mode: 'root-folder-cache',
+            paused: true,
+          },
+          version: 4,
+        })
+      );
+    },
+    { root: rootPath, rootId: ROOT_ID }
+  );
+  const { window: page } = await electron.restart();
+  const { waitForAppReady } = await loadElectronHelpers();
+  await waitForAppReady(page);
   await configureAssistantProvider(page);
   await ensureAssistantShellVisible(page);
   await waitForAppHost(page);
@@ -68,6 +101,7 @@ export async function openDurableUiFixture(
   return {
     dispose: () => rm(rootPath, { force: true, recursive: true }),
     expandedPath: path.join(rootPath, FOLDER),
+    page,
     rootPath,
     threadId,
   };

@@ -22,9 +22,10 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 test.describe('durable UI state across document unload', () => {
   test('an Explorer expansion 200 ms before window-X is stored and in the thread snapshot after relaunch', async ({
     electron,
-    window: page,
+    window,
   }) => {
-    const fixture = await openDurableUiFixture(electron, page);
+    const fixture = await openDurableUiFixture(electron, window);
+    const { page } = fixture;
     const userDataDir = electron.getUserDataDir();
     try {
       await expandFixtureFolder(page);
@@ -54,10 +55,10 @@ test.describe('durable UI state across document unload', () => {
 
   test('a thread-workspace edit 300 ms before menu Reload is committed before the new document loads', async ({
     electron,
-    electronApp,
-    window: page,
+    window,
   }) => {
-    const fixture = await openDurableUiFixture(electron, page);
+    const fixture = await openDurableUiFixture(electron, window);
+    const { page } = fixture;
     const userDataDir = electron.getUserDataDir();
     try {
       await expandFixtureFolder(page);
@@ -65,7 +66,7 @@ test.describe('durable UI state across document unload', () => {
       const navigated = page.waitForEvent('framenavigated', {
         predicate: (frame) => frame === page.mainFrame(),
       });
-      await reloadFromMenu(electronApp.app, page);
+      await reloadFromMenu((await electron.ensureContext()).app, page);
       await navigated;
       // Read before the replacement document has attached to the host and could write anything.
       expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
@@ -122,10 +123,11 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
   for (const unload of ['quit', 'window-X', 'reload'] as const) {
     test(`every durable writer's last change survives ${unload}`, async ({
       electron,
-      window: page,
+      window,
     }, testInfo) => {
       test.setTimeout(240_000);
-      const fixture = await openDurableUiFixture(electron, page);
+      const fixture = await openDurableUiFixture(electron, window);
+      const { page } = fixture;
       const userDataDir = electron.getUserDataDir();
       const { app } = await electron.ensureContext();
       const main = app.process();
