@@ -121,6 +121,25 @@ test('the text report marks hot paths, lists their commits and says nightly issu
   assert.match(stdout, /Nightly-alert issues are not counted/u);
 });
 
+test('a renamed file keeps the fixes made under its old name', (t) => {
+  const root = repository(t, [
+    { daysAgo: 5, file: 'src/old.ts', subject: 'fix: first' },
+    { daysAgo: 4, file: 'src/old.ts', subject: 'fix: second' },
+  ]);
+  git(root, ['mv', 'src/old.ts', 'src/new.ts']);
+  git(root, ['commit', '-q', '-m', 'refactor: rename']);
+  appendFileSync(path.join(root, 'src/new.ts'), 'third\n');
+  git(root, ['commit', '-q', '-am', 'fix: third']);
+
+  const result = run(root, ['--json', 'src/new.ts']);
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.deepEqual(
+    JSON.parse(result.stdout).paths[0].commits.map(({ subject }) => subject),
+    ['fix: third', 'fix: second', 'fix: first']
+  );
+});
+
 test('accepts the separator pnpm forwards before the arguments', (t) => {
   const root = repository(t, HISTORY);
 

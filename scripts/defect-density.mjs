@@ -6,6 +6,7 @@
 //
 //   pnpm defect-density -- <path>... [--days 14] [--threshold 3] [--json]
 import { execFileSync } from 'node:child_process';
+import { statSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -62,8 +63,11 @@ function measure({ days, paths, threshold }) {
     if (git(['rev-list', '-1', 'HEAD', '--', target]).trim() === '') {
       throw new Error(`No commit on this branch touches ${target}; check the path.`);
     }
+    // A file keeps the fixes made under its earlier names; a rename must not cool it.
+    const follow = statSync(target, { throwIfNoEntry: false })?.isFile() ? ['--follow'] : [];
     const commits = git([
       'log',
+      ...follow,
       `--since=${since}`,
       '--format=%h%x09%cs%x09%s',
       'HEAD',
