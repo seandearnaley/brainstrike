@@ -16,6 +16,14 @@ content remains ephemeral in explorer state; it is not copied into durable
 selection snapshots or diagnostics. Markdown previews must not
 execute content or load arbitrary external resources.
 
+Explorer persistence keeps the injected storage adapter as its durable owner;
+the worker only serializes messages. Saves complete at the adapter ACK, and
+coalesced callers join the latest snapshot's ACK or rejection. Writes, explicit
+flushes and deletion share per-key ordering; retired worker requests cannot
+restore old values. Worker or adapter write failures reject without a fallback write.
+Admitted mutations retain their original ACK, failure and deadline through flush
+and worker retirement.
+
 ## Thread context map
 
 The Context tab and the explorer's This thread column show what the active

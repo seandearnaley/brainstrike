@@ -127,48 +127,32 @@ describe('WorkerStorage - No Worker Environment', () => {
     expect(result).toBe('not-valid-json');
   });
 
-  it('should fallback to localStorage for setItem when worker is not available', async () => {
+  it('rejects saves when the worker is unavailable', async () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
     const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
-
-    const setPromise = storage.setItem('test-key', { foo: 'bar' });
-
-    // Advance past debounce timer
-    await vi.advanceTimersByTimeAsync(200);
-
-    await setPromise;
-
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
-      'test-key',
-      JSON.stringify({ foo: 'bar' })
-    );
-    vi.useRealTimers();
+    const saved = storage.setItem('test-key', { foo: 'bar' });
+    const rejected = expect(saved).rejects.toThrow('Web Worker not available');
+    await vi.advanceTimersByTimeAsync(100);
+    await rejected;
+    expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
   });
 
   it('should store string values directly without double-serialization', async () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
     const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
-
-    const setPromise = storage.setItem('string-key', 'plain-string');
-
-    await vi.advanceTimersByTimeAsync(200);
-    await setPromise;
-
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('string-key', 'plain-string');
-    vi.useRealTimers();
+    const saved = storage.setItem('string-key', 'plain-string');
+    storage.flushPendingWrites();
+    await saved;
+    expect(mockLocalStorage.data.get('string-key')).toBe('plain-string');
   });
 
   it('should fallback to localStorage for removeItem when worker is not available', async () => {
     const { WorkerStorage } = await import('../worker-storage');
     const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
-
-    mockLocalStorage.data.set('remove-key', 'value');
-
-    await storage.removeItem('remove-key');
-
-    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('remove-key');
+    await expect(storage.removeItem('key')).rejects.toThrow('Web Worker not available');
+    expect(mockLocalStorage.removeItem).not.toHaveBeenCalled();
   });
 
   it('should not throw on destroy when worker is not available', async () => {
@@ -238,37 +222,26 @@ describe('WorkerStorage - Debouncing Behavior', () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
     const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
-
-    // Fire multiple rapid setItem calls
-    void storage.setItem('debounce-key', 'value1');
-    void storage.setItem('debounce-key', 'value2');
-    const promise = storage.setItem('debounce-key', 'value3');
-
-    // Advance past debounce timer
-    await vi.advanceTimersByTimeAsync(200);
-    await promise;
-
-    // Should only have stored the last value (debounce clears earlier timers)
+    const first = storage.setItem('debounce-key', 'value1');
+    const second = storage.setItem('debounce-key', 'value2');
+    const latest = storage.setItem('debounce-key', 'value3');
+    storage.flushPendingWrites();
+    await Promise.all([first, second, latest]);
     expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('debounce-key', 'value3');
-    vi.useRealTimers();
+    expect(mockLocalStorage.data.get('debounce-key')).toBe('value3');
   });
 
   it('should handle independent keys without debounce interference', async () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
     const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
-
-    const promise1 = storage.setItem('key1', 'value1');
-    const promise2 = storage.setItem('key2', 'value2');
-
-    await vi.advanceTimersByTimeAsync(200);
-    await Promise.all([promise1, promise2]);
-
+    const first = storage.setItem('key1', 'value1');
+    const second = storage.setItem('key2', 'value2');
+    storage.flushPendingWrites();
+    await Promise.all([first, second]);
     expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(2);
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('key1', 'value1');
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('key2', 'value2');
-    vi.useRealTimers();
+    expect(mockLocalStorage.data.get('key1')).toBe('value1');
+    expect(mockLocalStorage.data.get('key2')).toBe('value2');
   });
 });
 
