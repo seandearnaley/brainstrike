@@ -542,8 +542,8 @@ export interface GitInventoryService {
    *
    * Calling `start()` while already started throws (a caller bug: starting
    * twice would orphan the first watcher set without ever disposing it).
-   * Calling `start()` again after `stop()` is supported and creates a fresh
-   * watcher set — see the restart note below. It also clears the
+   * Calling `start()` again after a successful `stop()` creates a fresh
+   * watcher set; pending or failed retirement refuses restart. It also clears the
    * `stopped` flag `stop()` set, so `getSnapshot()` calls succeed again.
    */
   readonly start: () => void;
@@ -551,7 +551,8 @@ export interface GitInventoryService {
    * Dispose every live watcher and drop the cached snapshot, and reject any
    * `getSnapshot()` call made before the next `start()` with
    * {@link GitInventoryStoppedError} rather than rebuilding against a
-   * possibly-closed DB. Idempotent.
+   * possibly-closed DB. Concurrent calls join; a failed watcher retirement
+   * stays owned and is retried by the next stop.
    *
    * Bounds its wait for an in-flight build to
    * {@link GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS} — see the function doc comment
@@ -574,8 +575,9 @@ function toBuildFailureSnapshot(error: unknown): GitInventorySnapshot {
  * cache with in-flight build coalescing, and per-repo watcher lifecycle
  * management (Task 4, BST-1112). `git-inventory-watcher.ts`'s `disposeAll()`
  * is TERMINAL — once a `GitInventoryWatchers` instance is disposed it never
- * subscribes again — so `stop()` drops the instance entirely rather than
- * trying to resurrect it, and `start()` always builds a FRESH
+ * subscribes again — so a successful `stop()` drops the instance rather than
+ * trying to resurrect it. A failed stop retains it for retry and refuses
+ * replacement; after success, `start()` builds a FRESH
  * `createGitInventoryWatchers()` instance. Restart-after-stop is therefore
  * supported deliberately (this matches the watcher module's own doc comment,
  * which frames "call `createGitInventoryWatchers` again" as the intended
@@ -603,6 +605,7 @@ export function createGitInventoryService(
   // of racing it.
   let stopped = false;
   let watchers: GitInventoryWatchers | null = null;
+  let stopping: Promise<void> | undefined;
   let cachedSnapshot: GitInventorySnapshot | null = null;
   // Starts dirty so the very first getSnapshot()/start() always builds,
   // regardless of maxAgeMs, instead of serving a nonexistent cache.
@@ -707,10 +710,8 @@ export function createGitInventoryService(
     if (generation !== myGeneration) {
       return snapshot;
     }
-    // `watchers` is read live (not captured at the top of this function): if
-    // stop() ran while the build above was in flight, it has already set
-    // `watchers = null`, so a late-completing build skips sync() on a
-    // disposed instance rather than reviving it.
+    // The generation check above fences the retained watcher owner while
+    // stop() drains the build and retires that owner's native subscriptions.
     if (watchers) {
       const commonDirs = snapshot.repositories.map((repo) => repo.identity.gitCommonDir);
       try {
@@ -879,6 +880,11 @@ export function createGitInventoryService(
           'starting twice would orphan the first watcher set without disposing it.'
       );
     }
+    if (stopping || watchers !== null) {
+      throw new Error(
+        'GitInventoryService.start(): previous watcher retirement is incomplete. Retry stop() before starting again.'
+      );
+    }
     started = true;
     // Clears the block getSnapshot() checks (BST-1112 review Blocker 1) —
     // every getSnapshot() call while stopped rejected without touching
@@ -935,9 +941,9 @@ export function createGitInventoryService(
    * Disposes every live watcher and drops the cache, and — from the moment
    * this function starts running — rejects every `getSnapshot()` call with
    * {@link GitInventoryStoppedError} instead of building or serving anything,
-   * until the next `start()`. Idempotent (a second call sees
-   * `inFlightBuild === null` and `watchers === null`, so both drain/dispose
-   * steps below are skipped).
+   * until the next `start()`. Concurrent calls join the same stop. Failed
+   * watcher retirement keeps the existing owner and refuses restart; a later
+   * stop retries it once and preserves its failure if it rejects again.
    *
    * Bounds its wait for an in-flight build to
    * {@link GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS} (BST-1112 review, codex P1
@@ -967,8 +973,7 @@ export function createGitInventoryService(
    * will neither write `cachedSnapshot` (it would otherwise resurrect a
    * stopped service's cache, silently undoing `cachedSnapshot = null` /
    * `dirty = true` below) nor sync the new lifecycle's watcher set (the
-   * `watchers = null` swap below already prevents it from syncing the OLD,
-   * disposed instance).
+   * generation check also prevents it from syncing the retained OLD owner).
    *
    * Note for future refactors: BECAUSE of that drain, `cachedSnapshot = null`
    * below and `rebuild()`'s post-sync generation re-check are both currently
@@ -976,7 +981,10 @@ export function createGitInventoryService(
    * duals, and BOTH become load-bearing the moment the drain is removed.
    * Dropping the drain would silently un-cover them; keep them.
    */
-  async function stop(): Promise<void> {
+  function stop(): Promise<void> {
+    if (stopping) {
+      return stopping;
+    }
     started = false;
     // Set before the drain wait below (not after) — see getSnapshot()'s own
     // comment on why no `await` may separate this from that check.
@@ -994,42 +1002,54 @@ export function createGitInventoryService(
     // that handle at the wrong moment — see the slot's own doc comment).
     forcedFollowUpWaiter = null;
     const toDispose = watchers;
-    watchers = null;
-    if (pendingBuild) {
-      buildAbortController?.abort();
-      const settledInTime = await Promise.race([
-        pendingBuild.then(
-          () => true,
-          () => true
-        ),
-        new Promise<boolean>((resolve) => {
-          setTimeout(() => resolve(false), GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
-        }),
-      ]);
-      if (!settledInTime) {
-        logger.error(
-          'git inventory service: stop() abandoned an in-flight build that did not settle within the drain timeout',
-          { drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS }
-        );
-        // Without this, every forced getSnapshot() caller still waiting on a
-        // promise from `awaitForcedFollowUp` would hang forever: each one's
-        // only other settle path is chained off the very build just
-        // abandoned above (directly, or via a promotion that made this build
-        // its own), which may never resolve. Every entry still in the set at
-        // this point depends on `pendingBuild` — there is only ever one
-        // in-flight build at a time, so nothing here can belong to some
-        // OTHER build that is still healthy.
-        for (const rejectPendingForcedWaiter of pendingForcedRejects) {
-          rejectPendingForcedWaiter(new GitInventoryStoppedError());
+    const retirement = (async () => {
+      if (pendingBuild) {
+        buildAbortController?.abort();
+        const settledInTime = await Promise.race([
+          pendingBuild.then(
+            () => true,
+            () => true
+          ),
+          new Promise<boolean>((resolve) => {
+            setTimeout(() => resolve(false), GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
+          }),
+        ]);
+        if (!settledInTime) {
+          logger.error(
+            'git inventory service: stop() abandoned an in-flight build that did not settle within the drain timeout',
+            { drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS }
+          );
+          // Without this, every forced getSnapshot() caller still waiting on a
+          // promise from `awaitForcedFollowUp` would hang forever: each one's
+          // only other settle path is chained off the very build just
+          // abandoned above (directly, or via a promotion that made this build
+          // its own), which may never resolve. Every entry still in the set at
+          // this point depends on `pendingBuild` — there is only ever one
+          // in-flight build at a time, so nothing here can belong to some
+          // OTHER build that is still healthy.
+          for (const rejectPendingForcedWaiter of pendingForcedRejects) {
+            rejectPendingForcedWaiter(new GitInventoryStoppedError());
+          }
+          pendingForcedRejects.clear();
         }
-        pendingForcedRejects.clear();
       }
-    }
-    cachedSnapshot = null;
-    dirty = true;
-    if (toDispose) {
-      await toDispose.disposeAll();
-    }
+      cachedSnapshot = null;
+      dirty = true;
+      if (toDispose) {
+        await toDispose.disposeAll();
+        watchers = null;
+      }
+    })();
+    stopping = retirement;
+    retirement.then(
+      () => {
+        stopping = undefined;
+      },
+      () => {
+        stopping = undefined;
+      }
+    );
+    return retirement;
   }
 
   return { getSnapshot, start, stop };
