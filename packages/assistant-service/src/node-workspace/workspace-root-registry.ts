@@ -98,6 +98,7 @@ export class WorkspaceRootRegistry {
   private readonly mounts = new WorkspaceRootMountTable();
   private readonly availability = new WorkspaceRootAvailability();
   private mutationTail: Promise<void> = Promise.resolve();
+  private readonly directReads = new Set<Promise<unknown>>();
   private rootDataDeletion: RootDataDeletionReservation | undefined;
   private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
   private readonly sourceLeases = new Set<{
@@ -132,27 +133,11 @@ export class WorkspaceRootRegistry {
   ): Promise<RootDescriptor> {
     return this.serializeMutation(async () => {
       const presentationPath = path.normalize(handle.path);
-      // Sequential, not Promise.all: addRoot already runs inside
-      // serializeMutation (no concurrent caller to race against), and
-      // sequencing means the try/finally below covers `probe` from the
-      // instant it exists — a rejected readStoredRootsOrQuarantine() (a raw
-      // storage I/O failure; corruption is quarantined rather than thrown)
-      // can no longer leak an already-opened probe capability.
+      // Read storage before opening the probe so a failed read cannot leak it.
+      // serializeMutation already orders callers; these reads need no parallelism.
       const entries = await readStoredRootsOrQuarantine(this.storage);
-      // Hoisted above the mount+persist mutation below (BST-1400 item 4): a
-      // recentRootsList I/O failure must surface BEFORE anything is mounted
-      // or persisted, not after — mirroring the rootsList read above. Before
-      // this, `recordRecentRoot`'s own internal read ran AFTER
-      // reconcileAddMount/persistAddedRoot had already succeeded, so a
-      // broken ledger left addRoot() rejecting while the root was, in fact,
-      // already mounted and persisted (state divergence). Positioned before
-      // the mutation regardless; gated on `recordInRecentRoots` because that
-      // flag is the only thing that can consume it (PR #2685 review: the
-      // read itself IS conditional on this flag — only its POSITION, above
-      // the mutation, is unconditional).
-      //
-      // The invariant throw after mounting is unreachable: this read and that
-      // check use the same recordInRecentRoots flag.
+      // Read the recent-root ledger before mounting or persisting to avoid partial
+      // success on storage failure. The same flag guards its later invariant check.
       const recentRootEntries = recordInRecentRoots
         ? await readRecentRootsOrQuarantine(this.storage)
         : null;
@@ -257,7 +242,12 @@ export class WorkspaceRootRegistry {
 
   dispose(): Promise<void> {
     this.disposed = true;
-    this.disposal ??= Promise.all([this.mutationTail, this.retireSourceLeases()])
+    this.disposal ??= this.retireSourceLeases()
+      .finally(async () => {
+        // Reader errors belong to their callers. Join physical settlement,
+        // even when source retirement failed, before closing any mount.
+        await Promise.all([this.mutationTail, Promise.allSettled([...this.directReads])]);
+      })
       .then(() => {
         this.mounts.closeAll();
         this.availability.clear();
@@ -400,7 +390,7 @@ export class WorkspaceRootRegistry {
     const diagnosticRootId =
       handle.rootId === undefined ? undefined : projectReadDenialDiagnostic(handle.rootId);
     return withReadDenialLogging(logger, 'readDirectory', diagnosticPath, diagnosticRootId, () =>
-      this.readDirectoryUnlogged(handle)
+      this.ownDirectRead(() => this.readDirectoryUnlogged(handle))
     );
   }
 
@@ -432,7 +422,7 @@ export class WorkspaceRootRegistry {
     const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
     const diagnosticRootId = rootId === undefined ? undefined : projectReadDenialDiagnostic(rootId);
     return withReadDenialLogging(logger, 'readFile', diagnosticPath, diagnosticRootId, () =>
-      this.readFileUnlogged(requestedPath, rootId)
+      this.ownDirectRead(() => this.readFileUnlogged(requestedPath, rootId))
     );
   }
 
@@ -442,12 +432,8 @@ export class WorkspaceRootRegistry {
     claimedRootId: unknown
   ): Promise<string> {
     const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
-    return withReadDenialLogging(
-      logger,
-      'readFileByAbsolutePath',
-      diagnosticPath,
-      undefined,
-      () => {
+    return withReadDenialLogging(logger, 'readFileByAbsolutePath', diagnosticPath, undefined, () =>
+      this.ownDirectRead(() => {
         assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
         assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
         if (!isDurableRootId(claimedRootId)) {
@@ -459,8 +445,19 @@ export class WorkspaceRootRegistry {
           );
         }
         return this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath, claimedRootId);
-      }
+      })
     );
+  }
+
+  private async ownDirectRead<T>(run: () => Promise<T>): Promise<T> {
+    this.assertActive();
+    const pending = run();
+    this.directReads.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.directReads.delete(pending);
+    }
   }
 
   private async readFileByAbsolutePathUnlogged(

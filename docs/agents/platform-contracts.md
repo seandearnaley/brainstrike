@@ -53,6 +53,9 @@ attempt independent cleanup and report every failure. A timeout, cancellation
 notice, closed transport or deleted row does not prove physical work stopped.
 Stale callbacks cannot affect replacement generations. Debug sessions use
 isolated disposable profiles and own their whole spawned process tree.
+Workspace root disposal fences direct read/list admission and joins their path
+resolution and native completion alongside mutations and source leases before
+closing mounted capabilities (BST-2251). Read errors remain owned by their callers.
 
 Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
