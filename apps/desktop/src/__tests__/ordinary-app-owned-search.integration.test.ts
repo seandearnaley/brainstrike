@@ -373,7 +373,6 @@ async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promi
             lineText: z.literal(searchLine),
             path: z.literal('fresh-root-search.txt'),
             rootId: z.literal(mountedRootId),
-            source: z.literal('live'),
           })
         ),
         outputMode: z.literal('content'),
