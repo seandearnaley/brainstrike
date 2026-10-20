@@ -62,10 +62,6 @@ import {
 } from './unexpected-close-observer';
 
 export type { ExplicitHttpMcpClientOptions } from './explicit-http-client-options';
-// Named rather than `export *`: this keeps the package surface exactly what
-// this module exported before the split. The types module additionally
-// declares list/manual/normal call-option aliases that were module-private
-// here, and they stay internal.
 export type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -75,7 +71,6 @@ export type {
   ExplicitHttpMcpGetPromptParams,
   ExplicitHttpMcpGetPromptResult,
   ExplicitHttpMcpInputRequiredResult,
-  ExplicitHttpMcpLifecycle,
   ExplicitHttpMcpListPromptsParams,
   ExplicitHttpMcpListPromptsResult,
   ExplicitHttpMcpListResourcesParams,
@@ -91,7 +86,6 @@ export type {
   ExplicitHttpMcpSubscriptionFilter,
   ExplicitHttpMcpTool,
   ExplicitHttpMcpTransport,
-  ExplicitHttpMcpUnexpectedCloseObserver,
   NegotiatedProtocolFacts,
 } from './explicit-http-client-types';
 
