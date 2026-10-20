@@ -11,6 +11,7 @@ import {
   resolveDesktopRendererTarget,
 } from './desktop-renderer-target';
 import { resolveDistRoot } from './dist-root';
+import { joinWindowClosed } from './window-lifecycle-utils';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -571,17 +572,4 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         JSON.stringify((right as Record<string, unknown>)[key])
     );
   }
-}
-
-/**
- * Resolves on the window's `closed`, which Electron emits for every window it destroys. Register
- * it before `destroy()`: a destroyed window can take no listener.
- */
-function joinWindowClosed(window: BrowserWindow): Promise<void> {
-  if (window.isDestroyed()) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    window.once('closed', () => resolve());
-  });
 }
