@@ -24,6 +24,7 @@ function registerEmbeddingWorkerRuntime(): string {
  * a LAZY queue factory so a local-model semantic search can initialize the
  * transformers backend before any database panel has loaded the queue. The
  * workerpool itself is still only constructed on first use.
+ * @internal Embedding queue regressions supply a deterministic runtime config.
  */
 export function registerDesktopEmbeddingRuntimeConfig(): void {
   registerEmbeddingWorkerRuntime();

@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readOpenAIApiKey } from '../openai-api-key';
 import {
   listConfiguredProviders,
   readProviderApiKey,
@@ -16,7 +15,7 @@ vi.mock('../secrets', async (importOriginal) => {
   };
 });
 
-describe('readOpenAIApiKey', () => {
+describe('OpenAI provider credentials', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -31,14 +30,14 @@ describe('readOpenAIApiKey', () => {
   describe('environment variable reading', () => {
     it('should return API key from BRAINSTRIKE_OPENAI_API_KEY', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'test-key-1';
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('test-key-1');
     });
 
     it('should return API key from OPENAI_API_KEY when BRAINSTRIKE_OPENAI_API_KEY is not set', async () => {
       Reflect.deleteProperty(process.env, 'BRAINSTRIKE_OPENAI_API_KEY');
       process.env['OPENAI_API_KEY'] = 'test-key-3';
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('test-key-3');
     });
 
@@ -56,34 +55,34 @@ describe('readOpenAIApiKey', () => {
       };
       vi.mocked(getSecretsService).mockReturnValue(mockSecretsService as never);
 
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBeUndefined();
     });
 
     it('should trim whitespace from environment variable values', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = '  test-key-trimmed  ';
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('test-key-trimmed');
     });
 
     it('should skip empty string environment variables', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = '   ';
       process.env['OPENAI_API_KEY'] = 'valid-key';
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('valid-key');
     });
 
     it('should skip non-string environment variables', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = undefined as unknown as string;
       process.env['OPENAI_API_KEY'] = 'valid-key';
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('valid-key');
     });
 
     it('should prioritize env vars in order: BRAINSTRIKE_, then OPENAI_', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'priority-1';
       process.env['OPENAI_API_KEY'] = 'priority-3';
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('priority-1');
     });
   });
@@ -100,7 +99,7 @@ describe('readOpenAIApiKey', () => {
       };
       vi.mocked(getSecretsService).mockReturnValue(mockSecretsService as never);
 
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('secret-key');
       expect(mockGetKey).toHaveBeenCalledWith('openai');
     });
@@ -116,7 +115,7 @@ describe('readOpenAIApiKey', () => {
       };
       vi.mocked(getSecretsService).mockReturnValue(mockSecretsService as never);
 
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBeUndefined();
     });
 
@@ -129,7 +128,7 @@ describe('readOpenAIApiKey', () => {
         throw readError;
       });
 
-      await expect(readOpenAIApiKey()).rejects.toBe(readError);
+      await expect(readProviderApiKey('openai')).rejects.toBe(readError);
     });
 
     it('should not use secrets service when env var is present', async () => {
@@ -142,7 +141,7 @@ describe('readOpenAIApiKey', () => {
       };
       vi.mocked(getSecretsService).mockReturnValue(mockSecretsService as never);
 
-      const result = await readOpenAIApiKey();
+      const result = await readProviderApiKey('openai');
       expect(result).toBe('env-key');
       expect(mockGetKey).not.toHaveBeenCalled();
     });

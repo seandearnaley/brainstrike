@@ -4,11 +4,9 @@ import type {
   NativeIndexEvent,
   NativeIndexState,
 } from '../native-index-lifecycle';
-import {
-  createNativeIndexLifecycle,
-  NativeIndexEventRefusedError,
-} from '../native-index-lifecycle-owner';
+import { createNativeIndexLifecycle } from '../native-index-lifecycle-owner';
 import { readNativeIndexSettings } from '../native-index-settings';
+import { NativeIndexEventRefusedError } from '../native-index-workflow-errors';
 
 // Recorded from Main's storage reads (BST-1988).
 const TEXT = readNativeIndexSettings(

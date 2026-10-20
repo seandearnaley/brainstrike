@@ -7,7 +7,7 @@ import {
   collectDesktopSourceFiles,
   findRuntimeHostBoundaryViolations,
   findRuntimeHostBoundaryViolationsInDesktopSource,
-} from '../../platform/runtime-host-boundary';
+} from './runtime-host-boundary';
 
 const ipcOwners = vi.hoisted(() => ({
   clear: vi.fn(async () => undefined),

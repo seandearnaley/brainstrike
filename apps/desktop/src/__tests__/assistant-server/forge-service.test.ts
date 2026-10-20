@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { ForgeCacheReplySchema } from '@brainstrike/agent-host/catalog';
 import type { ForgeCachePort } from '@brainstrike/state-store';
 import type { ForgePullRequest } from '@brainstrike/types';
 import { Schema } from 'effect';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ForgeCacheReplySchema } from '../../agent-host-platform/worktree-forge-store';
 import type { ForgeCommandRun, ForgeCommandRunner } from '../../assistant-server/forge-gh-client';
 import {
   createForgeService,

@@ -127,6 +127,7 @@ export const commandSessionsContract = {
   }),
 } as const satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type CommandSessionsBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof commandSessionsContract, CommandSessionBridge>
 >;

@@ -44,8 +44,6 @@ import type {
   EmbeddingHostWebGpuAdapterResponseReport,
 } from '../embedding-host-webgpu-adapter';
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
-import type { sourceFilesContract } from '../ipc-domains/source-files.contract';
-import type { TransportBridge } from '../platform/ipc-contract';
 
 export interface DesktopStorageBridge {
   clear: () => Promise<void>;
@@ -212,11 +210,6 @@ export interface VisibleDesktopCapabilities {
   chunkingHost: VisibleChunkingHostBridge;
   electronAPI: VisibleDesktopElectronApi;
   embeddingHost: VisibleEmbeddingHostBridge;
-}
-
-export interface ChunkingHostCapabilities {
-  chunkingHost: ChunkingHostRuntimeBridge;
-  sourceFiles: Pick<TransportBridge<typeof sourceFilesContract>, 'read'>;
 }
 
 export interface EmbeddingHostCapabilities {

@@ -228,6 +228,7 @@ export const indexSearchContract = {
     roles: ['visible-ui'],
   }),
 } satisfies Contract;
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type IndexSearchBridgeDerivation = AssertTrue<
   BridgeMatches<
     typeof indexSearchContract,

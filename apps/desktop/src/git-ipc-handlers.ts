@@ -32,11 +32,7 @@ import {
   type GitDiffParams,
   type GitResult,
 } from './assistant-server/git-service';
-import {
-  loadWorkspaceRootsFromCatalog,
-  loadWorkspaceRootsFromDatabase,
-  type WorkspaceRootsQueryable,
-} from './assistant-server/workspace-roots';
+import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import { runWindowsGitCommand } from './git-command-windows';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
 
@@ -241,22 +237,6 @@ export const execFileGitRunner: GitCommandRunner = ({
     );
   });
 };
-
-/**
- * Build a {@link WorkspaceRootResolver} backed by the DB `roots` table. Mirrors
- * the assistant-server's `enrichRuntimeDataWithWorkspaceRoots` seam so the git
- * domain validates against the SAME source of truth as the read/search tools.
- */
-export function createDatabaseRootResolver(
-  getDatabase: () => Promise<WorkspaceRootsQueryable>
-): WorkspaceRootResolver {
-  return {
-    listRoots: async () => {
-      const db = await getDatabase();
-      return await loadWorkspaceRootsFromDatabase(db);
-    },
-  };
-}
 
 /** Reads the current host's durable root identity while Main retains path authorization. */
 export function createWorkspaceRootResolver(catalog: WorkspaceRootPort): WorkspaceRootResolver {

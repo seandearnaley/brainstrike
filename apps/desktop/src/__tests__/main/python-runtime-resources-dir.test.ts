@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveDesktopPythonRuntimeInstallDir,
   resolveDesktopPythonRuntimeResourcesDir,
-} from '../../python-runtime';
+} from '../../python-runtime/resources-dir';
 
 describe('resolveDesktopPythonRuntimeResourcesDir', () => {
   it('resolves development resources from the parent of the emitted main module', () => {
