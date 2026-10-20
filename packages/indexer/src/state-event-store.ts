@@ -124,6 +124,7 @@ export class StateEventStore {
       ${PromptVectors.definition}
     `);
     StateMessageVectors.initialize(db);
+    db.exec(StateMessageVectors.sourcesDefinition);
     StateObservationVectors.initialize(db);
     db.prepare('INSERT INTO state_index_source VALUES(1,?,?,?)').run(
       root ?? null,
@@ -187,6 +188,7 @@ export class StateEventStore {
       ['state_search_vectors', 'table', version >= 12],
       ['state_search_vector_failures', 'table', version >= 13],
       ['prompt_vectors', 'table', version >= 14],
+      ['state_message_sources', 'table', version >= 15],
     ];
     const objects = decoder(
       Schema.Array(Schema.Struct({ name: Schema.String, sql: Schema.String, type: Schema.String }))
@@ -269,7 +271,9 @@ export class StateEventStore {
     if (version < 14) {
       db.exec(PromptVectors.definition);
     }
-    StateMessageVectors.validateStorage(db);
+    if (version < 15) {
+      db.exec(StateMessageVectors.sourcesDefinition);
+    }
   }
 
   /** Caller owns the native transaction: additions, acquisition and their backfill commit together. */
@@ -284,6 +288,7 @@ export class StateEventStore {
     StateEventStore.addCompatibleStorage(db, version);
     StateEventStore.validateRoot(db, root, projection, options);
     if (root === undefined) {
+      StateMessageVectors.validateStorage(db);
       return;
     }
     if (!projection) {
@@ -291,6 +296,9 @@ export class StateEventStore {
     }
     if (!truth) {
       throw new TypeError('State projection requires its authoritative truth reader.');
+    }
+    if (version < 15) {
+      StateMessageVectors.backfillSources(db, truth, projection);
     }
     const store = new StateEventStore(db, truth, projection, options);
     if (version < 11) {

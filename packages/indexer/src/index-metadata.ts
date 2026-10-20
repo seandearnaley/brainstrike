@@ -12,8 +12,8 @@ import {
 } from './contracts.js';
 import { randomHex } from './portable.js';
 
-export const INDEX_SCHEMA_VERSION = 14;
-const supportedSchemaVersion = Schema.Literals([8, 9, 10, 11, 12, 13, INDEX_SCHEMA_VERSION]);
+export const INDEX_SCHEMA_VERSION = 15;
+const supportedSchemaVersion = Schema.Literals([8, 9, 10, 11, 12, 13, 14, INDEX_SCHEMA_VERSION]);
 export type IndexSchemaVersion = typeof supportedSchemaVersion.Type;
 const metadataSchema = Schema.Struct({
   indexMode: Schema.Literals(['text-only', 'vector-configured']),
