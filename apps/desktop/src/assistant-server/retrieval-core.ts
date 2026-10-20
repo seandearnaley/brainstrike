@@ -342,6 +342,7 @@ async function runRetrieval(
     rootId,
     signal,
     threshold: input.threshold ?? DEFAULT_THRESHOLD,
+    workspaceRoots: runtimeData?.workspaceRoots,
   });
   const searchResults: Parameters<typeof packRetrievedContext>[1] = native.hits.map(
     ({ hit, similarity }, index) => {

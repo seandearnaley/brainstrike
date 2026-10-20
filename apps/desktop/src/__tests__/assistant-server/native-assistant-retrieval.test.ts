@@ -668,6 +668,102 @@ it.each([
   }
 );
 
+/**
+ * A worktree-mode thread works in a managed worktree, which the index leaves
+ * out until it is opted in (BST-1988). Main refuses a folder it does not
+ * authorize as an untyped fault, so asking for every thread folder failed the
+ * whole search as "did not complete successfully" (2026-10-20 debug pack).
+ */
+describe('a thread folder the index leaves out', () => {
+  const runtimeData = {
+    workspaceRoots: [
+      { displayName: 'repository', path: '/work/repository', rootId: 'indexed' },
+      { displayName: 'gentle-raven', path: '/work/gentle-raven', rootId: 'worktree' },
+    ],
+  } as RuntimeData;
+  function indexedFolderFixture() {
+    const f = fixture();
+    f.setStatus({
+      ...f.status,
+      authorizedRootIds: ['indexed'],
+      rootReadiness: [{ rootId: 'indexed', scanComplete: true }],
+    } as IndexerStatus);
+    vi.mocked(f.capability.coverage).mockResolvedValue({
+      collections: [],
+      embedding,
+      roots: [{ ...counts, rootId: 'indexed' }],
+      storeId: f.result.storeId,
+      totals: counts,
+      vectorCoverageComplete: true,
+    });
+    const rooted = { ...f.result, hits: [{ ...hit, relativePath: 'a.md', rootId: 'indexed' }] };
+    vi.mocked(f.capability.search).mockResolvedValue(rooted);
+    vi.mocked(f.capability.grep).mockResolvedValue(rooted);
+    const dependencies = (admittedWorkspaceRootIds: readonly string[]) => ({
+      admittedWorkspaceRootIds,
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    });
+    return { dependencies, f };
+  }
+  function requestedRootIds(f: ReturnType<typeof fixture>): unknown[] {
+    return [
+      ...vi
+        .mocked(f.capability.coverageBatch)
+        .mock.calls.flatMap(([requests]) => requests.map((request) => request.rootIds)),
+      ...vi.mocked(f.capability.search).mock.calls.map(([request]) => request.rootIds),
+      ...vi.mocked(f.capability.grep).mock.calls.map(([request]) => request.rootIds),
+    ];
+  }
+
+  it.each(['semantic', 'hybrid'] as const)(
+    '%s searches the indexed thread folders and names the one it left out',
+    async (mode) => {
+      const { f } = indexedFolderFixture();
+      const result = await searchNativeAssistantChunks({
+        admittedWorkspaceRootIds: ['indexed', 'worktree'],
+        capability: f.capability,
+        embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+        embeddingSet: {
+          dimensions: 384,
+          distance: 'cosine',
+          modelId: profile.modelId,
+          modelKey: queryPlan.modelKey,
+        },
+        embeddingSetId: 'selected',
+        mode,
+        query: 'native marker',
+        threshold: 0,
+        workspaceRoots: runtimeData.workspaceRoots,
+      });
+      expect(result.hits).toHaveLength(1);
+      expect(result.hint).toMatch(
+        /^Results cover only the indexed folders: "gentle-raven" is not in the search index.*Search & Indexing/
+      );
+      expect(new Set(requestedRootIds(f).map((rootIds) => JSON.stringify(rootIds)))).toEqual(
+        new Set([JSON.stringify(['indexed'])])
+      );
+    }
+  );
+
+  it.each(tools)(
+    '$name refuses an unindexed folder with how to search it instead',
+    async ({ run }) => {
+      const { dependencies, f } = indexedFolderFixture();
+      for (const [input, admitted] of [
+        [{ query: 'native marker', root: 'gentle-raven' }, ['indexed', 'worktree']],
+        [{ query: 'native marker' }, ['worktree']],
+      ] as const) {
+        await expect(run(input, runtimeData, dependencies(admitted))).rejects.toThrow(
+          /"gentle-raven" is not in the search index.*grepSearch/
+        );
+      }
+      expect(requestedRootIds(f)).toEqual([]);
+      expect(f.queryEmbedding).not.toHaveBeenCalled();
+    }
+  );
+});
+
 describe('recorded native missing-key result at the retrieval executors (BST-2008)', () => {
   const cases = tools.flatMap((tool) =>
     ['status', 'coverageBatch'].map((method) => ({ ...tool, method }))

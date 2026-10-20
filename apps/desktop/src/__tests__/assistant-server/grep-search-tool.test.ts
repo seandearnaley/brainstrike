@@ -625,6 +625,8 @@ describe('grep search tool filePaths scope (BST-764)', () => {
         { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
       ],
     } as unknown as RuntimeData;
+    // Main's index answers only for folders it authorizes.
+    f = nativeGrepFixture({ authorizedRootIds: ['db-root-a', 'db-root-b'] });
     f.serve([]);
     await grepSearch(
       { filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle', root: 'inner' },
