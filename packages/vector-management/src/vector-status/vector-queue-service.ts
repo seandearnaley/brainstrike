@@ -227,24 +227,6 @@ async function waitForQueueCapacity(
   }
 }
 
-export async function withTransaction(
-  db: VectorQueueDatabase,
-  body: () => Promise<void>
-): Promise<void> {
-  await db.query('BEGIN');
-  try {
-    await body();
-    await db.query('COMMIT');
-  } catch (error) {
-    try {
-      await db.query('ROLLBACK');
-    } catch {
-      // ignore rollback failures to preserve the original error
-    }
-    throw error;
-  }
-}
-
 /**
  * Result of API key validation for an embedding set
  */

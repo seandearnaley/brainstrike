@@ -11,13 +11,6 @@ export interface EmbedChunkRow {
   id: string;
 }
 
-export interface ChunkEmbeddingUpdate {
-  embedding: number[];
-  embeddingHash: string;
-  embeddingSetId: string;
-  id: string;
-}
-
 export async function loadChunk(db: IDatabase, id: string): Promise<EmbedChunkRow | null> {
   const res = await db.query<EmbedChunkRow>(
     `SELECT id, content, content_hash AS "contentHash", embedding_hash AS "embeddingHash", embedding_set_id AS "embeddingSetId"
@@ -175,48 +168,6 @@ export async function assertVectorEmbeddingColumn(db: IDatabase): Promise<void> 
   workerDbIoLogger.debug(
     'Could not verify file_chunks.embedding column type; continuing with vector writes because initialized Brainstrike databases require pgvector.'
   );
-}
-
-export async function updateChunkEmbeddingBatch(
-  db: IDatabase,
-  updates: ChunkEmbeddingUpdate[],
-  idType: string
-): Promise<void> {
-  if (updates.length === 0) {
-    return;
-  }
-
-  const now = new Date().toISOString();
-
-  const ids = updates.map((u) => u.id);
-  const embeddingSetIds = updates.map((u) => u.embeddingSetId);
-  const embeddingHashes = updates.map((u) => u.embeddingHash);
-  const embeddings = updates.map((u) => `[${u.embedding.join(',')}]`);
-
-  const sql =
-    idType === 'uuid'
-      ? `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`
-      : `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`;
-
-  await db.query(sql, [now, ids, embeddings, embeddingSetIds, embeddingHashes]);
 }
 
 const embeddingSetDimensionCache = new Map<string, number>();

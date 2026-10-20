@@ -4,8 +4,7 @@ import {
 } from '@brainstrike/app-state/hooks/use-model-registry';
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/db';
-import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
+import { decodeCatalogEmbeddingModel } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { Button, cn, useToast } from '@brainstrike/ui';
 import { RefreshCw } from 'lucide-react';
@@ -22,77 +21,29 @@ const logger = createLogger('ModelSelectionPage');
 type ToastFn = ReturnType<typeof useToast>['toast'];
 
 interface DownloadDeps {
-  modelCacheDir: string | null;
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   setDownloadProgress: (modelId: string, progress: number) => void;
   toast: ToastFn;
 }
 
-interface DownloadProgress {
-  progress?: number;
-}
-
-function readQuantizedFlag(parameters: Record<string, unknown> | null): boolean {
-  const value = parameters?.['quantized'];
-  return typeof value === 'boolean' ? value : false;
-}
-
-function buildModelConfig(model: DbModel): ModelConfig {
-  const parameters = (model.parameters ?? {}) as Record<string, unknown>;
-  return {
-    description: model.description ?? '',
-    dimensions: model.capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
-    id: model.id,
-    name: model.name,
-    tags: Array.isArray(model.bestFor) ? model.bestFor : [],
-    // Add other optional fields if available in parameters
-    ...parameters,
-    quantized: readQuantizedFlag(parameters),
-  };
-}
-
-function updateProgress(
-  modelId: string,
-  setDownloadProgress: (modelId: string, progress: number) => void,
-  progress: number | undefined
-): void {
-  if (progress !== undefined) {
-    setDownloadProgress(modelId, progress);
-  }
-}
-
 async function downloadEmbeddingModel(
   model: DbModel,
-  { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
+  { setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
   const { downloadEmbeddingModel: runEmbeddingModelDownload } = getModelRuntimeServices();
-  const modelConfig = buildModelConfig(model);
-
   setDownloading(model.id, true);
-  setDownloadProgress(model.id, 0);
-
   try {
+    // The catalog row is the one owner of the model's pins and per-device dtype (BST-1993).
+    const catalogModel = decodeCatalogEmbeddingModel({
+      capabilities: model.capabilities,
+      id: model.id,
+      parameters: model.parameters,
+    });
     toast({
       description: `Starting download for ${model.name}...`,
       title: 'Download Started',
     });
-
-    const options: {
-      modelConfig: ModelConfig;
-      cacheDir?: string;
-      onProgress: (progress: DownloadProgress) => void;
-    } = {
-      modelConfig,
-      onProgress: (progress) => updateProgress(model.id, setDownloadProgress, progress.progress),
-    };
-
-    if (modelCacheDir) {
-      options.cacheDir = modelCacheDir;
-    }
-
-    // Pass full config to bypass registry lookup
-    await runEmbeddingModelDownload(model.id, options);
-
+    await runEmbeddingModelDownload(catalogModel);
     setDownloadProgress(model.id, 100);
     toast({
       description: `${model.name} downloaded successfully!`,
@@ -215,7 +166,6 @@ export function ModelSelectionPage() {
         return;
       }
       void downloadModel(model, {
-        modelCacheDir: registry.modelCacheDir,
         setDownloading: registry.setDownloading,
         setDownloadProgress: registry.setDownloadProgress,
         toast,

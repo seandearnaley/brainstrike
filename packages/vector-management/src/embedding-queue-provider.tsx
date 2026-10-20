@@ -201,6 +201,7 @@ async function loadBrowserEmbeddingQueue(): Promise<QueueAdapter> {
   return browserEmbeddingQueuePromise;
 }
 
+/** @internal Test seam: embedding-queue-provider-retry.test.tsx swaps the queue loader. */
 export function setBrowserEmbeddingQueueLoaderForTests(
   loader: null | BrowserEmbeddingQueueLoader
 ): void {

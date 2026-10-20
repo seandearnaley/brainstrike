@@ -11,6 +11,7 @@ import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/
 import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
   McpExtensionEnablement,
   McpHostControlRequest,
@@ -65,6 +66,10 @@ import {
   resolveDesktopMcpContent,
 } from '../../host-mcp-settings';
 import { createIpcCapability } from '../../ipc-capability';
+import {
+  downloadDesktopEmbeddingModel,
+  resolveModelDownloadDevice,
+} from '../../settings-model-download';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
 
@@ -72,10 +77,17 @@ const refuseWithoutHost = (): Promise<never> =>
   Promise.reject(new Error('The agent host provider reads are unavailable.'));
 
 configureModelRuntimeServices({
-  downloadEmbeddingModel: async (modelId, options) => {
-    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
-    const service = new SimpleEmbeddingService();
-    await service.downloadModel(modelId, options);
+  // BST-2230: the hidden embedding host loads the model's catalog plan on the
+  // device the host's rule picks, into the cache indexing reads (ADR-0007).
+  downloadEmbeddingModel: async (model) => {
+    const execution = visibleLocalExecution();
+    if (!execution) {
+      throw new Error('The embedding host is unavailable.');
+    }
+    const device = await resolveModelDownloadDevice(await ensureVectorPreferencesHydrated(), () =>
+      execution.webgpuAdapter()
+    );
+    await downloadDesktopEmbeddingModel(model, device, new AbortController().signal);
   },
 });
 

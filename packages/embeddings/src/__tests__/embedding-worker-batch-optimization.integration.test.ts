@@ -16,8 +16,10 @@ import type {
   SimilarityResult,
 } from '../types.js';
 import type { EmbeddingCacheInterface } from '../worker/embedding-cache-types.js';
-import type { EmbeddingStatsRefreshController } from '../worker/embedding-worker.js';
-import { createEmbeddingStatsRefreshController } from '../worker/embedding-worker.js';
+import {
+  createEmbeddingStatsRefreshController,
+  type EmbeddingStatsRefreshController,
+} from '../worker/embedding-stats-refresh-controller.js';
 
 class FakeEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';

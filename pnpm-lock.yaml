@@ -2370,9 +2370,6 @@ importers:
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
-      '@brainstrike/tokenization':
-        specifier: workspace:*
-        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2407,6 +2404,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@effect/tsgo':
         specifier: 'catalog:'
         version: 0.53.3
@@ -2506,9 +2506,6 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
-      '@brainstrike/local-runtime':
-        specifier: workspace:*
-        version: link:../local-runtime
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
@@ -2549,6 +2546,9 @@ importers:
         specifier: ^19.3.1
         version: 19.3.1
     devDependencies:
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../local-runtime
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

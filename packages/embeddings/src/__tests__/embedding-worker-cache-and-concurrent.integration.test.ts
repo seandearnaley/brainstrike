@@ -20,7 +20,7 @@ import type {
   EmbeddingStatus,
   SimilarityResult,
 } from '../types.js';
-import type { CachedEmbedding, EmbeddingCacheInterface } from '../worker/embedding-worker.js';
+import type { CachedEmbedding, EmbeddingCacheInterface } from '../worker/embedding-cache-types.js';
 
 /**
  * Standard fake embedding service for testing

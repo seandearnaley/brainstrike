@@ -655,7 +655,27 @@
         // production mode honours only a package's `start` script.
         "src/cli/queue-cli.ts" // CLI entry point used via pnpm queue script
       ],
-      "project": ["src/**/*.{ts,tsx}!"],
+      "project": [
+        "src/**/*.{ts,tsx}!",
+        // Development tooling that lives in src/ but does not ship. Production
+        // mode only; default mode still grades these files.
+        // - The `eval:retrieval` CLI (src/evaluation/retrieval-eval-cli.ts) and
+        //   the runners and golden sets it shares with the search-*-eval and
+        //   retrieval-* tests.
+        "!src/evaluation/**!",
+        // - The db:schema:catalog, db:schema:ddl and db:schema:dump scripts, and
+        //   current-schema-catalog.integration.test.ts.
+        "!src/schema-snapshot/introspect.ts!",
+        // - `bench:hybrid-search` (scripts/benchmark-hybrid-search.ts) and the two
+        //   benchmark tests; docs/performance/hybrid-search-benchmarks.md.
+        "!src/search/hybrid-search-benchmark.ts!",
+        "!src/search/pglite-hybrid-search-benchmark.ts!",
+        // - QUALIFIED_PG_TEXTSEARCH_VERSION, which the pg-textsearch durability
+        //   gate and current-schema-catalog integration tests pin. Moving it into
+        //   __tests__/ would add an unchecked test file, which the test-program
+        //   debt guard (scripts/test-program-debt.json) refuses.
+        "!src/pg-textsearch-compatibility.ts!"
+      ],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",

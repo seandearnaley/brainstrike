@@ -28,7 +28,19 @@
     },
     "test": {
       // vitest.config.mts imports @brainstrike/build-utils, which exports only dist.
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/build-utils#build"],
+      // The unit suites also load native add-ons. assistant-server/skills-fs-deps
+      // imports @brainstrike/secure-fs-native statically, and host-lease-manager's
+      // tests read real process start times, which load windows-job-native on
+      // Windows. Each add-on's uncached `node-gyp rebuild` first removes build/,
+      // so without these edges a run that schedules it beside this task fails
+      // with "Could not locate the bindings file" (BST-2243). This is the same
+      // edge as state-store's `test`.
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "@brainstrike/build-utils#build",
+        "@brainstrike/secure-fs-native#build",
+        "@brainstrike/windows-job-native#build"
+      ],
       "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"],
       // vite-config.test.ts asserts desktop/web Vite alias parity by reading
       // apps/web/vite.config.mts — a CROSS-PACKAGE file turbo's default input
