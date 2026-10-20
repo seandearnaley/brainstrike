@@ -3,7 +3,13 @@
 import { createInterface } from 'node:readline';
 import { processStartTime, RootLock, RootLockedError } from '../../src/lock.js';
 
-const [root] = process.argv.slice(2) as [string];
+const [root, clockOffset = '0'] = process.argv.slice(2) as [string, string?];
+const offsetMs = Number(clockOffset);
+if (!Number.isSafeInteger(offsetMs)) {
+  throw new Error('invalid contender clock offset');
+}
+// Test-only reporting clock: the lock still uses its real process identity.
+const now = () => Date.now() + offsetMs;
 const acquire = Promise.withResolvers<number>();
 const release = Promise.withResolvers<void>();
 const commands = createInterface({ input: process.stdin });
@@ -26,19 +32,19 @@ if (processStartTime(process.pid) === null) {
 process.stdout.write('READY\n');
 const at = await acquire.promise;
 try {
-  const lateMs = Date.now() - at;
+  const lateMs = now() - at;
   const l = await RootLock.acquire(root);
-  const acquiredAt = Date.now();
+  const acquiredAt = now();
   process.stdout.write('DECIDED WON\n');
   await release.promise;
-  const releasedAt = Date.now();
+  const releasedAt = now();
   l.release();
   process.stdout.write(`WON ${process.pid} late=${lateMs}ms held=${acquiredAt}..${releasedAt}\n`);
   process.exit(0);
 } catch (e) {
   if (e instanceof RootLockedError) {
     process.stdout.write(
-      `REFUSED ${e.owner.pid} late=${Date.now() - at}ms decided=${Date.now()}\nDECIDED REFUSED\n`
+      `REFUSED ${e.owner.pid} late=${now() - at}ms decided=${now()}\nDECIDED REFUSED\n`
     );
     process.exit(0);
   }
