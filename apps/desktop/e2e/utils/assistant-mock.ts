@@ -359,6 +359,10 @@ async function configureAssistantProviderWithModels(
  * Enables the catalog row Main admits for a `provider::model` selection. The
  * committed host admission refuses a disabled row, and renderer selection alone
  * does not enable it (precedent: mcp-packaged-core.desktop.test.ts).
+ *
+ * BST-2242: the write goes through the renderer's catalog store, as Settings
+ * and the picker's Enable do. The composer's picker and its admission re-read
+ * follow that store, so a raw `window.modelCatalog` write commits unseen.
  */
 export async function enableAssistantCatalogModel(
   page: Page,
@@ -367,15 +371,19 @@ export async function enableAssistantCatalogModel(
   const separator = compositeModelKey.indexOf('::');
   const provider = compositeModelKey.slice(0, separator);
   const model = compositeModelKey.slice(separator + 2);
-  readBoundaryResult(
-    await page.evaluate(async (modelId) => {
-      const catalog = window.modelCatalog;
-      if (!catalog) {
-        throw new Error('The desktop model catalog capability is unavailable');
+  await page.evaluate(async (modelId) => {
+    const hooks = (
+      window as Window & {
+        __brainstrikeTestHooks__?: {
+          enableCatalogModels?: (modelIds: readonly string[]) => Promise<void>;
+        };
       }
-      return await catalog.setModels([modelId], true);
-    }, model)
-  );
+    ).__brainstrikeTestHooks__;
+    if (!hooks?.enableCatalogModels) {
+      throw new Error('The desktop catalog enable test hook is unavailable');
+    }
+    await hooks.enableCatalogModels([modelId]);
+  }, model);
   const after = readBoundaryResult(
     await page.evaluate(async () => {
       const catalog = window.modelCatalog;
