@@ -7,6 +7,7 @@ const {
   applyPrivateDirectorySync,
   tryExclusiveFlock,
   replaceFileSync,
+  setDefaultOwnerToCurrentUserSync,
   verifyPrivateDirectorySync,
 } = bindings({
   bindings: 'secure_fs_native',
@@ -65,3 +66,5 @@ exports.replaceFileSync = replaceFileSync;
 
 exports.applyPrivateDirectorySync = applyPrivateDirectorySync;
 exports.verifyPrivateDirectorySync = verifyPrivateDirectorySync;
+
+exports.setDefaultOwnerToCurrentUserSync = setDefaultOwnerToCurrentUserSync;

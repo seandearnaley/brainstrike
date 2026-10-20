@@ -1,6 +1,10 @@
-import { unpinnedCatalogEmbeddingPlan } from '@brainstrike/embeddings/inference-plan';
+import {
+  catalogModelCachePlan,
+  unpinnedCatalogEmbeddingPlan,
+} from '@brainstrike/embeddings/inference-plan';
 import type {
   CatalogEmbeddingModel,
+  ModelCachePlan,
   WebGpuAdapterAvailability,
 } from '@brainstrike/indexing-contract';
 import { EMBEDDING_MODEL_DOWNLOAD_TEXT } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
@@ -54,4 +58,18 @@ export async function downloadDesktopEmbeddingModel(
     },
     { signal }
   );
+}
+
+/**
+ * BST-2241: the models whose download plans on `device` are fully in the hidden
+ * embedding host's model cache, the cache indexing reads. The host's own
+ * embedding worker reads it; this renderer loads nothing.
+ */
+export async function readDesktopDownloadedEmbeddingModels(
+  models: readonly CatalogEmbeddingModel[],
+  device: 'webgpu' | 'wasm',
+  readHostCache: (plans: readonly ModelCachePlan[]) => Promise<readonly boolean[]>
+): Promise<readonly string[]> {
+  const cached = await readHostCache(models.map((model) => catalogModelCachePlan(model, device)));
+  return models.flatMap((model, index) => (cached[index] === true ? [model.id] : []));
 }

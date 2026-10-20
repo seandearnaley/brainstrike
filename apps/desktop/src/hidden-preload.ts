@@ -32,6 +32,10 @@ type EmbeddingHostQueryEmbeddingCancel =
 type EmbeddingHostQueryEmbeddingResponseReport =
   import('./embedding-host-shared').EmbeddingHostQueryEmbeddingResponseReport;
 type EmbeddingHostStatus = import('./embedding-host-shared').EmbeddingHostStatus;
+type EmbeddingHostModelCacheRequest =
+  import('./embedding-host-model-cache').EmbeddingHostModelCacheRequest;
+type EmbeddingHostModelCacheResponseReport =
+  import('./embedding-host-model-cache').EmbeddingHostModelCacheResponseReport;
 type EmbeddingHostWebGpuAdapterRequest =
   import('./embedding-host-webgpu-adapter').EmbeddingHostWebGpuAdapterRequest;
 type EmbeddingHostWebGpuAdapterResponseReport =
@@ -128,6 +132,9 @@ function exposeEmbeddingHostBridge(): void {
     onDocumentEmbeddingsRequest: (
       callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
     ) => subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsRequest, callback),
+    // BST-2241: the host answers Main's model cache request on its own channel.
+    onModelCacheStatusRequest: (callback: (request: EmbeddingHostModelCacheRequest) => void) =>
+      subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.modelCacheStatusRequest, callback),
     onQueryEmbeddingCancel: (callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, callback),
     onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
@@ -142,6 +149,9 @@ function exposeEmbeddingHostBridge(): void {
         DESKTOP_IPC_CHANNELS.embeddingHost.reportDocumentEmbeddingsResponse,
         response
       );
+    },
+    reportModelCacheStatusResponse: (response: EmbeddingHostModelCacheResponseReport): void => {
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportModelCacheStatusResponse, response);
     },
     reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, response);

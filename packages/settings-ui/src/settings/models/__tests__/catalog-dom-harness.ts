@@ -75,7 +75,6 @@ export function makeRowActions(overrides: Partial<CatalogRowActions> = {}): Cata
     downloadedModels: {},
     downloadProgress: {},
     isDownloading: {},
-    modelCacheDir: null,
     onDownload: vi.fn(),
     onToggle: vi.fn(),
     onToggleDetails: vi.fn(),

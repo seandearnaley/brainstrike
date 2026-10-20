@@ -46,8 +46,15 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
       compositeModelKey: MODEL,
       provider: 'openrouter',
     });
-    await enableAssistantCatalogModel(page, MODEL);
     await ensureAssistantShellVisible(page);
+    // BST-2242: the composer has settled on admission's refusal of the not yet
+    // enabled model, so only the enable itself can clear the gate.
+    await expect(
+      page
+        .getByRole('region', { exact: true, name: 'Assistant' })
+        .getByText('The selected catalog model is disabled', { exact: true })
+    ).toBeVisible({ timeout: 30_000 });
+    await enableAssistantCatalogModel(page, MODEL);
     await send(page, 'BOUND_BEFORE_REOPEN', 'BOUND_SEND_SUCCEEDED');
     const userDataDir = electron.getUserDataDir();
     const boundThread = (await readHostThreadTree(userDataDir)).find(({ rows }) =>

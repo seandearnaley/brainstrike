@@ -25,3 +25,28 @@ export async function downloadWebEmbeddingModel(
     await service.dispose();
   }
 }
+
+/**
+ * BST-2241: the models whose download plans on `device` are fully in the
+ * embedding worker's model cache, the cache web indexing reads. A short-lived
+ * worker reads it; the page loads nothing.
+ */
+export async function readWebDownloadedEmbeddingModels(
+  models: readonly CatalogModelFacts[],
+  device: 'webgpu' | 'wasm'
+): Promise<readonly string[]> {
+  const [
+    { readModelCacheStatus },
+    { resolveViteEmbeddingWorkerUrlHref },
+    { catalogModelCachePlan },
+  ] = await Promise.all([
+    import('@brainstrike/embedding-worker'),
+    import('@brainstrike/embedding-worker/vite'),
+    import('@brainstrike/embeddings/inference-plan'),
+  ]);
+  const cached = await readModelCacheStatus(
+    resolveViteEmbeddingWorkerUrlHref(),
+    models.map((model) => catalogModelCachePlan(model, device))
+  );
+  return models.flatMap((model, index) => (cached[index] === true ? [model.id] : []));
+}

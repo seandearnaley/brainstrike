@@ -9,7 +9,6 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 const MODEL_REGISTRY_SNAPSHOT = {
   downloadedModels: {},
-  modelCacheDir: null,
   models: [
     {
       bestFor: ['tests'],
@@ -108,55 +107,7 @@ test.describe('Model Catalog settings (desktop)', () => {
     });
     await window.getByTestId('model-registry-retry').click();
 
-    // The cache directory lives in a header popover since BST-1805.
-    await expect(window.getByTestId('model-cache-dir-trigger')).toBeVisible();
+    await expect(window.getByTestId('model-registry-refresh')).toBeVisible();
     await expect(window.locator('[data-testid^="model-row-"]').first()).toBeVisible();
-  });
-
-  test('shows the cache-directory unavailable path when the bridge is missing', async ({
-    window,
-    homePage,
-  }) => {
-    await installSettingsTestOverrides(window, {
-      modelRegistry: {
-        cacheDirectorySelection: { unavailable: true },
-        snapshot: MODEL_REGISTRY_SNAPSHOT,
-      },
-    });
-    await reloadDesktopSettings(window, 'desktop-cache-dir-unavailable-override');
-
-    const settingsPage = new SettingsPage(window);
-    await openModelsSettings(homePage, settingsPage);
-    await window.getByTestId('model-cache-dir-trigger').click();
-    await window.getByTestId('model-cache-dir-select').click();
-
-    await expect(
-      window.getByText('Directory selection unavailable', { exact: true })
-    ).toBeVisible();
-    await expect(
-      window.getByText('Choose a cache directory from the desktop app.', { exact: true })
-    ).toBeVisible();
-  });
-
-  test('updates the cache directory through the desktop bridge', async ({ window, homePage }) => {
-    await installSettingsTestOverrides(window, {
-      modelRegistry: {
-        cacheDirectorySelection: { path: '/tmp/brainstrike-model-cache' },
-        snapshot: MODEL_REGISTRY_SNAPSHOT,
-      },
-    });
-    await reloadDesktopSettings(window, 'desktop-cache-dir-path-override');
-
-    const settingsPage = new SettingsPage(window);
-    await openModelsSettings(homePage, settingsPage);
-    await window.getByTestId('model-cache-dir-trigger').click();
-    await window.getByTestId('model-cache-dir-select').click();
-
-    await expect(window.getByTestId('model-cache-dir-input')).toHaveValue(
-      '/tmp/brainstrike-model-cache'
-    );
-    await expect(window.getByTestId('model-cache-dir-trigger')).toContainText(
-      '/tmp/brainstrike-model-cache'
-    );
   });
 });
