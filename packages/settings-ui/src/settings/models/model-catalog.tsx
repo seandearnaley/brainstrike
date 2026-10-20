@@ -74,7 +74,6 @@ export interface ModelCatalogProps {
   readonly isDownloading: Readonly<Record<string, boolean>>;
   /** The registry has loaded at least once (distinguishes loading from empty). */
   readonly loaded: boolean;
-  readonly modelCacheDir: string | null;
   readonly models: readonly DbModel[];
   readonly onBulkChange: (change: ModelBulkChange) => void;
   readonly onDownload: (modelId: string) => void;
@@ -94,7 +93,6 @@ export function ModelCatalog({
   downloadProgress,
   isDownloading,
   loaded,
-  modelCacheDir,
   models,
   onBulkChange,
   onDownload,
@@ -221,7 +219,6 @@ export function ModelCatalog({
       downloadedModels,
       downloadProgress,
       isDownloading,
-      modelCacheDir,
       onDownload,
       onToggle,
       onToggleDetails: toggleDetails,
@@ -236,7 +233,6 @@ export function ModelCatalog({
       downloadProgress,
       filters.type,
       isDownloading,
-      modelCacheDir,
       onDownload,
       onToggle,
       tier,
