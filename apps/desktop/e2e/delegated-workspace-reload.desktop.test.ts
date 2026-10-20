@@ -172,7 +172,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   modelProvider,
   window,
 }, testInfo) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
+  const { mockFileSystemOperations, reloadRenderer } = await loadElectronHelpers();
   await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
@@ -267,7 +267,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
 
   // Every agent turn from here on would be a child or root executing.
   const settledModelCalls = modelCalls();
-  await window.reload();
+  await reloadRenderer(window, 'delegated-workspace-restoration');
   await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await threadRow(ROOT_TITLE).click();
@@ -464,7 +464,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
     [second.threadId]: false,
   });
 
-  await window.reload();
+  await reloadRenderer(window, 'delegated-workspace-after-delete');
   await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await expect(threadRow(OTHER_TITLE)).toBeVisible();

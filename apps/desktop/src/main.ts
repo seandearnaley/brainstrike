@@ -62,7 +62,7 @@ import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createDesktopCollectionCatalog } from './collection-catalog';
-import { createWindow, noteNextWindowReload } from './create-window';
+import { createWindow, noteNextWindowReload, reloadDesktopWindows } from './create-window';
 import { joinProfileDirectory } from './database-location';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
@@ -388,6 +388,46 @@ let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = process.platform === 'win32' ? 10_000 : 5000;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
+
+async function reportDocumentReloadFailure(
+  window: BrowserWindow | undefined,
+  phase: 'admission' | 'preparation' | 'replacement'
+): Promise<void> {
+  const options: Electron.MessageBoxOptions = {
+    buttons: [phase === 'admission' ? 'OK' : 'Close window'],
+    cancelId: 0,
+    message:
+      phase === 'admission'
+        ? 'A renderer reload is already in progress. No database reset was performed.'
+        : phase === 'preparation'
+          ? 'The app could not confirm that this window finished saving. The window will close.'
+          : 'The app could not safely complete this reload. The window will close.',
+    title: phase === 'preparation' ? 'Save Confirmation Failed' : 'Reload Failed',
+    type: 'error',
+  };
+  if (window && !window.isDestroyed()) {
+    await dialog.showMessageBox(window, options);
+    return;
+  }
+  await dialog.showMessageBox(options);
+}
+
+function requestDocumentReload(
+  window: BrowserWindow,
+  reason: string,
+  source: 'main' | 'renderer'
+): void {
+  void reloadDesktopWindows(
+    [window],
+    { reason, source },
+    {
+      deadlineMs: SIGNAL_SHUTDOWN_TIMEOUT_MS,
+      reportFailure: reportDocumentReloadFailure,
+      shouldReload: () => !isDesktopShuttingDown(),
+    }
+  ).catch((cause: unknown) => logger.error('Desktop reload did not complete', { cause }));
+}
+
 let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
 
 // One shutdown run's step BODIES, built when the run starts so they capture
@@ -1612,11 +1652,7 @@ if (singleInstanceLockAcquired) {
                   logger.warn('Skipped menu reload because no target window was focused');
                   return;
                 }
-                noteNextWindowReload(targetWindow, {
-                  reason: 'menu-reload',
-                  source: 'main',
-                });
-                targetWindow.webContents.reload();
+                requestDocumentReload(targetWindow, 'menu-reload', 'main');
               },
               label: 'Reload',
             },
@@ -1662,38 +1698,57 @@ if (singleInstanceLockAcquired) {
                 }
                 developerDatabaseResetInFlight = true;
                 try {
-                  // BST-1330: same drains as shutdown/factory reset — a bare
-                  // resetLocalDatabase() could race in-flight live refreshes.
-                  // Join native producers, readers, and writer before resetting this profile.
-                  await nativeRootDataDeletion.transition(async () => {
-                    await nativeIndexActivation.stopSources();
-                    const lease = await profileReset.prepare();
-                    try {
-                      await profileReset.clear(lease);
-                    } finally {
-                      lease.release();
-                    }
-                    await nativeIndexActivation.resume();
-                  });
-                  await dialog.showMessageBox({
-                    buttons: ['OK'],
-                    message: 'Local database has been reset. The app will reload.',
-                    title: 'Database Reset',
-                    type: 'info',
-                  });
-                  for (const win of BrowserWindow.getAllWindows()) {
-                    noteNextWindowReload(win, {
+                  const windows = BrowserWindow.getAllWindows().filter(
+                    (window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui'
+                  );
+                  await reloadDesktopWindows(
+                    windows,
+                    {
                       reason: 'developer-reset-local-database',
                       source: 'main',
-                    });
-                    win.webContents.reloadIgnoringCache();
-                  }
-                } catch (error) {
-                  const message = error instanceof Error ? error.message : String(error);
-                  dialog.showErrorBox(
-                    'Reset Failed',
-                    `The local database was not reset: ${message}\n\nIf background indexing kept the database busy, retry after it settles (or use Factory Reset in Settings, which stops background work first).`
+                    },
+                    {
+                      beforeReload: async () => {
+                        // Retiring documents have drained before the reset owner clears their profile.
+                        await nativeRootDataDeletion.transition(async () => {
+                          await nativeIndexActivation.stopSources();
+                          const lease = await profileReset.prepare();
+                          try {
+                            await profileReset.clear(lease);
+                          } finally {
+                            lease.release();
+                          }
+                          await nativeIndexActivation.resume();
+                        });
+                        await dialog.showMessageBox({
+                          buttons: ['OK'],
+                          message: 'Local database has been reset. The app will reload.',
+                          title: 'Database Reset',
+                          type: 'info',
+                        });
+                        if (isDesktopShuttingDown()) {
+                          return;
+                        }
+                        // Hidden hosts retain the existing developer reset replacement behavior.
+                        for (const window of BrowserWindow.getAllWindows()) {
+                          if (window.isDestroyed() || getWindowRole(window) === 'visible-ui') {
+                            continue;
+                          }
+                          noteNextWindowReload(window, {
+                            reason: 'developer-reset-local-database',
+                            source: 'main',
+                          });
+                          window.webContents.reloadIgnoringCache();
+                        }
+                      },
+                      deadlineMs: SIGNAL_SHUTDOWN_TIMEOUT_MS,
+                      ignoreCache: true,
+                      reportFailure: reportDocumentReloadFailure,
+                      shouldReload: () => !isDesktopShuttingDown(),
+                    }
                   );
+                } catch (cause) {
+                  logger.error('Developer database reset did not complete', { cause });
                 } finally {
                   developerDatabaseResetInFlight = false;
                 }
@@ -1794,6 +1849,7 @@ if (singleInstanceLockAcquired) {
         registerMainPlatformIpcHandlers({
           getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
           noteNextWindowReload,
+          requestReload: (window, reason) => requestDocumentReload(window, reason, 'renderer'),
         })
       );
 

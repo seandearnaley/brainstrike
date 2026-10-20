@@ -426,7 +426,18 @@ function App() {
         source="desktop-renderer"
       />
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-        <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__}>
+        <AppReloadGate
+          buildId={__BRAINSTRIKE_BUILD_ID__}
+          reload={() => {
+            const lifecycle = window.desktopLifecycle;
+            if (!lifecycle) {
+              throw new Error('The desktop reload capability is unavailable');
+            }
+            void lifecycle.requestReload('failed-chunk-recovery').catch((cause: unknown) => {
+              rendererLogger.error('Desktop reload request was refused', { cause });
+            });
+          }}
+        >
           <RootLayoutContent />
         </AppReloadGate>
       </AdaptersProvider>
