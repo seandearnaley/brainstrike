@@ -100,7 +100,11 @@ const storageAdapter = createWriteBehindStorageAdapter(new ElectronRendererStora
   delayMs: STORAGE_WRITE_BEHIND_MS,
 });
 if (desktopRendererRole === 'visible-ui' && bridgeValidation.ok) {
-  registerDurableFlush(storageAdapter.flush);
+  const unregisterStorageFlush = registerDurableFlush(storageAdapter.flush);
+  // Under HMR this module re-executes with a new adapter; the old registration goes with it.
+  import.meta.hot?.dispose(() => {
+    unregisterStorageFlush();
+  });
 }
 
 // Default to INFO - use LOG_LEVEL=DEBUG env var for verbose debugging
