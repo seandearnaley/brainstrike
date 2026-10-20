@@ -263,11 +263,6 @@ export interface WebStateRequests {
 
 export type WebStateOp = keyof WebStateRequests;
 
-export interface WebStateRequest<Op extends WebStateOp = WebStateOp> {
-  readonly op: Op;
-  readonly params: WebStateRequests[Op]['params'];
-}
-
 export type WebStateReply =
   | { readonly id: number; readonly ok: true; readonly result: unknown }
   | { readonly error: WebStateErrorReply; readonly id: number; readonly ok: false };

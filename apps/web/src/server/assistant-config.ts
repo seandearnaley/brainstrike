@@ -118,7 +118,10 @@ function hostedWebDeprecatedEnvVars(): readonly DeprecatedEnvVarReport[] {
   return cachedDeprecatedEnvVarReports;
 }
 
-/** Tests mutate process.env per case; production never calls this. */
+/**
+ * Tests mutate process.env per case; production never calls this.
+ * @internal Test seam: assistant-config.test.ts.
+ */
 export function resetHostedWebDeprecatedEnvVarsForTests(): void {
   cachedDeprecatedEnvVarReports = undefined;
 }
@@ -163,10 +166,4 @@ function isConfiguredAssistantProvider(
   config: AssistantProviderConfig
 ): config is ConfiguredAssistantProviderConfig {
   return Boolean(config.enabled && config.apiKey && config.provider);
-}
-
-export function getAssistantApiKey(
-  provider: HostedWebAssistantProvider = 'openai'
-): string | undefined {
-  return resolveAssistantProviderConfig(provider).apiKey;
 }
