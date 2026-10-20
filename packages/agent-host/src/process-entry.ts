@@ -221,7 +221,7 @@ export async function runAgentHostProcess(
     controller.signal.throwIfAborted();
     parent?.started?.(acquired);
     ready = true;
-    await publish({ event: 'ready' });
+    await publish({ event: 'ready', record: acquired.record });
     await host.closed;
   } catch (cause) {
     failures.push(cause);

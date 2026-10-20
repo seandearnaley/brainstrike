@@ -205,7 +205,7 @@ it('a current schema store retains its search-vector backlog through physical cl
   ).toEqual([{ seq: 1, text: 'Rocket launch notes' }]);
   const reopened = openConnection(f.options.dbPath, { readonly: true });
   try {
-    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(14);
+    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(15);
   } finally {
     reopened.close();
   }

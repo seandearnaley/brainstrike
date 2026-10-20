@@ -11,7 +11,9 @@ export function messages(rows) {
       'type' in event &&
       (event.type === 'text' || event.type === 'tool-result')
     ) {
-      return [{ messageId: JSON.stringify([row.threadId, row.seq]), seq: row.seq }];
+      return [
+        { messageId: JSON.stringify([row.threadId, row.seq]), seq: row.seq, sources: [row.seq] },
+      ];
     }
     return [];
   });

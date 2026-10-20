@@ -176,7 +176,7 @@ test('a reused PID with a different start identity is stale even though that PID
       const host = await startHost(options);
       hosts.push(host);
       return {
-        identity: { pid: host.record.pid, start: host.record.start },
+        record: host.record,
         release: async () => undefined,
         retire: () => host.close(),
       };

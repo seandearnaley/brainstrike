@@ -470,6 +470,16 @@ export const stateMessageScopeSchema = Schema.Struct({
 export type StateMessageScope = typeof stateMessageScopeSchema.Type;
 export const stateMessageIdentitySchema = Schema.Struct({ messageId: nonblank, seq: positive });
 export type StateMessageIdentity = typeof stateMessageIdentitySchema.Type;
+/**
+ * A producer's canonical message with the committed rows its identity is read
+ * from, its own row included. While those rows' bytes are unchanged, appends
+ * cannot retract the identity, so a recall re-proves it by reading only them.
+ */
+export const stateMessageSourceSchema = Schema.Struct({
+  ...stateMessageIdentitySchema.fields,
+  sources: Schema.Array(positive).check(Schema.isMinLength(1)),
+});
+export type StateMessageSource = typeof stateMessageSourceSchema.Type;
 export const stateMessagePrepareSchema = Schema.Struct({
   messages: Schema.Array(stateMessageIdentitySchema).check(Schema.isMinLength(1)),
   profile: vectorProfileSchema,

@@ -55,6 +55,7 @@ const EXEMPT_ENTRIES = new Map([
     "a worker thread in Main's process, which shares Main's token",
   ],
   ['apps/desktop/src/hidden-preload.ts', 'a renderer preload; creates no files'],
+  ['apps/desktop/src/lifecycle-delay-seam.ts', 'a module Main loads, not a process entry'],
   ['apps/desktop/src/main.ts', 'a module Main loads after main-bootstrap, not a process entry'],
   [
     'apps/desktop/src/official-conformance-client-entry.ts',

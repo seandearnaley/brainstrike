@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { crc32 } from 'node:zlib';
 import { openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -52,6 +53,36 @@ async function assertQueries(
   }
 }
 
+it('upgrading schema 9 retires a message vector whose source truth was purged before it', async () => {
+  const f = await compatibleFixture(9);
+  let port: Awaited<ReturnType<typeof openIndexer>> | undefined;
+  try {
+    // Schema 15 records the rows each vector's identity is read from; this one has none left.
+    const truth = openConnection(join(f.root, 'state.db'));
+    try {
+      const tombstone = '{"seq":1,"type":"purged"}';
+      truth
+        .prepare(
+          "UPDATE run_events SET payload=?,crc=?,type='purged' WHERE thread_id='thread' AND seq=1"
+        )
+        .run(tombstone, crc32(Buffer.from(tombstone)));
+    } finally {
+      truth.close();
+    }
+    port = await openIndexer(f.options, deadlines);
+    expect(await port.queryStateMessageVectors(f.messageQuery)).toEqual([]);
+    const audit = openConnection(f.dbPath, { readonly: true });
+    try {
+      expect(audit.prepare('SELECT count(*) FROM state_message_vectors').pluck().get()).toBe(0);
+    } finally {
+      audit.close();
+    }
+  } finally {
+    await port?.close();
+    await f.close();
+  }
+});
+
 for (const version of [8, 9] as const) {
   it(`preserves native schema ${version} read-only search, rows, vectors, grants and truth through upgrade/reopen`, async () => {
     const f = await compatibleFixture(version);
@@ -87,7 +118,7 @@ for (const version of [8, 9] as const) {
       expect(upgraded).toEqual(baseline);
       const audit = openConnection(f.dbPath, { readonly: true });
       try {
-        expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(14);
+        expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(15);
         expect(audit.prepare('SELECT count(*) FROM state_observation_vectors').pluck().get()).toBe(
           0
         );
@@ -250,7 +281,7 @@ for (const version of [8, 9] as const) {
             db.exec('CREATE TABLE state_observation_vectors(counterfeit TEXT)');
           }
           if (invalid === 'unknown') {
-            db.prepare('UPDATE index_metadata SET schema_version=14').run();
+            db.prepare('UPDATE index_metadata SET schema_version=15').run();
           }
         } finally {
           db.close();
@@ -271,7 +302,7 @@ for (const version of [8, 9] as const) {
         const audit = openConnection(f.dbPath, { readonly: true });
         try {
           expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(
-            invalid === 'unknown' ? 14 : version
+            invalid === 'unknown' ? 15 : version
           );
           expect(
             audit

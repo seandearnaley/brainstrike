@@ -73,6 +73,7 @@ describe('main-process bundle config', () => {
       'hidden-preload': 'src/hidden-preload.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',
       'indexer-host-entry': 'src/indexer-host-entry.ts',
+      'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
       'main-runtime': 'src/main.ts',

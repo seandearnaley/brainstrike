@@ -53,7 +53,7 @@ async function main(): Promise<void> {
     host = await startHost(options, undefined, controller.signal);
     controller.signal.throwIfAborted();
     ready = true;
-    await report({ event: 'ready' });
+    await report({ event: 'ready', record: host.record });
     await host.closed;
   } finally {
     await host?.close();

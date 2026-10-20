@@ -158,17 +158,20 @@ test('a launcher that gives up on the host it started retires it before rejectin
   }
 });
 
-test('the startup deadline cancels a starting host and joins its exit before the launch rejects (BST-2167)', async () => {
+test('cancelling a launch cancels its starting host and joins its exit before the launch rejects (BST-2167)', async () => {
   for (const lifetime of ['cli', 'persistent'] as const) {
     const root = await freshRoot();
     const children: LockOwner[] = [];
+    // The launch's caller (a quit during startup) cancels; no launch deadline does.
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(new Error('Host start cancelled')), 200);
     const refused = await launchHost(root, {
       lifetime,
+      signal: caller.signal,
       spawn: unreadySpawner('honour', children),
-      startupTimeoutMs: 200,
     }).catch((cause: unknown) => cause);
 
-    expect(refused).toMatchObject({ message: 'Host startup timed out' });
+    expect(refused).toMatchObject({ message: 'Host start cancelled' });
     const [child] = children;
     expect(child?.pid).toBeGreaterThan(0);
     expect({ lifetime, live: processStartTime(child?.pid ?? 0) === child?.start }).toEqual({
@@ -187,17 +190,19 @@ test('a host that ignores cancel-startup is killed and joined within the starter
     // readiness deadline; the same bound then limits its exit.
     const boundMs = 1500;
     const at = Date.now();
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(new Error('Host start cancelled')), 200);
     const refused = await launchHost(root, {
       lifetime,
+      signal: caller.signal,
       spawn: unreadySpawner('ignore', children, boundMs),
-      startupTimeoutMs: 200,
     }).catch((cause: unknown) => cause);
     const elapsedMs = Date.now() - at;
 
     const [child] = children;
     expect(refused).toBeInstanceOf(AggregateError);
     expect((refused as AggregateError).errors.map((error: Error) => error.message)).toEqual([
-      'Host startup timed out',
+      'Host start cancelled',
       `Host pid ${child?.pid} was still running ${boundMs} ms after cancel-startup; it was killed`,
     ]);
     expect({ lifetime, live: processStartTime(child?.pid ?? 0) === child?.start }).toEqual({

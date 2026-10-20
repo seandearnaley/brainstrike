@@ -9,10 +9,10 @@ import type { MemoryObservationRecord } from '@brainstrike/state-store/state-tru
 import { Predicate, Schema } from 'effect';
 import {
   decoder,
-  type StateMessageIdentity,
+  type StateMessageSource,
   type StateObservationGroup,
   type StateSearchRow,
-  stateMessageIdentitySchema,
+  stateMessageSourceSchema,
   stateObservationGroupSchema,
   stateSearchRowSchema,
 } from './contracts.js';
@@ -63,7 +63,7 @@ export interface StateProjection {
   decode(raw: string): StateProjectionRow;
   event(raw: string): unknown;
   readonly identity: string;
-  messages?(rows: readonly StateMessageEvent[]): readonly StateMessageIdentity[];
+  messages?(rows: readonly StateMessageEvent[]): readonly StateMessageSource[];
   observationChunks?(text: string): readonly string[];
   observations?(record: MemoryObservationRecord): readonly StateObservationGroup[];
 }
@@ -130,7 +130,7 @@ export function createStateProjection(
     ...(loaded.messages
       ? {
           messages: (rows: readonly StateMessageEvent[]) =>
-            decoder(Schema.Array(stateMessageIdentitySchema))(loaded.messages?.(rows)),
+            decoder(Schema.Array(stateMessageSourceSchema))(loaded.messages?.(rows)),
         }
       : {}),
     decode: (raw) => {

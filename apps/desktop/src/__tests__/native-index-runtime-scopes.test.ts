@@ -124,17 +124,19 @@ function fixture(initial: Authority) {
     events.push('reader-installed');
   });
   const getAuthority = vi.fn(async () => authority);
+  const profile = createDesktopProfileRuntime(() => ({
+    acquire: async () => undefined,
+    close: async () => undefined,
+  }));
   const dependencies = {
+    admitProfile: (signal?: AbortSignal) => profile.acquire(signal),
     closeQueries,
     createIndexOwner,
     getAuthority,
     getFileInvalidator: () => vi.fn(),
     getRootIds: async () => authority.rootIds,
     installQueryTarget,
-    profile: createDesktopProfileRuntime(() => ({
-      acquire: async () => undefined,
-      close: async () => undefined,
-    })),
+    profile,
   };
   const runtime = createNativeIndexRuntime(dependencies);
   return {

@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     if (stopRequested) {
       await host.close();
     } else {
-      parent.postMessage({ event: 'ready' } satisfies StartupMessage);
+      parent.postMessage({ event: 'ready', record: host.record } satisfies StartupMessage);
     }
     await host.closed;
     if (controlFailure !== undefined) {

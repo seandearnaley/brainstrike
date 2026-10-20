@@ -80,7 +80,12 @@ function fixture(authority: NativeIndexAuthority, stored: readonly ScopedManifes
     verifyScopedManifest:
       verifyScopedManifest as unknown as ScopedIndexerPort['verifyScopedManifest'],
   };
+  const profileRuntime = createDesktopProfileRuntime(() => ({
+    acquire: async () => undefined,
+    close: async () => undefined,
+  }));
   const runtime = createNativeIndexRuntime({
+    admitProfile: (signal) => profileRuntime.acquire(signal),
     closeQueries: async () => {},
     createIndexOwner: async (opened: NativeIndexAuthority) => ({
       close: async () => {},
@@ -96,10 +101,7 @@ function fixture(authority: NativeIndexAuthority, stored: readonly ScopedManifes
     installQueryTarget: () => {
       events.push('reader-install');
     },
-    profile: createDesktopProfileRuntime(() => ({
-      acquire: async () => undefined,
-      close: async () => undefined,
-    })),
+    profile: profileRuntime,
   });
   return { events, removeScopedFile, replaceFileBindings, runtime };
 }

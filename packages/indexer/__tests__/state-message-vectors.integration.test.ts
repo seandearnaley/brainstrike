@@ -452,7 +452,7 @@ it('refuses schema8 and changed acquired resource grants while preserving files 
     ).rejects.toMatchObject({ code: 'rebuild-required' });
     expect(await readFile(f.options.dbPath)).toEqual(bytes);
     const restore = openConnection(f.options.dbPath);
-    restore.prepare('UPDATE index_metadata SET schema_version=14').run();
+    restore.prepare('UPDATE index_metadata SET schema_version=15').run();
     restore.close();
     await expect(
       openIndexer(
@@ -547,6 +547,18 @@ it('surfaces CRC and missing-sequence truth failures and never ranks across them
       crc32(Buffer.from(changed))
     );
     await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/sequence identity gap/);
+    // A committed row changes only into its purge tombstone; any other change is damage.
+    const rewritten = JSON.stringify({
+      ...decoder(Schema.Record(Schema.String, Schema.Unknown))(JSON.parse(source)),
+      content: 'rewritten',
+    });
+    db.prepare("UPDATE run_events SET payload=?,crc=? WHERE thread_id='one' AND seq=1").run(
+      rewritten,
+      crc32(Buffer.from(rewritten))
+    );
+    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(
+      /changed under its recorded source/
+    );
     db.exec("DELETE FROM run_events WHERE thread_id='one' AND seq=1");
     db.exec('INSERT INTO run_events SELECT * FROM saved_truth');
     expect(await f.port.queryStateMessageVectors(query)).toHaveLength(1);
@@ -598,6 +610,26 @@ it('partitions vectors by each request’s complete profile and detects corrupt 
     await expect(
       openIndexer({ ...f.options, embedding: { indexMode: 'open-existing' } }, deadlines)
     ).rejects.toThrow(/finite/);
+  } finally {
+    await f.close();
+  }
+});
+
+it('refuses a stored vector that does not record its own source row', async () => {
+  const f = await fixture();
+  try {
+    await write(f);
+    await f.store.close();
+    await f.port.close();
+    const db = openConnection(f.options.dbPath);
+    try {
+      db.prepare('UPDATE state_message_sources SET hash=?').run('0'.repeat(64));
+    } finally {
+      db.close();
+    }
+    await expect(
+      openIndexer({ ...f.options, embedding: { indexMode: 'open-existing' } }, deadlines)
+    ).rejects.toMatchObject({ code: 'rebuild-required' });
   } finally {
     await f.close();
   }
@@ -734,6 +766,35 @@ it('accepts null text from real Core metadata across SQLite/vector reopen withou
       gaps: [],
     });
     expect(await port.queryStateMessageVectors({ ...query, scope: currentScope })).toEqual(before);
+    // The prompt's identity is read from its accepted command too: purging only that
+    // row retracts the message, though the vector's own row is unchanged.
+    await store.purge(threadId, accepted.seq);
+    // A purge retires the thread's Memory binding; bind it again to recall it.
+    const current = await store.memory({ operation: 'read', resourceId: 'resource' });
+    await store.memory({
+      changes: [
+        {
+          entity: {
+            id: threadId,
+            kind: 'thread',
+            payload: { id: threadId, metadata: {}, resourceId: 'resource' },
+            threadId,
+          },
+          operation: 'put',
+        },
+      ],
+      expectedRevision: current.revision,
+      operation: 'commit',
+      resourceId: 'resource',
+    });
+    await expect(
+      port.prepareStateMessageVectors({
+        messages: [{ messageId: accepted.event['commandId'], seq: started.seq }],
+        profile,
+        scope: currentScope,
+      })
+    ).rejects.toMatchObject({ code: 'message-not-authorized' });
+    expect(await port.queryStateMessageVectors({ ...query, scope: currentScope })).toEqual([]);
     await store.purge(threadId, started.seq);
     const db = openConnection(options.dbPath, { readonly: true });
     try {
