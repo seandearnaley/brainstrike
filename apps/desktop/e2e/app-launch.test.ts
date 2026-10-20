@@ -199,23 +199,18 @@ test.describe('Electron App Launch', () => {
 
 // Drive the public preload ports continuously, as background indexing does. Quit joins only
 // the document's durable writers (ADR-0026 R1), never these producers: they run until their
-// window closes, which quit does before it retires any host they call, and a read refused by
-// quit is a typed refusal, never a thrown error.
-test('renderer IPC producers are not joined at quit: they see only typed refusals and the app exits 0 @smoke', async ({
+// window closes, which quit does before it retires any host they call. Observed: every read
+// they issue after quit starts still succeeds, so none is refused and none fails.
+test('renderer IPC producers are not joined at quit: they run until their window closes and the app exits 0 with no error record @smoke', async ({
   electron,
 }, testInfo) => {
   const page = await electron.ensureWindow();
   const ownedProcess = (await electron.ensureContext()).app.process();
   const output: string[] = [];
   const producerErrors: string[] = [];
-  const refusals: string[] = [];
   page.on('console', (message) => {
-    const text = message.text();
-    if (text.startsWith('Renderer shutdown producer failed')) {
-      producerErrors.push(text);
-    }
-    if (text.startsWith('Renderer producer refused:')) {
-      refusals.push(text.slice('Renderer producer refused:'.length).trim());
+    if (message.text().startsWith('Renderer shutdown producer failed')) {
+      producerErrors.push(message.text());
     }
   });
   const capture = (chunk: Buffer) => output.push(chunk.toString());
@@ -238,12 +233,11 @@ test('renderer IPC producers are not joined at quit: they see only typed refusal
         await Promise.all([
           catalog.read().then((result) => {
             if (!result.ok) {
-              // A typed refusal is the boundary's answer, not a producer failure.
-              console.info(
-                'Renderer producer refused:',
-                JSON.stringify({ category: result.error.category, code: result.error.code })
+              throw new Error(
+                `${result.error.category}/${result.error.code}: ${result.error.message}`
               );
             }
+            return result.value;
           }),
           chunkingHost.ensureStarted(),
         ]);
@@ -273,12 +267,12 @@ test('renderer IPC producers are not joined at quit: they see only typed refusal
   expect(ownedProcess.exitCode).toBe(0);
   expect(ownedProcess.signalCode).toBeNull();
   expect(producerErrors).toEqual([]);
-  for (const refusal of refusals) {
-    expect(JSON.parse(refusal)).toEqual({
-      category: expect.any(String),
-      code: expect.any(String),
-    });
-  }
+  const errorRecords = log
+    .split('\n')
+    .filter((line) => line.startsWith('{'))
+    .map((line) => JSON.parse(line) as { level?: number; msg?: string })
+    .filter((record) => (record.level ?? 0) >= 50);
+  expect(errorRecords).toEqual([]);
   expect(log).not.toContain('chunking-host lifecycle has been disposed');
   expect(log).not.toContain('Chunking host is not running (state: stopped)');
   expect(log).not.toContain('DB host manager is closing');

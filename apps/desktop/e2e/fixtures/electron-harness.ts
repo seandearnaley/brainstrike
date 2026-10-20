@@ -262,7 +262,7 @@ export class ElectronHarness {
       return this.restartAndResetRenderer(recoveryAttempt, 'Renderer page was already closed.');
     }
 
-    const { reloadRenderer, resetAppState, waitForAppReady } = await loadElectronHelpers();
+    const { reloadClearedRenderer, resetAppState, waitForAppReady } = await loadElectronHelpers();
     await page.addInitScript(() => {
       (
         window as Window & {
@@ -286,7 +286,7 @@ export class ElectronHarness {
     }
 
     try {
-      await reloadRenderer(page, 'playwright-reset-renderer');
+      await reloadClearedRenderer(page, 'playwright-reset-renderer');
     } catch (error) {
       if (this.isRecoverableRendererError(error)) {
         return this.restartAndResetRenderer(

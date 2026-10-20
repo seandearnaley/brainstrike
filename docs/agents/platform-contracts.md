@@ -142,10 +142,21 @@ document it owns, then unloads the document whatever the answer:
 The renderer fences its UI (`inert`), joins the flushes, closes its host transport
 and acknowledges Main's private reply port. The latch belongs to that document
 generation; a reloaded document starts a fresh registry. A page never vetoes an
-unload Main owns. Crash recovery and factory-reset replacement are not prepared (a
-crashed document cannot answer; a reset discards its data), and neither are reloads
-a page starts itself (error boundary, reset panels), which can lose the last
-write-behind tail. Hidden hosts retain their existing retirement order.
+unload Main owns. Hidden hosts retain their existing retirement order.
+
+These reloads are deliberately not prepared:
+
+- Factory Reset (`factory-reset-panel.tsx`, then Main's replacement of every
+  visible window) and native content clear (`use-native-content-clear.ts`): their
+  durable state is being wiped, so a flush would write the old document's stale
+  state back into the cleared profile. They retire their writers through
+  `prepareFactoryReset` instead. The desktop E2E harness's state reset follows the
+  same rule (`reloadClearedRenderer`); every other E2E reload uses
+  `reloadRenderer`, the flushed path users get.
+- The `ui` error boundary's reload is crash recovery for a document that may be
+  broken; it can lose the last write-behind tail (at most 500 ms).
+- Crash recovery after `render-process-gone`: the renderer is dead and cannot
+  answer.
 
 Decisions: [ADR-0015](../adr/0015-desktop-platform-ipc-reset-diagnostics.md);
 graceful shutdown, [ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md).
