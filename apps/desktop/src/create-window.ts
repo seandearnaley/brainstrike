@@ -213,6 +213,8 @@ async function loadRenderer(win: BrowserWindow, target: DesktopRendererTarget) {
  * Create the main application window and load the appropriate renderer.
  */
 interface CreateWindowOptions {
+  /** Install window listeners synchronously before renderer navigation starts. */
+  onBeforeLoad?: (window: BrowserWindow) => void;
   windowState?: DesktopWindowState | null;
 }
 
@@ -577,6 +579,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
 
   logStartupPhase('loading-renderer');
   try {
+    options.onBeforeLoad?.(win);
     await loadRenderer(win, rendererTarget);
   } catch (error) {
     // Don't leave a dead splash window on screen when the renderer never loads;
