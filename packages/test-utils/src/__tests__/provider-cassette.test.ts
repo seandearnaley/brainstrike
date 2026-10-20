@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { createServer, type Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { createServer, type Server, type ServerResponse } from 'node:http';
+import { setImmediate as nextTask } from 'node:timers/promises';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   assembleProviderCassette,
   createProviderCassetteReplay,
@@ -97,7 +98,10 @@ const turn = (content: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-async function startReplay(replay: ProviderCassetteReplay) {
+async function startReplay(
+  replay: ProviderCassetteReplay,
+  onResponse?: (response: ServerResponse) => void
+) {
   const refusals: unknown[] = [];
   const url = await listen(
     createServer(async (request, response) => {
@@ -109,6 +113,7 @@ async function startReplay(replay: ProviderCassetteReplay) {
       if (!path) {
         throw new Error('bad path');
       }
+      onResponse?.(response);
       const refusal = await replay.serve({
         knob: path.knob,
         method: request.method ?? 'GET',
@@ -319,7 +324,7 @@ describe('provider cassette replay', () => {
     expect(served.status).toBe(200);
   });
 
-  it('waits out the recorded chunk times when paced, and serves at once when not', async () => {
+  it.each([0, 1])('preserves chunk times only when paced (pace %i)', async (pace) => {
     const provider = await startStandInProvider();
     const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
     recorders.push(recorder);
@@ -330,18 +335,55 @@ describe('provider cassette replay', () => {
         method: 'POST',
       })
     );
-    const cassette = cassetteOf(recorder);
-    const recordedMs = cassette.exchanges[0]?.response.chunks.at(-1)?.atMs ?? 0;
-    const elapsed = async (pace: number): Promise<number> => {
-      const server = await startReplay(createProviderCassetteReplay(cassette, { pace }));
-      const started = Date.now();
-      await readChunks(
-        await fetch(`${server.url}/OPENROUTER_BASE_URL/chat/completions`, { body, method: 'POST' })
-      );
-      return Date.now() - started;
+    const captured = cassetteOf(recorder);
+    const cassette = {
+      ...captured,
+      exchanges: captured.exchanges.map((exchange) => ({
+        ...exchange,
+        response: {
+          ...exchange.response,
+          chunks: FRAMES.map((frame, index) => ({ atMs: index * 20, bytes: frame.length })),
+        },
+      })),
     };
-    expect(await elapsed(1)).toBeGreaterThanOrEqual(recordedMs);
-    expect(await elapsed(0)).toBeLessThan(recordedMs);
+    const started = Promise.withResolvers<ServerResponse>();
+    const server = await startReplay(
+      createProviderCassetteReplay(cassette, { pace }),
+      started.resolve
+    );
+    const controller = new AbortController();
+    // Leave real socket I/O and setImmediate running; control only the pacing clock/timers.
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(0);
+    const received = fetch(`${server.url}/OPENROUTER_BASE_URL/chat/completions`, {
+      body,
+      method: 'POST',
+      signal: controller.signal,
+    }).then(readChunks);
+    const response = await started.promise;
+    const write = vi.spyOn(response, 'write');
+    try {
+      // This spy calls the real ServerResponse.write; the client still reads the real stream.
+      await nextTask();
+      expect(write.mock.calls.map(([chunk]) => chunk)).toEqual(FRAMES.slice(0, 1));
+      for (const count of [2, 3]) {
+        if (pace === 1) {
+          await vi.advanceTimersByTimeAsync(19);
+          await nextTask();
+          expect(write).toHaveBeenCalledTimes(count - 1);
+          await vi.advanceTimersByTimeAsync(1);
+        }
+        await nextTask();
+        expect(write.mock.calls.map(([chunk]) => chunk)).toEqual(FRAMES.slice(0, count));
+      }
+      expect(Date.now()).toBe(pace === 1 ? 40 : 0);
+      expect(Buffer.concat(await received)).toEqual(Buffer.concat(FRAMES));
+    } finally {
+      controller.abort();
+      await Promise.allSettled([received]);
+      write.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps concurrent exchanges in their recorded finishing order when paced, whatever order they arrive in', async () => {
