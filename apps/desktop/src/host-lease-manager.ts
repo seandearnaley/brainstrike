@@ -23,6 +23,7 @@ import {
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
+import { proofLaunchTiming } from './proof-launch-timing';
 
 export interface HostLeaseUtilityProcess {
   off(event: 'message', listener: (message: unknown) => void): unknown;
@@ -263,6 +264,28 @@ async function ownPlatform(
   return { nativeChildren, platform };
 }
 
+/** PROOF ONLY (windows-smoke-sweep3): the ready wait, timed from the fork. */
+async function timedReady(
+  ready: Promise<void>,
+  handle: HostLeaseUtilityProcess,
+  forkAt: number
+): Promise<void> {
+  try {
+    await ready;
+  } catch (cause) {
+    proofLaunchTiming('agent-host', 'ready-failed', {
+      error: cause instanceof Error ? cause.message : String(cause),
+      pid: handle.pid,
+      sinceForkMs: Math.round(performance.now() - forkAt),
+    });
+    throw cause;
+  }
+  proofLaunchTiming('agent-host', 'ready', {
+    pid: handle.pid,
+    sinceForkMs: Math.round(performance.now() - forkAt),
+  });
+}
+
 /** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
 export function createDesktopHostLease(options: DesktopHostLeaseOptions): DesktopHostLease {
   const closeTimeoutMs = options.closeTimeoutMs ?? 1500;
@@ -293,12 +316,38 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
     });
   };
   const acquire = async (): Promise<HostAttachment> => {
+    const acquireStart = performance.now();
+    let readyAt: number | undefined;
+    const since = (from: number | undefined): number | null =>
+      from === undefined ? null : Math.round(performance.now() - from);
+    proofLaunchTiming('agent-host', 'acquire-start');
     try {
       const attachment = await launchHost(options.root, {
-        attach: (record, timeoutMs) =>
-          record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
-            ? attachAgentHost(record, timeoutMs)
-            : attachHost(record, timeoutMs),
+        attach: async (record, timeoutMs) => {
+          const attachStart = performance.now();
+          proofLaunchTiming('agent-host', 'attach-start', {
+            pid: record.pid,
+            sinceReadyMs: since(readyAt),
+            timeoutMs,
+          });
+          try {
+            const attached = await (record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
+              ? attachAgentHost(record, timeoutMs)
+              : attachHost(record, timeoutMs));
+            proofLaunchTiming('agent-host', 'attach-done', {
+              elapsedMs: since(attachStart),
+              pid: record.pid,
+            });
+            return attached;
+          } catch (cause) {
+            proofLaunchTiming('agent-host', 'attach-failed', {
+              elapsedMs: since(attachStart),
+              error: cause instanceof Error ? cause.message : String(cause),
+              pid: record.pid,
+            });
+            throw cause;
+          }
+        },
         lifetime: 'app',
         spawn: async (start: HostStartOptions, signal: AbortSignal) => {
           const combined = AbortSignal.any([signal, abort.signal]);
@@ -317,6 +366,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             options.platformModule === undefined ? undefined : await options.platformOptions?.();
           combined.throwIfAborted();
           const { nativeChildren, platform } = await ownPlatform(scope, options);
+          const forkAt = performance.now();
+          proofLaunchTiming('agent-host', 'fork', { sinceAcquireMs: since(acquireStart) });
           const child = ownChild(
             fork(entrypoint, [
               JSON.stringify(start),
@@ -338,6 +389,10 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             ownedPid = child.handle.pid;
+            proofLaunchTiming('agent-host', 'spawn-event', {
+              pid: ownedPid,
+              sinceForkMs: since(forkAt),
+            });
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
@@ -347,7 +402,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
           }
           options.onChildStarted?.();
-          await ready;
+          await timedReady(ready, child.handle, forkAt);
+          readyAt = performance.now();
           const identity = readyIdentity(child);
           child.ready = true;
           options.onChildReady?.({
@@ -366,8 +422,13 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       if (retired) {
         throw abort.signal.reason;
       }
+      proofLaunchTiming('agent-host', 'acquired', { sinceAcquireMs: since(acquireStart) });
       return attachment;
     } catch (cause) {
+      proofLaunchTiming('agent-host', 'acquire-failed', {
+        error: cause instanceof Error ? cause.message : String(cause),
+        sinceAcquireMs: since(acquireStart),
+      });
       retired = true;
       try {
         await closeScope();

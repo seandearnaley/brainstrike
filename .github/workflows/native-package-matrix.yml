@@ -192,6 +192,8 @@ jobs:
         if: ${{ matrix.desktopSmoke }}
         env:
           BRAINSTRIKE_E2E_DESKTOP_TARGET: packaged
+          # PROOF ONLY (windows-smoke-sweep3): per-test process census and launch timings.
+          BRAINSTRIKE_PROOF_LAUNCH_TIMING: '1'
         run: pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke
 
       # test-results/ holds each failed test's trace, screenshots, video and error

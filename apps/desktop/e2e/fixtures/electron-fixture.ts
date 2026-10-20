@@ -12,6 +12,7 @@ import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { attachFailureScreenshot } from '../utils/failure-screenshot';
 import { type ModelProviderShim, startModelProviderShim } from '../utils/model-provider-shim';
+import { beginWindowsCiCensus, endWindowsCiCensus } from '../utils/windows-ci-census';
 import { ElectronHarness } from './electron-harness';
 
 interface ElectronTestOptions {
@@ -61,13 +62,19 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
       modelProvider,
       workspaceRoot
     );
+    // PROOF ONLY (windows-smoke-sweep3): per-test process census on Windows CI.
+    const census = await beginWindowsCiCensus(testInfo.title);
     try {
       await use(harness);
     } finally {
       // Before the close, so its deadline never pays for the capture (BST-2239).
       await attachFailureScreenshot(harness.currentWindow(), testInfo);
       // Failed retirement keeps the disposable profile for the still-owned process.
-      await harness.dispose();
+      try {
+        await harness.dispose();
+      } finally {
+        await endWindowsCiCensus(census);
+      }
       await removeElectronUserDataDir(userDataDir);
       await rm(workspaceRoot, { force: true, recursive: true });
     }

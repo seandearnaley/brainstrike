@@ -14,6 +14,7 @@ import {
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
+import { proofLaunchTiming } from './proof-launch-timing';
 
 interface OwnedCollectionScan {
   fault?: { readonly error: unknown };
@@ -90,7 +91,15 @@ export class IndexerHostManager {
     if (this.#closed) {
       throw new Error('Indexer host closed before launch.');
     }
+    const forkAt = performance.now();
+    proofLaunchTiming('indexer', 'fork');
     const child = utilityProcess.fork(this.#entryPath, [], { serviceName: 'brainstrike-indexer' });
+    child.once('spawn', () =>
+      proofLaunchTiming('indexer', 'spawn-event', {
+        pid: child.pid,
+        sinceForkMs: Math.round(performance.now() - forkAt),
+      })
+    );
     const protocolErrors = new Set<(error: unknown) => void>();
     const canonical = new CanonicalUtilityParent(
       (message) => {
@@ -153,7 +162,20 @@ export class IndexerHostManager {
       },
       send: (message) => child.postMessage(message),
     });
-    const port = await this.#connection.ready;
+    let port: Awaited<IndexerConnection['ready']>;
+    try {
+      port = await this.#connection.ready;
+    } catch (cause) {
+      proofLaunchTiming('indexer', 'ready-failed', {
+        error: cause instanceof Error ? cause.message : String(cause),
+        sinceForkMs: Math.round(performance.now() - forkAt),
+      });
+      throw cause;
+    }
+    proofLaunchTiming('indexer', 'ready', {
+      pid: child.pid,
+      sinceForkMs: Math.round(performance.now() - forkAt),
+    });
     return { ...port, close: () => this.close(), destroy: () => this.destroy() };
   }
 
@@ -310,6 +332,7 @@ export class IndexerHostManager {
   #bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout?: () => void): Promise<T> {
     return runWithTimeout(() => work, {
       onTimeout: () => {
+        proofLaunchTiming('indexer', 'request-deadline-exceeded', { timeoutMs });
         onTimeout?.();
         this.#closed = true;
         // Stop admission synchronously. The parent retains unfinished/failed retirement for close().
