@@ -24,12 +24,11 @@ import type {
 } from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
-import {
-  type BedrockReasoningEffort,
-  type GoogleThinkingLevel,
-  OPENAI_REASONING_EFFORT_VALUES,
-  type OpenAiReasoningEffort,
-  type OpenAiReasoningSummary,
+import type {
+  BedrockReasoningEffort,
+  GoogleThinkingLevel,
+  OpenAiReasoningEffort,
+  OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
@@ -53,17 +52,7 @@ export type ToolProjectionRewriteEntry =
       readonly kind: 'supersession';
       readonly supersededByToolCallId: string;
     });
-
-// The 7 supporting types below are byte-identical and dependency-free in both
-// @brainstrike/agent and @brainstrike/assistant-contract; the dependency-light
-// contract package owns them, agent re-exports for public-API stability.
-export type {
-  RuntimeAgentLoopSettings,
-  RuntimeModelSettings,
-  RuntimeWorkspaceIndexQueueProgress,
-  RuntimeWorkspaceIndexStatusState,
-  RuntimeWorkspaceRoot,
-} from '@brainstrike/assistant-contract';
+export type { RuntimeModelSettings, RuntimeWorkspaceRoot } from '@brainstrike/assistant-contract';
 
 export interface AgentMessagePartText {
   text: string;
@@ -258,18 +247,11 @@ export interface RuntimeMemoryContext {
   runId?: string;
   threadId: string;
 }
-
-/**
- * Re-exported, never re-declared. This package is the one that actually hands
- * `providerOptions` to the SDK, so a local copy narrower than the picker's
- * would drop a selected value on the floor with nothing to catch it.
- */
-export {
-  type BedrockReasoningEffort,
-  type GoogleThinkingLevel,
-  OPENAI_REASONING_EFFORT_VALUES,
-  type OpenAiReasoningEffort,
-  type OpenAiReasoningSummary,
+export type {
+  BedrockReasoningEffort,
+  GoogleThinkingLevel,
+  OpenAiReasoningEffort,
+  OpenAiReasoningSummary,
 };
 
 export interface OpenAiProviderOptions extends JSONObject {

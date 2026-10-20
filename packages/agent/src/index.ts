@@ -41,6 +41,7 @@ export {
   serializeFileMentionDirective,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
+export type { ReadToolOutputArtifactCursorInput } from '@brainstrike/assistant-contract/native-tool-schemas';
 export {
   type AssistantPersonaDefinition,
   type AssistantPersonaId,
@@ -470,8 +471,6 @@ export {
 } from './tool-projection/tool-model-output';
 export {
   projectToolOutputArtifactPage,
-  type ReadToolOutputArtifactCursorInput,
-  ReadToolOutputArtifactCursorInputSchema,
   type ReadToolOutputArtifactInput,
   ReadToolOutputArtifactInputSchema,
   type ReadToolOutputArtifactPageOptions,
@@ -485,6 +484,7 @@ export {
   type ToolOutputArtifactSearchProjection,
   type ToolOutputArtifactSearchResult,
 } from './tool-projection/tool-output-artifact-reader';
+
 export {
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
   TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,

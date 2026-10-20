@@ -623,6 +623,7 @@ function measureToolDefinitionBreakdown(
   };
 }
 
+/** @internal Test seam: token-measurement.spec.ts drives the same prepared measurement/serialization helpers used by provider-request. */
 export async function createRunTokenDiagnostics(
   params: {
     capability: TokenMeasurementCapability;

@@ -10,14 +10,12 @@
  */
 
 import {
-  DEFERRED_CAPABILITY_FAMILY_PHRASES,
   type DeferredCapabilityFamily,
   describeAvailableDeferredCapabilityFamilies as describeFamilies,
   NATIVE_TOOL_REGISTRIES,
 } from '@brainstrike/assistant-contract';
 
 export type { DeferredCapabilityFamily };
-export { DEFERRED_CAPABILITY_FAMILY_PHRASES };
 
 export const DEFERRED_CAPABILITY_FAMILIES: readonly DeferredCapabilityFamily[] =
   NATIVE_TOOL_REGISTRIES.capabilityFamilies;

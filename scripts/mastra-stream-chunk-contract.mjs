@@ -12,8 +12,9 @@
 // it. That inventory's only consumer was the Mastra agent loop, which is
 // retired: nothing in the tree imports `@mastra/core/stream` any more, so there
 // is no vendor union left to inventory. What survives is the part that was
-// never about the vendor — the two Brainstrike dispatches below, which the host
-// loop and the web proxy both feed, must still refuse to drop a chunk silently.
+// never about the vendor — the Brainstrike StreamChunk dispatch below, which the host
+// loop and the web proxy feed, must still refuse to drop a chunk silently.
+// The old Mastra tool-event adapter has no production caller and is retired.
 // If a vendor chunk union is ever consumed again, the inventory requirement
 // comes back with it rather than being reinvented.
 
@@ -26,18 +27,12 @@ import ts from 'typescript';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const DATA_STREAM_MAPPER_FILE = 'packages/agent/src/stream/data-stream-mapper.ts';
-const TOOL_EVENT_MAPPER_FILE = 'packages/agent/src/tool-projection/tool-event-mapper.ts';
 
 const DISPATCH_DEFAULT_DIAGNOSTICS = [
   {
     code: 'data_stream_mapper_unrecognized_chunk',
     filePath: DATA_STREAM_MAPPER_FILE,
     functionName: 'handleChunk',
-  },
-  {
-    code: 'mastra_tool_event_unrecognized_stream_chunk',
-    filePath: TOOL_EVENT_MAPPER_FILE,
-    functionName: 'mapMastraToolEvent',
   },
 ];
 
@@ -157,7 +152,7 @@ export async function findMastraStreamChunkContractViolations({ root = REPO_ROOT
   const violations = [];
   const sources = new Map();
 
-  for (const filePath of [DATA_STREAM_MAPPER_FILE, TOOL_EVENT_MAPPER_FILE]) {
+  for (const filePath of [DATA_STREAM_MAPPER_FILE]) {
     let source;
     try {
       source = await readFile(path.join(root, filePath), 'utf8');
@@ -198,7 +193,7 @@ async function main() {
   const { violations } = await findMastraStreamChunkContractViolations();
   if (violations.length === 0) {
     console.log(
-      'Mastra stream chunk contract intact: typed coverage and coded diagnostics are present.'
+      'Mastra stream chunk contract intact: the live dispatch has a coded default diagnostic.'
     );
     return;
   }
