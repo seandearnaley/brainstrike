@@ -386,14 +386,13 @@ let snapshotMaintenance: SnapshotStartupMaintenance | undefined;
 let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
-const SIGNAL_SHUTDOWN_TIMEOUT_MS = process.platform === 'win32' ? 10_000 : 5000;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
 
 // One shutdown run's step BODIES, built when the run starts so they capture
 // its state. They live here beside the module state they read and clear. The
-// keys are sorted, not ordered: the run ORDER, failure isolation, forced-exit
-// budget and logs are `main/desktop-graceful-shutdown.ts`'s
+// keys are sorted, not ordered: the run ORDER, failure isolation, slow-step
+// report and logs are `main/desktop-graceful-shutdown.ts`'s
 // `DESKTOP_SHUTDOWN_STEP_ORDER`, which is where a new step is ordered.
 function planDesktopShutdownRun(): DesktopShutdownRunPlan {
   let embeddingRetirement: Promise<void> | undefined;
@@ -406,9 +405,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
     return embeddingRetirement;
   };
   return {
-    // The reserved slice: `desktop-graceful-shutdown.ts` runs it after the ordered
-    // steps even when the deadline aborted one. `database-drain` has already
-    // stopped what issues database work, so this is the host close alone.
+    // `desktop-graceful-shutdown.ts` runs it after every ordered step settled.
+    // `database-drain` has already stopped what issues database work, so this
+    // is the host close alone.
     closeDatabase: () => nativeIndexActivation.close(),
     // Runs last, after the aggregate failure warn (the shutdown module logs
     // it first): the durable NDJSON file is the last writer standing, so it
@@ -515,8 +514,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
-      // own stop.
-      renderers: async (signal) => {
+      // own stop. Every window is joined to `closed`: a renderer that cannot
+      // answer is destroyed by its own ladder, never abandoned (ADR-0026).
+      renderers: async () => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
         nativeIndexActivation.fenceTerminal();
@@ -525,9 +525,8 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         const preparations = await Promise.allSettled(
           windows
             .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
-            .map((window) => prepareDesktopRendererClose(window, signal))
+            .map((window) => prepareDesktopRendererClose(window, lifecycleDelaySeam()))
         );
-        signal.throwIfAborted();
         const closes = await Promise.allSettled([
           closeDesktopRenderers(
             windows,
@@ -550,7 +549,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
 }
 
 const gracefulShutdown = createDesktopGracefulShutdown({
-  deadlineMs: SIGNAL_SHUTDOWN_TIMEOUT_MS,
+  // Only for an orchestration that broke before its steps could run.
   exitProcess: (code) => process.exit(code),
   logger,
   markShuttingDown: markDesktopShuttingDown,
@@ -562,9 +561,9 @@ const gracefulShutdown = createDesktopGracefulShutdown({
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
   logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
 
-  // The graceful run logs and resolves even when cleanup fails, so we always
-  // continue to quit the process rather than hanging on a partial shutdown.
-  await gracefulShutdown.run('signal', signal);
+  // The graceful run joins every step and resolves even when cleanup fails, so we
+  // always continue to quit once it settled.
+  await gracefulShutdown.run('signal');
 
   allowImmediateQuit = true;
   app.quit();
@@ -2104,7 +2103,7 @@ app.on('before-quit', (event) => {
   gracefulShutdownInFlight = true;
   void (async () => {
     try {
-      await gracefulShutdown.run('before-quit', 'before-quit');
+      await gracefulShutdown.run('before-quit');
     } catch (error) {
       logger.error('Graceful shutdown failed in before-quit handler', { error });
     }

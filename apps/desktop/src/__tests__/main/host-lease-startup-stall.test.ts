@@ -30,6 +30,8 @@ vi.mock('@brainstrike/state-store', async (original) => {
 class Child extends EventEmitter {
   pid: number | undefined = 123;
   readonly posts: unknown[] = [];
+  /** It exits on its cooperative close, so the lease never escalates to this. */
+  readonly kill = vi.fn(() => true);
   postMessage(message: unknown): void {
     this.posts.push(message);
     if (JSON.stringify(message) === '{"method":"close"}') {

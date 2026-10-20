@@ -5,33 +5,44 @@ interface ShutdownRendererWindow {
   once(event: 'closed', listener: () => void): unknown;
   removeListener(event: 'closed', listener: () => void): unknown;
   readonly webContents: {
-    once(event: 'render-process-gone', listener: () => void): unknown;
-    removeListener(event: 'render-process-gone', listener: () => void): unknown;
+    on(event: 'will-prevent-unload', listener: (event: UnloadVeto) => void): unknown;
+    once(event: 'render-process-gone' | 'unresponsive', listener: () => void): unknown;
+    removeListener(event: 'render-process-gone' | 'unresponsive', listener: () => void): unknown;
+    removeListener(event: 'will-prevent-unload', listener: (event: UnloadVeto) => void): unknown;
   };
+}
+
+interface UnloadVeto {
+  preventDefault(): void;
 }
 
 function closeRenderer(window: ShutdownRendererWindow): Promise<void> {
   return new Promise((resolve, reject) => {
-    // A renderer that exits mid-close never acknowledges its unload, so that close waits
-    // forever: a signal to Main's process group ends it there (BST-2135). Its page can run no
-    // unload handler any more, and `destroy` guarantees `closed`. Deferred past this event's
-    // dispatch: its other listeners still read the window.
     const contents = window.webContents;
+    const detach = () => {
+      contents.removeListener('render-process-gone', retire);
+      contents.removeListener('unresponsive', retire);
+      contents.removeListener('will-prevent-unload', overrideUnloadVeto);
+    };
     const closed = () => {
-      contents.removeListener('render-process-gone', gone);
+      detach();
       resolve();
     };
     // A close or destroy that throws settles this renderer: destroyed is closed, else its cause.
     const fail = (error: unknown) => {
       window.removeListener('closed', closed);
-      contents.removeListener('render-process-gone', gone);
+      detach();
       if (window.isDestroyed()) {
         resolve();
         return;
       }
       reject(error);
     };
-    const gone = () => {
+    // A renderer that exits or hangs mid-close never acknowledges its unload, so that close
+    // would wait forever (BST-2135): it is destroyed instead, which guarantees `closed`. Its page
+    // can run no unload handler any more. Deferred past this event's dispatch: its other
+    // listeners still read the window.
+    const retire = () => {
       setImmediate(() => {
         try {
           if (!window.isDestroyed()) {
@@ -42,11 +53,16 @@ function closeRenderer(window: ShutdownRendererWindow): Promise<void> {
         }
       });
     };
+    // App-owned quit is terminal: a page's beforeunload cannot veto it (ADR-0026 R4).
+    const overrideUnloadVeto = (event: UnloadVeto) => {
+      event.preventDefault();
+    };
     window.once('closed', closed);
-    contents.once('render-process-gone', gone);
+    contents.once('render-process-gone', retire);
+    contents.once('unresponsive', retire);
+    contents.on('will-prevent-unload', overrideUnloadVeto);
     try {
       // Normal close preserves beforeunload/unload and window state persistence.
-      // The existing application deadline owns an unresponsive renderer.
       window.close();
     } catch (error) {
       fail(error);

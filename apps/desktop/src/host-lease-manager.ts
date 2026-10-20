@@ -3,7 +3,7 @@ import { isPeerReset } from '@brainstrike/agent-host/boundary-wire';
 import { attachAgentHost, attachStartedAgentHost } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
-import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import {
   attachHost,
   attachStartedHost,
@@ -38,6 +38,8 @@ const logger = createLogger('DesktopHostLease');
 const HOST_STARTUP_STALL_WARN_MS = 10_000;
 
 export interface HostLeaseUtilityProcess {
+  /** Electron: SIGTERM, then SIGKILL if it is still running 2 s later (Windows: terminate). */
+  kill(): boolean;
   off(event: 'message', listener: (message: unknown) => void): unknown;
   off(event: 'exit', listener: (code: number) => void): unknown;
   on(event: 'message', listener: (message: unknown) => void): unknown;
@@ -60,8 +62,16 @@ export type HostLeaseFork = (
   /** Main's environment plus the entries this lease forwards explicitly (the E2E delay seam). */
   env: NodeJS.ProcessEnv
 ) => HostLeaseUtilityProcess;
+/**
+ * R5(b) (ADR-0026, owner decision 7.2(ii)): how long Main waits for its own host to exit after
+ * asking it to close before it escalates to `kill()`. The exit is joined either way: the
+ * escalation is a warn, never a failed close and never an abandoned process.
+ */
+export const HOST_COOPERATIVE_CLOSE_MS = 30_000;
+
 export interface DesktopHostLeaseOptions {
-  readonly closeTimeoutMs?: number;
+  /** The cooperative rung of the close ladder; defaults to `HOST_COOPERATIVE_CLOSE_MS`. */
+  readonly cooperativeCloseMs?: number;
   readonly entryPath?: string;
   readonly fork?: HostLeaseFork;
   /**
@@ -117,6 +127,8 @@ interface OwnedChild {
   readonly exited: Promise<number>;
   readonly exitListener: (code: number) => void;
   readonly handle: HostLeaseUtilityProcess;
+  /** This owner escalated its close to `kill()`: its exit code is the kill's, not a failure. */
+  killed: boolean;
   /** It exited before this owner asked it to close. */
   lost: boolean;
   ready: boolean;
@@ -137,6 +149,7 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void)
       }
     },
     handle,
+    killed: false,
     lost: false,
     ready: false,
   };
@@ -204,19 +217,62 @@ function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
   }
   return record;
 }
-/** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
-async function closeChild(child: OwnedChild): Promise<void> {
+interface CloseLadder {
+  readonly cooperativeMs: number;
+  readonly delays: LifecycleDelaySeam | undefined;
+}
+/**
+ * The cooperative rung: resolves once `exited` settles, or after `cooperativeMs`, when it
+ * escalates to `kill()`. Its timer is cleared either way; the caller still joins the exit.
+ */
+async function escalateUnlessExited(
+  child: OwnedChild,
+  exited: Promise<number>,
+  cooperativeMs: number
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const rung = new Promise<'escalate'>((resolve) => {
+    timer = setTimeout(() => resolve('escalate'), cooperativeMs);
+  });
+  try {
+    if ((await Promise.race([exited, rung])) !== 'escalate') {
+      return;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  child.killed = true;
+  logger.warn('The owned agent host did not exit after close; killing it', {
+    cooperativeMs,
+    pid: child.handle.pid,
+  });
+  child.handle.kill();
+}
+/**
+ * Joins the real exit: the platform finalizer behind it must not close the port during cleanup.
+ * A close this owner asks for is a ladder it owns (ADR-0026 R5(b)): ask, join the exit, and after
+ * `cooperativeMs` without one `kill()` and join the exit. A content clear is never killed: its
+ * deletion completes under the lease (ADR-0015), so its own exit is joined without a rung.
+ */
+async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void> {
   child.closing = true;
+  // E2E seam: Main observes the exit this much later, still inside the ladder.
+  const exited = child.exited.then(async (code) => {
+    await ladder.delays?.delay('child-exit');
+    return code;
+  });
   if (child.exitCode === undefined && !child.clearRequested) {
     child.handle.postMessage({ method: 'close' });
+    await escalateUnlessExited(child, exited, ladder.cooperativeMs);
   }
-  const code = await child.exited;
+  const code = await exited;
   child.handle.off('exit', child.exitListener);
   if (child.clearRequested && !child.clearReceipt) {
     throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
   }
-  // A lost host's exit was reported when it happened; it is not a failed close.
-  if (child.ready && code !== 0 && !child.lost) {
+  // A lost host's exit was reported when it happened, and a kill this owner escalated to was
+  // logged then: neither is a failed close.
+  if (child.ready && code !== 0 && !(child.lost || child.killed)) {
     throw new Error(`Owned host utility exited with code ${code}`);
   }
 }
@@ -289,32 +345,30 @@ async function ownPlatform(
 
 /** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
 export function createDesktopHostLease(options: DesktopHostLeaseOptions): DesktopHostLease {
-  const closeTimeoutMs = options.closeTimeoutMs ?? 1500;
-  if (!Number.isFinite(closeTimeoutMs) || closeTimeoutMs <= 0) {
-    throw new RangeError('Host utility close deadline must be positive and finite');
+  const ladder: CloseLadder = {
+    cooperativeMs: options.cooperativeCloseMs ?? HOST_COOPERATIVE_CLOSE_MS,
+    delays: options.lifecycleDelays,
+  };
+  if (!(Number.isFinite(ladder.cooperativeMs) && ladder.cooperativeMs > 0)) {
+    throw new RangeError('Host utility cooperative close must be positive and finite');
   }
   const scope = Scope.makeUnsafe();
   const abort = new AbortController();
   let acquiring: Promise<HostAttachment> | undefined;
   let retired = false;
   let releasing: Promise<void> | undefined;
-  let ownedPid: number | undefined;
   let ownedChild: OwnedChild | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
   /** A lost host's native processes, settled once their SIGTERM grace ran (ADR-0017). */
   let lostTail: Promise<void> | undefined;
-  // One release join; each caller bounds its own wait, so a host that exits after
-  // a deadline still completes this join instead of leaving a stale failure.
+  // One release join for every caller. It is finite because its child ladder is
+  // (closeChild), never because a caller stops waiting: no caller-side deadline.
   const closeScope = (): Promise<void> => {
     if (!releasing) {
       releasing = runAtPromiseBoundary(Scope.close(scope, Exit.void));
       releasing.catch(() => undefined);
     }
-    const joined = releasing;
-    return runWithTimeout(() => joined, {
-      onTimeout: () => new Error(`Owned host utility pid ${ownedPid} did not exit after close`),
-      timeoutMs: closeTimeoutMs,
-    });
+    return releasing;
   };
   const acquire = async (): Promise<HostAttachment> => {
     try {
@@ -387,7 +441,6 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           let stage: 'forked' | 'spawned' = 'forked';
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
-            ownedPid = child.handle.pid;
             stage = 'spawned';
           });
           const ready = awaitReady(child, start.root, combined);
@@ -403,7 +456,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           const settled = (): void => clearTimeout(stall);
           ready.then(settled, settled);
           await ownLifetime(scope, options, child);
-          await addFinalizer(scope, () => closeChild(child));
+          await addFinalizer(scope, () => closeChild(child, ladder));
           if (platform) {
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
           }
