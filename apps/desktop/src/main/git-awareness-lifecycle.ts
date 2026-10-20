@@ -9,8 +9,6 @@
  * private SQLite writer. `main.ts` closes these borrowers before retiring
  * that profile during graceful shutdown.
  */
-import path from 'node:path';
-import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { createLogger } from '@brainstrike/logging';
 import type {
   ForgeCachePort,
@@ -25,6 +23,7 @@ import {
   createGitInventoryService,
   type GitInventoryService,
 } from '../assistant-server/git-inventory-service';
+import { watchGitCommonDirNatively } from '../assistant-server/git-inventory-watcher';
 import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { createWorktreeService } from '../assistant-server/worktree-service';
 import { readWorktreeSettings } from '../assistant-server/worktree-settings';
@@ -54,15 +53,13 @@ export interface GitAwarenessLifecycle {
 
 export function startGitAwarenessLifecycle(deps: GitAwarenessLifecycleDeps): GitAwarenessLifecycle {
   const { broadcast, homePath, logger, storage, workspaceRoots } = deps;
-  // Uses a PRIVATE `ElectronFileSystemAdapter` instance — never the shared
-  // `fileSystem` and never the renderer-owned `fs:watch` IPC pipeline
-  // (`ipc-domains/file-system-watch-ipc.ts` dedupes native subscriptions
-  // on `(ownerId, resolvedPath)` ONLY; the ignore-pattern set is not part
-  // of that key, so routing this module's fixed `ignorePatterns: []`
-  // through the shared pipeline could let an unrelated registration for
-  // the same resolved path silently share this filter set). See
-  // `ipc-notes-vault.ts`'s private-adapter + inline `DirectoryHandle` pattern.
-  const gitInventoryWatcherAdapter = new ElectronFileSystemAdapter();
+  // The git-metadata watchers own their native subscriptions directly
+  // (`watchGitCommonDirNatively`) — never through the renderer-owned
+  // `fs:watch` IPC pipeline (`ipc-domains/file-system-watch-ipc.ts` dedupes
+  // native subscriptions on `(ownerId, resolvedPath)` ONLY; the ignore-pattern
+  // set is not part of that key, so routing this module's fixed
+  // `ignorePatterns: []` through the shared pipeline could let an unrelated
+  // registration for the same resolved path silently share this filter set).
   // BST-1161 (spec §6): each watcher invalidation is pushed to every live
   // renderer as `changes:invalidated` so git-scope changeset views and the
   // inventory refetch without polling. The monotonic generation lets the
@@ -126,26 +123,10 @@ export function startGitAwarenessLifecycle(deps: GitAwarenessLifecycleDeps): Git
       forgeRepositoryResolver.invalidateResolverCache(event.gitCommonDir);
     },
     run: execFileGitRunner,
-    // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
-    // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —
-    // adapting with `Promise.resolve(...)` is the documented intent in that
-    // type's own doc comment in `git-inventory-watcher.ts` (no health-
-    // transition gate needed here, unlike `ipc-notes-vault.ts`'s `startWatch`,
-    // because the returned disposer is already safe to use immediately).
-    watchDirectory: (commonDir, callback, onSignal, options) =>
-      Promise.resolve(
-        gitInventoryWatcherAdapter.watchDirectory(
-          {
-            kind: 'directory',
-            name: path.basename(commonDir),
-            path: commonDir,
-            platform: 'electron',
-          },
-          callback,
-          onSignal,
-          options
-        )
-      ),
+    // The joined native producer: `stop()` (the 'git-inventory' shutdown
+    // step) resolves only after every subscribe and unsubscribe it started
+    // has settled, before Main's Node environment is freed (BST-2244).
+    watchDirectory: watchGitCommonDirNatively,
   });
   gitInventoryService.start();
   const worktreeService = createWorktreeService({

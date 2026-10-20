@@ -13,6 +13,7 @@ import {
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,
+  notesVaultCapture,
   requireMainLogger,
   shutdownPlanCapture,
 } from './boot-order-fixture';
@@ -437,6 +438,29 @@ describe('main boot order', () => {
     close.mockReturnValueOnce(retirement.promise);
     let settled = false;
     const step = Promise.resolve(planRun().steps['file-system'](new AbortController().signal)).then(
+      () => {
+        settled = true;
+      }
+    );
+    expect(close).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    retirement.resolve();
+    await step;
+    expect(settled).toBe(true);
+  });
+
+  it('joins the actual Notes Vault watcher retirement from its notes-vault shutdown step', async () => {
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    const close = notesVaultCapture.close;
+    if (!(planRun && close)) {
+      throw new Error('Notes Vault shutdown owner was not registered.');
+    }
+    const retirement = Promise.withResolvers<void>();
+    close.mockReturnValueOnce(retirement.promise);
+    let settled = false;
+    const step = Promise.resolve(planRun().steps['notes-vault'](new AbortController().signal)).then(
       () => {
         settled = true;
       }
