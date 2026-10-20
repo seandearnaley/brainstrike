@@ -44,7 +44,9 @@ export interface HostLeaseUtilityProcess {
 }
 export type HostLeaseFork = (
   entrypoint: string,
-  args: readonly string[]
+  args: readonly string[],
+  /** Main's environment plus the entries this lease forwards explicitly (the E2E delay seam). */
+  env: NodeJS.ProcessEnv
 ) => HostLeaseUtilityProcess;
 export interface DesktopHostLeaseOptions {
   readonly closeTimeoutMs?: number;
@@ -300,6 +302,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
             ? attachAgentHost(record, timeoutMs)
             : attachHost(record, timeoutMs),
+        beforeRecordRead: async () => {
+          await options.lifecycleDelays?.delay('record-read');
+        },
         lifetime: 'app',
         spawn: async (start: HostStartOptions, signal: AbortSignal) => {
           const combined = AbortSignal.any([signal, abort.signal]);
@@ -312,20 +317,24 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             );
           const fork: HostLeaseFork =
             options.fork ??
-            ((path, args) =>
-              utilityProcess.fork(path, [...args], { serviceName: 'Brainstrike Host Lease' }));
+            ((path, args, env) =>
+              utilityProcess.fork(path, [...args], { env, serviceName: 'Brainstrike Host Lease' }));
           const platformOptions =
             options.platformModule === undefined ? undefined : await options.platformOptions?.();
           combined.throwIfAborted();
           const { nativeChildren, platform } = await ownPlatform(scope, options);
           const child = ownChild(
-            fork(entrypoint, [
-              JSON.stringify(start),
-              ...(options.platformModule === undefined ? [] : [options.platformModule]),
-              ...(platformOptions === undefined
-                ? []
-                : ['--platform-options', JSON.stringify(platformOptions)]),
-            ]),
+            fork(
+              entrypoint,
+              [
+                JSON.stringify(start),
+                ...(options.platformModule === undefined ? [] : [options.platformModule]),
+                ...(platformOptions === undefined
+                  ? []
+                  : ['--platform-options', JSON.stringify(platformOptions)]),
+              ],
+              { ...process.env, ...options.lifecycleDelays?.childEnv(['host-ready']) }
+            ),
             (code) => {
               // A lost host leaves its native processes to Main (ADR-0017).
               lostTail = nativeChildren?.retire();

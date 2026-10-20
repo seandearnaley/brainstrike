@@ -153,6 +153,7 @@ import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
 import { registerWorktreesIpcHandlers } from './ipc-worktrees';
+import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { registerLoggingIpcHandlers } from './logging-ipc';
 import {
   createDesktopGracefulShutdown,
@@ -2193,6 +2194,7 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
       }
     },
+    lifecycleDelays: lifecycleDelaySeam(),
     // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
     // ADR-0017: the host reports its native processes; Main ends them if it dies.

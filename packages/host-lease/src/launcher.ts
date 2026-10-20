@@ -44,6 +44,11 @@ export interface HostLaunchOptions {
    * attach is also clipped to what the startup deadline has left.
    */
   readonly attachTimeoutMs?: number;
+  /**
+   * E2E `record-read` delay seam: awaited before each read of a published
+   * host record. Absent outside the desktop's test-mode seam.
+   */
+  readonly beforeRecordRead?: () => Promise<void>;
   readonly lifetime: HostLifetime;
   readonly spawn: HostSpawner;
   /**
@@ -121,11 +126,13 @@ async function pause(signal: AbortSignal): Promise<void> {
     signal.addEventListener('abort', abort, { once: true });
   });
 }
+type ReadRecord = (root: string) => Promise<HostRecord | null>;
 /** The owner's record once published, or null when that owner released or replaced its lease. */
 async function publishedRecord(
   root: string,
   lease: LockOwner,
-  timeoutMs: number
+  timeoutMs: number,
+  readRecord: ReadRecord
 ): Promise<HostRecord | null> {
   return runWithTimeout(
     async (signal) => {
@@ -135,7 +142,7 @@ async function publishedRecord(
         if (!current || current.token !== lease.token) {
           return null;
         }
-        const record = await readHostRecord(root);
+        const record = await readRecord(root);
         if (record && matches(record, current)) {
           return record;
         }
@@ -237,9 +244,13 @@ async function attachOrAwaitExit(
   }
 }
 
-async function existingRecord(root: string, lease: LockOwner | null): Promise<HostRecord | null> {
+async function existingRecord(
+  root: string,
+  lease: LockOwner | null,
+  readRecord: ReadRecord
+): Promise<HostRecord | null> {
   try {
-    return await readHostRecord(root);
+    return await readRecord(root);
   } catch (cause) {
     if (lease) {
       throw new LiveHostUnavailableError(lease.pid, cause);
@@ -252,11 +263,15 @@ async function existingRecord(root: string, lease: LockOwner | null): Promise<Ho
  * A starting or exiting owner is waited for: attach once it publishes, or start
  * a host after it releases. One deadline bounds the whole wait.
  */
-async function liveOwnerRecord(root: string, timeoutMs: number): Promise<HostRecord | null> {
+async function liveOwnerRecord(
+  root: string,
+  timeoutMs: number,
+  readRecord: ReadRecord
+): Promise<HostRecord | null> {
   const waitUntil = Date.now() + timeoutMs;
   for (;;) {
     const lease = await liveLease(root);
-    const existing = await existingRecord(root, lease);
+    const existing = await existingRecord(root, lease, readRecord);
     const live = existing !== null && isLive(existing);
     if (live && !lease) {
       throw new LiveHostUnavailableError(
@@ -274,7 +289,7 @@ async function liveOwnerRecord(root: string, timeoutMs: number): Promise<HostRec
     if (remaining <= 0) {
       throw new LiveHostUnavailableError(lease.pid, new Error('Host record publication timed out'));
     }
-    const record = await publishedRecord(root, lease, remaining);
+    const record = await publishedRecord(root, lease, remaining, readRecord);
     if (record) {
       return record;
     }
@@ -297,6 +312,7 @@ interface Launch {
   readonly attachTimeoutMs: number;
   readonly deadline: number;
   readonly options: HostLaunchOptions;
+  readonly readRecord: ReadRecord;
   readonly root: string;
 }
 /** An attachment, or AGAIN: the owner left, so acquisition starts over. */
@@ -331,7 +347,12 @@ async function attachWinner(launch: Launch, cause: unknown): Promise<Step> {
   if (!winner) {
     return AGAIN;
   }
-  const record = await publishedRecord(launch.root, winner, remaining(launch.deadline));
+  const record = await publishedRecord(
+    launch.root,
+    winner,
+    remaining(launch.deadline),
+    launch.readRecord
+  );
   return record ? attachOwner(launch, record, launch.deadline) : AGAIN;
 }
 /** Retire a host the launch gave up on; a failed retirement joins the launch's own failure. */
@@ -393,7 +414,12 @@ async function attachStarted(
   // The host this launch started may itself be leaving by now (an idle CLI
   // host with no client yet): the same exit-aware attach as any other owner,
   // and one that released before publishing sends the launch back to the start.
-  const record = await publishedRecord(launch.root, acquired, remaining(deadline));
+  const record = await publishedRecord(
+    launch.root,
+    acquired,
+    remaining(deadline),
+    launch.readRecord
+  );
   return record ? attachOwner(launch, record, deadline) : AGAIN;
 }
 /**
@@ -453,13 +479,14 @@ export async function launchHost(
     attachTimeoutMs,
     deadline: Date.now() + startupTimeoutMs,
     options,
+    readRecord: (path) => readHostRecord(path, options.beforeRecordRead),
     root,
   };
   for (;;) {
     if (Date.now() >= launch.deadline) {
       throw new Error('Host startup timed out');
     }
-    const owned = await liveOwnerRecord(root, remaining(launch.deadline));
+    const owned = await liveOwnerRecord(root, remaining(launch.deadline), launch.readRecord);
     const step = owned
       ? await attachOwner(launch, owned, launch.deadline)
       : await startAndAttach(launch);
