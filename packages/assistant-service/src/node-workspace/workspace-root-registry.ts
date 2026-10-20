@@ -128,117 +128,113 @@ export class WorkspaceRootRegistry {
     this.storage = options.storage;
   }
 
-  addRoot(
-    handle: DirectoryHandle,
-    { recordInRecentRoots = true }: AddRootOptions = {}
-  ): Promise<RootDescriptor> {
-    return this.serializeMutation(async () => {
-      const presentationPath = path.normalize(handle.path);
-      // Read storage before opening the probe so a failed read cannot leak it.
-      // serializeMutation already orders callers; these reads need no parallelism.
-      const entries = await readStoredRootsOrQuarantine(this.storage);
-      // Read the recent-root ledger before mounting or persisting to avoid partial
-      // success on storage failure. The same flag guards its later invariant check.
-      const recentRootEntries = recordInRecentRoots
-        ? await readRecentRootsOrQuarantine(this.storage)
-        : null;
-      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store reads above have succeeded, so the try/finally owns it from the instant it exists.
-      const probe = await this.createSecureRoot(presentationPath);
-      let probeAdopted = false;
-      try {
-        // A dispose that lands while the probe was opening must fail this call the same way
-        // mount() does, rather than returning a granted descriptor for a torn-down registry.
-        this.assertActive();
-        const canonicalPath = path.normalize(probe.canonicalPath);
-        const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
-        const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
-
-        const db = await this.getRootsCatalog();
-        // Reuse the retained folder identity after disconnect, including path aliases (BST-1990).
-        const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
-          this.findExistingStoredRoot(records, undefined, canonicalPath)
-        );
-        const rootId = await recordWorkspaceRoot(db, {
-          path: recorded?.path ?? presentationPath,
-          preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
-        });
-        const entry: StoredWorkspaceRoot = {
-          addedAt: Date.now(),
-          path: recorded?.path ?? presentationPath,
-          rootId,
-        };
-
-        // reconcileAddMount owns the probe: it adopts it or closes it as redundant.
-        await this.reconcileAddMount(entry, mountedMatch, probe).catch(async (error: unknown) => {
-          await this.convergeDatabase(); // the record must not stay live without its mount
-          throw error;
-        });
-        probeAdopted = true;
-
-        const persisted = await this.persistAddedRoot(entries, existing, entry);
-        if (!persisted) {
-          await this.convergeDatabase(); // a session-only mount keeps no live record
-        }
-        if (persisted) {
-          await writeLastFolderBestEffort(this.storage, entry.path);
-        }
-        if (recordInRecentRoots) {
-          // recentRootEntries is populated whenever recordInRecentRoots is
-          // true (see the read above) — TypeScript just can't narrow that
-          // correlation across the two separate checks. NO SILENT
-          // FALLBACKS (review fold-in, BST-1400 item 4): a `?? []` here
-          // would read as "the ledger is empty" and recordRecentRoot writes
-          // `[newEntry, ...existing]` unconditionally, so if these two
-          // conditions ever drifted, the fallback would silently overwrite
-          // the user's entire recents ledger with a single entry. An
-          // invariant violation must fail loud, the same as any other
-          // ledger problem this function already surfaces before mutating.
-          if (recentRootEntries === null) {
-            throw new Error(
-              'Invariant violated: recentRootEntries must be populated when recordInRecentRoots is true.'
-            );
-          }
-          // The grant happened whether or not rootsList persistence succeeded,
-          // so the ledger records it either way. Passes the entries read
-          // above rather than letting recordRecentRoot re-read them — the
-          // hoist's whole point is that this write can no longer fail on an
-          // I/O problem the read above would already have surfaced.
-          await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries);
-          // Same gate as the ledger write above (BST-1393 review finding): a
-          // managed-worktree mount passes recordInRecentRoots: false and must
-          // not reach the OS recent-documents list either — the registry
-          // already decided it doesn't belong in Recents.
-          this.onRootGranted?.(entry.path);
-        }
-        return descriptorFor(entry, 'granted', persisted);
-      } finally {
-        if (!probeAdopted) {
-          try {
-            probe.close();
-          } catch (error) {
-            logger.warn('Failed to close a redundant workspace root probe', { error });
-          }
-        }
-      }
-    });
+  addRoot(handle: DirectoryHandle, options: AddRootOptions = {}): Promise<RootDescriptor> {
+    return this.serializeMutation(() => this.addRootOwned(handle, options));
   }
 
-  async addRootByPath(requestedPath: string): Promise<RootDescriptor> {
-    const granted = await resolveGrantedRootHandle(
-      this.storage,
-      requestedPath,
-      this.managedWorktreeAuthorizer ?? undefined
-    );
-    const descriptor = await this.addRoot(granted.handle, {
-      recordInRecentRoots: granted.grantSource === 'recents',
-    });
-    if (granted.grantSource === 'managed-worktree') {
-      logger.info('Mounted managed worktree without picker', {
-        path: granted.handle.path,
-        rootId: descriptor.rootId,
+  private async addRootOwned(
+    handle: DirectoryHandle,
+    { recordInRecentRoots = true }: AddRootOptions
+  ): Promise<RootDescriptor> {
+    const presentationPath = path.normalize(handle.path);
+    // Read storage before opening the probe so a failed read cannot leak it.
+    // serializeMutation already orders callers; these reads need no parallelism.
+    const entries = await readStoredRootsOrQuarantine(this.storage);
+    // Read the recent-root ledger before mounting or persisting to avoid partial
+    // success on storage failure. The same flag guards its later invariant check.
+    const recentRootEntries = recordInRecentRoots
+      ? await readRecentRootsOrQuarantine(this.storage)
+      : null;
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store reads above have succeeded, so the try/finally owns it from the instant it exists.
+    const probe = await this.createSecureRoot(presentationPath);
+    let probeAdopted = false;
+    try {
+      // A dispose that lands while the probe was opening must fail this call the same way
+      // mount() does, rather than returning a granted descriptor for a torn-down registry.
+      this.assertActive();
+      const canonicalPath = path.normalize(probe.canonicalPath);
+      const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
+      const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
+
+      const db = await this.getRootsCatalog();
+      // Reuse the retained folder identity after disconnect, including path aliases (BST-1990).
+      const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
+        this.findExistingStoredRoot(records, undefined, canonicalPath)
+      );
+      const rootId = await recordWorkspaceRoot(db, {
+        path: recorded?.path ?? presentationPath,
+        preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
       });
+      const entry: StoredWorkspaceRoot = {
+        addedAt: Date.now(),
+        path: recorded?.path ?? presentationPath,
+        rootId,
+      };
+
+      // reconcileAddMount owns the probe: it adopts it or closes it as redundant.
+      await this.reconcileAddMount(entry, mountedMatch, probe).catch(async (error: unknown) => {
+        await this.convergeDatabase(); // the record must not stay live without its mount
+        throw error;
+      });
+      probeAdopted = true;
+
+      const persisted = await this.persistAddedRoot(entries, existing, entry);
+      if (!persisted) {
+        await this.convergeDatabase(); // a session-only mount keeps no live record
+      }
+      if (persisted) {
+        await writeLastFolderBestEffort(this.storage, entry.path);
+      }
+      if (recordInRecentRoots) {
+        // Retain the ledger read before mounting; a missing snapshot is an
+        // invariant failure, never permission to overwrite the ledger as empty.
+        if (recentRootEntries === null) {
+          throw new Error(
+            'Invariant violated: recentRootEntries must be populated when recordInRecentRoots is true.'
+          );
+        }
+        // The grant happened whether or not rootsList persistence succeeded,
+        // so the ledger records it either way. Passes the entries read
+        // above rather than letting recordRecentRoot re-read them — the
+        // hoist's whole point is that this write can no longer fail on an
+        // I/O problem the read above would already have surfaced.
+        await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries);
+        // Same gate as the ledger write above (BST-1393 review finding): a
+        // managed-worktree mount passes recordInRecentRoots: false and must
+        // not reach the OS recent-documents list either — the registry
+        // already decided it doesn't belong in Recents.
+        this.onRootGranted?.(entry.path);
+      }
+      return descriptorFor(entry, 'granted', persisted);
+    } finally {
+      if (!probeAdopted) {
+        try {
+          probe.close();
+        } catch (error) {
+          logger.warn('Failed to close a redundant workspace root probe', { error });
+        }
+      }
     }
-    return descriptor;
+  }
+
+  addRootByPath(requestedPath: string): Promise<RootDescriptor> {
+    return this.serializeMutation(async () => {
+      const granted = await resolveGrantedRootHandle(
+        this.storage,
+        requestedPath,
+        this.managedWorktreeAuthorizer ?? undefined
+      );
+      const descriptor = await this.addRootOwned(granted.handle, {
+        recordInRecentRoots: granted.grantSource === 'recents',
+      });
+      if (granted.grantSource === 'managed-worktree') {
+        logger.info('Mounted managed worktree without picker', {
+          path: granted.handle.path,
+          rootId: descriptor.rootId,
+        });
+      }
+      return descriptor;
+    });
   }
 
   prepareClose(): Promise<void> {
