@@ -52,8 +52,12 @@ jobs:
     permissions:
       actions: read
       contents: read
+      pull-requests: read
     outputs:
       commits: ${{ steps.handoff.outputs.commits }}
+      patch_sha: ${{ steps.handoff.outputs.patch_sha }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       # The secret's presence travels as a boolean, never its value.
       - name: Require the fix agent credential
@@ -65,6 +69,18 @@ jobs:
             echo "::error title=Nightly fix agent not configured::Add the CLAUDE_CODE_OAUTH_TOKEN repository secret (claude setup-token) to run the fix agent. $ISSUE was left unclaimed."
             exit 1
           fi
+
+      # Orchestration follows this workflow revision; the agent still builds the night.
+      - name: Checkout publication controls
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Stage publication controls
+        run: |
+          mkdir -p "$RUNNER_TEMP/nightly-control/scripts/lib"
+          cp scripts/nightly-fix-issue.mjs scripts/nightly-fix-publication.mjs "$RUNNER_TEMP/nightly-control/scripts/"
+          cp scripts/lib/linear-api.mjs "$RUNNER_TEMP/nightly-control/scripts/lib/"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -84,12 +100,13 @@ jobs:
         id: claim
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue }}
           NIGHTLY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.nightly_run_id }}
         run: |
           mkdir -p "$RUNNER_TEMP/nightly-fix"
           set +e
-          node scripts/nightly-fix-issue.mjs claim --issue "$ISSUE" \
+          node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-issue.mjs" claim --issue "$ISSUE" \
             --claimant "github-run:$GITHUB_RUN_ID" --run-url "$NIGHTLY_RUN_URL" \
             --issue-file "$RUNNER_TEMP/nightly-fix/issue.md"
           status=$?
@@ -130,6 +147,7 @@ jobs:
         env:
           BASE_SHA: ${{ inputs.head_sha }}
         run: |
+          echo "patch_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           commits=$(git rev-list --count "$BASE_SHA..HEAD")
           echo "commits=$commits" >> "$GITHUB_OUTPUT"
           if [ "$commits" -gt 0 ]; then
@@ -141,6 +159,7 @@ jobs:
           fi
 
       - name: Upload the fix
+        id: upload
         if: ${{ always() && steps.handoff.outputs.commits != '' && steps.handoff.outputs.commits != '0' }}
         uses: actions/upload-artifact@v7
         with:
@@ -151,10 +170,34 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: Name the retained patch artifact
+        if: steps.agent.outcome == 'success' && steps.upload.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+          BASE_SHA: ${{ inputs.head_sha }}
+          PATCH_SHA: ${{ steps.handoff.outputs.patch_sha }}
+          CONTROL_SHA: ${{ github.sha }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-publication.mjs" artifact
+
+      - name: Retain the patch claim before publication queues
+        if: steps.agent.outcome == 'success' && steps.upload.outcome == 'success'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+        run: >-
+          node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-issue.mjs" retain
+          --issue "$ISSUE" --claimant "github-run:$GITHUB_RUN_ID"
+          --receipt-file "$RUNNER_TEMP/nightly-fix/retained.json"
+
       - name: Post the evidence to Linear
         if: ${{ always() && steps.claim.outputs.claimed == 'true' }}
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue }}
           AGENT_OUTCOME: ${{ steps.agent.outcome }}
           # This run, whose log holds the agent's session.
@@ -164,21 +207,39 @@ jobs:
           if [ ! -s "$evidence" ]; then
             printf 'The fix agent ended (%s) without writing evidence: %s\n' "$AGENT_OUTCOME" "$RUN_URL" > "$evidence"
           fi
-          node scripts/nightly-fix-issue.mjs comment --issue "$ISSUE" --body-file "$evidence"
+          node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-issue.mjs" comment --issue "$ISSUE" --body-file "$evidence"
 
   # Deterministic: pushes only nightly-fix/<issue>-<run>, opens the pull request
   # with `Fixes <issue>`, and never merges.
   publish:
     name: Open the fix PR for ${{ inputs.issue }}
+    # One fresh count/create critical section for every issue/ref/run.
+    concurrency:
+      group: nightly-fix-publish
+      queue: max
+      cancel-in-progress: false
     needs: [fix]
     if: ${{ needs.fix.outputs.commits != '' && needs.fix.outputs.commits != '0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: write
       pull-requests: write
     steps:
       # The bundle builds on the night's commit, which a fetch of it needs.
+      # Orchestration follows this workflow revision; the agent still builds the night.
+      - name: Checkout publication controls
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Stage publication controls
+        run: |
+          mkdir -p "$RUNNER_TEMP/nightly-control/scripts/lib"
+          cp scripts/nightly-fix-issue.mjs scripts/nightly-fix-publication.mjs "$RUNNER_TEMP/nightly-control/scripts/"
+          cp scripts/lib/linear-api.mjs "$RUNNER_TEMP/nightly-control/scripts/lib/"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -189,38 +250,68 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # The issue may have changed while this job waited for the global queue.
+      - name: Verify retained ownership at publication admission
+        id: verify-claim
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+          PATCH_SHA: ${{ needs.fix.outputs.patch_sha }}
+          ARTIFACT_ID: ${{ needs.fix.outputs.artifact_id }}
+        run: >-
+          node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-issue.mjs" verify
+          --issue "$ISSUE" --claimant "github-run:$GITHUB_RUN_ID"
+          --head-sha "$PATCH_SHA" --artifact-id "$ARTIFACT_ID"
+          --repository "$GITHUB_REPOSITORY"
+
+      - name: Reconcile the exact retained branch and PR
+        id: reconcile
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+          BASE_SHA: ${{ inputs.head_sha }}
+          PATCH_SHA: ${{ needs.fix.outputs.patch_sha }}
+          CONTROL_SHA: ${{ github.sha }}
+          ARTIFACT_ID: ${{ needs.fix.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.fix.outputs.artifact_digest }}
+        run: node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-publication.mjs" reconcile
+
       - name: Download the fix
+        if: steps.reconcile.outputs.url == ''
         uses: actions/download-artifact@v8
         with:
           name: nightly-fix--${{ inputs.issue }}
           path: ${{ runner.temp }}/nightly-fix
 
-      - name: Push the branch and open the pull request
-        id: pr
+      - name: Publish within the repository PR budget
+        id: publication
+        if: steps.reconcile.outputs.url == ''
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue }}
           BASE_SHA: ${{ inputs.head_sha }}
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/nightly-fix"
-          branch="nightly-fix/$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')-$GITHUB_RUN_ID"
-          git fetch "$dir/fix.bundle" "HEAD:refs/heads/$branch"
-          git merge-base --is-ancestor "$BASE_SHA" "refs/heads/$branch"
-          title=$(head -n 1 "$dir/pr.md")
-          case "$title" in
-            *"($ISSUE)") ;;
-            *) echo "::error::The fix PR title must end with ($ISSUE): $title"; exit 1 ;;
-          esac
-          { printf 'Fixes %s\n\n' "$ISSUE"; tail -n +2 "$dir/pr.md"; } > "$dir/pr-body.md"
-          git push origin "refs/heads/$branch:refs/heads/$branch"
-          url=$(gh pr create --base main --head "$branch" --title "$title" --body-file "$dir/pr-body.md")
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          PATCH_SHA: ${{ needs.fix.outputs.patch_sha }}
+          CONTROL_SHA: ${{ github.sha }}
+          ARTIFACT_ID: ${{ needs.fix.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.fix.outputs.artifact_digest }}
+        run: node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-publication.mjs" publish
 
-      # The link marks the claim as handed to review, so it never goes stale.
+      - name: Record the retained publication outcome
+        if: ${{ always() && steps.publication.outputs.retained == 'true' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+        run: >-
+          node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-issue.mjs" retain
+          --issue "$ISSUE" --claimant "github-run:$GITHUB_RUN_ID"
+          --receipt-file "$RUNNER_TEMP/nightly-fix/retained.json"
+
       - name: Link the pull request on Linear
+        if: ${{ always() && (steps.reconcile.outputs.url != '' || steps.publication.outputs.url != '') }}
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           ISSUE: ${{ inputs.issue }}
-          PR_URL: ${{ steps.pr.outputs.url }}
-        run: node scripts/nightly-fix-issue.mjs link-pr --issue "$ISSUE" --pr-url "$PR_URL"
+          PR_URL: ${{ steps.reconcile.outputs.url || steps.publication.outputs.url }}
+        run: node "$RUNNER_TEMP/nightly-control/scripts/nightly-fix-issue.mjs" link-pr --issue "$ISSUE" --pr-url "$PR_URL"
