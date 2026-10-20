@@ -13,6 +13,7 @@ import {
 } from '../../apps/desktop/vitest.config.mts';
 import { createDesktopUnitConfig } from '../../apps/desktop/vitest.unit.config.mts';
 import { parseUnitShardMatrix } from '../unit-shard-partition.mjs';
+import { withVitestModuleCache } from './helpers/vitest-module-cache.mjs';
 
 test('desktop native shards reject missing or malformed required configuration', () => {
   assert.equal(resolveDesktopTestShard({}), undefined);
@@ -116,28 +117,39 @@ test('every desktop pass runs each file in exactly one native shard, and a shard
     .map(({ vitestShard }) => `${vitestShard.index}/${vitestShard.count}`);
   assert.ok(shards.length > 1, 'the workflow must shard the desktop partition');
   const listed = (args) =>
-    JSON.parse(
-      execFileSync(process.execPath, [cli, 'list', '--filesOnly', '--json', ...args], {
-        cwd: root,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-    )
-      .map((file) => file.file)
-      .sort();
+    withVitestModuleCache((fsModuleCachePath) =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [cli, 'list', '--filesOnly', '--json', ...args, '--fsModuleCachePath', fsModuleCachePath],
+          {
+            cwd: root,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }
+        )
+      )
+        .map((file) => file.file)
+        .sort()
+    );
   const passes = [
     // The package `test` script.
     {
       config: 'vitest.unit.config.mts',
       environment: (lane) => lane,
-      files: listed(['--config', 'vitest.unit.config.mts', '--exclude', '**/*.integration.test.*']),
+      files: await listed([
+        '--config',
+        'vitest.unit.config.mts',
+        '--exclude',
+        '**/*.integration.test.*',
+      ]),
       name: 'unit',
     },
     // scripts/run-integration.mjs's Node pass runs in the lane's environment.
     {
       config: 'vitest.integration.config.mts',
       environment: (lane) => lane,
-      files: listed(['--config', 'vitest.integration.config.mts']),
+      files: await listed(['--config', 'vitest.integration.config.mts']),
       name: 'Node integration',
     },
     // Its Electron pass selects ELECTRON_RUNTIME_TESTS (the config's include
@@ -189,18 +201,24 @@ test('every desktop pass runs each file in exactly one native shard, and a shard
 
 /** Files a desktop config selects, as `vitest list --filesOnly` resolves them, by project. */
 async function selectDesktopFiles(options, viteConfig) {
-  const vitest = await createVitest('test', { ...options, watch: false }, viteConfig);
-  try {
-    const specifications = await vitest.getRelevantTestSpecifications();
-    return {
-      files: specifications.map((specification) => specification.moduleId).sort(),
-      projects: [...new Set(specifications.map((specification) => specification.project.name))]
-        .filter(Boolean)
-        .sort(),
-    };
-  } finally {
-    await vitest.close();
-  }
+  return withVitestModuleCache(async (fsModuleCachePath) => {
+    const vitest = await createVitest(
+      'test',
+      { ...options, fsModuleCachePath, watch: false },
+      viteConfig
+    );
+    try {
+      const specifications = await vitest.getRelevantTestSpecifications();
+      return {
+        files: specifications.map((specification) => specification.moduleId).sort(),
+        projects: [...new Set(specifications.map((specification) => specification.project.name))]
+          .filter(Boolean)
+          .sort(),
+      };
+    } finally {
+      await vitest.close();
+    }
+  });
 }
 
 test('the desktop unit lane selects no integration file on any platform, CI or shard branch', async () => {
