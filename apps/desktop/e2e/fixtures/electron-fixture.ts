@@ -10,6 +10,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
+import { attachFailureScreenshot } from '../utils/failure-screenshot';
 import { type ModelProviderShim, startModelProviderShim } from '../utils/model-provider-shim';
 import { ElectronHarness } from './electron-harness';
 
@@ -63,6 +64,8 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
     try {
       await use(harness);
     } finally {
+      // Before the close, so its deadline never pays for the capture (BST-2239).
+      await attachFailureScreenshot(harness.currentWindow(), testInfo);
       // Failed retirement keeps the disposable profile for the still-owned process.
       await harness.dispose();
       await removeElectronUserDataDir(userDataDir);
