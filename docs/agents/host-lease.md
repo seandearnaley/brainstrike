@@ -17,7 +17,13 @@ crosses the wire as `host-lease.host-closing`, and a lost handshake connection a
 Keep discovery and credential records private with owner-only permissions. On
 Windows, host start sets and every lease check verifies the data root's private
 owner and DACL natively (`secure-fs-native`), on one directory handle; neither
-starts a process, and a failed check fails the launch (BST-2237). Validate
+starts a process, and a failed check fails the launch (BST-2237). An elevated
+Windows token defaults new objects' owner to `BUILTIN\Administrators`. So every
+Windows process entry that can create host-lease or state-store objects first
+imports `@brainstrike/secure-fs-native/default-owner`, which makes the user the
+process's default owner. Administrators is never accepted as an owner, and an
+existing root another principal owns is still refused (BST-2246; the entry list
+is in `scripts/__tests__/windows-default-owner-entry-contract.test.mjs`). Validate
 record shape, path, generation and process identity before attachment. Public
 clients receive the authenticated host protocol, not desktop-private platform
 credentials or capabilities. Authentication failure does not start another owner.
