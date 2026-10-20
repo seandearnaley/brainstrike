@@ -27,7 +27,10 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-import { GIT_INVENTORY_SNAPSHOT_TTL_MS } from '../../assistant-server/git-inventory-service';
+import {
+  GIT_INVENTORY_SNAPSHOT_TTL_MS,
+  GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS,
+} from '../../assistant-server/git-inventory-service';
 import {
   GIT_INVENTORY_WATCH_BATCH_MS,
   type WatchGitCommonDir,
@@ -358,7 +361,7 @@ describe('createGitInventoryService', () => {
       expect(loadRootsCallCount).toBe(1);
     });
 
-    it('runs a build for the NEW lifecycle after restarting while the pre-stop build was still draining, instead of coalescing onto the stale in-flight promise', async () => {
+    it('runs a build for the NEW lifecycle after retiring the old watchers while its pre-stop build remains abandoned', async () => {
       const { fs, rootDir, rootId } = await makeSingleRepoRoot(
         'brainstrike-git-inv-svc-restart-race-'
       );
@@ -384,11 +387,12 @@ describe('createGitInventoryService', () => {
       service.start();
       expect(loadRootsCallCount).toBe(1);
 
-      // stop() clears `inFlightBuild` SYNCHRONOUSLY, before its first await —
-      // this next line runs before any microtask from the still-pending
-      // build A has a chance to fire, so the restart below cannot observe a
-      // stale (but not-yet-nulled) in-flight promise from build A.
+      // The build ignores abort: the unchanged drain bound abandons it,
+      // but restart must first join retirement of its watcher generation.
       const stopPromise = service.stop();
+      expect(() => service.start()).toThrow(/retirement/i);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
+      await stopPromise;
       service.start();
       requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
 
@@ -425,7 +429,10 @@ describe('createGitInventoryService', () => {
       });
 
       service.start(); // build A begins, blocked
-      const stopPromise = service.stop(); // generation -> 1, watchers -> null synchronously
+      const stopPromise = service.stop(); // generation -> 1 synchronously
+      expect(() => service.start()).toThrow(/retirement/i);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
+      await stopPromise;
       service.start(); // NEW watchers instance for generation 1
 
       const fresh = await service.getSnapshot();
