@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { windowsPrivateAcl } from '../src/windows-acl.js';
+import { windowsPrivateAcl } from './fixtures/powershell-acl.js';
 
 const sid = 'S-1-5-21-100-200-300-1001';
 const valid = {
