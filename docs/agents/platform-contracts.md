@@ -82,13 +82,6 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
   completes under the lease, whose exit is joined without a rung.
 - Hidden renderer hosts are destroyed and their `closed` joined.
 
-App-owned quit prepares visible renderers before DOM unload. Workspace producers
-fence new edits, flush pending snapshots and join admitted hydration/save operations;
-only then does the frame close its host transport and acknowledge Main's private
-reply port. This preparation is terminal: a failed or escalated preparation is
-reported and shutdown still ends the renderer lifetime. Hidden hosts retain their
-existing retirement order.
-
 Terminal quit prepares Main's workspace mutations and worktree operations before
 child-process or profile retirement. Accepted workflows finish while mounts, git,
 setup and the authenticated catalog remain available; new mutations are refused.
@@ -120,6 +113,39 @@ blocks parsing on that generation, and never acknowledges successful cleanup.
 
 The E2E harness joins the app's exit under the test timeout and requires exit code
 0. A SIGTERM from the harness is cleanup after a failed close, and the test fails.
+
+## Every document unload flushes the three durable writers
+
+Only three renderer writers keep a write-behind tail (ADR-0026 R1): the thread
+workspace snapshot (500 ms, to the host), Explorer persistence through the desktop
+storage writer (100 ms, to Main's storage) and the panel layout's resize commit
+(150 ms, written through to its store). Each registers one awaited flush with
+`registerDurableFlush` (`@brainstrike/app-state/renderer-close`); the shared
+primitive is `createWriteBehindWriter` (`@brainstrike/storage`). Nothing else is
+joined at unload: not reads, not producers, not hydration. None of the three owns a
+`beforeunload` or `pagehide` handler. (Editor view state stays in the document's own
+localStorage and flushes synchronously on `pagehide`; Main does not join it.)
+
+Main runs the one flush (`prepareDocumentUnload`) before every unload of a visible
+document it owns, then unloads the document whatever the answer:
+
+- quit's `renderers` step, then the normal window close;
+- a user's window close (window-X, Alt+F4, Cmd+W): Main prevents it, prepares the
+  document, then closes the window again past the interception. On Windows and
+  Linux the last visible window's close is the app's quit instead, and quit prepares
+  and closes it; hidden renderer hosts never count as visible;
+- menu Reload, a renderer's `desktopLifecycle.requestReload` (failed-chunk recovery,
+  visible-UI main frame only) and the developer database reset, which flushes the
+  documents before it clears their profile. A failed flush is logged and the reload
+  proceeds: the document is replaced either way.
+
+The renderer fences its UI (`inert`), joins the flushes, closes its host transport
+and acknowledges Main's private reply port. The latch belongs to that document
+generation; a reloaded document starts a fresh registry. A page never vetoes an
+unload Main owns. Crash recovery and factory-reset replacement are not prepared (a
+crashed document cannot answer; a reset discards its data), and neither are reloads
+a page starts itself (error boundary, reset panels), which can lose the last
+write-behind tail. Hidden hosts retain their existing retirement order.
 
 Decisions: [ADR-0015](../adr/0015-desktop-platform-ipc-reset-diagnostics.md);
 graceful shutdown, [ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md).
