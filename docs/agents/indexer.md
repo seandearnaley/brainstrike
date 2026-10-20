@@ -75,6 +75,17 @@ Semantic/hybrid reads may use committed partial coverage if the result discloses
 it; partial coverage cannot qualify completion. Progress-only changes do not
 cancel a query whose execution authority is unchanged.
 
+A Memory recall (`StateMessageVectors.query`) authorizes each candidate vector
+by the committed rows its message identity was read from. The producer's
+`messages()` names them as `sources`: the message's own row and, for a run's
+messages, the run's start and admission. An upsert records their hashes; a
+recall reads only those rows in its truth snapshot and projects no thread history,
+so its cost follows its candidate rows. Unchanged bytes keep the identity,
+because no append can retract it. A purge tombstone excludes the candidate; any
+other change, or a missing or CRC-failed row, refuses the recall. Damage
+elsewhere in a thread is found by its other readers (hydration, catch-up), not
+by recall.
+
 Coarse vector search goes through `CoarseVectorEngine` (`vector-engine.ts`):
 the sign-code table definitions and the k-nearest candidate subquery. Desktop
 uses sqlite-vec's `vec0`; the browser index (BST-1940) uses ordinary tables and

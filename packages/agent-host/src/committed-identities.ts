@@ -63,36 +63,47 @@ function matchesAdmission(started: StartedRow, accepted: AcceptedRow): boolean {
   );
 }
 
+interface RunAdmission {
+  readonly admissionId: string;
+  /** The other committed rows the admission is read from (`committedRunSource`). */
+  readonly sources: readonly number[];
+}
+
 /**
  * BST-1932: the user message a host-admitted run answers without a client
  * command, as `foldHostRunBranch` admits it. A child thread's first run
  * answers its delegation task, keyed by the child thread; a wake answers its
  * delivery after the run it was admitted behind, keyed by the delivery.
  */
-function hostAdmissionId(rows: readonly HostLogRow[], started: StartedRow): string | undefined {
+function hostAdmission(rows: readonly HostLogRow[], started: StartedRow): RunAdmission | undefined {
   const event = started.event;
   if (event.delivery?.via === 'wake') {
-    return typeof event.parentMessageId === 'string' ? event.delivery.messageId : undefined;
+    return typeof event.parentMessageId === 'string'
+      ? { admissionId: event.delivery.messageId, sources: [] }
+      : undefined;
   }
   const thread = rows.filter((row) => row.threadId === started.threadId);
-  const delegated = thread.some(
+  const delegation = thread.find(
     ({ event: candidate }) => candidate.type === 'thread.started' && 'origin' in candidate
   );
   const first = thread.find((row) => row.event.type === 'run.started');
-  return delegated && first?.seq === started.seq && event.parentMessageId === null
-    ? started.threadId
+  return delegation && first?.seq === started.seq && event.parentMessageId === null
+    ? { admissionId: started.threadId, sources: [delegation.seq] }
     : undefined;
 }
 
 /**
  * Canonical source rows, independent of a projection's timestamp requirement.
  * `admissionId` names the user message the run's admission committed: its
- * client command, or a host-admitted delegation or wake.
+ * client command, or a host-admitted delegation or wake. `sources` are the
+ * other rows it is read from: the accepted command, or the delegation's
+ * `thread.started`. Every other condition is that no earlier row matches,
+ * which an append cannot change.
  */
 export function committedRunSource(
   rows: readonly HostLogRow[],
   runId: string
-): { readonly admissionId: string; readonly started: StartedRow } {
+): RunAdmission & { readonly started: StartedRow } {
   const started = startedRow(rows, runId);
   if (!started) {
     throw new Error('Run identity requires its committed start');
@@ -114,13 +125,13 @@ export function committedRunSource(
     if (!matchesAdmission(started, acceptance)) {
       throw new Error('Run start does not match its committed command');
     }
-    return { admissionId: acceptance.event.commandId, started };
+    return { admissionId: acceptance.event.commandId, sources: [acceptance.seq], started };
   }
-  const admissionId = hostAdmissionId(rows, started);
-  if (admissionId === undefined) {
+  const admission = hostAdmission(rows, started);
+  if (admission === undefined) {
     throw new Error('Run identity requires one committed start command');
   }
-  return { admissionId, started };
+  return { ...admission, started };
 }
 
 /**
