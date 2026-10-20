@@ -149,7 +149,7 @@ describe('createForgeRepositoryResolver', () => {
       listRoots: async () => [{ displayName: 'Workspace', path: root, rootId: 'root-1' }],
     });
 
-    await expect(resolver('root-1')).resolves.toEqual({
+    await expect(resolver('root-1', new AbortController().signal)).resolves.toEqual({
       ok: true,
       value: {
         context: {
@@ -167,7 +167,7 @@ describe('createForgeRepositoryResolver', () => {
   it('returns a root-resolution error without running git', async () => {
     const resolver = createForgeRepositoryResolver({ listRoots: async () => [] });
 
-    await expect(resolver('missing-root')).resolves.toEqual({
+    await expect(resolver('missing-root', new AbortController().signal)).resolves.toEqual({
       error: 'No open folder matches root id "missing-root".',
       ok: false,
     });
@@ -217,22 +217,35 @@ describe('createForgeRepositoryResolver — resolution cache (BST-1391 review, S
   it('caches a resolution: a second call for the same rootId does not re-run git', async () => {
     const { resolver, run } = await setupCachedResolverFixture();
 
-    const first = await resolver('root-1');
-    const second = await resolver('root-1');
+    const first = await resolver('root-1', new AbortController().signal);
+    const second = await resolver('root-1', new AbortController().signal);
 
     expect(first.ok).toBe(true);
     expect(second).toEqual(first);
     expect(run).toHaveBeenCalledTimes(5);
   });
 
+  it("hands the caller's abort to every git command it runs (BST-2250)", async () => {
+    const { resolver, run } = await setupCachedResolverFixture();
+    const controller = new AbortController();
+
+    await resolver('root-1', controller.signal);
+    const signals = run.mock.calls.map(([params]) => params.signal);
+    expect(signals).toHaveLength(5);
+    expect(signals.every((signal) => signal?.aborted === false)).toBe(true);
+
+    controller.abort();
+    expect(signals.every((signal) => signal?.aborted === true)).toBe(true);
+  });
+
   it('invalidateResolverCache(commonDir) clears the cache, forcing a re-resolve', async () => {
     const { canonicalCommonDir, resolver, run } = await setupCachedResolverFixture();
 
-    await resolver('root-1');
+    await resolver('root-1', new AbortController().signal);
     expect(run).toHaveBeenCalledTimes(5);
 
     resolver.invalidateResolverCache(canonicalCommonDir);
-    await resolver('root-1');
+    await resolver('root-1', new AbortController().signal);
 
     expect(run).toHaveBeenCalledTimes(10);
   });
@@ -240,11 +253,11 @@ describe('createForgeRepositoryResolver — resolution cache (BST-1391 review, S
   it('invalidateResolverCache with an unrelated commonDir leaves the cache intact', async () => {
     const { resolver, run } = await setupCachedResolverFixture();
 
-    await resolver('root-1');
+    await resolver('root-1', new AbortController().signal);
     expect(run).toHaveBeenCalledTimes(5);
 
     resolver.invalidateResolverCache('/some/other/repo/.git');
-    await resolver('root-1');
+    await resolver('root-1', new AbortController().signal);
 
     expect(run).toHaveBeenCalledTimes(5);
   });

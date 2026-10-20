@@ -23,6 +23,7 @@ import {
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
+import { proofLaunchTiming } from './proof-launch-timing';
 
 export interface HostLeaseUtilityProcess {
   off(event: 'message', listener: (message: unknown) => void): unknown;
@@ -263,6 +264,26 @@ async function ownPlatform(
   return { nativeChildren, platform };
 }
 
+/** PROOF ONLY: the desktop fork edge, without duplicating shared lease/handshake spans. */
+async function proofReady(ready: Promise<void>, handle: HostLeaseUtilityProcess, forkAt: number) {
+  try {
+    await ready;
+  } catch (cause) {
+    proofLaunchTiming('agent-host', 'ready-failed', {
+      error: cause instanceof Error ? cause.message : String(cause),
+      forkAtMs: forkAt,
+      pid: handle.pid,
+      sinceForkMs: performance.now() - forkAt,
+    });
+    throw cause;
+  }
+  proofLaunchTiming('agent-host', 'ready', {
+    forkAtMs: forkAt,
+    pid: handle.pid,
+    sinceForkMs: performance.now() - forkAt,
+  });
+}
+
 /** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
 export function createDesktopHostLease(options: DesktopHostLeaseOptions): DesktopHostLease {
   const closeTimeoutMs = options.closeTimeoutMs ?? 1500;
@@ -317,6 +338,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             options.platformModule === undefined ? undefined : await options.platformOptions?.();
           combined.throwIfAborted();
           const { nativeChildren, platform } = await ownPlatform(scope, options);
+          const forkAt = performance.now();
+          proofLaunchTiming('agent-host', 'fork', { forkAtMs: forkAt });
           const child = ownChild(
             fork(entrypoint, [
               JSON.stringify(start),
@@ -338,6 +361,11 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             ownedPid = child.handle.pid;
+            proofLaunchTiming('agent-host', 'spawn-event', {
+              forkAtMs: forkAt,
+              pid: ownedPid,
+              sinceForkMs: performance.now() - forkAt,
+            });
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
@@ -347,7 +375,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
           }
           options.onChildStarted?.();
-          await ready;
+          await proofReady(ready, child.handle, forkAt);
           const identity = readyIdentity(child);
           child.ready = true;
           options.onChildReady?.({

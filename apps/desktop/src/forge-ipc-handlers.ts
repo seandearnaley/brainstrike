@@ -126,7 +126,7 @@ export function createForgeRepositoryResolver(
 ): ForgeRepositoryResolverWithCache {
   const cache = new Map<string, ForgeRepositoryResolution>();
 
-  const resolve: ForgeRepositoryResolver = async (rootId) => {
+  const resolve: ForgeRepositoryResolver = async (rootId, signal) => {
     const cached = cache.get(rootId);
     if (cached) {
       return { ok: true, value: cached };
@@ -140,8 +140,9 @@ export function createForgeRepositoryResolver(
       run: execFileGitRunner,
       // Bounds the whole resolution (5 spawns + a realpath) to ONE
       // GIT_DEFAULT_TIMEOUT_MS deadline instead of each spawn independently
-      // being able to hold up to that long with no way to cancel it.
-      signal: AbortSignal.timeout(GIT_DEFAULT_TIMEOUT_MS),
+      // being able to hold up to that long, and cancels it when the forge
+      // service stops (BST-2250).
+      signal: AbortSignal.any([signal, AbortSignal.timeout(GIT_DEFAULT_TIMEOUT_MS)]),
     });
     const context = await git.forgeRepositoryContext();
     if (!context.ok) {

@@ -12,8 +12,8 @@ name: Native Package Matrix
 # and a vec0 table round-trips.
 #
 # BST-2190: legs with `desktopSmoke` also run the desktop smoke E2E lane against
-# that same packaged app: today macOS arm64. scripts/native-package-targets.mjs
-# names every excluded target with its Linear issue (Windows x64: BST-2244).
+# that same packaged app: macOS arm64 and, on this proof branch, Windows x64.
+# scripts/native-package-targets.mjs names every remaining excluded target.
 #
 # Adapted from the native-index-sqlite spike. NOT a required check: failures on
 # the nightly run go to Linear (rule 7).
@@ -72,7 +72,7 @@ jobs:
     name: ${{ matrix.os }} (${{ matrix.arch }})
     if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
@@ -181,6 +181,7 @@ jobs:
             ${{ runner.temp }}/electron-builder.log
           if-no-files-found: warn
 
+      # PROOF ONLY: Windows is enabled for the complete diagnostic sweep.
       # BST-2190: `desktopSmoke` legs run the desktop smoke lane against the app
       # this leg just packaged (and, on macOS, signed). Excluded targets, each
       # with its Linear issue, are in scripts/native-package-targets.mjs. BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged makes the
@@ -192,6 +193,7 @@ jobs:
         if: ${{ matrix.desktopSmoke }}
         env:
           BRAINSTRIKE_E2E_DESKTOP_TARGET: packaged
+          BRAINSTRIKE_PROOF_LAUNCH_TIMING: '1'
         run: pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke
 
       # test-results/ holds each failed test's trace, screenshots, video and error

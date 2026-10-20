@@ -18,7 +18,7 @@ test('the scheduled/default package proof preserves every existing release targe
     { arch: 'x64', desktopSmoke: false, os: 'macos-15-intel', platform: 'darwin' },
     { arch: 'x64', desktopSmoke: false, os: 'ubuntu-24.04', platform: 'linux' },
     { arch: 'arm64', desktopSmoke: false, os: 'ubuntu-24.04-arm', platform: 'linux' },
-    { arch: 'x64', desktopSmoke: false, os: 'windows-2025', platform: 'win32' },
+    { arch: 'x64', desktopSmoke: true, os: 'windows-2025', platform: 'win32' },
   ]);
 });
 
@@ -28,7 +28,7 @@ test('manual Linux and Windows proof selects only the requested real platform', 
     ['ubuntu-24.04', 'ubuntu-24.04-arm']
   );
   assert.deepEqual(selectNativePackageTargets('windows').include, [
-    { arch: 'x64', desktopSmoke: false, os: 'windows-2025', platform: 'win32' },
+    { arch: 'x64', desktopSmoke: true, os: 'windows-2025', platform: 'win32' },
   ]);
   assert.throws(() => selectNativePackageTargets('darwin'), /Unsupported native package platform/);
 });
@@ -60,7 +60,7 @@ test('the workflow uses the selector for its actual matrix and keeps full schedu
     actions('fromJSON(needs.select-targets.outputs.matrix)')
   );
   assert.equal(workflow.jobs.smoke.strategy['fail-fast'], false);
-  assert.equal(workflow.jobs.smoke['timeout-minutes'], 45);
+  assert.equal(workflow.jobs.smoke['timeout-minutes'], 100);
   const selection = workflow.jobs['select-targets'].steps.find((step) => step.id === 'select');
   assert.equal(selection.env.TARGET_PLATFORM, actions("inputs.platform || 'all'"));
   assert.match(selection.run, /node scripts\/native-package-targets\.mjs "\$TARGET_PLATFORM"/);

@@ -12,6 +12,7 @@ import {
   RootLockedError,
 } from '@brainstrike/state-store';
 import { attachHost, type HostAttachment } from './client.js';
+import { proofStartupPhase } from './proof-startup-timing.js';
 import type { HostRecord } from './record.js';
 import { readHostRecord } from './record-file.js';
 import { HOST_LEASE_CLOSING, HOST_LEASE_CONNECTION_CLOSED } from './refusal.js';
@@ -383,7 +384,7 @@ async function attachStarted(
   started: StartedHost,
   deadline: number
 ): Promise<Step> {
-  const acquired = await liveLease(launch.root);
+  const acquired = await proofStartupPhase('self-started.live-lease', () => liveLease(launch.root));
   if (!acquired) {
     throw new Error('Host starter returned without a live root lease');
   }
@@ -393,8 +394,12 @@ async function attachStarted(
   // The host this launch started may itself be leaving by now (an idle CLI
   // host with no client yet): the same exit-aware attach as any other owner,
   // and one that released before publishing sends the launch back to the start.
-  const record = await publishedRecord(launch.root, acquired, remaining(deadline));
-  return record ? attachOwner(launch, record, deadline) : AGAIN;
+  const record = await proofStartupPhase('self-started.published-record', () =>
+    publishedRecord(launch.root, acquired, remaining(deadline))
+  );
+  return record
+    ? proofStartupPhase('self-started.handshake', () => attachOwner(launch, record, deadline))
+    : AGAIN;
 }
 /**
  * BST-2167: the launch owns the host it started until it settles it. An
@@ -405,7 +410,9 @@ async function startAndAttach(launch: Launch): Promise<Step> {
   const startOptions = startOptionsFor(launch.root, launch.options.lifetime);
   let started: StartedHost;
   try {
-    started = await startWithin(launch, startOptions);
+    started = await proofStartupPhase('self-started.spawn-to-ready', () =>
+      startWithin(launch, startOptions)
+    );
   } catch (cause) {
     return attachWinner(launch, cause);
   }

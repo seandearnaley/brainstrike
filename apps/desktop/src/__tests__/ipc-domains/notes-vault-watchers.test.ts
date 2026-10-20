@@ -7,7 +7,7 @@
 
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { WebContents } from 'electron';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   disposeAllNotesVaultWatchers,
   liveNotesVaultWatcherCountForTest,
@@ -52,6 +52,36 @@ function asWebContents(owner: FakeOwner): WebContents {
 function heldStop(): { readonly release: () => void; readonly stop: () => Promise<void> } {
   const unsubscribe = Promise.withResolvers<void>();
   return { release: () => unsubscribe.resolve(), stop: vi.fn(() => unsubscribe.promise) };
+}
+
+/**
+ * A native disposer whose next `failures` unsubscribes reject with `failure`.
+ * `released` counts the unsubscribes that succeeded.
+ */
+function flakyNativeStop(
+  failure: Error,
+  failures: number
+): {
+  readonly released: () => number;
+  readonly stop: Mock<() => Promise<void>>;
+  readonly succeedFromNowOn: () => void;
+} {
+  let remainingFailures = failures;
+  let released = 0;
+  return {
+    released: () => released,
+    stop: vi.fn(() => {
+      if (remainingFailures > 0) {
+        remainingFailures -= 1;
+        return Promise.reject(failure);
+      }
+      released += 1;
+      return Promise.resolve();
+    }),
+    succeedFromNowOn: () => {
+      remainingFailures = 0;
+    },
+  };
 }
 
 function flushMacrotask(): Promise<void> {
@@ -193,9 +223,10 @@ describe('Notes Vault watcher owner shutdown (BST-2244)', () => {
 
   it('rejects the dispose with a failed native unsubscribe after every other retirement settles', async () => {
     const failure = new Error('native unsubscribe failed');
+    const failing = flakyNativeStop(failure, 1);
     const held = heldStop();
     const owner = asWebContents(new FakeOwner(8));
-    await startNotesVaultWatch(owner, 'w8a', () => Promise.resolve(() => Promise.reject(failure)));
+    await startNotesVaultWatch(owner, 'w8a', () => Promise.resolve(failing.stop));
     await startNotesVaultWatch(owner, 'w8b', () => Promise.resolve(held.stop));
 
     const disposing = trackSettlement(disposeAllNotesVaultWatchers());
@@ -205,5 +236,63 @@ describe('Notes Vault watcher owner shutdown (BST-2244)', () => {
 
     held.release();
     await expect(disposing.promise).rejects.toMatchObject({ errors: [failure] });
+  });
+});
+
+describe('Notes Vault watcher owner keeps a failed retirement until its unsubscribe succeeds (BST-2248)', () => {
+  const failure = new Error('native unsubscribe failed');
+
+  it.each([
+    [
+      'an unwatch',
+      (owner: FakeOwner) => expect(unwatchNotesVaultWatcher('w9', owner.id)).toBe(true),
+    ],
+    ['a renderer reaper', (owner: FakeOwner) => owner.destroy()],
+  ])('retries %s retirement that failed in the terminal dispose', async (_remover, remove) => {
+    const native = flakyNativeStop(failure, 1);
+    const owner = new FakeOwner(9);
+    await startNotesVaultWatch(asWebContents(owner), 'w9', () => Promise.resolve(native.stop));
+
+    remove(owner);
+    await vi.waitFor(() => expect(native.stop).toHaveBeenCalledOnce());
+    await flushMacrotask();
+    await disposeAllNotesVaultWatchers();
+
+    expect(native.stop).toHaveBeenCalledTimes(2);
+    expect(native.released()).toBe(1);
+  });
+
+  it('retries a terminal dispose whose unsubscribe failed in the next terminal dispose', async () => {
+    const native = flakyNativeStop(failure, 1);
+    await startNotesVaultWatch(asWebContents(new FakeOwner(10)), 'w10', () =>
+      Promise.resolve(native.stop)
+    );
+
+    await expect(disposeAllNotesVaultWatchers()).rejects.toMatchObject({ errors: [failure] });
+    await disposeAllNotesVaultWatchers();
+    await disposeAllNotesVaultWatchers();
+
+    expect(native.stop).toHaveBeenCalledTimes(2);
+    expect(native.released()).toBe(1);
+  });
+
+  it('rejects the terminal dispose with a retirement that fails on every attempt, and keeps owning it', async () => {
+    const native = flakyNativeStop(failure, Number.POSITIVE_INFINITY);
+    const owner = new FakeOwner(11);
+    await startNotesVaultWatch(asWebContents(owner), 'w11', () => Promise.resolve(native.stop));
+    expect(unwatchNotesVaultWatcher('w11', owner.id)).toBe(true);
+    await vi.waitFor(() => expect(native.stop).toHaveBeenCalledOnce());
+    await flushMacrotask();
+
+    // One retry per terminal dispose, never a loop.
+    await expect(disposeAllNotesVaultWatchers()).rejects.toMatchObject({ errors: [failure] });
+    expect(native.stop).toHaveBeenCalledTimes(2);
+    await expect(disposeAllNotesVaultWatchers()).rejects.toMatchObject({ errors: [failure] });
+    expect(native.stop).toHaveBeenCalledTimes(3);
+    expect(native.released()).toBe(0);
+
+    native.succeedFromNowOn();
+    await disposeAllNotesVaultWatchers();
+    expect(native.released()).toBe(1);
   });
 });
