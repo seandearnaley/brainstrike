@@ -187,10 +187,14 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
       lifecycleDelays: lifecycleDelaySeam(),
       onChildReady: privateClients.attach,
       onChildStarted: () => launched.resolve(),
-      onLost: (code) => {
-        logger.warn('The agent host exited without Main asking; the next client relaunches it', {
-          code,
-        });
+      onLost: (code, { requested }) => {
+        if (requested) {
+          logger.info('The agent host stopped for the restart the user asked for', { code });
+        } else {
+          logger.warn('The agent host exited without Main asking; the next client relaunches it', {
+            code,
+          });
+        }
         lost();
       },
       platform: (children) => {

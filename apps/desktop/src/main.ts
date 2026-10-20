@@ -918,8 +918,8 @@ ipcDisposers.add(
     restartHost: () =>
       restartLaunchedAgentHost({
         acquireProfile: () => nativeIndexActivation.acquireProfile(),
-        exited: agentHostPrivateClients.exited,
         logger,
+        stopLaunchedHost: agentHostPrivateClients.stopForRelaunch,
       }),
     showDataFolder: async () => {
       const failure = await shell.openPath(resolveDesktopDatabaseProfileDirectory());

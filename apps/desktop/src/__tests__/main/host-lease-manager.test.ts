@@ -216,7 +216,7 @@ describe('desktop host lease ownership', () => {
       });
       await owner.acquire();
       child.exit(code);
-      expect(onLost).toHaveBeenCalledExactlyOnceWith(code);
+      expect(onLost).toHaveBeenCalledExactlyOnceWith(code, { requested: false });
       // The loss was reported when it happened; retiring the owner is not a failed close.
       await owner.close();
       expect(child.posts).not.toContainEqual({ method: 'close' });
@@ -522,6 +522,117 @@ describe('desktop host lease ownership', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// BST-1880 restart, ADR-0026: the lease stops its own child for a relaunch over the
+// child's control port and joins the exit under its one close ladder.
+describe('stop for relaunch', () => {
+  async function readyOwner(options: { readonly exitOnClose: boolean }) {
+    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
+      '../../host-lease-manager'
+    );
+    const child = new Child();
+    child.exitOnClose = options.exitOnClose;
+    const onLost = vi.fn();
+    let ready: import('../../host-lease-manager').DesktopHostChild | undefined;
+    const owner = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+        return child;
+      },
+      onChildReady: (readyChild) => {
+        ready = readyChild;
+      },
+      onLost,
+      root,
+    });
+    await owner.acquire();
+    if (!ready) {
+      throw new Error('The lease reported no ready child');
+    }
+    return { child, cooperativeMs: HOST_COOPERATIVE_CLOSE_MS, onLost, owner, ready };
+  }
+  const closes = (child: Child): number =>
+    child.posts.filter((post) => JSON.stringify(post) === '{"method":"close"}').length;
+
+  it('asks the child to close and reports its exit as a requested loss, so the profile recovers', async () => {
+    const { child, onLost, owner, ready } = await readyOwner({ exitOnClose: true });
+
+    await expect(ready.stopForRelaunch()).resolves.toBe(0);
+
+    expect(closes(child)).toBe(1);
+    expect(child.kill).not.toHaveBeenCalled();
+    // The lost path (BST-2004): the profile fails this owner and the next acquire relaunches.
+    expect(onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+    // Retiring the failed owner is not a failed close.
+    await expect(owner.close()).resolves.toBeUndefined();
+    expect(closes(child)).toBe(1);
+  });
+
+  it('joins a child that takes longer than any old refusal, escalating to kill only after the cooperative rung', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { child, cooperativeMs, onLost, ready } = await readyOwner({ exitOnClose: false });
+      let exitCode: number | undefined;
+      const stopping = ready.stopForRelaunch().then((code) => {
+        exitCode = code;
+      });
+      await vi.advanceTimersByTimeAsync(cooperativeMs - 1);
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(exitCode).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await stopping;
+      expect(child.kill).toHaveBeenCalledOnce();
+      expect(exitCode).toBe(15);
+      expect(onLost).toHaveBeenCalledExactlyOnceWith(15, { requested: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a quit during the restart joins the same exit: one close, one kill at most, no failed close', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { child, cooperativeMs, onLost, owner, ready } = await readyOwner({
+        exitOnClose: false,
+      });
+      const stopping = ready.stopForRelaunch();
+      const quitting = owner.close();
+      await vi.advanceTimersByTimeAsync(cooperativeMs);
+      await expect(Promise.all([stopping, quitting])).resolves.toEqual([15, undefined]);
+      expect(closes(child)).toBe(1);
+      expect(child.kill).toHaveBeenCalledOnce();
+      // The lease itself was closing when the child exited: no relaunch recovery is due.
+      expect(onLost).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a quit during the restart does not fail when the child exits as requested', async () => {
+    const { child, onLost, owner, ready } = await readyOwner({ exitOnClose: false });
+    const stopping = ready.stopForRelaunch();
+    const quitting = owner.close();
+    await vi.waitFor(() => expect(closes(child)).toBe(1));
+    child.exit(0);
+    await expect(Promise.all([stopping, quitting])).resolves.toEqual([0, undefined]);
+    expect(closes(child)).toBe(1);
+    expect(child.kill).not.toHaveBeenCalled();
+    // The exit landed before the lease's own close began: it is the relaunch's requested
+    // loss, which a retiring profile ignores, and the lease close still succeeds.
+    expect(onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+  });
+
+  it('keeps the request on that child: a later child that crashes is still an unrequested loss', async () => {
+    const relaunched = await readyOwner({ exitOnClose: true });
+    await relaunched.ready.stopForRelaunch();
+    expect(relaunched.onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+
+    const next = await readyOwner({ exitOnClose: true });
+    next.child.exit(9);
+    expect(next.onLost).toHaveBeenCalledExactlyOnceWith(9, { requested: false });
   });
 });
 
