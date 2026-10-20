@@ -10,8 +10,10 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * before anything it reads (agent host, database, git) retires (BST-1859),
  * Main's child processes (shell, terminals, command sessions, LSP) reaped early, the agent host's admission fenced before Main's
  * MCP control closes (a host
- * starting after it would be refused), git and forge before the
- * database they read, and `database-drain` last: it stops everything that
+ * starting after it would be refused), each @parcel/watcher owner (Explorer
+ * roots, Notes Vault, git metadata) joining its native subscribes and
+ * unsubscribes before Electron frees Main's Node environment (BST-2244), git
+ * and forge before the database they read, and `database-drain` last: it stops everything that
  * issues database work. Two things deliberately sit OUTSIDE this sequence and
  * its budget: the database close itself (`DesktopShutdownRunPlan.closeDatabase`,
  * its own reserved slice that always runs) and the durable error-log close
@@ -26,6 +28,7 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'native-index',
   'mcp-runtime',
   'file-system',
+  'notes-vault',
   'chunking-host',
   'parser-host',
   'embedding-host',

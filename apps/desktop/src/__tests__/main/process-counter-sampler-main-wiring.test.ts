@@ -58,6 +58,7 @@ describe('Main process sampler owner composition', () => {
         'git-inventory': () => {},
         'mcp-runtime': () => {},
         'native-index': () => {},
+        'notes-vault': () => {},
         'parser-host': () => {},
         renderers: () => {},
         'snapshot-maintenance': () => {},
