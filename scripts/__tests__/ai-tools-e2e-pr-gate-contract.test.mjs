@@ -35,6 +35,7 @@ const DESKTOP_SMOKE_SPECS = [
   'e2e/app-launch.test.ts',
   'e2e/assistant-panel.desktop.test.ts',
   'e2e/background-indexing-pause.desktop.test.ts',
+  'e2e/explorer-worker-persistence.desktop.test.ts',
   'e2e/file-system.test.ts',
   'e2e/forge-pr.desktop.test.ts',
   'e2e/git-panel.desktop.test.ts',
