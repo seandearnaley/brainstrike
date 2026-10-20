@@ -193,6 +193,7 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
+import { prepareDesktopRendererClose } from './prepare-desktop-renderer-close';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -202,7 +203,7 @@ import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
-import { resolveSourceWindowRole } from './window-role';
+import { getWindowRole, resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import { enqueueFolderCandidates, filterDirectoryOpenCandidates } from './workspace-open-queue';
 import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
@@ -512,16 +513,31 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
       // own stop.
-      renderers: async () => {
+      renderers: async (signal) => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
         nativeIndexActivation.fenceTerminal();
         await initialWindowCreation;
-        await closeDesktopRenderers(
-          BrowserWindow.getAllWindows(),
-          (window) =>
-            chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
+        const windows = BrowserWindow.getAllWindows();
+        const preparations = await Promise.allSettled(
+          windows
+            .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
+            .map((window) => prepareDesktopRendererClose(window, signal))
         );
+        signal.throwIfAborted();
+        const closes = await Promise.allSettled([
+          closeDesktopRenderers(
+            windows,
+            (window) =>
+              chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
+          ),
+        ]);
+        const failures = [...preparations, ...closes].flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length > 0) {
+          throw new AggregateError(failures, 'Desktop renderer producers failed to close');
+        }
       },
       // Stops between its stages and joins the one in flight, before the agent host,
       // the database or git that it reads retire; the next launch runs it again.

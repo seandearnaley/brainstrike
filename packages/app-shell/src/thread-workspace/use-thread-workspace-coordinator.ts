@@ -2,6 +2,10 @@ import {
   hasFactoryResetPreparationStarted,
   registerFactoryResetPreparation,
 } from '@brainstrike/app-state/factory-reset';
+import {
+  hasRendererClosePreparationStarted,
+  registerRendererClosePreparation,
+} from '@brainstrike/app-state/renderer-close';
 import { isBoundaryRefusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   ThreadWorkspaceRepository,
@@ -387,6 +391,7 @@ export function useThreadWorkspaceCoordinator({
   // FileExplorerProvider remounts its children while reset clears live stores.
   // A replacement owner belongs to the same terminal renderer reset lifecycle.
   const resetPreparedRef = useRef(hasFactoryResetPreparationStarted());
+  const closePreparedRef = useRef(hasRendererClosePreparationStarted());
   const pendingOperationsRef = useRef(new Set<Promise<unknown>>());
   const repository = useMemo<ThreadWorkspaceRepository | null>(() => {
     if (!sourceRepository) {
@@ -451,6 +456,43 @@ export function useThreadWorkspaceCoordinator({
     }
     logFailure(message, error, { threadId });
   });
+  const prepareClose = useEffectEvent(async () => {
+    closePreparedRef.current = true;
+    const flush = saveTimerRef.current !== null;
+    clearWorkspaceSaveTimer(saveTimerRef);
+    if (flush && repository && activeThreadId !== null && !resetPreparedRef.current) {
+      const snapshot = captureWorkspaceSnapshot(facadeRef.current);
+      cacheRef.current.set(activeThreadId, snapshot);
+      repository.setThreadWorkspace(activeThreadId, resourceId, snapshot).catch((error) => {
+        handlePersistError(
+          activeThreadId,
+          error,
+          'Failed to persist closing thread workspace snapshot'
+        );
+      });
+    }
+    const failures: unknown[] = [];
+    // An admitted hydration can produce an inherited/live-edit save when its read settles.
+    while (pendingOperationsRef.current.size > 0) {
+      const results = await Promise.allSettled([...pendingOperationsRef.current]);
+      failures.push(
+        ...results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+      );
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        'Thread workspace operations failed during close preparation'
+      );
+    }
+  });
+  useEffect(() => {
+    if (hasRendererClosePreparationStarted()) {
+      closePreparedRef.current = true;
+      return;
+    }
+    return registerRendererClosePreparation(prepareClose);
+  }, []);
   // Before workspace effects: later effects in this hook read facadeRef, and
   // same-commit effect order is declaration order.
   useEffect(() => {
@@ -459,12 +501,17 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Debounced continuous save for the active thread ----
   useEffect(() => {
-    if (resetPreparedRef.current || !repository || activeThreadId === null) {
+    if (
+      resetPreparedRef.current ||
+      closePreparedRef.current ||
+      !repository ||
+      activeThreadId === null
+    ) {
       return;
     }
     const persist = () => {
       saveTimerRef.current = null;
-      if (resetPreparedRef.current) {
+      if (resetPreparedRef.current || closePreparedRef.current) {
         return;
       }
       const snapshot = captureWorkspaceSnapshot(facadeRef.current);
@@ -476,7 +523,7 @@ export function useThreadWorkspaceCoordinator({
     let previousAppIds = [...facadeRef.current.getOpenAppIds()];
     let previousSelection = facadeRef.current.getSelection();
     const unsubscribe = subscribe(() => {
-      if (resetPreparedRef.current) {
+      if (resetPreparedRef.current || closePreparedRef.current) {
         return;
       }
       const appIds = facadeRef.current.getOpenAppIds();
@@ -520,7 +567,12 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Preload snapshots for open thread tabs ----
   useEffect(() => {
-    if (resetPreparedRef.current || !repository || openThreadIds.length === 0) {
+    if (
+      resetPreparedRef.current ||
+      closePreparedRef.current ||
+      !repository ||
+      openThreadIds.length === 0
+    ) {
       return;
     }
     const missing = openThreadIds.filter((threadId) => !cacheRef.current.has(threadId));
@@ -563,7 +615,7 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Switch handling ----
   useEffect(() => {
-    if (resetPreparedRef.current) {
+    if (resetPreparedRef.current || closePreparedRef.current) {
       return;
     }
     rejectUnavailableChildNavigation(repository, navigation, resourceId, activeThreadId);

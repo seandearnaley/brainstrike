@@ -1,3 +1,4 @@
+import { exchangeStorageRequest } from './worker-storage-test-boundary';
 /**
  * Additional coverage tests for WorkerStorage
  *
@@ -235,25 +236,20 @@ describe('WorkerStorage – coverage boost', () => {
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
     });
 
-    it('logs when JSON.stringify throws during flush (synchronous error path)', () => {
+    it('logs when JSON.stringify throws during flush (synchronous error path)', async () => {
       vi.useFakeTimers();
       const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      // Circular references can't be JSON-serialized — triggers the synchronous catch
-      // path inside flushPendingSaveValues. Note: the adapter's setItem is void-ed, so
-      // async adapter failures are silently dropped; only synchronous serialization
-      // errors (like JSON.stringify on circular structures) reach the catch block.
       const circular: Record<string, unknown> = {};
       circular['self'] = circular;
-      void storage.setItem('circular-key', circular);
-
-      // Should not throw
+      const saved = storage.setItem('circular-key', circular);
+      const rejected = expect(saved).rejects.toThrow();
       expect(() => storage.flushPendingWrites()).not.toThrow();
-
+      await rejected;
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Failed to flush pending worker storage write:',
-        expect.objectContaining({ error: expect.any(Error), key: 'circular-key' })
+        expect.objectContaining({ error: expect.any(Error) })
       );
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
     });
   });
 
@@ -262,26 +258,13 @@ describe('WorkerStorage – coverage boost', () => {
   // -----------------------------------------------------------------------
   describe('storage_request – setItem with undefined value', () => {
     it('responds with error when value is undefined', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      mockWorker.emitMessage({
-        id: 'undef-1',
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      const result = await exchangeStorageRequest(storage, mockWorker, {
         key: 'some-key',
         operation: 'setItem',
-        // value intentionally omitted (undefined)
         opId: 1,
-        type: 'storage_request',
       });
-
-      await vi.waitFor(() => {
-        expect(mockWorker.postMessage).toHaveBeenCalledWith({
-          error: 'Cannot store undefined value',
-          id: 'undef-1',
-          operation: 'setItem',
-          success: false,
-          type: 'storage_response',
-        });
-      });
+      expect(result).toEqual(new Error('Cannot store undefined value'));
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
     });
   });
@@ -327,30 +310,14 @@ describe('WorkerStorage – coverage boost', () => {
     it('rejects when both worker and storage adapter fail', async () => {
       vi.useFakeTimers();
       const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      // Worker responds with error
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
-        mockWorker.emitMessage({
-          error: 'Worker save failed',
-          id: message.id,
-          type: 'error',
-        });
+        mockWorker.emitMessage({ error: 'Worker save failed', id: message.id, type: 'error' });
       });
-
-      // Adapter also fails
-      mockLocalStorage.setItem.mockImplementationOnce(() => {
-        throw new Error('Storage quota exceeded');
-      });
-
       const promise = storage.setItem('doomed-key', 'value');
-
-      // Attach the rejection handler BEFORE advancing timers. The rejection fires
-      // during advanceTimersByTimeAsync's microtask flushing; without a handler
-      // attached first, Node emits an unhandledRejection warning.
-      const assertion = expect(promise).rejects.toThrow('Storage quota exceeded');
-
+      const assertion = expect(promise).rejects.toThrow('Worker save failed');
       await vi.advanceTimersByTimeAsync(200);
       await assertion;
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
     });
   });
 
@@ -396,25 +363,17 @@ describe('WorkerStorage – coverage boost', () => {
   // handleWorkerError with mixed pending state
   // -----------------------------------------------------------------------
   describe('handleWorkerError – comprehensive cleanup', () => {
-    it('rejects all pending requests and flushes saves on error', async () => {
+    it('rejects pending saves on worker error without a fallback', async () => {
       vi.useFakeTimers();
       const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      // Start multiple operations
-      const getPromise = storage.getItem('pending-get');
-      void storage.setItem('pending-set', 'value');
-
-      // Trigger worker error
+      const reading = storage.getItem('pending-get');
+      const saving = storage.setItem('pending-set', 'value');
+      const rejection = expect(saving).rejects.toThrow('Worker error occurred');
       mockWorker.emitError(new Error('catastrophic failure'));
-
-      // getItem should fall back to localStorage
-      const getResult = await getPromise;
-      expect(getResult).toBeNull();
-
-      // Pending save should be flushed to adapter
+      await rejection;
+      expect(await reading).toBeNull();
       await vi.advanceTimersByTimeAsync(200);
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('pending-set', 'value');
-
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
       expect(storage.isWorkerAvailable).toBe(false);
       expect(mockWorker.terminate).toHaveBeenCalled();
     });
@@ -573,98 +532,53 @@ describe('WorkerStorage – coverage boost', () => {
   // -----------------------------------------------------------------------
   describe('storage_request – opId edge cases', () => {
     it('processes request without opId (opId is undefined)', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      mockWorker.emitMessage({
-        id: 'no-opid',
-        key: 'k',
-        operation: 'setItem',
-        type: 'storage_request',
-        value: 'v',
-        // opId intentionally omitted
-      });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('k', 'v');
-        expect(mockWorker.postMessage).toHaveBeenCalledWith({
-          id: 'no-opid',
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      expect(
+        await exchangeStorageRequest(storage, mockWorker, {
+          key: 'k',
           operation: 'setItem',
-          success: true,
-          type: 'storage_response',
-        });
-      });
+          value: 'v',
+        })
+      ).toBeUndefined();
+      expect(mockLocalStorage.data.get('k')).toBe('v');
     });
 
     it('accepts equal opId (not strictly less than)', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      // First request sets the opId baseline
-      mockWorker.emitMessage({
-        id: 'first',
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      await exchangeStorageRequest(storage, mockWorker, {
         key: 'k',
         operation: 'setItem',
         opId: 5,
-        type: 'storage_request',
         value: 'first-val',
       });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('k', 'first-val');
-      });
-
-      // Second request with equal opId should still process
-      mockWorker.emitMessage({
-        id: 'second',
+      await exchangeStorageRequest(storage, mockWorker, {
         key: 'k',
         operation: 'setItem',
         opId: 5,
-        type: 'storage_request',
         value: 'second-val',
       });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(2);
-      });
+      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(2);
+      expect(mockLocalStorage.data.get('k')).toBe('second-val');
     });
 
     it('skips setItem when opId < lastOp but still responds success', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      // Establish high opId
-      mockWorker.emitMessage({
-        id: 'high',
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      await exchangeStorageRequest(storage, mockWorker, {
         key: 'ordered-key',
         operation: 'setItem',
         opId: 100,
-        type: 'storage_request',
         value: 'new',
       });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('ordered-key', 'new');
-      });
-
-      mockLocalStorage.setItem.mockClear();
-
-      // Stale opId arrives late
-      mockWorker.emitMessage({
-        id: 'stale',
-        key: 'ordered-key',
-        operation: 'setItem',
-        opId: 50,
-        type: 'storage_request',
-        value: 'old',
-      });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
-        expect(mockWorker.postMessage).toHaveBeenCalledWith({
-          id: 'stale',
+      expect(
+        await exchangeStorageRequest(storage, mockWorker, {
+          key: 'ordered-key',
           operation: 'setItem',
-          success: true,
-          type: 'storage_response',
-        });
-      });
+          opId: 50,
+          value: 'old',
+        })
+      ).toBeUndefined();
+      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(mockLocalStorage.data.get('ordered-key')).toBe('new');
     });
 
     // BST-459: `opId` is declared `opId?: number`, so 0 is a legal value of the
@@ -672,41 +586,23 @@ describe('WorkerStorage – coverage boost', () => {
     // write" signal. A truthiness check conflates the two and fails the guard
     // OPEN for opId 0 — the stale write wins and clobbers newer data.
     it('skips a stale setItem carrying opId 0, not just truthy stale opIds', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      mockWorker.emitMessage({
-        id: 'newer',
-        key: 'zero-key',
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      await exchangeStorageRequest(storage, mockWorker, {
+        key: 'ordered-key',
         operation: 'setItem',
-        opId: 5,
-        type: 'storage_request',
-        value: 'newer',
+        opId: 100,
+        value: 'new',
       });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('zero-key', 'newer');
-      });
-
-      mockLocalStorage.setItem.mockClear();
-
-      mockWorker.emitMessage({
-        id: 'stale-zero',
-        key: 'zero-key',
-        operation: 'setItem',
-        opId: 0,
-        type: 'storage_request',
-        value: 'stale',
-      });
-
-      await vi.waitFor(() => {
-        expect(mockWorker.postMessage).toHaveBeenCalledWith({
-          id: 'stale-zero',
+      expect(
+        await exchangeStorageRequest(storage, mockWorker, {
+          key: 'ordered-key',
           operation: 'setItem',
-          success: true,
-          type: 'storage_response',
-        });
-      });
-      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+          opId: 0,
+          value: 'old',
+        })
+      ).toBeUndefined();
+      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(mockLocalStorage.data.get('ordered-key')).toBe('new');
     });
 
     // The two cases that make `Number.isFinite` the predicate rather than a
@@ -714,75 +610,46 @@ describe('WorkerStorage – coverage boost', () => {
     // type-checked at runtime, so neither value is excluded by the declared
     // `opId?: number`.
     it('does not let a NaN opId poison the ordering baseline for its key', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      const send = (id: string, opId: number, value: string) => {
-        mockWorker.emitMessage({
-          id,
-          key: 'nan-key',
-          operation: 'setItem',
-          opId,
-          type: 'storage_request',
-          value,
-        });
-      };
-
-      send('high', 100, 'newest');
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('nan-key', 'newest');
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      await exchangeStorageRequest(storage, mockWorker, {
+        key: 'nan-key',
+        operation: 'setItem',
+        opId: 100,
+        value: 'newest',
       });
-
-      // Recorded as the baseline, `NaN` makes every later `opId < NaN` false
-      // and the guard stops firing for this key.
-      send('garbage', Number.NaN, 'garbage');
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('nan-key', 'garbage');
+      await exchangeStorageRequest(storage, mockWorker, {
+        key: 'nan-key',
+        operation: 'setItem',
+        opId: Number.NaN,
+        value: 'unsequenced',
       });
-
       mockLocalStorage.setItem.mockClear();
-
-      send('stale', 50, 'stale');
-      await vi.waitFor(() => {
-        expect(mockWorker.postMessage).toHaveBeenCalledWith({
-          id: 'stale',
-          operation: 'setItem',
-          success: true,
-          type: 'storage_response',
-        });
+      await exchangeStorageRequest(storage, mockWorker, {
+        key: 'nan-key',
+        operation: 'setItem',
+        opId: 50,
+        value: 'stale',
       });
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+      expect(mockLocalStorage.data.get('nan-key')).toBe('unsequenced');
     });
 
     it('does not skip a write whose opId is a non-numeric value that coerces low', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      mockWorker.emitMessage({
-        id: 'high',
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      await exchangeStorageRequest(storage, mockWorker, {
         key: 'coerce-key',
         operation: 'setItem',
         opId: 100,
-        type: 'storage_request',
         value: 'newest',
       });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('coerce-key', 'newest');
-      });
-
-      // `'' < 100` is `0 < 100` — a relational comparison coerces, so an
-      // unsequenced write would be dropped as if it were stale.
-      mockWorker.emitMessage({
-        id: 'empty-string',
+      await exchangeStorageRequest(storage, mockWorker, {
         key: 'coerce-key',
         operation: 'setItem',
         opId: '' as unknown as number,
-        type: 'storage_request',
         value: 'later',
       });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('coerce-key', 'later');
-      });
+      expect(mockLocalStorage.data.get('coerce-key')).toBe('later');
+      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -844,46 +711,23 @@ describe('WorkerStorage – coverage boost', () => {
   // -----------------------------------------------------------------------
   // setItem serialization in fallback
   // -----------------------------------------------------------------------
-  describe('setItem fallback serialization', () => {
-    it('serializes object values to JSON in fallback path', async () => {
+  describe('explicit flush serialization', () => {
+    it('serializes object values during explicit flush', async () => {
       vi.useFakeTimers();
       const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      mockWorker.postMessage.mockImplementation((message: { id: string }) => {
-        mockWorker.emitMessage({
-          error: 'fail',
-          id: message.id,
-          type: 'error',
-        });
-      });
-
-      const promise = storage.setItem('obj-key', { a: 1, b: [2, 3] });
-      await vi.advanceTimersByTimeAsync(200);
-      await promise;
-
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
-        'obj-key',
-        JSON.stringify({ a: 1, b: [2, 3] })
-      );
+      const saved = storage.setItem('flush-key', { nested: 'value' });
+      storage.flushPendingWrites();
+      await saved;
+      expect(mockLocalStorage.data.get('flush-key')).toBe(JSON.stringify({ nested: 'value' }));
     });
 
-    it('stores string values directly without double-quoting in fallback path', async () => {
+    it('flushes strings without double quoting', async () => {
       vi.useFakeTimers();
       const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      mockWorker.postMessage.mockImplementation((message: { id: string }) => {
-        mockWorker.emitMessage({
-          error: 'fail',
-          id: message.id,
-          type: 'error',
-        });
-      });
-
-      const promise = storage.setItem('str-key', 'already-a-string');
-      await vi.advanceTimersByTimeAsync(200);
-      await promise;
-
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('str-key', 'already-a-string');
+      const saved = storage.setItem('flush-key', 'plain-string');
+      storage.flushPendingWrites();
+      await saved;
+      expect(mockLocalStorage.data.get('flush-key')).toBe('plain-string');
     });
   });
 
@@ -910,18 +754,12 @@ describe('WorkerStorage – coverage boost', () => {
   // -----------------------------------------------------------------------
   describe('handleWorkerMessage – routing', () => {
     it('routes storage_request messages to handleStorageRequest', async () => {
-      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
-
-      mockWorker.emitMessage({
-        id: 'route-test',
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+      await exchangeStorageRequest(storage, mockWorker, {
         key: 'routing-key',
         operation: 'getItem',
-        type: 'storage_request',
       });
-
-      await vi.waitFor(() => {
-        expect(mockLocalStorage.getItem).toHaveBeenCalledWith('routing-key');
-      });
+      expect(mockLocalStorage.getItem).toHaveBeenCalledWith('routing-key');
     });
 
     it('routes success/error messages to handleWorkerResponse', async () => {

@@ -57,6 +57,13 @@ Workspace root disposal fences direct read/list admission and joins their path
 resolution and native completion alongside mutations and source leases before
 closing mounted capabilities (BST-2251). Read errors remain owned by their callers.
 
+App-owned quit prepares visible renderers before DOM unload. Workspace producers
+fence new edits, flush pending snapshots and join admitted hydration/save operations;
+only then does the frame close its host transport and acknowledge Main's private
+reply port. This preparation is terminal: failure is reported and shutdown still
+ends the renderer lifetime under the existing deadline, including a cancelled
+native window close. Hidden hosts retain their existing retirement order.
+
 Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
 each joins its subscribes and unsubscribes in a graceful-shutdown step. One still

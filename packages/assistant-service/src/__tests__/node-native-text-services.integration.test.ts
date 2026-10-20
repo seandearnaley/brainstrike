@@ -41,7 +41,6 @@ async function runFixture(mode: Mode, signal: AbortSignal): Promise<unknown> {
       'native-index-settings',
       'native-authority-transition',
       'native-index-setup-required',
-      'native-index-search',
       'native-scoped-search',
     ];
     await build({

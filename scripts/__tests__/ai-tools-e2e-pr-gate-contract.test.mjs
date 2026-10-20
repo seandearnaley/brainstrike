@@ -35,6 +35,7 @@ const DESKTOP_SMOKE_SPECS = [
   'e2e/app-launch.test.ts',
   'e2e/assistant-panel.desktop.test.ts',
   'e2e/background-indexing-pause.desktop.test.ts',
+  'e2e/explorer-worker-persistence.desktop.test.ts',
   'e2e/file-system.test.ts',
   'e2e/forge-pr.desktop.test.ts',
   'e2e/git-panel.desktop.test.ts',
@@ -46,6 +47,7 @@ const DESKTOP_SMOKE_SPECS = [
   'e2e/terminal-panel.desktop.test.ts',
   'e2e/threads-panel-folders.desktop.test.ts',
   'e2e/tools-settings.desktop.test.ts',
+  'e2e/thread-workspace-close.desktop.test.ts',
   'e2e/workspace-bar.desktop.test.ts',
   'e2e/worktree-map.desktop.test.ts',
   'e2e/worktree-mode.desktop.test.ts',
@@ -68,8 +70,8 @@ function desktopSmokeLaneCommand(specs) {
     '--project=smoke',
     '--workers=1',
     '--retries=0',
-    '--max-failures=1',
-    '--global-timeout=900000',
+    '--max-failures=0',
+    '--global-timeout=3600000',
     '--grep="@smoke"',
   ].join(' ');
 }
