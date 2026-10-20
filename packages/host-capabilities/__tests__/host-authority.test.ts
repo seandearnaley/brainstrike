@@ -118,3 +118,39 @@ test('Settings writes go through the host authority and a subscription login is 
     await credentials.close();
   }
 });
+
+test('unknown OAuth providers fail through the host descriptor owner before any side effect', async () => {
+  const { auth, credentials, memory, tokenRequests } = hostAuthority();
+  const openExternal = vi.fn<(url: string) => Promise<void>>();
+  const stored = new Map(memory.entries);
+  try {
+    await expect(auth.connect('nope', 'device', 'desktop-ui', openExternal)).resolves.toEqual({
+      code: 'unknown_provider',
+      state: 'error',
+    });
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(tokenRequests).toHaveLength(0);
+    expect(memory.entries).toEqual(stored);
+  } finally {
+    await credentials.close();
+  }
+});
+
+test.each(['public-socket', undefined] as const)(
+  'unknown-provider sign-in still requires a private desktop origin (%s)',
+  async (origin) => {
+    const { auth, credentials, memory, tokenRequests } = hostAuthority();
+    const openExternal = vi.fn<(url: string) => Promise<void>>();
+    const stored = new Map(memory.entries);
+    try {
+      await expect(auth.connect('nope', 'device', origin, openExternal)).rejects.toMatchObject({
+        code: 'auth.interactive-origin-required',
+      });
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(tokenRequests).toHaveLength(0);
+      expect(memory.entries).toEqual(stored);
+    } finally {
+      await credentials.close();
+    }
+  }
+);
