@@ -65,6 +65,48 @@ const exited = async (): Promise<number> => {
   return ghost.p.pid as number;
 };
 
+/** Every decision is observed before RELEASE, and the winner must still refuse a real opener. */
+async function finishHeldRace(
+  root: string,
+  contenders: readonly ReturnType<typeof runTs>[]
+): Promise<string[]> {
+  const decisions = await Promise.all(contenders.map((contender) => contender.line('DECIDED')));
+  expect(decisions.filter((decision) => decision === 'DECIDED WON')).toHaveLength(1);
+  expect(decisions.filter((decision) => decision === 'DECIDED REFUSED')).toHaveLength(
+    contenders.length - 1
+  );
+  const winner = contenders[decisions.indexOf('DECIDED WON')];
+  if (!winner) {
+    throw new Error('the race reported no winning contender');
+  }
+  expect(lockOf(root)?.pid).toBe(winner.p.pid);
+  const refusal = await RootLock.acquire(root).then(
+    (lock) => {
+      lock.release();
+      return null;
+    },
+    (error: unknown) => error
+  );
+  expect(refusal).toBeInstanceOf(RootLockedError);
+  if (refusal instanceof RootLockedError) {
+    expect(refusal.owner.pid).toBe(winner.p.pid);
+  }
+  winner.p.stdin?.write('RELEASE\n');
+  const exits = await Promise.all(contenders.map((contender) => contender.exit()));
+  for (const code of exits) {
+    expect(code).toBe(0);
+  }
+  expect(lockOf(root)).toBeNull();
+  return contenders.map(
+    (contender) =>
+      contender
+        .out()
+        .split('\n')
+        .find((line) => /^(WON|REFUSED|ERROR) /.test(line))
+        ?.trim() ?? ''
+  );
+}
+
 describe('D5: data-root lock', () => {
   test('a second process opening the same data root is refused (and so is a second open in this process)', async () => {
     const root = newRoot();
@@ -273,37 +315,13 @@ describe('D5: data-root lock', () => {
       for (const c of cs) {
         c.p.stdin?.write(`ACQUIRE ${at}\n`);
       }
-      const decisions = await Promise.all(cs.map((c) => c.line('DECIDED')));
-      for (const [index, c] of cs.entries()) {
-        if (decisions[index]?.startsWith('DECIDED WON')) {
-          c.p.stdin?.write('RELEASE\n');
-        }
-      }
-      await Promise.all(cs.map((c) => c.exit()));
-      const outs = cs.map(
-        (c) =>
-          c
-            .out()
-            .split('\n')
-            .find((line) => /^(WON|REFUSED|ERROR) /.test(line))
-            ?.trim() ?? ''
-      );
+      const outs = await finishHeldRace(root, cs);
       const r = {
         errors: outs.filter((o) => !(o.startsWith('WON') || o.startsWith('REFUSED'))),
         refused: outs.filter((o) => o.startsWith('REFUSED')).length,
         won: outs.filter((o) => o.startsWith('WON')).length,
       };
       lateness.push(outs.map((o) => Number(/late=(-?\d+)ms/.exec(o)?.[1] ?? Number.NaN)));
-      // every refusal was decided while the winner held the lock (the race was real, not sequential)
-      const held = outs.map((o) => /held=(\d+)\.\.(\d+)/.exec(o)).find(Boolean);
-      if (held) {
-        for (const o of outs) {
-          const d = /decided=(\d+)/.exec(o);
-          if (d) {
-            expect(Number(d[1])).toBeLessThanOrEqual(Number(held[2]));
-          }
-        }
-      }
       rounds.push(r);
     }
     process.stdout.write(
@@ -315,4 +333,22 @@ describe('D5: data-root lock', () => {
       expect(r.refused).toBe(7);
     }
   }, 600_000);
+
+  test.each([60_000, -60_000])(
+    'refusal stays inside the held-lock barrier with a %i ms contender clock skew',
+    async (offsetMs) => {
+      const root = newRoot();
+      const winner = runTs(CONTENDER, [root]);
+      const refuser = runTs(CONTENDER, [root, String(offsetMs)]);
+      await Promise.all([winner.line('READY'), refuser.line('READY')]);
+      winner.p.stdin?.write(`ACQUIRE ${Date.now()}\n`);
+      expect(await winner.line('DECIDED')).toBe('DECIDED WON');
+      refuser.p.stdin?.write(`ACQUIRE ${Date.now()}\n`);
+      expect(await refuser.line('DECIDED')).toBe('DECIDED REFUSED');
+      expect(lockOf(root)?.pid).toBe(winner.p.pid);
+      const outs = await finishHeldRace(root, [winner, refuser]);
+      expect(outs[0]).toMatch(/^WON /);
+      expect(outs[1]).toMatch(/^REFUSED /);
+    }
+  );
 });
