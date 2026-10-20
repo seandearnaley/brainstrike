@@ -17,7 +17,16 @@ export async function createHostPlatform(options, context) {
   const native = await openHostStateIndex(options.root);
   await context.register(() => native.close());
   return {
-    close: () => native.close(),
+    // The index's own close: its worker and nested writer close and exit under the
+    // index deadlines.
+    close: async () => {
+      const startedAt = performance.now();
+      await native.close();
+      await writeFile(
+        join(directory, 'index-close.json'),
+        JSON.stringify({ elapsedMs: performance.now() - startedAt })
+      );
+    },
     maxSteps: 1,
     readPermissionPolicy: () => ({ policies: {}, yolo: false }),
     resolveModel: async () => {

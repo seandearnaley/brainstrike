@@ -3,7 +3,7 @@
  * `git-inventory-watcher.ts`: a commit in a LINKED WORKTREE fires an
  * invalidation keyed by the repo's COMMON dir — proving the "one
  * subscription per common dir covers every linked worktree's git metadata"
- * watcher rule end to end, through the real `ElectronFileSystemAdapter`
+ * watcher rule end to end, through the real joined @parcel/watcher producer
  * (never a fake), mirroring the `makeRepo`/realpath pattern from
  * `git-service.integration.test.ts:31-40`.
  */
@@ -12,13 +12,13 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { startJoinedParcelWatch } from '@brainstrike/file-system/native-watch';
 import {
   assertNoPlatformSkips,
   attributeWatcherFailure,
 } from '@brainstrike/file-system/testing/watcher-liveness';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
-import type { DirectoryHandle, WatcherHealthState } from '@brainstrike/types';
+import type { WatcherHealthState } from '@brainstrike/types';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createGitInventoryWatchers,
@@ -94,33 +94,19 @@ afterEach(async () => {
 });
 
 /**
- * Adapts the real, SYNCHRONOUSLY-returning `ElectronFileSystemAdapter.
- * watchDirectory` into this module's `Promise<() => void>` DI shape, GATED ON
- * THE `'healthy'` TRANSITION — resolving only once the native subscription is
- * actually live.
+ * The production producer (`startJoinedParcelWatch`, which
+ * `watchGitCommonDirNatively` wraps) plus a health recorder. It resolves only
+ * once the native subscription is acquired, and its disposer settles only once
+ * the native unsubscribe has (BST-2244).
  *
- * That gate is a TEST-ARRANGE requirement, not a production one, and the
- * difference is deliberate on both sides. `adapter.watchDirectory` returns its
- * disposer synchronously while `startParcelWatch` (dynamic native-addon import
- * + `module.subscribe`) is still in flight, so a bare
- * `Promise.resolve(adapter.watchDirectory(...))` resolves in the SAME TICK it
- * was called — awaiting it proves the disposer is safe to call, never that the
- * kernel is watching yet. Production (`git-inventory-watcher.ts`'s
- * `WatchGitCommonDir` doc) correctly declines this gate: a subscribe-window
- * event it misses is covered by the next TTL-driven rebuild. A test that
- * commits ONCE and asserts on that single commit has no such safety net — the
- * event is simply gone, and no assertion deadline can recover it (measured:
+ * A test that commits ONCE and asserts on that single commit needs the
+ * subscription live before the commit: a missed event is simply gone, and no
+ * assertion deadline can recover it (measured before the producer was joined:
  * `sync()` resolved at +83ms, the watch went healthy at +89ms, and the commit's
- * writes spanned +83→+109ms — a 6ms margin that CI load erases, producing
- * `expected [] to include …` after the full 10s wait).
- *
- * Resolve-on-`'healthy'` / reject-on-`'failed'` mirrors the same adapter's
- * existing production precedent in `ipc-notes-vault.ts:71-102`, which wraps
- * this identical sync adapter into a Promise so its caller can await confirmed
- * setup.
+ * writes spanned +83→+109ms — a 6ms margin that CI load erases).
  *
  * `stallSubscribeMs` defers the real subscribe to simulate a loaded CI box.
- * {@link RealWatchHarness.observedStates} is what actually PROVES the gate:
+ * {@link RealWatchHarness.observedStates} is what actually PROVES the ordering:
  * see the assertion in {@link expectLinkedWorktreeCommitInvalidates}.
  */
 interface RealWatchHarness {
@@ -135,82 +121,25 @@ interface RealWatchHarness {
 }
 
 function createRealWatchDirectory(stallSubscribeMs = 0): RealWatchHarness {
-  const adapter = new ElectronFileSystemAdapter();
   const observedStates: WatcherHealthState[] = [];
-  // Must exceed the injected stall, so the stall itself can never trip it.
-  const settleDeadlineMs = stallSubscribeMs + getAdjustedTimeout('integration');
-
-  const watchDirectory: WatchGitCommonDir = (commonDir, callback, onSignal, options) =>
-    new Promise<() => void>((resolve, reject) => {
-      const handle: DirectoryHandle = {
-        kind: 'directory',
-        name: path.basename(commonDir),
-        path: commonDir,
-        platform: 'electron',
-      };
-      let settled = false;
-      // Hoisted so the deadline below can dispose a watch that DID come up
-      // after this promise already gave up on it.
-      let stop: () => void = () => {};
-
-      // `startParcelWatch` can reject BEFORE emitting any health transition:
-      // `selectParcelBackend()` (parcel-watchers.ts:92) and
-      // `buildIgnorePatternRegex()` (:97 — reached here, since this module
-      // passes `ignorePatterns: []`) both run ABOVE `transitionHealth(
-      // 'starting')` (:117), and `ElectronFileSystemAdapter` only LOGS that
-      // rejection (electron-adapter.ts:639-647) — no `onHealth`, no
-      // `onSignal`. Without this deadline the gate would never settle,
-      // `sync()` would hang, and the run would die at the test timeout with
-      // no cause attached — the exact opaque failure this file exists to stop
-      // producing.
-      const settleDeadline = setTimeout(() => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        stop();
-        reject(
-          new Error(
-            `watch setup for ${commonDir} reported no 'healthy'/'failed' health transition within ${settleDeadlineMs}ms (startParcelWatch likely rejected before its first transition)`
-          )
-        );
-      }, settleDeadlineMs);
-
-      const start = (): void => {
-        // Assigned synchronously here, before any `'healthy'` transition can
-        // fire (that one is always post-`await` inside `startParcelWatch`,
-        // whereas `'starting'` fires synchronously during this very call).
-        stop = adapter.watchDirectory(handle, callback, onSignal, {
-          ignorePatterns: options?.ignorePatterns,
-          onHealth: (event) => {
-            observedStates.push(event.state);
-            if (settled) {
-              return;
-            }
-            if (event.state === 'healthy') {
-              settled = true;
-              clearTimeout(settleDeadline);
-              resolve(stop);
-              return;
-            }
-            if (event.state === 'failed') {
-              settled = true;
-              clearTimeout(settleDeadline);
-              stop();
-              reject(
-                new Error(event.failure?.message ?? 'git inventory watcher setup failed in test')
-              );
-            }
-          },
-        });
-      };
-      if (stallSubscribeMs === 0) {
-        start();
-        return;
+  const watchDirectory: WatchGitCommonDir = async (commonDir, callback, onSignal, options) => {
+    if (stallSubscribeMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, stallSubscribeMs));
+    }
+    return startJoinedParcelWatch(
+      { kind: 'directory', name: path.basename(commonDir), path: commonDir, platform: 'electron' },
+      callback,
+      {
+        ignorePatterns: options?.ignorePatterns,
+        onHealth: (event) => {
+          observedStates.push(event.state);
+          if (event.state === 'degraded') {
+            onSignal?.({ type: 'overflow' });
+          }
+        },
       }
-      setTimeout(start, stallSubscribeMs);
-    });
-
+    );
+  };
   return { observedStates, watchDirectory };
 }
 

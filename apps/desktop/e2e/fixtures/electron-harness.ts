@@ -30,6 +30,11 @@ export class ElectronHarness {
     private readonly workspaceRoot?: string
   ) {}
 
+  /** The running app's main window, if it has one; the fixture screenshots it before closing. */
+  currentWindow(): Page | undefined {
+    return this.context?.window;
+  }
+
   getUserDataDir(): string {
     if (!this.userDataDir) {
       throw new Error('Electron harness requires an isolated userDataDir.');

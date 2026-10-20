@@ -24,14 +24,12 @@
  * (`secure-file-write.ts`: `resolveWorkspaceWritePath` +
  * `writeContainedFileBytes`), scoped to the owning approved root.
  *
- * Watching: `watch` starts a recursive, debounced watcher (the shared
- * @parcel/watcher-backed electron watcher from `@brainstrike/file-system/electron`,
- * injected by `ipc-notes-vault.ts`). Change pushes go one-way to the OWNING
- * renderer's WebContents on `notes-vault:changed` ({@link
- * DESKTOP_IPC_CHANNELS.notesVault.changed}) — never a broadcast. Watchers are
- * reaped when the owning WebContents is destroyed (ONE reaper per owner via a
- * WeakSet, mirroring terminal-ipc-handlers.ts) and wholesale by
- * {@link disposeAllNotesVaultWatchers} on shutdown.
+ * Watching: `watch` starts a recursive, debounced watcher (Main's joined
+ * @parcel/watcher producer, injected by `ipc-notes-vault.ts`). Change pushes go
+ * one-way to the OWNING renderer's WebContents on `notes-vault:changed` ({@link
+ * DESKTOP_IPC_CHANNELS.notesVault.changed}) — never a broadcast. The watcher
+ * lifecycle (registry, renderer reapers, the shutdown dispose that joins every
+ * native operation) is owned by `notes-vault-watchers.ts` (BST-2244).
  *
  * Result convention mirrors the git/terminal bridges: methods never throw
  * across IPC; failures come back as `{ ok: false, error }` (logged — NO SILENT
@@ -58,6 +56,12 @@ import type {
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
+import {
+  disposeAllNotesVaultWatchers,
+  reopenNotesVaultWatchAdmission,
+  startNotesVaultWatch,
+  unwatchNotesVaultWatcher,
+} from './notes-vault-watchers';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 
@@ -86,28 +90,12 @@ export interface NotesVaultChangedEvent {
   readonly watchId: string;
 }
 
-/** A live watcher plus the WebContents that owns it (where its pushes go). */
-interface LiveNotesVaultWatcher {
-  readonly ownerId: number;
-  readonly stop: () => void;
-  readonly webContents: WebContents;
-}
-
 /**
  * GLOBAL registry of approved vault roots keyed by canonical path. Module-level
  * so it is shared across every concurrent IPC call, exactly like the terminal
  * domain's live-pty map.
  */
 const approvedRoots = new Map<string, NotesVaultRoot>();
-
-/** GLOBAL registry of live watchers keyed by watchId. */
-const liveWatchers = new Map<string, LiveNotesVaultWatcher>();
-
-/**
- * WebContents we have already attached a `'destroyed'` reaper to — ONE listener
- * per owner (not one per watcher), mirroring terminal-ipc-handlers.ts.
- */
-const reaperAttachedOwners = new WeakSet<WebContents>();
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -461,10 +449,14 @@ export interface NotesVaultIpcHandlersOptions {
   readonly pickDirectoryPath: () => Promise<string | null>;
   /**
    * Recursive watcher factory: `onChange` fires (already debounced/batched) on
-   * any change under `directoryPath`; resolves with a disposer only after the
-   * native subscription reports healthy.
+   * any change under `directoryPath`. Resolves once the native subscription is
+   * acquired, with a disposer that settles once the native unsubscribe has
+   * (see `StartNotesVaultNativeWatch`).
    */
-  readonly startWatch: (directoryPath: string, onChange: () => void) => Promise<() => void>;
+  readonly startWatch: (
+    directoryPath: string,
+    onChange: () => void
+  ) => Promise<() => Promise<void>>;
   /**
    * Durable storage for main's approved-roots list ({@link
    * NOTES_VAULT_ROOTS_STORAGE_KEY}). Production: the shared
@@ -915,32 +907,21 @@ export function createNotesVaultIpcHandlers(
         return { error: `Path "${resolved.canonicalPath}" is not a directory.`, ok: false };
       }
       const watchId = `notes-watch-${randomUUID()}`;
-      const stop = await options.startWatch(resolved.canonicalPath, () => {
-        // Push to the OWNING renderer only (never a broadcast).
-        if (owner.isDestroyed()) {
-          return;
-        }
-        const payload: NotesVaultChangedEvent = { watchId };
-        owner.send(DESKTOP_IPC_CHANNELS.notesVault.changed, payload);
-      });
-      if (owner.isDestroyed()) {
-        stop();
-        return {
-          error: 'Notes vault watcher owner was destroyed during setup.',
-          ok: false,
-        };
+      const started = await startNotesVaultWatch(owner, watchId, () =>
+        options.startWatch(resolved.canonicalPath, () => {
+          // Push to the OWNING renderer only (never a broadcast).
+          if (owner.isDestroyed()) {
+            return;
+          }
+          const payload: NotesVaultChangedEvent = { watchId };
+          owner.send(DESKTOP_IPC_CHANNELS.notesVault.changed, payload);
+        })
+      );
+      if (started.status === 'failed') {
+        return failure('watch', started.error, { path: resolved.canonicalPath });
       }
-      liveWatchers.set(watchId, { ownerId: owner.id, stop, webContents: owner });
-
-      // Reap every watcher this renderer owns when it is destroyed (window
-      // closed / navigated away). ONE reaper per WebContents — see
-      // reaperAttachedOwners.
-      if (!reaperAttachedOwners.has(owner)) {
-        reaperAttachedOwners.add(owner);
-        owner.once('destroyed', () => {
-          reaperAttachedOwners.delete(owner);
-          disposeNotesVaultWatchersForWebContents(owner.id);
-        });
+      if (started.status === 'refused') {
+        return { error: started.error, ok: false };
       }
 
       logger.debug('Started notes vault watcher', { path: resolved.canonicalPath, watchId });
@@ -952,22 +933,10 @@ export function createNotesVaultIpcHandlers(
 
   function unwatch(rawWatchId: unknown, requesterId: number): NotesVaultResult<null> {
     const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
-    const entry = liveWatchers.get(watchId);
-    const notFound = `No live notes vault watcher "${String(rawWatchId)}".`;
-    if (!entry) {
-      return { error: notFound, ok: false };
+    if (!unwatchNotesVaultWatcher(watchId, requesterId)) {
+      // Unknown and non-owner ids share one error — no ownership-leak oracle.
+      return { error: `No live notes vault watcher "${String(rawWatchId)}".`, ok: false };
     }
-    if (entry.ownerId !== requesterId) {
-      logger.warn('Rejected notes vault unwatch from non-owner renderer', {
-        ownerId: entry.ownerId,
-        requesterId,
-        watchId,
-      });
-      // Same error as an unknown id — no ownership-leak oracle.
-      return { error: notFound, ok: false };
-    }
-    liveWatchers.delete(watchId);
-    stopWatcher(watchId, entry);
     return { ok: true, value: null };
   }
 
@@ -987,79 +956,37 @@ export function createNotesVaultIpcHandlers(
   };
 }
 
-function stopWatcher(watchId: string, entry: LiveNotesVaultWatcher): void {
-  try {
-    entry.stop();
-  } catch (error) {
-    // Logged, never swallowed silently (no-silent-fallbacks); the map entry is
-    // already removed, so a failed close cannot leak a live id.
-    logger.warn('Failed to stop notes vault watcher', {
-      error: toErrorMessage(error),
-      watchId,
-    });
-  }
-}
-
-/**
- * Stop every still-live watcher. Wired into the domain disposer (and thus the
- * shutdown path). Returns the count reaped, mirroring disposeAllTerminals.
- */
-export function disposeAllNotesVaultWatchers(): number {
-  const entries = Array.from(liveWatchers.entries());
-  liveWatchers.clear();
-  for (const [watchId, entry] of entries) {
-    stopWatcher(watchId, entry);
-  }
-  if (entries.length > 0) {
-    logger.info('Reaped live notes vault watchers on dispose', { count: entries.length });
-  }
-  return entries.length;
-}
-
-/** Stop + drop every watcher owned by a destroyed/navigated-away renderer. */
-export function disposeNotesVaultWatchersForWebContents(ownerId: number): number {
-  let reaped = 0;
-  for (const [watchId, entry] of Array.from(liveWatchers.entries())) {
-    if (entry.ownerId !== ownerId) {
-      continue;
-    }
-    liveWatchers.delete(watchId);
-    stopWatcher(watchId, entry);
-    reaped += 1;
-  }
-  if (reaped > 0) {
-    logger.info('Reaped notes vault watchers for destroyed renderer', { count: reaped, ownerId });
-  }
-  return reaped;
-}
-
-/** Test-only: current count of live watchers. */
-export function liveNotesVaultWatcherCountForTest(): number {
-  return liveWatchers.size;
-}
-
 /** Test-only: current count of approved roots. */
 export function approvedNotesVaultRootCountForTest(): number {
   return approvedRoots.size;
 }
 
-/** Test-only: reap watchers AND forget every approved root (module state reset). */
-export function resetNotesVaultIpcStateForTest(): void {
-  disposeAllNotesVaultWatchers();
+/**
+ * Test-only: forget every approved root, reap watchers (joined by the returned
+ * promise) and admit watches again (module state reset).
+ */
+export function resetNotesVaultIpcStateForTest(): Promise<void> {
   approvedRoots.clear();
+  const retired = disposeAllNotesVaultWatchers();
+  reopenNotesVaultWatchAdmission();
+  return retired;
 }
 
 /**
  * Register the desktop `notesVault` IPC domain. Returns a disposer that
- * unregisters the channels, reaps every live watcher, AND forgets the
- * IN-MEMORY approved roots (a host re-init must re-approve; the persisted
- * list survives so `registerRoot` can do so). The `notes-vault:changed` event
+ * unregisters the channels and forgets the IN-MEMORY approved roots (a host
+ * re-init must re-approve; the persisted list survives so `registerRoot` can
+ * do so) synchronously, then resolves once every watcher is retired
+ * (`disposeAllNotesVaultWatchers`). The `notes-vault:changed` event
  * channel is NOT an `ipcMain.handle` registration — it is a one-way
  * main→renderer push, so it is never registered here; the registry owns only
  * the twelve invoke channels.
  */
-export function registerNotesVaultIpcHandlers(handlers: NotesVaultIpcHandlers): () => void {
+export function registerNotesVaultIpcHandlers(
+  handlers: NotesVaultIpcHandlers
+): () => Promise<void> {
   const registry = createDesktopIpcRegistry({ ipcMain });
+  reopenNotesVaultWatchAdmission();
 
   const {
     onChanged: _onChanged,
@@ -1096,7 +1023,7 @@ export function registerNotesVaultIpcHandlers(handlers: NotesVaultIpcHandlers): 
 
   return () => {
     registry.unregisterAll();
-    disposeAllNotesVaultWatchers();
     approvedRoots.clear();
+    return disposeAllNotesVaultWatchers();
   };
 }

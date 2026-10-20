@@ -2,18 +2,11 @@
 // creates is owned by the user even when an elevated token defaults to
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
-import { enableCompileCache } from 'node:module';
 
-// The forked agent host's entry. Node's on-disk compile cache must be on before
-// the host's large static module graph is compiled, so this entry enables it
-// and only then loads the host process.
-// https://nodejs.org/api/module.html#moduleenablecompilecachecachedir
-const cache = enableCompileCache();
-if (cache.directory) {
-  // Worker threads are separate Node instances; inherit the same enabled cache.
-  // https://nodejs.org/api/module.html#moduleenablecompilecacheoptions
-  process.env['NODE_COMPILE_CACHE'] = cache.directory;
-}
+// The forked agent host's entry. The host runs without Node's on-disk compile cache
+// (BST-2239): every Node instance persists what it compiled when it exits, and cold on
+// hosted Windows that persist took 3.5 s on the host thread and 1.6 s and 4 s in the
+// state index's worker and nested writer, inside the close deadlines their owners join.
 const { runAgentHostProcess } = await import('./process-entry.js');
 try {
   await runAgentHostProcess(process.argv.slice(2));
