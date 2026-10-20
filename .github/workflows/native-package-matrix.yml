@@ -189,14 +189,36 @@ jobs:
       # of dist/main.js; a missing executable fails the lane, never the dev build.
       # Each test gets a disposable profile and the loopback provider shim, so no
       # provider is called and no credential is read.
+      - name: Start bounded Windows native CPU proof
+        if: ${{ runner.os == 'Windows' && matrix.desktopSmoke }}
+        continue-on-error: true
+        timeout-minutes: 2
+        shell: pwsh
+        env:
+          BRAINSTRIKE_NATIVE_CPU_DIR: ${{ runner.temp }}/brainstrike-native-cpu/${{ github.run_id }}-${{ github.run_attempt }}
+        run: ./scripts/proof/windows-native-cpu-sweep.ps1 -Mode Start
+
       - name: Packaged desktop smoke E2E
+        id: desktop-smoke
         if: ${{ matrix.desktopSmoke }}
         env:
           BRAINSTRIKE_E2E_DESKTOP_TARGET: packaged
           BRAINSTRIKE_PROOF_LAUNCH_TIMING: '1'
           BRAINSTRIKE_E2E_NATIVE_CRASH_DUMPS: '1'
           BRAINSTRIKE_PROOF_CPU_PROFILE: '0'
+          BRAINSTRIKE_PROOF_CANONICAL: '1'
+          BRAINSTRIKE_PROOF_STARTUP: '1'
         run: pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke
+
+      # A failed preflight still permits every test to run, then fails this proof.
+      - name: Stop owned Windows native CPU proof
+        if: ${{ always() && runner.os == 'Windows' && matrix.desktopSmoke }}
+        timeout-minutes: 3
+        shell: pwsh
+        env:
+          BRAINSTRIKE_NATIVE_CPU_DIR: ${{ runner.temp }}/brainstrike-native-cpu/${{ github.run_id }}-${{ github.run_attempt }}
+          BRAINSTRIKE_PROOF_TEST_OUTCOME: ${{ steps.desktop-smoke.outcome }}
+        run: ./scripts/proof/windows-native-cpu-sweep.ps1 -Mode Stop
 
       # Retain failed traces and local crash dumps.
       # blob-report/ holds the report zip for `playwright merge-reports`.
@@ -221,23 +243,36 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Detect retained Windows crash dumps
-        id: native-crash-dumps
+      - name: Upload Windows native CPU proof
+        if: ${{ always() && runner.os == 'Windows' && matrix.desktopSmoke }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-native-cpu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/brainstrike-native-cpu/${{ github.run_id }}-${{ github.run_attempt }}/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Detect retained Windows native evidence
+        id: native-binary-evidence
         if: ${{ always() && runner.os == 'Windows' && matrix.desktopSmoke }}
         shell: pwsh
+        env:
+          BRAINSTRIKE_NATIVE_CPU_DIR: ${{ runner.temp }}/brainstrike-native-cpu/${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           $present = $false
           if (Test-Path -LiteralPath 'apps/desktop/test-results') {
             $present = @(Get-ChildItem -LiteralPath 'apps/desktop/test-results' -Filter '*.dmp' -File -Recurse).Count -gt 0
           }
+          $present = $present -or (Test-Path -LiteralPath (Join-Path $env:BRAINSTRIKE_NATIVE_CPU_DIR 'cpu.etl') -PathType Leaf)
           "present=$($present.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       # PROOF ONLY: scan bounded physical output trees, never workspace package links.
-      - name: Upload matching Windows crash binaries
-        if: ${{ always() && steps.native-crash-dumps.outputs.present == 'true' }}
+      - name: Upload matching Windows native binaries
+        if: ${{ always() && steps.native-binary-evidence.outputs.present == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: packaged-desktop-smoke-windows-crash-binaries
+          name: packaged-desktop-smoke-windows-native-binaries
           path: |
             apps/desktop/release/win-unpacked/*.exe
             apps/desktop/release/win-unpacked/resources/app.asar.unpacked/**/*.node
