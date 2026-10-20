@@ -1,7 +1,8 @@
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
-import { isEmbeddingDeviceUnavailable } from '@brainstrike/indexing-contract';
+import { assertModelCachePlan, isEmbeddingDeviceUnavailable } from '@brainstrike/indexing-contract';
 import { ipcMain, type WebContents } from 'electron';
 import type { EmbeddingHostManager } from './embedding-host-manager';
+import { assertEmbeddingHostModelCacheResponseReport } from './embedding-host-model-cache';
 import {
   assertEmbeddingHostDocumentEmbeddingsPayload,
   assertEmbeddingHostDocumentEmbeddingsResponseReport,
@@ -11,8 +12,10 @@ import {
   EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CHANNEL,
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
+  EMBEDDING_HOST_MODEL_CACHE_STATUS_CHANNEL,
   EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
   EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL,
+  EMBEDDING_HOST_REPORT_MODEL_CACHE_STATUS_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL,
@@ -119,15 +122,36 @@ export function registerEmbeddingHostIpcHandlers(
     'embeddings',
     EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
     { roles: ['visible-ui'] },
-    () => manager.webgpuAdapter()
+    () => manager.settingsReads.webgpuAdapter()
   );
   registry.registerEvent(
     'embeddings',
     EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL,
     (event, response) =>
-      manager.acceptWebGpuAdapterResponseReport(
+      manager.settingsReads.acceptWebGpuAdapterResponseReport(
         event.sender.id,
         assertEmbeddingHostWebGpuAdapterResponseReport(response)
+      )
+  );
+  // BST-2241: Settings asks the host whose cache indexing reads which models are downloaded.
+  registry.registerAuthorizedInvoke(
+    'embeddings',
+    EMBEDDING_HOST_MODEL_CACHE_STATUS_CHANNEL,
+    { roles: ['visible-ui'] },
+    (_event, plans: unknown) => {
+      if (!Array.isArray(plans)) {
+        throw new Error('Model cache status needs a list of plans.');
+      }
+      return manager.settingsReads.modelCacheStatus(plans.map(assertModelCachePlan));
+    }
+  );
+  registry.registerEvent(
+    'embeddings',
+    EMBEDDING_HOST_REPORT_MODEL_CACHE_STATUS_RESPONSE_CHANNEL,
+    (event, response) =>
+      manager.settingsReads.acceptModelCacheStatusResponseReport(
+        event.sender.id,
+        assertEmbeddingHostModelCacheResponseReport(response)
       )
   );
   registry.registerEvent(

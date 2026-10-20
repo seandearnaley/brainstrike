@@ -36,6 +36,7 @@ import {
   createEmbeddingHostLifecycleFailureHandler,
   runEmbeddingHostCleanupStep,
 } from './embedding-host-lifecycle';
+import { answerModelCacheRequest } from './embedding-host-model-cache';
 import { subscribeQueryEmbeddingRequests } from './embedding-host-query-listener';
 import {
   assertPinnedQueryEmbeddingResult,
@@ -639,6 +640,22 @@ export function EmbeddingHostRuntime(): null {
     return bridge.onWebgpuAdapterRequest((request) => {
       answerWebGpuAdapterRequest(request, report).catch((error: unknown) => {
         logger.error('Embedding host could not answer a WebGPU adapter request', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    });
+  }, []);
+
+  // Settings asks which download plans are in this host's model cache (BST-2241).
+  useEffect(() => {
+    const bridge = getEmbeddingHostBridge();
+    const report = bridge?.reportModelCacheStatusResponse;
+    if (!(bridge?.onModelCacheStatusRequest && report)) {
+      return;
+    }
+    return bridge.onModelCacheStatusRequest((request) => {
+      answerModelCacheRequest(request, report).catch((error: unknown) => {
+        logger.error('Embedding host could not answer a model cache request', {
           error: error instanceof Error ? error.message : String(error),
         });
       });

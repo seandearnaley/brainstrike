@@ -5,6 +5,7 @@
  * that names an owner that is gone. A live owner that keeps the root stays
  * refused.
  */
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -65,7 +66,8 @@ async function liveOwner(root: string): Promise<{ lock: RootLock; record: HostRe
   const record = decodeHostRecord({
     endpoint:
       process.platform === 'win32'
-        ? String.raw`\\.\pipe\brainstrike-exiting-${process.pid}-${Date.now()}`
+        ? // The record schema admits only `brainstrike-<hex>` pipe names (BST-2210).
+          String.raw`\\.\pipe\brainstrike-${randomBytes(12).toString('hex')}`
         : join(root, 'exiting.sock'),
     hostVersion: HOST_VERSION,
     pid: owner.pid,

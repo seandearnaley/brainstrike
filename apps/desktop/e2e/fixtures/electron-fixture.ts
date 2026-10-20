@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -12,6 +12,7 @@ import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { type ModelProviderShim, startModelProviderShim } from '../utils/model-provider-shim';
 import { ElectronHarness } from './electron-harness';
+import { tearDownElectronTest } from './electron-teardown';
 
 interface ElectronTestOptions {
   /** Extra environment for every launch of the app in a spec (`test.use({ electronEnv: { LOG_LEVEL: 'info' } })`). */
@@ -63,10 +64,7 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
     try {
       await use(harness);
     } finally {
-      // Failed retirement keeps the disposable profile for the still-owned process.
-      await harness.dispose();
-      await removeElectronUserDataDir(userDataDir);
-      await rm(workspaceRoot, { force: true, recursive: true });
+      await tearDownElectronTest(harness, testInfo, userDataDir, workspaceRoot);
     }
   },
 
@@ -163,19 +161,4 @@ function deriveUserDataDir(
   const identity = JSON.stringify([runSalt, shardSuffix, workerSuffix, testId, retrySuffix]);
   const suffix = createHash('sha256').update(identity).digest('hex').slice(0, 20);
   return path.join(os.tmpdir(), `bs-${suffix}`);
-}
-
-async function removeElectronUserDataDir(userDataDir: string | undefined): Promise<void> {
-  if (!userDataDir) {
-    return;
-  }
-
-  try {
-    await rm(userDataDir, { force: true, recursive: true });
-  } catch (error) {
-    console.warn('Failed to remove Electron userData directory after fixture teardown:', {
-      error,
-      userDataDir,
-    });
-  }
 }

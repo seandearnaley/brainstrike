@@ -10,6 +10,10 @@ import { SettingsPage } from './page-objects/settings-page';
  * renderer resolves no bare `@huggingface/transformers` import.
  */
 const MODEL_NAME = 'all-MiniLM-L6-v2';
+// A model this test never downloads, and the old persisted store's key (BST-2241).
+const STALE_MODEL_ID = 'Xenova/bge-small-en-v1.5';
+const STALE_MODEL_NAME = 'BGE Small';
+const LEGACY_REGISTRY_STORAGE_KEY = 'model-registry-storage';
 
 // The hidden embedding host's saved device for unpinned loads (app-state vector-preferences-store).
 const VECTOR_PREFERENCES_KEY = 'vector-preferences.v1';
@@ -70,10 +74,23 @@ test('an on-device embedding model downloads through the hidden embedding host',
   window: page,
 }) => {
   test.setTimeout(240_000);
+  // BST-2241: a flag the old persisted store left behind claims nothing.
+  await page.evaluate(
+    ({ key, modelId }) => {
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({ state: { downloadedModels: { [modelId]: true } }, version: 0 })
+      );
+    },
+    { key: LEGACY_REGISTRY_STORAGE_KEY, modelId: STALE_MODEL_ID }
+  );
   await saveWasmDevice(page);
-  const catalog = await openModelCatalog(homePage, page);
+  let catalog = await openModelCatalog(homePage, page);
   const download = catalog.getByRole('button', { name: new RegExp(`^Download ${MODEL_NAME}\\b`) });
   await expect(download).toBeVisible({ timeout: 30_000 });
+  await expect(
+    catalog.getByRole('button', { name: new RegExp(`^Download ${STALE_MODEL_NAME}\\b`) })
+  ).toBeVisible();
 
   await download.click();
 
@@ -84,4 +101,15 @@ test('an on-device embedding model downloads through the hidden embedding host',
   // The hidden embedding host ran the catalog plan on the saved device: the
   // unpinned dtype for a 384-dimension model on WASM.
   expect(await hiddenHostWorker(page)).toMatchObject({ device: 'wasm', dtype: 'q4' });
+
+  // BST-2241: nothing persists the flag, so after a reload only the hidden
+  // host's model cache can say the model is downloaded.
+  await page.reload();
+  catalog = await openModelCatalog(homePage, page);
+  await expect(catalog.getByRole('img', { name: `${MODEL_NAME} downloaded` })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(
+    catalog.getByRole('button', { name: new RegExp(`^Download ${STALE_MODEL_NAME}\\b`) })
+  ).toBeVisible();
 });

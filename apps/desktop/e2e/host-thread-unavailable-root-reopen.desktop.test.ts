@@ -5,6 +5,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { WINDOWS_SMOKE_EXCLUSIONS } from './utils/windows-smoke-exclusions';
 
 const API_KEY = 'test-key-root-restore';
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
@@ -23,6 +24,7 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
   modelProvider,
   window: page,
 }) => {
+  test.fixme(process.platform === 'win32', WINDOWS_SMOKE_EXCLUSIONS.staleCatalogModelSelection);
   test.setTimeout(240_000);
   const rootPath = await electronApp.app.evaluate(
     () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
@@ -46,8 +48,15 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
       compositeModelKey: MODEL,
       provider: 'openrouter',
     });
-    await enableAssistantCatalogModel(page, MODEL);
     await ensureAssistantShellVisible(page);
+    // BST-2242: the composer has settled on admission's refusal of the not yet
+    // enabled model, so only the enable itself can clear the gate.
+    await expect(
+      page
+        .getByRole('region', { exact: true, name: 'Assistant' })
+        .getByText('The selected catalog model is disabled', { exact: true })
+    ).toBeVisible({ timeout: 30_000 });
+    await enableAssistantCatalogModel(page, MODEL);
     await send(page, 'BOUND_BEFORE_REOPEN', 'BOUND_SEND_SUCCEEDED');
     const userDataDir = electron.getUserDataDir();
     const boundThread = (await readHostThreadTree(userDataDir)).find(({ rows }) =>

@@ -6,7 +6,6 @@ import {
   getModelRegistrySnapshotTestOverride,
   readLocalRuntimeProbeCountsForTests,
   recordLocalRuntimeProbeForTests,
-  resolveCacheDirectorySelectionTestOverride,
 } from '../automation-overrides';
 import {
   __resetSettingsTestOverridesForTests,
@@ -72,11 +71,9 @@ describe('settings e2e test overrides', () => {
         },
       },
       modelRegistry: {
-        cacheDirectorySelection: { path: '/tmp/models' },
         fetchErrorMessage: 'fetch failed',
         snapshot: {
           downloadedModels: { 'local:test-chat-model': true },
-          modelCacheDir: '/tmp/models',
           models: [],
           providers: [],
         },
@@ -86,10 +83,8 @@ describe('settings e2e test overrides', () => {
     expect(getAccurateRuntimeAvailabilityTestOverride()).toBe(false);
     expect(getLocalRuntimeStatusTestOverride('ollama')?.state).toBe('available');
     expect(getModelRegistryFetchErrorTestOverride()).toBe('fetch failed');
-    expect(getModelRegistrySnapshotTestOverride()?.modelCacheDir).toBe('/tmp/models');
-    expect(resolveCacheDirectorySelectionTestOverride()).toEqual({
-      kind: 'selected',
-      path: '/tmp/models',
+    expect(getModelRegistrySnapshotTestOverride()?.downloadedModels).toEqual({
+      'local:test-chat-model': true,
     });
 
     recordLocalRuntimeProbeForTests('ollama');
@@ -116,7 +111,7 @@ describe('settings e2e test overrides', () => {
 
     hooks.setSettingsTestOverrides({
       modelRegistry: {
-        cacheDirectorySelection: { unavailable: true },
+        snapshot: { models: [] },
       },
     });
     hooks.updateSettingsTestOverrides({
@@ -125,7 +120,7 @@ describe('settings e2e test overrides', () => {
       },
     });
 
-    expect(resolveCacheDirectorySelectionTestOverride()).toEqual({ kind: 'unavailable' });
+    expect(getModelRegistrySnapshotTestOverride()).toEqual({ models: [] });
     expect(getModelRegistryFetchErrorTestOverride()).toBe('registry unavailable');
 
     cleanup();

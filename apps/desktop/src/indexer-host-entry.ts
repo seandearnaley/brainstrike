@@ -1,3 +1,8 @@
+// BST-2246: first, before this process creates anything, so everything it
+// creates is owned by the user even when an elevated token defaults to
+// BUILTIN\Administrators.
+import '@brainstrike/secure-fs-native/default-owner';
+
 const parentPort = process.parentPort;
 if (!parentPort || process.type !== 'utility') {
   throw new Error('Indexer host requires the explicit Electron utility-process transport.');
