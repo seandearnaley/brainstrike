@@ -1,8 +1,8 @@
 /**
- * grepSearch over a caller-supplied indexed half, so the desktop agent host
- * runs the tool (and its live ripgrep pass) in its own process while Main keeps
- * its file-chunk index. This module must not import Electron or Main's
- * database: the host bundle loads it.
+ * grepSearch, run by the desktop agent host in its own process over the
+ * thread's folders on disk (ADR 0026: the core lane never asks Main's index).
+ * This module must not import Electron or Main's database: the host bundle
+ * loads it.
  */
 import { type GrepSearchInput, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
@@ -16,9 +16,9 @@ import {
   type ToolExecuteInput,
   withRepeatedCallGuard,
 } from '@brainstrike/host-capabilities/native-tools';
-import { type GrepIndexSearch, runGrepSearchWith } from './grep-search-core';
+import { runGrepSearchWith } from './grep-search-core';
 
-export function grepSearchExecutor(index: GrepIndexSearch): NativeToolExecutor {
+export function grepSearchExecutor(): NativeToolExecutor {
   return ({ resolveActiveDomainCharBudget, runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],
     execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
@@ -32,7 +32,7 @@ export function grepSearchExecutor(index: GrepIndexSearch): NativeToolExecutor {
           run: async () =>
             attachGrepSearchTelemetry(
               resolvedInput,
-              await runGrepSearchWith(resolvedInput, runtimeData, index)
+              await runGrepSearchWith(resolvedInput, runtimeData)
             ),
           threadScope: readStateScope(runtimeData),
           toolId: NATIVE_TOOL_ID.grepSearch,

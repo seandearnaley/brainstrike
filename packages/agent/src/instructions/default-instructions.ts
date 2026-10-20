@@ -276,7 +276,7 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
  */
 function buildSearchInstruction(names: ModelFacingToolNames): string {
   const grepClause = names.grepSearch
-    ? `Use ${names.grepSearch} for exact strings, identifiers, and errors across both indexed and live on-disk content; survey with files mode, then scope content mode.`
+    ? `Use ${names.grepSearch} for exact strings, identifiers, and errors in the files on disk; survey with files mode, then scope content mode.`
     : '';
   const globClause = names.globWorkspace
     ? `Use ${names.globWorkspace} for file-name/path patterns such as **/*.test.ts.`

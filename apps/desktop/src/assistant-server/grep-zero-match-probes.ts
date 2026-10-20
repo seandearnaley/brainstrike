@@ -80,7 +80,7 @@ export async function resolveZeroMatchProbeNote(
   if (result.matchCount > 0) {
     const examples = result.examplePaths?.slice(0, 2);
     const exampleNote = examples && examples.length > 0 ? ` (e.g. ${examples.join(', ')})` : '';
-    return `0 matches in indexed/visible files, but ${result.matchCount} matches in excluded or ignored paths${exampleNote} — grepSearch cannot reach these; call globWorkspace with includeIgnored: true to list them, then readWorkspaceFile to inspect.`;
+    return `0 matches in visible files, but ${result.matchCount} matches in excluded or ignored paths${exampleNote} — grepSearch cannot reach these; call globWorkspace with includeIgnored: true to list them, then readWorkspaceFile to inspect.`;
   }
   if (result.timedOut) {
     // BST-1246 review: the excluded-path probe searches UNPRUNED trees

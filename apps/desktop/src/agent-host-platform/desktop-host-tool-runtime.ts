@@ -6,7 +6,6 @@ import {
   desktopWorktreeToolDependencies,
 } from '../assistant-server/worktree-tool-dependencies';
 import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './host-tool-services';
-import { nativeGrepIndex } from './native-grep-index';
 import type { DesktopHostToolServices } from './production-desktop-capabilities';
 
 /** The Main-owned stores and services host threads' own tools read through Main. */
@@ -14,9 +13,6 @@ export function desktopHostToolServices(
   dependencies: DesktopHostToolServices
 ): HostToolServiceCapabilities {
   return {
-    ...(dependencies.nativeIndexSearch
-      ? { grepIndex: nativeGrepIndex(dependencies.nativeIndexSearch) }
-      : {}),
     ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
     browser: mainBrowserToolRunner,
     diagnostics: mainDiagnosticsReader,
