@@ -223,12 +223,16 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Rejects with every failed retirement; the message names each cause, as the service reports only the message. */
 function throwRetirementFailures(results: readonly PromiseSettledResult<void>[]): void {
   const failures = results.flatMap((result) =>
     result.status === 'rejected' ? [result.reason] : []
   );
   if (failures.length > 0) {
-    throw new AggregateError(failures, 'Git inventory watcher retirement failed.');
+    throw new AggregateError(
+      failures,
+      `Git inventory watcher retirement failed: ${failures.map(toErrorMessage).join('; ')}`
+    );
   }
 }
 
