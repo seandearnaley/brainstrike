@@ -164,6 +164,7 @@ import {
   createDesktopLoggingPreferencesController,
   readConsoleLevelOverride,
 } from './main/logging-preferences';
+import { prepareMainCatalogClose } from './main/main-catalog-close';
 import { installShutdownSignalHandlers } from './main/shutdown-signals';
 import {
   type SnapshotStartupMaintenance,
@@ -491,6 +492,8 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           gitInventoryService = null;
         }
       },
+      'main-catalog': () =>
+        prepareMainCatalogClose(applicationIpcDomain.roots, worktreeService, workspaceRootCatalog),
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {

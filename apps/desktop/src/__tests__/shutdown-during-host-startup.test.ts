@@ -22,6 +22,7 @@ import {
   type DesktopShutdownStepName,
   type DesktopShutdownStepRun,
 } from '../main/desktop-graceful-shutdown';
+import { prepareMainCatalogClose } from '../main/main-catalog-close';
 import { startSnapshotStartupMaintenance } from '../main/snapshot-lifecycle';
 import { fixture, mocks, resetActivationFixture } from './native-index-activation-fixture';
 
@@ -41,6 +42,7 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     async () => undefined
   );
   const maintenanceLog = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+  const workspaceRoots = createDesktopWorkspaceRootCatalog(() => activation.acquireProfile());
   const maintenance = startSnapshotStartupMaintenance({
     logger: maintenanceLog,
     readHostThreadIds: async () =>
@@ -49,8 +51,17 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
       (await mainClient.request('thread/read', { fromSeq: 0, threadId })).rows,
     snapshotService: {} as SnapshotService,
     snapshotsBaseDir: '/unused/snapshots',
-    workspaceRoots: createDesktopWorkspaceRootCatalog(() => activation.acquireProfile()),
+    workspaceRoots,
   });
+  const catalogWrite = workspaceRoots.workspaceRoots({
+    operation: 'register',
+    root: {
+      displayName: 'disposable startup control',
+      path: '/disposable/startup-root',
+      preferredId: '44d3c0ba-9dac-40e9-871e-48c99173999a',
+    },
+  });
+  void catalogWrite.catch(() => undefined);
   // Main's own client is waiting on the same start-up.
   const ledgerRead = mainClient.request('ledger/read', {});
   ledgerRead.catch(() => undefined);
@@ -61,6 +72,8 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     DESKTOP_SHUTDOWN_STEP_ORDER.map((step) => [step, noop])
   ) as Record<DesktopShutdownStepName, DesktopShutdownStepRun>;
   steps['snapshot-maintenance'] = () => maintenance.stop();
+  steps['main-catalog'] = () =>
+    prepareMainCatalogClose({ prepareClose: async () => undefined }, null, workspaceRoots);
   steps['native-index'] = async () => {
     await mainClient.close();
     await activation.close();
@@ -83,6 +96,7 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     },
   }).run('before-quit', 'before-quit');
 
+  await expect(catalogWrite).rejects.toMatchObject({ refusal: { kind: 'closed' } });
   expect(exitProcess).not.toHaveBeenCalled();
   expect(logger.error).not.toHaveBeenCalled();
   expect(logger.warn).not.toHaveBeenCalled();
