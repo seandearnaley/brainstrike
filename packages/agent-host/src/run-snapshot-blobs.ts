@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BLOBS_DIR } from '@brainstrike/state-store';
@@ -6,7 +5,6 @@ import { decodeRunSnapshot } from './host-event-decoding.js';
 import type { HostRunSnapshot } from './protocol.js';
 
 export { takeRunSnapshotRef } from './host-event-decoding.js';
-export { storedRunSnapshot } from './host-event-encoding.js';
 
 /**
  * Resolved snapshots by store root and content hash. Blobs are immutable, so a
@@ -38,9 +36,4 @@ export function readRunSnapshot(root: string, hash: string): Promise<HostRunSnap
       readFile(join(root, BLOBS_DIR, hash)).then((bytes) => decodeRunSnapshot(hash, bytes))
     )
   );
-}
-
-/** For a synchronous reader (the state projection); it neither awaits nor fills the cache. */
-export function readRunSnapshotSync(root: string, hash: string): HostRunSnapshot {
-  return decodeRunSnapshot(hash, readFileSync(join(root, BLOBS_DIR, hash)));
 }

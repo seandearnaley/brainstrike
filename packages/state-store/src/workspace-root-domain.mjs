@@ -1,5 +1,4 @@
 // @ts-check
-export { WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 
 // The root domain runs wherever the state DB's schema does: the desktop writer worker and the browser writer.
 const projection = `id, path, display_name AS displayName, kind, status,

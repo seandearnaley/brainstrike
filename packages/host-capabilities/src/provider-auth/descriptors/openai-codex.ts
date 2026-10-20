@@ -40,9 +40,6 @@ export const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 
 const CODEX_ISSUER = 'https://auth.openai.com';
 
-export const CODEX_AUTHORIZE_URL = `${CODEX_ISSUER}/oauth/authorize`;
-export const CODEX_TOKEN_URL = `${CODEX_ISSUER}/oauth/token`;
-
 /** Loopback redirect is pinned by the client registration — never random. */
 export const CODEX_REDIRECT_PORT = 1455;
 export const CODEX_REDIRECT_PATH = '/auth/callback';

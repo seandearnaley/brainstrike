@@ -8,7 +8,6 @@ import { StateTruthReader } from './state-truth-reader.js';
 export {
   type MemoryObservationRecord,
   type MemoryThreadBinding,
-  READ_LIMIT,
   type ReadItem,
   readAll,
 } from './state-truth-reader.js';

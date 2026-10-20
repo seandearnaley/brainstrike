@@ -214,8 +214,6 @@ const ProviderSchema = Schema.Struct({
 });
 export const ProviderCatalogSchema = Schema.mutable(Schema.Array(ProviderSchema));
 export type ParsedProvider = CatalogShape<(typeof ProviderSchema)['Type']>;
-export type ParsedLlmModel = CatalogShape<(typeof LlmModelSchema)['Type']>;
-export type ParsedEmbeddingModel = CatalogShape<(typeof EmbeddingModelSchema)['Type']>;
 type RawProvider = (typeof ProviderSchema)['Type'];
 type RawModel = (typeof ProviderModelSchema)['Type'];
 /**

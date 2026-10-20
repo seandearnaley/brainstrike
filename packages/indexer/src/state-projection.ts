@@ -5,12 +5,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { StateProjectionOptions } from './contracts.js';
 import { createStateProjection, type StateProjection } from './state-producer.js';
 
-export {
-  createStateProjection,
-  type StateMessageEvent,
-  type StateProducerDecoder,
-  type StateProjection,
-  type StateProjectionRow,
+export type {
+  StateMessageEvent,
+  StateProducerDecoder,
+  StateProjection,
 } from './state-producer.js';
 
 export function validateStateModule(module: string): string {

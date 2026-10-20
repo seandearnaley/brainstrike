@@ -78,7 +78,6 @@ import type { ContentClearResult as ClearContentResult } from '@brainstrike/type
 
 export { BLOB_MIN_BYTES, largeText, PREVIEW_CHARS, type StoredText } from './large-text.js';
 export type {
-  CheckpointRow,
   ExportedThread,
   HydrationThread,
   IndexerPort,

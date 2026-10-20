@@ -703,7 +703,8 @@
       }
     },
     "packages/mcp-test-lab": {
-      "entry": ["__tests__/**/*.test.ts"],
+      // verify:mcp -> scripts/run-mcp-verification.mjs -> package verify invokes this built CLI by path.
+      "entry": ["src/runner-cli.ts!", "__tests__/**/*.test.ts"],
       "project": [
         "src/**/*.ts!",
         "__tests__/**/*.test.ts"

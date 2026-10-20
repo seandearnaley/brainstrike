@@ -1,9 +1,9 @@
+import { isAbortError } from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createWorkerReadyWaiter,
   DEFAULT_WORKER_READY_TIMEOUT_MS,
   estimateHardwareConcurrency,
-  isAbortError,
   ProgressEmitter,
   supportsWorkers,
 } from '../util.js';

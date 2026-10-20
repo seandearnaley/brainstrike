@@ -1,8 +1,6 @@
 import { Result, Schema, SchemaIssue } from 'effect';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  type ParsedEmbeddingModel,
-  type ParsedLlmModel,
   type ParsedProvider,
   ProviderCatalogSchema,
   parseProviderCatalog,
@@ -138,6 +136,9 @@ describe('ProviderCatalogSchema', () => {
  * on one side and missing on the other fails `pnpm type-check`. They are
  * type-level only — `tsconfig.test.json` covers this file.
  */
+type ParsedLlmModel = Extract<ParsedProvider['models'][number], { type: 'llm' }>;
+type ParsedEmbeddingModel = Extract<ParsedProvider['models'][number], { type: 'embedding' }>;
+
 function assertSchemaMatchesTypes(): void {
   const providerForward: ProviderDefinition = {} as ParsedProvider;
   const providerBackward: ParsedProvider = {} as ProviderDefinition;
