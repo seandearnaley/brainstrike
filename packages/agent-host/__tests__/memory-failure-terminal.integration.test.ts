@@ -372,3 +372,27 @@ test.each([
     }
   }
 );
+
+test('a memory failure that is not an Error is reported once', async () => {
+  const host = await failureHost(
+    (run: number): Memory =>
+      run === 0
+        ? {
+            ...plain,
+            // A rejection value with no causes to walk: only its own identity marks it reported.
+            recordPrompt: () => Promise.reject('Recorded string rejection'),
+          }
+        : plain
+  );
+  try {
+    const failed = await host.run('Which city did I mention?');
+    expect(failed).toMatchObject({ outcome: 'failed' });
+    // The next run joins this run's settlement, which must not repeat the failure.
+    expect(await host.run('Report completion.')).toMatchObject({ outcome: 'completed' });
+    expect(
+      (await host.events(failed?.runId)).some((event) => event.type === 'memory.settlement.failed')
+    ).toBe(false);
+  } finally {
+    await host.close();
+  }
+});

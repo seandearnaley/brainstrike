@@ -719,7 +719,9 @@ export class HostMemory implements HostRunOwner {
     return this.ending;
   }
 
+  /** The failure itself (an object or not), then each of its causes. */
   private markReported(failure: unknown): void {
+    this.reported.add(failure);
     for (const candidate of memoryFailureCauses(failure)) {
       this.reported.add(candidate);
     }
