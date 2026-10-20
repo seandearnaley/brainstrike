@@ -389,6 +389,8 @@ it.each([false, true])(
     test.state.populateOnAttachment = progress;
     test.state.hold = progress;
     try {
+      // Boot's reader starts the index; a status read never does (ADR 0026).
+      await test.activation.acquireRead();
       expect(await test.capability.status()).toMatchObject({
         collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
         kind: 'ready',
