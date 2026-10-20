@@ -494,6 +494,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await nativeRetirement;
         await agentHostClientIpc.close();
       },
+      // Fences new vault watches and joins every native subscribe and
+      // unsubscribe, the renderer reapers' included (BST-2244).
+      'notes-vault': () => closeNotesVaultIpc(),
       'parser-host': async () => {
         await parserHostManager.stop();
       },
@@ -1120,7 +1123,14 @@ ipcDisposers.add(
   registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)
 );
 ipcDisposers.add('terminal', registerTerminalIpc(workspaceRootCatalog));
-ipcDisposers.add('notes-vault', registerNotesVaultIpc(storage));
+const closeNotesVaultIpc = registerNotesVaultIpc(storage);
+ipcDisposers.add('notes-vault', () => {
+  // The graceful 'notes-vault' step joins physical retirement. This late ledger
+  // entry repeats idempotent bookkeeping and reports any retained cleanup error.
+  closeNotesVaultIpc().catch((error: unknown) => {
+    logger.error('Notes vault IPC cleanup failed during will-quit', { error });
+  });
+});
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {

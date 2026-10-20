@@ -171,6 +171,7 @@ export function createFakeWatchDirectory(): FakeWatchDirectory {
       subscriptionsByCommonDir.set(commonDir, sub);
       return Promise.resolve(() => {
         sub.disposeCallCount += 1;
+        return Promise.resolve();
       });
     }
   );

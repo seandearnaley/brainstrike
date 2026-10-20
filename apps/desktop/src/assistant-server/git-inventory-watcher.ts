@@ -15,6 +15,10 @@
 
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import {
+  ParcelWatchRetirementError,
+  startJoinedParcelWatch,
+} from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
 
@@ -41,31 +45,49 @@ export const GIT_INVENTORY_WATCH_BATCH_MS = 300;
 export const GIT_INVENTORY_WATCH_MAX_BATCH_MS = 2000;
 
 /**
- * Injected watch function (BST-1112). NOTE on the sync-vs-async mismatch:
- * the real `ElectronFileSystemAdapter.watchDirectory` returns its disposer
- * SYNCHRONOUSLY — "Always returns a valid disposer that can be called safely
- * at any time" (electron-adapter.ts). This module's dependency shape is
- * nonetheless `Promise<() => void>`, matching both the plan's documented
- * interface and the existing `ipc-notes-vault.ts` precedent
- * (`startWatch: (path, onChange) => Promise<() => void>`), which wraps that
- * same sync adapter into a Promise via the `onHealth` callback so its
- * caller can await confirmed setup.
+ * Injected watch function (BST-1112). Resolves once the native subscription
+ * is ACQUIRED, with a disposer that settles only once the native unsubscribe
+ * has settled. A rejection owns no subscription, except a typed
+ * `ParcelWatchRetirementError`: its timed-out subscribe was acquired late,
+ * and its `retire` still has to release it.
  *
- * This module does NOT need that gate: since the adapter's returned disposer
- * is already safe to use immediately (per its own doc comment), the
- * production adapter (wired in Task 4) can resolve trivially with
- * `Promise.resolve(realAdapter.watchDirectory(...))` rather than waiting for
- * a 'healthy' transition the way notes-vault does for user-facing feedback.
- * Setup/runtime failure here is instead a visible, POST-HOC health signal
- * (the `onSignal` 'errored' case below) — never something `sync()` blocks
- * on or throws for.
+ * Both halves are awaitable so `disposeAll()` can join every native
+ * operation before Electron frees Main's Node environment. A @parcel/watcher
+ * subscribe or unsubscribe still on the libuv thread pool at that point
+ * completes into a dead JS context and aborts Main (BST-2244). Setup failure
+ * is the visible rejection; it marks the watcher dead, and `sync()` never
+ * throws for it. Production passes {@link watchGitCommonDirNatively}.
  */
 export type WatchGitCommonDir = (
   commonDir: string,
   callback: (changes: FileSystemChange[]) => void,
   onSignal?: (signal: FileSystemWatchSignal) => void,
   options?: { readonly ignorePatterns?: readonly string[] }
-) => Promise<() => void>;
+) => Promise<() => Promise<void>>;
+
+/**
+ * The production {@link WatchGitCommonDir}: Main's joined @parcel/watcher
+ * producer. A degraded backend (events lost) is an `overflow` signal; setup
+ * failure arrives as the rejection, so `failed` health is not re-signalled.
+ */
+export const watchGitCommonDirNatively: WatchGitCommonDir = (
+  commonDir,
+  callback,
+  onSignal,
+  options
+) =>
+  startJoinedParcelWatch(
+    { kind: 'directory', name: path.basename(commonDir), path: commonDir, platform: 'electron' },
+    callback,
+    {
+      ignorePatterns: options?.ignorePatterns,
+      onHealth: (event) => {
+        if (event.state === 'degraded') {
+          onSignal?.({ type: 'overflow' });
+        }
+      },
+    }
+  );
 
 export interface GitInventoryWatcherDeps {
   /** Called (at most once per debounce window) when a repo's git metadata may have changed. */
@@ -78,9 +100,11 @@ export interface GitInventoryWatcherDeps {
 
 export interface GitInventoryWatchers {
   /**
-   * Idempotent: safe to call more than once, and safe to call at any time —
-   * including while a `sync()` subscribe is still in flight (its disposer is
-   * invoked the moment it resolves, never leaked). TERMINAL: once called,
+   * Resolves only once every subscribe still in flight has settled and every
+   * acquired native subscription is unsubscribed (BST-2244); a failed
+   * unsubscribe rejects, as an `AggregateError`, after the others settle.
+   * Safe to call at any time, including while a `sync()` subscribe is in
+   * flight. Idempotent: a later call joins the first. TERMINAL: once called,
    * this instance never subscribes again, even if a later `sync()` lists a
    * common dir — matches the service `stop()` lifecycle this pairs with
    * (`createGitInventoryWatchers` is called again to start fresh).
@@ -89,8 +113,8 @@ export interface GitInventoryWatchers {
   /**
    * Common dirs whose watcher failed and is NOT watching (typed state Task 4
    * folds into `GitInventorySnapshot.errors`). Covers SETUP-TIME death only —
-   * `'failed'` is only ever reachable from `startParcelWatch`'s own
-   * `loadModule`/subscribe catch blocks. A subscription that dies AFTER
+   * a rejected {@link WatchGitCommonDir} acquisition (or an `errored`
+   * signal). A subscription that dies AFTER
    * successfully starting (backend crash, common dir replaced on disk, …)
    * reports `'degraded'`/`'overflow'` upstream instead, which this module
    * does not treat as dead — that subscription stays silently stale until
@@ -130,11 +154,18 @@ interface Subscription {
    * reset every time a batch closes (normal debounce fire or forced
    * overflow fire).
    */
+  /**
+   * This claim's native acquisition. Never rejects: it settles once the
+   * subscription is acquired or has failed. Whoever removes the claim joins
+   * it before calling {@link Subscription.dispose}.
+   */
+  acquisition: Promise<void>;
   batchEventsInteresting: number;
   batchEventsSeen: number;
   dead: boolean;
   deadReason: string | null;
-  dispose: () => void;
+  /** Retires the acquired native subscription; settles once its unsubscribe has. */
+  dispose: () => Promise<void>;
   /** Arrival time (ms, `Date.now()`) of the first event in the CURRENT batch; `null` when no batch is pending. Drives the {@link GIT_INVENTORY_WATCH_MAX_BATCH_MS} cap. */
   firstEventAt: number | null;
   timer: ReturnType<typeof setTimeout> | null;
@@ -192,6 +223,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
   const realpath = deps.realpath ?? ((targetPath: string) => fsPromises.realpath(targetPath));
   const subscriptions = new Map<string, Subscription>();
   let disposed = false;
+  let disposing: Promise<void> | undefined;
 
   /**
    * Zero-cost measurement seam (no new infra, no persistence, no new
@@ -348,16 +380,22 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       return;
     }
     const sub: Subscription = {
+      acquisition: Promise.resolve(),
       batchEventsInteresting: 0,
       batchEventsSeen: 0,
       dead: false,
       deadReason: null,
-      dispose: () => {},
+      dispose: () => Promise.resolve(),
       firstEventAt: null,
       timer: null,
     };
     subscriptions.set(commonDir, sub);
+    sub.acquisition = acquire(commonDir, sub);
+    await sub.acquisition;
+  }
 
+  /** Opens `sub`'s native watch. Never rejects: setup failure is dead state. */
+  async function acquire(commonDir: string, sub: Subscription): Promise<void> {
     let watchRoot: string;
     try {
       watchRoot = await realpath(commonDir);
@@ -390,7 +428,6 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       return;
     }
 
-    let dispose: () => void;
     try {
       // `ignorePatterns: []` is LOAD-BEARING, not a perf oversight — do not
       // "fix" it back to the default. `DEFAULT_IGNORE_PATTERNS`
@@ -423,13 +460,23 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       // subscription root instead of matching any segment. Nothing like
       // that exists in `path-filter.ts` or `parcel-watchers.ts` today; it
       // would need to be built, not approximated with segment patterns.
-      dispose = await deps.watchDirectory(
+      //
+      // A claim removed while this resolves (sync() dropping or retrying the
+      // common dir, or disposeAll()) is not disposed here: the remover joins
+      // `sub.acquisition` and then retires `sub.dispose` itself.
+      sub.dispose = await deps.watchDirectory(
         watchRoot,
         (changes) => handleChanges(commonDir, watchRoot, sub, changes),
         (signal) => handleSignal(commonDir, sub, signal),
         { ignorePatterns: [] }
       );
     } catch (error) {
+      if (error instanceof ParcelWatchRetirementError) {
+        // The timed-out subscribe was acquired late and its cleanup failed:
+        // the native subscription is still owned, and the claim's remover
+        // retries its retirement.
+        sub.dispose = error.retire;
+      }
       // Same stale-identity guard as the realpath catch above: only write
       // dead state if this Subscription is still the live claim.
       if (isStaleAttempt(commonDir, sub)) {
@@ -439,20 +486,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       sub.dead = true;
       sub.deadReason = message;
       logger.error('git inventory watcher setup rejected', { commonDir, error: message });
-      return;
     }
-
-    // A dispose/resubscribe race: sync() (or disposeAll()) could have
-    // removed this commonDir — or replaced it with a fresh retry
-    // Subscription — while watchDirectory() was still resolving. If this
-    // Subscription object is no longer the one in the map, its setup is
-    // stale: dispose it immediately rather than leaking a live subscription
-    // nothing will ever tear down.
-    if (isStaleAttempt(commonDir, sub)) {
-      dispose();
-      return;
-    }
-    sub.dispose = dispose;
   }
 
   async function disposeOne(commonDir: string): Promise<void> {
@@ -464,7 +498,10 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     if (sub.timer) {
       clearTimeout(sub.timer);
     }
-    sub.dispose();
+    // A subscribe still in flight must not outlive its disposal: join it,
+    // then retire whatever it acquired.
+    await sub.acquisition;
+    await sub.dispose();
   }
 
   async function sync(commonDirs: readonly string[]): Promise<void> {
@@ -491,10 +528,20 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     await Promise.all(toSubscribe.map((commonDir) => subscribe(commonDir)));
   }
 
-  async function disposeAll(): Promise<void> {
+  function disposeAll(): Promise<void> {
     disposed = true;
-    const commonDirs = [...subscriptions.keys()];
-    await Promise.all(commonDirs.map((commonDir) => disposeOne(commonDir)));
+    disposing ??= (async (): Promise<void> => {
+      const results = await Promise.allSettled(
+        [...subscriptions.keys()].map((commonDir) => disposeOne(commonDir))
+      );
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'Git inventory watcher retirement failed.');
+      }
+    })();
+    return disposing;
   }
 
   function getDeadCommonDirs(): ReadonlySet<string> {
