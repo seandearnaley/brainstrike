@@ -19,8 +19,6 @@ export const DESKTOP_SMOKE_EXCLUSIONS = Object.freeze({
     'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
   'ubuntu-24.04-arm':
     'BST-2190: Linux already runs the full desktop E2E regression in desktop-e2e.yml.',
-  'windows-2025':
-    'BST-2247: with BST-2239 the host closes in about 0.3 s, but a close that lands while the agent host is still starting waits for that start: on hosted run 39345112384 an early close overran the 10 s harness deadline while snapshot-maintenance waited 7 s for the host. The BST-2247 fix turns this leg back on.',
 });
 
 export function selectNativePackageTargets(platform = 'all') {
