@@ -27,30 +27,26 @@ test.describe('durable UI state across document unload', () => {
     const fixture = await openDurableUiFixture(electron, window);
     const { page } = fixture;
     const userDataDir = electron.getUserDataDir();
-    try {
-      await expandFixtureFolder(page);
-      await page.waitForTimeout(200);
-      const closed = await closeLastWindowLikeTheUser(electron, page);
-      if (closed.quit) {
-        expect(closed.exitCode).toBe(0);
-      } else {
-        // macOS keeps the app and its host running windowless: no new document can rewrite them.
-        expect
-          .soft(await readCommittedThreadExpansion(userDataDir, fixture.threadId))
-          .toContain(fixture.expandedPath);
-        expect.soft(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
-        await electron.dispose();
-      }
-      expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
-      const relaunched = await electron.ensureWindow({ preserveState: true });
-      await ensureAssistantShellVisible(relaunched);
-      await waitForAppHost(relaunched);
-      expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
-        fixture.expandedPath
-      );
-    } finally {
-      await fixture.dispose();
+    await expandFixtureFolder(page);
+    await page.waitForTimeout(200);
+    const closed = await closeLastWindowLikeTheUser(electron, page);
+    if (closed.quit) {
+      expect(closed.exitCode).toBe(0);
+    } else {
+      // macOS keeps the app and its host running windowless: no new document can rewrite them.
+      expect
+        .soft(await readCommittedThreadExpansion(userDataDir, fixture.threadId))
+        .toContain(fixture.expandedPath);
+      expect.soft(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
+      await electron.dispose();
     }
+    expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
+    const relaunched = await electron.ensureWindow({ preserveState: true });
+    await ensureAssistantShellVisible(relaunched);
+    await waitForAppHost(relaunched);
+    expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
+      fixture.expandedPath
+    );
   });
 
   test('a thread-workspace edit 300 ms before menu Reload is committed before the new document loads', async ({
@@ -60,28 +56,24 @@ test.describe('durable UI state across document unload', () => {
     const fixture = await openDurableUiFixture(electron, window);
     const { page } = fixture;
     const userDataDir = electron.getUserDataDir();
-    try {
-      await expandFixtureFolder(page);
-      await page.waitForTimeout(300);
-      const navigated = page.waitForEvent('framenavigated', {
-        predicate: (frame) => frame === page.mainFrame(),
-      });
-      await reloadFromMenu((await electron.ensureContext()).app, page);
-      await navigated;
-      // Read before the replacement document has attached to the host and could write anything.
-      expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
-        fixture.expandedPath
-      );
-      const { waitForAppReady } = await loadElectronHelpers();
-      await waitForAppReady(page);
-      await ensureAssistantShellVisible(page);
-      await waitForAppHost(page);
-      expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
-        fixture.expandedPath
-      );
-    } finally {
-      await fixture.dispose();
-    }
+    await expandFixtureFolder(page);
+    await page.waitForTimeout(300);
+    const navigated = page.waitForEvent('framenavigated', {
+      predicate: (frame) => frame === page.mainFrame(),
+    });
+    await reloadFromMenu((await electron.ensureContext()).app, page);
+    await navigated;
+    // Read before the replacement document has attached to the host and could write anything.
+    expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
+      fixture.expandedPath
+    );
+    const { waitForAppReady } = await loadElectronHelpers();
+    await waitForAppReady(page);
+    await ensureAssistantShellVisible(page);
+    await waitForAppHost(page);
+    expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
+      fixture.expandedPath
+    );
   });
 });
 
@@ -194,7 +186,6 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
           body: output,
           contentType: 'text/plain',
         });
-        await fixture.dispose();
       }
     });
   }

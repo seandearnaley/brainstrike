@@ -1,6 +1,5 @@
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -34,12 +33,18 @@ const PANEL_LAYOUT_KEY = 'panel-layout-store.v1';
  * A seeded root with one folder, and one thread whose workspace the host has stored. The root is
  * seeded, then the app relaunches on it: the test's own unload is then the launch's first, which
  * is the one the E2E lifecycle seam's one-shot `renderer-flush` delay applies to.
+ *
+ * The root lives in the harness's disposable workspace, which the fixture's teardown removes
+ * after the app's exit is joined: removing it while the app still has it mounted fails on
+ * Windows (EBUSY).
  */
 export async function openDurableUiFixture(
   electron: ElectronHarness,
   seedPage: Page
-): Promise<DurableUiFixture & { readonly dispose: () => Promise<void>; readonly page: Page }> {
-  const rootPath = await realpath(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-durable-ui-')));
+): Promise<DurableUiFixture & { readonly page: Page }> {
+  const rootPath = await realpath(
+    await mkdtemp(path.join(electron.getWorkspaceRoot(), 'durable-ui-'))
+  );
   await mkdir(path.join(rootPath, FOLDER));
   await writeFile(path.join(rootPath, FOLDER, 'index.ts'), 'export const durable = true;\n');
   await seedPage.evaluate(
@@ -99,7 +104,6 @@ export async function openDurableUiFixture(
   }
   await expect(folderRow(page).getByRole('button', { name: 'Expand' })).toBeVisible();
   return {
-    dispose: () => rm(rootPath, { force: true, recursive: true }),
     expandedPath: path.join(rootPath, FOLDER),
     page,
     rootPath,

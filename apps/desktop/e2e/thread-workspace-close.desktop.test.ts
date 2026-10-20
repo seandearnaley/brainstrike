@@ -15,23 +15,19 @@ import { ensureAssistantShellVisible } from './utils/layout-helpers';
  */
 test('@smoke app-owned quit commits a still-buffered workspace edit and the reopened app reads it', async ({
   electron,
-  window: page,
+  window,
 }) => {
-  const fixture = await openDurableUiFixture(electron, page);
+  const fixture = await openDurableUiFixture(electron, window);
   const userDataDir = electron.getUserDataDir();
-  try {
-    // Both writers still buffer this edit when quit starts (500 ms and 100 ms).
-    await expandFixtureFolder(page);
-    await electron.closeForStateSeeding();
-    expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
+  // Both writers still buffer this edit when quit starts (500 ms and 100 ms).
+  await expandFixtureFolder(fixture.page);
+  await electron.closeForStateSeeding();
+  expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
 
-    const reopened = await electron.ensureWindow({ preserveState: true });
-    await ensureAssistantShellVisible(reopened);
-    await waitForAppHost(reopened);
-    expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
-      fixture.expandedPath
-    );
-  } finally {
-    await fixture.dispose();
-  }
+  const reopened = await electron.ensureWindow({ preserveState: true });
+  await ensureAssistantShellVisible(reopened);
+  await waitForAppHost(reopened);
+  expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
+    fixture.expandedPath
+  );
 });
