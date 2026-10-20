@@ -259,12 +259,14 @@ async function escalateUnlessExited(
   } finally {
     clearTimeout(timer);
   }
-  child.killed = true;
-  logger.warn('The owned agent host did not exit after close; killing it', {
-    cooperativeMs,
-    pid: child.handle.pid,
-  });
-  child.handle.kill();
+  const pid = child.handle.pid;
+  logger.warn('The owned agent host did not exit after close; killing it', { cooperativeMs, pid });
+  // Electron returns false when it could not terminate the process. Its exit is still the
+  // only end of this owner (R4): keep joining it, and do not excuse its exit code as a kill's.
+  child.killed = child.handle.kill();
+  if (!child.killed) {
+    logger.error('Could not kill the owned agent host; still waiting for it to exit', { pid });
+  }
 }
 /** The child's exit as Main observes it: one shared promise per child. */
 function observedExit(child: OwnedChild, ladder: CloseLadder): Promise<number> {

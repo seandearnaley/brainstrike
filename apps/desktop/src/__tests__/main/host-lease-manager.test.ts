@@ -490,6 +490,44 @@ describe('desktop host lease ownership', () => {
       stop();
     }
   });
+  it('logs a refused kill as an error, keeps joining the exit and never excuses its exit code', async () => {
+    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
+      '../../host-lease-manager'
+    );
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
+    const errors: string[] = [];
+    const stop = addLogListener((record) => {
+      if (record.scope === 'DesktopHostLease' && record.level === LogLevel.ERROR) {
+        errors.push(record.message ?? '');
+      }
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const child = new Child();
+      child.exitOnClose = false;
+      child.exitOnKill = false;
+      child.kill.mockReturnValue(false);
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+          return child;
+        },
+        root,
+      });
+      await owner.acquire();
+      const closing = owner.close();
+      closing.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(HOST_COOPERATIVE_CLOSE_MS);
+      expect(child.kill).toHaveBeenCalledOnce();
+      expect(errors).toEqual(['Could not kill the owned agent host; still waiting for it to exit']);
+
+      child.exit(1);
+      await expect(closing).rejects.toThrow('Owned host utility exited with code 1');
+    } finally {
+      vi.useRealTimers();
+      stop();
+    }
+  });
   it('joins Main’s delayed view of the host exit inside the ladder (E2E child-exit point)', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const { createLifecycleDelaySeam } = await import('../../lifecycle-delay-seam');
