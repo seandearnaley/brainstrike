@@ -8,8 +8,8 @@ import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import { canonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { SqliteQueryClient, spawnQueryProcess } from '@brainstrike/sqlite-query';
+import { GrepSearchService } from '@brainstrike/utils/grep-search';
 import { expect, it } from 'vitest';
-import { nativeGrepIndex } from '../../agent-host-platform/native-grep-index';
 import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
 import { createNativeScopedSearchCapability } from '../../native-scoped-search';
 
@@ -17,8 +17,9 @@ import { createNativeScopedSearchCapability } from '../../native-scoped-search';
  * BST-1989: a markdown hit reports the line it is on. The fixture is a real note
  * with front matter, headings followed by blank lines, two blank lines in a row,
  * lists, a code fence and a quote. It goes through the production chunker and
- * the real IndexerPort; the index-only pass and the live pass must agree on
- * every line, so the merge reports each hit once.
+ * the real IndexerPort. The index's own grep (which hybrid search and Explorer
+ * read) and the agent's grep tool, which reads the disk (ADR 0026), must each
+ * report every hit on its source line, once.
  */
 const relativePath = 'docs/notes.md';
 const needle = 'mdneedle';
@@ -37,7 +38,7 @@ function needleLines(source: string): number[] {
   return source.split('\n').flatMap((line, index) => (line.includes(needle) ? [index + 1] : []));
 }
 
-it('reports each markdown hit on its source line, once, through the real index and live passes', async () => {
+it('reports each markdown hit on its source line, once, through the real index and the disk', async () => {
   const executable = process.env['SQLITE_QUERY_TEST_EXEC_PATH'];
   const nodeExecutable = process.env['INDEXER_TEST_EXEC_PATH'];
   if (!(executable && nodeExecutable)) {
@@ -165,30 +166,42 @@ it('reports each markdown hit on its source line, once, through the real index a
     const expected = needleLines(source);
     expect(expected.length).toBeGreaterThanOrEqual(7);
 
-    // The index-only pass alone.
-    const indexed = await nativeGrepIndex(capability)({
-      contextLines: 0,
+    // The index's grep, matched to lines by the shared grep service.
+    const found = await capability.grep({
+      caseSensitive: false,
+      isRegex: false,
+      limit: 200,
       pattern: needle,
-      rootId: 'root',
+      rootIds: ['root'],
     });
+    const indexed = await new GrepSearchService({
+      findGrepCandidates: async () =>
+        found.hits.map((hit) => ({
+          chunkId: hit.chunkId,
+          content: hit.content,
+          endLine: hit.endLine,
+          filePath: hit.relativePath ?? '',
+          rootId: hit.rootId,
+          startLine: hit.startLine,
+        })),
+    }).search({ contextLines: 0, pattern: needle });
     expect.soft(indexed.matches.map((match) => match.line)).toEqual(expected);
     expect
       .soft(indexed.matches.map((match) => match.lineText))
       .toEqual(expected.map((line) => source.split('\n')[line - 1]));
 
-    // The tool's index + live merge: every hit is found by both, once.
+    // The agent's grep tool reads the same note on disk.
     const merged = await runGrepSearchWith(
       { outputMode: 'content', pattern: needle },
-      { workspaceRoots: [{ displayName: 'workspace', path: root, rootId: 'root' }] },
-      nativeGrepIndex(capability)
+      { workspaceRoots: [{ displayName: 'workspace', path: root, rootId: 'root' }] }
     );
     if (merged.outputMode !== 'content') {
       throw new Error('Expected a content-mode grep result.');
     }
     expect(merged.liveEngine).not.toBe('skipped');
-    expect(
-      merged.matches.map((match) => ({ line: match.line, path: match.path, source: match.source }))
-    ).toEqual(expected.map((line) => ({ line, path: relativePath, source: 'both' })));
+    expect(merged.matches.map((match) => ({ line: match.line, path: match.path }))).toEqual(
+      expected.map((line) => ({ line, path: relativePath }))
+    );
     expect(merged.totalMatches).toBe(expected.length);
   } finally {
     await connection.close();

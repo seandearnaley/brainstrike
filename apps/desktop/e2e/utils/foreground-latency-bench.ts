@@ -212,7 +212,7 @@ export function mainMetrics(samples: MainPhaseSamples) {
     chatPathOpMs: summarize(samples.chatPathOpMs),
     eventLoopLagMs: samples.eventLoopLagMs,
     toolFileReadMs: summarize(samples.toolFileReadMs),
-    toolIndexQueryMs: summarize(samples.toolIndexQueryMs),
+    toolGrepMs: summarize(samples.toolGrepMs),
     toolReadMs: summarize(samples.toolReadMs),
   };
 }

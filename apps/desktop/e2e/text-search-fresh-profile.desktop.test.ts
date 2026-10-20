@@ -1,8 +1,9 @@
 /**
  * Desktop E2E (BST-1988): text search is the default and needs no embedding
  * model. On a fresh profile, adding a folder and choosing Text search makes
- * Explorer Text search and the agent's grepSearch read the native text index;
- * no model is chosen, no collection is invented and nothing is downloaded.
+ * Explorer Text search read the native text index, and the agent's grepSearch
+ * finds the same text on disk (ADR 0026); no model is chosen, no collection is
+ * invented and nothing is downloaded.
  */
 import { readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -149,7 +150,7 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
     await expect(searchPanel.getByText('notes.txt').first()).toBeVisible({ timeout: 30_000 });
     await expect(searchPanel.getByRole('alert')).toHaveCount(0);
 
-    // The agent's grepSearch reads the same index.
+    // The agent's grepSearch finds the marker on disk.
     modelProvider.setScript((request) => {
       const grep = request.toolNames.find((tool) => tool.endsWith('grepSearch'));
       return grep
@@ -177,12 +178,7 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
       .toBe('completed');
     const [run] = await readCommittedRuns(electron.getUserDataDir(), threadId);
     expect(run?.results[0]?.output).toMatchObject({
-      files: [
-        expect.objectContaining({
-          path: 'notes.txt',
-          source: expect.stringMatching(/^(index|both)$/),
-        }),
-      ],
+      files: [expect.objectContaining({ path: 'notes.txt' })],
       outputMode: 'files',
     });
 

@@ -117,5 +117,3 @@ its prompt.
 - A cheap-model live canary: Gemini Flash, GLM/Qwen Flash via OpenRouter,
   Claude Haiku 5.5 and GPT-6 Luna. It asserts invariants only and saves new shapes as cassettes.
 - A debug-pack-to-fixture converter.
-- A deterministic not-ready native index in an Electron lane, so the grep
-  refusal path (#3727) runs with real provider bytes.

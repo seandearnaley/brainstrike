@@ -28,7 +28,7 @@ export interface MainPhaseSamples {
     readonly p95: number;
   };
   readonly toolFileReadMs: readonly number[];
-  readonly toolIndexQueryMs: readonly number[];
+  readonly toolGrepMs: readonly number[];
   readonly toolReadMs: readonly number[];
 }
 
@@ -235,7 +235,7 @@ interface ProbeLoopRecord {
   chatPathOpMs: number[];
   errors: string[];
   toolFileReadMs: number[];
-  toolIndexQueryMs: number[];
+  toolGrepMs: number[];
   toolReadMs: number[];
 }
 
@@ -263,7 +263,11 @@ export async function installMainProbes(
     (_electron, { eldResolutionMs, probeConfig }) => {
       interface Seam {
         commitThreadUpdate: (input: { threadId: string; title: string }) => Promise<void>;
-        grepToolIndex: (input: { filePath: string; pattern: string }) => Promise<number>;
+        grepTool: (input: {
+          filePath: string;
+          pattern: string;
+          rootPath: string;
+        }) => Promise<number>;
         readToolFile: (input: { requestedPath: string; rootPath: string }) => Promise<number>;
       }
       const target = globalThis as typeof globalThis & {
@@ -295,19 +299,20 @@ export async function installMainProbes(
         });
         return performance.now() - startedAt;
       };
-      const toolOp = async (): Promise<{ file: number; index: number; total: number }> => {
+      const toolOp = async (): Promise<{ file: number; grep: number; total: number }> => {
         const startedAt = performance.now();
         await seam.readToolFile({
           requestedPath: probeConfig.readTargetPath,
           rootPath: probeConfig.rootPath,
         });
         const readAt = performance.now();
-        await seam.grepToolIndex({
+        await seam.grepTool({
           filePath: probeConfig.grepFilePath,
           pattern: probeConfig.grepPattern,
+          rootPath: probeConfig.rootPath,
         });
         const doneAt = performance.now();
-        return { file: readAt - startedAt, index: doneAt - readAt, total: doneAt - startedAt };
+        return { file: readAt - startedAt, grep: doneAt - readAt, total: doneAt - startedAt };
       };
 
       const pace = async (
@@ -335,7 +340,7 @@ export async function installMainProbes(
         chatPathOpMs: [],
         errors: [],
         toolFileReadMs: [],
-        toolIndexQueryMs: [],
+        toolGrepMs: [],
         toolReadMs: [],
       });
       const runLoops = (
@@ -364,7 +369,7 @@ export async function installMainProbes(
             guard(async () => {
               const sample = await toolOp();
               record.toolFileReadMs.push(sample.file);
-              record.toolIndexQueryMs.push(sample.index);
+              record.toolGrepMs.push(sample.grep);
               record.toolReadMs.push(sample.total);
             })
         );

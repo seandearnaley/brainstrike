@@ -2,14 +2,12 @@ import { ToolProjectionInputRejectedError } from '@brainstrike/agent';
 import type { GrepMatch } from '@brainstrike/assistant-contract';
 import type { GrepContentDelivery } from '@brainstrike/assistant-contract/context-provenance';
 
-export type GrepMatchSource = 'index' | 'live' | 'both';
-
-export type LabeledGrepMatch = GrepMatch & { source: GrepMatchSource };
-
-export type ModelFacingGrepMatch = Omit<
-  LabeledGrepMatch,
-  'chunkId' | 'chunkStartLine' | 'chunkEndLine'
->;
+/**
+ * One grep match as the model and the thread context map receive it. Grep reads
+ * the disk only (ADR 0026), so a match carries no index provenance; stored
+ * results with a `source` label still parse, because unread fields are ignored.
+ */
+export type ModelFacingGrepMatch = Omit<GrepMatch, 'chunkId' | 'chunkStartLine' | 'chunkEndLine'>;
 
 export interface GrepFileSummary {
   firstLine: number;
@@ -17,7 +15,6 @@ export interface GrepFileSummary {
   path: string;
   rootId?: string | null;
   rootName?: string | null;
-  source: GrepMatchSource;
 }
 
 interface GrepToolResultBase {
@@ -72,7 +69,6 @@ export interface GrepFilesToolResult extends GrepToolResultBase {
 export interface GrepContentToolResult extends GrepToolResultBase {
   matches: ModelFacingGrepMatch[];
   outputMode: 'content';
-  skippedMissingLineMetadata: number;
 }
 
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
@@ -155,13 +151,6 @@ function requireOptionalRootLabel(
   }
 }
 
-function requireMatchSource(record: Record<string, unknown>, path: string): void {
-  const source = record['source'];
-  if (!(source === 'index' || source === 'live' || source === 'both')) {
-    rejectField(`${path}.source`, '"index", "live", or "both"', source);
-  }
-}
-
 function requireGrepBase(record: Record<string, unknown>): void {
   if (typeof record['candidatesTruncated'] !== 'boolean') {
     rejectField('candidatesTruncated', 'boolean', record['candidatesTruncated']);
@@ -228,7 +217,6 @@ function requireGrepFileSummary(value: unknown, index: number): void {
   }
   requireOptionalRootLabel(value, path, 'rootId');
   requireOptionalRootLabel(value, path, 'rootName');
-  requireMatchSource(value, path);
 }
 
 function requireStringArray(value: unknown, path: string): void {
@@ -259,7 +247,6 @@ function requireGrepMatch(value: unknown, index: number): void {
   }
   requireOptionalRootLabel(value, path, 'rootId');
   requireOptionalRootLabel(value, path, 'rootName');
-  requireMatchSource(value, path);
 }
 
 export function parseGrepToolResult(output: unknown): GrepToolResult {
@@ -284,13 +271,6 @@ export function parseGrepToolResult(output: unknown): GrepToolResult {
       rejectField('matches', 'array', output['matches']);
     }
     output['matches'].forEach(requireGrepMatch);
-    if (!isNonNegativeInteger(output['skippedMissingLineMetadata'])) {
-      rejectField(
-        'skippedMissingLineMetadata',
-        'non-negative integer',
-        output['skippedMissingLineMetadata']
-      );
-    }
     return output as unknown as GrepContentToolResult;
   }
 
