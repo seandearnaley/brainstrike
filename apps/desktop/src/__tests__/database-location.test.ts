@@ -1,13 +1,15 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
 import {
   createWorktreeScopedProfile,
   type DatabaseLocationInput,
+  sanitizeProfileSegment,
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { describe, expect, it, vi } from 'vitest';
+import {
   joinProfileDirectory,
   PACKAGED_PRODUCT_DIR_NAME,
   resolveDatabaseLocation,
-  sanitizeProfileSegment,
 } from '../database-location';
 
 const PRODUCT = 'BrainStrike Desktop';

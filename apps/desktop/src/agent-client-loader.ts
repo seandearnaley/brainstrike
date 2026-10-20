@@ -187,6 +187,7 @@ export function getAgentProviderEnvKeys(provider: SupportedProvider): readonly s
   return FALLBACK_ENV_KEYS[provider] ?? [];
 }
 
+/** @internal Client-loader and secrets IPC regressions isolate provider discovery. */
 export function clearCachedAgentClient() {
   cachedAgentClient = undefined;
   fallbackNotified = false;

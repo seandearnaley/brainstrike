@@ -1,4 +1,4 @@
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
+import type { WorkspaceRootsQueryable } from '@brainstrike/assistant-service/node-workspace-services';
 
 interface RootRow {
   readonly id: string;

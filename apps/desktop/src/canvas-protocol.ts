@@ -29,7 +29,9 @@ const logger = createLogger('CanvasProtocol');
 
 export const CANVAS_PROTOCOL_SCHEME = 'brainstrike-canvas';
 
-/** The only URL this protocol serves; the renderer appends a `#nonce=` fragment. */
+/** The only URL this protocol serves; the renderer appends a `#nonce=` fragment.
+ * @internal Canvas protocol regressions pin the sandbox shell URL.
+ */
 export const CANVAS_SHELL_URL = `${CANVAS_PROTOCOL_SCHEME}://shell/`;
 
 /**

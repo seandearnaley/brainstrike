@@ -755,9 +755,6 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../../packages/logging
-      '@brainstrike/mcp-app-host':
-        specifier: workspace:*
-        version: link:../../packages/mcp-app-host
       '@brainstrike/mcp-app-host-ui':
         specifier: workspace:*
         version: link:../../packages/mcp-app-host-ui
@@ -885,6 +882,9 @@ importers:
       '@brainstrike/file-explorer':
         specifier: workspace:*
         version: link:../../packages/file-explorer
+      '@brainstrike/mcp-app-host':
+        specifier: workspace:*
+        version: link:../../packages/mcp-app-host
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils

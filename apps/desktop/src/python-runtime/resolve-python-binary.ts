@@ -62,6 +62,7 @@ export class PythonRuntimeMissingError extends PythonRuntimeError {
   }
 }
 
+/** @internal Python runtime regressions inspect structured runtime errors. */
 export function isPythonRuntimeError(error: unknown): error is PythonRuntimeError {
   return error instanceof PythonRuntimeError;
 }
@@ -208,6 +209,7 @@ async function loadManifest(manifestDir: string): Promise<PythonRuntimeManifest>
   return decodeManifest(parsed, manifestPath);
 }
 
+/** @internal Payload regressions verify platform and architecture asset names. */
 export function renderPythonRuntimeAssetFileName(
   manifest: Pick<
     PythonRuntimeManifest,

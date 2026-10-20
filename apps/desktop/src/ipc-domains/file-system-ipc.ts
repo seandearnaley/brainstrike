@@ -406,6 +406,7 @@ export interface FileSystemIpcDomain {
   unregister(): void;
 }
 
+/** @internal Filesystem IPC regressions drive registration and disposal directly. */
 export function registerFileSystemIpcHandlers(
   options: RegisterFileSystemIpcHandlersOptions
 ): () => Promise<void> {

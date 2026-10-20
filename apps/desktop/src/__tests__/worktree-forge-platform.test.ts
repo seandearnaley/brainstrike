@@ -1,5 +1,9 @@
 // @vitest-environment node
 import { PassThrough } from 'node:stream';
+import {
+  createWorktreeForgeClient,
+  serveWorktreeForgeStore,
+} from '@brainstrike/agent-host/catalog';
 import type { ForgeCachePort, WorktreeLedgerPort } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
@@ -7,10 +11,6 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import {
-  createWorktreeForgeClient,
-  serveWorktreeForgeStore,
-} from '../agent-host-platform/worktree-forge-store';
 
 function transport(store: ForgeCachePort & WorktreeLedgerPort) {
   const requests = new PassThrough();

@@ -64,6 +64,7 @@ function toSummary(entry: SkillScanEntry): SkillScanEntrySummary {
   };
 }
 
+/** @internal Skill IPC regressions exercise scanner policy without opening a renderer. */
 export async function scanSkillsForRenderer(
   deps: SkillsScanHandlerDeps
 ): Promise<SkillsScanResultSummary> {

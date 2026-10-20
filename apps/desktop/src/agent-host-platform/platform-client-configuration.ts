@@ -78,7 +78,6 @@ export const PlatformSubagentsIntentSchema = Schema.Struct({
   disabledPersonaIds: Schema.mutable(Schema.Array(Id)),
   settings: runtimeSubagentSettingsSchema,
 });
-export type PlatformSubagentsIntent = (typeof PlatformSubagentsIntentSchema)['Type'];
 /** Existing UI preference owners supply only non-secret intent; roots remain Main-owned. */
 export const PlatformClientConfigurationSchema = Schema.Struct({
   agentLoop: Schema.optional(

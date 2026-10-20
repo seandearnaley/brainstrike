@@ -12,7 +12,6 @@ import {
 } from './accessibility-snapshot';
 import type {
   BrowserDriver,
-  CdpSession,
   CdpSessionResolver,
   DriverPageText,
   DriverScreenshot,
@@ -143,7 +142,3 @@ function toClip(region: PaneRegion): Record<string, number> {
     y: region.y,
   };
 }
-
-// Re-exported so callers building the production session don't reach past this
-// module for the transport type.
-export type { CdpSession };

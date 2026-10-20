@@ -64,6 +64,7 @@ export const forgeContract = {
   }),
 } as const satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type ForgeBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof forgeContract, ForgeBridge>
 >;

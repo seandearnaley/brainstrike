@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { createThreadGroupsClient, serveThreadGroups } from '@brainstrike/agent-host/catalog';
 import { StateStore } from '@brainstrike/state-store';
 import { AGENT_SEMANTIC_COLOR_IDS, ASSISTANT_THREAD_ICON_IDS } from '@brainstrike/types';
 import { expect, test } from 'vitest';
@@ -11,10 +12,6 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import {
-  createThreadGroupsClient,
-  serveThreadGroups,
-} from '../agent-host-platform/thread-groups-store';
 
 test('private thread group commands preserve committed IDs and reject malformed mutations', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'native-thread-groups-'));

@@ -5,11 +5,7 @@ import {
 import { disposeDesktopAndHostCommandSessionsForRoot } from '../agent-host-platform/host-command-session-client';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 
-export type {
-  SecureWorkspaceRoot,
-  StoredWorkspaceRoot,
-  SubscribeMountedWorkspaceRoot,
-} from '@brainstrike/assistant-service/node-workspace-services';
+export type { SecureWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 
 type DesktopOptions = Omit<
   WorkspaceRootRegistryOptions,

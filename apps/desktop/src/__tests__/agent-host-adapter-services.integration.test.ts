@@ -10,6 +10,7 @@ import { resolveToolResultBudgetForModel } from '@brainstrike/agent';
 import { collectCombinedTools } from '@brainstrike/agent/mcp-client';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { createMcpHostToolAdapter, createProductionHostPlatform } from '@brainstrike/agent-host';
+import { writePrivateCredentialFile } from '@brainstrike/agent-host/file-credentials';
 import {
   createKeyringCredentialStore,
   createKeyringSecretsService,
@@ -33,11 +34,10 @@ import {
   parseRecords,
   purgeMcpOAuthRuntimeState,
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { writePrivateCredentialFile } from '../agent-host-platform/private-credential-file';
-import { createProductionAgentHostAdapterServicesFactory } from '../agent-host-platform/production-adapter-services';
 import { fixtureCapabilities, fixtureToolRequest } from './fixtures/agent-host-adapter-fixture';
 
 const roots = new Set<string>();
@@ -297,8 +297,10 @@ describe('one Node adapter composition', () => {
       const server = await startStatefulMcpHostServer();
       disposers.add(server.close);
       const internalErrors: string[] = [];
-      const services = await createProductionAgentHostAdapterServicesFactory({
+      const services = await createAgentHostAdapterServicesFactory({
         ...fixtureCapabilities,
+        collectCombinedTools,
+        createProviderCredentialReader,
         runtimeDependencies: {
           onInternalError: (code) => {
             internalErrors.push(code);

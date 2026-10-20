@@ -2,11 +2,9 @@
 import { ChildProcess, type Serializable } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { acquireWorkspaceMutationLease } from '@brainstrike/host-capabilities/native-tools';
+import { decodeWindowsCommandStart } from '@brainstrike/host-capabilities/windows-command-process';
 import { expect, test, vi } from 'vitest';
-import {
-  createWindowsCommandProcess,
-  decodeWindowsCommandStart,
-} from '../../assistant-server/windows-command-process';
+import { createWindowsCommandProcess } from '../../assistant-server/windows-command-process';
 
 const identity = { creationTime: '134050464000000001', pid: 31_001 };
 

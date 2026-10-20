@@ -16,6 +16,7 @@ export const promptLibraryContract = {
     roles: ['visible-ui'],
   }),
 };
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type PromptLibraryBridgeProof = AssertTrue<
   BridgeMatches<typeof promptLibraryContract, PromptLibraryCapability>
 >;
