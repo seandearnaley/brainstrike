@@ -42,9 +42,13 @@ await storage.removeItem('theme');
 [`safe-storage.ts`](src/safe-storage.ts) exposes a separate synchronous JSON
 storage interface and persistence-issue reporting; it is not the asynchronous
 adapter API. Read its failure policy before using it for durable state.
-[`debounced-storage.ts`](src/debounced-storage.ts) buffers writes by key and
-provides `flush()`; read-after-write sees pending values and removal cancels its
-pending write. A queued save is not proof that persistence completed.
+[`write-behind-writer.ts`](src/write-behind-writer.ts) is the one renderer
+write-behind writer: it buffers writes by key for `delayMs`, and its awaited
+`flush()` resolves only once the owner has acknowledged every write (it rejects
+with each failure). Read-after-write sees pending values and removal cancels the
+pending write. It owns no unload listener; each document unload joins the flush
+through `@brainstrike/app-state/renderer-close`. A queued save is not proof that
+persistence completed; a resolved `flush()` is.
 
 Preferences are not a secret store. Provider credentials use the existing
 credential owner. New durable state participates in the existing

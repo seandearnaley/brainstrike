@@ -1,4 +1,4 @@
-import { createDebouncedStorageAdapter, createSafeJsonStorageAdapter } from '@brainstrike/storage';
+import { createSafeJsonStorageAdapter, createWriteBehindWriter } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -60,7 +60,22 @@ export type EditorViewStateStore = EditorViewStateData & EditorViewStateActions;
 
 const STORE_NAME = 'editor-view-state.v1' as const;
 
-const storage = createDebouncedStorageAdapter(createSafeJsonStorageAdapter(), { delayMs: 500 });
+const storage = createWriteBehindWriter(createSafeJsonStorageAdapter(), { delayMs: 500 });
+
+// View state lives in this document's localStorage, not with a durable owner Main joins at unload
+// (ADR-0026 R1's three writers). Its owner is synchronous, so a flush from pagehide (or a hidden
+// page) lands before the document goes.
+if (typeof window !== 'undefined') {
+  const flushViewState = (): void => {
+    void storage.flush();
+  };
+  window.addEventListener('pagehide', flushViewState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      flushViewState();
+    }
+  });
+}
 
 /** Coerce a raw line into a positive, 1-based integer. */
 function normalizeLine(line: number): number {
