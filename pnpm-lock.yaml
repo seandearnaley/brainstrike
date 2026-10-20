@@ -1128,9 +1128,6 @@ importers:
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
-      '@brainstrike/platform-utils':
-        specifier: workspace:*
-        version: link:../../packages/platform-utils
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -1195,6 +1192,9 @@ importers:
       '@brainstrike/e2e-test-utils':
         specifier: workspace:*
         version: link:../e2e-test-utils
+      '@brainstrike/platform-utils':
+        specifier: workspace:*
+        version: link:../../packages/platform-utils
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils
@@ -3433,6 +3433,9 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
       '@brainstrike/sqlite-native':
         specifier: workspace:*
         version: link:../sqlite-native

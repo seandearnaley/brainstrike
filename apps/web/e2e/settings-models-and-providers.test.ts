@@ -81,29 +81,10 @@ test.describe('Model Catalog settings (web) @web-settings-state', () => {
     });
     await page.getByTestId('model-registry-retry').click();
 
-    // The cache directory lives in a header popover since BST-1805.
-    await expect(page.getByTestId('model-cache-dir-trigger')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('model-registry-refresh')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible({
       timeout: 15_000,
     });
-  });
-
-  test('shows the web-only cache directory unavailable path', async ({ page }) => {
-    const home = new HomePage(page);
-    const settings = new SettingsPage(page);
-    await home.goto({ waitForDatabase: false });
-    await home.navigateToSettings();
-    await settings.openCategory(/Model Catalog/i, 'models');
-
-    await page.getByTestId('model-cache-dir-trigger').click();
-    await page.getByTestId('model-cache-dir-select').click();
-
-    await expect(page.getByText('Directory selection unavailable', { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(
-      page.getByText('Choose a cache directory from the desktop app.', { exact: true })
-    ).toBeVisible();
   });
 
   test('persists a model toggle across reload @stateful', async ({ page }) => {

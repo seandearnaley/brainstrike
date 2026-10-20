@@ -24,6 +24,7 @@ import {
   measurePipelineTokenLengths,
   planAttentionBoundedBatchEnds,
 } from './embedding-input-plan';
+import { answerModelCacheStatus, type ModelCacheRegistry } from './model-cache-status';
 import {
   createEmbeddingPipelineCacheController,
   type PipelineCacheDiagnosticSink,
@@ -421,6 +422,18 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
   })();
   transformersRuntimePromise = runtimePromise;
   return runtimePromise;
+}
+
+/**
+ * Transformers.js's model registry, for a model cache check (BST-2241). It is
+ * loaded only when a check arrives; a test runtime has no model cache to read.
+ */
+async function loadModelCacheRegistry(): Promise<ModelCacheRegistry> {
+  if (testRuntimeOverride) {
+    throw new Error('A test embedding runtime has no model cache to read.');
+  }
+  const { ModelRegistry } = await import('@huggingface/transformers');
+  return ModelRegistry as unknown as ModelCacheRegistry;
 }
 
 // The hidden worker owns its WebGPU device and shares it across ORT sessions.
@@ -1392,6 +1405,12 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
       if (typeof message.id === 'string' && typeof message.batchIndex === 'number') {
         acknowledgeBatch(message.id, message.batchIndex);
       }
+      return;
+    }
+    if (message.type === 'model-cache-status') {
+      void answerModelCacheStatus(event.data, loadModelCacheRegistry, (response) =>
+        self.postMessage(response)
+      );
       return;
     }
     if (message.type !== 'stream-embed') {

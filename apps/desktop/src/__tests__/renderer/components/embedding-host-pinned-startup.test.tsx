@@ -89,7 +89,7 @@ function connect(): EmbeddingHostManager {
     )
   );
   reportWebgpuAdapterResponseMock.mockImplementation((response: unknown) =>
-    manager.acceptWebGpuAdapterResponseReport(
+    manager.settingsReads.acceptWebGpuAdapterResponseReport(
       hostWindow.webContents.id,
       assertEmbeddingHostWebGpuAdapterResponseReport(response)
     )
@@ -150,7 +150,7 @@ describe('pinned native hidden-host startup', () => {
       webgpuUnavailableReason: null,
       webWorkersAvailable: true,
     });
-    const detected = manager.webgpuAdapter();
+    const detected = manager.settingsReads.webgpuAdapter();
     await mount();
     await expect(detected).resolves.toEqual({
       available: true,
@@ -174,7 +174,7 @@ describe('pinned native hidden-host startup', () => {
       webgpuUnavailableReason: null,
       webWorkersAvailable: true,
     });
-    const detected = manager.webgpuAdapter();
+    const detected = manager.settingsReads.webgpuAdapter();
     await mount();
     await expect(detected).resolves.toEqual({
       available: false,
@@ -185,7 +185,7 @@ describe('pinned native hidden-host startup', () => {
   it('refuses with the detection failure instead of guessing availability (BST-1993)', async () => {
     const manager = connect();
     detectDeviceCapabilitiesMock.mockRejectedValue(new Error('GPU process crashed'));
-    const detected = manager.webgpuAdapter();
+    const detected = manager.settingsReads.webgpuAdapter();
     onTestFinished(() =>
       detected.then(
         () => {},
@@ -198,7 +198,7 @@ describe('pinned native hidden-host startup', () => {
 
   it('reports only statuses the visible renderer accepts, also after WebGPU detection (BST-1993)', async () => {
     const manager = connect();
-    const detected = manager.webgpuAdapter();
+    const detected = manager.settingsReads.webgpuAdapter();
     await mount();
     await expect(detected).resolves.toMatchObject({ available: true });
     // The visible renderer's shared runtime store (useEmbeddingRuntimeController)

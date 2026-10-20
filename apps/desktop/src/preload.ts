@@ -71,7 +71,7 @@ ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, pa
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
-import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
+import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
   ChunkingHostChunkBatchRequest,
@@ -85,6 +85,10 @@ import type {
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
+import type {
+  EmbeddingHostModelCacheRequest,
+  EmbeddingHostModelCacheResponseReport,
+} from './embedding-host-model-cache';
 import type {
   EmbeddingHostCommand,
   EmbeddingHostDocumentEmbeddingsCancel,
@@ -575,6 +579,8 @@ const embeddingHost = {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.ensureStarted),
   getStatus: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.getStatus),
+  modelCacheStatus: (plans: readonly ModelCachePlan[]): Promise<readonly boolean[]> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.modelCacheStatus, plans),
   onCommand: (callback: (command: EmbeddingHostCommand) => void) => {
     const listener = (_event: unknown, command: EmbeddingHostCommand) => callback(command);
     ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.command, listener);
@@ -603,6 +609,17 @@ const embeddingHost = {
     return () => {
       ipcRenderer.removeListener(
         DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsRequest,
+        listener
+      );
+    };
+  },
+  onModelCacheStatusRequest: (callback: (request: EmbeddingHostModelCacheRequest) => void) => {
+    const listener = (_event: unknown, request: EmbeddingHostModelCacheRequest) =>
+      callback(request);
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.modelCacheStatusRequest, listener);
+    return () => {
+      ipcRenderer.removeListener(
+        DESKTOP_IPC_CHANNELS.embeddingHost.modelCacheStatusRequest,
         listener
       );
     };
@@ -652,6 +669,9 @@ const embeddingHost = {
     response: EmbeddingHostDocumentEmbeddingsResponseReport
   ): void => {
     ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportDocumentEmbeddingsResponse, response);
+  },
+  reportModelCacheStatusResponse: (response: EmbeddingHostModelCacheResponseReport): void => {
+    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportModelCacheStatusResponse, response);
   },
   reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
     ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, response);

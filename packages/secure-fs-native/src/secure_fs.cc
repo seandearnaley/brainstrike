@@ -1579,6 +1579,64 @@ Napi::Value PrivateDirectory(const Napi::CallbackInfo& info, bool apply) {
 #endif
 }
 
+// BST-2246: make the current user the default owner of every object this
+// process creates from now on, including in an elevated session whose token
+// defaults to BUILTIN\Administrators. Windows process entries call it before
+// they create anything.
+// - TOKEN_OWNER is "the default owner SID that will be applied to newly
+//   created objects"; "The SID must be one of the user or group SIDs already in
+//   the token", and the token's own user SID always is.
+// - Changing it needs TOKEN_ADJUST_DEFAULT, no privilege.
+// It never sets an owner on an existing object. POSIX has no token default
+// owner, so there it does nothing.
+Napi::Value SetDefaultOwnerToCurrentUserSync(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  if (info.Length() != 0) {
+    throw Napi::TypeError::New(env, "setDefaultOwnerToCurrentUserSync takes no arguments");
+  }
+#ifdef _WIN32
+  const auto fail = [&](const char* step, DWORD code) {
+    const auto error = Napi::Error::New(env, std::string("Default owner update failed: ") + step +
+                                                 " (Windows " + std::to_string(code) + ")");
+    error.Value().Set("code", "ERR_DEFAULT_OWNER");
+    error.Value().Set("win32Code", Napi::Number::New(env, code));
+    throw error;
+  };
+  HANDLE raw_token = nullptr;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_DEFAULT, &raw_token)) {
+    fail("process token open", GetLastError());
+  }
+  PrivateHandle token(raw_token);
+  DWORD required = 0;
+  GetTokenInformation(token.Get(), TokenUser, nullptr, 0, &required);
+  if (required == 0) fail("token user size", GetLastError());
+  std::vector<uint8_t> user(required);
+  if (!GetTokenInformation(token.Get(), TokenUser, user.data(), required, &required)) {
+    fail("token user read", GetLastError());
+  }
+  const PSID user_sid = reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid;
+  TOKEN_OWNER owner{};
+  owner.Owner = user_sid;
+  if (!SetTokenInformation(token.Get(), TokenOwner, &owner, sizeof(owner))) {
+    fail("token owner write", GetLastError());
+  }
+  // Read it back from the token rather than trust the call.
+  required = 0;
+  GetTokenInformation(token.Get(), TokenOwner, nullptr, 0, &required);
+  if (required == 0) fail("token owner size", GetLastError());
+  std::vector<uint8_t> current(required);
+  if (!GetTokenInformation(token.Get(), TokenOwner, current.data(), required, &required)) {
+    fail("token owner read", GetLastError());
+  }
+  const PSID current_owner = reinterpret_cast<TOKEN_OWNER*>(current.data())->Owner;
+  if (current_owner == nullptr || !IsValidSid(current_owner) || !EqualSid(current_owner, user_sid)) {
+    fail("token owner read back", ERROR_INVALID_OWNER);
+  }
+  if (!token.Close()) fail("process token close", GetLastError());
+#endif
+  return env.Undefined();
+}
+
 Napi::Value VerifyPrivateDirectorySync(const Napi::CallbackInfo& info) {
   return PrivateDirectory(info, false);
 }
@@ -1634,6 +1692,8 @@ Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
   exports.Set("replaceFileSync", Napi::Function::New(env, ReplaceFileSync));
   exports.Set("applyPrivateDirectorySync", Napi::Function::New(env, ApplyPrivateDirectorySync));
   exports.Set("verifyPrivateDirectorySync", Napi::Function::New(env, VerifyPrivateDirectorySync));
+  exports.Set("setDefaultOwnerToCurrentUserSync",
+              Napi::Function::New(env, SetDefaultOwnerToCurrentUserSync));
   return SecureRoot::Init(env, exports);
 }
 

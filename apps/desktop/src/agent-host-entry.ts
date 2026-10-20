@@ -1,3 +1,7 @@
+// BST-2246: first, before this process creates anything, so everything it
+// creates is owned by the user even when an elevated token defaults to
+// BUILTIN\Administrators.
+import '@brainstrike/secure-fs-native/default-owner';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';

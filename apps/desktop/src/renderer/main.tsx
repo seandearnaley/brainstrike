@@ -2,12 +2,17 @@ import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/ap
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   PERMISSION_POLICY_STORE_VERSION,
   provideHostPermissionPolicyPersistence,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
-import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
+import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  callBoundary,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
@@ -340,6 +345,7 @@ declare global {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_READY__?: boolean;
     __brainstrikeTestHooks__?: {
+      enableCatalogModels: (modelIds: readonly string[]) => Promise<void>;
       indexSearch?: IndexSearchCapability;
       notifySecretsChanged: () => void;
       setAssistantModel: (compositeKey: string) => void;
@@ -374,6 +380,16 @@ function App() {
     }
 
     window.__brainstrikeTestHooks__ = {
+      // BST-2242: through the renderer's catalog store, as Settings and the
+      // picker's Enable write, so the composer sees the committed snapshot.
+      enableCatalogModels: async (modelIds) => {
+        if (!window.modelCatalog) {
+          throw new Error('The desktop model catalog capability is unavailable');
+        }
+        const catalog = createBoundaryCapability<ModelCatalogCapability>(window.modelCatalog);
+        await useModelRegistryStore.getState().ensureRegistry(catalog);
+        await useModelRegistryStore.getState().setModelsEnabled(catalog, modelIds, true);
+      },
       // Functional fixtures use the production consumer adapter; window.indexSearch remains the raw transport.
       ...(window.indexSearch
         ? { indexSearch: createIpcCapability(window.indexSearch, indexSearchContract) }

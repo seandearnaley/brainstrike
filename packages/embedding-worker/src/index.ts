@@ -15,6 +15,11 @@ export {
   subscribeEmbeddingTelemetryThrottled,
 } from './embedding-telemetry';
 export {
+  answerModelCacheStatus,
+  type ModelCacheRegistry,
+  readModelCacheStatus,
+} from './model-cache-status';
+export {
   createEmbeddingPipelineCacheController,
   type EmbeddingPipelineCacheController,
   type EmbeddingPipelineCacheLoadRequest,
