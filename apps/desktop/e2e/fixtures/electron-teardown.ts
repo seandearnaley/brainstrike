@@ -12,12 +12,16 @@ export async function tearDownElectronTest(
   userDataDir: string | undefined,
   workspaceRoot: string
 ): Promise<void> {
-  // Before the close, so its deadline never pays for the capture (BST-2239).
-  await attachFailureScreenshot(harness.currentWindow(), testInfo);
-  // Failed retirement keeps the disposable profile for the still-owned process.
-  await harness.dispose();
-  await removeElectronUserDataDir(userDataDir);
-  await rm(workspaceRoot, { force: true, recursive: true });
+  try {
+    // Before the close, so its deadline never pays for the capture (BST-2239).
+    await attachFailureScreenshot(harness.currentWindow(), testInfo);
+  } finally {
+    // A capture that fails still retires the app first, then fails this teardown.
+    // Failed retirement keeps the disposable profile for the still-owned process.
+    await harness.dispose();
+    await removeElectronUserDataDir(userDataDir);
+    await rm(workspaceRoot, { force: true, recursive: true });
+  }
 }
 
 async function removeElectronUserDataDir(userDataDir: string | undefined): Promise<void> {
