@@ -251,7 +251,7 @@ function DownloadControl({ row }: { readonly row: CatalogRow }) {
     return (
       <span className="inline-flex items-center gap-1 text-muted-foreground text-xs tabular-nums">
         <Loader2 aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" />
-        {progress === undefined ? 'Starting…' : `${progress}%`}
+        {progress === undefined ? 'Downloading…' : `${progress}%`}
       </span>
     );
   }

@@ -39,61 +39,6 @@ export const DEFAULT_WORKER_SLICE_SIZE = {
   webgpu: 16,
 } as const satisfies Record<'wasm' | 'webgpu', number>;
 
-// Type definitions for transformers.js
-interface TransformersModule {
-  pipeline: (
-    task: string,
-    model: string,
-    config: PipelineConfig
-  ) => Promise<FeatureExtractionPipeline>;
-}
-
-/**
- * Options for FeatureExtractionPipeline._call().
- *
- * Note: Truncation is handled internally by the pipeline - it passes
- * `truncation: true` to the tokenizer automatically. The tokenizer uses
- * the model's configured `model_max_length`.
- *
- * See: https://huggingface.co/docs/transformers.js/api/pipelines#featureextractionpipeline
- */
-interface FeatureExtractionPipelineOptions {
-  normalize: boolean;
-  pooling: string;
-  precision?: 'binary' | 'ubinary';
-  quantize?: boolean;
-}
-
-type FeatureExtractionPipeline = (
-  text: string,
-  options: FeatureExtractionPipelineOptions
-) => Promise<{
-  data: Float32Array;
-}>;
-
-interface PipelineConfig {
-  device?: string;
-  dtype?: string;
-  progressCallback?: (progress: ProgressInfo) => void;
-  quantized?: boolean;
-}
-
-interface ProgressInfo {
-  file?: string;
-  loaded?: number;
-  status: string;
-  total?: number;
-}
-
-interface DownloadOptions {
-  cacheDir?: string;
-  onProgress?: (progress: ProgressInfo) => void;
-}
-
-// Cache the imported module to avoid duplicate imports across instances
-let transformersModule: TransformersModule | null = null;
-let transformersModulePromise: Promise<TransformersModule> | null = null;
-
 /** The capability itself, not a window: a worker's embeddings run in workers of its own (BST-1940). */
 function supportsWorkerQueue(): boolean {
   return typeof Worker !== 'undefined';
@@ -110,19 +55,6 @@ async function getBrowserQueue(): Promise<QueueAdapter> {
   throw new Error(
     'Embedding queue factory is not registered. Register an explicit queue with a workerUrl before initializing the transformers backend.'
   );
-}
-
-async function getTransformersModule(): Promise<TransformersModule> {
-  if (transformersModule) {
-    return transformersModule;
-  }
-  if (!transformersModulePromise) {
-    transformersModulePromise = import(
-      /* @vite-ignore */ '@huggingface/transformers'
-    ) as Promise<TransformersModule>;
-  }
-  transformersModule = await transformersModulePromise;
-  return transformersModule;
 }
 
 /**
@@ -242,8 +174,6 @@ export class TransformersBackend {
       inferenceCount: TransformersBackend._inferenceCount,
     };
   }
-  private _transformers: TransformersModule | null = null;
-  private _pipeline: FeatureExtractionPipeline | null = null;
   private _selectedDevice: 'webgpu' | 'wasm' | null = null;
   private _isInitialized = false;
   private _quantized: boolean | undefined;
@@ -612,21 +542,6 @@ export class TransformersBackend {
    * Dispose of the backend and clean up resources
    */
   async dispose(): Promise<void> {
-    // Properly dispose of the pipeline if it has a dispose method
-    if (
-      this._pipeline &&
-      'dispose' in this._pipeline &&
-      typeof this._pipeline.dispose === 'function'
-    ) {
-      try {
-        await (this._pipeline as unknown as { dispose: () => Promise<void> }).dispose();
-      } catch (error) {
-        logger.debug('Failed to dispose transformers pipeline', { error });
-      }
-    }
-
-    this._pipeline = null;
-    this._transformers = null;
     this._selectedDevice = null;
     this._isInitialized = false;
     this._streamingClient?.terminate();
@@ -663,37 +578,5 @@ export class TransformersBackend {
       default:
         return false;
     }
-  }
-
-  /**
-   * explicit download model to cache dir
-   */
-  async downloadModel(modelId: string, options?: DownloadOptions): Promise<void> {
-    if (!this._transformers) {
-      this._transformers = await getTransformersModule();
-    }
-
-    // Set cache dir if provided
-    if (options?.cacheDir && this._transformers) {
-      const transformers = this._transformers as unknown as {
-        env?: { cacheDir?: string; allowLocalModels?: boolean };
-      };
-      if (transformers.env) {
-        transformers.env.cacheDir = options.cacheDir;
-        transformers.env.allowLocalModels = false; // Force download/check from hub
-      }
-    }
-
-    const pipelineConfig: PipelineConfig = {
-      progressCallback: (progress: ProgressInfo) => {
-        if (options?.onProgress) {
-          options.onProgress(progress);
-        }
-      },
-    };
-
-    // We just init the pipeline to trigger download
-    // We don't need to keep it
-    await this._transformers.pipeline('feature-extraction', modelId, pipelineConfig);
   }
 }

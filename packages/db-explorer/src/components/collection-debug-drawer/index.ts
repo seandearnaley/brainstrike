@@ -6,4 +6,3 @@
  */
 
 export { CollectionDebugDrawer } from './collection-debug-drawer';
-export type { CollectionDebugDrawerProps } from './drawer-props';

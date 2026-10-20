@@ -37,6 +37,7 @@ export interface ClearOperationResult {
 }
 
 const logger = createLogger('useDatabaseErrorBoundary');
+/** @internal Test seam: use-database-error-boundary.test.ts spies on its errors. */
 export const databaseErrorBoundaryLogger = logger;
 
 export function useDatabaseErrorBoundary({

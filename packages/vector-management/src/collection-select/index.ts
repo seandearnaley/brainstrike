@@ -10,7 +10,6 @@ export {
 } from './collection-select.js';
 export {
   canonicalizeCollectionTimestamps,
-  normalizeTimestamp,
   toCanonicalTimestamp,
 } from './collection-timestamps';
 export {

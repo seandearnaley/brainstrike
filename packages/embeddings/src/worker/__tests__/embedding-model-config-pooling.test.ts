@@ -1,6 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getModelConfigFromDb, invalidateModelConfigCache } from '../embedding-model-config.js';
+import { clearModelConfigCache, getModelConfigFromDb } from '../embedding-model-config.js';
 
 const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
 function database(capabilities: unknown): IDatabase {
@@ -22,7 +22,7 @@ function database(capabilities: unknown): IDatabase {
 
 describe('legacy catalog model config pooling (BST-1993)', () => {
   beforeEach(() => {
-    invalidateModelConfigCache();
+    clearModelConfigCache();
   });
 
   it('carries the catalog row pooling, so a legacy load never embeds granite with mean', async () => {
@@ -45,7 +45,7 @@ describe('legacy catalog model config pooling (BST-1993)', () => {
         GRANITE_ID
       )
     ).resolves.toMatchObject({ prompts });
-    invalidateModelConfigCache();
+    clearModelConfigCache();
     await expect(
       getModelConfigFromDb(
         database({ defaultDimension: 384, prompts: { query: 7 }, type: 'embedding' }),

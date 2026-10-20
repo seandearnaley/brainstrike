@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { staticImportSpecifiers } from '../verify-no-source-cycles.mjs';
 
 /**
  * Guards the "a native addon's turbo `build` output is NEVER restored from a
@@ -153,8 +154,8 @@ function workspaceGlobPrefixes() {
   return prefixes;
 }
 
-/** Workspace packages that compile a native addon, across every workspace root. */
-function nativeAddonPackageDirs() {
+/** Every workspace package directory, across every workspace root. */
+function workspacePackageDirs() {
   const dirs = [];
   for (const prefix of workspaceGlobPrefixes()) {
     const base = path.join(repoRoot, prefix);
@@ -162,18 +163,21 @@ function nativeAddonPackageDirs() {
       continue;
     }
     for (const name of readdirSync(base)) {
-      const pkgPath = path.join(base, name, 'package.json');
-      if (!existsSync(pkgPath)) {
-        continue;
-      }
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-      const buildScript = pkg.scripts?.build ?? '';
-      if (pkg.gypfile === true || /node-gyp\s+(rebuild|build)/.test(buildScript)) {
+      if (existsSync(path.join(base, name, 'package.json'))) {
         dirs.push(path.join(base, name));
       }
     }
   }
   return dirs;
+}
+
+/** Workspace packages that compile a native addon, across every workspace root. */
+function nativeAddonPackageDirs() {
+  return workspacePackageDirs().filter((dir) => {
+    const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    const buildScript = pkg.scripts?.build ?? '';
+    return pkg.gypfile === true || /node-gyp\s+(rebuild|build)/.test(buildScript);
+  });
 }
 
 test('the native-addon guard has something to guard (fails vacuously otherwise)', () => {
@@ -271,3 +275,141 @@ for (const dir of nativeAddonPackageDirs()) {
     }
   });
 }
+
+/*
+ * BST-2243: a CONSUMER whose source loads a native add-on at import must order
+ * its unit `test` lane after that add-on's build.
+ *
+ * The add-on's `build` is an uncached `node-gyp rebuild`, which first removes
+ * build/. The root `test` task depends only on `topo`. So in a `turbo run test`
+ * that also schedules the rebuild, for any dependent whose lane declares it,
+ * the two run concurrently, and the consumer's suites fail with "Could not
+ * locate the bindings file". Merge-queue gate run 39335264149 failed
+ * host-lease that way.
+ *
+ * The rule is static and conservative. A package whose src/ statically
+ * imports the add-on at runtime (not `import type`) declares `<add-on>#build`
+ * in its own tasks.test.dependsOn, as packages/state-store already does (root
+ * turbo.jsonc's B4 rule). Lazy loads (createRequire, dynamic import) are out of
+ * scope; state-store declares its own edges for those.
+ */
+const SOURCE_FILE = /\.(?:[cm]?[jt]sx?)$/u;
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+
+/** Runtime source files under `srcDir`, excluding tests and their fixtures. */
+function runtimeSourceFiles(srcDir) {
+  const files = [];
+  const visit = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__' && entry.name !== 'node_modules') {
+          visit(full);
+        }
+      } else if (SOURCE_FILE.test(entry.name) && !TEST_FILE.test(entry.name)) {
+        files.push(full);
+      }
+    }
+  };
+  if (existsSync(srcDir)) {
+    visit(srcDir);
+  }
+  return files;
+}
+
+/** Package names of the workspace's native add-ons. */
+function nativeAddonNames() {
+  return new Set(
+    nativeAddonPackageDirs().map(
+      (dir) => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).name
+    )
+  );
+}
+
+/** Each consumer package (repo-relative dir) and the add-ons its src/ statically imports. */
+function staticAddonConsumers(addons) {
+  const consumers = new Map();
+  for (const dir of workspacePackageDirs()) {
+    const imported = new Set();
+    for (const file of runtimeSourceFiles(path.join(dir, 'src'))) {
+      for (const specifier of staticImportSpecifiers(readFileSync(file, 'utf8'), file)) {
+        if (addons.has(specifier)) {
+          imported.add(specifier);
+        }
+      }
+    }
+    if (imported.size > 0) {
+      consumers.set(path.relative(repoRoot, dir).split(path.sep).join('/'), [...imported].sort());
+    }
+  }
+  return consumers;
+}
+
+/** The `<add-on>#build` edges a consumer's tasks.test.dependsOn lacks. */
+function missingAddonTestEdges(turbo, imported) {
+  const dependsOn = turbo?.tasks?.test?.dependsOn ?? [];
+  return imported.map((name) => `${name}#build`).filter((edge) => !dependsOn.includes(edge));
+}
+
+function consumerTurbo(rel) {
+  const turboPath = path.join(repoRoot, rel, 'turbo.json');
+  return existsSync(turboPath) ? readJsonc(turboPath) : undefined;
+}
+
+test('static native add-on consumers are discovered (fails vacuously otherwise)', () => {
+  const consumers = staticAddonConsumers(nativeAddonNames());
+  assert.ok(
+    consumers.size > 0,
+    'Expected at least one package whose src/ statically imports a native add-on ' +
+      '(e.g. packages/host-lease imports @brainstrike/secure-fs-native). If none remain, delete this contract.'
+  );
+});
+
+test('every package whose src/ statically imports a native add-on orders its unit test after that build', () => {
+  const failures = [];
+  for (const [rel, imported] of staticAddonConsumers(nativeAddonNames())) {
+    const missing = missingAddonTestEdges(consumerTurbo(rel), imported);
+    if (missing.length > 0) {
+      failures.push(`${rel}: tasks.test.dependsOn lacks ${missing.join(', ')}`);
+    }
+  }
+  assert.deepEqual(
+    failures,
+    [],
+    'A unit lane that loads a native add-on at import must depend on that add-on build, or a ' +
+      'concurrent `node-gyp rebuild` (which removes build/ first) fails it with "Could not locate the ' +
+      'bindings file". Declare ["$TURBO_EXTENDS$", "<add-on>#build"] in the package turbo.json `test` task:\n' +
+      failures.join('\n')
+  );
+});
+
+test('CONTROL: dropping one consumer edge FAILS the static add-on contract', () => {
+  const consumers = [...staticAddonConsumers(nativeAddonNames())];
+  assert.ok(consumers.length > 0, 'no consumer to mutate');
+  for (const [rel, imported] of consumers) {
+    const turbo = consumerTurbo(rel);
+    const dropped = `${imported[0]}#build`;
+    const mutated = {
+      ...turbo,
+      tasks: {
+        ...turbo?.tasks,
+        test: {
+          ...turbo?.tasks?.test,
+          dependsOn: (turbo?.tasks?.test?.dependsOn ?? []).filter((edge) => edge !== dropped),
+        },
+      },
+    };
+    assert.deepEqual(
+      missingAddonTestEdges(mutated, imported),
+      [dropped],
+      `${rel} without ${dropped}`
+    );
+  }
+});
+
+test('CONTROL: a type-only import is not a runtime add-on import; a value import is', () => {
+  const name = [...nativeAddonNames()][0];
+  assert.deepEqual(staticImportSpecifiers(`import type { X } from '${name}';`), []);
+  assert.deepEqual(staticImportSpecifiers(`import { type X } from '${name}';`), []);
+  assert.deepEqual(staticImportSpecifiers(`import { X } from '${name}';`), [name]);
+});
