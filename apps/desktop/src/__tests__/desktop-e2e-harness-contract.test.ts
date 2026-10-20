@@ -6,8 +6,8 @@ function readElectronHelpersSource(): string {
   return readFileSync(join(process.cwd(), 'e2e/utils/electron-helpers.mts'), 'utf8');
 }
 
-function readElectronFixtureSource(): string {
-  return readFileSync(join(process.cwd(), 'e2e/fixtures/electron-fixture.ts'), 'utf8');
+function readElectronTeardownSource(): string {
+  return readFileSync(join(process.cwd(), 'e2e/fixtures/electron-teardown.ts'), 'utf8');
 }
 
 describe('desktop E2E harness contract', () => {
@@ -58,7 +58,7 @@ describe('desktop E2E harness contract', () => {
   });
 
   it('removes isolated Electron user-data directories during fixture teardown', () => {
-    const source = readElectronFixtureSource();
+    const source = readElectronTeardownSource();
 
     expect(source).toContain('removeElectronUserDataDir');
     expect(source).toContain('await removeElectronUserDataDir(userDataDir)');
