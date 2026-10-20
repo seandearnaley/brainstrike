@@ -264,37 +264,18 @@ test('the desktop host runs executeCommand in its own process and correlates wor
   );
   expect(request.mock.calls.map(([method]) => method)).toContain('platform/worktree/paths');
 });
-test('the desktop host greps in its own process, reading only the indexed half from Main', async () => {
+// ADR 0026: grep is the core lane. It reads the thread's folders on disk and
+// never asks Main's index, so an index that is building, blocked or missing a
+// folder (a worktree not opted in, BST-2271) cannot fail or skew it.
+test('the desktop host greps the disk in its own process and never asks Main\u2019s index', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-grep-')));
   directories.push(root);
   await writeFile(join(root, 'notes.txt'), 'alpha\nneedle on disk\n');
-  const indexed = {
-    candidatesTruncated: false,
-    matches: [
-      {
-        after: [],
-        before: [],
-        line: 9,
-        lineText: 'needle only in the index',
-        path: 'stale.txt',
-        rootId: 'root-a',
-        rootName: 'A',
-      },
-    ],
-    scanLimited: false,
-    skippedMissingLineMetadata: 0,
-    totalMatches: 1,
-    truncated: false,
-  };
   const request = vi.fn(async (method: string, _input: unknown) => {
-    switch (method) {
-      case 'admission/fresh-roots':
-        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
-      case 'desktop-read/grep-index':
-        return indexed;
-      default:
-        throw new Error(`Unexpected Main request ${method}`);
+    if (method === 'admission/fresh-roots') {
+      return [{ displayName: 'A', path: root, rootId: 'root-a' }];
     }
+    throw new Error(`Unexpected Main request ${method}`);
   });
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
@@ -310,20 +291,14 @@ test('the desktop host greps in its own process, reading only the indexed half f
     throw new Error('grepSearch was not built for the host');
   }
   const output = await tool.execute({ outputMode: 'files', pattern: 'needle' }, execution());
-  // The index's stale file and the live pass's on-disk file are both reported.
   expect(output).toMatchObject({
-    files: expect.arrayContaining([
-      expect.objectContaining({ path: 'notes.txt', source: 'live' }),
-      expect.objectContaining({ path: 'stale.txt', source: 'index' }),
-    ]),
+    files: [expect.objectContaining({ matchCount: 1, path: 'notes.txt', rootId: 'root-a' })],
     outputMode: 'files',
+    totalMatches: 1,
   });
-  expect(request).toHaveBeenCalledWith('desktop-read/grep-index', {
-    options: expect.objectContaining({ pattern: 'needle' }),
-    threadId: 'host-thread',
-  });
+  expect(JSON.stringify(output)).not.toContain('"source"');
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
-    new Set(['admission/fresh-roots', 'desktop-read/grep-index'])
+    new Set(['admission/fresh-roots'])
   );
 });
 test('the desktop host runs the worktree tools in its own process over Main’s worktree calls, under the host run’s identity', async () => {

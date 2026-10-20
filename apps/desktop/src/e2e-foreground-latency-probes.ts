@@ -10,9 +10,8 @@
  *   client. Like every run event, it is one append through the host's single
  *   StateStore writer, so it waits on whatever that writer and the host are
  *   doing;
- * - an agent tool's read: the shared tool file reader, then the grep tool's
- *   index half (`nativeGrepIndex` over the native index's query host), scoped
- *   to one file path.
+ * - an agent tool's read: the shared tool file reader, then the grep tool
+ *   itself, which reads the disk (ADR 0026), scoped to one file path.
  *
  * In E2E test mode main exposes exactly these calls on a global. Nothing here
  * changes app behaviour.
@@ -20,7 +19,7 @@
 import { randomUUID } from 'node:crypto';
 import type { HostMethod, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
-import type { GrepIndexSearch } from './assistant-server/grep-search-core';
+import { runGrepSearchWith } from './assistant-server/grep-search-core';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 
 const E2E_FOREGROUND_LATENCY_PROBES_KEY = '__brainstrike_e2e_foreground_latency_probes__';
@@ -31,10 +30,11 @@ interface E2eForegroundLatencyProbes {
     readonly threadId: string;
     readonly title: string;
   }) => Promise<void>;
-  /** The grep tool's index pass, scoped to one file path. Resolves with the match count. */
-  readonly grepToolIndex: (input: {
+  /** The grep tool, scoped to one file path of one folder. Resolves with the match count. */
+  readonly grepTool: (input: {
     readonly filePath: string;
     readonly pattern: string;
+    readonly rootPath: string;
   }) => Promise<number>;
   /** The shared tool file reader. Resolves with the file size in bytes. */
   readonly readToolFile: (input: {
@@ -46,7 +46,6 @@ interface E2eForegroundLatencyProbes {
 }
 
 interface E2eForegroundLatencyProbeOwners {
-  readonly grepIndex: GrepIndexSearch;
   readonly hostRequest: <M extends HostMethod>(
     method: M,
     params: HostParams<M>
@@ -61,8 +60,11 @@ export function installE2eForegroundLatencyProbes(owners: E2eForegroundLatencyPr
     commitThreadUpdate: async ({ threadId, title }) => {
       await owners.hostRequest('thread/update', { commandId: randomUUID(), threadId, title });
     },
-    grepToolIndex: async ({ filePath, pattern }) => {
-      const result = await owners.grepIndex({ contextLines: 0, filePaths: [filePath], pattern });
+    grepTool: async ({ filePath, pattern, rootPath }) => {
+      const result = await runGrepSearchWith(
+        { filePaths: [filePath], outputMode: 'files', pattern },
+        { workspaceRoots: [{ displayName: 'probe', path: rootPath, rootId: 'probe' }] }
+      );
       return result.totalMatches;
     },
     readToolFile: async ({ requestedPath, rootPath }) => {

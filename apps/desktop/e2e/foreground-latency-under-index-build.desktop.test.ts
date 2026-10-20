@@ -80,8 +80,8 @@ const MAX_IDLE_FRAME_GAP_P50_MS = 20;
 /** A deliberate renderer block before the idle phase; the probe must see it. */
 const CALIBRATION_BLOCK_MS = 120;
 const BENCH_ROOT_ID = 'foreground-latency-benchmark-root';
-/** Root-relative and never written, so the grep's index work is identical idle and loaded. */
-const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
+/** Root-relative and never written, so the grep tool's work is identical idle and loaded. */
+const UNWRITTEN_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
 const GREP_PATTERN = 'total +=';
 /** How long the paused index may take to activate before the idle phase. */
 const READY_TIMEOUT_MS = 300_000;
@@ -178,7 +178,7 @@ test.describe('Foreground latency under a full index build', () => {
         await installRendererFrameProbe(page);
         await installMainProbes(electronApp.app, {
           chatThreadId,
-          grepFilePath: NEVER_INDEXED_GREP_PATH,
+          grepFilePath: UNWRITTEN_GREP_PATH,
           grepPattern: GREP_PATTERN,
           periodMs: PROBE_PERIOD_MS,
           readTargetPath: corpus.readTargetPath,
@@ -336,7 +336,7 @@ test.describe('Foreground latency under a full index build', () => {
             toolRead: {
               components: {
                 fileReadMs: { idle: idle.toolFileReadMs, loaded: loaded.toolFileReadMs },
-                indexQueryMs: { idle: idle.toolIndexQueryMs, loaded: loaded.toolIndexQueryMs },
+                grepMs: { idle: idle.toolGrepMs, loaded: loaded.toolGrepMs },
               },
               idleMs: idle.toolReadMs,
               loadedMs: loaded.toolReadMs,

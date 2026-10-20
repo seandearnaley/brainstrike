@@ -9,7 +9,6 @@ import {
   type ShellCorrelationDependencies,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 import {
   type BrowserToolRunner,
   browserToolExecutors,
@@ -52,7 +51,6 @@ import {
   BrowserReadPageResultSchema,
   DiagnosticEventItemsSchema,
   DiagnosticFingerprintItemsSchema,
-  GrepIndexResultSchema,
   PlatformShellCompletedResultSchema,
   WorktreeArchiveResultSchema,
   WorktreeCreateResultSchema,
@@ -148,20 +146,6 @@ function hostShellCorrelation(
       },
     },
   };
-}
-
-/** grep's indexed half: a typed read of Main's file-chunk index for an admitted thread. */
-function hostGrepIndex(request: MainRequest, threadId: string): GrepIndexSearch {
-  return async (options) =>
-    wireDecoder(GrepIndexResultSchema, { errors: 'all', onExcessProperty: 'error' })(
-      await request('desktop-read/grep-index', {
-        options: {
-          ...options,
-          ...(options.filePaths ? { filePaths: [...options.filePaths] } : {}),
-        },
-        threadId,
-      })
-    );
 }
 
 /** Main's worktree service for one host run, until the worktree ledger is a host fact. */
@@ -311,7 +295,7 @@ export function desktopHostToolExecutors(
       nativeWorkspaceIndexSummary(await nativeIndexSearch.status())
     ),
     ...INSPECTION_TOOL_EXECUTORS,
-    [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(hostGrepIndex(request, threadId)),
+    [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
     ...browserToolExecutors(hostBrowserTools(request, threadId)),
     ...commandSessionExecutors(() => ({
       manager: hostCommandSessionManager(),

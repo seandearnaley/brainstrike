@@ -34,16 +34,6 @@ const TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.writeWorkspaceFile,
 ];
-/** Main's file-chunk index on the recorded fresh profile: no index, so no indexed hits. */
-const NO_INDEXED_HITS = {
-  candidatesTruncated: false,
-  matches: [],
-  scanLimited: false,
-  skippedMissingLineMetadata: 0,
-  totalMatches: 0,
-  truncated: false,
-};
-
 let directory = '';
 beforeEach(async () => {
   directory = await realpath(await mkdtemp(join(tmpdir(), 'bs-m6-thread-folders-')));
@@ -99,14 +89,8 @@ async function admit(flow: Flow) {
     workspaceBinding: { ...run.workspaceBinding, operatingRootPath: primary.path },
   };
   const selected = await admission.readConfiguration(request);
-  /** The folders each indexed grep asked Main for. */
-  const indexScopes: unknown[] = [];
-  const mainRequest = async (method: string, input: unknown) => {
-    if (method === 'desktop-read/grep-index') {
-      const { options } = input as { options: { rootId?: string; rootIds?: string[] } };
-      indexScopes.push(options.rootIds ?? (options.rootId ? [options.rootId] : 'every folder'));
-      return NO_INDEXED_HITS;
-    }
+  // These tools read the thread's folders on disk; none asks Main (ADR 0026).
+  const mainRequest = async (method: string, _input: unknown) => {
     throw new Error(`Unexpected Main request ${method}`);
   };
   const tools = desktopHostSharedTools({
@@ -124,7 +108,7 @@ async function admit(flow: Flow) {
     }
     return await found.execute(input, execution());
   };
-  return { bound, call, indexScopes, live, selected };
+  return { bound, call, live, selected };
 }
 
 function execution(): HostToolContext {
@@ -147,12 +131,10 @@ function rowFolders(output: unknown): string[] {
 const REFUSED = { error: { code: 'tool_input_invalid' }, ok: false };
 
 test('an unscoped grep searches every folder of the thread (recorded I4 call)', async () => {
-  const { bound, call, indexScopes, selected } = await admit('I4');
+  const { call, selected } = await admit('I4');
   try {
     const output = await call(NATIVE_TOOL_ID.grepSearch, recorded.calls.grepNoRoot);
     expect(rowFolders(output)).toEqual(['alpha', 'bravo']);
-    // The index is asked for exactly the thread's folders.
-    expect(indexScopes).toEqual([bound.map((root) => root.rootId)]);
   } finally {
     await selected.close();
   }
@@ -198,12 +180,11 @@ test('an explicit root still wins, and an unscoped write still goes to the prima
 });
 
 test('a folder open in the workspace but not in the thread is never searched (recorded A2 calls)', async () => {
-  const { bound, call, indexScopes, live, selected } = await admit('A2');
+  const { call, live, selected } = await admit('A2');
   try {
     expect(live.map((root) => root.displayName)).toEqual(['alpha-root', 'bravo-root']);
     const output = await call(NATIVE_TOOL_ID.grepSearch, recorded.calls.grepNoRoot);
     expect(rowFolders(output)).toEqual(['alpha']);
-    expect(indexScopes).toEqual([bound.map((root) => root.rootId)]);
     const glob = await call(NATIVE_TOOL_ID.globWorkspace, { pattern: '**/*-only.txt' });
     expect(rowFolders(glob)).toEqual(['alpha']);
     // Naming the outside folder is the model's typed refusal; so is a read of its file.

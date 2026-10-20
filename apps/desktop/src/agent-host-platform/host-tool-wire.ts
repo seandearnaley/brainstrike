@@ -37,49 +37,8 @@ export const WorktreePathsResultSchema = Schema.Struct({
   paths: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
 });
 
-/** `GrepSearchOptions` of the indexed grep half (`@brainstrike/db`). */
-export const GrepIndexOptionsSchema = Schema.Struct({
-  candidateLimit: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
-  caseSensitive: Schema.optionalKey(Schema.Boolean),
-  contextLines: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  embeddingSetId: Schema.optionalKey(Id),
-  filePaths: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
-  isRegex: Schema.optionalKey(Schema.Boolean),
-  maxResults: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
-  pattern: Schema.String.check(Schema.isMinCodePoints(1)),
-  rootId: Schema.optionalKey(Id),
-  rootIds: Schema.optionalKey(Schema.mutable(Schema.Array(Id))),
-});
-
-export const GrepIndexRequestSchema = Schema.Struct({
-  options: GrepIndexOptionsSchema,
-  threadId: Id,
-});
-
-/** `GrepSearchResult` of the indexed grep half (`@brainstrike/db`). */
-export const GrepIndexResultSchema = Schema.Struct({
-  candidatesTruncated: Schema.Boolean,
-  matches: Schema.mutable(
-    Schema.Array(
-      Schema.Struct({
-        after: Schema.mutable(Schema.Array(Schema.String)),
-        before: Schema.mutable(Schema.Array(Schema.String)),
-        chunkEndLine: Schema.optionalKey(Schema.Int),
-        chunkId: Schema.optionalKey(Schema.String),
-        chunkStartLine: Schema.optionalKey(Schema.Int),
-        line: Schema.Int,
-        lineText: Schema.String,
-        path: Schema.String,
-        rootId: Schema.optionalKey(Schema.NullOr(Schema.String)),
-        rootName: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      })
-    )
-  ),
-  scanLimited: Schema.Boolean,
-  skippedMissingLineMetadata: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  totalMatches: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  truncated: Schema.Boolean,
-});
+/** A Main read scoped to one admitted host thread. */
+export const ThreadRequestSchema = Schema.Struct({ threadId: Id });
 
 const GitError = Schema.Struct({ error: Schema.String, ok: Schema.Literal(false) });
 function gitResult<T extends Schema.Constraint>(value: T) {

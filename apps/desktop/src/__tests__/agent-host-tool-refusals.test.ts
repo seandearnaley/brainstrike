@@ -5,7 +5,7 @@
  * redacted `tool_failed` text. Every call goes through the host's real tool
  * binding (execution guard included) over a real filesystem.
  */
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import fsPromises, { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
@@ -186,22 +186,34 @@ test('the recorded out-of-scope filePaths grep returns its actionable refusal to
         'Pass a path inside an open folder, or drop filePaths to search everywhere.'
     )
   );
-  // Refused before the indexed half was asked for.
-  expect(request.mock.calls.map(([method]) => method)).not.toContain('desktop-read/grep-index');
+  // Refused before any search ran; grep never asks Main (ADR 0026).
+  expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
+    new Set(['admission/fresh-roots'])
+  );
 });
 test('an unexpected executor error still reaches the model only as the redacted generic text', async () => {
   const root = await directory('bs-m6-refusal-fault-');
   await writeFile(join(root, 'notes.txt'), 'needle on disk\n');
   const roots = [{ displayName: 'A', path: root, rootId: 'root-a' }];
   const leak = `EACCES: permission denied, open '${root}/secret.env' token=sk-live-BST1985LEAK`;
-  const request = vi.fn(async (method: string, _input: unknown) => {
-    if (method === 'admission/fresh-roots') {
-      return roots;
+  // The selected file's read fails with a message carrying host paths and a secret.
+  const readFile = fsPromises.readFile.bind(fsPromises);
+  const denied = vi.spyOn(fsPromises, 'readFile').mockImplementation(async (...args) => {
+    if (args[0] === join(root, 'notes.txt')) {
+      throw Object.assign(new Error(leak), { code: 'EACCES' });
     }
-    throw new Error(leak);
+    return readFile(...args);
   });
-  const grep = tool(hostTools(roots, request), NATIVE_TOOL_ID.grepSearch);
-  const output = await grep.execute({ outputMode: 'files', pattern: 'needle' }, execution());
+  const grep = tool(hostTools(roots, rootsOnly(roots)), NATIVE_TOOL_ID.grepSearch);
+  let output: unknown;
+  try {
+    output = await grep.execute(
+      { filePaths: ['notes.txt'], outputMode: 'files', pattern: 'needle' },
+      execution()
+    );
+  } finally {
+    denied.mockRestore();
+  }
   expect(output).toEqual({
     error: { code: 'tool_failed', message: GENERIC_FAILURE, toolName: NATIVE_TOOL_ID.grepSearch },
     ok: false,
