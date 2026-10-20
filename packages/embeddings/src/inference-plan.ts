@@ -3,6 +3,7 @@ import type {
   EmbeddingDType,
   EmbeddingPooling,
   EmbeddingPrompts,
+  ModelCachePlan,
 } from '@brainstrike/indexing-contract';
 
 export interface SelectedEmbeddingRequestPlan {
@@ -164,5 +165,22 @@ export function unpinnedCatalogEmbeddingPlan(
     ...(model.pooling === undefined ? {} : { pooling: model.pooling }),
     ...(model.prompts === undefined ? {} : { prompts: model.prompts }),
     ...(model.revision === undefined ? {} : { revision: model.revision }),
+  };
+}
+
+/**
+ * BST-2241: what a Settings download of `model` on `device` fetches, as a model
+ * cache check names it: the catalog plan's model, device, dtype and revision.
+ */
+export function catalogModelCachePlan(
+  model: CatalogModelFacts,
+  device: 'webgpu' | 'wasm'
+): ModelCachePlan {
+  const plan = unpinnedCatalogEmbeddingPlan(model, device);
+  return {
+    device: plan.device,
+    dtype: plan.dtype,
+    modelId: plan.modelId,
+    ...(plan.revision === undefined ? {} : { revision: plan.revision }),
   };
 }

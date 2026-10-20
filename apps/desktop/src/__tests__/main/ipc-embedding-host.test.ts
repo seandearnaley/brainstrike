@@ -35,6 +35,7 @@ vi.mock('electron', async () => {
 import {
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
+  EMBEDDING_HOST_MODEL_CACHE_STATUS_CHANNEL,
   EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
   EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
@@ -276,8 +277,8 @@ describe('embedding host IPC handlers', () => {
       getStatus: vi.fn(),
       queryEmbedding: vi.fn(),
       reset: vi.fn(),
+      settingsReads: { webgpuAdapter: vi.fn(async () => detected) },
       stop: vi.fn(),
-      webgpuAdapter: vi.fn(async () => detected),
     };
     const unregister = registerEmbeddingHostIpcHandlers(manager as never, {
       stop: () => manager.stop(),
@@ -298,7 +299,46 @@ describe('embedding host IPC handlers', () => {
         handler({ sender: hidden, senderFrame: createAllowlistedSenderFrame() })
       )
     ).rejects.toThrow();
-    expect(manager.webgpuAdapter).toHaveBeenCalledOnce();
+    expect(manager.settingsReads.webgpuAdapter).toHaveBeenCalledOnce();
+    unregister();
+    clearWindowRoleByWebContentsId(visible.id);
+    clearWindowRoleByWebContentsId(hidden.id);
+  });
+
+  it('answers model cache status for the visible renderer only, with decoded plans (BST-2241)', async () => {
+    const plans = [{ device: 'wasm', dtype: 'q8', modelId: 'granite' }];
+    const manager = {
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      reset: vi.fn(),
+      settingsReads: { modelCacheStatus: vi.fn(async () => [true]) },
+      stop: vi.fn(),
+    };
+    const unregister = registerEmbeddingHostIpcHandlers(manager as never, {
+      stop: () => manager.stop(),
+    });
+    const handler = handlers.get(EMBEDDING_HOST_MODEL_CACHE_STATUS_CHANNEL);
+    if (!handler) {
+      throw new Error('Embedding host model cache handler not registered.');
+    }
+    const visible = Object.assign(new EventEmitter(), { id: 20 });
+    assignWindowRole({ once: vi.fn(), webContents: visible } as never, 'visible-ui');
+    const event = { sender: visible, senderFrame: createAllowlistedSenderFrame() };
+    await expect(handler(event, plans)).resolves.toEqual([true]);
+    expect(manager.settingsReads.modelCacheStatus).toHaveBeenCalledWith(plans);
+    // A malformed plan never reaches the host.
+    await expect(
+      Promise.resolve().then(() => handler(event, [{ device: 'cpu', dtype: 'q8', modelId: 'x' }]))
+    ).rejects.toThrow();
+    const hidden = Object.assign(new EventEmitter(), { id: 21 });
+    assignWindowRole({ once: vi.fn(), webContents: hidden } as never, 'embedding-host');
+    await expect(
+      Promise.resolve().then(() =>
+        handler({ sender: hidden, senderFrame: createAllowlistedSenderFrame() }, plans)
+      )
+    ).rejects.toThrow();
+    expect(manager.settingsReads.modelCacheStatus).toHaveBeenCalledOnce();
     unregister();
     clearWindowRoleByWebContentsId(visible.id);
     clearWindowRoleByWebContentsId(hidden.id);

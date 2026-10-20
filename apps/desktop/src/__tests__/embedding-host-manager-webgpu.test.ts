@@ -50,11 +50,11 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
   it('starts the host on demand and returns the answer to its own request', async () => {
     lifecycleState.ensureStarted.mockResolvedValueOnce(running);
     const manager = createEmbeddingHostManager();
-    const detected = manager.webgpuAdapter();
+    const detected = manager.settingsReads.webgpuAdapter();
     await vi.waitFor(() => sentRequest());
     const request = sentRequest();
     // A response for another request or from another renderer settles nothing.
-    manager.acceptWebGpuAdapterResponseReport(
+    manager.settingsReads.acceptWebGpuAdapterResponseReport(
       mockHostWindow.webContents.id + 1,
       createEmbeddingHostWebGpuAdapterResultReport(request, { available: false, reason: 'x' })
     );
@@ -62,13 +62,13 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
       { ...request, requestId: 'another-request' },
       { ...request, runtimeId: 'superseded-runtime' },
     ]) {
-      manager.acceptWebGpuAdapterResponseReport(
+      manager.settingsReads.acceptWebGpuAdapterResponseReport(
         mockHostWindow.webContents.id,
         createEmbeddingHostWebGpuAdapterResultReport(other, { available: false, reason: 'x' })
       );
     }
     const detection = { available: true, reason: 'WebGPU acceleration available (Apple M3)' };
-    manager.acceptWebGpuAdapterResponseReport(
+    manager.settingsReads.acceptWebGpuAdapterResponseReport(
       mockHostWindow.webContents.id,
       createEmbeddingHostWebGpuAdapterResultReport(request, detection)
     );
@@ -81,9 +81,9 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
   it('rejects with the detection failure or a failed start', async () => {
     const manager = createEmbeddingHostManager();
     lifecycleState.ensureStarted.mockResolvedValueOnce(running);
-    const failing = manager.webgpuAdapter();
+    const failing = manager.settingsReads.webgpuAdapter();
     await vi.waitFor(() => sentRequest());
-    manager.acceptWebGpuAdapterResponseReport(
+    manager.settingsReads.acceptWebGpuAdapterResponseReport(
       mockHostWindow.webContents.id,
       createEmbeddingHostWebGpuAdapterErrorReport(sentRequest(), new Error('requestAdapter threw'))
     );
@@ -93,7 +93,7 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
       lastError: 'host crashed',
       state: 'error',
     });
-    await expect(manager.webgpuAdapter()).rejects.toThrow('host crashed');
+    await expect(manager.settingsReads.webgpuAdapter()).rejects.toThrow('host crashed');
   });
 
   // The exchange is the shared host request channel: the query requests' deadline and the
@@ -102,7 +102,7 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
     vi.useFakeTimers();
     lifecycleState.ensureStarted.mockResolvedValueOnce(running);
     const manager = createEmbeddingHostManager();
-    const detected = manager.webgpuAdapter();
+    const detected = manager.settingsReads.webgpuAdapter();
     let settled = false;
     const refused = expect(
       detected.finally(() => {
@@ -120,7 +120,7 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
   it('refuses a pending detection when the host window closes', async () => {
     lifecycleState.ensureStarted.mockResolvedValueOnce(running);
     const manager = createEmbeddingHostManager();
-    const detected = manager.webgpuAdapter();
+    const detected = manager.settingsReads.webgpuAdapter();
     await vi.waitFor(() => sentRequest());
     if (!lifecycleCallbacks.current) {
       throw new Error('Expected the manager to register lifecycle callbacks');

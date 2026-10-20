@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import { Absent } from './catalog-cells';
 import { formatUsd } from './catalog-format';
 import type { CatalogPricing, CatalogRow } from './catalog-projection';
-import { useCatalogRowActions } from './use-catalog-row-actions';
 
 const fullNumber = new Intl.NumberFormat('en-US');
 
@@ -98,21 +97,8 @@ function ReasoningFact({ row }: { readonly row: CatalogRow }) {
   return <Fact label="Reasoning effort">{content}</Fact>;
 }
 
-function resolveCachePath(
-  row: CatalogRow,
-  downloaded: boolean,
-  modelCacheDir: string | null
-): string | null {
-  if (!(row.isLocal && downloaded)) {
-    return null;
-  }
-  return modelCacheDir ? `${modelCacheDir}/${row.id}` : 'Cached in system default';
-}
-
 /** The inline details row (a level-2 TreeTable row spanning every column). */
 export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
-  const { downloadedModels, modelCacheDir } = useCatalogRowActions();
-  const cachePath = resolveCachePath(row, downloadedModels[row.id] === true, modelCacheDir);
   return (
     <div className="space-y-3 py-3 pr-4 pl-[60px]" data-testid={`model-details-${row.id}`}>
       <dl className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-x-6 gap-y-3">
@@ -140,11 +126,6 @@ export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
         {row.bestFor.length > 0 ? (
           <Fact label="Best for">
             <Chips values={row.bestFor} />
-          </Fact>
-        ) : null}
-        {cachePath ? (
-          <Fact label="Cache path">
-            <code className="break-all font-mono text-[11px]">{cachePath}</code>
           </Fact>
         ) : null}
       </dl>

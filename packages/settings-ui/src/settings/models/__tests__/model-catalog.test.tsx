@@ -94,7 +94,6 @@ function catalogProps(overrides: Partial<ModelCatalogProps> = {}): ModelCatalogP
     downloadProgress: {},
     isDownloading: {},
     loaded: true,
-    modelCacheDir: null,
     models: MODELS,
     onBulkChange: vi.fn(),
     onDownload: vi.fn(),
@@ -493,7 +492,6 @@ describe('ModelCatalog behaviour ported from ModelList', () => {
       downloadedModels: { 'transformers-stream': true },
       downloadProgress: { 'local-downloading': 25 },
       isDownloading: { 'local-downloading': true },
-      modelCacheDir: '/models',
       models: LOCAL_MODELS,
       providers: LOCAL_PROVIDERS,
       ...overrides,
@@ -520,7 +518,7 @@ describe('ModelCatalog behaviour ported from ModelList', () => {
     expect(screen.queryByTestId('model-row-local-ready')).not.toBeInTheDocument();
   });
 
-  it('renders download progress, the downloaded state with its cache path, and Download', async () => {
+  it('renders download progress, the downloaded state and Download', async () => {
     const props = localProps();
     render(<ModelCatalog {...props} />);
     await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
@@ -530,12 +528,6 @@ describe('ModelCatalog behaviour ported from ModelList', () => {
     expect(within(downloadingRow as HTMLElement).getByText('25%')).toBeInTheDocument();
 
     expect(screen.getByRole('img', { name: 'HF Stream Model downloaded' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Show details for HF Stream Model' }));
-    expect(
-      within(await screen.findByTestId('model-details-transformers-stream')).getByText(
-        '/models/transformers-stream'
-      )
-    ).toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId('model-download-local-ready'));
     expect(props.onDownload).toHaveBeenCalledWith('local-ready');
