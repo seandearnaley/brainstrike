@@ -47,11 +47,16 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
-import { downloadWebEmbeddingModel } from '../../settings-model-download';
+import {
+  downloadWebEmbeddingModel,
+  readWebDownloadedEmbeddingModels,
+} from '../../settings-model-download';
 
 configureModelRuntimeServices({
   downloadEmbeddingModel: (model) =>
     downloadWebEmbeddingModel(model, useVectorPreferencesStore.getState().devicePref),
+  readDownloadedEmbeddingModels: (models) =>
+    readWebDownloadedEmbeddingModels(models, useVectorPreferencesStore.getState().devicePref),
 });
 
 /**

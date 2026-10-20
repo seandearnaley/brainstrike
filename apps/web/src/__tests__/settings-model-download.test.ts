@@ -12,7 +12,15 @@ vi.mock('@brainstrike/embeddings/service', () => ({
   }),
 }));
 
-const { downloadWebEmbeddingModel } = await import('../settings-model-download');
+const readModelCacheStatus = vi.hoisted(() => vi.fn(async () => [false, true]));
+vi.mock('@brainstrike/embedding-worker', () => ({ readModelCacheStatus }));
+vi.mock('@brainstrike/embedding-worker/vite', () => ({
+  resolveViteEmbeddingWorkerUrlHref: () => '/assets/embedding.worker.js#ort',
+}));
+
+const { downloadWebEmbeddingModel, readWebDownloadedEmbeddingModels } = await import(
+  '../settings-model-download'
+);
 
 /** A catalog row that pins its revision, per-device dtype and pooling (BST-1993). */
 const GRANITE: CatalogModelFacts = {
@@ -50,5 +58,19 @@ describe('downloadWebEmbeddingModel (BST-2230)', () => {
 
     await expect(downloadWebEmbeddingModel(GRANITE, 'webgpu')).rejects.toThrow('offline');
     expect(service.dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('readWebDownloadedEmbeddingModels (BST-2241)', () => {
+  it('asks a worker about the plans a download loads, and keeps the cached ids', async () => {
+    const MINILM: CatalogModelFacts = { dimensions: 384, id: 'Xenova/all-MiniLM-L6-v2' };
+
+    await expect(readWebDownloadedEmbeddingModels([GRANITE, MINILM], 'wasm')).resolves.toEqual([
+      MINILM.id,
+    ]);
+    expect(readModelCacheStatus).toHaveBeenCalledWith('/assets/embedding.worker.js#ort', [
+      { device: 'wasm', dtype: 'q8', modelId: GRANITE.id, revision: GRANITE.revision },
+      { device: 'wasm', dtype: 'q4', modelId: MINILM.id },
+    ]);
   });
 });

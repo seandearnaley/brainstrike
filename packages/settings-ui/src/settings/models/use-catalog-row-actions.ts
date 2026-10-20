@@ -11,7 +11,6 @@ export interface CatalogRowActions {
   readonly downloadedModels: Readonly<Record<string, boolean>>;
   readonly downloadProgress: Readonly<Record<string, number>>;
   readonly isDownloading: Readonly<Record<string, boolean>>;
-  readonly modelCacheDir: string | null;
   readonly onDownload: (modelId: string) => void;
   readonly onToggle: (modelId: string, enabled: boolean) => void;
   readonly onToggleDetails: (modelId: string) => void;

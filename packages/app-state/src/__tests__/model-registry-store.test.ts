@@ -94,10 +94,6 @@ describe('model-registry-store', () => {
       expect(useModelRegistryStore.getState().hasLoaded).toBe(false);
     });
 
-    it('has modelCacheDir set to null', () => {
-      expect(useModelRegistryStore.getState().modelCacheDir).toBe(null);
-    });
-
     it('has empty downloadProgress', () => {
       expect(useModelRegistryStore.getState().downloadProgress).toEqual({});
     });
@@ -111,16 +107,43 @@ describe('model-registry-store', () => {
     });
   });
 
-  describe('setModelCacheDir', () => {
-    it('sets the model cache directory', () => {
-      useModelRegistryStore.getState().setModelCacheDir('/custom/path');
-      expect(useModelRegistryStore.getState().modelCacheDir).toBe('/custom/path');
+  // BST-2241: only the embedding realm's model cache says what is downloaded.
+  describe('applyDownloadedModelsRead', () => {
+    it("replaces every earlier answer with the realm's", () => {
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['a', 'b'], 0);
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['b'], 0);
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({ b: true });
     });
 
-    it('overwrites previous value', () => {
-      useModelRegistryStore.getState().setModelCacheDir('/first/path');
-      useModelRegistryStore.getState().setModelCacheDir('/second/path');
-      expect(useModelRegistryStore.getState().modelCacheDir).toBe('/second/path');
+    it('keeps a download that completed while the read ran', () => {
+      const readStartedAt = useModelRegistryStore.getState().downloadSequence;
+      useModelRegistryStore.getState().setDownloadProgress('x', 100);
+
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['y'], readStartedAt);
+
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({ x: true, y: true });
+    });
+
+    it('lets a read that began after a download decide it', () => {
+      useModelRegistryStore.getState().setDownloadProgress('x', 100);
+      const readStartedAt = useModelRegistryStore.getState().downloadSequence;
+
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['y'], readStartedAt);
+
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({ y: true });
+    });
+
+    it('is never persisted, so a cleared cache is never claimed from storage', () => {
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['a'], 0);
+      expect(window.localStorage.getItem('model-registry-storage')).toBeNull();
+    });
+
+    it('survives a registry fetch, which reads no disk path or flag', async () => {
+      useModelRegistryStore.getState().applyDownloadedModelsRead(['local-model'], 0);
+      await useModelRegistryStore.getState().fetchRegistry({
+        read: async () => ({ models: [createMockModel({ id: 'local-model' })], providers: [] }),
+      } as never);
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({ 'local-model': true });
     });
   });
 
@@ -929,7 +952,6 @@ describe('model-registry-store', () => {
         hasLoaded: true,
         isDownloading: { 'model-1': true },
         isLoading: true,
-        modelCacheDir: '/custom/path',
         models: [createMockModel()],
         providers: [createMockProvider()],
       });
@@ -944,7 +966,6 @@ describe('model-registry-store', () => {
       expect(state.isLoading).toBe(false);
       expect(state.error).toBe(null);
       expect(state.hasLoaded).toBe(false);
-      expect(state.modelCacheDir).toBe(null);
       expect(state.downloadProgress).toEqual({});
       expect(state.isDownloading).toEqual({});
       expect(state.downloadedModels).toEqual({});

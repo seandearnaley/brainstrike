@@ -119,7 +119,6 @@ describe('ModelSelectionPage', () => {
       useModelRegistryStore.setState({
         downloadProgress: { a: 10 },
         isDownloading: { a: true },
-        modelCacheDir: '/cache',
       });
     });
     expect(catalogProps.current?.onDownload).toBe(first);
@@ -181,7 +180,10 @@ describe('ModelSelectionPage', () => {
     const downloadEmbeddingModel = vi.fn<ModelRuntimeServices['downloadEmbeddingModel']>();
     const settle = Promise.withResolvers<void>();
     downloadEmbeddingModel.mockReturnValue(settle.promise);
-    configureModelRuntimeServices({ downloadEmbeddingModel });
+    configureModelRuntimeServices({
+      downloadEmbeddingModel,
+      readDownloadedEmbeddingModels: async () => [],
+    });
     act(() => {
       useModelRegistryStore.setState({
         models: [
@@ -247,10 +249,11 @@ describe('ModelSelectionPage', () => {
 });
 
 describe('ModelCatalogHeaderActions', () => {
-  it('holds the cache directory trigger and the registry refresh', () => {
+  // BST-2241: models live in the embedding realm's cache, which has no folder to choose.
+  it('holds the registry refresh and no cache directory control', () => {
     render(<ModelCatalogHeaderActions />);
 
-    expect(screen.getByTestId('model-cache-dir-trigger')).toBeInTheDocument();
+    expect(screen.queryByTestId('model-cache-dir-trigger')).not.toBeInTheDocument();
     const refresh = screen.getByTestId('model-registry-refresh');
     expect(refresh).toHaveAccessibleName('Refresh model registry');
     expect(refresh).toBeEnabled();
