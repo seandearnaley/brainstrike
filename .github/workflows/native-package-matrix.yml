@@ -195,7 +195,7 @@ jobs:
           BRAINSTRIKE_E2E_DESKTOP_TARGET: packaged
           BRAINSTRIKE_PROOF_LAUNCH_TIMING: '1'
           BRAINSTRIKE_E2E_NATIVE_CRASH_DUMPS: '1'
-          BRAINSTRIKE_PROOF_CPU_PROFILE: '1'
+          BRAINSTRIKE_PROOF_CPU_PROFILE: '0'
         run: pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke
 
       # Retain failed traces and local crash dumps.
@@ -211,26 +211,38 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-      # PROOF ONLY: keep healthy CPU controls when the complete sweep succeeds.
-      - name: Upload successful Windows CPU controls
+      # PROOF ONLY: retain diagnostic receipts even when the sweep succeeds.
+      - name: Upload successful Windows diagnostic controls
         if: ${{ success() && matrix.desktopSmoke }}
         uses: actions/upload-artifact@v7
         with:
-          name: packaged-desktop-smoke-${{ matrix.os }}-cpu-controls
-          path: apps/desktop/test-results/**/proof-cpu/
+          name: packaged-desktop-smoke-${{ matrix.os }}-diagnostic-controls
+          path: apps/desktop/test-results/
           retention-days: 1
           if-no-files-found: error
 
-      # PROOF ONLY: retain the exact native modules for crash-dump analysis.
+      - name: Detect retained Windows crash dumps
+        id: native-crash-dumps
+        if: ${{ always() && runner.os == 'Windows' && matrix.desktopSmoke }}
+        shell: pwsh
+        run: |
+          $present = $false
+          if (Test-Path -LiteralPath 'apps/desktop/test-results') {
+            $present = @(Get-ChildItem -LiteralPath 'apps/desktop/test-results' -Filter '*.dmp' -File -Recurse).Count -gt 0
+          }
+          "present=$($present.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      # PROOF ONLY: scan bounded physical output trees, never workspace package links.
       - name: Upload matching Windows crash binaries
-        if: ${{ failure() && runner.os == 'Windows' && matrix.desktopSmoke }}
+        if: ${{ always() && steps.native-crash-dumps.outputs.present == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: packaged-desktop-smoke-windows-crash-binaries
           path: |
             apps/desktop/release/win-unpacked/*.exe
-            apps/desktop/release/**/*.node
-            packages/**/build/Release/**/*.pdb
+            apps/desktop/release/win-unpacked/resources/app.asar.unpacked/**/*.node
+            packages/windows-job-native/build/Release/*.pdb
+            packages/secure-fs-native/build/Release/*.pdb
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
