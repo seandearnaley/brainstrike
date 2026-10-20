@@ -10,7 +10,7 @@ export const grepSearch = defineNativeTool({
     requiresApproval: false,
   },
   description:
-    "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
+    "Grep file content on disk for an exact string or regex; it reads the files as they are now, including your own edits and folders the search index leaves out. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.grepSearch',
   inputSchema: effectToolInputSchema(GrepSearchInputSchema),

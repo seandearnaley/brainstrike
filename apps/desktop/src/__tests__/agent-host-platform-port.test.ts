@@ -386,29 +386,6 @@ it('serves a host command’s worktree snapshot and completion to Main’s corre
   }
 });
 
-it('serves grep’s indexed half to the host', async () => {
-  const result = {
-    candidatesTruncated: false,
-    matches: [],
-    scanLimited: false,
-    skippedMissingLineMetadata: 0,
-    totalMatches: 0,
-    truncated: false,
-  };
-  const grepIndex = vi.fn(async () => result);
-  const h = harness(mainReads(), undefined, { grepIndex });
-  const request = {
-    options: { maxResults: 5, pattern: 'needle' },
-    threadId: 'thread',
-  };
-  try {
-    await expect(h.client.sendRequest('desktop-read/grep-index', request)).resolves.toEqual(result);
-    expect(grepIndex).toHaveBeenCalledWith({ maxResults: 5, pattern: 'needle' });
-  } finally {
-    h.destroy();
-  }
-});
-
 it('serves the workspace index, retrieval catalog and query embedding to the host', async () => {
   const status = { kind: 'unavailable' as const, reason: 'fixture index is offline' };
   const indexSearch = {

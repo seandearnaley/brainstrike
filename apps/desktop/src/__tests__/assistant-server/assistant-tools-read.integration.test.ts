@@ -20,7 +20,6 @@ import {
   ToolInputError,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract';
-import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { encodeToolOutputArtifactCursor } from '@brainstrike/assistant-contract/tool-output-artifact';
 import {
   decodedWorkspaceTextModelOutputChars,
@@ -37,18 +36,15 @@ import type {
 import { Schema } from 'effect';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { refusalOutcome } from '../../agent-host-platform/host-tool-services';
-import { GrepIndexRequestSchema } from '../../agent-host-platform/host-tool-wire';
-import { nativeGrepIndex } from '../../agent-host-platform/native-grep-index';
 import { threadScoped } from '../../agent-host-platform/retrieval-wire';
 import type { CommandSessionManager } from '../../assistant-server/command-session-manager';
 import {
   COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES,
   type CommandSessionPayloadTransform,
 } from '../../assistant-server/command-session-tools';
-import type { GrepIndexSearch } from '../../assistant-server/grep-search-core';
 import { commandSessionExecutors } from '../../assistant-server/native-tool-executors-sessions';
 import { pgliteRetrievalStore } from '../fixtures/pglite-retrieval-store';
-import { hit, storeId } from '../native-scoped-search-fixture';
+import { storeId } from '../native-scoped-search-fixture';
 import {
   buildHostNativeTools,
   type HostMainRequest,
@@ -152,14 +148,11 @@ function overWire(value: unknown): unknown {
 /**
  * Main's side of the host tools' typed requests, exactly as
  * `serveHostToolServices` answers them over Main's live services
- * (`desktopHostToolServices`): the native index status, grep's indexed half,
- * the PGlite retrieval catalog and the window delivery of context write-backs.
+ * (`desktopHostToolServices`): the native index status, the PGlite retrieval
+ * catalog and the window delivery of context write-backs.
  */
 function mainRequest(
-  services: {
-    readonly grepIndex?: GrepIndexSearch;
-    readonly indexSearch?: Pick<IndexSearchCapability, 'status'>;
-  } = {}
+  services: { readonly indexSearch?: Pick<IndexSearchCapability, 'status'> } = {}
 ): HostMainRequest {
   return async (method, input) => {
     switch (method) {
@@ -171,16 +164,6 @@ function mainRequest(
           throw new Error('Main has no workspace index for host threads');
         }
         return overWire(await services.indexSearch.status());
-      }
-      case 'desktop-read/grep-index': {
-        const { options } = wireDecoder(GrepIndexRequestSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input);
-        if (!services.grepIndex) {
-          throw new Error('Main has no grep index for host threads');
-        }
-        return overWire(await services.grepIndex(options));
       }
       case 'desktop-read/retrieval/embedding-spaces': {
         const { request } = Schema.decodeUnknownSync(
@@ -266,27 +249,16 @@ function unexpectedGrep(): Promise<IndexerGrepResult> {
   return Promise.reject(new Error('This case never greps the native index'));
 }
 
-/** One indexed chunk of `src/x.ts` (lines 10-12) holding a `needle` line. */
-function needleIndex(): Pick<IndexSearchCapability, 'grep' | 'status'> {
-  const found: IndexerGrepResult = {
-    candidateCount: 1,
-    candidatesTruncated: false,
-    embedding: { indexMode: 'text-only' },
-    hits: [
-      {
-        ...hit,
-        content: 'alpha\nneedle line\nomega',
-        endLine: 12,
-        relativePath: 'src/x.ts',
-        rootId: '/tmp/workspace',
-        startLine: 10,
-      },
-    ],
-    scanLimited: false,
-    storeId,
-    truncated: false,
-  };
-  return nativeIndexWith('/tmp/workspace', async () => found);
+/** A real folder whose `src/x.ts` holds a `needle` line at 11, between `alpha` and `omega`. */
+async function needleWorkspace(): Promise<string> {
+  const root = realpathSync(await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-grep-read-')));
+  await fsPromises.mkdir(path.join(root, 'src'));
+  const lines = [...Array.from({ length: 9 }, (_, index) => `line ${index + 1}`)];
+  await fsPromises.writeFile(
+    path.join(root, 'src', 'x.ts'),
+    `${[...lines, 'alpha', 'needle line', 'omega'].join('\n')}\n`
+  );
+  return root;
 }
 
 // Split from the 5,101-line assistant-tools.integration.test.ts (BST-976):
@@ -2219,69 +2191,75 @@ describe('assistant-tools read tools', () => {
     expect(raw.results[0]?.content).toBe(content);
   });
 
+  // ADR 0026: grep reads the thread's folders on disk and never asks Main.
   it('executes the grepSearch tool end-to-end with direct host input', async () => {
-    const tools = hostTools(singleRootRuntime('/tmp/workspace'), {
-      request: mainRequest({ grepIndex: nativeGrepIndex(needleIndex()) }),
-    });
-    const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
+    const root = await needleWorkspace();
+    try {
+      const tools = hostTools(singleRootRuntime(root));
+      const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
-    // contextLines is explicit: the default is 0 (BST-1193), and passing it
-    // here also proves optional params survive the context-envelope unwrap.
-    const result = await executeTool({ contextLines: 1, outputMode: 'content', pattern: 'needle' });
+      // contextLines is explicit: the default is 0 (BST-1193), and passing it
+      // here also proves optional params survive the context-envelope unwrap.
+      const result = await executeTool({
+        contextLines: 1,
+        outputMode: 'content',
+        pattern: 'needle',
+      });
 
-    // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are
-    // stripped from the model-facing output to save tokens.
-    expect(result.matches).toEqual([
-      {
-        after: ['omega'],
-        before: ['alpha'],
-        line: 11,
-        lineText: 'needle line',
-        path: 'src/x.ts',
-        // Main's native index names the root of every indexed hit; its label
-        // is that open root's display name.
-        rootId: '/tmp/workspace',
-        rootName: 'workspace',
-        // The root '/tmp/workspace' is not on disk, so the live pass is skipped
-        // and the hybrid result is index-only.
-        source: 'index',
-      },
-    ]);
+      expect(result.matches).toEqual([
+        {
+          after: ['omega'],
+          before: ['alpha'],
+          line: 11,
+          lineText: 'needle line',
+          path: 'src/x.ts',
+          rootId: root,
+          rootName: path.basename(root),
+        },
+      ]);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
   });
 
   it('executes the grepSearch tool in default files mode with direct host input', async () => {
-    const tools = hostTools(singleRootRuntime('/tmp/workspace'), {
-      request: mainRequest({ grepIndex: nativeGrepIndex(needleIndex()) }),
-    });
-    const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
+    const root = await needleWorkspace();
+    try {
+      const tools = hostTools(singleRootRuntime(root));
+      const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
-    const result = await executeTool({ pattern: 'needle' });
+      const result = await executeTool({ pattern: 'needle' });
 
-    expect(result.outputMode).toBe('files');
-    expect(result.files).toEqual([
-      {
-        firstLine: 11,
-        matchCount: 1,
-        path: 'src/x.ts',
-        rootId: '/tmp/workspace',
-        rootName: 'workspace',
-        source: 'index',
-      },
-    ]);
+      expect(result.outputMode).toBe('files');
+      expect(result.files).toEqual([
+        {
+          firstLine: 11,
+          matchCount: 1,
+          path: 'src/x.ts',
+          rootId: root,
+          rootName: path.basename(root),
+        },
+      ]);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
   });
 
   it('rethrows sanitized grepSearch errors from the execute wrapper', async () => {
-    const grep = vi.fn<IndexSearchCapability['grep']>(async () => {
-      throw new Error('relation "file_chunks" does not exist');
-    });
-    const tools = hostTools(singleRootRuntime('/tmp/workspace'), {
-      request: mainRequest({ grepIndex: nativeGrepIndex(nativeIndexWith('/tmp/workspace', grep)) }),
-    });
-    const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
+    const root = await needleWorkspace();
+    try {
+      // A selected file over the bounded read size fails the disk pass with an
+      // internal message; the model sees only the generic failure.
+      await fsPromises.writeFile(path.join(root, 'huge.txt'), 'needle\n'.repeat(400_000));
+      const tools = hostTools(singleRootRuntime(root));
+      const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
-    const promise = executeTool({ pattern: 'needle' });
-    await expect(promise).rejects.toThrow(/Unable to perform grep search/);
-    await expect(promise).rejects.not.toThrow(/file_chunks/);
+      const promise = executeTool({ filePaths: ['huge.txt'], pattern: 'needle' });
+      await expect(promise).rejects.toThrow(/Unable to perform grep search/);
+      await expect(promise).rejects.not.toThrow(/bounded read size/);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
   });
 
   it('registers compact workspace-scoped inspect and manage command-session tools', async () => {

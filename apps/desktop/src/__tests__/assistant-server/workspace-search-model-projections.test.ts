@@ -331,7 +331,6 @@ describe('workspace search model projections', () => {
       offset: 0,
       outputMode: 'content',
       scanLimited: true,
-      skippedMissingLineMetadata: 2,
       totalMatches: 18,
       truncated: true,
     };
@@ -340,7 +339,7 @@ describe('workspace search model projections', () => {
 
     expect(projected.type).toBe('text');
     expect(projected.value).toContain(
-      'grep content 1-1/18+ | live=js-walk | candidates_truncated | scan_limited | skipped_lines=2'
+      'grep content 1-1/18+ | live=js-walk | candidates_truncated | scan_limited'
     );
     expect(projected.value).toContain('/src/large.ts');
     expect(projected.value).toContain('  41- before ');

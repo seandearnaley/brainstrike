@@ -400,7 +400,7 @@ describe('cross-tool safety guidance', () => {
     expect(instructions).toContain('destructive commands only when the user explicitly requested');
     expect(instructions).toContain('EXTERNAL service');
     expect(instructions).toContain('never include secrets or private workspace content');
-    expect(instructions).toContain('both indexed and live on-disk content');
+    expect(instructions).toContain('in the files on disk');
     expect(instructions).toContain('Prefer grepSearch instead.');
     expect(instructions).not.toContain('cat/head/tail');
     expect(instructions).not.toContain('over find');
