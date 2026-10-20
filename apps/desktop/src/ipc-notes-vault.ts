@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { startJoinedParcelWatch } from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
 import { app, dialog, shell } from 'electron';
 import {
@@ -50,58 +50,36 @@ async function pickDirectoryPathWithNativeDialog(): Promise<string | null> {
  * dependencies: `app.getPath` for the default vault location, the native
  * directory picker, `shell.trashItem` for recoverable deletes (deleteEntry
  * never hard-unlinks), the shared `ElectronStorageAdapter` (passed by
- * main.ts) for the persisted approved-roots list, and the shared parcel-backed
- * recursive watcher from `@brainstrike/file-system/electron` (`watchDirectory`
- * — batched at 150 ms, default native ignore-filtered, with BST-1180 coarse
- * reporting explicitly disabled; setup failure surfaces via the typed health
- * protocol, never a silent fallback engine — BST-568 slice 4). The returned
- * disposer unregisters the channels and reaps every live watcher.
+ * main.ts) for the persisted approved-roots list, and Main's joined
+ * @parcel/watcher producer (`startJoinedParcelWatch` — batched at 150 ms,
+ * default native ignore-filtered, with BST-1180 coarse reporting explicitly
+ * disabled; setup failure rejects, never a silent fallback engine — BST-568
+ * slice 4). Its subscribe and unsubscribe are both awaitable, so the returned
+ * disposer unregisters the channels and resolves once every live watcher is
+ * unsubscribed (BST-2244).
  */
 export function registerNotesVaultIpc(
   storage: NotesVaultRootsStorage,
   handlers?: NotesVaultIpcHandlers
-): () => void {
+): () => Promise<void> {
   if (handlers) {
     return registerNotesVaultIpcHandlers(handlers);
   }
-  const watcherAdapter = new ElectronFileSystemAdapter();
   return registerNotesVaultIpcHandlers(
     createNotesVaultIpcHandlers({
       getDefaultVaultParentPath: resolveDefaultVaultParentPath,
       pickDirectoryPath: pickDirectoryPathWithNativeDialog,
       startWatch: (directoryPath, onChange) =>
-        new Promise<() => void>((resolve, reject) => {
-          let settled = false;
-          let stop = (): void => {};
-          stop = watcherAdapter.watchDirectory(
-            {
-              kind: 'directory',
-              name: path.basename(directoryPath),
-              path: directoryPath,
-              platform: 'electron',
-            },
-            () => onChange(),
-            undefined,
-            {
-              onHealth: (event) => {
-                if (settled) {
-                  return;
-                }
-                if (event.state === 'healthy') {
-                  settled = true;
-                  resolve(stop);
-                  return;
-                }
-                if (event.state === 'failed') {
-                  settled = true;
-                  stop();
-                  reject(new Error(event.failure?.message ?? 'Notes vault watcher setup failed'));
-                }
-              },
-              reportDefaultFilteredChanges: false,
-            }
-          );
-        }),
+        startJoinedParcelWatch(
+          {
+            kind: 'directory',
+            name: path.basename(directoryPath),
+            path: directoryPath,
+            platform: 'electron',
+          },
+          () => onChange(),
+          { reportDefaultFilteredChanges: false }
+        ),
       storage,
       trashItem: (absolutePath) => shell.trashItem(absolutePath),
     })

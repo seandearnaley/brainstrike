@@ -7,6 +7,7 @@
  * is covered separately in `git-inventory-watcher.integration.test.ts`.
  */
 import path from 'node:path';
+import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -68,6 +69,7 @@ function createFakeWatchDirectory(): {
     records.push(record);
     return Promise.resolve(() => {
       record.disposeCallCount += 1;
+      return Promise.resolve();
     });
   };
 
@@ -96,6 +98,27 @@ function makeDeps(
     realpath: (targetPath: string) => Promise.resolve(targetPath),
     ...overrides,
   };
+}
+
+function flushMacrotask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Observes whether `promise` has settled, without consuming its rejection. */
+function trackSettlement(promise: Promise<void>): {
+  readonly promise: Promise<void>;
+  readonly settled: () => boolean;
+} {
+  let settled = false;
+  promise.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    }
+  );
+  return { promise, settled: () => settled };
 }
 
 function requireCallback<TArgs extends unknown[]>(
@@ -411,41 +434,103 @@ describe('createGitInventoryWatchers', () => {
       }
     });
 
-    it('disposes a subscription whose watchDirectory() Promise resolves AFTER disposeAll() already removed it', async () => {
-      // Real timers for this test: we need a genuinely-pending watchDirectory()
-      // promise plus a real macrotask flush to let subscribe() get past its
-      // `await realpath()` and reach `await deps.watchDirectory()` BEFORE
-      // disposeAll() runs — fake timers don't advance microtask-driven awaits.
+    it('joins a subscription whose watchDirectory() Promise resolves AFTER disposeAll() began, and retires it before resolving', async () => {
+      // Real timers: a genuinely-pending watchDirectory() promise plus a real
+      // macrotask flush lets subscribe() reach `await deps.watchDirectory()`
+      // BEFORE disposeAll() runs — fake timers don't advance microtask awaits.
       vi.useRealTimers();
-      let resolveWatch: ((dispose: () => void) => void) | null = null;
-      let disposeCallCount = 0;
-      const watchDirectory: WatchGitCommonDir = () =>
-        new Promise((resolve) => {
-          resolveWatch = resolve;
-        });
+      const acquisition = Promise.withResolvers<() => Promise<void>>();
+      const unsubscribe = Promise.withResolvers<void>();
+      const dispose = vi.fn(() => unsubscribe.promise);
+      const watchDirectory = vi.fn<WatchGitCommonDir>(() => acquisition.promise);
       const watchers = createGitInventoryWatchers(makeDeps({ watchDirectory }));
 
       const syncPromise = watchers.sync(['/repo/.git']);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(resolveWatch).not.toBeNull();
+      await vi.waitFor(() => expect(watchDirectory).toHaveBeenCalledOnce());
 
-      // disposeAll() runs while watchDirectory() is still pending: it can only
-      // dispose the stub `() => {}` placeholder immediately (the map entry is
-      // removed synchronously), since the REAL disposer doesn't exist yet.
+      // BST-2244: shutdown begins while the native subscribe is in flight. A
+      // disposeAll() that resolved now would let Electron free Main's Node
+      // environment under the subscribe, and its completion aborts Main.
+      const disposing = trackSettlement(watchers.disposeAll());
+      await flushMacrotask();
+      expect(disposing.settled()).toBe(false);
+
+      // The late subscription is retired, and disposeAll() still waits for
+      // its native unsubscribe to settle.
+      acquisition.resolve(dispose);
+      await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+      await flushMacrotask();
+      expect(disposing.settled()).toBe(false);
+
+      unsubscribe.resolve();
+      await disposing.promise;
+      await syncPromise;
+      expect(dispose).toHaveBeenCalledOnce();
+    });
+
+    it('does not resolve until every native unsubscribe has settled', async () => {
+      vi.useRealTimers();
+      const unsubscribe = Promise.withResolvers<void>();
+      const dispose = vi.fn(() => unsubscribe.promise);
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ watchDirectory: () => Promise.resolve(dispose) })
+      );
+      await watchers.sync(['/repo/.git']);
+
+      const disposing = trackSettlement(watchers.disposeAll());
+      await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+      await flushMacrotask();
+      expect(disposing.settled()).toBe(false);
+
+      unsubscribe.resolve();
+      await disposing.promise;
+    });
+
+    it('rejects with a failed native unsubscribe after every other retirement settles', async () => {
+      vi.useRealTimers();
+      const failure = new Error('native unsubscribe failed');
+      const failing = vi.fn(() => Promise.reject(failure));
+      const healthy = Promise.withResolvers<void>();
+      const healthyDispose = vi.fn(() => healthy.promise);
+      const watchers = createGitInventoryWatchers(
+        makeDeps({
+          watchDirectory: (commonDir) =>
+            Promise.resolve(commonDir === '/repo-a/.git' ? failing : healthyDispose),
+        })
+      );
+      await watchers.sync(['/repo-a/.git', '/repo-b/.git']);
+
+      const disposing = trackSettlement(watchers.disposeAll());
+      await vi.waitFor(() => expect(healthyDispose).toHaveBeenCalledOnce());
+      await flushMacrotask();
+      expect(disposing.settled()).toBe(false);
+
+      healthy.resolve();
+      await expect(disposing.promise).rejects.toMatchObject({ errors: [failure] });
+      expect(failing).toHaveBeenCalledOnce();
+    });
+
+    it('retires the native subscription a ParcelWatchRetirementError still owns', async () => {
+      vi.useRealTimers();
+      const retire = vi.fn(() => Promise.resolve());
+      const watchers = createGitInventoryWatchers(
+        makeDeps({
+          watchDirectory: () =>
+            Promise.reject(
+              new ParcelWatchRetirementError(
+                [new Error('subscribe timed out'), new Error('late unsubscribe failed')],
+                retire
+              )
+            ),
+        })
+      );
+      await watchers.sync(['/repo/.git']);
+      expect(watchers.getDeadCommonDirs()).toEqual(new Set(['/repo/.git']));
+      expect(retire).not.toHaveBeenCalled();
+
       await watchers.disposeAll();
 
-      // The real disposer arrives LATE. subscribe()'s stale-identity check
-      // must notice the Subscription it holds is no longer the one tracked
-      // (disposeAll already deleted it) and invoke this real disposer too —
-      // otherwise the underlying native watch would leak forever.
-      requireCallback<[() => void]>(
-        resolveWatch,
-        'watch resolver'
-      )(() => {
-        disposeCallCount += 1;
-      });
-      await syncPromise;
-      expect(disposeCallCount).toBe(1);
+      expect(retire).toHaveBeenCalledOnce();
     });
 
     it('never subscribes a common dir requested via sync() after disposeAll() already ran', async () => {
@@ -481,7 +566,7 @@ describe('createGitInventoryWatchers', () => {
           })
       );
 
-      const watchResolvers: Array<(dispose: () => void) => void> = [];
+      const watchResolvers: Array<(dispose: () => Promise<void>) => void> = [];
       const watchDirectory: WatchGitCommonDir = () =>
         new Promise((resolve) => {
           watchResolvers.push(resolve);
@@ -501,6 +586,7 @@ describe('createGitInventoryWatchers', () => {
       expect(watchResolvers.length).toBeGreaterThanOrEqual(1);
       watchResolvers[0]?.(() => {
         firstRecord.disposeCallCount += 1;
+        return Promise.resolve();
       });
       await flush();
 
@@ -512,6 +598,7 @@ describe('createGitInventoryWatchers', () => {
       if (watchResolvers.length > 1) {
         watchResolvers[1]?.(() => {
           secondRecord.disposeCallCount += 1;
+          return Promise.resolve();
         });
         await flush();
       }
@@ -607,13 +694,16 @@ describe('createGitInventoryWatchers', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(rejectRealpath).not.toBeNull();
 
-      await watchers.disposeAll();
+      // disposeAll() joins the in-flight attempt, so it settles only after
+      // the pending realpath() does.
+      const disposing = watchers.disposeAll();
       loggerErrorSpy.mockClear();
       requireCallback<[Error]>(
         rejectRealpath,
         'realpath rejecter'
       )(new Error('ENOENT: no such directory'));
       await syncPromise;
+      await disposing;
 
       expect(watchers.getDeadCommonDirs().size).toBe(0);
       expect(watchers.getHealthErrors()).toHaveLength(0);
@@ -633,10 +723,11 @@ describe('createGitInventoryWatchers', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(rejectWatch).not.toBeNull();
 
-      await watchers.disposeAll();
+      const disposing = watchers.disposeAll();
       loggerErrorSpy.mockClear();
       requireCallback<[Error]>(rejectWatch, 'watch rejecter')(new Error('parcel binding missing'));
       await syncPromise;
+      await disposing;
 
       expect(watchers.getDeadCommonDirs().size).toBe(0);
       expect(watchers.getHealthErrors()).toHaveLength(0);
@@ -651,9 +742,9 @@ describe('createGitInventoryWatchers', () => {
       // watchDirectory() being called — the exact window the guard at
       // `subscribe()` ("checked BEFORE opening the real watch, not just
       // after") claims to cover. Without it, a torn-down attempt would still
-      // open a real native watch (later cleaned up by the post-watch guard,
-      // so no leak — but the watch really did open, which is the whole
-      // point of checking before, not just after).
+      // open a real native watch (later retired by disposeAll(), so no leak —
+      // but the watch really did open, which is the whole point of checking
+      // before, not just after).
       vi.useRealTimers();
       let resolveRealpath: ((value: string) => void) | null = null;
       const realpath = () =>
@@ -669,9 +760,10 @@ describe('createGitInventoryWatchers', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(resolveRealpath).not.toBeNull();
 
-      await watchers.disposeAll();
+      const disposing = watchers.disposeAll();
       requireCallback<[string]>(resolveRealpath, 'realpath resolver')('/repo/.git');
       await syncPromise;
+      await disposing;
 
       expect(fake.records).toHaveLength(0);
     });

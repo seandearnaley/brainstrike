@@ -19,14 +19,8 @@ vi.mock('../../assistant-server/worktree-service', () => ({
 vi.mock('../../ipc-forge', () => ({
   registerForgeIpcHandlers: vi.fn(() => vi.fn()),
 }));
-vi.mock('@brainstrike/file-system/electron', () => {
-  const MockAdapter = vi.fn();
-  MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, { watchDirectory: vi.fn(() => vi.fn()) });
-  });
-  return { ElectronFileSystemAdapter: MockAdapter };
-});
 
+import { watchGitCommonDirNatively } from '../../assistant-server/git-inventory-watcher';
 import { startGitAwarenessLifecycle } from '../../main/git-awareness-lifecycle';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
@@ -76,6 +70,11 @@ describe('startGitAwarenessLifecycle', () => {
     expect(createGitInventoryServiceMock).toHaveBeenCalledTimes(1);
     expect(createWorktreeServiceMock).toHaveBeenCalledTimes(1);
     expect(gitInventoryService.start).toHaveBeenCalledTimes(1);
+    // BST-2244: the joined native producer, so the 'git-inventory' shutdown
+    // step's stop() joins every @parcel/watcher subscribe and unsubscribe.
+    expect(createGitInventoryServiceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ watchDirectory: watchGitCommonDirNatively })
+    );
     expect(lifecycle.forgeService).toBe(forgeService);
     expect(lifecycle.gitInventoryService).toBe(gitInventoryService);
     expect(lifecycle.worktreeService).toBe(worktreeService);
