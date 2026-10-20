@@ -9,11 +9,11 @@ import { DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE } from '@brainstrike/utils';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   probeExcludedPathMatches,
-  resetRipgrepAvailabilityForTests,
   runLiveGrep,
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
 import * as ripgrep from '../../assistant-server/live-grep-ripgrep';
+import { resetRipgrepAvailabilityForTests } from '../../assistant-server/live-grep-ripgrep';
 
 const temporaryRoots: string[] = [];
 

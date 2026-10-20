@@ -280,7 +280,9 @@ export function installMcpAppSessionPolicy(target: Electron.Session): void {
   logger.info('MCP App sandbox session policy installed');
 }
 
-/** Test-only reset of the per-session memos (the module is a singleton). */
+/** Test-only reset of the per-session memos (the module is a singleton).
+ * @internal Isolates MCP Apps session-policy and security regressions.
+ */
 export function __resetMcpAppSessionPolicyForTests(): void {
   configuredSessions = new WeakSet<Electron.Session>();
   loggedDenials = new WeakMap<Electron.WebContents, Set<string>>();

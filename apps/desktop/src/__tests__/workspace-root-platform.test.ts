@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { PassThrough } from 'node:stream';
-import { createHostCatalogClient } from '@brainstrike/agent-host/catalog';
+import {
+  createHostCatalogClient,
+  createWorkspaceRootClient,
+  serveWorkspaceRootStore,
+} from '@brainstrike/agent-host/catalog';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
@@ -10,10 +14,6 @@ import {
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
 import { createDesktopWorkspaceRootCatalog } from '../agent-host-platform/workspace-root-client';
-import {
-  createWorkspaceRootClient,
-  serveWorkspaceRootStore,
-} from '../agent-host-platform/workspace-root-store';
 
 function transport(store: WorkspaceRootPort) {
   const requests = new PassThrough();

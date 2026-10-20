@@ -74,6 +74,7 @@ export const modelCatalogContract = {
     roles: ['visible-ui'],
   }),
 };
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type ModelCatalogBridgeProof = AssertTrue<
   BridgeMatches<typeof modelCatalogContract, ModelCatalogCapability>
 >;

@@ -4,7 +4,7 @@ import {
   type RuntimeData,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
-import { isBoundaryRefusal, NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import { isBoundaryRefusal, ToolInputError } from '@brainstrike/assistant-contract';
 import {
   type GrepContentToolResult,
   type GrepFileSummary,
@@ -33,8 +33,6 @@ import {
 } from './workspace-roots';
 
 const logger = createLogger('AssistantGrepSearchTool');
-
-export const GREP_SEARCH_TOOL_ID = NATIVE_TOOL_ID.grepSearch;
 
 /**
  * The INDEXED half of a grep: the trigram candidate search over Main's PGlite

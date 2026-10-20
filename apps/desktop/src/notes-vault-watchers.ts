@@ -231,7 +231,9 @@ export function reopenNotesVaultWatchAdmission(): void {
   admissionOpen = true;
 }
 
-/** Test-only: current count of live watchers, including ones still starting. */
+/** Test-only: current count of live watchers, including ones still starting.
+ * @internal Notes Vault regressions verify physical watcher retirement.
+ */
 export function liveNotesVaultWatcherCountForTest(): number {
   return liveWatchers.size;
 }

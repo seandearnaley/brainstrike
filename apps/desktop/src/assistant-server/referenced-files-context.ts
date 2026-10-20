@@ -276,6 +276,7 @@ function findLastUserMessageIndex(messages: readonly AgentMessage[]): number {
  *
  * Returns the original array (same identity) when nothing is referenced, so the
  * caller can pass it straight through with zero overhead on the common path.
+ * @internal Referenced-file context regressions exercise the context boundary.
  */
 export async function injectReferencedFilesContext(
   messages: AgentMessage[],

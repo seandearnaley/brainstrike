@@ -1,11 +1,11 @@
 import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createNativeSecureRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import { readResolvedWorkspaceFile } from '@brainstrike/file-system/secure-file-read';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createNativeSecureRoot } from '../../ipc-domains/workspace-root-seams';
 import { createRegistry, rootHandle } from './workspace-root-registry-test-helpers';
 
 describe('Canonical source borrows over actual native mounted handles', () => {

@@ -1,6 +1,7 @@
 // @vitest-environment node
+
+import { createNativeIndexSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import { expect, it, vi } from 'vitest';
-import { createNativeIndexSearchCapability } from '../native-index-search';
 
 it('refuses a disconnected root before acquiring either native owner', async () => {
   const acquireIndexer = vi.fn(async () => {

@@ -2,13 +2,13 @@ import {
   WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,
   WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE,
 } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
-import type { WorkspaceRootReply } from '@brainstrike/state-store';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   RECENT_ROOTS_LIMIT,
   resolveGrantedRootHandle,
-} from '../../ipc-domains/workspace-recent-roots';
+} from '@brainstrike/assistant-service/node-workspace-services';
+import type { WorkspaceRootReply } from '@brainstrike/state-store';
+import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
 import {
   createRegistry,

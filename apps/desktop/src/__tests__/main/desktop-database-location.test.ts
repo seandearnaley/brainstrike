@@ -111,7 +111,9 @@ describe('resolveDesktopDatabaseLocation', () => {
     const checkout = makeGitCheckout('ref: refs/heads/feature/awesome\n');
     vi.spyOn(process, 'cwd').mockReturnValue(checkout);
     const { resolveDesktopDatabaseLocation } = await load();
-    const { createWorktreeScopedProfile } = await import('../../database-location');
+    const { createWorktreeScopedProfile } = await import(
+      '@brainstrike/assistant-service/node-workspace-services'
+    );
 
     expect(resolveDesktopDatabaseLocation()).toEqual({
       profile: createWorktreeScopedProfile('feature/awesome', checkout),
@@ -130,7 +132,9 @@ describe('resolveDesktopDatabaseLocation', () => {
     writeFileSync(path.join(worktree, '.git'), `gitdir: ${gitDir}\n`);
     vi.spyOn(process, 'cwd').mockReturnValue(worktree);
     const { resolveDesktopDatabaseLocation } = await load();
-    const { createWorktreeScopedProfile } = await import('../../database-location');
+    const { createWorktreeScopedProfile } = await import(
+      '@brainstrike/assistant-service/node-workspace-services'
+    );
 
     expect(resolveDesktopDatabaseLocation().profile).toBe(
       createWorktreeScopedProfile('fix/linked', worktree)
@@ -141,7 +145,9 @@ describe('resolveDesktopDatabaseLocation', () => {
     const checkout = makeGitCheckout('0123456789abcdef0123456789abcdef01234567\n');
     vi.spyOn(process, 'cwd').mockReturnValue(checkout);
     const { resolveDesktopDatabaseLocation } = await load();
-    const { createWorktreeScopedProfile } = await import('../../database-location');
+    const { createWorktreeScopedProfile } = await import(
+      '@brainstrike/assistant-service/node-workspace-services'
+    );
 
     expect(resolveDesktopDatabaseLocation().profile).toBe(
       createWorktreeScopedProfile('detached-0123456789ab', checkout)

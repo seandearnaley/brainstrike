@@ -247,6 +247,7 @@ export const worktreesContract = {
   }),
 } as const satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type WorktreesBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof worktreesContract, WorktreesBridge>
 >;

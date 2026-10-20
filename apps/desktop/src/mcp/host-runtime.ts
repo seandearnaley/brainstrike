@@ -7,8 +7,6 @@ import {
 import type { McpOAuthStore } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { createDesktopMcpHostPlatform } from './conformance-host-platform';
 
-export type { ExplicitClient } from '@brainstrike/host-capabilities/mcp/host-connection';
-
 /** Compatibility composition root for the existing desktop singleton and test seams. */
 export interface DesktopMcpHostRuntimeDependencies extends McpHostRuntimeDependencies {
   bearerCredentialAuthority?: McpBearerCredentialAuthority;

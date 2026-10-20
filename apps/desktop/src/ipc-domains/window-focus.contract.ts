@@ -28,6 +28,7 @@ export const windowFocusContract = {
   onChange: pushEvent<boolean>({ channel: DESKTOP_IPC_CHANNELS.windowFocus.changed }),
 } satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type WindowFocusBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof windowFocusContract, WindowFocusBridge>
 >;

@@ -23,6 +23,7 @@ export const userCommandsContract = {
   }),
 } satisfies Contract;
 
+/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type UserCommandsBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof userCommandsContract, UserCommandsBridge>
 >;

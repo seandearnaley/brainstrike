@@ -7,7 +7,8 @@ import {
 } from '@brainstrike/canonical-ingestion';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import { afterEach, expect, it, vi } from 'vitest';
-import { generateHostedEmbeddings, HostedEmbeddingError } from '../hosted-embeddings';
+import { HostedEmbeddingError } from '../hosted-embedding-error';
+import { generateHostedEmbeddings } from '../hosted-embeddings';
 
 vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => undefined }) }));
 afterEach(() => {

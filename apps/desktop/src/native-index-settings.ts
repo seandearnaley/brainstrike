@@ -2,7 +2,6 @@ import {
   NATIVE_INDEX_SETTINGS_KEY,
   type NativeIndexSettings,
   nativeIndexConfigurationIdentity,
-  readNativeManagedCollectionId,
   readNativeIndexSettings as readSharedIndexSettings,
   readNativeSavedPause as readSharedSavedPause,
 } from '@brainstrike/canonical-ingestion';
@@ -12,12 +11,7 @@ import type {
 } from './native-index-lifecycle-owner';
 import { desktopSetupRequired } from './native-index-setup-required';
 
-export {
-  NATIVE_INDEX_SETTINGS_KEY,
-  type NativeIndexSettings,
-  nativeIndexConfigurationIdentity,
-  readNativeManagedCollectionId,
-};
+export { NATIVE_INDEX_SETTINGS_KEY, type NativeIndexSettings, nativeIndexConfigurationIdentity };
 
 /** The shared decoder (`@brainstrike/canonical-ingestion`), refusing as desktop's settings surface it. */
 export function readNativeIndexSettings(value: string | null): NativeIndexSettings {

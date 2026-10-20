@@ -1,8 +1,6 @@
 import type { ViewFilterPresetCapability } from '@brainstrike/types';
 import { parseViewFilterPresetRequest } from '@brainstrike/types/catalog-args';
 
-export { parseViewFilterPresetRequest } from '@brainstrike/types/catalog-args';
-
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { channel } from '../platform/ipc-contract';
 import { assertArgCount } from './contract-args';
