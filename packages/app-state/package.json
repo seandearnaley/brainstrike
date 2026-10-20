@@ -34,6 +34,10 @@
       "types": "./dist/factory-reset.d.ts",
       "import": "./dist/factory-reset.js"
     },
+    "./renderer-close": {
+      "types": "./dist/renderer-close.d.ts",
+      "import": "./dist/renderer-close.js"
+    },
     "./hooks/use-database-status-sync": {
       "types": "./dist/hooks/use-database-status-sync.d.ts",
       "import": "./dist/hooks/use-database-status-sync.js"

@@ -63,9 +63,22 @@ declare global {
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
+import { installDesktopRendererClose } from './desktop-renderer-close';
+
+const desktopRendererRole = resolveDesktopRendererRole(window.location.search);
+const bridgeValidation =
+  desktopRendererRole === 'visible-ui'
+    ? validateDesktopBridgeContract(window)
+    : ({ ok: true } as const);
+
+// Broken preloads must reach the explicit startup screen. Valid UI frames
+// register their close fence before persistence can admit producer work.
+if (desktopRendererRole === 'visible-ui' && bridgeValidation.ok) {
+  installDesktopRendererClose();
+}
 
 // BST-1930 stage e: this window's agent host keeps the permission policy the user saves.
-if (window.agentHost) {
+if (bridgeValidation.ok && window.agentHost) {
   provideHostPermissionPolicyPersistence(
     hostPermissionPolicyPersistence(connectDesktopAgentHost, PERMISSION_POLICY_STORE_VERSION)
   );
@@ -85,7 +98,6 @@ const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
 
-const desktopRendererRole = resolveDesktopRendererRole(window.location.search);
 const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
 const rendererRuntimeKind =
   desktopRendererRole === 'embedding-host' || desktopRendererRole === 'chunking-host'
@@ -493,11 +505,6 @@ const root = existingRoot ?? ReactDOM.createRoot(rootElement);
 if (!existingRoot) {
   window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = root;
 }
-
-const bridgeValidation =
-  desktopRendererRole === 'visible-ui'
-    ? validateDesktopBridgeContract(window)
-    : ({ ok: true } as const);
 
 // A failed contract inside Electron means the preload script broke — keep that
 // loudly fatal. The same page opened in a plain browser tab (routine against
