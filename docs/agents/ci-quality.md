@@ -3,11 +3,14 @@
 Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
 nightly on main and files failures to Linear (`nightly-alert`). Treat an open
 `nightly-alert` issue as a red main: fix main first, before merging other work
-onto it. Merges go through Mergify's merge queue, whose fast tier runs on each
-batch (see [Merge through the queue](#merge-through-the-queue)). Enabling or
-dispatching other workflows, and automated reviews, require
-explicit owner authorization; the disabled per-PR workflows' YAML is reference
-material, not a request to run them.
+onto it. A red test in a hot area
+([repeated failures](../../AGENTS.md#repeated-failures-mean-the-design-is-wrong))
+is a design task, a root-cause note and a redesign, not a patch. Merges go
+through Mergify's merge queue, whose fast tier runs on each batch (see
+[Merge through the queue](#merge-through-the-queue)). Enabling or dispatching
+other workflows, and automated reviews, require explicit owner authorization;
+the disabled per-PR workflows' YAML is reference material, not a request to run
+them.
 
 ## Choose useful checks
 
@@ -71,11 +74,18 @@ whole host; their internal parallelism and timeout budgets stay in their package
 configuration.
 
 Keep failures visible. Investigate missing verdicts, crashes and flaky behavior;
-a passing retry alone does not establish the cause. Never delete a failing test,
-weaken an assertion, raise a budget or add retries just to obtain green. A
-quarantine needs an explicit owner-held issue and an honest statement of the gap.
-Preserve unrelated baseline failures in the report rather than silently fixing
-them or expanding the PR.
+a passing retry alone does not establish the cause. Never delete a failing test or
+weaken an assertion to obtain green; tests that pin a mechanism a design change
+removes are deleted with it. A quarantine needs an explicit owner-held issue and
+an honest statement of the gap. Preserve unrelated baseline failures in the
+report rather than silently fixing them or expanding the PR.
+
+## Fix the design, not the instance
+
+Reproduce a failure on a machine of the failing platform; reproduce a timing
+failure by injecting deterministic delays. A hosted dispatch is the final proof:
+at most one per hypothesis. Never lengthen a budget or add a retry to make a test
+pass.
 
 ## Deliver an honest result
 
