@@ -196,8 +196,10 @@ windowsTest('natively reapplies the exact private directory ACL twice', async ()
 // BST-1941: the old Set-Acl path asked for SeSecurityPrivilege when it reapplied a
 // protected DACL, and an elevated token holds that privilege, so a plain run there
 // proves nothing. This PowerShell removes the privilege from its own token, which
-// processes it starts inherit, shows that a .NET SACL read now fails without it,
-// then has Node run the native apply and verify twice under that token.
+// processes it starts inherit, shows the token can no longer enable it, the request
+// BST-1941's Set-Acl made, then has Node run the native apply and verify twice under
+// that token. A .NET SACL read is no control, because on Windows 11 it succeeded
+// without the privilege (20 Oct, Sean's box).
 const withoutSecurityPrivilegeCommand = `
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -218,33 +220,28 @@ public static class BrainstrikeTokenPrivilege {
   static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32.dll")]
   static extern bool CloseHandle(IntPtr handle);
-  // 0 once removed, or 1300 (ERROR_NOT_ALL_ASSIGNED) when the token never held it.
-  public static int Remove(string name) {
+  // 0 once applied, or 1300 (ERROR_NOT_ALL_ASSIGNED) when the token does not hold the privilege.
+  static int Adjust(string name, uint attributes) {
     IntPtr token;
     // TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY
     if (!OpenProcessToken(GetCurrentProcess(), 0x28, out token)) { return Marshal.GetLastWin32Error(); }
     try {
       TokenPrivileges state = new TokenPrivileges();
       state.Count = 1;
-      state.Attributes = 4; // SE_PRIVILEGE_REMOVED
+      state.Attributes = attributes;
       if (!LookupPrivilegeValue(null, name, out state.Luid)) { return Marshal.GetLastWin32Error(); }
       if (!AdjustTokenPrivileges(token, false, ref state, 0, IntPtr.Zero, IntPtr.Zero)) { return Marshal.GetLastWin32Error(); }
       return Marshal.GetLastWin32Error();
     } finally { CloseHandle(token); }
   }
+  public static int Remove(string name) { return Adjust(name, 4); } // SE_PRIVILEGE_REMOVED
+  public static int Enable(string name) { return Adjust(name, 2); } // SE_PRIVILEGE_ENABLED
 }
 '@
 $removal = [BrainstrikeTokenPrivilege]::Remove('SeSecurityPrivilege')
-$sacl = 'read'
-try {
-  [void][System.IO.DirectoryInfo]::new($env:BRAINSTRIKE_ACL_TEST_PATH).GetAccessControl([System.Security.AccessControl.AccessControlSections]::Audit)
-} catch {
-  $failure = $_.Exception
-  while ($failure.InnerException) { $failure = $failure.InnerException }
-  $sacl = $failure.GetType().FullName
-}
+$enable = [BrainstrikeTokenPrivilege]::Enable('SeSecurityPrivilege')
 $native = & $env:BRAINSTRIKE_NODE -e $env:BRAINSTRIKE_NATIVE_SCRIPT
-[ordered]@{ native = "$native"; nativeExit = $LASTEXITCODE; removal = $removal; sacl = $sacl } | ConvertTo-Json -Compress
+[ordered]@{ enable = $enable; native = "$native"; nativeExit = $LASTEXITCODE; removal = $removal } | ConvertTo-Json -Compress
 `;
 // One line, single quotes only: Windows PowerShell 5.1 does not escape double
 // quotes in arguments to native commands.
@@ -273,10 +270,10 @@ windowsTest(
     );
     const observed: unknown = JSON.parse(result.stdout);
     expect(observed).toEqual({
+      enable: 1300,
       native: 'private private',
       nativeExit: 0,
       removal: expect.any(Number),
-      sacl: 'System.Security.AccessControl.PrivilegeNotHeldException',
     });
     expect([0, 1300]).toContain(Reflect.get(observed as object, 'removal'));
     const actual = await inspect(path, 'directory');
