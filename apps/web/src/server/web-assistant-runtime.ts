@@ -1,6 +1,5 @@
 import type { ParsedAssistantRequestEnvelope, RuntimeData } from '@brainstrike/agent/hosted-web';
 import {
-  type ConfiguredAssistantProviderConfig,
   type HostedWebAssistantProvider,
   isHostedWebAssistantProvider,
 } from './assistant-config.js';
@@ -28,6 +27,10 @@ export class InvalidWebAssistantRuntimeDataError extends Error {
  * admitted only after it matches the server's configured Hosted Web set; the
  * server still owns its key, default model, generation policy, and empty tool
  * registry. Every other field is rejected.
+ *
+ * @internal Production builds requests through filterWebAssistantPayload, which
+ * shares readClientRuntime; web-assistant-runtime.test.ts drives that allow-list
+ * through this function.
  */
 export function resolveWebAssistantRuntime(
   data: unknown,
@@ -68,21 +71,6 @@ export function resolveWebAssistantProvider(
     throw new InvalidWebAssistantRuntimeDataError('provider', 'invalid');
   }
   return requestedProvider;
-}
-
-export function resolveWebAssistantProviderConfig(
-  data: unknown,
-  configuredProviders: readonly ConfiguredAssistantProviderConfig[]
-): ConfiguredAssistantProviderConfig {
-  const provider = resolveWebAssistantProvider(
-    data,
-    configuredProviders.map((config) => config.provider)
-  );
-  const config = configuredProviders.find((candidate) => candidate.provider === provider);
-  if (!(config?.enabled && config.apiKey)) {
-    throw new InvalidWebAssistantRuntimeDataError('provider', 'invalid');
-  }
-  return config;
 }
 
 function readClientRuntime(data: unknown): Partial<RuntimeData> {

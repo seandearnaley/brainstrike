@@ -27,18 +27,3 @@ if (import.meta.hot) {
 export function getWebLogBuffer(): LogBuffer {
   return webLogBuffer;
 }
-
-/**
- * Manually pause the log buffer during intensive operations.
- * Prefer using withBulkOperation() which handles this automatically.
- */
-export function pauseWebLogBuffer(): void {
-  webLogBuffer.pause();
-}
-
-/**
- * Resume the log buffer after intensive operations.
- */
-export function resumeWebLogBuffer(): void {
-  webLogBuffer.resume();
-}
