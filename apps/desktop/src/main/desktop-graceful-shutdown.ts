@@ -24,6 +24,7 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'factory-reset',
   'snapshot-maintenance',
   'renderers',
+  'main-catalog',
   'child-processes',
   'native-index',
   'mcp-runtime',

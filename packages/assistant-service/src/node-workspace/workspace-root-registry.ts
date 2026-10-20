@@ -35,6 +35,7 @@ import {
   recordWorkspaceRoot,
 } from './workspace-root-catalog.js';
 import { WorkspaceRootMountTable } from './workspace-root-mounts.js';
+import { WorkspaceRootMutationLifetime } from './workspace-root-mutation-lifetime.js';
 import { pathKey, pathsEqual } from './workspace-root-paths.js';
 import {
   assertNativeAbsoluteReadPath,
@@ -97,7 +98,7 @@ export class WorkspaceRootRegistry {
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private readonly availability = new WorkspaceRootAvailability();
-  private mutationTail: Promise<void> = Promise.resolve();
+  private readonly mutations = new WorkspaceRootMutationLifetime();
   private readonly directReads = new Set<Promise<unknown>>();
   private rootDataDeletion: RootDataDeletionReservation | undefined;
   private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
@@ -240,13 +241,16 @@ export class WorkspaceRootRegistry {
     return descriptor;
   }
 
+  prepareClose(): Promise<void> {
+    return this.mutations.prepareClose();
+  }
+
   dispose(): Promise<void> {
     this.disposed = true;
     this.disposal ??= this.retireSourceLeases()
       .finally(async () => {
-        // Reader errors belong to their callers. Join physical settlement,
-        // even when source retirement failed, before closing any mount.
-        await Promise.all([this.mutationTail, Promise.allSettled([...this.directReads])]);
+        // Join caller-owned reads and mutations before closing mounts, even if source retirement failed.
+        await Promise.all([this.mutations.settled, Promise.allSettled([...this.directReads])]);
       })
       .then(() => {
         this.mounts.closeAll();
@@ -268,7 +272,7 @@ export class WorkspaceRootRegistry {
     if (this.rootDataDeletion) {
       throw new Error('Root data deletion owns workspace read admission.');
     }
-    await this.mutationTail;
+    await this.mutations.settled;
     this.assertActive();
     const mounted = this.mounts.get(rootId);
     if (!mounted) {
@@ -285,7 +289,7 @@ export class WorkspaceRootRegistry {
     if (this.rootDataDeletion) {
       throw new Error('Root data deletion owns workspace read admission.');
     }
-    await this.mutationTail;
+    await this.mutations.settled;
     this.assertActive();
     const mounted = this.mounts.findByEitherPath(requestedPath);
     if (!mounted) {
@@ -398,7 +402,7 @@ export class WorkspaceRootRegistry {
     if (this.rootDataDeletion) {
       throw new Error('Root data deletion owns workspace read admission.');
     }
-    await this.mutationTail;
+    await this.mutations.settled;
     this.assertActive();
     const resolved = await this.resolveRead(handle.path, handle.rootId);
     const listing = await resolved.mounted.root.listDir(
@@ -468,7 +472,7 @@ export class WorkspaceRootRegistry {
     if (this.rootDataDeletion) {
       throw new Error('Root data deletion owns workspace read admission.');
     }
-    await this.mutationTail;
+    await this.mutations.settled;
     this.assertActive();
     const mounted = this.mounts.get(claimedRootId);
     if (!mounted) {
@@ -507,7 +511,7 @@ export class WorkspaceRootRegistry {
     if (this.rootDataDeletion) {
       throw new Error('Root data deletion owns workspace read admission.');
     }
-    await this.mutationTail;
+    await this.mutations.settled;
     this.assertActive();
     const resolved = await this.resolveRead(requestedPath, rootId);
     return readResolvedWorkspaceFile(requestedPath, resolved);
@@ -515,6 +519,7 @@ export class WorkspaceRootRegistry {
 
   reserveRootDataDeletion(rootId: string): RootDataDeletionReservation {
     this.assertActive();
+    this.mutations.assertAdmission();
     if (!isDurableRootId(rootId)) {
       throw new Error('Root data deletion requires a durable root ID.');
     }
@@ -531,6 +536,7 @@ export class WorkspaceRootRegistry {
         throw new Error('The captured root data deletion grant was replaced or retired.');
       }
     };
+    const lifetime = this.mutations.reserve();
     const reservation: RootDataDeletionReservation = {
       assertCurrent,
       disconnect: async () => {
@@ -543,6 +549,7 @@ export class WorkspaceRootRegistry {
           throw new Error('Root deletion cannot release a different reservation.');
         }
         this.rootDataDeletion = undefined;
+        lifetime.release();
       },
       retireSources: async () => {
         assertCurrent();
@@ -551,10 +558,12 @@ export class WorkspaceRootRegistry {
         assertCurrent();
       },
       run: (operation) =>
-        this.serializeMutation(async () => {
-          assertCurrent();
-          await operation();
-        }, reservation),
+        lifetime.track(
+          this.serializeMutation(async () => {
+            assertCurrent();
+            await operation();
+          }, reservation)
+        ),
     };
     this.rootDataDeletion = reservation;
     return reservation;
@@ -971,22 +980,16 @@ export class WorkspaceRootRegistry {
     operation: () => Promise<T>,
     deletion?: RootDataDeletionReservation
   ): Promise<T> {
-    if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
-      return Promise.reject(new Error('Root data deletion owns workspace mutation admission.'));
-    }
-    const execute = async (): Promise<T> => {
-      this.assertActive();
-      if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
-        throw new Error('Root data deletion owns workspace mutation admission.');
-      }
-      return operation();
-    };
-    const result = this.mutationTail.then(execute, execute);
-    this.mutationTail = result.then(
-      () => undefined,
-      () => undefined
+    return this.mutations.run(
+      operation,
+      () => {
+        this.assertActive();
+        if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
+          throw new Error('Root data deletion owns workspace mutation admission.');
+        }
+      },
+      deletion !== undefined && deletion === this.rootDataDeletion
     );
-    return result;
   }
 
   private assertActive(): void {
