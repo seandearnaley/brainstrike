@@ -16,8 +16,8 @@ files contain only additional local constraints.
 
 - Preserve one authoritative writer and identity for each durable fact. Reuse
   existing owners and vendor primitives; discuss ownership or engine changes with
-  the owner before implementing them. Diagnose repeated failures before patching
-  again. Make failure visible; no silent fallback or weakened security boundary.
+  the owner before implementing them. Make failure visible; no silent fallback or
+  weakened security boundary.
 - Brainstrike is greenfield. Initialize the current schema and preserve fresh data
   across reopen, recovery, deletion and reset. Do not build legacy-data migrations
   or credential imports. Never access or reset Sean's protected profile; use
@@ -32,12 +32,27 @@ files contain only additional local constraints.
   work follows `docs/agents/effect-boundary.md`; infer versions and build commands
   from the installed packages and scripts.
 
+## Repeated failures mean the design is wrong
+
+Before fixing a failure, run `pnpm defect-density -- <paths>` on the product paths
+it exercises. An area with three or more fix commits or nightly-alert issues in 14
+days is hot: stop patching it. Write a one-page root-cause note covering all of
+those failures, then change the design, preferring removal. Removing a mechanism
+inside an existing owner is not an ownership change and needs no extra approval.
+
+Without a root-cause note, a fix may not add or lengthen a timer, deadline, retry,
+poll, close phase, join, fallback or test-only gate. Review-bot findings never
+become tickets or PRs on their own.
+
 ## Validation and delivery
 
 Choose checks for the changed behavior and its risk. Reproduce a bug before fixing
-it; add a regression test when it protects meaningful behavior. Demonstrate
-user-facing changes through the actual app flow. Documentation edits do not need
-an application regression campaign. Follow [validation guidance](docs/agents/ci-quality.md).
+it on a machine of the failing platform, and reproduce timing failures by
+injecting delays. Hosted CI is the final proof, not the debugging loop. Add a
+regression test when it protects meaningful behavior. Demonstrate user-facing
+changes through the actual app flow. Documentation edits do not need an
+application regression campaign. Follow
+[validation guidance](docs/agents/ci-quality.md).
 
 Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
 nightly on main and files failures to Linear (`nightly-alert`). Main lands only
@@ -46,7 +61,8 @@ through Mergify's merge queue: enqueue with
 main only when `Merge Queue Gate` passes on its batch. Do not enable
 workflows, dispatch hosted checks, request automated reviews, sign or publish
 without the owner's authorization. Report actual checks, failures and omitted coverage; never
-describe a partial run as a full pass. Use normal hooks and preserve failing tests.
+describe a partial run as a full pass. Use normal hooks and preserve failing tests;
+tests that pin a removed mechanism are deleted with it.
 
 Update documentation when a durable decision or user-facing contract changes,
 not as a routine PR requirement. Keep rules short; put operational detail in its
