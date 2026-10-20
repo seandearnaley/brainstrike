@@ -22,7 +22,10 @@ export function createNativeStartupFailureReporter(
   };
 }
 
-/** Observe acquisition and report fresh failures immediately, before later boot work. */
+/**
+ * Observe the initial reader acquisition and report a fresh failure at once. The first window
+ * never waits for it (owner decision 7.3(i)); the renderer shows the index's state instead.
+ */
 export function observeNativeReaderStartup(
   readiness: Promise<unknown>,
   onUnavailable: (error: unknown) => void
@@ -34,19 +37,4 @@ export function observeNativeReaderStartup(
       return { error, kind: 'unavailable' };
     }
   );
-}
-
-/** Initial rendering follows readiness or failure, unless graceful quit has begun. */
-export async function createInitialWindowAfterNativeReader<T>(
-  readiness: Promise<NativeReaderStartupOutcome>,
-  createWindow: () => Promise<T>,
-  onSettled: (outcome: NativeReaderStartupOutcome) => void,
-  isShuttingDown: () => boolean
-): Promise<T | undefined> {
-  const outcome = await readiness;
-  if (isShuttingDown()) {
-    return undefined;
-  }
-  onSettled(outcome);
-  return createWindow();
 }

@@ -539,7 +539,11 @@ it('preserves a new profile acquisition failure during missing-mode recovery wit
   try {
     await expect(f.activation.reconfigure()).rejects.toBe(cause);
     expect(mocks.acquire).not.toHaveBeenCalled();
-    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    // Index work borrows the host through profile admission, the one retry policy
+    // (lifecycle S7): it joined the failed owner's release, then started one
+    // replacement, which failed the same way.
+    expect(mocks.acquireProfile).toHaveBeenCalledTimes(2);
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
     await expect(capability.status()).resolves.toMatchObject({
       cause: { kind: 'source-failure', message: cause.message },
       phase: 'blocked',
@@ -548,7 +552,8 @@ it('preserves a new profile acquisition failure during missing-mode recovery wit
   } finally {
     await f.activation.close();
   }
-  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  // Close joins the release of the replacement that failed.
+  expect(mocks.closeProfile).toHaveBeenCalledTimes(2);
 });
 
 it.each([

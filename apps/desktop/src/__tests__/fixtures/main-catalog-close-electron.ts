@@ -61,6 +61,7 @@ const lease = createDesktopHostLease({
 });
 const profile = createDesktopProfileRuntime(() => lease);
 const runtime = createNativeIndexRuntime({
+  admitProfile: (signal) => admission.acquire(signal),
   closeQueries: async () => undefined,
   createIndexOwner: unused,
   getAuthority: unused,

@@ -107,7 +107,9 @@ describe.skipIf(process.platform === 'win32')(
       let supervisor: HostNativeChildren | undefined;
       const owner = createDesktopHostLease({
         fork: () => {
-          queueMicrotask(() => utility.emit('message', { event: 'ready' }));
+          queueMicrotask(() =>
+            utility.emit('message', { event: 'ready', record: attachment.record })
+          );
           return utility;
         },
         platform: (nativeChildren) => {
@@ -167,7 +169,9 @@ describe.skipIf(process.platform === 'win32')(
       const utility = new Utility();
       const owner = createDesktopHostLease({
         fork: () => {
-          queueMicrotask(() => utility.emit('message', { event: 'ready' }));
+          queueMicrotask(() =>
+            utility.emit('message', { event: 'ready', record: attachment.record })
+          );
           return utility;
         },
         platform: () => ({ close: async () => undefined, port: {} as MessagePortMain }),

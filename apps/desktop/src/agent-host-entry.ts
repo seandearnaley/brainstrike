@@ -4,6 +4,7 @@
 import '@brainstrike/secure-fs-native/default-owner';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
+import { lifecycleDelay, takeLifecycleDelays } from '@brainstrike/host-lease/lifecycle-delays';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
@@ -12,6 +13,8 @@ async function main(): Promise<void> {
   if (!parent) {
     throw new Error('Agent host utility has no parent channel');
   }
+  // Only Main's fork env carries it (the E2E seam); removed so no host descendant inherits it.
+  const lifecycleDelays = takeLifecycleDelays();
   // BST-1977: CJS dependency evaluation used to precede the parent listener.
   // Capture first, then install the existing decoders before loading Core.
   const inbox = createUtilityParentInbox(parent);
@@ -79,6 +82,9 @@ async function main(): Promise<void> {
       report: async (message: StartupMessage) => {
         if (message.event === 'failed') {
           retained = message.ownership === 'retained';
+        }
+        if (message.event === 'ready') {
+          await lifecycleDelay(lifecycleDelays, 'host-ready');
         }
         parent.postMessage(message);
       },

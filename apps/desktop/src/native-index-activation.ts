@@ -119,6 +119,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     });
   };
   const runtime = createNativeIndexRuntime({
+    admitProfile: (signal) => admission.acquire(signal),
     closeQueries: closeAllIndexQueries,
     createIndexOwner: async (authorized) => {
       const databasePath = path.join(resolveDesktopDatabaseProfileDirectory(), 'index.sqlite');

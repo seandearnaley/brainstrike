@@ -41,7 +41,7 @@ interface Settled {
 function counted(host: HostRuntime, settled: Settled, retire?: () => Promise<void>): StartedHost {
   hosts.push(host);
   return {
-    identity: { pid: host.record.pid, start: host.record.start },
+    record: host.record,
     release: async () => {
       settled.released += 1;
     },
@@ -86,11 +86,14 @@ test('a launch whose attach fails retires the host it started before it rejects'
   expect(rootFree(root)).toBe(true);
 });
 
-test('a host its starter reports after the startup deadline is retired, not abandoned', async () => {
+test('a host its starter reports after its caller cancelled is retired, not abandoned', async () => {
   const root = await freshRoot();
   const settled = { released: 0, retired: 0 };
+  const caller = new AbortController();
+  setTimeout(() => caller.abort(new Error('Host start cancelled')), 25);
   const refused = await launchHost(root, {
     lifetime: 'persistent',
+    signal: caller.signal,
     // A starter that sees its signal abort but reports its host started anyway.
     spawn: async (options, signal) => {
       await new Promise<void>((resolve) =>
@@ -98,10 +101,9 @@ test('a host its starter reports after the startup deadline is retired, not aban
       );
       return counted(await startHost(options), settled);
     },
-    startupTimeoutMs: 25,
   }).catch((cause: unknown) => cause);
 
-  expect(refused).toMatchObject({ message: 'Host startup timed out' });
+  expect(refused).toMatchObject({ message: 'Host start cancelled' });
   expect(settled).toEqual({ released: 0, retired: 1 });
   expect(rootFree(root)).toBe(true);
 });

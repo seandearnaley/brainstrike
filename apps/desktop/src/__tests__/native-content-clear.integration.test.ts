@@ -22,6 +22,7 @@ it('removes the same inactive native database and sidecars before the live profi
     close: profileClose,
   }));
   const runtime = createNativeIndexRuntime({
+    admitProfile: (signal) => profile.acquire(signal),
     closeQueries: async () => undefined,
     createIndexOwner: async (authority) => {
       const starting = openIndexer(

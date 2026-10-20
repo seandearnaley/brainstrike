@@ -69,7 +69,12 @@ it.each(['mounted-first', 'retained-first'] as const)(
       scopes: [workspace, collection, otherCollection],
     };
     let publication: ReturnType<typeof createNativeCanonicalPublication> | undefined;
+    const profileRuntime = createDesktopProfileRuntime(() => ({
+      acquire: async () => {},
+      close: async () => {},
+    }));
     const runtime = createNativeIndexRuntime({
+      admitProfile: (signal) => profileRuntime.acquire(signal),
       closeQueries: async () => {},
       createIndexOwner: async (owned) => {
         const starting = openIndexer(
@@ -86,10 +91,7 @@ it.each(['mounted-first', 'retained-first'] as const)(
       getAuthority: async () => authority,
       getFileInvalidator: () => publication?.invalidateFile,
       installQueryTarget: () => {},
-      profile: createDesktopProfileRuntime(() => ({
-        acquire: async () => {},
-        close: async () => {},
-      })),
+      profile: profileRuntime,
     });
     try {
       const writer = await runtime.acquire();

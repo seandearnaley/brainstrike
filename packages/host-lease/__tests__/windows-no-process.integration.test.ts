@@ -36,7 +36,7 @@ async function freshRoot(): Promise<string> {
 function owned(host: HostRuntime): StartedHost {
   hosts.push(host);
   return {
-    identity: { pid: host.record.pid, start: host.record.start },
+    record: host.record,
     release: async () => undefined,
     retire: () => host.close(),
   };
