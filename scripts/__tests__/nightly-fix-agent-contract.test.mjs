@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { CLAIM_LIFETIME_MINUTES } from '../nightly-fix-issue.mjs';
 
@@ -78,7 +87,7 @@ function assertFixJob(source) {
   );
   assert.deepEqual(
     fix.permissions,
-    { actions: 'read', contents: 'read' },
+    { actions: 'read', contents: 'read', 'pull-requests': 'read' },
     'the agent job is read-only'
   );
   assert.equal(fix.env, undefined, 'no job-level environment reaches the agent');
@@ -135,7 +144,7 @@ function assertSecretsStayScoped(source) {
       if (secretsIn(step.env).includes('LINEAR_API_KEY')) {
         assert.match(
           String(step.run),
-          /^\s*(?:[\s\S]*\n)?\s*node scripts\/nightly-fix-issue\.mjs /mu,
+          /^\s*(?:[\s\S]*\n)?\s*node "\$RUNNER_TEMP\/nightly-control\/scripts\/nightly-fix-issue\.mjs" /mu,
           `${jobId} › ${step.name}: only the Linear script reads LINEAR_API_KEY`
         );
       }
@@ -156,14 +165,17 @@ function assertClaimOutlivesRuns(source) {
 function assertPublishJob(source) {
   const publish = parseYaml(source).jobs.publish;
   assert.deepEqual(publish.needs, ['fix']);
-  assert.deepEqual(publish.permissions, { contents: 'write', 'pull-requests': 'write' });
+  assert.deepEqual(publish.permissions, {
+    actions: 'read',
+    contents: 'write',
+    'pull-requests': 'write',
+  });
   const script = stepsOf(publish)
     .map((step) => step.run ?? '')
     .join('\n');
-  assert.match(script, /branch="nightly-fix\//u, 'publishes only a nightly-fix/ branch');
-  assert.match(script, /git push origin "refs\/heads\/\$branch:refs\/heads\/\$branch"/u);
-  assert.match(script, /printf 'Fixes %s\\n\\n' "\$ISSUE"/u, 'the PR body carries Fixes <issue>');
-  assert.match(script, /gh pr create --base main /u);
+  assertPublicationQueue(source);
+  assert.match(script, /nightly-fix-publication\.mjs" publish/u);
+
   assert.doesNotMatch(
     script,
     /gh pr merge|--auto|git push[^\n]*\bmain\b/u,
@@ -259,16 +271,11 @@ function assertFollowUpCalls(source) {
 
 /** The agent builds on the night's commit and reads the night's run, never main's head. */
 function assertNightsCommit(followUpSource, agentSource) {
-  for (const [file, source] of [
-    [FOLLOW_UP, followUpSource],
-    [AGENT, agentSource],
-  ]) {
-    assert.doesNotMatch(
-      source,
-      /\bgithub\.sha\b/u,
-      `${file}: under workflow_run github.sha is main's head, not the night's commit`
-    );
-  }
+  assert.doesNotMatch(
+    followUpSource,
+    /\bgithub\.sha\b/u,
+    "the night's head is never the follow-up's main head"
+  );
   const { jobs } = parseYaml(followUpSource);
   const nightly = stepsOf(jobs.queue).find((step) => step.id === 'nightly');
   assert.equal(
@@ -290,10 +297,20 @@ function assertNightsCommit(followUpSource, agentSource) {
   for (const input of ['head_sha', 'nightly_run_id']) {
     assert.equal(agent.on.workflow_call.inputs[input]?.required, true, `${AGENT} needs ${input}`);
   }
-  const pinned = { BASE_SHA: 0, checkout: 0 };
+  const pinned = { BASE_SHA: 0, checkout: 0, control: 0 };
   for (const [jobId, job] of Object.entries(agent.jobs)) {
     for (const step of stepsOf(job)) {
-      if (String(step.uses).startsWith('actions/checkout@')) {
+      if (
+        String(step.uses).startsWith('actions/checkout@') &&
+        step.name === 'Checkout publication controls'
+      ) {
+        assert.equal(
+          step.with?.ref,
+          expression('github.sha'),
+          'controls come from the workflow revision'
+        );
+        pinned.control += 1;
+      } else if (String(step.uses).startsWith('actions/checkout@')) {
         assert.equal(
           step.with?.ref,
           expression('inputs.head_sha'),
@@ -311,7 +328,21 @@ function assertNightsCommit(followUpSource, agentSource) {
       }
     }
   }
-  assert.deepEqual(pinned, { BASE_SHA: 2, checkout: 2 }, 'the fix and publish jobs both pin it');
+  assert.equal(pinned.checkout, 2, 'the fix and publish jobs both pin the night');
+  assert.equal(pinned.control, 2, 'both stage workflow-revision controls');
+  assert.ok(pinned.BASE_SHA >= 2, 'publication metadata pins the night');
+  for (const job of Object.values(agent.jobs)) {
+    const steps = stepsOf(job);
+    const control = steps.findIndex((s) => s.name === 'Checkout publication controls');
+    const stage = steps.findIndex((s) => s.name === 'Stage publication controls');
+    const product = steps.findIndex((s) => s.name === 'Checkout');
+    assert.ok(
+      control < stage && stage < product,
+      'controls staged before checking out the product'
+    );
+    assert.match(steps[stage].run, /nightly-fix-publication\.mjs/u);
+    assert.match(steps[stage].run, /lib\/linear-api\.mjs/u);
+  }
   assert.equal(
     agentStep(agent.jobs.fix).env.NIGHTLY_FIX_RUN_ID,
     expression('inputs.nightly_run_id'),
@@ -614,7 +645,7 @@ test('Desktop E2E queues its issues for agents on its lanes’ runner, alone of 
 test('CONTROL: the follow-up on main’s head instead of the night’s commit FAILS', () => {
   const source = read(FOLLOW_UP);
   const mainHead = mutate(source, 'github.event.workflow_run.head_sha', 'github.sha');
-  assert.throws(() => assertNightsCommit(mainHead, read(AGENT)), /main's head/u);
+  assert.throws(() => assertNightsCommit(mainHead, read(AGENT)), /main head/u);
   const unpinned = mutate(read(AGENT), /\n {10}ref: \$\{\{ inputs\.head_sha \}\}/gu, '');
   assert.throws(() => assertNightsCommit(source, unpinned), /checks out the night's commit/u);
 });
@@ -679,8 +710,8 @@ test('CONTROL: a writable agent token FAILS the read-only check', () => {
   const source = read(AGENT);
   const writable = mutate(
     source,
-    '      actions: read\n      contents: read\n    outputs:',
-    '      actions: read\n      contents: write\n    outputs:'
+    '      actions: read\n      contents: read\n      pull-requests: read\n    outputs:',
+    '      actions: read\n      contents: write\n      pull-requests: read\n    outputs:'
   );
   assert.throws(() => assertFixJob(writable), /read-only/u);
   const appToken = mutate(source, `          github_token: ${expression('github.token')}\n`, '');
@@ -712,8 +743,268 @@ test('CONTROL: a gate that skips quietly FAILS the visible-failure check', () =>
 test('CONTROL: a publish step that merges FAILS', () => {
   const merging = mutate(
     read(AGENT),
-    '          echo "url=$url" >> "$GITHUB_OUTPUT"',
-    '          echo "url=$url" >> "$GITHUB_OUTPUT"\n          gh pr merge "$url" --squash'
+    ' publish\n',
+    ' publish\n          gh pr merge "$url" --squash'
   );
   assert.throws(() => assertPublishJob(merging), /never merges/u);
+});
+
+function assertPublicationQueue(source) {
+  assert.deepEqual(
+    parseYaml(source).jobs.publish.concurrency,
+    { 'cancel-in-progress': false, group: 'nightly-fix-publish', queue: 'max' },
+    'all publishers share the queued critical section'
+  );
+}
+
+test('BST-2261: publication uses a repository-wide queue without canceling waiting patches', () => {
+  assertPublicationQueue(read(AGENT));
+});
+
+/** The actual publisher shell/Node step; only external Git/GitHub are substituted. */
+function runPublisher({
+  pages = [[{ number: 1 }, { number: 2 }, { number: 3 }, { draft: true, number: 4 }]],
+  existing = [],
+  apiError = false,
+  owner = 'bot',
+  badDigest = false,
+  mode = 'publication',
+} = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'nightly-publish-step-'));
+  try {
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin);
+    const log = path.join(dir, 'calls');
+    writeFileSync(log, '');
+    const state = path.join(dir, 'state.json');
+    if (Array.isArray(pages)) {
+      pages = pages.map((page) => page.map((entry) => ({ state: 'open', ...entry })));
+    }
+    writeFileSync(state, JSON.stringify({ apiError, badDigest, existing, owner, pages }));
+    const shim = `#!${process.execPath}
+const fs=require('node:fs'); const a=process.argv.slice(2); const file=process.env.FAKE_STATE;
+const state=JSON.parse(fs.readFileSync(file,'utf8')); const tool=require('node:path').basename(process.argv[1]);
+fs.appendFileSync(process.env.FAKE_CALLS, JSON.stringify({tool,args:a})+'\\n');
+if(tool==='git'){ if(a[0]==='rev-parse') console.log('c'.repeat(40)); process.exit(0); }
+if(a[0]==='pr'&&a[1]==='create'){state.pages[0].push({number:99});fs.writeFileSync(file,JSON.stringify(state));console.log('https://github.com/o/r/pull/99');process.exit(0);}
+if(state.apiError){console.error('HTTP 503');process.exit(1);}
+if(a.some(x=>x.includes('/actions/artifacts/'))){console.log(JSON.stringify({id:9,name:'nightly-fix--BST-3000',expired:false,expires_at:'2099-01-01T00:00:00.000Z',digest:'sha256:'+(state.badDigest?'e':'d').repeat(64),workflow_run:{head_sha:'b'.repeat(40)}}));process.exit(0);}
+if(a.some(x=>x.includes('/actions/runs/')&&x.endsWith('/artifacts'))){console.log(JSON.stringify([[{id:9,name:'nightly-fix--BST-3000',expired:false,expires_at:'2099-01-01T00:00:00.000Z',digest:'sha256:'+(state.badDigest?'e':'d').repeat(64),workflow_run:{head_sha:'b'.repeat(40)}}]]));process.exit(0);}
+if(a.includes('state=all')){console.log(JSON.stringify([state.existing]));process.exit(0);}
+if(a.some(x=>x.includes('/matching-refs/'))){console.log('[]');process.exit(0);}
+console.log(JSON.stringify(state.pages));
+`;
+    for (const name of ['git', 'gh']) {
+      writeFileSync(path.join(bin, name), shim);
+      chmodSync(path.join(bin, name), 0o755);
+    }
+    const patch = path.join(dir, 'nightly-fix');
+    mkdirSync(patch);
+    writeFileSync(path.join(patch, 'pr.md'), 'fix: fixture (BST-3000)\nActual fix evidence.\n');
+    writeFileSync(path.join(patch, 'fix.bundle'), 'fixture');
+    const control = path.join(dir, 'nightly-control/scripts');
+    mkdirSync(control, { recursive: true });
+    cpSync(
+      path.join(repoRoot, 'scripts/nightly-fix-issue.mjs'),
+      path.join(control, 'nightly-fix-issue.mjs')
+    );
+    mkdirSync(path.join(control, 'lib'));
+    cpSync(
+      path.join(repoRoot, 'scripts/lib/linear-api.mjs'),
+      path.join(control, 'lib/linear-api.mjs')
+    );
+    const helper = path.join(repoRoot, 'scripts/nightly-fix-publication.mjs');
+    cpSync(helper, path.join(control, 'nightly-fix-publication.mjs'));
+    const output = path.join(dir, 'output');
+    writeFileSync(output, '');
+    const preload = path.join(dir, 'linear.mjs');
+    writeFileSync(
+      preload,
+      `import {readFileSync} from 'node:fs';
+const state=JSON.parse(readFileSync(process.env.FAKE_STATE,'utf8'));
+const receipt={version:1,issue:'BST-3000',claimant:'github-run:77',repository:'o/r',runId:'77',baseSha:'a'.repeat(40),headSha:'c'.repeat(40),controlSha:'b'.repeat(40),artifactId:9,artifactDigest:'sha256:'+'d'.repeat(64),branch:'nightly-fix/bst-3000-77',expiresAt:'2099-01-01T00:00:00.000Z'};
+globalThis.fetch=async(url,init)=>{if(url!=='https://api.linear.app/graphql')throw Error('Unexpected network');const q=JSON.parse(init.body).query;let data;
+if(q.includes('mutation'))throw Error('Admission must be read-only');
+if(q.includes('comments('))data={issue:{comments:{nodes:[{body:'Fix patch retained: '+JSON.stringify(receipt),createdAt:'2026-10-20T01:00:00Z'},{body:'Claimed by '+String.fromCharCode(96)+(state.owner==='person'?'sean':'github-run:77')+String.fromCharCode(96),createdAt:'2026-10-20T00:00:00Z'}],pageInfo:{hasNextPage:false,endCursor:null}}}};
+else if(q.includes('viewer'))data={viewer:{id:'u1'}};
+else data={issue:{id:'id1',identifier:'BST-3000',team:{key:'BST'},labels:{nodes:[{name:'nightly-alert'}]},state:{type:state.owner==='unstarted'?'unstarted':'started'},assignee:{id:state.owner==='reassigned'?'u2':'u1',name:'owner'}}};
+return new Response(JSON.stringify({data}));};`
+    );
+    const source = read(AGENT);
+    const steps = stepsOf(parseYaml(source).jobs[mode === 'artifact' ? 'fix' : 'publish']);
+    const step =
+      mode === 'artifact'
+        ? steps.find((s) => s.name === 'Name the retained patch artifact')
+        : steps.find((s) => s.id === 'publication');
+    assert.ok(step, 'the workflow has its real publisher step');
+    const scripts =
+      mode === 'artifact' ? [step] : steps.filter((s) => ['verify-claim', step.id].includes(s.id));
+    const result = spawnSync('bash', ['-e', '-c', scripts.map((s) => s.run).join('\n')], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ARTIFACT_DIGEST: 'd'.repeat(64),
+        ARTIFACT_ID: '9',
+        BASE_SHA: 'a'.repeat(40),
+        CONTROL_SHA: 'b'.repeat(40),
+        FAKE_CALLS: log,
+        FAKE_STATE: state,
+        GITHUB_OUTPUT: output,
+        GITHUB_REPOSITORY: 'o/r',
+        GITHUB_RUN_ID: '77',
+        GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
+        ISSUE: 'BST-3000',
+        LINEAR_API_KEY: 'fixture-key',
+        NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
+        PATCH_SHA: 'c'.repeat(40),
+        PATH: `${bin}:${process.env.PATH}`,
+        RUNNER_TEMP: dir,
+      },
+    });
+    const calls = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    return {
+      ...result,
+      calls,
+      files: {
+        ...Object.fromEntries(
+          ['retained.json', 'blocked.md', 'pr-body.md']
+            .filter((n) => existsSync(path.join(patch, n)))
+            .map((n) => [n, readFileSync(path.join(patch, n), 'utf8')])
+        ),
+      },
+      output: readFileSync(output, 'utf8'),
+      state: JSON.parse(readFileSync(state, 'utf8')),
+    };
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+test('BST-2261: four open PRs including drafts block the real publisher before PR creation', () => {
+  const result = runPublisher();
+  assert.notEqual(result.status, 0, 'capacity denial is visible');
+  assert.equal(
+    result.calls.filter((c) => c.tool === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create')
+      .length,
+    0
+  );
+  assert.ok(
+    result.calls.some((c) => c.tool === 'git' && c.args[0] === 'push'),
+    'the retained patch branch survives denial'
+  );
+});
+
+const created = (result) =>
+  result.calls.filter((c) => c.tool === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create');
+test('BST-2261: capacity counts every page and a second serialized publisher reads the changed count', () => {
+  const three = [[{ number: 1 }, { number: 2 }], [{ draft: true, number: 3 }]];
+  const first = runPublisher({ pages: three });
+  assert.equal(first.status, 0, first.stdout + first.stderr);
+  assert.equal(created(first).length, 1);
+  assert.match(first.files['pr-body.md'], /^Fixes BST-3000\n/u);
+  const next = runPublisher({ pages: first.state.pages });
+  assert.notEqual(next.status, 0);
+  assert.equal(created(next).length, 0);
+  assert.match(next.files['blocked.md'], /4 open PRs/);
+  assert.match(next.files['blocked.md'], /expires/);
+  assert.match(next.output, /retained=true/);
+});
+test('BST-2261: failed or malformed API data never becomes zero open PRs', () => {
+  for (const options of [
+    { apiError: true },
+    { pages: null },
+    { pages: [[{ number: 'bad', state: 'open' }]] },
+  ]) {
+    const result = runPublisher(options);
+    assert.notEqual(result.status, 0);
+    assert.equal(created(result).length, 0);
+  }
+});
+test('BST-2261: an exact existing PR is reused despite a full budget; changed/closed heads are refused', () => {
+  const pr = {
+    base: { ref: 'main' },
+    head: { ref: 'nightly-fix/bst-3000-77', repo: { full_name: 'o/r' }, sha: 'c'.repeat(40) },
+    html_url: 'https://github.com/o/r/pull/9',
+    number: 9,
+    state: 'open',
+  };
+  const existing = runPublisher({ existing: [pr] });
+  assert.equal(existing.status, 0, existing.stderr);
+  assert.equal(created(existing).length, 0);
+  assert.match(existing.output, /url=https:\/\/github.com\/o\/r\/pull\/9/);
+  for (const invalid of [
+    { ...pr, state: 'closed' },
+    { ...pr, head: { ...pr.head, sha: 'd'.repeat(40) } },
+  ]) {
+    const result = runPublisher({ existing: [invalid] });
+    assert.notEqual(result.status, 0);
+    assert.equal(created(result).length, 0);
+  }
+});
+test('BST-2261 CONTROL: a canceling, replacing or per-issue publication group fails', () => {
+  const source = read(AGENT);
+  for (const [from, to] of [
+    ['queue: max', 'queue: single'],
+    ['group: nightly-fix-publish', `group: nightly-fix-publish-${expression('inputs.issue')}`],
+    ['queue: max\n      cancel-in-progress: false', 'queue: max\n      cancel-in-progress: true'],
+  ]) {
+    assert.throws(() => assertPublicationQueue(mutate(source, from, to)));
+  }
+});
+
+test('BST-2261 RED: a queued publisher whose claim changes performs no push or PR creation', () => {
+  for (const owner of ['person', 'unstarted', 'reassigned']) {
+    const result = runPublisher({ owner, pages: [[{ number: 1 }, { number: 2 }, { number: 3 }]] });
+    assert.notEqual(result.status, 0, owner);
+    assert.equal(created(result).length, 0, owner);
+    assert.equal(
+      result.calls.filter((c) => c.tool === 'git' && c.args[0] === 'push').length,
+      0,
+      owner
+    );
+  }
+});
+test('BST-2261 RED: artifact metadata digest must equal the upload digest', () => {
+  const result = runPublisher({
+    badDigest: true,
+    pages: [[{ number: 1 }, { number: 2 }, { number: 3 }]],
+  });
+  assert.notEqual(result.status, 0);
+  assert.equal(created(result).length, 0);
+});
+
+test('BST-2261: uploaded artifact digest is carried and validated before retaining it', () => {
+  const valid = runPublisher({ mode: 'artifact' });
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.equal(JSON.parse(valid.files['retained.json']).artifactDigest, `sha256:${'d'.repeat(64)}`);
+  const invalid = runPublisher({ badDigest: true, mode: 'artifact' });
+  assert.notEqual(invalid.status, 0);
+  assert.equal(created(invalid).length, 0);
+});
+test('BST-2261: ownership admission precedes reconciliation/push and the agent retains only read scopes', () => {
+  const source = read(AGENT),
+    workflow = parseYaml(source),
+    steps = stepsOf(workflow.jobs.publish);
+  const guard = steps.findIndex((s) => s.id === 'verify-claim');
+  assert.ok(
+    guard >= 0 &&
+      guard < steps.findIndex((s) => s.id === 'reconcile') &&
+      guard < steps.findIndex((s) => s.id === 'publication')
+  );
+  assert.match(steps[guard].run, /nightly-fix-issue\.mjs" verify/u);
+  assert.deepEqual(workflow.jobs.fix.permissions, {
+    actions: 'read',
+    contents: 'read',
+    'pull-requests': 'read',
+  });
+  const noArtifacts = mutate(
+    source,
+    '    permissions:\n      actions: read\n      contents: read',
+    '    permissions:\n      contents: read'
+  );
+  assert.throws(() => assertFixJob(noArtifacts), /read-only/u);
 });
