@@ -480,9 +480,10 @@ export const GIT_INVENTORY_SNAPSHOT_TTL_MS = 5000;
  * abandoning it (BST-1112 review, codex P1 3712467640). `stop()` aborts the
  * build's `AbortSignal` first — this is the fallback for a build that does
  * not honor it (an `InventoryFs`/`GitCommandRunner` that ignores `signal`,
- * or work already past its last abort check) — so `main.ts`'s
- * `SIGNAL_SHUTDOWN_TIMEOUT_MS` (5s) forced-exit never fires because THIS
- * drain alone ran that long.
+ * or work already past its last abort check). It was sized against Main's
+ * quit deadline, which ADR-0026 deleted: quit now waits for every step and
+ * skips none, so this bound no longer protects a deadline. It still lets
+ * `stop()` resolve while such a build runs on.
  */
 export const GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS = 2000;
 
@@ -950,12 +951,12 @@ export function createGitInventoryService(
    * 3712467640) rather than awaiting it unconditionally: the caller's "torn
    * down while the DB is still available" ordering — `main.ts` runs this step
    * BEFORE the `database` shutdown step precisely because `loadRoots` reads
-   * the DB — wants that DB read settled before `stop()` resolves, but an
-   * unconditional await made `stop()` itself the shutdown-deadline hazard
-   * instead: a build can hold up to `GIT_DEFAULT_TIMEOUT_MS` (30s) PER git
-   * spawn, far past `main.ts`'s `SIGNAL_SHUTDOWN_TIMEOUT_MS` (5s) forced-exit,
-   * which would then skip the database/error-log shutdown steps entirely.
-   * `buildAbortController.abort()` is tried FIRST — it kills an in-flight
+   * the DB — wants that DB read settled before `stop()` resolves. The bound
+   * was added when an unconditional await made `stop()` a hazard for Main's
+   * quit deadline: a build can hold up to `GIT_DEFAULT_TIMEOUT_MS` (30s) PER
+   * git spawn, and that deadline then skipped every later shutdown step.
+   * ADR-0026 deleted the deadline (quit joins every step and skips none), so
+   * the bound no longer protects it. `buildAbortController.abort()` is tried FIRST — it kills an in-flight
    * `git` child process immediately (`execFileGitRunner`'s `signal`
    * passthrough) and stops the walk from queueing further `readdir`s — so the
    * bounded wait below is normally a formality, not the common path. If the
