@@ -1,4 +1,8 @@
 import {
+  hasRendererClosePreparationStarted,
+  registerDurableFlush,
+} from '@brainstrike/app-state/renderer-close';
+import {
   type PanelTab,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
@@ -378,6 +382,8 @@ function useDebouncedPanelLayoutChange(options: {
   const panelStateRef = useRef(panelState);
   const setStateRef = useRef(setState);
   const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The resize the debounce still holds: the panel layout's only write-behind tail. */
+  const pendingSizesRef = useRef<DebouncedPanelLayoutState | null>(null);
 
   panelStateRef.current = panelState;
   setStateRef.current = setState;
@@ -388,53 +394,77 @@ function useDebouncedPanelLayoutChange(options: {
     }
   }, []);
 
+  /** Commits the held resize; the panel layout store writes it through to storage at once. */
+  const commitPendingSizes = useCallback(() => {
+    if (sizeDebounceRef.current) {
+      clearTimeout(sizeDebounceRef.current);
+      sizeDebounceRef.current = null;
+    }
+    const pending = pendingSizesRef.current;
+    pendingSizesRef.current = null;
+    if (pending) {
+      setStateRef.current(pending);
+    }
+  }, []);
+
   useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
+  // Every document unload commits a held resize first (ADR-0026 R1).
+  useEffect(() => {
+    if (hasRendererClosePreparationStarted()) {
+      return;
+    }
+    return registerDurableFlush(async () => {
+      commitPendingSizes();
+    });
+  }, [commitPendingSizes]);
 
   // Stable callback: all mutable panel state flows through refs so resize commits
   // do not recreate the outer or inner layout trees.
-  return useCallback((state: PanelLayoutState) => {
-    const currentPanelState = panelStateRef.current;
-    const fallback = currentPanelState.sizes;
-    const nextSizes = [
-      (state.sizes?.[0] as number | undefined) ?? fallback[0],
-      (state.sizes?.[1] as number | undefined) ?? fallback[1],
-      (state.sizes?.[2] as number | undefined) ?? fallback[2],
-    ] as [number, number, number];
+  return useCallback(
+    (state: PanelLayoutState) => {
+      const currentPanelState = panelStateRef.current;
+      const fallback = currentPanelState.sizes;
+      const nextSizes = [
+        (state.sizes?.[0] as number | undefined) ?? fallback[0],
+        (state.sizes?.[1] as number | undefined) ?? fallback[1],
+        (state.sizes?.[2] as number | undefined) ?? fallback[2],
+      ] as [number, number, number];
 
-    const booleansChanged =
-      state.showConsole !== currentPanelState.showConsole ||
-      state.showLeftPanel !== currentPanelState.showLeftPanel ||
-      state.showRightPanel !== currentPanelState.showRightPanel;
+      const booleansChanged =
+        state.showConsole !== currentPanelState.showConsole ||
+        state.showLeftPanel !== currentPanelState.showLeftPanel ||
+        state.showRightPanel !== currentPanelState.showRightPanel;
 
-    if (booleansChanged) {
+      if (booleansChanged) {
+        if (sizeDebounceRef.current) {
+          clearTimeout(sizeDebounceRef.current);
+          sizeDebounceRef.current = null;
+        }
+        pendingSizesRef.current = null;
+        setStateRef.current({
+          ...currentPanelState,
+          showConsole: state.showConsole,
+          showLeftPanel: state.showLeftPanel,
+          showRightPanel: state.showRightPanel,
+          sizes: nextSizes,
+        });
+        return;
+      }
+
       if (sizeDebounceRef.current) {
         clearTimeout(sizeDebounceRef.current);
-        sizeDebounceRef.current = null;
       }
-      setStateRef.current({
+      pendingSizesRef.current = {
         ...currentPanelState,
         showConsole: state.showConsole,
         showLeftPanel: state.showLeftPanel,
         showRightPanel: state.showRightPanel,
         sizes: nextSizes,
-      });
-      return;
-    }
-
-    if (sizeDebounceRef.current) {
-      clearTimeout(sizeDebounceRef.current);
-    }
-    sizeDebounceRef.current = setTimeout(() => {
-      sizeDebounceRef.current = null;
-      setStateRef.current({
-        ...currentPanelState,
-        showConsole: state.showConsole,
-        showLeftPanel: state.showLeftPanel,
-        showRightPanel: state.showRightPanel,
-        sizes: nextSizes,
-      });
-    }, 150);
-  }, []);
+      };
+      sizeDebounceRef.current = setTimeout(commitPendingSizes, 150);
+    },
+    [commitPendingSizes]
+  );
 }
 
 /**
