@@ -3,7 +3,10 @@ import {
   resolveMcpHostControlActions,
 } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
-import { connectClient } from '@brainstrike/host-capabilities/mcp/host-connection';
+import {
+  connectClient,
+  type ExplicitClient,
+} from '@brainstrike/host-capabilities/mcp/host-connection';
 import { McpLifecycleFailure } from '@brainstrike/host-capabilities/mcp/lifecycle-errors';
 import {
   createInMemoryMcpOAuthStore,
@@ -12,7 +15,7 @@ import {
   type McpOAuthClientProvider,
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopMcpHostRuntime, type ExplicitClient } from '../../mcp/host-runtime';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 
 let runtime: ReturnType<typeof createDesktopMcpHostRuntime> | undefined;
 

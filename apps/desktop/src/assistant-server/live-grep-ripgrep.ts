@@ -157,12 +157,15 @@ export async function resolveRipgrepPath(): Promise<string | null> {
  * Test-only: run the (un-memoized) ripgrep discovery and return the resolved
  * absolute path (or null). Lets a test assert rg was resolved from a PATH entry
  * rather than a hardcoded location.
+ * @internal Live grep integration regressions verify native ripgrep discovery.
  */
 export function discoverRipgrepPathForTests(): Promise<string | null> {
   return discoverRipgrepPath();
 }
 
-/** Test-only: reset the memoized ripgrep resolution between cases. */
+/** Test-only: reset the memoized ripgrep resolution between cases.
+ * @internal Isolates native ripgrep availability regressions.
+ */
 export function resetRipgrepAvailabilityForTests(): void {
   resolvedRipgrepPath = undefined;
 }

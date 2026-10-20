@@ -83,11 +83,6 @@ export interface DesktopHostChild {
   readonly exited: Promise<number>;
   postClientPort(port: MessagePortMain): void;
 }
-/** The app-owned agent host composition: its platform port, module and launch selection. */
-export type DesktopAgentHostPlatform = Pick<
-  DesktopHostLeaseOptions,
-  'onChildReady' | 'platform' | 'platformModule' | 'platformOptions'
->;
 export interface DesktopHostLease {
   acquire(): Promise<HostAttachment>;
   clearAndRetireContent(): Promise<ClearContentResult>;

@@ -18,9 +18,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
 import {
   hasDotGitSegmentForTests,
-  resetRipgrepAvailabilityForTests,
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
+import { resetRipgrepAvailabilityForTests } from '../../assistant-server/live-grep-ripgrep';
 import { type IndexedGrepRow, nativeGrepFixture } from './_c1-a-helpers';
 import { singleRootRuntime } from './_tool-test-helpers';
 

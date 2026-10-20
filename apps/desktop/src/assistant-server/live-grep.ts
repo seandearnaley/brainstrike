@@ -18,17 +18,6 @@ import {
   runRipgrep,
 } from './live-grep-ripgrep';
 
-// The ripgrep execution layer lives in live-grep-ripgrep.ts (BST-1246 split);
-// its public surface is re-exported here so existing consumers keep importing
-// from './live-grep'.
-export {
-  discoverRipgrepPathForTests,
-  PROBE_RIPGREP_TIMEOUT_MS,
-  type RipgrepFailureMetadata,
-  RipgrepRunError,
-  resetRipgrepAvailabilityForTests,
-} from './live-grep-ripgrep';
-
 const logger = createLogger('AssistantLiveGrep');
 
 /**
@@ -66,6 +55,7 @@ const MAX_READ_FILE_BYTES = 2 * 1024 * 1024;
  * Test-only: override the live candidate cap (pass nothing to restore the
  * default). Lets a unit test prove the resolve loop stops at the cap and
  * surfaces `truncated` without materializing thousands of real files.
+ * @internal Live grep regressions force deterministic candidate limits.
  */
 export function setMaxLiveCandidateFilesForTests(value?: number): void {
   maxLiveCandidateFiles = value ?? DEFAULT_MAX_LIVE_CANDIDATE_FILES;
@@ -131,6 +121,7 @@ function hasDotGitSegment(relativePath: string): boolean {
   return false;
 }
 
+/** @internal Grep regressions pin repository-metadata exclusion. */
 export const hasDotGitSegmentForTests = hasDotGitSegment;
 
 type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;

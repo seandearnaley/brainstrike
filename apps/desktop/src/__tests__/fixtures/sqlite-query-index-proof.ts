@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createNativeIndexSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import { SqliteQueryDeadlineError } from '@brainstrike/sqlite-query';
 import { app } from 'electron';
 import { IndexerHostManager } from '../../indexer-host-manager';
-import { createNativeIndexSearchCapability } from '../../native-index-search';
 import {
   closeAllIndexQueries,
   installIndexQueryTarget,

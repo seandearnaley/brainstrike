@@ -199,7 +199,9 @@ export interface SnapshotRepository {
   snapshotsForThread(threadId: string): Promise<readonly WorkspaceSnapshotRow[]>;
 }
 
-/** The factory main.ts threads to the changes/assistant-server seams (T1). */
+/** The factory main.ts threads to the changes/assistant-server seams (T1).
+ * @internal Snapshot lifecycle regressions exercise the repository boundary directly.
+ */
 export function createSnapshotRepository(db: MainQueryHandle): SnapshotRepository {
   async function insertSnapshot(
     input: InsertWorkspaceSnapshotInput

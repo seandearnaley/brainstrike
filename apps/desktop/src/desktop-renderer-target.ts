@@ -5,11 +5,7 @@ import { APP_RENDERER_DOCUMENT_URL } from './desktop-renderer-origin';
 // Defined in `desktop-renderer-origin.ts` (a module with no runtime imports)
 // so the ESM e2e specs can reach them without escaping into this graph; this
 // stays the import site every main-process consumer already uses.
-export {
-  APP_RENDERER_DOCUMENT_URL,
-  APP_RENDERER_ORIGIN,
-  APP_RENDERER_SCHEME,
-} from './desktop-renderer-origin';
+export { APP_RENDERER_DOCUMENT_URL, APP_RENDERER_SCHEME } from './desktop-renderer-origin';
 
 /** The hidden host that runs local inference on ONNX Runtime's WASM threads. */
 const CROSS_ORIGIN_ISOLATED_HOST_MODES: ReadonlySet<string> = new Set(['embedding-host']);

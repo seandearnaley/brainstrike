@@ -19,5 +19,6 @@ if (resolvedDesktopDevRendererConfig.kind === 'invalid-override') {
   warnInvalidDesktopDevRendererUrl(resolvedDesktopDevRendererConfig.configuredUrl);
 }
 
+/** @internal Vite and renderer startup regressions share this development port. */
 export const DESKTOP_DEV_RENDERER_PORT = resolvedDesktopDevRendererConfig.port;
 export const DESKTOP_DEV_RENDERER_URL = resolvedDesktopDevRendererConfig.url;

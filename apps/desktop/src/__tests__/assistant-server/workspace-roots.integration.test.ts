@@ -10,16 +10,16 @@
  */
 
 import { type RootsQueryFn, reconcileRoots } from '@brainstrike/app-shell/roots/root-registry';
-import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
-import type { RootDescriptor } from '@brainstrike/types';
-import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   loadWorkspaceRootsFromDatabase,
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
   type WorkspaceRootsQueryable,
-} from '../../assistant-server/workspace-roots';
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
+import type { RootDescriptor } from '@brainstrike/types';
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const ROOT_PATH = '/workspace/project-a';
 

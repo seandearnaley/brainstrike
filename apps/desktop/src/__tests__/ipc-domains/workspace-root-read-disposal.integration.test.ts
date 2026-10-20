@@ -6,11 +6,11 @@ import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-hel
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
-import { createFileSystemIpcDomain } from '../../ipc-domains/file-system-ipc';
 import {
   createNativeSecureRoot,
   resolveValidatedReadPath,
-} from '../../ipc-domains/workspace-root-seams';
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { createFileSystemIpcDomain } from '../../ipc-domains/file-system-ipc';
 import {
   capabilityHandler,
   createFileSystem,

@@ -22,7 +22,7 @@ interface ResetFailedEvent {
   readonly userDataPath: string;
 }
 
-let snapshot: Omit<DesktopResetDiagnosticsSnapshot, 'userDataPath'> = {
+const snapshot: Omit<DesktopResetDiagnosticsSnapshot, 'userDataPath'> = {
   lastCompletedAt: null,
   lastDeletedPathCount: 0,
   lastError: null,
@@ -75,17 +75,5 @@ export function getDesktopResetDiagnosticsSnapshot(
   return {
     ...snapshot,
     userDataPath,
-  };
-}
-
-export function resetDesktopResetDiagnosticsForTests(): void {
-  snapshot = {
-    lastCompletedAt: null,
-    lastDeletedPathCount: 0,
-    lastError: null,
-    lastFailedAt: null,
-    lastPreservedPathCount: 0,
-    lastStartedAt: null,
-    status: 'idle',
   };
 }
