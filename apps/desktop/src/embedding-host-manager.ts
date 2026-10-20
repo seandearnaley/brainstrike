@@ -147,12 +147,7 @@ export class EmbeddingHostManager {
       joinOnInterrupt: (request, context) =>
         context.source === 'timeout'
           ? Promise.resolve(context.error)
-          : joinQueryEmbeddingInterruption(
-              request,
-              context,
-              () => this.stopHost(),
-              EMBEDDING_HOST_STOP_TIMEOUT_MS
-            ),
+          : joinQueryEmbeddingInterruption(request, context, () => this.stopHost()),
       onAbort: (request, { reason }) => {
         try {
           this.cancelQueryEmbeddingRequest(request);
@@ -188,12 +183,7 @@ export class EmbeddingHostManager {
       joinOnInterrupt: (request, context) =>
         context.source === 'timeout'
           ? Promise.resolve(context.error)
-          : joinDocumentEmbeddingInterruption(
-              request,
-              context,
-              () => this.stopHost(),
-              EMBEDDING_HOST_STOP_TIMEOUT_MS
-            ),
+          : joinDocumentEmbeddingInterruption(request, context, () => this.stopHost()),
       onAbort: (request, { reason }) => {
         try {
           this.cancelDocumentEmbeddingsRequest(request);

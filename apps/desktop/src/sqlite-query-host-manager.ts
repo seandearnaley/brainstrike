@@ -1,5 +1,6 @@
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
+import { createLogger } from '@brainstrike/logging';
 import {
   type QueryProcess,
   SqliteQueryClient,
@@ -22,6 +23,13 @@ interface IndexQueryDeadlines {
   readonly deadlineMs: number;
   readonly startupDeadlineMs: number;
 }
+
+const logger = createLogger('SqliteQueryHost');
+
+/** A killed query process that has not exited yet is still joined by its close; this only logs it. */
+const reportSlowExit = (elapsedMs: number): void => {
+  logger.warn('Index query process has not exited after its kill; still joined', { elapsedMs });
+};
 
 const owners = new Set<SqliteQueryClient>();
 /** Each acquisition still starting, with the stop of the process it spawned, for close. */
@@ -63,6 +71,7 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
   const acquisition = SqliteQueryClient.open({
     databasePath: index.databasePath,
     ...registered.deadlines,
+    onSlowExit: reportSlowExit,
     spawn: () => {
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('The authoritative index owner changed before query acquisition.');
@@ -96,6 +105,7 @@ export async function openIndexCoverage(
   let spawned: QueryProcess | undefined;
   const acquisition = SqliteQueryClient.openNativeCoverage({
     authority,
+    onSlowExit: reportSlowExit,
     spawn: () => {
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('Native coverage owner changed before acquisition.');

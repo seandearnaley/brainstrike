@@ -1,6 +1,7 @@
 import { assertCoverageAuthority, fault } from '@brainstrike/indexer/coverage-reader';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  SQLITE_QUERY_EXIT_REPORT_MS,
   SqliteQueryClient,
   SqliteQueryDeadlineError,
   SqliteQueryProcessExitedError,
@@ -370,7 +371,14 @@ it('joins an exit that arrives 6 s after the kill: close resolves and nothing is
   vi.useFakeTimers();
   try {
     const owner = reader();
-    const opening = open(owner);
+    const slowExits: number[] = [];
+    const opening = SqliteQueryClient.open({
+      databasePath: '/recorded/index.sqlite',
+      deadlineMs: 1000,
+      onSlowExit: (elapsedMs) => slowExits.push(elapsedMs),
+      spawn: () => owner.process,
+      startupDeadlineMs: 1000,
+    });
     await vi.advanceTimersByTimeAsync(0);
     const client = await opening;
     let settled = false;
@@ -381,6 +389,8 @@ it('joins an exit that arrives 6 s after the kill: close resolves and nothing is
     expect(owner.process.kill).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(5999);
     expect(settled).toBe(false);
+    // The late exit is reported once, at the report window, and still joined.
+    expect(slowExits).toEqual([SQLITE_QUERY_EXIT_REPORT_MS]);
     owner.exit();
     await expect(closing).resolves.toBeUndefined();
     expect(owner.process.kill).toHaveBeenCalledOnce();

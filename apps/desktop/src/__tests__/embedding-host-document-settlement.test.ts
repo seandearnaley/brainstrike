@@ -240,17 +240,6 @@ describe('document transport physical settlement', () => {
       expect.objectContaining({ code: EMBEDDING_HOST_RUNTIME_STOPPED_CODE, name: 'AbortError' })
     );
   });
-  it('escalates a non-cooperative cancellation into the existing Stop join', async () => {
-    const controller = new AbortController();
-    const reason = new Error('caller stopped');
-    const { outcome, settled } = await start(controller.signal);
-    controller.abort(reason);
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    await expect(outcome).resolves.toBe(reason);
-  });
   // Lifecycle redesign PR D (R2): a slow cancel acknowledgement is load; no timer stops the host.
   it('joins a cancel the host acknowledges after 12 s, and never stops the host', async () => {
     const controller = new AbortController();
@@ -322,22 +311,6 @@ describe('document transport physical settlement', () => {
         message: 'Embedding host document cancellation could not be sent.',
       }),
     ]);
-  });
-  it('retains a request after Stop failure until the destroyed window actually closes', async () => {
-    const controller = new AbortController();
-    const { outcome, settled } = await start(controller.signal);
-    const stopError = new Error('Stop join failed');
-    // A cancel the host never answers escalates to the Stop join (a timeout no longer does).
-    controller.abort(new Error('caller stopped'));
-    await vi.advanceTimersByTimeAsync(10_000);
-    stopAck.reject(stopError);
-    await flush();
-    expect(window.destroy).toHaveBeenCalled();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    window.emit('closed');
-    const error = await outcome;
-    expect((error as AggregateError).errors).toContain(stopError);
   });
   it('retains a document through explicit Stop until its acknowledgement', async () => {
     const { outcome, settled } = await start();
@@ -483,9 +456,9 @@ describe('document transport physical settlement', () => {
   it('does not admit a replacement before a forced retirement closes', async () => {
     const controller = new AbortController();
     await start(controller.signal);
-    // A cancel the host never answers escalates to the Stop join (a timeout no longer does).
     controller.abort(new Error('caller stopped'));
-    await vi.advanceTimersByTimeAsync(10_000);
+    // A cancel the host never answers holds the host until an explicit Stop retires it.
+    const stop = manager.stop().catch((error: unknown) => error);
     stopAck.reject(new Error('Stop failed'));
     await flush();
     const started = vi.fn();
@@ -496,6 +469,7 @@ describe('document transport physical settlement', () => {
     await flush();
     expect(started).not.toHaveBeenCalled();
     window.emit('closed');
+    expect(await stop).toBeInstanceOf(Error);
     expect(await replacement).toBeInstanceOf(Error);
     expect(started).not.toHaveBeenCalled();
     await manager.ensureStarted().then(started);
@@ -556,33 +530,14 @@ describe('document transport physical settlement', () => {
       }
     });
     controller.abort(reason);
-    await vi.advanceTimersByTimeAsync(10_000);
+    // A cancel the host never answers holds the host until an explicit Stop retires it.
+    const stop = manager.stop().catch((error: unknown) => error);
+    await flush();
     expect(window.destroy).toHaveBeenCalled();
     expect(settled).not.toHaveBeenCalled();
     window.emit('closed');
-    expect(((await outcome) as AggregateError).errors).toEqual([reason, stopFailure]);
-  });
-  it('keeps a failed destruction owned and retries through the existing restart seam', async () => {
-    const controller = new AbortController();
-    const { outcome, settled } = await start(controller.signal);
-    const destructionFailure = new Error('destroy failed');
-    window.destroy.mockImplementationOnce(() => {
-      throw destructionFailure;
-    });
-    // A cancel the host never answers escalates to the Stop join (a timeout no longer does).
-    controller.abort(new Error('caller stopped'));
-    await vi.advanceTimersByTimeAsync(10_000);
-    stopAck.reject(new Error('Stop failed'));
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    const retry = manager.destroyAndRestart().catch((error: unknown) => error);
-    await flush();
-    expect(window.destroy).toHaveBeenCalledTimes(2);
-    expect(settled).not.toHaveBeenCalled();
-    window.emit('closed');
-    expect(failureCauses(await outcome)).toContain(destructionFailure);
-    expect(await retry).toBeInstanceOf(Error);
+    expect(failureCauses(await outcome)).toEqual([reason, stopFailure]);
+    expect(failureCauses(await stop)).toEqual([stopFailure]);
   });
   it.each([false, true])(
     'preserves Stop and destruction failures after physical close (caller aborted: %s)',

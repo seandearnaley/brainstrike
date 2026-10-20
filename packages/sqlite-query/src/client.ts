@@ -26,6 +26,12 @@ function startupError(reply: { readonly message: string; readonly name: string }
     : new Error(reply.message);
 }
 
+/**
+ * R5(b): how long after its kill a query process may take to exit before the exit, which close
+ * still joins however long it takes, is reported late through `onSlowExit`.
+ */
+export const SQLITE_QUERY_EXIT_REPORT_MS = 5000;
+
 export interface OpenSqliteQueryOptions {
   readonly databasePath: string;
   /**
@@ -34,6 +40,8 @@ export interface OpenSqliteQueryOptions {
    * R2): the process's exit is its only end.
    */
   readonly deadlineMs?: number | undefined;
+  /** The owner's log of an exit still pending `SQLITE_QUERY_EXIT_REPORT_MS` after the kill. */
+  readonly onSlowExit?: ((elapsedMs: number) => void) | undefined;
   readonly spawn: () => QueryProcess;
   /** R5(a): the bound of the startup such a read waits on, as `deadlineMs`. Absent, none. */
   readonly startupDeadlineMs?: number | undefined;
@@ -46,6 +54,7 @@ export interface OpenNativeCoverageOptions extends Omit<OpenSqliteQueryOptions, 
 export class SqliteQueryClient {
   readonly #process: QueryProcess;
   readonly #deadlineMs: number | undefined;
+  readonly #onSlowExit: ((elapsedMs: number) => void) | undefined;
   readonly #pending = new Map<
     number,
     {
@@ -61,9 +70,14 @@ export class SqliteQueryClient {
   #hasExited = false;
   #killRequested = false;
 
-  private constructor(process: QueryProcess, deadlineMs: number | undefined) {
+  private constructor(
+    process: QueryProcess,
+    deadlineMs: number | undefined,
+    onSlowExit: ((elapsedMs: number) => void) | undefined
+  ) {
     this.#process = process;
     this.#deadlineMs = deadlineMs;
+    this.#onSlowExit = onSlowExit;
     this.#exited = new Promise((resolve) => {
       this.#detach.push(
         process.onExit(() => {
@@ -139,7 +153,7 @@ export class SqliteQueryClient {
         throw new RangeError('SQLite query deadlines must be positive finite milliseconds.');
       }
     }
-    const client = new SqliteQueryClient(options.spawn(), options.deadlineMs);
+    const client = new SqliteQueryClient(options.spawn(), options.deadlineMs, options.onSlowExit);
     try {
       const response = await client.#call(body, options.startupDeadlineMs);
       if (response.kind !== 'ready') {
@@ -178,17 +192,29 @@ export class SqliteQueryClient {
     return response.result;
   }
 
+  /**
+   * Closing a query process is its kill (it holds only read-only connections), then the exit,
+   * joined however long it takes (R5(b)); a late exit is reported, never abandoned. A refused
+   * kill throws, and the live process stays owned for a retry.
+   */
   async close(): Promise<void> {
     this.#fail(this.#terminal ?? new Error('SQLite query client is closed.'));
     if (!(this.#hasExited || this.#killRequested)) {
       this.#process.kill();
       this.#killRequested = true;
     }
-    await runWithTimeout(() => this.#exited, {
-      onTimeout: () =>
-        new Error('Owned SQLite query process has not exited after kill; ownership is retained.'),
-      timeoutMs: 5000,
-    });
+    if (this.#hasExited) {
+      return;
+    }
+    const late = setTimeout(
+      () => this.#onSlowExit?.(SQLITE_QUERY_EXIT_REPORT_MS),
+      SQLITE_QUERY_EXIT_REPORT_MS
+    );
+    try {
+      await this.#exited;
+    } finally {
+      clearTimeout(late);
+    }
   }
 
   #stop(reason: Error): void {

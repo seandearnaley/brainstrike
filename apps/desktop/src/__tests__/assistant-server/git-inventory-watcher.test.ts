@@ -518,7 +518,7 @@ describe('createGitInventoryWatchers', () => {
           watchDirectory: () =>
             Promise.reject(
               new ParcelWatchRetirementError(
-                [new Error('subscribe timed out'), new Error('late unsubscribe failed')],
+                [new Error('start failed after acquisition'), new Error('unsubscribe failed')],
                 retire
               )
             ),
