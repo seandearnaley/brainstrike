@@ -1,4 +1,5 @@
 import type { MutableRefObject } from 'react';
+import type { EmbeddingHostModelCacheResponseReport } from '../../embedding-host-model-cache';
 import type {
   EmbeddingHostCommand,
   EmbeddingHostDocumentEmbeddingsCancel,
@@ -36,6 +37,8 @@ export function getEmbeddingHostBridge(): {
   reportStatus?: (status: EmbeddingHostStatus) => void;
   onWebgpuAdapterRequest?: (callback: (request: unknown) => void) => () => void;
   reportWebgpuAdapterResponse?: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
+  onModelCacheStatusRequest?: (callback: (request: unknown) => void) => () => void;
+  reportModelCacheStatusResponse?: (response: EmbeddingHostModelCacheResponseReport) => void;
 } | null {
   const hostWindow = window as Window & {
     embeddingHost?: {
@@ -59,6 +62,8 @@ export function getEmbeddingHostBridge(): {
       reportStatus?: (status: EmbeddingHostStatus) => void;
       onWebgpuAdapterRequest?: (callback: (request: unknown) => void) => () => void;
       reportWebgpuAdapterResponse?: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
+      onModelCacheStatusRequest?: (callback: (request: unknown) => void) => () => void;
+      reportModelCacheStatusResponse?: (response: EmbeddingHostModelCacheResponseReport) => void;
     };
   };
   return hostWindow.embeddingHost ?? null;

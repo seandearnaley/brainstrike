@@ -5,7 +5,6 @@ import type { DbModel, DbProvider } from './stores/model-registry-store';
 
 export interface ModelRegistrySnapshotOverride {
   readonly downloadedModels?: Record<string, boolean>;
-  readonly modelCacheDir?: string | null;
   readonly models?: DbModel[];
   readonly providers?: DbProvider[];
 }
@@ -21,22 +20,10 @@ export interface SettingsE2ETestOverrides {
   };
   readonly localRuntime?: LocalRuntimeTestOverrides;
   readonly modelRegistry?: {
-    readonly cacheDirectorySelection?: {
-      readonly errorMessage?: string;
-      readonly path?: string | null;
-      readonly unavailable?: boolean;
-    } | null;
     readonly fetchErrorMessage?: string | null;
     readonly snapshot?: ModelRegistrySnapshotOverride;
   };
 }
-
-export type CacheDirectorySelectionTestOverrideResolution =
-  | { readonly kind: 'none' }
-  | { readonly kind: 'unavailable' }
-  | { readonly kind: 'error'; readonly message: string }
-  | { readonly kind: 'cancelled' }
-  | { readonly kind: 'selected'; readonly path: string };
 
 interface PersistedAssistantPreferences {
   readonly state?: {
@@ -190,26 +177,6 @@ export function resetLocalRuntimeProbeCountsForTests(): void {
     return;
   }
   window.__brainstrikeLocalRuntimeProbeCounts__ = {};
-}
-
-export function resolveCacheDirectorySelectionTestOverride(): CacheDirectorySelectionTestOverrideResolution {
-  const override = readSettingsTestOverrides()?.modelRegistry?.cacheDirectorySelection;
-  if (!override) {
-    return { kind: 'none' };
-  }
-  if (override.unavailable) {
-    return { kind: 'unavailable' };
-  }
-  if (override.errorMessage) {
-    return { kind: 'error', message: override.errorMessage };
-  }
-  if (!('path' in override)) {
-    return { kind: 'none' };
-  }
-  if (!override.path) {
-    return { kind: 'cancelled' };
-  }
-  return { kind: 'selected', path: override.path };
 }
 
 export function getModelRegistryFetchErrorTestOverride(): string | null | undefined {

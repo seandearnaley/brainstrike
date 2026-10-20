@@ -52,15 +52,9 @@ interface SerializableSettingsTestOverrides {
     trackProbeCounts?: boolean;
   };
   modelRegistry?: {
-    cacheDirectorySelection?: {
-      errorMessage?: string;
-      path?: string | null;
-      unavailable?: boolean;
-    } | null;
     fetchErrorMessage?: string | null;
     snapshot?: {
       downloadedModels?: Record<string, boolean>;
-      modelCacheDir?: string | null;
       models?: unknown[];
       providers?: unknown[];
     };

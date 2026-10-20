@@ -476,13 +476,14 @@ describe('catalog details row', () => {
     expect(label.nextElementSibling).toHaveTextContent(/^Supported$/);
   });
 
-  it('shows the cache path for a downloaded local model', () => {
+  // BST-2241: a model lives in the embedding realm's cache, which has no folder to name.
+  it('names no cache path for a downloaded local model', () => {
     renderRows([makeCatalogRow({ id: 'gemma', isLocal: true })], {
-      actions: { downloadedModels: { gemma: true }, modelCacheDir: '/models' },
+      actions: { downloadedModels: { gemma: true } },
       expandedIds: ['gemma'],
     });
     expect(
-      within(screen.getByTestId('model-details-gemma')).getByText('/models/gemma')
-    ).toBeInTheDocument();
+      within(screen.getByTestId('model-details-gemma')).queryByText('Cache path')
+    ).not.toBeInTheDocument();
   });
 });
