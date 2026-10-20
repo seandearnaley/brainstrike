@@ -75,7 +75,9 @@ const lifecycle = createNativeIndexLifecycle(
     fence: () => undefined,
   }
 );
-const admission = createNativeIndexProfileAdmission(lifecycle, runtime);
+const admission = createNativeIndexProfileAdmission(lifecycle, runtime, () => {
+  throw new Error('The catalog fixture has no index to open.');
+});
 const catalog = createDesktopWorkspaceRootCatalog(() => admission.acquire());
 let registry: WorkspaceRootRegistry | undefined;
 let registeredAck = false;

@@ -953,9 +953,9 @@ const collectionCatalog = createDesktopCollectionCatalog({
     nativeRootDataDeletion.transition(async () => {
       await nativeIndexActivation.cleanupCollection(id);
       const deleted = await commit();
+      // Resume reopens from saved settings: a deleted saved selection stays an explicit
+      // lifecycle refusal until the user chooses again.
       await nativeIndexActivation.resume();
-      // A deleted saved selection remains an explicit lifecycle refusal until the user chooses again.
-      await nativeIndexActivation.reconfigure();
       return deleted;
     }),
   native: () => nativeIndexSearch,
@@ -974,7 +974,6 @@ const sourceFiles = createDesktopSourceFiles({
       await nativeIndexActivation.cleanupFiles(files);
       await workspaceRootCatalog.sourceCatalog({ files, operation: 'remove' });
       await nativeIndexActivation.resume();
-      await nativeIndexActivation.reconfigure();
     }),
 });
 ipcDisposers.add('source-files', registerSourceFilesIpc(sourceFiles));

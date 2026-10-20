@@ -565,8 +565,9 @@ it.each([
       withRead: f.activation.withRead,
     });
     try {
-      const observation = await capability.status();
+      // Boot's reader starts the index; a status read never does (ADR 0026).
       const failure = await f.activation.acquireRead().catch((error: unknown) => error);
+      const observation = await capability.status();
       expect(failure).toBeInstanceOf(NativeIndexRefusalError);
       if (!(failure instanceof NativeIndexRefusalError)) {
         throw new Error('Original settings failure was not retained.');

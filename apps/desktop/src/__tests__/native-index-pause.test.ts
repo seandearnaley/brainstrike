@@ -266,6 +266,8 @@ it('boots cold paused status, coverage and grep with actual authority and no can
     rebuild: activation.rebuild,
     withRead: activation.withRead,
   });
+  // Boot's reader starts the index; reads never do (ADR 0026).
+  await activation.acquireRead();
   expect(await search.status()).toMatchObject({
     collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
     kind: 'ready',

@@ -27,11 +27,16 @@ export interface NativeIndexProfileAdmission {
  */
 export function createNativeIndexProfileAdmission(
   lifecycle: Promise<NativeIndexLifecycle>,
-  runtime: ProfileAdmissionRuntime
+  runtime: ProfileAdmissionRuntime,
+  /** Opens the idle index from its saved settings; never waited on. */
+  openResumed: () => void
 ): NativeIndexProfileAdmission {
   const fenced = Promise.withResolvers<never>();
   fenced.promise.catch(() => undefined);
   let terminal = false;
+  // The idle generation this admission last resumed from a host release; it opens once a
+  // host is admitted. A later resume is a new generation, so this never matches it.
+  let resumed: number | undefined;
   const admitProfile = async (): Promise<HostAttachment> => {
     const owner = await lifecycle;
     const recover = async (): Promise<boolean> => {
@@ -45,6 +50,7 @@ export function createNativeIndexProfileAdmission(
         }
         const resuming = await owner.dispatch({ kind: 'profile-resume' });
         await owner.dispatch({ generation: resuming.generation, kind: 'profile-resumed' });
+        resumed = resuming.generation;
       }
       return true;
     };
@@ -59,6 +65,11 @@ export function createNativeIndexProfileAdmission(
       state = await owner.state();
       if (state.kind === 'closed') {
         throw stateError(state);
+      }
+      if (state.kind === 'idle' && state.generation === resumed) {
+        // BST-2004: the index the lost host closed opens again once a replacement is
+        // admitted. The borrow does not wait for it: host admission is index-independent.
+        openResumed();
       }
       return attachment;
     };

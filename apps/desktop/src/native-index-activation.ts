@@ -756,7 +756,22 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const stopSources = (): Promise<void> =>
     dispatch({ kind: 'stop-sources', reason: 'root-data-deletion' });
-  const admission = createNativeIndexProfileAdmission(lifecycle, runtime);
+  /**
+   * A resumed generation's starter (reset resume, host-loss recovery): open the idle index
+   * from its saved settings, as boot does. Reads never start it (ADR 0026). The outcome is
+   * the lifecycle's state, which readers see with its cause; a refusal is reported here.
+   */
+  const openResumed = async (): Promise<void> => {
+    try {
+      await (await lifecycle).start(captureSettings());
+      await graph?.sources?.startup;
+    } catch (error) {
+      dependencies.onError('open after resume', error);
+    }
+  };
+  const admission = createNativeIndexProfileAdmission(lifecycle, runtime, () => {
+    void openResumed();
+  });
   const fenceTerminal = (): void => {
     failures.cancel();
     admission.fenceTerminal();
@@ -806,6 +821,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (failures.length > 1) {
       throw new AggregateError(failures, 'Native reset resume and retirement failed');
     }
+    await openResumed();
   };
   const reconfigure = async (roots = false): Promise<void> => {
     const settings = captureSettings();
@@ -815,7 +831,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.storage, lifecycle);
   const assertReadAdmission = async (): Promise<void> => {
     const state = await (await lifecycle).state();
-    if (state.kind !== 'idle' && nativeIndexReadiness(state).kind !== 'ready') {
+    if (nativeIndexReadiness(state).kind !== 'ready') {
       throw stateError(state);
     }
   };
