@@ -4,15 +4,23 @@ interface UtilityParent {
 }
 
 /** Capture transferred messages before importing the control or kernel graphs. */
-export function createUtilityParentInbox(parent: UtilityParent): {
+export function createUtilityParentInbox(
+  parent: UtilityParent,
+  onFirstMessage?: () => void
+): {
   bind(receive: (input: unknown) => void): void;
   close(): void;
   readonly received: Promise<void>;
 } {
   const pending: unknown[] = [];
   const received = Promise.withResolvers<void>();
+  let firstMessage = true;
   let receiver: ((input: unknown) => void) | undefined;
   const message = (input: unknown): void => {
+    if (firstMessage) {
+      firstMessage = false;
+      onFirstMessage?.();
+    }
     received.resolve();
     if (receiver) {
       receiver(input);

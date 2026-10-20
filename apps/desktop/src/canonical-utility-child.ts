@@ -25,6 +25,7 @@ import {
   watchBatchSchema,
   watchSignalSchema,
 } from './canonical-utility-protocol';
+import { proofCanonicalChannel, proofCanonicalSender } from './diagnostics/proof-canonical-channel';
 
 interface Runtime {
   cancel(requestId?: string): Promise<void>;
@@ -50,7 +51,8 @@ export class CanonicalUtilityChild {
   private closed = false;
   private readonly controls = new Map<number, Promise<void>>();
   constructor(private readonly send: (frame: object) => void) {
-    this.channel = new CanonicalUtilityChannel(send);
+    this.send = proofCanonicalSender('child', send);
+    this.channel = new CanonicalUtilityChannel(this.send, undefined, 'child');
   }
   receive(input: unknown): void {
     const frame = this.channel.receive(input);
@@ -93,9 +95,11 @@ export class CanonicalUtilityChild {
     if (this.controls.has(frame.id)) {
       throw new Error('Repeated canonical control request.');
     }
+    proofCanonicalChannel('child', 'callback-start', frame);
     const work = this.invoke(frame)
       .then(
-        (value) =>
+        (value) => {
+          proofCanonicalChannel('child', 'callback-success', frame);
           this.send({
             channel: CANONICAL_CHANNEL,
             id: frame.id,
@@ -103,8 +107,10 @@ export class CanonicalUtilityChild {
             ok: true,
             owner: frame.owner,
             value,
-          }),
-        (error: unknown) =>
+          });
+        },
+        (error: unknown) => {
+          proofCanonicalChannel('child', 'callback-failure', frame);
           this.send({
             channel: CANONICAL_CHANNEL,
             error: canonicalFault(error),
@@ -114,7 +120,8 @@ export class CanonicalUtilityChild {
             kind: 'result',
             ok: false,
             owner: frame.owner,
-          })
+          });
+        }
       )
       .finally(() => this.controls.delete(frame.id));
     this.controls.set(frame.id, work);

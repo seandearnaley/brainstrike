@@ -72,3 +72,21 @@ it('does not start an import after cancellation was already received', async () 
   await expect(loadUtilityStartup(load, controller.signal)).rejects.toBe(failure);
   expect(load).not.toHaveBeenCalled();
 });
+
+it('observes only the first native parent message synchronously before startup resumes', async () => {
+  const parent = new EventEmitter();
+  const order: string[] = [];
+  const observed = vi.fn(() => order.push('native-message'));
+  const inbox = createUtilityParentInbox(parent, observed);
+  try {
+    parent.emit('message', { private: 'first payload' });
+    order.push('dispatch-returned');
+    await inbox.received;
+    order.push('startup-resumed');
+    parent.emit('message', { private: 'later payload' });
+    expect(observed).toHaveBeenCalledExactlyOnceWith();
+    expect(order).toEqual(['native-message', 'dispatch-returned', 'startup-resumed']);
+  } finally {
+    inbox.close();
+  }
+});

@@ -28,6 +28,7 @@ import {
   receiptSchema,
 } from './canonical-utility-protocol';
 import { assertCanonicalRequest } from './canonical-utility-request-authority';
+import { proofCanonicalChannel, proofCanonicalSender } from './diagnostics/proof-canonical-channel';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export type {
@@ -66,7 +67,8 @@ export class CanonicalUtilityParent {
     private readonly send: (frame: object) => void,
     private readonly onTransportFailure: (error: unknown) => void
   ) {
-    this.channel = new CanonicalUtilityChannel(send);
+    this.send = proofCanonicalSender('parent', send);
+    this.channel = new CanonicalUtilityChannel(this.send, undefined, 'parent');
   }
 
   async attachWorkspace(
@@ -250,10 +252,15 @@ export class CanonicalUtilityParent {
     const controller = new AbortController();
     const pending = { controller, settled: Promise.resolve() };
     session.pending.set(frame.id, pending);
+    proofCanonicalChannel('parent', 'callback-start', frame);
     pending.settled = this.invoke(session, frame, controller)
       .then(
-        (value) => this.respond(frame, true, value),
+        (value) => {
+          proofCanonicalChannel('parent', 'callback-success', frame);
+          this.respond(frame, true, value);
+        },
         (error: unknown) => {
+          proofCanonicalChannel('parent', 'callback-failure', frame);
           // Main revokes the native authority in the same turn that its retirement
           // stops this request, so admitted work fails on that revocation instead of
           // the cancellation reason; it is the same cancellation (BST-1955). An

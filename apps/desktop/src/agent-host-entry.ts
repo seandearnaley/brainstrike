@@ -2,10 +2,14 @@
 // creates is owned by the user even when an elevated token defaults to
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
+import './diagnostics/proof-agent-entry';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
+import { proofAgentStartup } from './diagnostics/proof-agent-startup';
 import { startProofCpuProfile } from './diagnostics/proof-cpu-profile';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
+
+proofAgentStartup('entry-body');
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
 async function main(): Promise<void> {
@@ -15,7 +19,7 @@ async function main(): Promise<void> {
   }
   // BST-1977: CJS dependency evaluation used to precede the parent listener.
   // Capture first, then install the existing decoders before loading Core.
-  const inbox = createUtilityParentInbox(parent);
+  const inbox = createUtilityParentInbox(parent, () => proofAgentStartup('parent-first-message'));
   const controller = new AbortController();
   let cancelKernel: (() => void) | undefined;
   const cancel = (): void => {
@@ -39,10 +43,13 @@ async function main(): Promise<void> {
     // dependency graph. An initial setImmediate can precede Electron's first
     // native message dispatch, leaving an already queued Close behind imports.
     await loadUtilityStartup(() => inbox.received, controller.signal);
+    proofAgentStartup('parent-message-observed');
+    proofAgentStartup('control-evaluation-start');
     const { receiveAgentHostParentMessage } = await loadUtilityStartup(
       () => import('./agent-host-parent-control'),
       controller.signal
     );
+    proofAgentStartup('control-evaluation-end');
     inbox.bind((input) => {
       try {
         const clearing = receiveAgentHostParentMessage(input, host, cancel);
@@ -59,6 +66,7 @@ async function main(): Promise<void> {
         cancel();
       }
     });
+    proofAgentStartup('control-bound');
     // Deliver queued native parent/port events before synchronous CJS evaluation.
     await new Promise<void>((resolve) => setImmediate(resolve));
     controller.signal.throwIfAborted();

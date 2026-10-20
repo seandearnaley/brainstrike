@@ -8,6 +8,10 @@ import {
   decodeCanonicalFrame,
   MAX_CANONICAL_PENDING,
 } from './canonical-utility-protocol';
+import {
+  type CanonicalProofSide,
+  proofCanonicalChannel,
+} from './diagnostics/proof-canonical-channel';
 
 interface Pending {
   readonly owner: string;
@@ -21,7 +25,8 @@ export class CanonicalUtilityChannel {
   private failure: unknown;
   constructor(
     private readonly send: (frame: object) => void,
-    private readonly limit = MAX_CANONICAL_PENDING
+    private readonly limit = MAX_CANONICAL_PENDING,
+    private readonly proofSide: CanonicalProofSide = 'channel'
   ) {}
   get pendingCount(): number {
     return this.pending.size;
@@ -87,6 +92,7 @@ export class CanonicalUtilityChannel {
   }
   receive(input: unknown): CanonicalFrame {
     const frame = decodeCanonicalFrame(input);
+    proofCanonicalChannel(this.proofSide, 'receive', frame);
     if (frame.kind !== 'result') {
       return frame;
     }
