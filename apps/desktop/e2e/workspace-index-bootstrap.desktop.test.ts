@@ -398,17 +398,34 @@ test.describe('Workspace Index first run (desktop)', () => {
         });
       // Paused read authority needs a real native writer, but no document inference
       // or model download. Do not resume ingestion to make this assertion pass.
-      await expect
-        .poll(() => readNativeStatus(window), { timeout: 15_000 })
-        .toMatchObject({
-          authorizedCollectionIds: [initial.managedCollectionId],
-          embedding: {
-            indexMode: 'vector-configured',
-            profile: { dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
-          },
-          kind: 'ready',
-          queryPlan: { inferencePlan: { device: 'wasm', dtype: 'q8' } },
-        });
+      let lastStatus: Awaited<ReturnType<typeof readNativeStatus>> | undefined;
+      try {
+        await expect
+          .poll(
+            async () => {
+              lastStatus = await readNativeStatus(window);
+              return lastStatus;
+            },
+            { timeout: 15_000 }
+          )
+          .toMatchObject({
+            authorizedCollectionIds: [initial.managedCollectionId],
+            embedding: {
+              indexMode: 'vector-configured',
+              profile: { dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
+            },
+            kind: 'ready',
+            queryPlan: { inferencePlan: { device: 'wasm', dtype: 'q8' } },
+          });
+      } finally {
+        // PROOF ONLY: keep the cause even when Playwright prints only a shape mismatch.
+        if (process.env['BRAINSTRIKE_PROOF_LAUNCH_TIMING'] === '1') {
+          await testInfo.attach('paused-semantic-last-status', {
+            body: JSON.stringify({ lastStatus }),
+            contentType: 'application/json',
+          });
+        }
+      }
       await expect(window.getByRole('button', { name: 'Resume workspace index' })).toBeVisible();
       await testInfo.attach('paused-semantic-setup', {
         body: JSON.stringify({

@@ -11,6 +11,7 @@ import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { type ModelProviderShim, startModelProviderShim } from '../utils/model-provider-shim';
+import { beginWindowsCiCensus, endWindowsCiCensus } from '../utils/windows-ci-census';
 import { ElectronHarness } from './electron-harness';
 import { tearDownElectronTest } from './electron-teardown';
 
@@ -61,10 +62,28 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
       modelProvider,
       workspaceRoot
     );
+    let census: Awaited<ReturnType<typeof beginWindowsCiCensus>> = null;
+    const failures: unknown[] = [];
     try {
+      census = await beginWindowsCiCensus(testInfo.title);
       await use(harness);
-    } finally {
+    } catch (cause) {
+      failures.push(cause);
+    }
+    try {
       await tearDownElectronTest(harness, testInfo, userDataDir, workspaceRoot);
+    } catch (cause) {
+      failures.push(cause);
+    }
+    try {
+      await endWindowsCiCensus(census);
+    } catch (cause) {
+      failures.push(cause);
+    }
+    if (failures.length > 0) {
+      throw failures.length === 1
+        ? failures[0]
+        : new AggregateError(failures, 'Fixture body, teardown or census failed.');
     }
   },
 

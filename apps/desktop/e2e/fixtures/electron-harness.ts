@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { ElectronApplication, Page, TestInfo } from '@playwright/test';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
@@ -220,20 +221,55 @@ export class ElectronHarness {
     onAppAcquired?: (app: ElectronApplication) => void
   ): Promise<ElectronAppContext> {
     const { launchElectronApp } = await loadElectronHelpers();
+    const cpuProofEnvironment: Record<string, string> =
+      process.env['BRAINSTRIKE_PROOF_CPU_PROFILE'] === '1'
+        ? {
+            ['BRAINSTRIKE_PROOF_CPU_DIR']: this.testInfo.outputPath('proof-cpu'),
+            ['BRAINSTRIKE_PROOF_CPU_PROFILE']: '1',
+          }
+        : {};
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+      env: { ...this.electronEnv, ...cpuProofEnvironment },
       onAppAcquired: (app) => {
         this.app = app;
         this.exitGuard.observe(app.process());
         onAppAcquired?.(app);
       },
-      ...(this.electronEnv ? { env: this.electronEnv } : {}),
       ...(this.modelProvider ? { modelProvider: this.modelProvider } : {}),
       ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
     });
     if (this.app !== context.app) {
       this.app = context.app;
       this.exitGuard.observe(context.app.process());
+    }
+    if (process.env['BRAINSTRIKE_E2E_NATIVE_CRASH_DUMPS'] === '1') {
+      const directory = this.testInfo.outputPath(
+        'native-crash-dumps',
+        String(context.app.process().pid)
+      );
+      await mkdir(directory, { recursive: true });
+      const capture = await context.app.evaluate(({ app, crashReporter }, dumpDirectory) => {
+        app.setPath('crashDumps', dumpDirectory);
+        crashReporter.start({
+          compress: false,
+          extra: { diagnosticIssue: 'BST-2252' },
+          uploadToServer: false,
+        });
+        return {
+          directory: app.getPath('crashDumps'),
+          pid: process.pid,
+          uploadToServer: crashReporter.getUploadToServer(),
+        };
+      }, directory);
+      if (capture.uploadToServer) {
+        throw new Error('Native crash diagnostics must remain local.');
+      }
+      console.log(`[native-crash-proof] ${JSON.stringify(capture)}`);
+      await this.testInfo.attach('native-crash-capture', {
+        body: JSON.stringify(capture),
+        contentType: 'application/json',
+      });
     }
     return context;
   }
