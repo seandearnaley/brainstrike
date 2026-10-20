@@ -421,13 +421,20 @@ export class StateMessageVectors {
             'Query thread belongs to another Memory resource or is retired.'
           );
         }
-        const canonical = new Map(threads.map((threadId) => [threadId, this.canonical(threadId)]));
         const rows = decoder(Schema.Array(rowSchema))(
           this.db
             .prepare(
               `SELECT ${columns} FROM state_message_vectors WHERE root_id=? AND resource_id=? AND profile_hash=? AND thread_id IN (SELECT value FROM json_each(?))`
             )
             .all(request.scope.rootId, request.scope.resourceId, hash, JSON.stringify(threads))
+        );
+        // Only a thread holding a candidate can contribute a hit. Projecting the rest of
+        // the resource made each recall's cost its whole history, all in the one writer.
+        const canonical = new Map(
+          [...new Set(rows.map((row) => row.threadId))].map((threadId) => [
+            threadId,
+            this.canonical(threadId),
+          ])
         );
         const authorized: number[] = [];
         for (const row of rows) {
