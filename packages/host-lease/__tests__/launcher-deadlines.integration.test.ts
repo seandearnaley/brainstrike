@@ -319,3 +319,69 @@ test('an owner that replaced the host this launch started gets only what the lau
   expect(offered).toHaveLength(1);
   expect(offered[0]).toBeLessThanOrEqual(startupMs);
 });
+
+// BST-2279: quit has no deadline (ADR-0026), so a launch its caller cancels must stop
+// waiting for an owner it did not start at once, not at the 30 s owner bound.
+test('a cancelled launch stops waiting at once for an owner that has not published its record', async () => {
+  const root = await freshRoot();
+  // Holds the root and never publishes: the launch waits for its record.
+  await lateOwner(root);
+  const cancel = new AbortController();
+  const quit = new Error('Main is quitting');
+  const spawn = vi.fn(async (): Promise<StartedHost> => {
+    throw new Error('A launch waiting for another owner must not start a host');
+  });
+  const launching = launchHost(root, {
+    lifetime: 'cli',
+    signal: cancel.signal,
+    spawn,
+    startupTimeoutMs: 30_000,
+  }).then(
+    () => 'attached',
+    (cause: unknown) => cause
+  );
+  await sleep(200);
+  cancel.abort(quit);
+
+  const outcome = await Promise.race([launching, sleep(2000).then(() => 'still waiting')]);
+
+  expect(outcome).toBe(quit);
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+test('a cancelled launch ends its attach to an existing owner with the cancellation, not a refusal', async () => {
+  const root = await freshRoot();
+  const owner = await lateOwner(root);
+  await owner.publish();
+  const cancel = new AbortController();
+  const quit = new Error('Main is quitting');
+  const offered: AbortSignal[] = [];
+  const launching = launchHost(root, {
+    // An owner whose handshake never answers: only the bound or the caller ends it.
+    attach: (_record, _timeoutMs, signal) => {
+      if (!signal) {
+        throw new Error('The launch attached without its caller signal');
+      }
+      offered.push(signal);
+      return new Promise<HostAttachment>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+    lifetime: 'cli',
+    signal: cancel.signal,
+    spawn: vi.fn(async (): Promise<StartedHost> => {
+      throw new Error('A launch attaching to an owner must not start a host');
+    }),
+    startupTimeoutMs: 30_000,
+  }).then(
+    () => 'attached',
+    (cause: unknown) => cause
+  );
+  await until('the launch is attaching', () => offered.length === 1);
+  cancel.abort(quit);
+
+  const outcome = await Promise.race([launching, sleep(2000).then(() => 'still attaching')]);
+
+  expect(outcome).toBe(quit);
+  expect(outcome).not.toBeInstanceOf(LiveHostUnavailableError);
+});

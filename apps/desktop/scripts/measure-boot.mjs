@@ -14,10 +14,11 @@ const repoRoot = path.resolve(desktopRoot, '..', '..');
 const resultsPath = path.join(scriptDirectory, 'measure-boot-results.json');
 const bootMarkPattern = /^BOOT_MARK (app-ready|agent-host-ready) ([0-9]+(?:\.[0-9]+)?)$/;
 const minimumRuns = 10;
-// Electron's own SIGTERM handler in apps/desktop/src/main.ts runs a graceful
-// shutdown bounded by a 5000ms forced-exit ceiling (SIGNAL_SHUTDOWN_TIMEOUT_MS).
-// Give that its full budget plus OS/process-teardown slack before escalating
-// to SIGKILL, so a normal graceful shutdown is never mistaken for a hang.
+// Only a run that already failed (an unparseable boot mark or the run timeout)
+// is terminated. SIGTERM starts Main's graceful shutdown, which has no deadline
+// (ADR-0026); SIGKILL after this grace only reaps the process so a failed
+// measurement cannot hang the script. The run reports its original failure
+// either way, never the kill.
 const terminationGraceMs = 7000;
 
 function readOption(name) {

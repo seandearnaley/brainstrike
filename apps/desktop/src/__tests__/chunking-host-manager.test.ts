@@ -423,42 +423,30 @@ describe('ChunkingHostManager', () => {
     await expect(requestPromise).resolves.toEqual({ chunks: [] });
   });
 
-  it('stop waits for the closed event before resolving', async () => {
-    vi.useRealTimers();
+  it('stop joins the destroyed window’s closed event, never a clock (ADR-0026 R4)', async () => {
+    vi.useFakeTimers();
     let closedListener: (() => void) | null = null;
-    mockHostWindow.on.mockImplementation((event: string, listener: () => void) => {
+    mockHostWindow.once.mockImplementation((event: string, listener: () => void) => {
       if (event === 'closed') {
         closedListener = listener;
       }
     });
 
     const manager = new ChunkingHostManager();
-    const stopPromise = manager.stop();
+    let stopped = false;
+    const stopPromise = manager.stop().then(() => {
+      stopped = true;
+    });
 
-    // The stop should not resolve until the closed event fires
-    await Promise.resolve();
+    // Registered before destroy(); no timer settles the stop in its place.
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(closedListener).not.toBeNull();
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+    expect(stopped).toBe(false);
+    expect(lifecycleState.clearHostWindow).not.toHaveBeenCalled();
 
     closedListener!();
     await stopPromise;
-
-    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
-    expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
-  });
-
-  it('stop resolves within timeout if closed event never fires', async () => {
-    vi.useFakeTimers();
-    mockHostWindow.once.mockImplementation(() => {
-      // Never call the listener — simulating a window that never fires 'closed'
-    });
-
-    const manager = new ChunkingHostManager();
-    const stopPromise = manager.stop();
-
-    await vi.advanceTimersByTimeAsync(500);
-    await stopPromise;
-
-    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
     expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
   });
 

@@ -86,8 +86,14 @@ async function connectAgentHost(record: HostRecord, signal: AbortSignal): Promis
  * Attaches to an agent host this process did not start (a CLI `host start`).
  * R5(a), the R2 exception: bounded, because a live but unreachable owner that
  * is not ours is refused at `timeoutMs`, never waited on, killed or replaced.
+ * `cancel` (the caller's cancellation, such as quit) ends it sooner, with its
+ * own reason (BST-2279).
  */
-export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Promise<HostClient> {
+export async function attachAgentHost(
+  input: HostRecord,
+  timeoutMs = 1500,
+  cancel?: AbortSignal
+): Promise<HostClient> {
   const record = compatibleRecord(input);
   let attaching: Promise<HostClient> | undefined;
   try {
@@ -98,6 +104,7 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
       },
       {
         onTimeout: () => new Error(`Host pid ${record.pid} initialize/attach timed out`),
+        signal: cancel,
         timeoutMs,
       }
     );

@@ -29,9 +29,6 @@ import { fixture, mocks, resetActivationFixture } from './native-index-activatio
 beforeEach(resetActivationFixture);
 afterEach(resetDesktopShutdownStateForTests);
 
-/** Far above what this shutdown needs; a quit that waits for the start-up exhausts it. */
-const STEP_DEADLINE_MS = 1000;
-
 type Activation = ReturnType<typeof fixture>['activation'];
 
 /** Main's borrowers wait on the start-up, then the app quits; `fenced` runs right after the fence. */
@@ -81,7 +78,6 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
   const exitProcess = vi.fn();
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   await createDesktopGracefulShutdown({
-    deadlineMs: STEP_DEADLINE_MS,
     exitProcess,
     logger,
     markShuttingDown: markDesktopShuttingDown,
@@ -94,7 +90,8 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
       activation.fenceTerminal();
       fenced();
     },
-  }).run('before-quit', 'before-quit');
+    // No deadline (ADR-0026): a quit that waited on the start-up would hang this test.
+  }).run('before-quit');
 
   await expect(catalogWrite).rejects.toMatchObject({ refusal: { kind: 'closed' } });
   expect(exitProcess).not.toHaveBeenCalled();
@@ -118,7 +115,7 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
   expect(refused).toMatchObject({ message: expect.stringContaining('terminal retirement') });
 }
 
-it('a quit while the host is still starting stops its borrowers at the fence, cancels the start-up through its owner, and completes within the step deadline', async () => {
+it('a quit while the host is still starting stops its borrowers at the fence, cancels the start-up through its owner, and completes without waiting for it', async () => {
   const { activation } = fixture();
   // The host start-up never completes; only its owner's close ends it, with the lease's own
   // closing refusal (BST-2118), as the real lease's close aborts a start in flight.
