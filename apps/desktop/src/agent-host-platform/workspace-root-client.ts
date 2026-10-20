@@ -1,12 +1,21 @@
 import { isUnsentRequest } from '@brainstrike/agent-host/boundary-wire';
 import type { HostCatalog } from '@brainstrike/agent-host/catalog';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { HostAttachment } from '@brainstrike/host-lease';
+import { HOST_LEASE_CLOSED } from '../desktop-shutdown-state';
+
+interface DesktopWorkspaceRootCatalog extends HostCatalog {
+  /** Terminal app quit: fence new calls and join admitted acquisitions and replies. */
+  prepareClose(): Promise<void>;
+}
 
 /** A borrow of the current authenticated attachment, never another catalog or writer. */
 export function createDesktopWorkspaceRootCatalog(
   acquireProfile: () => Promise<HostAttachment>
-): HostCatalog {
+): DesktopWorkspaceRootCatalog {
   let current: HostCatalog | undefined;
+  let closing: Promise<void> | undefined;
+  const pending = new Set<Promise<unknown>>();
   const acquire = async (): Promise<HostCatalog> => {
     const attachment = await acquireProfile();
     if (!('catalog' in attachment)) {
@@ -22,7 +31,7 @@ export function createDesktopWorkspaceRootCatalog(
     void attachment.closed.then(detach, detach);
     return client;
   };
-  const borrow = async <T>(operation: (client: HostCatalog) => Promise<T>): Promise<T> => {
+  const invoke = async <T>(operation: (client: HostCatalog) => Promise<T>): Promise<T> => {
     const client = current ?? (await acquire());
     try {
       return await operation(client);
@@ -40,11 +49,38 @@ export function createDesktopWorkspaceRootCatalog(
       return await operation(await acquire());
     }
   };
+  const borrow = <T>(operation: (client: HostCatalog) => Promise<T>): Promise<T> => {
+    if (closing) {
+      return Promise.reject(new BoundaryFailureError(HOST_LEASE_CLOSED));
+    }
+    // Include acquisition: a call already admitted here may still await its attachment.
+    const work = Promise.resolve().then(() => invoke(operation));
+    pending.add(work);
+    const settled = (): void => {
+      pending.delete(work);
+    };
+    void work.then(settled, settled);
+    return work;
+  };
   return {
     collections: (request) => borrow((client) => client.collections(request)),
     forgeCache: (request) => borrow((client) => client.forgeCache(request)),
     forgeCacheSnapshot: () => borrow((client) => client.forgeCacheSnapshot()),
     modelChoices: (request) => borrow((client) => client.modelChoices(request)),
+    prepareClose: () => {
+      closing ??= Promise.allSettled([...pending]).then((results) => {
+        const failures = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length > 0) {
+          throw new AggregateError(
+            failures,
+            'Main catalog operations failed during close preparation'
+          );
+        }
+      });
+      return closing;
+    },
     promptLibrary: (request) => borrow((client) => client.promptLibrary(request)),
     sourceCatalog: (request) => borrow((client) => client.sourceCatalog(request)),
     threadGroups: (request) => borrow((client) => client.threadGroups(request)),
