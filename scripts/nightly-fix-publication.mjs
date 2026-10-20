@@ -34,12 +34,18 @@ export function githubApi(endpoint, fields = {}, paginate = false) {
     ])
   );
 }
-function list(endpoint, fields, github) {
+function list(endpoint, fields, github, collectionKey) {
   const pages = github(endpoint, fields, true);
-  if (!(Array.isArray(pages) && pages.every(Array.isArray))) {
+  if (!Array.isArray(pages)) {
     throw new Error('GitHub returned malformed paginated results.');
   }
-  return pages.flat();
+  return pages.flatMap((page) => {
+    const entries = collectionKey === undefined ? page : page?.[collectionKey];
+    if (!Array.isArray(entries)) {
+      throw new Error('GitHub returned malformed paginated results.');
+    }
+    return entries;
+  });
 }
 export function validateReceipt(value) {
   if (
@@ -146,7 +152,8 @@ export function retainedPatchEvidence(receipt, github = githubApi, now = Date.no
   const artifacts = list(
     `repos/${receipt.repository}/actions/runs/${receipt.runId}/artifacts`,
     { per_page: '100' },
-    github
+    github,
+    'artifacts'
   );
   const artifact = artifacts.find((entry) => entry.id === receipt.artifactId);
   if (
