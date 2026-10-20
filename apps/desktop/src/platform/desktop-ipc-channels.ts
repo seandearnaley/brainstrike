@@ -6,6 +6,7 @@ export const DESKTOP_IPC_CHANNELS = {
     // A damaged state store's recovery actions (BST-1880): restart the agent host
     // this app launched, so its store reopens and re-checks; show the data folder.
     hostRestart: 'agent:host-restart',
+    prepareClose: 'agent:prepare-close',
     showDataFolder: 'agent:show-data-folder',
   },
   // Embedded browser pane (BST-1174). Invoke channels drive the main-process

@@ -63,6 +63,11 @@ declare global {
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
+import { installDesktopRendererClose } from './desktop-renderer-close';
+
+if (resolveDesktopRendererRole(window.location.search) === 'visible-ui') {
+  installDesktopRendererClose();
+}
 
 // BST-1930 stage e: this window's agent host keeps the permission policy the user saves.
 if (window.agentHost) {
