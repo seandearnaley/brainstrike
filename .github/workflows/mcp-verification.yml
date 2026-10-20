@@ -7,6 +7,12 @@ on:
   schedule:
     - cron: '23 8 * * *'
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Verification scope
+        type: choice
+        default: all
+        options: [all, modern-closeout]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,7 +30,7 @@ env:
 jobs:
   verify:
     name: Exhaustive MCP verification
-    if: github.repository == 'seandearnaley/brainstrike'
+    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.profile != 'modern-closeout')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
@@ -50,7 +56,7 @@ jobs:
 
   official_auth:
     name: Official MCP auth conformance
-    if: github.repository == 'seandearnaley/brainstrike'
+    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.profile != 'modern-closeout')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 11
     steps:
@@ -111,7 +117,7 @@ jobs:
 
   official_core:
     name: Official MCP core conformance
-    if: github.repository == 'seandearnaley/brainstrike'
+    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.profile != 'modern-closeout')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 11
     steps:
@@ -211,6 +217,8 @@ jobs:
 
       - name: Run official MCP modern auth closeout
         timeout-minutes: 14
+        env:
+          OFFICIAL_MCP_LIFECYCLE_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.profile == 'modern-closeout' && format('{0}/official-modern-lifecycle.json', runner.temp) || '' }}
         run: pnpm run verify:mcp:official -- --profile modern-closeout
 
       - name: Upload official MCP modern auth evidence
@@ -219,6 +227,15 @@ jobs:
         with:
           name: mcp-official-modern-auth-${{ github.sha }}
           path: packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload manual lifecycle diagnostics
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.profile == 'modern-closeout' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-modern-lifecycle-${{ github.sha }}
+          path: ${{ runner.temp }}/official-modern-lifecycle.json
           if-no-files-found: error
           retention-days: 14
 

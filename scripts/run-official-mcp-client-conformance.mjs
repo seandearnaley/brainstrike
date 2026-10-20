@@ -20,6 +20,11 @@ import {
   OFFICIAL_AUTH_SCENARIOS_BY_PROTOCOL,
 } from '../packages/assistant-contract/src/official-auth-conformance.ts';
 
+import {
+  createOfficialLifecycleTrace,
+  withOfficialLifecycleTrace,
+} from './lib/official-conformance-lifecycle.mjs';
+
 const CONFORMANCE_VERSION = '0.2.0-alpha.12';
 const CLIENT_COMMAND = 'node apps/desktop/dist/official-conformance-client-entry.js';
 const BASELINE_PROFILE = 'baseline';
@@ -541,6 +546,7 @@ export function runOfficialClientInvocation(
     killGraceMs = 2000,
     killGroup = killPosixProcessGroup,
     platform = process.platform,
+    onLifecycle,
     spawnProcess = spawn,
     stdioFlushGraceMs = OFFICIAL_STDIO_FLUSH_GRACE_MS,
     windowsJob,
@@ -553,7 +559,17 @@ export function runOfficialClientInvocation(
     );
   }
   const diagnostics = createOfficialDiagnosticCollector();
+  const stdout = onLifecycle ? createOfficialDiagnosticCollector() : undefined;
+  const stderr = onLifecycle ? createOfficialDiagnosticCollector() : undefined;
+  const streams = {
+    stderr: { bytes: 0, lastDataMs: null },
+    stdout: { bytes: 0, lastDataMs: null },
+  };
+  const startedAt = performance.now();
+  const record = (event, details = {}) =>
+    onLifecycle?.({ event, scenario: invocation.id, ...details });
   let child;
+  record('spawn-requested');
   try {
     child = spawnProcess(invocation.command, [...invocation.argv], {
       cwd,
@@ -563,6 +579,7 @@ export function runOfficialClientInvocation(
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (cause) {
+    record('spawn-error');
     const failure = new Error(`Official MCP conformance ${invocation.id} failed to start`, {
       cause,
     });
@@ -577,8 +594,28 @@ export function runOfficialClientInvocation(
 
   child.stdout?.setEncoding?.('utf8');
   child.stderr?.setEncoding?.('utf8');
-  child.stdout?.on('data', (chunk) => diagnostics.collect(chunk));
-  child.stderr?.on('data', (chunk) => diagnostics.collect(chunk));
+  record('spawn-returned', { pid: child.pid ?? null });
+  if (onLifecycle) {
+    child.once('spawn', () => record('spawn', { pid: child.pid ?? null }));
+  }
+  for (const [name, collector] of [
+    ['stdout', stdout],
+    ['stderr', stderr],
+  ]) {
+    child[name]?.on('data', (chunk) => {
+      diagnostics.collect(chunk);
+      if (!onLifecycle) {
+        return;
+      }
+      collector.collect(chunk);
+      streams[name].bytes += Buffer.byteLength(chunk);
+      streams[name].lastDataMs = Math.round(performance.now() - startedAt);
+    });
+    if (onLifecycle) {
+      child[name]?.once('end', () => record(`${name}-end`));
+      child[name]?.once('close', () => record(`${name}-close`));
+    }
+  }
 
   return new Promise((resolve, reject) => {
     const processGroupId = child.pid;
@@ -588,8 +625,14 @@ export function runOfficialClientInvocation(
     let deadlineTimer;
     let exitGraceTimer;
     let startFailureImmediate;
-    const rejectWithDiagnostics = (failure) =>
+    const rejectWithDiagnostics = (failure) => {
+      record('output', { stderr: stderr?.lines() ?? [], stdout: stdout?.lines() ?? [] });
+      record('invocation-end', {
+        failureType: classifyInvocationFailure(failure),
+        status: 'failed',
+      });
       reject(attachInvocationDiagnostics(failure, diagnostics));
+    };
     const finish = async (failure, { killOwnedGroup = true } = {}) => {
       if (settled) {
         return;
@@ -603,13 +646,16 @@ export function runOfficialClientInvocation(
         ? !deferWindowsCleanup
         : processGroupId !== undefined;
       if (killOwnedGroup && shouldCleanOwnedProcesses) {
+        record('cleanup-start');
         try {
           if (ownsWindowsJob) {
             await terminateWindowsJobChildren(windowsJob, killGraceMs);
           } else {
             await killGroup(processGroupId, 'SIGKILL');
           }
+          record('cleanup-end', { status: 'confirmed' });
         } catch (cleanupCause) {
+          record('cleanup-end', { status: 'unconfirmed' });
           rejectWithDiagnostics(createCleanupFailure(invocation.id, failure, cleanupCause));
           return;
         }
@@ -618,6 +664,8 @@ export function runOfficialClientInvocation(
         rejectWithDiagnostics(failure);
         return;
       }
+      record('output', { stderr: stderr?.lines() ?? [], stdout: stdout?.lines() ?? [] });
+      record('invocation-end', { status: 'passed' });
       resolve();
     };
     const completeInvocation = (code, signal) => {
@@ -634,6 +682,7 @@ export function runOfficialClientInvocation(
     };
 
     child.once('error', (cause) => {
+      record('error');
       void finish(
         new Error(`Official MCP conformance ${invocation.id} failed to start`, { cause }),
         {
@@ -651,6 +700,21 @@ export function runOfficialClientInvocation(
     }
 
     deadlineTimer = setTimeout(() => {
+      record('deadline', {
+        exitCode: child.exitCode ?? null,
+        pid: child.pid ?? null,
+        signalCode: child.signalCode ?? null,
+        stderr: {
+          ...streams.stderr,
+          destroyed: child.stderr?.destroyed ?? null,
+          readableEnded: child.stderr?.readableEnded ?? null,
+        },
+        stdout: {
+          ...streams.stdout,
+          destroyed: child.stdout?.destroyed ?? null,
+          readableEnded: child.stdout?.readableEnded ?? null,
+        },
+      });
       timedOut = true;
       if (ownsWindowsJob) {
         void finish(
@@ -678,6 +742,7 @@ export function runOfficialClientInvocation(
       );
     }, deadlineMs);
     child.once('exit', (code, signal) => {
+      record('exit', { code, signal });
       if (settled) {
         return;
       }
@@ -688,6 +753,7 @@ export function runOfficialClientInvocation(
       exitGraceTimer = setTimeout(() => completeInvocation(code, signal), stdioFlushGraceMs);
     });
     child.once('close', (code, signal) => {
+      record('close', { code, signal });
       clearTimeout(exitGraceTimer);
       completeInvocation(code, signal);
     });
@@ -702,6 +768,7 @@ export async function runOfficialClientInvocations(
     env = buildControlledEnvironment(),
     loadWindowsJob = loadWindowsJobNative,
     now = Date.now,
+    onLifecycle,
     platform = process.platform,
     profile = BASELINE_PROFILE,
     provisionClientRuntime = provisionElectronClientRuntime,
@@ -741,6 +808,7 @@ export async function runOfficialClientInvocations(
     const wave = invocations.filter((invocation) => invocation.protocolVersion === protocolVersion);
     const runScenario = async (invocation) => {
       const startedAt = now();
+      onLifecycle?.({ event: 'scenario-start', scenario: invocation.id });
       try {
         await runInvocation(invocation, {
           cwd,
@@ -748,12 +816,20 @@ export async function runOfficialClientInvocations(
           deferWindowsCleanup:
             platform === 'win32' && descriptor.execution === 'parallel-by-protocol',
           env,
+          onLifecycle,
           platform,
           windowsJob,
         });
+        onLifecycle?.({ event: 'scenario-end', scenario: invocation.id, status: 'passed' });
         return { durationMs: now() - startedAt, id: invocation.id, status: 'passed' };
       } catch (error) {
         const failureType = classifyInvocationFailure(error);
+        onLifecycle?.({
+          event: 'scenario-end',
+          failureType,
+          scenario: invocation.id,
+          status: 'failed',
+        });
         writeDiagnostics(
           formatOfficialInvocationDiagnostics(
             invocation.id,
@@ -878,47 +954,55 @@ export function finalizeOfficialAuthEvidence(
 
 export async function main(argv = process.argv.slice(2)) {
   const profile = parseOfficialAuthProfile(argv);
-  const startedAt = new Date().toISOString();
-  const ledgers = validateExpectedFailureLedgers(REPO_ROOT);
-  const invocations = buildOfficialClientInvocations({
-    conformanceEntryPath: resolvePinnedConformanceEntry(REPO_ROOT),
-    profile,
-  });
-  let failure;
-  let report;
-  try {
-    report = await runOfficialClientInvocations(invocations, {
-      cwd: REPO_ROOT,
-      env: buildControlledEnvironment(),
-      profile,
-      provisionClientRuntime: provisionElectronClientRuntime,
-    });
-  } catch (error) {
-    if (
-      typeof error !== 'object' ||
-      error === null ||
-      !('report' in error) ||
-      typeof error.report !== 'object' ||
-      error.report === null
-    ) {
-      throw error;
-    }
-    failure = error;
-    report = error.report;
-  }
-  const evidence = finalizeOfficialAuthEvidence({
-    completedAt: new Date().toISOString(),
-    failure,
-    ledgers,
-    outputPath: evidencePathForProfile(profile),
-    profile,
-    repoRoot: REPO_ROOT,
-    report,
-    startedAt,
-  });
-  process.stdout.write(
-    `Official MCP ${officialAuthProfileDescriptor(profile).displayName} conformance passed ${evidence.summary.passed}/${evidence.summary.executions} executions\n`
+  const lifecycle = createOfficialLifecycleTrace(
+    process.env.OFFICIAL_MCP_LIFECYCLE_PATH,
+    process.env.RUNNER_TEMP,
+    () => ({ conformanceVersion: CONFORMANCE_VERSION, git: resolveGitEvidence(REPO_ROOT) })
   );
+  await withOfficialLifecycleTrace(lifecycle, async () => {
+    const startedAt = new Date().toISOString();
+    const ledgers = validateExpectedFailureLedgers(REPO_ROOT);
+    const invocations = buildOfficialClientInvocations({
+      conformanceEntryPath: resolvePinnedConformanceEntry(REPO_ROOT),
+      profile,
+    });
+    let failure;
+    let report;
+    try {
+      report = await runOfficialClientInvocations(invocations, {
+        cwd: REPO_ROOT,
+        env: buildControlledEnvironment(),
+        onLifecycle: lifecycle?.record,
+        profile,
+        provisionClientRuntime: provisionElectronClientRuntime,
+      });
+    } catch (error) {
+      if (
+        typeof error !== 'object' ||
+        error === null ||
+        !('report' in error) ||
+        typeof error.report !== 'object' ||
+        error.report === null
+      ) {
+        throw error;
+      }
+      failure = error;
+      report = error.report;
+    }
+    const evidence = finalizeOfficialAuthEvidence({
+      completedAt: new Date().toISOString(),
+      failure,
+      ledgers,
+      outputPath: evidencePathForProfile(profile),
+      profile,
+      repoRoot: REPO_ROOT,
+      report,
+      startedAt,
+    });
+    process.stdout.write(
+      `Official MCP ${officialAuthProfileDescriptor(profile).displayName} conformance passed ${evidence.summary.passed}/${evidence.summary.executions} executions\n`
+    );
+  });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

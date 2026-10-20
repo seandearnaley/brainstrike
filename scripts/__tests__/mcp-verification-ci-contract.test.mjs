@@ -101,8 +101,10 @@ test('verification runs nightly and on manual dispatch with bounded artifact ret
   for (const jobId of ['verify', ...officialJobIds]) {
     assert.equal(
       workflow.jobs[jobId].if,
-      "github.repository == 'seandearnaley/brainstrike'",
-      `${jobId} must run every night on the canonical repository`
+      jobId === 'official_modern_auth'
+        ? "github.repository == 'seandearnaley/brainstrike'"
+        : "github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.profile != 'modern-closeout')",
+      `${jobId} must preserve scheduled/default admission`
     );
   }
   assert.equal(workflow.jobs.verify['timeout-minutes'], 10);
@@ -289,4 +291,45 @@ test('PR and exhaustive lanes use the same command apart from profile and output
     packageJson.scripts['verify:mcp:official'],
     'pnpm --filter @brainstrike/assistant-contract build && pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main && node scripts/run-official-mcp-client-conformance.mjs'
   );
+});
+
+test('manual modern proof selects only the canonical eleven-scenario ARM64 job', () => {
+  const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
+  assert.deepEqual(workflow.on.workflow_dispatch.inputs.profile, {
+    default: 'all',
+    description: 'Verification scope',
+    options: ['all', 'modern-closeout'],
+    type: 'choice',
+  });
+  for (const event of ['schedule', 'workflow_dispatch']) {
+    for (const profile of ['', 'all', 'modern-closeout']) {
+      const admitted = ['verify', ...officialJobIds].filter((id) => {
+        const expression = workflow.jobs[id].if
+          .replaceAll('github.repository', JSON.stringify('seandearnaley/brainstrike'))
+          .replaceAll('github.event_name', JSON.stringify(event))
+          .replaceAll('inputs.profile', JSON.stringify(profile));
+        return Function(`return (${expression})`)();
+      });
+      assert.deepEqual(
+        admitted,
+        event === 'workflow_dispatch' && profile === 'modern-closeout'
+          ? ['official_modern_auth']
+          : ['verify', ...officialJobIds]
+      );
+    }
+  }
+  assert.match(workflow.jobs['notify-linear'].if, /github.event_name == 'schedule'/u);
+  assert.equal(workflow.jobs.official_modern_auth['runs-on'], 'ubuntu-24.04-arm');
+  const run = findStep(workflow, 'official_modern_auth', 'Run official MCP modern auth closeout');
+  assert.match(
+    run.env.OFFICIAL_MCP_LIFECYCLE_PATH,
+    /github.event_name == 'workflow_dispatch' && inputs.profile == 'modern-closeout'/u
+  );
+  const upload = findStep(workflow, 'official_modern_auth', 'Upload manual lifecycle diagnostics');
+  assert.equal(
+    upload.if,
+    `${'$'}{{ always() && github.event_name == 'workflow_dispatch' && inputs.profile == 'modern-closeout' }}`
+  );
+  assert.equal(upload.with['if-no-files-found'], 'error');
+  assert.equal(upload.with['retention-days'], 14);
 });
