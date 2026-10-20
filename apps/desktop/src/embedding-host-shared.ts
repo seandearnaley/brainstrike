@@ -27,10 +27,13 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   documentEmbeddings: 'document-embeddings',
   documentEmbeddingsCancel: 'document-embeddings-cancel',
   documentEmbeddingsRequest: 'document-embeddings-request',
+  modelCacheStatus: 'model-cache-status',
+  modelCacheStatusRequest: 'model-cache-status-request',
   queryEmbedding: 'query-embedding',
   queryEmbeddingCancel: 'query-embedding-cancel',
   queryEmbeddingRequest: 'query-embedding-request',
   reportDocumentEmbeddingsResponse: 'report-document-embeddings-response',
+  reportModelCacheStatusResponse: 'report-model-cache-status-response',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
   reportWebgpuAdapterResponse: 'report-webgpu-adapter-response',
   webgpuAdapter: 'webgpu-adapter',
@@ -56,6 +59,11 @@ export const EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT =
   EMBEDDING_HOST_CHANNELS.webgpuAdapterRequest;
 export const EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportWebgpuAdapterResponse;
+export const EMBEDDING_HOST_MODEL_CACHE_STATUS_CHANNEL = EMBEDDING_HOST_CHANNELS.modelCacheStatus;
+export const EMBEDDING_HOST_MODEL_CACHE_STATUS_REQUEST_EVENT =
+  EMBEDDING_HOST_CHANNELS.modelCacheStatusRequest;
+export const EMBEDDING_HOST_REPORT_MODEL_CACHE_STATUS_RESPONSE_CHANNEL =
+  EMBEDDING_HOST_CHANNELS.reportModelCacheStatusResponse;
 export type EmbeddingHostCommandAction = 'reset' | 'resolve-device' | 'start-background' | 'stop';
 
 export type EmbeddingHostCommandPayload =

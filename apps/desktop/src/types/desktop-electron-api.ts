@@ -2,7 +2,7 @@ import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/sto
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
+import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type {
   ContentClearCapability,
   FileSystemWatchEvent,
@@ -22,6 +22,10 @@ import type {
   ChunkingHostResponseReport,
   ChunkingHostStatus,
 } from '../chunking-host-shared';
+import type {
+  EmbeddingHostModelCacheRequest,
+  EmbeddingHostModelCacheResponseReport,
+} from '../embedding-host-model-cache';
 import type {
   EmbeddingHostCommand,
   EmbeddingHostDocumentEmbeddingsCancel,
@@ -147,12 +151,18 @@ export interface VisibleEmbeddingHostBridge {
   ) => Promise<number[][]>;
   ensureStarted: () => Promise<EmbeddingHostStatus>;
   getStatus: () => Promise<EmbeddingHostStatus>;
+  /** Which download plans are fully in the host's model cache, in order (BST-2241). */
+  modelCacheStatus: (plans: readonly ModelCachePlan[]) => Promise<readonly boolean[]>;
   onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
   onDocumentEmbeddingsCancel: (
     callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
   ) => () => void;
   onDocumentEmbeddingsRequest: (
     callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
+  ) => () => void;
+  /** The hidden host answers Main's model cache request (BST-2241). */
+  onModelCacheStatusRequest: (
+    callback: (request: EmbeddingHostModelCacheRequest) => void
   ) => () => void;
   onQueryEmbeddingCancel: (
     callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
@@ -172,6 +182,7 @@ export interface VisibleEmbeddingHostBridge {
   reportDocumentEmbeddingsResponse: (
     response: EmbeddingHostDocumentEmbeddingsResponseReport
   ) => void;
+  reportModelCacheStatusResponse: (response: EmbeddingHostModelCacheResponseReport) => void;
   reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
   reportStatus: (status: EmbeddingHostStatus) => void;
   reportWebgpuAdapterResponse: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
@@ -193,6 +204,8 @@ export type EmbeddingHostRuntimeBridge = Pick<
   | 'reportStatus'
   | 'onWebgpuAdapterRequest'
   | 'reportWebgpuAdapterResponse'
+  | 'onModelCacheStatusRequest'
+  | 'reportModelCacheStatusResponse'
 >;
 
 export interface VisibleDesktopCapabilities {

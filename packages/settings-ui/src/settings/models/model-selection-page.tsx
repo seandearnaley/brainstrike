@@ -10,9 +10,9 @@ import { Button, cn, useToast } from '@brainstrike/ui';
 import { RefreshCw } from 'lucide-react';
 import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { ModelCacheDirectoryPopover } from './model-cache-directory-popover';
 import { ModelCatalog } from './model-catalog';
 import { getModelRuntimeServices } from './model-runtime-services';
+import { useDownloadedModelsRead } from './use-downloaded-models-read';
 import { type ModelBulkChange, useModelBulkToggle } from './use-model-bulk-toggle';
 import { DATABASE_NOT_READY, useModelToggle } from './use-model-toggle';
 
@@ -97,7 +97,6 @@ export function ModelCatalogHeaderActions() {
   const refresh = useRegistryRefresh();
   return (
     <div className="flex items-center gap-2">
-      <ModelCacheDirectoryPopover />
       <Button
         aria-label="Refresh model registry"
         data-testid="model-registry-refresh"
@@ -117,27 +116,18 @@ export function ModelCatalogHeaderActions() {
 
 export function ModelSelectionPage() {
   const db = useModelRegistrySource();
-  const {
-    downloadedModels,
-    downloadProgress,
-    error,
-    hasLoaded,
-    isDownloading,
-    modelCacheDir,
-    models,
-    providers,
-  } = useModelRegistryStore(
-    useShallow((state) => ({
-      downloadedModels: state.downloadedModels,
-      downloadProgress: state.downloadProgress,
-      error: state.error,
-      hasLoaded: state.hasLoaded,
-      isDownloading: state.isDownloading,
-      modelCacheDir: state.modelCacheDir,
-      models: state.models,
-      providers: state.providers,
-    }))
-  );
+  const { downloadedModels, downloadProgress, error, hasLoaded, isDownloading, models, providers } =
+    useModelRegistryStore(
+      useShallow((state) => ({
+        downloadedModels: state.downloadedModels,
+        downloadProgress: state.downloadProgress,
+        error: state.error,
+        hasLoaded: state.hasLoaded,
+        isDownloading: state.isDownloading,
+        models: state.models,
+        providers: state.providers,
+      }))
+    );
   const { toast } = useToast();
   // Shared with the Provider Hub cards: one implementation of "enable this
   // model", so a failure is reported the same way on both surfaces. Bulk
@@ -146,6 +136,7 @@ export function ModelSelectionPage() {
   const applyBulkChange = useModelBulkToggle({ busyModelIds, toggleMany });
 
   useEnsureModelRegistry({ db });
+  useDownloadedModelsRead();
 
   // Reads the store at call time so the handler stays identity-stable while
   // download progress ticks (TreeGrid contract: stable row-facing callbacks).
@@ -218,7 +209,6 @@ export function ModelSelectionPage() {
       downloadProgress={downloadProgress}
       isDownloading={isDownloading}
       loaded={hasLoaded}
-      modelCacheDir={modelCacheDir}
       models={models}
       onBulkChange={handleBulkChange}
       onDownload={handleDownload}

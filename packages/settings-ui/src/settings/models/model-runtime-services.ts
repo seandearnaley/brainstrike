@@ -14,6 +14,14 @@ export interface ModelRuntimeServices {
    * byte progress, so the catalog shows the download as indeterminate.
    */
   downloadEmbeddingModel: (model: CatalogEmbeddingModel) => Promise<void>;
+  /**
+   * BST-2241: the ids of the models whose download plans are fully in the
+   * realm's model cache, so a download would fetch nothing. Rejects when the
+   * realm cannot tell (no device to plan for, or the host is unavailable).
+   */
+  readDownloadedEmbeddingModels: (
+    models: readonly CatalogEmbeddingModel[]
+  ) => Promise<readonly string[]>;
 }
 
 let configuredModelRuntimeServices: ModelRuntimeServices | null = null;

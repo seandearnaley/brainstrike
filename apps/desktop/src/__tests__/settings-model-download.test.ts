@@ -6,9 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const generateDesktopQueryEmbedding = vi.hoisted(() => vi.fn(async () => [0.1, 0.2]));
 vi.mock('../renderer/query-embeddings', () => ({ generateDesktopQueryEmbedding }));
 
-const { downloadDesktopEmbeddingModel, resolveModelDownloadDevice } = await import(
-  '../renderer/settings-model-download'
-);
+const {
+  downloadDesktopEmbeddingModel,
+  readDesktopDownloadedEmbeddingModels,
+  resolveModelDownloadDevice,
+} = await import('../renderer/settings-model-download');
 
 /** A catalog row that pins its revision, per-device dtype and pooling (BST-1993). */
 const GRANITE: CatalogEmbeddingModel = {
@@ -90,5 +92,24 @@ describe('downloadDesktopEmbeddingModel (BST-2230)', () => {
       }),
       expect.anything()
     );
+  });
+});
+
+describe('readDesktopDownloadedEmbeddingModels (BST-2241)', () => {
+  it('asks the host cache about the same plans a download loads, and keeps the cached ids', async () => {
+    const readHostCache = vi.fn(async () => [true, false]);
+    const MINILM: CatalogEmbeddingModel = {
+      dimensions: 384,
+      id: 'Xenova/all-MiniLM-L6-v2',
+      prompts: { document: '', query: '' },
+    };
+
+    await expect(
+      readDesktopDownloadedEmbeddingModels([GRANITE, MINILM], 'wasm', readHostCache)
+    ).resolves.toEqual([GRANITE.id]);
+    expect(readHostCache).toHaveBeenCalledWith([
+      { device: 'wasm', dtype: 'q8', modelId: GRANITE.id, revision: GRANITE.revision },
+      { device: 'wasm', dtype: 'q4', modelId: MINILM.id },
+    ]);
   });
 });

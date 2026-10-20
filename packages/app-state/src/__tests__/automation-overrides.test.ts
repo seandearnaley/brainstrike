@@ -57,14 +57,12 @@ describe('automation-overrides', () => {
       modelRegistry: {
         snapshot: {
           downloadedModels: { [SELECTED_MODEL]: true },
-          modelCacheDir: '/tmp/models',
         },
       },
     };
 
     expect(getModelRegistrySnapshotTestOverride()).toEqual({
       downloadedModels: { [SELECTED_MODEL]: true },
-      modelCacheDir: '/tmp/models',
     });
   });
 
