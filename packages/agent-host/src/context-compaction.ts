@@ -96,11 +96,6 @@ export function compactionNote(
     : `[Earlier conversation compacted]\n${summaries.join('\n')}`;
 }
 
-/** Committed compactions in log order, from the rows alone. */
-export function committedCompactions(rows: readonly HostLogRow[]): Compacted[] {
-  return rows.flatMap((row) => (row.event.type === 'context.compacted' ? [row.event] : []));
-}
-
 /** Core-owned fold of committed compactions per thread; the run log is the only record. */
 export class HostContextCompactions {
   private readonly threads = new Map<string, Compacted[]>();

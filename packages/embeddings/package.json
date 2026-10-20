@@ -16,14 +16,14 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "catalog:",
     "effect": "catalog:",
     "glob": "catalog:"
   },
   "devDependencies": {
-    "@effect/tsgo": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@electric-sql/pglite": "catalog:",
+    "@huggingface/transformers": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",

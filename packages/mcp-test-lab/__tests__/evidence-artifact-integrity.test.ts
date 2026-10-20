@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  McpArtifactIntegrityError,
-  verifyMcpEvidenceArtifactIntegrity,
-} from '../src/evidence-artifact-integrity';
+import { verifyMcpEvidenceBundle } from '../src/evidence.js';
+import { McpArtifactIntegrityError } from '../src/evidence-artifact-integrity';
 import { evidenceFixture } from './evidence-test-fixture';
 
 const MAX_ARTIFACT_BYTES = 1024;
@@ -27,7 +25,7 @@ function evidenceWithArtifact(
   return evidence;
 }
 
-describe('verifyMcpEvidenceArtifactIntegrity', () => {
+describe('verifyMcpEvidenceBundle', () => {
   it('hashes original bytes, reads each artifact once, and fatally decodes text', async () => {
     const bytes = Uint8Array.from([0xef, 0xbb, 0xbf, 0x61]);
     const evidence = evidenceWithArtifact(bytes, {
@@ -36,7 +34,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     });
     const readArtifactContent = vi.fn(async () => bytes);
 
-    const result = await verifyMcpEvidenceArtifactIntegrity(evidence, {
+    const result = await verifyMcpEvidenceBundle(evidence, {
       maxArtifactBytes: MAX_ARTIFACT_BYTES,
       readArtifactContent,
     });
@@ -57,7 +55,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     const evidence = evidenceFixture();
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent: async () => new TextEncoder().encode('different bytes'),
       })
@@ -75,7 +73,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     });
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent: async () => bytes,
       })
@@ -90,7 +88,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     });
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent: async () => bytes,
       })
@@ -104,7 +102,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
       expect(received).toEqual(bytes);
       return 'Software=Brainstrike';
     });
-    const result = await verifyMcpEvidenceArtifactIntegrity(evidence, {
+    const result = await verifyMcpEvidenceBundle(evidence, {
       extractScreenshotMetadata,
       extractScreenshotText,
       maxArtifactBytes: MAX_ARTIFACT_BYTES,
@@ -128,7 +126,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     const readArtifactContent = vi.fn(async () => new Uint8Array());
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent,
       })
@@ -142,7 +140,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
 
     let caught: unknown;
     try {
-      await verifyMcpEvidenceArtifactIntegrity(evidence, {
+      await verifyMcpEvidenceBundle(evidence, {
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent: async () => {
           throw new Error(secret);
@@ -166,7 +164,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     });
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         extractScreenshotMetadata: async () => '',
         extractScreenshotText: async () => {
           throw new Error(secret);
@@ -186,7 +184,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     const evidence = evidenceFixture();
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent: async () => 'artifact text' as unknown as Uint8Array,
       })
@@ -206,7 +204,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
       reference: 'artifacts/window.png',
     });
 
-    const result = await verifyMcpEvidenceArtifactIntegrity(evidence, {
+    const result = await verifyMcpEvidenceBundle(evidence, {
       extractScreenshotMetadata: async (received) => {
         expect(received).toEqual(original);
         return '';
@@ -231,14 +229,14 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
       reference: 'artifacts/window.png',
     });
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         extractScreenshotText: async () => 'window',
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent: async () => bytes,
       })
     ).rejects.toMatchObject({ code: 'screenshot_metadata_extractor_missing' });
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, {
+      verifyMcpEvidenceBundle(evidence, {
         extractScreenshotMetadata: async () => {
           throw new Error('secret metadata');
         },
@@ -255,7 +253,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     const readArtifactContent = vi.fn(async () => bytes);
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidence, { maxArtifactBytes: 4, readArtifactContent })
+      verifyMcpEvidenceBundle(evidence, { maxArtifactBytes: 4, readArtifactContent })
     ).rejects.toMatchObject({ code: 'artifact_too_large' });
     expect(readArtifactContent).toHaveBeenCalledWith('artifacts/a.log', 4);
   });
@@ -264,7 +262,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     const readArtifactContent = vi.fn(async () => new Uint8Array());
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidenceFixture(), {
+      verifyMcpEvidenceBundle(evidenceFixture(), {
         maxArtifactBytes: 0,
         readArtifactContent,
       })
@@ -276,7 +274,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     const error = Object.assign(new Error('private path and artifact content'), { code: 'ENOENT' });
 
     await expect(
-      verifyMcpEvidenceArtifactIntegrity(evidenceFixture(), {
+      verifyMcpEvidenceBundle(evidenceFixture(), {
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent: async () => {
           throw error;

@@ -3,123 +3,17 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DirectoryHandle } from '../types.js';
+import { validateDirectoryPath } from '../utils.js';
 import {
   createLimiter,
-  extractNativeDirectoryHandle,
-  extractNativeDirectoryHandleAsNull,
-  extractNativeDirectoryHandleAsUndefined,
   isFileSystemDirectoryHandle,
   isFileSystemFileHandle,
-  isValidDirectoryHandle,
   normalizeDirectoryReadOptions,
-  validateDirectoryPath,
-} from '../utils.js';
+} from '../utils-browser.js';
 
 describe('utils', () => {
-  const nativeHandle = {} as FileSystemDirectoryHandle;
-
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  describe('extractNativeDirectoryHandle', () => {
-    it('returns internal handle for web platform', () => {
-      const handle: DirectoryHandle = {
-        _internal: nativeHandle,
-        kind: 'directory',
-        name: 'root',
-        path: '/',
-        platform: 'web',
-      };
-
-      const result = extractNativeDirectoryHandle(handle);
-      expect(result).toBe(nativeHandle);
-    });
-
-    it('returns internal handle and warns when platform is undefined', () => {
-      const handle = {
-        _internal: nativeHandle,
-        kind: 'directory' as const,
-        name: 'root',
-        path: '/',
-        platform: undefined,
-      } as unknown as DirectoryHandle;
-
-      const result = extractNativeDirectoryHandle(handle);
-      expect(result).toBe(nativeHandle);
-    });
-
-    it('returns null and warns for electron platform', () => {
-      const handle: DirectoryHandle = {
-        _internal: nativeHandle,
-        kind: 'directory',
-        name: 'root',
-        path: '/',
-        platform: 'electron',
-      };
-
-      const result = extractNativeDirectoryHandle(handle);
-      expect(result).toBeNull();
-    });
-
-    it('returns same value for null or undefined', () => {
-      expect(extractNativeDirectoryHandle(null)).toBeNull();
-      expect(extractNativeDirectoryHandle(undefined)).toBeUndefined();
-    });
-  });
-
-  describe('extractNativeDirectoryHandleAsUndefined', () => {
-    it('returns undefined for electron platform', () => {
-      const handle: DirectoryHandle = {
-        _internal: nativeHandle,
-        kind: 'directory',
-        name: 'root',
-        path: '/',
-        platform: 'electron',
-      };
-
-      const result = extractNativeDirectoryHandleAsUndefined(handle);
-      expect(result).toBeUndefined();
-    });
-  });
-
-  describe('extractNativeDirectoryHandleAsNull', () => {
-    it('returns null for electron platform', () => {
-      const handle: DirectoryHandle = {
-        _internal: nativeHandle,
-        kind: 'directory',
-        name: 'root',
-        path: '/',
-        platform: 'electron',
-      };
-
-      const result = extractNativeDirectoryHandleAsNull(handle);
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('isValidDirectoryHandle', () => {
-    it('checks handle validity', () => {
-      const dirHandle: DirectoryHandle = {
-        kind: 'directory',
-        name: 'root',
-        path: '/',
-        platform: 'web',
-      };
-
-      const fileHandle = {
-        kind: 'file' as const,
-        name: 'file',
-        path: '/file',
-        platform: 'web' as const,
-      } as unknown as DirectoryHandle;
-
-      expect(isValidDirectoryHandle(dirHandle)).toBe(true);
-      expect(isValidDirectoryHandle(fileHandle)).toBe(false);
-      expect(isValidDirectoryHandle(null)).toBe(false);
-      expect(isValidDirectoryHandle(undefined)).toBe(false);
-    });
   });
 
   describe('isFileSystemDirectoryHandle', () => {

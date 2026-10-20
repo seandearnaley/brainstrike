@@ -1,8 +1,6 @@
 // @ts-check
 import { sha256Hex } from '@brainstrike/utils/crypto';
 
-export { SOURCE_CATALOG_SCHEMA } from './source-catalog-schema.mjs';
-
 const projection = `id AS fileId, root_id AS rootId, embedding_set_id AS embeddingSetId,
   path, name AS fileName, created_at AS createdAt, updated_at AS updatedAt, chunks_count AS chunksCount, content_hash AS contentHash, mtime_ms AS mtimeMs, size,
   chunks_processed AS chunksProcessed`;
