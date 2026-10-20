@@ -41,7 +41,7 @@ test.each([
   ['owned', 'workspaceRoots', 'rejected'],
   ['owned', 'worktreeLedger', 'stuck'],
 ] as const)(
-  'actual Main lease %s %s %s settles before retirement or the existing deadline',
+  'actual Main lease %s %s %s settles before retirement, however long it is held',
   async (kernel, method, mode) => {
     const proof = await mkdtemp(join(directory, `${kernel}-${method}-${mode}-`));
     const root = join(proof, 'profile');
@@ -86,7 +86,8 @@ test.each([
     try {
       const code = await runWithTimeout(() => exited, {
         onTimeout: () => new Error(`Electron catalog proof timed out: ${output}`),
-        timeoutMs: 20_000,
+        // A test bound: 'stuck' holds its response for 11 s by design.
+        timeoutMs: 45_000,
       });
       expect(code, output).toBe(0);
       const report = await readFile(join(proof, 'report.json'), 'utf8');
@@ -95,8 +96,8 @@ test.each([
         expect(report).toContain('still-pending-before-release');
       }
       if (mode === 'stuck') {
-        expect(report).toContain('main-catalog');
-        expect(report).toContain('"forcedExit": 1');
+        expect(report).toContain('still-pending-past-old-deadline');
+        expect(report).toContain('Graceful shutdown step is slow');
       }
       if (owner) {
         expect(processStartTime(owner.record.pid)).toBe(owner.record.start);

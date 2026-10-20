@@ -184,17 +184,17 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     }
     const unbound = new Set<() => void>();
     const lease = createDesktopHostLease({
-      // A cold Windows host physically joined all owners and released Root in
-      // 3.731s. Keep the physical join within the existing 5s shutdown budget;
-      // the other platforms retain their existing allowance.
-      closeTimeoutMs: process.platform === 'win32' ? 5000 : 1000,
       lifecycleDelays: lifecycleDelaySeam(),
       onChildReady: privateClients.attach,
       onChildStarted: () => launched.resolve(),
-      onLost: (code) => {
-        logger.warn('The agent host exited without Main asking; the next client relaunches it', {
-          code,
-        });
+      onLost: (code, { requested }) => {
+        if (requested) {
+          logger.info('The agent host stopped for the restart the user asked for', { code });
+        } else {
+          logger.warn('The agent host exited without Main asking; the next client relaunches it', {
+            code,
+          });
+        }
         lost();
       },
       platform: (children) => {

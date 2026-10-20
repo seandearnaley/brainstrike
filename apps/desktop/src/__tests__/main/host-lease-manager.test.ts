@@ -21,8 +21,15 @@ vi.mock('@brainstrike/state-store', async (original) => {
 class Child extends EventEmitter {
   pid: number | undefined = 123;
   readonly posts: unknown[] = [];
-  readonly kill = vi.fn();
+  /** Electron's kill: SIGTERM, then SIGKILL; the utility's exit follows (code 15 here). */
+  readonly kill = vi.fn(() => {
+    if (this.exitOnKill) {
+      queueMicrotask(() => this.exit(15));
+    }
+    return true;
+  });
   exitOnClose = true;
+  exitOnKill = true;
   postMessage(message: unknown): void {
     this.posts.push(message);
     // Only the close control ends the utility; the lifetime port arrives at spawn.
@@ -108,22 +115,23 @@ describe('desktop host lease ownership', () => {
     expect(child.pid).toBeUndefined();
     await expect(owner.close()).rejects.toBe(cause);
   });
-  it('keeps failed startup cleanup visible to the reset close barrier', async () => {
+  it('escalates failed startup cleanup to kill after the cooperative rung and joins that exit', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const child = new Child();
     child.exitOnClose = false;
     const owner = createDesktopHostLease({
-      closeTimeoutMs: 20,
+      cooperativeCloseMs: 20,
       fork: () => {
         queueMicrotask(() => child.emit('message', { event: 'ready', extra: true }));
         return child;
       },
       root,
     });
-    await expect(owner.acquire()).rejects.toBeInstanceOf(AggregateError);
-    await expect(owner.close()).rejects.toThrow('did not exit');
-    expect(child.kill).not.toHaveBeenCalled();
-    child.exit(0);
+    // The startup failure itself, not a cleanup failure: the ladder joined the exit.
+    await expect(owner.acquire()).rejects.not.toBeInstanceOf(AggregateError);
+    expect(child.kill).toHaveBeenCalledOnce();
+    expect(child.pid).toBeUndefined();
+    await expect(owner.close()).resolves.toBeUndefined();
   });
   it('coalesces acquisition and joins its own cooperative exit after detaching', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
@@ -208,7 +216,7 @@ describe('desktop host lease ownership', () => {
       });
       await owner.acquire();
       child.exit(code);
-      expect(onLost).toHaveBeenCalledExactlyOnceWith(code);
+      expect(onLost).toHaveBeenCalledExactlyOnceWith(code, { requested: false });
       // The loss was reported when it happened; retiring the owner is not a failed close.
       await owner.close();
       expect(child.posts).not.toContainEqual({ method: 'close' });
@@ -356,7 +364,6 @@ describe('desktop host lease ownership', () => {
     const child = new Child();
     child.exitOnClose = false;
     const owner = createDesktopHostLease({
-      closeTimeoutMs: 200,
       fork: () => {
         queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
@@ -369,37 +376,44 @@ describe('desktop host lease ownership', () => {
     child.exit(7);
     await expect(closing).rejects.toThrow('7');
     await expect(owner.acquire()).rejects.toThrow('closing');
+    expect(child.kill).not.toHaveBeenCalled();
   });
-  it('keeps the platform port open while a timed-out host is still cleaning up, and closes it once that host exits', async () => {
+  it('keeps the platform port open while a cancelled host is still cleaning up, and closes it once that host exits', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
-    // The launch's caller cancels the start before the host is ready.
+    // A startup the launcher cancels before the host is ready.
     launch.mockImplementation(async (_root: string, options: HostLaunchOptions) => {
-      const deadline = new AbortController();
-      setTimeout(() => deadline.abort(new Error('Host start cancelled')), 10);
-      await options.spawn(start, deadline.signal);
+      const cancelled = new AbortController();
+      setTimeout(() => cancelled.abort(new Error('Host startup cancelled')), 10);
+      await options.spawn(start, cancelled.signal);
       return attachment;
     });
-    // Slow cleanup: the cancelled host outlives the close deadline, still using its platform.
+    // Slow cleanup: the cancelled host ignores close, and even its kill takes a while to land.
     const child = new Child();
     child.exitOnClose = false;
+    child.exitOnKill = false;
     const platformClose = vi.fn(async () => undefined);
     const owner = createDesktopHostLease({
-      closeTimeoutMs: 20,
+      cooperativeCloseMs: 20,
       fork: () => child,
       platform: () => ({ close: platformClose, port: {} as MessagePortMain }),
       root,
     });
-    await expect(owner.acquire()).rejects.toThrow('Host acquisition and cleanup failed');
+    let settled = false;
+    const acquiring = owner.acquire().finally(() => {
+      settled = true;
+    });
+    acquiring.catch(() => undefined);
+    await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
     expect(child.posts).toContainEqual({ method: 'close' });
-    expect(child.pid).toBe(123);
+    // Nothing is released while the host still runs: no caller-side deadline gives up on it.
     expect(platformClose).not.toHaveBeenCalled();
-    await expect(owner.close()).rejects.toThrow('did not exit');
+    expect(settled).toBe(false);
 
-    child.exit(0);
-    await vi.waitFor(() => expect(platformClose).toHaveBeenCalledOnce());
-    // Once that host has exited, its release is complete rather than a stale deadline failure.
+    child.exit(15);
+    // The cancellation stays the outcome; the joined cleanup is not a failure.
+    await expect(acquiring).rejects.toThrow('Host startup cancelled');
+    expect(platformClose).toHaveBeenCalledOnce();
     await expect(owner.close()).resolves.toBeUndefined();
-    expect(child.kill).not.toHaveBeenCalled();
   });
   it('gives the host its lifetime port at spawn and lets go of it only after the host exited', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
@@ -427,45 +441,236 @@ describe('desktop host lease ownership', () => {
     await closing;
     expect(order).toEqual(['host exited', 'lifetime released']);
   });
-  it('names the utility pid Electron reports at spawn in a close timeout', async () => {
-    const { createDesktopHostLease } = await import('../../host-lease-manager');
-    // Electron's utilityProcess has no pid until its spawn event.
-    const child = new Child();
-    child.pid = undefined;
-    child.exitOnClose = false;
-    const owner = createDesktopHostLease({
-      closeTimeoutMs: 20,
-      fork: () => {
-        queueMicrotask(() => {
-          child.pid = 123;
-          child.emit('spawn');
-          child.emit('message', { event: 'ready', record: readyRecord });
-        });
-        return child;
-      },
-      root,
+  it('escalates a host that ignores close to kill after the cooperative rung, joins its exit and reports no failure', async () => {
+    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
+      '../../host-lease-manager'
+    );
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
+    const warnings: unknown[] = [];
+    const stop = addLogListener((record) => {
+      if (record.scope === 'DesktopHostLease' && record.level !== LogLevel.DEBUG) {
+        warnings.push({ args: record.args, level: record.level, message: record.message });
+      }
     });
-    await owner.acquire();
-    await expect(owner.close()).rejects.toThrow('Owned host utility pid 123 did not exit');
-    child.exit(0);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const child = new Child();
+      child.exitOnClose = false;
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+          return child;
+        },
+        root,
+      });
+      await owner.acquire();
+      let released = false;
+      const closing = owner.close().then(() => {
+        released = true;
+      });
+      await vi.advanceTimersByTimeAsync(HOST_COOPERATIVE_CLOSE_MS - 1);
+      expect(child.posts).toContainEqual({ method: 'close' });
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(released).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await closing;
+      expect(child.kill).toHaveBeenCalledOnce();
+      expect(child.pid).toBeUndefined();
+      expect(warnings).toEqual([
+        expect.objectContaining({
+          level: LogLevel.WARN,
+          message: 'The owned agent host did not exit after close; killing it',
+        }),
+      ]);
+      expect(JSON.stringify(warnings)).toContain('"pid":123');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+      stop();
+    }
   });
-  it('surfaces a cleanup timeout without killing its child or claiming the lease is released', async () => {
+  it('logs a refused kill as an error, keeps joining the exit and never excuses its exit code', async () => {
+    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
+      '../../host-lease-manager'
+    );
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
+    const errors: string[] = [];
+    const stop = addLogListener((record) => {
+      if (record.scope === 'DesktopHostLease' && record.level === LogLevel.ERROR) {
+        errors.push(record.message ?? '');
+      }
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const child = new Child();
+      child.exitOnClose = false;
+      child.exitOnKill = false;
+      child.kill.mockReturnValue(false);
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+          return child;
+        },
+        root,
+      });
+      await owner.acquire();
+      const closing = owner.close();
+      closing.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(HOST_COOPERATIVE_CLOSE_MS);
+      expect(child.kill).toHaveBeenCalledOnce();
+      expect(errors).toEqual(['Could not kill the owned agent host; still waiting for it to exit']);
+
+      child.exit(1);
+      await expect(closing).rejects.toThrow('Owned host utility exited with code 1');
+    } finally {
+      vi.useRealTimers();
+      stop();
+    }
+  });
+  it('joins Main’s delayed view of the host exit inside the ladder (E2E child-exit point)', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const { createLifecycleDelaySeam } = await import('../../lifecycle-delay-seam');
+    const { LIFECYCLE_DELAYS_ENV } = await import('@brainstrike/host-lease/lifecycle-delays');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const child = new Child();
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+          return child;
+        },
+        lifecycleDelays: createLifecycleDelaySeam(
+          { [LIFECYCLE_DELAYS_ENV]: 'child-exit:4000' },
+          () => true
+        ),
+        root,
+      });
+      await owner.acquire();
+      let released = false;
+      const closing = owner.close().then(() => {
+        released = true;
+      });
+      await vi.advanceTimersByTimeAsync(3999);
+      expect(child.pid).toBeUndefined();
+      expect(released).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await closing;
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// BST-1880 restart, ADR-0026: the lease stops its own child for a relaunch over the
+// child's control port and joins the exit under its one close ladder.
+describe('stop for relaunch', () => {
+  async function readyOwner(options: { readonly exitOnClose: boolean }) {
+    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
+      '../../host-lease-manager'
+    );
     const child = new Child();
-    child.exitOnClose = false;
+    child.exitOnClose = options.exitOnClose;
+    const onLost = vi.fn();
+    let ready: import('../../host-lease-manager').DesktopHostChild | undefined;
     const owner = createDesktopHostLease({
-      closeTimeoutMs: 20,
       fork: () => {
         queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
       },
+      onChildReady: (readyChild) => {
+        ready = readyChild;
+      },
+      onLost,
       root,
     });
     await owner.acquire();
-    await expect(owner.close()).rejects.toThrow('did not exit');
-    expect(child.pid).toBe(123);
+    if (!ready) {
+      throw new Error('The lease reported no ready child');
+    }
+    return { child, cooperativeMs: HOST_COOPERATIVE_CLOSE_MS, onLost, owner, ready };
+  }
+  const closes = (child: Child): number =>
+    child.posts.filter((post) => JSON.stringify(post) === '{"method":"close"}').length;
+
+  it('asks the child to close and reports its exit as a requested loss, so the profile recovers', async () => {
+    const { child, onLost, owner, ready } = await readyOwner({ exitOnClose: true });
+
+    await expect(ready.stopForRelaunch()).resolves.toBe(0);
+
+    expect(closes(child)).toBe(1);
     expect(child.kill).not.toHaveBeenCalled();
+    // The lost path (BST-2004): the profile fails this owner and the next acquire relaunches.
+    expect(onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+    // Retiring the failed owner is not a failed close.
+    await expect(owner.close()).resolves.toBeUndefined();
+    expect(closes(child)).toBe(1);
+  });
+
+  it('joins a child that takes longer than any old refusal, escalating to kill only after the cooperative rung', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { child, cooperativeMs, onLost, ready } = await readyOwner({ exitOnClose: false });
+      let exitCode: number | undefined;
+      const stopping = ready.stopForRelaunch().then((code) => {
+        exitCode = code;
+      });
+      await vi.advanceTimersByTimeAsync(cooperativeMs - 1);
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(exitCode).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await stopping;
+      expect(child.kill).toHaveBeenCalledOnce();
+      expect(exitCode).toBe(15);
+      expect(onLost).toHaveBeenCalledExactlyOnceWith(15, { requested: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a quit during the restart joins the same exit: one close, one kill at most, no failed close', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { child, cooperativeMs, onLost, owner, ready } = await readyOwner({
+        exitOnClose: false,
+      });
+      const stopping = ready.stopForRelaunch();
+      const quitting = owner.close();
+      await vi.advanceTimersByTimeAsync(cooperativeMs);
+      await expect(Promise.all([stopping, quitting])).resolves.toEqual([15, undefined]);
+      expect(closes(child)).toBe(1);
+      expect(child.kill).toHaveBeenCalledOnce();
+      // The lease itself was closing when the child exited: no relaunch recovery is due.
+      expect(onLost).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a quit during the restart does not fail when the child exits as requested', async () => {
+    const { child, onLost, owner, ready } = await readyOwner({ exitOnClose: false });
+    const stopping = ready.stopForRelaunch();
+    const quitting = owner.close();
+    await vi.waitFor(() => expect(closes(child)).toBe(1));
     child.exit(0);
+    await expect(Promise.all([stopping, quitting])).resolves.toEqual([0, undefined]);
+    expect(closes(child)).toBe(1);
+    expect(child.kill).not.toHaveBeenCalled();
+    // The exit landed before the lease's own close began: it is the relaunch's requested
+    // loss, which a retiring profile ignores, and the lease close still succeeds.
+    expect(onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+  });
+
+  it('keeps the request on that child: a later child that crashes is still an unrequested loss', async () => {
+    const relaunched = await readyOwner({ exitOnClose: true });
+    await relaunched.ready.stopForRelaunch();
+    expect(relaunched.onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+
+    const next = await readyOwner({ exitOnClose: true });
+    next.child.exit(9);
+    expect(next.onLost).toHaveBeenCalledExactlyOnceWith(9, { requested: false });
   });
 });
 
@@ -594,6 +799,32 @@ describe('parent-only content clear', () => {
     expect(attachment.close).toHaveBeenCalledOnce();
     await expect(owner.acquire()).rejects.toThrow();
     expect(child.kill).not.toHaveBeenCalled();
+  });
+  it('never kills a host whose content clear is still deleting, however long it takes', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const child = new Child();
+      child.exitOnClose = false;
+      const owner = createDesktopHostLease({
+        cooperativeCloseMs: 20,
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+          return child;
+        },
+        platformModule: '/fixture.js',
+        root,
+      });
+      await owner.acquire();
+      const clearing = owner.clearAndRetireContent();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(child.kill).not.toHaveBeenCalled();
+      child.emit('message', { deletedChunks: null, deletedFiles: 1, event: 'content-cleared' });
+      child.exit(0);
+      await expect(clearing).resolves.toEqual({ deletedChunks: null, deletedFiles: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('refuses to clear a foreign attached host and never fabricates a receipt from exit alone', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');

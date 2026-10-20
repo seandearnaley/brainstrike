@@ -80,21 +80,23 @@ for (const control of ['preparation failure', 'cancelled native close'] as const
         expect(output).not.toContain('forcing exit');
         return;
       }
-      expect(mainProcess.exitCode).toBe(1);
-      const timeoutRecord = output
+      // ADR-0026 R4: app-owned quit is terminal, so the page's beforeunload veto is
+      // overridden and the window close is joined; no deadline forces an exit.
+      expect(mainProcess.exitCode).toBe(0);
+      const completed = output
         .split('\n')
         .find(
-          (line) =>
-            line.startsWith('{') &&
-            line.includes('Timed out waiting for graceful shutdown; forcing exit')
+          (line) => line.startsWith('{') && line.includes('"msg":"Graceful shutdown completed"')
         );
-      if (!timeoutRecord) {
-        throw new Error('Main did not report its terminal close deadline');
+      if (!completed) {
+        throw new Error('Main did not report its completed graceful shutdown');
       }
-      expect(JSON.parse(timeoutRecord)).toMatchObject({
-        inFlightStep: { step: 'renderers' },
-        msg: 'Timed out waiting for graceful shutdown; forcing exit',
+      expect(JSON.parse(completed)).toMatchObject({
+        steps: expect.arrayContaining([
+          { elapsedMs: expect.any(Number), failed: false, step: 'renderers' },
+        ]),
       });
+      expect(output).not.toContain('Graceful shutdown completed with cleanup failures');
     } finally {
       await writeFile(join(evidence, 'main.log'), output);
       await app.close();

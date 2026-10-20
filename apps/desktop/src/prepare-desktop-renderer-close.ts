@@ -1,5 +1,17 @@
+import { createLogger } from '@brainstrike/logging';
 import { MessageChannelMain, type MessagePortMain } from 'electron';
+import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+
+const logger = createLogger('RendererClose');
+
+/**
+ * R5(b) (ADR-0026): how long a renderer may take to acknowledge its close preparation (flush
+ * its durable writers, close its host transport) before Main escalates that cooperative close
+ * to `destroy()` and joins the window's `closed`. Escalating is a warn and a failed preparation,
+ * never an abandoned window.
+ */
+export const RENDERER_CLOSE_PREPARATION_MS = 30_000;
 
 interface RendererCloseWindow {
   destroy(): void;
@@ -10,30 +22,48 @@ interface RendererCloseWindow {
     readonly mainFrame: {
       postMessage(channel: string, message: null, transfer: MessagePortMain[]): void;
     };
-    once(event: 'render-process-gone', listener: () => void): unknown;
-    removeListener(event: 'render-process-gone', listener: () => void): unknown;
+    once(event: 'render-process-gone' | 'unresponsive', listener: () => void): unknown;
+    removeListener(event: 'render-process-gone' | 'unresponsive', listener: () => void): unknown;
   };
 }
 
-/** Main's existing shutdown deadline owns a renderer that cannot acknowledge its producers. */
+/**
+ * Asks a visible renderer to prepare its document for close and joins its ACK. A renderer that
+ * cannot answer is retired, never waited on forever: one that crashes or becomes unresponsive,
+ * or that has not answered within `RENDERER_CLOSE_PREPARATION_MS`, is destroyed and its
+ * `closed` joined before this rejects. A negative ACK, a lost port or an undeliverable request
+ * rejects at once. `delays` is the E2E lifecycle seam's Main-side `renderer-flush` point.
+ */
 export function prepareDesktopRendererClose(
   window: RendererCloseWindow,
-  signal: AbortSignal
+  delays: Pick<LifecycleDelaySeam, 'delay'>
 ): Promise<void> {
-  signal.throwIfAborted();
   const contents = window.webContents;
   const { port1, port2 } = new MessageChannelMain();
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     let settled = false;
     let transferred = false;
+    /** Set once Main retires the renderer itself: from then on only its `closed` settles. */
+    let retiring: Error | undefined;
+    const ladder = setTimeout(() => {
+      logger.warn('Renderer did not acknowledge close preparation; destroying it', {
+        preparationMs: RENDERER_CLOSE_PREPARATION_MS,
+      });
+      retire(
+        new Error(
+          `Renderer did not acknowledge close preparation within ${RENDERER_CLOSE_PREPARATION_MS} ms`
+        )
+      );
+    }, RENDERER_CLOSE_PREPARATION_MS);
     const finish = (error?: Error): void => {
       if (settled) {
         return;
       }
       settled = true;
-      window.removeListener('closed', gone);
+      clearTimeout(ladder);
+      window.removeListener('closed', closed);
       contents.removeListener('render-process-gone', crashed);
-      signal.removeEventListener('abort', aborted);
+      contents.removeListener('unresponsive', unresponsive);
       port1.removeAllListeners();
       port1.close();
       if (!transferred) {
@@ -45,34 +75,52 @@ export function prepareDesktopRendererClose(
       }
       resolve();
     };
-    const gone = (): void =>
-      finish(new Error('Renderer closed before acknowledging its producers'));
-    const crashed = (): void => {
-      const error = new Error('Renderer exited before acknowledging its producers');
-      // Other crash listeners still read the window during this event's dispatch.
-      setImmediate(() => {
-        try {
-          if (!window.isDestroyed()) {
-            window.destroy();
-          }
-        } catch (cause) {
-          finish(new AggregateError([error, cause], 'Crashed renderer could not be retired'));
-          return;
+    /** Destroys the window and lets its `closed` settle this preparation with `error`. */
+    const retire = (error: Error): void => {
+      if (settled || retiring) {
+        return;
+      }
+      retiring = error;
+      clearTimeout(ladder);
+      try {
+        if (!window.isDestroyed()) {
+          window.destroy();
         }
-        finish(error);
-      });
+      } catch (cause) {
+        finish(new AggregateError([error, cause], 'Renderer could not be retired'));
+      }
     };
-    const aborted = (): void =>
+    // After its ACK the renderer may close its end: the outcome is already decided.
+    let acknowledged = false;
+    const closed = (): void =>
       finish(
-        new Error('Renderer close preparation was interrupted', {
-          cause: signal.reason,
-        })
+        retiring ??
+          (acknowledged
+            ? undefined
+            : new Error('Renderer closed before acknowledging its producers'))
       );
-    window.once('closed', gone);
+    const portClosed = (): void => {
+      if (!(retiring || acknowledged)) {
+        finish(new Error('Renderer closed before acknowledging its producers'));
+      }
+    };
+    // Other crash and hang listeners still read the window during this event's dispatch.
+    const crashed = (): void => {
+      setImmediate(() => retire(new Error('Renderer exited before acknowledging its producers')));
+    };
+    const unresponsive = (): void => {
+      setImmediate(() =>
+        retire(new Error('Renderer became unresponsive before acknowledging its producers'))
+      );
+    };
+    window.once('closed', closed);
     contents.once('render-process-gone', crashed);
-    signal.addEventListener('abort', aborted, { once: true });
-    port1.on('close', gone);
+    contents.once('unresponsive', unresponsive);
+    port1.on('close', portClosed);
     port1.on('message', ({ data }: { data: unknown }) => {
+      if (acknowledged) {
+        return;
+      }
       if (
         !data ||
         typeof data !== 'object' ||
@@ -83,7 +131,9 @@ export function prepareDesktopRendererClose(
         finish(new Error('Renderer producers did not acknowledge close preparation'));
         return;
       }
-      finish();
+      acknowledged = true;
+      // E2E seam: a slow flush's ACK reaches Main this much later, still inside the ladder.
+      void delays.delay('renderer-flush').then(() => finish());
     });
     port1.start();
     try {

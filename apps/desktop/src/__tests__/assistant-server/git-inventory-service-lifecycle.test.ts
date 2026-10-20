@@ -27,10 +27,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-import {
-  GIT_INVENTORY_SNAPSHOT_TTL_MS,
-  GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS,
-} from '../../assistant-server/git-inventory-service';
+import { GIT_INVENTORY_SNAPSHOT_TTL_MS } from '../../assistant-server/git-inventory-service';
 import {
   GIT_INVENTORY_WATCH_BATCH_MS,
   type WatchGitCommonDir,
@@ -361,7 +358,7 @@ describe('createGitInventoryService', () => {
       expect(loadRootsCallCount).toBe(1);
     });
 
-    it('runs a build for the NEW lifecycle after retiring the old watchers while its pre-stop build remains abandoned', async () => {
+    it('runs a build for the NEW lifecycle only after stop() has joined the pre-stop build', async () => {
       const { fs, rootDir, rootId } = await makeSingleRepoRoot(
         'brainstrike-git-inv-svc-restart-race-'
       );
@@ -387,24 +384,21 @@ describe('createGitInventoryService', () => {
       service.start();
       expect(loadRootsCallCount).toBe(1);
 
-      // The build ignores abort: the unchanged drain bound abandons it,
-      // but restart must first join retirement of its watcher generation.
+      // ADR-0026 R4: stop() joins the build (it ignores its abort here), and
+      // restart must first join retirement of that lifecycle's watchers.
       const stopPromise = service.stop();
       expect(() => service.start()).toThrow(/retirement/i);
-      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
+      requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
       await stopPromise;
       service.start();
-      requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
 
       await service.getSnapshot();
       // A build ran for the new lifecycle (a second, distinct loadRoots()
       // call) rather than being short-circuited onto build A's promise.
       expect(loadRootsCallCount).toBe(2);
-
-      await stopPromise;
     });
 
-    it("does not let a stale, pre-stop build sync a NEW lifecycle's watcher set, even though that watcher instance is non-null", async () => {
+    it('does not let the pre-stop build that stop() joins sync the retained watcher set, nor the next lifecycle', async () => {
       const { rootDir, rootId } = await makeSingleRepoRoot(
         'brainstrike-git-inv-svc-generation-sync-'
       );
@@ -431,24 +425,20 @@ describe('createGitInventoryService', () => {
       service.start(); // build A begins, blocked
       const stopPromise = service.stop(); // generation -> 1 synchronously
       expect(() => service.start()).toThrow(/retirement/i);
-      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
+      // Build A (ONE repo) finishes while stop() joins it. Without a generation
+      // check gating the sync() call specifically (not just the cache write),
+      // it would call `watchers.sync([commonDir])` on the retained generation-0
+      // watchers stop() is about to retire, subscribing a repo for a stopped
+      // lifecycle.
+      requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
       await stopPromise;
-      service.start(); // NEW watchers instance for generation 1
+      expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(0);
 
+      service.start(); // NEW watchers instance for generation 1
       const fresh = await service.getSnapshot();
       expect(loadRootsCallCount).toBe(2);
       expect(fresh.repositories).toEqual([]);
-      // The new lifecycle's own (empty) build subscribed nothing.
-      expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(0);
-
-      // Now let build A (generation 0, ONE repo) finish. Without a generation
-      // check gating the sync() call specifically (not just the cache write),
-      // build A would call `watchers.sync([commonDir])` on the CURRENT
-      // (generation-1, non-null) watchers instance and subscribe a repo the
-      // new lifecycle's own build said does not exist.
-      requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
-      await stopPromise;
-
+      // The new lifecycle's own (empty) build subscribed nothing either.
       expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(0);
     });
   });

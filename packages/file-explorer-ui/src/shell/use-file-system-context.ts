@@ -98,7 +98,8 @@ async function selectDirectoryWithErrorMapping(
       error instanceof Error
         ? getUserFriendlyErrorMessage(error.message)
         : ERROR_MESSAGES.genericError;
-    throw new Error(errorMessage);
+    // The cause keeps the typed refusal (quit's terminal reason, say) for whoever classifies it.
+    throw new Error(errorMessage, { cause: error });
   }
 }
 
