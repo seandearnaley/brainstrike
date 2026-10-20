@@ -103,8 +103,12 @@ const playwrightConfig: PlaywrightTestConfig = {
       },
     }),
 
-    // Take screenshot on failure
-    screenshot: 'only-on-failure',
+    // BST-2239: the harness takes the failure screenshot itself, of the main window, before it
+    // closes the app (e2e/utils/failure-screenshot.ts). With 'only-on-failure' Playwright
+    // screenshots every page of the closing app before it asks Main to quit, inside the 10 s
+    // close deadline: a hidden window took 2.2-5 s to capture on hosted windows-2025.
+    // https://playwright.dev/docs/api/class-testoptions#test-options-screenshot
+    screenshot: 'off',
 
     // Use data-testid for element selection
     testIdAttribute: 'data-testid',
