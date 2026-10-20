@@ -22,7 +22,7 @@ async function freshRoot(): Promise<string> {
 function owned(host: HostRuntime): StartedHost {
   hosts.push(host);
   return {
-    identity: { pid: host.record.pid, start: host.record.start },
+    record: host.record,
     release: async () => undefined,
     retire: () => host.close(),
   };
@@ -120,16 +120,20 @@ test('a live but unreachable owner is named and neither replaced nor killed', as
   }
 });
 
-test('the startup deadline aborts the starter and joins it before the launch rejects (BST-2167)', async () => {
-  // The guarantee this replaces, a launch bounded even by a starter that
-  // ignores its signal, abandoned that starter's child: the BST-2167 orphan.
+test('cancelling a launch aborts the starter and joins it before the launch rejects (BST-2167)', async () => {
+  // A launch bounded even by a starter that ignores its signal abandoned that
+  // starter's child: the BST-2167 orphan. No deadline aborts a start; its
+  // caller (a quit during startup) does.
   const root = await freshRoot();
   const order: string[] = [];
   const at = Date.now();
   let abortedAfterMs: number | undefined;
   let signal: AbortSignal | undefined;
+  const caller = new AbortController();
+  setTimeout(() => caller.abort(new Error('Host start cancelled')), 25);
   const refused = await launchHost(root, {
     lifetime: 'cli',
+    signal: caller.signal,
     spawn: (_options, suppliedSignal) => {
       signal = suppliedSignal;
       return new Promise<never>((_resolve, reject) => {
@@ -148,7 +152,6 @@ test('the startup deadline aborts the starter and joins it before the launch rej
         );
       });
     },
-    startupTimeoutMs: 25,
   }).catch((cause: unknown) => {
     order.push('launch rejected');
     return cause;
@@ -156,7 +159,7 @@ test('the startup deadline aborts the starter and joins it before the launch rej
 
   expect(signal?.aborted).toBe(true);
   expect(abortedAfterMs).toBeGreaterThanOrEqual(24);
-  expect(refused).toMatchObject({ message: 'Host startup timed out' });
+  expect(refused).toMatchObject({ message: 'Host start cancelled' });
   expect(order).toEqual(['starter aborted', 'starter settled', 'launch rejected']);
 });
 

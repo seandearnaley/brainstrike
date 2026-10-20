@@ -35,6 +35,11 @@ interface IndexOwner {
   start(): Promise<NativePort>;
 }
 interface Dependencies<Attachment> {
+  /**
+   * Profile admission (`native-index-profile-admission.ts`): the one owner of whether a failed
+   * host is replaced, and of quit's fence. Index work borrows the host through it (lifecycle S7).
+   */
+  admitProfile(signal?: AbortSignal): Promise<Attachment>;
   closeQueries(): Promise<void>;
   createIndexOwner(authority: NativeIndexAuthority): Promise<IndexOwner>;
   getAuthority(): Promise<NativeIndexAuthority>;
@@ -60,7 +65,10 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   acknowledged(): Promise<NativePort>;
   acquire(): Promise<NativePort>;
   /** Borrows the retained attachment; retirement remains owned by this runtime. */
-  acquireProfile(options?: { readonly indexIndependent: true }): Promise<Attachment>;
+  acquireProfile(
+    options?: { readonly indexIndependent: true },
+    signal?: AbortSignal
+  ): Promise<Attachment>;
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   /** Closed admission only: retire one persisted collection through the retained physical writer. */
   cleanupCollection(embeddingSetId: string): Promise<void>;
@@ -180,7 +188,12 @@ export function createNativeIndexRuntime<Attachment>(
       throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
     signal?.throwIfAborted();
-    const attachment = await dependencies.profile.acquire(signal);
+    // Index work goes through profile admission. Index-independent borrows are the
+    // admission's own (it calls here) and the Root work a closed index still owes
+    // (cleanup, destroy), which admission refuses by design.
+    const attachment = await (options?.indexIndependent
+      ? dependencies.profile.acquire(signal)
+      : dependencies.admitProfile(signal));
     signal?.throwIfAborted();
     if ((closed && !options?.indexIndependent) || dependencies.profile.isRetiring()) {
       throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');

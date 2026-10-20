@@ -10,7 +10,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { LockOwner } from '@brainstrike/state-store';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { HostAttachment } from '../src/client.js';
-import { launchHost } from '../src/launcher.js';
+import { launchHost, type StartedHost } from '../src/launcher.js';
 import { HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from '../src/record.js';
 import type { HostStartOptions } from '../src/runtime.js';
 
@@ -69,13 +69,11 @@ function publish(): void {
   fixture.started = true;
 }
 function startedHost() {
-  const started = {
-    identity: { pid: CHILD.pid, start: CHILD.start },
+  return {
     record,
     release: vi.fn(async () => undefined),
     retire: vi.fn(async () => undefined),
-  };
-  return started;
+  } satisfies StartedHost;
 }
 
 beforeEach(() => {
@@ -104,9 +102,9 @@ test('a host that reported ready is attached from its ready record however slow 
     await sleep(5000);
     return own;
   });
-  const options = { attach, attachStarted, lifetime: 'app' as const, spawn };
-
-  await expect(launchHost(root, options)).resolves.toBe(own);
+  await expect(launchHost(root, { attach, attachStarted, lifetime: 'app', spawn })).resolves.toBe(
+    own
+  );
 
   expect(spawn).toHaveBeenCalledOnce();
   expect(attachStarted).toHaveBeenCalledExactlyOnceWith(record);
@@ -139,9 +137,7 @@ test('a host silent for 40 s is not retired or forked again; it is attached once
   );
   const own = attachment();
   const attachStarted = vi.fn(async (_record: HostRecord) => own);
-  const options = { attachStarted, lifetime: 'app' as const, spawn };
-
-  const outcome = launchHost(root, options).then(
+  const outcome = launchHost(root, { attachStarted, lifetime: 'app', spawn }).then(
     (value) => ({ value }),
     (error: unknown) => ({ error })
   );

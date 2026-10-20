@@ -104,7 +104,12 @@ it.each(['TEXT', 'VECTOR'] as const)(
       rootIds: [workspace.rootId],
       scopes: [workspace, oldCollection, otherCollection],
     };
+    const profileRuntime = createDesktopProfileRuntime(() => ({
+      acquire: async () => {},
+      close: async () => {},
+    }));
     const runtime = createNativeIndexRuntime({
+      admitProfile: (signal) => profileRuntime.acquire(signal),
       closeQueries: async () => {},
       createIndexOwner: async (owned) => {
         const starting = openIndexer(
@@ -122,10 +127,7 @@ it.each(['TEXT', 'VECTOR'] as const)(
       getAuthority: async () => authority,
       getFileInvalidator: () => () => {},
       installQueryTarget: () => {},
-      profile: createDesktopProfileRuntime(() => ({
-        acquire: async () => {},
-        close: async () => {},
-      })),
+      profile: profileRuntime,
     });
     try {
       const original = await runtime.acquire();

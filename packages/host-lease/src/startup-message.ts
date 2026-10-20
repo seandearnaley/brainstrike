@@ -1,8 +1,11 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
+import { HostRecordSchema } from './record.js';
 
 const StartupMessageSchema = Schema.Union([
-  Schema.Struct({ event: Schema.Literal('ready') }),
+  // Lifecycle R3: readiness is this message, and it carries what the parent
+  // needs to attach, so the parent never rediscovers the host it started.
+  Schema.Struct({ event: Schema.Literal('ready'), record: HostRecordSchema }),
   Schema.Struct({
     event: Schema.Literal('failed'),
     kind: Schema.Literals(['root-locked', 'foreign-lock', 'error']),

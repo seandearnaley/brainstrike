@@ -143,7 +143,12 @@ it('holds native acknowledgment ahead of real catalog deletion and preserves rem
     rootIds: options.rootIds,
     scopes,
   };
+  const profileRuntime = createDesktopProfileRuntime(() => ({
+    acquire: async () => undefined,
+    close: async () => undefined,
+  }));
   const runtime = createNativeIndexRuntime({
+    admitProfile: (signal) => profileRuntime.acquire(signal),
     closeQueries: async () => undefined,
     createIndexOwner: async (requested) => {
       let owned: Awaited<ReturnType<typeof openIndexer>> | undefined;
@@ -164,10 +169,7 @@ it('holds native acknowledgment ahead of real catalog deletion and preserves rem
     getAuthority: async () => authority,
     getFileInvalidator: () => () => {},
     installQueryTarget: () => undefined,
-    profile: createDesktopProfileRuntime(() => ({
-      acquire: async () => undefined,
-      close: async () => undefined,
-    })),
+    profile: profileRuntime,
   });
   let port = await runtime.acquire();
   const captured = runtime.captureAcknowledgedAuthority();

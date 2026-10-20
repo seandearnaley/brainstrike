@@ -376,14 +376,29 @@ export async function startAgentHost(
   const disconnected = (): void => signal.removeEventListener('abort', cancelled);
   runtime.closed.then(disconnected, disconnected);
   return {
+    attachClient: () => runtime.attachClient(),
     bindClientConnection: (connection, origin) => {
       if (!core) {
         throw new Error('Host store was not initialized');
       }
-      return bindHostConnection(connection, core, runtime.record, () => undefined, {
-        origin,
-        ...clientCapabilities(),
-      });
+      // A private client is attached, like a socket client, from its
+      // initialize until its transport closes.
+      let detach: (() => void) | undefined;
+      const unbind = bindHostConnection(
+        connection,
+        core,
+        runtime.record,
+        () => {
+          detach = runtime.attachClient();
+        },
+        { origin, ...clientCapabilities() }
+      );
+      const closed = connection.onClose(() => detach?.());
+      return () => {
+        closed.dispose();
+        detach?.();
+        unbind();
+      };
     },
     clearAndRetireContent: () => {
       if (clearing !== undefined) {

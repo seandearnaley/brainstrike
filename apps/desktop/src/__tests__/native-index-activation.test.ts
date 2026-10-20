@@ -29,10 +29,7 @@ import {
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import {
-  createInitialWindowAfterNativeReader,
-  observeNativeReaderStartup,
-} from '../native-index-startup-window';
+import { observeNativeReaderStartup } from '../native-index-startup-window';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
   createActivation,
@@ -257,17 +254,10 @@ it('exposes actual native progress while the initial owned collection scan is st
   await vi.waitFor(() => expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce());
   const scanSettled = vi.fn();
   void initial.then(scanSettled);
-  const createWindow = vi.fn(async () => ({ id: 1 }));
-  await expect(
-    createInitialWindowAfterNativeReader(
-      observeNativeReaderStartup(activation.acquireRead(), vi.fn()),
-      createWindow,
-      vi.fn(),
-      () => false
-    )
-  ).resolves.toEqual({ id: 1 });
+  await expect(observeNativeReaderStartup(activation.acquireRead(), vi.fn())).resolves.toEqual({
+    kind: 'ready',
+  });
   expect(scanSettled).not.toHaveBeenCalled();
-  expect(createWindow).toHaveBeenCalledOnce();
   expect((await activation.acquireRead()).info).toBeTypeOf('function');
   expect(await activation.getSearchAuthority()).toMatchObject({
     collectionId: 'selected',

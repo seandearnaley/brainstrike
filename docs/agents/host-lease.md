@@ -5,19 +5,22 @@
 One lease owns a data root across desktop, CLI and native descendants. Root path,
 PID and OS start identity identify the generation; PID alone is insufficient.
 An OS-backed lock protects ownership across process loss. A live but unreachable
-owner is refused, never killed, replaced or guessed stale. A starting or exiting
-owner is waited for under the launch's one deadline: a refused attach, or a race
-whose winner releases, waits for that owner to give up the root and acquires
-again. Only an owner that keeps the root to the deadline is refused (BST-2142).
+owner a launch did not start is refused, never killed, replaced or guessed stale.
+A starting or exiting owner is waited for under the launch's one deadline: a
+refused attach, or a race whose winner releases, waits for that owner to give up
+the root and acquires again. Only an owner that keeps the root to the deadline is
+refused (BST-2142).
 A leaving owner is recognized by code, never by message: the closing refusal
 crosses the wire as `host-lease.host-closing`, and a lost handshake connection as
 `host-lease.connection-closed` (BST-2158). Changing a frame's shape bumps
 `PROTOCOL_VERSION`.
 
 Keep discovery and credential records private with owner-only permissions. On
-Windows, host start sets and every lease check verifies the data root's private
-owner and DACL natively (`secure-fs-native`), on one directory handle; neither
-starts a process, and a failed check fails the launch (BST-2237). An elevated
+Windows, host start sets the data root's private owner and DACL natively
+(`secure-fs-native`), on one directory handle, and every check of an owner a
+launch did not start verifies them the same way; neither starts a process, and a
+failed check fails the launch (BST-2237). A launch never re-reads or re-verifies
+the host it started: that host's ready report carries its record. An elevated
 Windows token defaults new objects' owner to `BUILTIN\Administrators`. So every
 Windows process entry that can create host-lease or state-store objects first
 imports `@brainstrike/secure-fs-native/default-owner`, which makes the user the
@@ -35,38 +38,49 @@ only hosts it forks; closing an attachment to a CLI/external host cannot signal
 that owner. Electron stays in the adapter, not the shared lease package.
 
 A launch owns the host its starter started until it settles it (BST-2167): an
-attachment releases it to its lifetime; a failed attach, a startup deadline, or
-a host that left on its own retires it before the launch rejects or acquires
-again. The deadline aborts the starter and waits for it to settle. The Node
-starter retires with `cancel-startup`, then SIGKILL (the group of a detached
-host) if the host has not exited within its cancel-exit bound, and a forced
-kill is an error, never a clean retirement.
+attachment releases it to its lifetime; a failed attach, or a host that left on
+its own, retires it before the launch rejects or acquires again.
 
-Three bounds govern a launch (BST-2176):
+Readiness is a message, and liveness is an exit (lifecycle R2, R3). A started
+host reports `ready` on its private parent channel, carrying its host record;
+its starter checks that the record names the process it started (PID and OS
+start time). The launch attaches from that record: no host.json read, root-lease
+or DACL re-check, polling or deadline. A start ends only with the `ready` report,
+a `failed` report, the host's exit, or its caller cancelling (quit during
+startup). Main logs one warning, naming the stage it is waiting on, if no
+`ready` arrives within 10 s; it never acts on it.
 
-- **Startup, 30 s** (`startupTimeoutMs`): acquisition. It covers waiting for a
-  starting or leaving owner, attaching to an existing owner or a race's winner,
-  and starting a host until its starter reports ready. The Node starter's
-  readiness deadline, `HOST_STARTER_READY_TIMEOUT_MS`, is also 30 s.
-- **Self-started attach, 1.5 s** (`attachTimeoutMs`): fixed when the starter
-  reports ready. It bounds that host's record read, handshake and any wait for
-  it to leave, and is never clipped by what the startup deadline has left. Only
-  the host its starter named gets it: the starter reads that host's PID and OS
-  start time at ready, and an owner that replaced it is attached like any other
-  once the launch has retired its own host. Any other attach gets the same
-  budget, clipped to the startup deadline. A
-  self-started launch settles within startup plus attach, plus joining the exit
-  of a host it retires.
-- **Cancel exit, 10 s** (`HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`): how long a
-  cancelled or retired Node host has to exit before SIGKILL. A longer readiness
-  deadline never lengthens it; the starter's `readyTimeoutMs` test seam narrows
-  both.
+Desktop Main attaches its own host over the host's socket, from the ready
+record, with no deadline; only the socket closing, the host's exit or the lease
+closing ends that attach. The socket stays because Main's catalog client rides
+the lease attachment, as a `public-socket` client: a private `desktop-ui` port
+would widen what that client may call. Admission (`native-index-profile-admission.ts`)
+is the one place that starts another host, once, after a failed start's release
+is joined. The first window waits for neither the host nor the index.
 
-An app-owned host closes when its parent process identity disappears. An ordinary
+The bounds that remain apply only to owners a launch did not start (R5(a), the
+R2 exception: not ours to wait on):
+
+- **Startup, 30 s** (`startupTimeoutMs`), measured from the launch's start:
+  waiting for a starting or leaving owner, and attaching to an existing owner or
+  a race's winner. It never bounds the start or attach of the launch's own host.
+- **Owner attach, 1.5 s**: the handshake with such an owner, clipped to what the
+  startup deadline has left; a live but unreachable owner is refused.
+- **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
+  external CLI path this redesign did not convert: readiness 30 s
+  (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the
+  group of a detached host) if the host has not exited within 10 s
+  (`HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`). A forced kill is an error, never a
+  clean retirement. It attaches the host it started over its socket under the
+  owner attach bound, and starts again if another owner replaced that host.
+
+An app-owned host closes when its parent process identity disappears; it has no
+startup grace, because Main's lifetime channel alone ties it to Main. An ordinary
 CLI host closes after its last client and active run lease leave; explicit persistent
-start has a different lifetime. A host no client ever attached closes once its
+start has a different lifetime. A CLI host no client ever attached closes once its
 startup grace has elapsed and no run lease is held, including a run it recovered on
-start that releases after the grace. Cooperative close fences admission, joins
+start that releases after the grace. A client its launcher connects privately (a
+port, not the socket) counts as attached like a socket client. Cooperative close fences admission, joins
 Core/platform/native tails and SQLite, then removes discovery and releases Root.
 The requesting transport remains through its actual response write and final socket
 join.

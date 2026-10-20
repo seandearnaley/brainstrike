@@ -1,18 +1,21 @@
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import { isPeerReset } from '@brainstrike/agent-host/boundary-wire';
-import { attachAgentHost } from '@brainstrike/agent-host/client';
+import { attachAgentHost, attachStartedAgentHost } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import {
   attachHost,
+  attachStartedHost,
   decodeStartupMessage,
   type HostAttachment,
+  type HostRecord,
   type HostStartOptions,
   startupFailure as hostStartupFailure,
   launchHost,
   type StartupMessage,
 } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
 import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
@@ -24,6 +27,15 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
+
+const logger = createLogger('DesktopHostLease');
+/**
+ * When Main logs that the host it forked has not reported ready yet. Neither an
+ * R5(a) nor an R5(b) bound: a diagnostic that never acts (lifecycle R3, owner
+ * decision 7.1(i)). It names the stage Main is waiting on; the start still ends
+ * only with the host's ready or failed report, its exit, or this lease closing.
+ */
+const HOST_STARTUP_STALL_WARN_MS = 10_000;
 
 export interface HostLeaseUtilityProcess {
   off(event: 'message', listener: (message: unknown) => void): unknown;
@@ -139,9 +151,14 @@ function startupFailure(root: string, message: StartupMessage): Error {
   // the launcher's cue to acquire again, not an owner to name.
   return hostStartupFailure(root, message);
 }
-async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal): Promise<void> {
+/** The record the child's ready report carried; a `failed` report, its exit or `signal` rejects. */
+async function awaitReady(
+  child: OwnedChild,
+  root: string,
+  signal: AbortSignal
+): Promise<HostRecord> {
   signal.throwIfAborted();
-  await new Promise<void>((resolve, reject) => {
+  return await new Promise<HostRecord>((resolve, reject) => {
     const cleanup = (): void => {
       child.handle.off('message', message);
       signal.removeEventListener('abort', aborted);
@@ -159,7 +176,7 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
           return;
         }
         cleanup();
-        resolve();
+        resolve(decoded.record);
       } catch (cause) {
         failed(cause);
       }
@@ -172,16 +189,20 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
   });
 }
 /**
- * BST-2176: the PID and OS start time the ready utility's root lease names,
- * read before this owner has observed its exit. A zombie has no start time.
+ * BST-2176, lifecycle R3: the ready report is trusted only for the utility
+ * this owner forked. Its record must name that utility's PID and OS start
+ * time, read before this owner has observed its exit (a zombie has no start time).
  */
-function readyIdentity(child: OwnedChild): { pid: number; start: string } {
+function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
   const pid = child.handle.pid;
   const start = child.exitCode === undefined && pid !== undefined ? processStartTime(pid) : null;
   if (pid === undefined || start === null) {
     throw new Error(`Host utility pid ${pid} exited as it reported ready`);
   }
-  return { pid, start };
+  if (record.pid !== pid || record.start !== start) {
+    throw new Error(`Host utility pid ${pid} reported ready with another process's record`);
+  }
+  return record;
 }
 /** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
 async function closeChild(child: OwnedChild): Promise<void> {
@@ -302,10 +323,28 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
             ? attachAgentHost(record, timeoutMs)
             : attachHost(record, timeoutMs),
+        // Lifecycle R3: the host this lease forked is attached from its ready
+        // record over its socket, with no deadline. Only its exit, its socket
+        // closing or this lease closing ends the attach.
+        attachStarted: (record) => {
+          const child = ownedChild;
+          if (!child) {
+            throw new Error('The started host has no utility this lease forked');
+          }
+          const exited = new AbortController();
+          void child.exited.then((code) =>
+            exited.abort(new Error(`Host utility exited (${code}) before Main attached`))
+          );
+          const signal = AbortSignal.any([abort.signal, exited.signal]);
+          return record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
+            ? attachStartedAgentHost(record, signal)
+            : attachStartedHost(record, signal);
+        },
         beforeRecordRead: async () => {
           await options.lifecycleDelays?.delay('record-read');
         },
         lifetime: 'app',
+        signal: abort.signal,
         spawn: async (start: HostStartOptions, signal: AbortSignal) => {
           const combined = AbortSignal.any([signal, abort.signal]);
           combined.throwIfAborted();
@@ -345,20 +384,31 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             }
           );
           ownedChild = child;
+          let stage: 'forked' | 'spawned' = 'forked';
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             ownedPid = child.handle.pid;
+            stage = 'spawned';
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
+          const stall = setTimeout(() => {
+            logger.warn('The agent host has not reported ready; still waiting for it', {
+              elapsedMs: HOST_STARTUP_STALL_WARN_MS,
+              pid: child.handle.pid,
+              stage,
+            });
+          }, HOST_STARTUP_STALL_WARN_MS);
+          stall.unref();
+          const settled = (): void => clearTimeout(stall);
+          ready.then(settled, settled);
           await ownLifetime(scope, options, child);
           await addFinalizer(scope, () => closeChild(child));
           if (platform) {
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
           }
           options.onChildStarted?.();
-          await ready;
-          const identity = readyIdentity(child);
+          const record = readyRecord(child, await ready);
           child.ready = true;
           options.onChildReady?.({
             exited: child.exited,
@@ -366,7 +416,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           });
           // BST-2167: this lease's Scope stays the child's one owner. An
           // attached host needs no hand-off; a launch that gives up closes it.
-          return { identity, release: async () => undefined, retire: closeScope };
+          return { record, release: async () => undefined, retire: closeScope };
         },
         ...(options.startupTimeoutMs === undefined
           ? {}

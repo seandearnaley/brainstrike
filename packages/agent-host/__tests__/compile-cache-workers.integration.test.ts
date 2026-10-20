@@ -90,7 +90,7 @@ for (const disabled of [false, true]) {
     let indexClose: z.infer<typeof indexCloseReport> | null;
     let persisted: number;
     try {
-      expect(await ready.promise).toEqual({ event: 'ready' });
+      expect(await ready.promise).toMatchObject({ event: 'ready', record: { pid: child.pid } });
       const parent = cacheReport.parse(
         JSON.parse(await readFile(join(directory, 'parent.json'), 'utf8'))
       );

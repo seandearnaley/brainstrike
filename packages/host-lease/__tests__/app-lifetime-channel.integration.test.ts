@@ -44,7 +44,10 @@ test('an app host closes and releases its Root when its live app closes their ch
   );
   hosts.push(host);
   const [message] = await once(host, 'message');
-  expect(decodeStartupMessage(message)).toEqual({ event: 'ready' });
+  expect(decodeStartupMessage(message)).toMatchObject({
+    event: 'ready',
+    record: { pid: host.pid },
+  });
   expect(RootLock.inspect(root)?.owner).toMatchObject({ pid: host.pid });
 
   host.disconnect();

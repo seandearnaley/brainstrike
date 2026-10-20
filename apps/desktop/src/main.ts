@@ -184,7 +184,6 @@ import {
 } from './native-index-activation-error';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
-  createInitialWindowAfterNativeReader,
   createNativeStartupFailureReporter,
   observeNativeReaderStartup,
 } from './native-index-startup-window';
@@ -1359,9 +1358,11 @@ if (singleInstanceLockAcquired) {
           reportNativeIndexActivationError('Agent host profile unavailable', error)
         );
       void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
-      const nativeReaderStartup = observeNativeReaderStartup(
+      void observeNativeReaderStartup(
         nativeIndexActivation.acquireRead(),
         reportInitialNativeFailure
+      ).then((outcome) =>
+        logger.info('Initial native reader startup settled', { kind: outcome.kind })
       );
       logger.debug('Configured desktop renderer target', { rendererTarget });
 
@@ -1986,17 +1987,11 @@ if (singleInstanceLockAcquired) {
             'main-thread watchdog failed to start; continuing application startup'
           );
         },
-        () => {
+        async () => {
           logger.debug('Creating main window...');
-          return createInitialWindowAfterNativeReader(
-            nativeReaderStartup,
-            createMainWindow,
-            (outcome) =>
-              logger.info('Initial native reader startup settled before visible renderer load', {
-                kind: outcome.kind,
-              }),
-            isDesktopShuttingDown
-          );
+          // Owner decision 7.3(i): the first window waits for neither the host nor
+          // the index; the renderer shows both as state while they start.
+          return isDesktopShuttingDown() ? undefined : await createMainWindow();
         }
       );
       const mainWindow = await initialWindowCreation;

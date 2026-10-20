@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import type { HostSpawner, StartedHost } from './launcher.js';
+import type { HostRecord } from './record.js';
 import { ResourceOwner } from './resource-owner.js';
 import { decodeStartOptions, type HostLifetime } from './runtime.js';
 import { startupFailure } from './startup-failure.js';
@@ -21,12 +22,18 @@ export interface NodeSpawnerOptions {
    */
   readonly readyTimeoutMs?: number;
 }
-/** How long a starter has to report ready (or a failure) before it is cancelled. */
+/**
+ * How long a starter has to report ready (or a failure) before it is cancelled.
+ * R5(a): it bounds a CLI command's own start, refusing that command; the
+ * desktop never uses this starter. A known R2 exception the lifecycle
+ * redesign kept for the external CLI path: the cancelled host's exit is joined.
+ */
 export const HOST_STARTER_READY_TIMEOUT_MS = 30_000;
 /**
  * Once cancelled or retired, how long a host has to exit before it is killed.
- * Its own bound (BST-2176): a longer readiness deadline never lengthens a
- * failed launch's cleanup.
+ * R5(b): escalates the cooperative close of a host this starter owns to a kill,
+ * after which the exit is still joined. Its own bound (BST-2176): a longer
+ * readiness deadline never lengthens a failed launch's cleanup.
  */
 export const HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS = 10_000;
 async function closeChannel(child: ChildProcess): Promise<void> {
@@ -127,16 +134,20 @@ interface StarterState {
   readonly root: string;
 }
 /**
- * BST-2176: the PID and OS start time a ready child's root lease names. Read
- * before this starter has observed its exit, so the child is unreaped and the
- * pid is still its own; a zombie has no start time.
+ * BST-2176: the ready child's record, only when it names this child. Its PID
+ * and OS start time are read before this starter has observed the child's
+ * exit, so the child is unreaped and the pid is still its own; a zombie has
+ * no start time.
  */
-function readyIdentity(child: ChildProcess): StartedHost['identity'] {
+function readyRecord(child: ChildProcess, record: HostRecord): HostRecord {
   const start = child.pid === undefined ? null : processStartTime(child.pid);
   if (child.pid === undefined || start === null) {
     throw new Error(`Host starter pid ${child.pid} exited as it reported ready`);
   }
-  return { pid: child.pid, start };
+  if (record.pid !== child.pid || record.start !== start) {
+    throw new Error(`Host starter pid ${child.pid} reported ready with another process's record`);
+  }
+  return record;
 }
 /** The launch attached: hand the host the lifetime it was started with. */
 async function handOff(child: ChildProcess, lifetime: HostLifetime): Promise<void> {
@@ -233,11 +244,11 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
       },
       (child) => (state.released ? handOff(child, startOptions.lifetime) : retire(child, state))
     );
-    let identity: StartedHost['identity'];
+    let record: HostRecord;
     try {
-      identity = await runWithTimeout(
+      record = await runWithTimeout(
         (signal) =>
-          new Promise<StartedHost['identity']>((resolve, reject) => {
+          new Promise<HostRecord>((resolve, reject) => {
             const cleanup = (): void => {
               child.off('message', message);
               child.off('exit', exited);
@@ -259,10 +270,10 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
               try {
                 const decoded = decodeStartupMessage(inputMessage);
                 if (decoded.event === 'ready') {
-                  const identity = readyIdentity(child);
+                  const ready = readyRecord(child, decoded.record);
                   state.ready = true;
                   cleanup();
-                  resolve(identity);
+                  resolve(ready);
                   return;
                 }
                 state.failedWithRetainedOwner = decoded.ownership === 'retained';
@@ -294,7 +305,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
     }
     // BST-2167: the launch, not this starter, decides the ready host's fate.
     return {
-      identity,
+      record,
       release: () => {
         state.released = true;
         return owner.close();
