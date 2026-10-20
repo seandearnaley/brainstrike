@@ -176,13 +176,20 @@ async function attachWith(
 /**
  * Attaches to a host this process did not start. R5(a), the R2 exception:
  * bounded, because a live but unreachable owner that is not ours is refused
- * at `timeoutMs`, never waited on, killed or replaced.
+ * at `timeoutMs`, never waited on, killed or replaced. `signal` (the caller's
+ * cancellation, such as quit) ends it sooner, with its own reason (BST-2279).
  */
-export async function attachHost(input: HostRecord, timeoutMs = 1500): Promise<HostAttachment> {
+export async function attachHost(
+  input: HostRecord,
+  timeoutMs = 1500,
+  signal?: AbortSignal
+): Promise<HostAttachment> {
   const record = compatibleRecord(input);
   return await attachWith(record, (handshake) =>
     runWithTimeout(handshake, {
       onTimeout: () => new Error(`Host pid ${record.pid} initialize/attach timed out`),
+      // The caller's cancellation (quit) ends the attach with its own reason.
+      signal,
       timeoutMs,
     })
   );

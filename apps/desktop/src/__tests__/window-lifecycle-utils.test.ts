@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { BrowserWindow } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
-import { waitForWindowClosed } from '../window-lifecycle-utils';
+import { joinWindowClosed, waitForWindowClosed } from '../window-lifecycle-utils';
 
 function createMockWindow(destroyed = false): BrowserWindow {
   const emitter = new EventEmitter();
@@ -11,6 +11,10 @@ function createMockWindow(destroyed = false): BrowserWindow {
     isDestroyed: vi.fn(() => destroyed),
     on: vi.fn((event: string, listener: () => void) => {
       emitter.on(event, listener);
+      return emitter;
+    }),
+    once: vi.fn((event: string, listener: () => void) => {
+      emitter.once(event, listener);
       return emitter;
     }),
     removeListener: vi.fn((event: string, listener: () => void) => {
@@ -81,5 +85,32 @@ describe('waitForWindowClosed', () => {
 
     // Should resolve immediately via the catch in the on() try block
     await waitForWindowClosed(window, 5000);
+  });
+});
+
+describe('joinWindowClosed', () => {
+  it('resolves at once for a window already destroyed', async () => {
+    const window = createMockWindow(true);
+    await joinWindowClosed(window);
+    expect(window.once).not.toHaveBeenCalled();
+  });
+
+  it('resolves on closed and never on a clock (ADR-0026 R4)', async () => {
+    vi.useFakeTimers();
+    try {
+      const window = createMockWindow();
+      let joined = false;
+      const joining = joinWindowClosed(window).then(() => {
+        joined = true;
+      });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(joined).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      (window as unknown as { _emit: (e: string) => void })._emit('closed');
+      await joining;
+      expect(joined).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

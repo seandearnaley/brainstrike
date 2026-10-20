@@ -32,6 +32,10 @@ vi.mock('@brainstrike/state-store', async (original) => {
 
 class Utility extends EventEmitter {
   pid: number | undefined = 123;
+  /** This fake always exits on its cooperative close, so the lease never escalates. */
+  kill(): boolean {
+    throw new Error('The lease escalated a cooperative close to kill');
+  }
   postMessage(message: unknown): void {
     if (message !== null && typeof message === 'object' && 'method' in message) {
       queueMicrotask(() => this.exit(0)); // a cooperative close

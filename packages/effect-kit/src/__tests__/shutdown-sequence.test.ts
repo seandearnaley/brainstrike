@@ -1,17 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
-import {
-  runShutdownSequence,
-  type ShutdownStepInFlight,
-  type ShutdownStepOutcome,
-} from '../shutdown-sequence.js';
-
-const neverSettles = (): Promise<never> => new Promise<never>(() => undefined);
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { runShutdownSequence, type ShutdownStepOutcome } from '../shutdown-sequence.js';
 
 async function settle(): Promise<void> {
   for (let turn = 0; turn < 3; turn += 1) {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('runShutdownSequence', () => {
   it('runs steps one at a time, in order, and reports each duration', async () => {
@@ -38,7 +36,7 @@ describe('runShutdownSequence', () => {
           },
         },
       ],
-      { deadlineMs: 60_000, now: () => now, onDeadline: () => undefined }
+      { now: () => now }
     );
     await settle();
     // The second step has not started while the first is still pending.
@@ -50,7 +48,6 @@ describe('runShutdownSequence', () => {
         { elapsedMs: 40, outcome: 'succeeded', step: 'renderers' },
         { elapsedMs: 7, outcome: 'succeeded', step: 'database' },
       ],
-      timedOut: false,
     });
     expect(order).toEqual(['renderers:start', 'renderers:end', 'database']);
   });
@@ -76,7 +73,7 @@ describe('runShutdownSequence', () => {
           },
         },
       ],
-      { deadlineMs: 60_000, now: () => 0, onDeadline: () => undefined }
+      { now: () => 0 }
     );
 
     expect(report.steps).toEqual([
@@ -96,8 +93,6 @@ describe('runShutdownSequence', () => {
         { name: 'b', run: () => Promise.reject(new Error('b failed')) },
       ],
       {
-        deadlineMs: 60_000,
-        onDeadline: () => undefined,
         onStepSettled: (outcome: ShutdownStepOutcome) => {
           events.push(`settled:${outcome.step}:${outcome.outcome}`);
         },
@@ -107,116 +102,103 @@ describe('runShutdownSequence', () => {
     expect(events).toEqual(['run:a', 'settled:a:succeeded', 'settled:b:failed']);
   });
 
-  it('at the deadline aborts the running step, names it, and skips the rest', async () => {
-    let now = 0;
-    let stepSignal: AbortSignal | undefined;
-    let abortedWhenReported: boolean | undefined;
-    const ranAfter = vi.fn();
-    const onDeadline = vi.fn((inFlight: ShutdownStepInFlight | null) => {
-      abortedWhenReported = stepSignal?.aborted;
-      return inFlight;
-    });
-
-    const report = await runShutdownSequence(
+  it('a slow step is reported once and every later step runs', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const onSlow = vi.fn();
+    const ran: string[] = [];
+    const running = runShutdownSequence(
       [
-        { name: 'renderers', run: () => undefined },
         {
-          name: 'embedding-host',
-          run: (signal) => {
-            stepSignal = signal;
-            now = 4998;
-            return neverSettles();
-          },
+          name: 'renderers',
+          run: () => new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
         },
-        { name: 'database', run: ranAfter },
+        { name: 'file-system', run: () => void ran.push('file-system') },
+        { name: 'git-commands', run: () => void ran.push('git-commands') },
       ],
-      { deadlineMs: 20, now: () => now, onDeadline }
+      { now: () => Date.now(), onSlow, slowAfterMs: 10_000 }
     );
+    await vi.advanceTimersByTimeAsync(10_000);
+    // Named while it still runs; nothing after it has started.
+    const reportedWhileRunning = [...onSlow.mock.calls];
+    const ranWhileSlow = [...ran];
 
-    expect(onDeadline).toHaveBeenCalledTimes(1);
-    expect(onDeadline).toHaveBeenCalledWith({ elapsedMs: 4998, step: 'embedding-host' });
-    // Interrupted BEFORE the caller hears about it, so an owner that listens to
-    // its signal starts stopping before the caller forces an exit.
-    expect(abortedWhenReported).toBe(true);
-    expect(ranAfter).not.toHaveBeenCalled();
-    expect(report).toEqual({
-      steps: [{ elapsedMs: 0, outcome: 'succeeded', step: 'renderers' }],
-      timedOut: true,
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(running).resolves.toEqual({
+      steps: [
+        { elapsedMs: 15_000, outcome: 'succeeded', step: 'renderers' },
+        { elapsedMs: 0, outcome: 'succeeded', step: 'file-system' },
+        { elapsedMs: 0, outcome: 'succeeded', step: 'git-commands' },
+      ],
     });
+    expect(ran).toEqual(['file-system', 'git-commands']);
+    expect(reportedWhileRunning).toEqual([[{ elapsedMs: 10_000, step: 'renderers' }]]);
+    expect(ranWhileSlow).toEqual([]);
+    expect(onSlow).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('clears its owned deadline timer when every step finishes in time', async () => {
-    const nativeClearTimeout = globalThis.clearTimeout;
-    const timerSpy = vi.spyOn(globalThis, 'setTimeout');
-    const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
-    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
-    const onDeadline = vi.fn();
-    let owned: ReturnType<typeof setTimeout> | undefined;
-    const running = runShutdownSequence([{ name: 'database', run: () => gate }], {
-      deadlineMs: 60_000,
-      onDeadline,
-    });
-    try {
-      await settle();
-      const deadlineCalls = timerSpy.mock.calls.flatMap(([, delay], index) =>
-        delay === 60_000 ? [index] : []
-      );
-      expect(deadlineCalls).toHaveLength(1);
-      const index = deadlineCalls[0];
-      if (index === undefined) {
-        throw new Error('Shutdown deadline was not armed');
-      }
-      const result = timerSpy.mock.results[index];
-      if (result?.type !== 'return') {
-        throw new Error('Shutdown deadline timer creation failed');
-      }
-      owned = result.value;
-      expect(owned).toBeDefined();
-      expect(clearSpy).not.toHaveBeenCalledWith(owned);
+  it('disarms the slow report of a step that settles first, failed or not', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const onSlow = vi.fn();
+    const running = runShutdownSequence(
+      [
+        { name: 'a', run: () => new Promise<void>((resolve) => setTimeout(resolve, 999)) },
+        { name: 'b', run: () => Promise.reject(new Error('b failed')) },
+      ],
+      { onSlow, slowAfterMs: 1000 }
+    );
+    await vi.advanceTimersByTimeAsync(999);
+    await running;
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(onSlow).not.toHaveBeenCalled();
+  });
 
-      open();
-      await expect(running).resolves.toMatchObject({ timedOut: false });
-      expect(clearSpy).toHaveBeenCalledWith(owned);
-      expect(onDeadline).not.toHaveBeenCalled();
-    } finally {
-      open();
-      try {
-        await running;
-      } finally {
-        for (const [index, [, delay]] of timerSpy.mock.calls.entries()) {
-          const result = timerSpy.mock.results[index];
-          if (delay === 60_000 && result?.type === 'return') {
-            nativeClearTimeout(result.value);
-          }
-        }
-        timerSpy.mockRestore();
-        clearSpy.mockRestore();
+  it('rejects with a throwing slow report once its step settles, and runs no later step', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const broken = new Error('slow report threw');
+    const later = vi.fn();
+    const running = runShutdownSequence(
+      [
+        { name: 'a', run: () => new Promise<void>((resolve) => setTimeout(resolve, 20)) },
+        { name: 'b', run: later },
+      ],
+      {
+        onSlow: () => {
+          throw broken;
+        },
+        slowAfterMs: 10,
       }
-    }
+    );
+    const rejected = expect(running).rejects.toBe(broken);
+    await vi.advanceTimersByTimeAsync(20);
+    await rejected;
+    expect(later).not.toHaveBeenCalled();
   });
 
   it('rejects invalid options without running a step', async () => {
     const run = vi.fn();
-    const onDeadline = (): void => undefined;
+    const onSlow = (): void => undefined;
 
     await expect(
-      runShutdownSequence([{ name: 'a', run }], { deadlineMs: 0, onDeadline })
+      runShutdownSequence([{ name: 'a', run }], { onSlow, slowAfterMs: 0 })
     ).rejects.toBeInstanceOf(RangeError);
     await expect(
-      runShutdownSequence([{ name: 'a', run }], { deadlineMs: Number.NaN, onDeadline })
+      runShutdownSequence([{ name: 'a', run }], { onSlow, slowAfterMs: Number.NaN })
     ).rejects.toBeInstanceOf(RangeError);
+    await expect(runShutdownSequence([{ name: 'a', run }], { onSlow })).rejects.toThrow(
+      /onSlow and slowAfterMs together/
+    );
+    await expect(runShutdownSequence([{ name: 'a', run }], { slowAfterMs: 10 })).rejects.toThrow(
+      /onSlow and slowAfterMs together/
+    );
     await expect(
-      runShutdownSequence(
-        [
-          { name: 'a', run },
-          { name: 'a', run },
-        ],
-        { deadlineMs: 1000, onDeadline }
-      )
+      runShutdownSequence([
+        { name: 'a', run },
+        { name: 'a', run },
+      ])
     ).rejects.toThrow(/non-empty and unique; got "a"/);
-    await expect(
-      runShutdownSequence([{ name: ' ', run }], { deadlineMs: 1000, onDeadline })
-    ).rejects.toBeInstanceOf(TypeError);
+    await expect(runShutdownSequence([{ name: ' ', run }])).rejects.toBeInstanceOf(TypeError);
     expect(run).not.toHaveBeenCalled();
   });
 });

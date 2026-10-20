@@ -13,8 +13,8 @@ import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
  * a new user has on first run, and it is exactly the case that kills the stdio
  * child while the host is still handshaking. That must read as an ordinary
  * lifecycle failure on the server row — never an unhandled promise rejection in
- * Electron main, and never a hung connect that outlives main's 5s
- * `SIGNAL_SHUTDOWN_TIMEOUT_MS` graceful-shutdown budget.
+ * Electron main, and never a close that cannot join the child it owns: quit has
+ * no deadline and joins every owner (ADR-0026), so a hung close would hang quit.
  *
  * The fixture makes the window deterministic: the session child answers the
  * host's `tools/list`, severs its own stdin (so the parent pipe accepts no
@@ -25,8 +25,6 @@ const handshakeExitServerEntrypoint = fileURLToPath(
   import.meta.resolve('@brainstrike/agent/test-fixtures/mcp-stdio-handshake-exit-server.mjs')
 );
 const CONNECT_BUDGET_MS = 20_000;
-/** main.ts `SIGNAL_SHUTDOWN_TIMEOUT_MS`: the budget a hung client would blow. */
-const GRACEFUL_SHUTDOWN_BUDGET_MS = 5000;
 
 describe('MCP stdio child that exits mid-handshake', () => {
   const rejections: unknown[] = [];
@@ -88,13 +86,11 @@ describe('MCP stdio child that exits mid-handshake', () => {
         state: 'error',
       });
 
-      // The client is owned, not orphaned: teardown finishes inside main's
-      // forced-exit budget instead of holding it open.
-      const closeStartedAt = Date.now();
+      // The client is owned, not orphaned: its close settles with no failure under
+      // this test's own timeout, the bound a hung close would hit…
       await expect(runtime.host.close()).resolves.toMatchObject({ failures: [] });
-      expect(Date.now() - closeStartedAt).toBeLessThan(GRACEFUL_SHUTDOWN_BUDGET_MS);
-      // …and the child it owned is gone, not left behind by a client the actor
-      // dropped when it rethrew the recorded failure.
+      // …and that close joined the child's exit, so it is gone, not left behind by
+      // a client the actor dropped when it rethrew the recorded failure.
       const childPid = await fsp.readFile(pidFile, 'utf8');
       expect(childPid).toMatch(/^[1-9]\d*\n$/u);
       expect(() => process.kill(Number.parseInt(childPid, 10), 0)).toThrow(

@@ -346,7 +346,14 @@ try {
     const bytes = await lease.readFile(relativePath, Buffer.byteLength(content) + 1, context());
     assert.equal(bytes.status, 'ok');
     assert.equal(Buffer.from(bytes.content).toString(), content);
+    // Borrow the existing service; never call a profile or cold factory again.
+    const profile = createDesktopProfileRuntime(() => ({
+      acquire: async () => services,
+      close: closeServices,
+    }));
     runtime = createNativeIndexRuntime({
+      // No failed-host replacement in this fixture: index work borrows the profile directly.
+      admitProfile: (signal) => profile.acquire(signal),
       closeQueries: joinQueries,
       createIndexOwner: async (authorized) => {
         ownerCount += 1;
@@ -391,11 +398,7 @@ try {
       getAuthority: authority,
       getFileInvalidator: () => publication && ((file) => publication.invalidateFile(file)),
       installQueryTarget: () => undefined,
-      // Borrow the existing service; never call a profile or cold factory again.
-      profile: createDesktopProfileRuntime(() => ({
-        acquire: async () => services,
-        close: closeServices,
-      })),
+      profile,
     });
     port = await runtime.acquire();
     const initialAuthority = runtime.captureAcknowledgedAuthority().readAuthority();

@@ -11,6 +11,7 @@ import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
 import { createDesktopHostLease } from '../../host-lease-manager';
 import {
   createDesktopGracefulShutdown,
+  DESKTOP_SHUTDOWN_SLOW_STEP_MS,
   type DesktopShutdownStepName,
   type DesktopShutdownStepRun,
 } from '../../main/desktop-graceful-shutdown';
@@ -40,7 +41,6 @@ const unused = async (): Promise<never> => {
 let childPid: number | undefined;
 let childExit: number | undefined;
 const lease = createDesktopHostLease({
-  closeTimeoutMs: process.platform === 'win32' ? 5000 : 1000,
   entryPath: join(bundleDirectory, 'agent-host-entry.js'),
   fork: (entry, args) => {
     const child = utilityProcess.fork(entry, [...args], {
@@ -198,7 +198,6 @@ async function main(): Promise<void> {
       event('step-finish', name);
     };
   const shutdown = createDesktopGracefulShutdown({
-    deadlineMs: process.platform === 'win32' ? 10_000 : 5000,
     exitProcess: (code) => {
       forcedExit = code;
       event('forced-exit', code);
@@ -211,11 +210,6 @@ async function main(): Promise<void> {
     markShuttingDown: () => event('shutdown-marked'),
     planRun: () => ({
       closeDatabase: async () => {
-        // Test cleanup releases a deliberately stuck response only after the
-        // unchanged production deadline names the blocked preparation step.
-        if (mode === 'stuck') {
-          await writeFile(join(root, 'gate-released'), 'deadline cleanup');
-        }
         await runtime.retireProfile();
       },
       closeErrorLogSink: () => event('error-log-closed'),
@@ -244,7 +238,7 @@ async function main(): Promise<void> {
     await writeFile(join(root, 'gate-released'), 'ACK first');
     await operation;
   }
-  const closing = shutdown.run('before-quit', 'before-quit').then(() => {
+  const closing = shutdown.run('before-quit').then(() => {
     shutdownSettled = true;
   });
   if (mode === 'held' || mode === 'rejected') {
@@ -256,19 +250,26 @@ async function main(): Promise<void> {
     event('still-pending-before-release');
     await writeFile(join(root, 'gate-released'), 'release after close preparation');
   }
-  await Promise.all([operation, closing]);
   if (mode === 'stuck') {
-    assert.equal(forcedExit, 1);
-    const deadline = events.find((item) => item.event === 'shutdown-error');
-    const logged = deadline?.detail;
-    assert.ok(logged && typeof logged === 'object' && 'detail' in logged);
+    // ADR-0026 R4: a response held past the step deadline Main used to race (10 s
+    // [5 s]) and past the slow-step report is still joined; nothing forces an exit.
+    await delay(DESKTOP_SHUTDOWN_SLOW_STEP_MS + 1000);
+    assert.equal(operationSettled, false, 'a held response stays joined past the old deadline');
+    assert.equal(shutdownSettled, false);
+    assert.equal(childExit, undefined);
+    event('still-pending-past-old-deadline');
+    await writeFile(join(root, 'gate-released'), 'release after the old deadline');
+  }
+  await Promise.all([operation, closing]);
+  assert.equal(forcedExit, undefined);
+  if (mode === 'stuck') {
+    const slow = events.find((item) => item.event === 'shutdown-warning');
+    const logged = slow?.detail;
+    assert.ok(logged && typeof logged === 'object' && 'message' in logged && 'detail' in logged);
+    assert.equal(logged.message, 'Graceful shutdown step is slow');
     const fields = logged.detail;
-    assert.ok(fields && typeof fields === 'object' && 'inFlightStep' in fields);
-    const inFlight = fields.inFlightStep;
-    assert.ok(inFlight && typeof inFlight === 'object' && 'step' in inFlight);
-    assert.equal(inFlight.step, 'main-catalog');
-  } else {
-    assert.equal(forcedExit, undefined);
+    assert.ok(fields && typeof fields === 'object' && 'step' in fields);
+    assert.equal(fields.step, 'main-catalog');
   }
   if (kernel === 'owned') {
     assert.equal(childExit, 0);
@@ -284,7 +285,7 @@ async function main(): Promise<void> {
   }
   if (mode === 'rejected') {
     assert.ok(events.some((item) => item.event === 'shutdown-warning'));
-  } else if (mode !== 'stuck') {
+  } else {
     assert.equal(operationFailed, false);
   }
   await writeFile(
