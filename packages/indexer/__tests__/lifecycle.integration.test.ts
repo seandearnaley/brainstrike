@@ -102,6 +102,8 @@ describe('real process close ladder ownership', () => {
   for (const mode of ['refuse', 'throw'] as const) {
     it(`retains live ownership after kill ${mode} and allows explicit joined cleanup`, async () => {
       const host = await fixture(mode);
+      // Close ends the never-ready startup; that startup's own rejection is not this test's.
+      host.connection.ready.catch(() => undefined);
       const error = await host.connection.close().catch((failure: unknown) => failure);
       expect(error).toBeInstanceOf(IndexerLifecycleError);
       expect(host.connection.exited).toBe(false);

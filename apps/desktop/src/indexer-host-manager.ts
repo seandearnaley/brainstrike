@@ -195,7 +195,6 @@ export class IndexerHostManager {
     dependencies: CanonicalRemoteWorkspaceDependencies
   ): Promise<CanonicalWorkspaceAttachment> {
     const canonical = await this.#admitAttachment();
-    await this.#lifecycleDelays?.().delay('canonical-attach');
     return canonical.attachWorkspace(dependencies);
   }
 
@@ -203,7 +202,6 @@ export class IndexerHostManager {
     dependencies: CanonicalCollectionDependencies
   ): Promise<CanonicalCollectionAttachment> {
     const canonical = await this.#admitAttachment();
-    await this.#lifecycleDelays?.().delay('canonical-attach');
     const attachment = await canonical.attachCollection(dependencies);
     const scans = new Set<OwnedCollectionScan>();
     return {
@@ -237,6 +235,8 @@ export class IndexerHostManager {
     }
     const fences = this.#fences;
     await this.start();
+    // E2E seam: the attach boundary as a loaded machine reaches it; admission is checked after.
+    await this.#lifecycleDelays?.().delay('canonical-attach');
     this.#refuseFencedAcquisition(fences);
     if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
       throw new Error('Indexer canonical attachment admission is closed.');

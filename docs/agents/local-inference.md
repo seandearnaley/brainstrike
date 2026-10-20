@@ -79,6 +79,10 @@ refusal, and the native index blocks as `embedding-host-unresponsive` with the s
 and elapsed time in plain words (the request id stays in the log). Only the person's
 Retry indexing recovers it: the host's owner restarts it, then the failed generation
 re-opens. Nothing restarts automatically, and a second hang blocks again (BST-2104).
+The window refuses that batch alone and sends its cancel; it never stops the host,
+and neither does a query past its 60 s bound, which is refused alone as
+`embedding-host.query-timeout` (lifecycle R5(a)). A hidden host has no ready timer:
+it is starting until it reports `running` or `error`, or its renderer is gone.
 
 Decision: [ADR-0007](../adr/0007-local-inference-placement.md) — its
 local-chat-placement half is now history; its embedding-placement rules above

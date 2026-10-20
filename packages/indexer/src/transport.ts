@@ -289,6 +289,12 @@ export function createIndexerConnection(
    * process: a kill, then the joined exit.
    */
   const requestClose = async (): Promise<unknown> => {
+    try {
+      client.assertActive();
+    } catch {
+      // A failed client takes no request; its failure was already its callers'. Retire it.
+      return undefined;
+    }
     let escalated = false;
     try {
       await runWithTimeout(() => client.call('close', null, decoder(Schema.Boolean)), {

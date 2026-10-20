@@ -78,7 +78,8 @@ async function run(): Promise<void> {
     );
     await pastFormerDeadline();
     assert.equal(manager.exited, false);
-    await assert.rejects(manager.close(), /close failed/);
+    // The escalation is not a failure: the kill is ours and its exit is joined.
+    await manager.close();
     assert.equal(manager.exited, true);
     assert.ok((await starting) instanceof Error);
     await assert.rejects(manager.start(), /closed/);
@@ -139,7 +140,8 @@ async function run(): Promise<void> {
     return;
   }
   if (mode === 'close') {
-    await assert.rejects(manager.close(), /close failed/);
+    // An unanswered close escalates to one kill (R5(b)); the joined exit completes the close.
+    await manager.close();
     assert.equal(manager.exited, true);
     await manager.close();
     return;
