@@ -22,6 +22,9 @@ export interface AppLayoutProps {
   children: ReactNode;
   config: AppShellConfig;
   currentPath: string;
+  readonly explorerCloseLifecycle?:
+    | import('@brainstrike/file-explorer-ui/shell').ExplorerCloseLifecycle
+    | undefined;
   /** Retry indexing after the embedding host stopped responding; desktop injects it. */
   readonly nativeIndexRetry?: IndexRetryCapability | null;
   readonly nativeIndexSearch?: IndexSearchCapability | null;

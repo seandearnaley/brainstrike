@@ -3,7 +3,9 @@ import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ExplorerCloseLifecycleContext } from '../shell/explorer-close-lifecycle';
 
 // Mocks for internal context hooks
 vi.mock('../shell/file-explorer-provider', () => {
@@ -27,7 +29,8 @@ vi.mock('../use-shared-file-content-loading', () => ({
 }));
 
 // Mocks for external hooks used inside the context hook
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
+vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>()),
   useAdapters: vi.fn(),
   useFileContentLoading: vi.fn(),
   useFileExplorer: vi.fn(),
@@ -382,6 +385,43 @@ describe('useFileExplorer (context)', () => {
   });
 
   describe('stale state clearing behavior', () => {
+    it('terminal preparation cancels a stale timer and refuses a later effect re-arm', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock({ rootDirectoryHandle: null }));
+        storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
+        storeState.expandedDirectoryPaths = new Set(['/src']);
+        const producers = new Set<() => Promise<void>>();
+        let preparing = false;
+        const lifecycle = {
+          isPreparing: () => preparing,
+          registerPersistence: () => () => {},
+          registerProducer: (prepare: () => Promise<void>) => {
+            producers.add(prepare);
+            return () => {
+              producers.delete(prepare);
+            };
+          },
+        };
+        const { rerender } = renderHook(() => useFileExplorer(), {
+          wrapper: ({ children }: { children: ReactNode }) =>
+            createElement(ExplorerCloseLifecycleContext.Provider, { value: lifecycle }, children),
+        });
+        preparing = true;
+        await act(async () => {
+          await Promise.all([...producers].map((prepare) => prepare()));
+        });
+        rerender();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+        expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+        expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should NOT clear persisted state while isAccessLoading is true', () => {
       // This tests the fix for the race condition where persisted state was being
       // cleared before the file system had a chance to restore the root directory.

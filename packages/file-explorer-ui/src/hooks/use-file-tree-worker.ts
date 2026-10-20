@@ -1,3 +1,7 @@
+import {
+  useExplorerCloseLifecycle,
+  useExplorerClosePreparation,
+} from '../shell/explorer-close-lifecycle';
 /**
  * File Tree Worker Hook
  *
@@ -139,6 +143,21 @@ export interface UseFileTreeWorkerReturn {
  * @returns Worker port ref and handle map ref
  */
 export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTreeWorkerReturn {
+  const closeLifecycle = useExplorerCloseLifecycle();
+  const requestRunsRef = useRef(new Set<Promise<unknown>>());
+  const drainRequestRuns = async (): Promise<void> => {
+    const results = await Promise.allSettled([...requestRunsRef.current]);
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' && !isAbortError(result.reason) ? [result.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'File-tree adapter reads failed to settle');
+    }
+  };
+  useExplorerClosePreparation(async () => {
+    portRef.current?.abort();
+    await drainRequestRuns();
+  }, drainRequestRuns);
   const { enabled = true, fileSystemAdapter, onProgress, onError } = options;
 
   // Worker port ref
@@ -168,7 +187,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
   // Initialize worker and set up handlers
   useEffect(() => {
-    if (!enabled) {
+    if (closeLifecycle?.isPreparing() || !enabled) {
       return;
     }
     // Create worker
@@ -202,57 +221,70 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
     // Handle load requests from worker - perform I/O with FileNodeHandles
     unsubscribes.push(
-      port.onRequestLoad(async (_requestId, paths, abortSignal) => {
-        abortSignal.throwIfAborted();
-        if (!fileSystemAdapter) {
-          logger.warn('onRequestLoad: no file system adapter');
-          return paths.map((path) => ({ error: 'No file system adapter', path }));
+      port.onRequestLoad((_requestId, paths, abortSignal) => {
+        if (closeLifecycle?.isPreparing()) {
+          return Promise.reject(
+            new DOMException('Renderer close retired file-tree reads', 'AbortError')
+          );
         }
-
-        // Get root info for building nodes
-        const rootHandle = rootHandleRef.current;
-        const rootPath = rootHandle?.path;
-        if (!rootPath) {
-          return paths.map((path) => ({
-            error: 'Root directory handle is missing its canonical path',
-            path,
-          }));
-        }
-
-        // Storage v5: stamp worker-loaded subtree nodes with the durable
-        // RootId so they satisfy `fileNode.rootFolderId === folderId`.
-        const rootFolderId = rootFolderIdRef.current ?? rootPath;
-
-        // Load directories with concurrency limit to prevent overwhelming the browser
-        const results = await runWithConcurrency(
-          paths,
-          MAX_CONCURRENT_LOADS,
-          async (path): Promise<BatchLoadResult> => {
-            try {
-              return await loadSingleDirectory(
-                path,
-                rootPath,
-                rootFolderId,
-                rootHandle.rootId,
-                handleMapRef.current,
-                fileSystemAdapter,
-                abortSignal
-              );
-            } catch (err) {
-              // Ignore abort errors (operation was cancelled)
-              if (isAbortError(err)) {
-                return { error: 'Operation aborted', path };
-              }
-              return {
-                error: err instanceof Error ? err.message : String(err),
-                path,
-              };
-            }
+        const completion = (async () => {
+          abortSignal.throwIfAborted();
+          if (!fileSystemAdapter) {
+            logger.warn('onRequestLoad: no file system adapter');
+            return paths.map((path) => ({ error: 'No file system adapter', path }));
           }
-        );
 
-        abortSignal.throwIfAborted();
-        return results;
+          // Get root info for building nodes
+          const rootHandle = rootHandleRef.current;
+          const rootPath = rootHandle?.path;
+          if (!rootPath) {
+            return paths.map((path) => ({
+              error: 'Root directory handle is missing its canonical path',
+              path,
+            }));
+          }
+
+          // Storage v5: stamp worker-loaded subtree nodes with the durable
+          // RootId so they satisfy `fileNode.rootFolderId === folderId`.
+          const rootFolderId = rootFolderIdRef.current ?? rootPath;
+
+          // Load directories with concurrency limit to prevent overwhelming the browser
+          const results = await runWithConcurrency(
+            paths,
+            MAX_CONCURRENT_LOADS,
+            async (path): Promise<BatchLoadResult> => {
+              try {
+                return await loadSingleDirectory(
+                  path,
+                  rootPath,
+                  rootFolderId,
+                  rootHandle.rootId,
+                  handleMapRef.current,
+                  fileSystemAdapter,
+                  abortSignal
+                );
+              } catch (err) {
+                // Ignore abort errors (operation was cancelled)
+                if (isAbortError(err)) {
+                  return { error: 'Operation aborted', path };
+                }
+                return {
+                  error: err instanceof Error ? err.message : String(err),
+                  path,
+                };
+              }
+            }
+          );
+
+          abortSignal.throwIfAborted();
+          return results;
+        })();
+        requestRunsRef.current.add(completion);
+        void completion.then(
+          () => requestRunsRef.current.delete(completion),
+          () => requestRunsRef.current.delete(completion)
+        );
+        return completion;
       })
     );
 
@@ -304,7 +336,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
       port.terminate();
       portRef.current = null;
     };
-  }, [enabled, fileSystemAdapter]); // Only recreate worker when adapter or enablement changes
+  }, [enabled, fileSystemAdapter, closeLifecycle]); // Only recreate worker when adapter or enablement changes
 
   return {
     handleMapRef,

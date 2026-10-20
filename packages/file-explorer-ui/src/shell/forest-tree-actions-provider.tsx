@@ -1,3 +1,4 @@
+import { useExplorerCloseProducer } from './explorer-close-lifecycle';
 /**
  * Forest Tree Actions registry.
  *
@@ -35,6 +36,13 @@ import {
 export function ForestTreeActionsProvider({ children }: { children: ReactNode }) {
   const sectionsRef = useRef(new Map<string, SectionTreeActions>());
   const cancelledRef = useRef(false);
+  const { isPreparing, track } = useExplorerCloseProducer(() => {
+    cancelledRef.current = true;
+    for (const actions of sectionsRef.current.values()) {
+      actions.cancelExpandAll();
+    }
+  });
+
   const [runningCount, setRunningCount] = useState(0);
   // Lazily initialized (react-doctor rerender-lazy-ref-init): a useRef(new
   // Map()) initializer would allocate and discard a Map on every render.
@@ -137,39 +145,46 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
   );
 
   const runExpandAll = useCallback(async () => {
-    cancelledRef.current = false;
-    // Fresh aggregate per run; completed runs keep their final counts only
-    // until the next run starts (display is gated on isExpandingAll). The
-    // reset publishes SYNCHRONOUSLY — a stale previous-run count must never
-    // survive into the new run's first frame.
-    progressByRootRef.current?.clear();
-    aggregateRef.current = { loaded: 0, total: 0 };
-    if (frameRef.current !== null) {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
+    if (isPreparing()) {
+      throw new DOMException('Forest expansion is retired', 'AbortError');
     }
-    if (snapshotRef.current !== null) {
-      snapshotRef.current = null;
-      notifyProgressListeners();
-    }
-    setRunningCount((count) => count + 1);
-    try {
-      // Sequential: progressive expansion is I/O-heavy per root; one section
-      // at a time keeps disk load and progress predictable (mirrors the
-      // sequential per-root sync).
-      for (const [, actions] of Array.from(sectionsRef.current)) {
-        if (cancelledRef.current) {
-          break;
+    await track(
+      (async () => {
+        cancelledRef.current = false;
+        // Fresh aggregate per run; completed runs keep their final counts only
+        // until the next run starts (display is gated on isExpandingAll). The
+        // reset publishes SYNCHRONOUSLY — a stale previous-run count must never
+        // survive into the new run's first frame.
+        progressByRootRef.current?.clear();
+        aggregateRef.current = { loaded: 0, total: 0 };
+        if (frameRef.current !== null) {
+          cancelAnimationFrame(frameRef.current);
+          frameRef.current = null;
         }
-        // Open the section as its turn starts (not all upfront): the sweep is
-        // sequential and I/O-heavy, so later roots stay closed until reached.
-        actions.setCollapsed(false);
-        await actions.expandAll();
-      }
-    } finally {
-      setRunningCount((count) => count - 1);
-    }
-  }, [notifyProgressListeners]);
+        if (snapshotRef.current !== null) {
+          snapshotRef.current = null;
+          notifyProgressListeners();
+        }
+        setRunningCount((count) => count + 1);
+        try {
+          // Sequential: progressive expansion is I/O-heavy per root; one section
+          // at a time keeps disk load and progress predictable (mirrors the
+          // sequential per-root sync).
+          for (const [, actions] of Array.from(sectionsRef.current)) {
+            if (cancelledRef.current || isPreparing()) {
+              break;
+            }
+            // Open the section as its turn starts (not all upfront): the sweep is
+            // sequential and I/O-heavy, so later roots stay closed until reached.
+            actions.setCollapsed(false);
+            await actions.expandAll();
+          }
+        } finally {
+          setRunningCount((count) => count - 1);
+        }
+      })()
+    );
+  }, [notifyProgressListeners, isPreparing, track]);
 
   const cancelExpandAll = useCallback(() => {
     cancelledRef.current = true;
@@ -185,22 +200,32 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
   }, []);
 
   const runSelectAll = useCallback(async (): Promise<ForestSelectAllSummary> => {
-    const summary: ForestSelectAllSummary = { limitReached: false, sections: 0, selected: 0 };
-    // Sequential on purpose: the forest-union budget composes pass by pass —
-    // each section's scan cap already subtracts what previous sections
-    // selected (computeSelectAllScanCap), so parallel passes would race the
-    // budget.
-    for (const [, actions] of Array.from(sectionsRef.current)) {
-      summary.sections += 1;
-      const result = await actions.selectAll();
-      summary.selected += result.selected;
-      summary.limitReached = summary.limitReached || result.limitReached;
-      if (result.limitReached) {
-        break;
-      }
+    if (isPreparing()) {
+      throw new DOMException('Forest selection is retired', 'AbortError');
     }
-    return summary;
-  }, []);
+    return await track(
+      (async () => {
+        const summary: ForestSelectAllSummary = { limitReached: false, sections: 0, selected: 0 };
+        // Sequential on purpose: the forest-union budget composes pass by pass —
+        // each section's scan cap already subtracts what previous sections
+        // selected (computeSelectAllScanCap), so parallel passes would race the
+        // budget.
+        for (const [, actions] of Array.from(sectionsRef.current)) {
+          if (isPreparing()) {
+            break;
+          }
+          summary.sections += 1;
+          const result = await actions.selectAll();
+          summary.selected += result.selected;
+          summary.limitReached = summary.limitReached || result.limitReached;
+          if (result.limitReached) {
+            break;
+          }
+        }
+        return summary;
+      })()
+    );
+  }, [isPreparing, track]);
 
   const collectVisibleQuickFilterKeys = useCallback((): string[] => {
     const keys: string[] = [];

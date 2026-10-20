@@ -4,7 +4,9 @@ import {
 } from '@brainstrike/app-state/factory-reset';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+
+import { useExplorerCloseLifecycle, useExplorerClosePreparation } from './explorer-close-lifecycle';
 
 const logger = createLogger('FactoryResetWatchFence');
 
@@ -27,6 +29,7 @@ const logger = createLogger('FactoryResetWatchFence');
 export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSystemAdapter {
   // The owner calls this hook before it watches, so the effect below fences a
   // remounted owner before the owner's own watch effect runs.
+  const closeLifecycle = useExplorerCloseLifecycle();
   const fencedRef = useRef(false);
   // Keyed by a per-watch token, so a watch's dispose never names itself.
   const activeWatchesRef = useRef(new Map<object, () => void>());
@@ -39,7 +42,7 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
     // Delegates every other member to the adapter; only watch admission differs.
     const fencedAdapter: FileSystemAdapter = Object.create(adapter);
     fencedAdapter.watchDirectory = (handle, callback, onSignal) => {
-      if (fencedRef.current) {
+      if (fencedRef.current || closeLifecycle?.isPreparing()) {
         logger.debug('Factory reset retired root watching; the root is not watched', {
           path: handle.path,
         });
@@ -74,21 +77,27 @@ export function useFactoryResetWatchFence(adapter: FileSystemAdapter): FileSyste
       return dispose;
     };
     return fencedAdapter;
-  }, [adapter]);
+  }, [adapter, closeLifecycle]);
+
+  const retire = useCallback(() => {
+    fencedRef.current = true;
+    for (const dispose of [...activeWatchesRef.current.values()]) {
+      dispose();
+    }
+  }, []);
+  useExplorerClosePreparation(
+    async () => retire(),
+    async () => {}
+  );
 
   useEffect(() => {
     // An owner remounted after preparation began belongs to the same terminal reset.
     if (hasFactoryResetPreparationStarted()) {
-      fencedRef.current = true;
+      retire();
       return;
     }
-    return registerFactoryResetPreparation(async () => {
-      fencedRef.current = true;
-      for (const dispose of [...activeWatchesRef.current.values()]) {
-        dispose();
-      }
-    });
-  }, []);
+    return registerFactoryResetPreparation(async () => retire());
+  }, [retire]);
 
   return watchAdapter;
 }

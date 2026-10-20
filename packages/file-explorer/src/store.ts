@@ -112,7 +112,55 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
 
 // Factory function to create store with custom storage adapter
 export function createFileExplorerStore(storageAdapter: StorageAdapter) {
-  return create<FileExplorerState>()(persist(stateCreator, createPersistOptions(storageAdapter)));
+  let lifetime: import('./persistence/persistence-lifetime').PersistenceLifetime | undefined;
+  const options = createPersistOptions(storageAdapter, (owner) => {
+    lifetime = owner;
+  });
+  if (!lifetime) {
+    throw new Error('Explorer persistence lifetime was not created');
+  }
+  const owner = lifetime;
+  const store = create<FileExplorerState>()(persist(stateCreator, options));
+  return Object.assign(store, {
+    beginPersistenceClose: () => owner.beginCloseObservation(),
+    drainHydration: () => owner.drainHydration(),
+    drainPersistence: () => owner.drain(),
+    persistImmediately: async (): Promise<void> => {
+      if (!store.persist.hasHydrated()) {
+        throw new Error(
+          'Refusing to persist file explorer state before rehydration — it would overwrite stored state with defaults.'
+        );
+      }
+      const current = store.persist.getOptions();
+      if (!current.name) {
+        throw new Error('File explorer persistence key is missing');
+      }
+      if (!current.storage) {
+        throw new Error('File explorer persist storage is unavailable');
+      }
+      if (!current.partialize) {
+        throw new Error('File explorer persistence serializer is unavailable');
+      }
+      const state = store.getState();
+      const saving = current.storage.setItem(current.name, {
+        state: current.partialize(state),
+        version: current.version ?? 0,
+      });
+      const results = await Promise.allSettled([saving, owner.drain()]);
+      const failures = [
+        ...new Set(
+          results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+        ),
+      ];
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Explorer immediate persistence failed');
+      }
+    },
+    preparePersistenceClose: () => owner.prepareClose(),
+  });
 }
 
 // Default store instance for backward compatibility (HMR-safe singleton)
@@ -159,18 +207,17 @@ function isValidStore(candidate: unknown): candidate is BoundStore & { [k: strin
   const cand = candidate as unknown as {
     getState?: unknown;
     setState?: unknown;
+    persistImmediately?: unknown;
     [k: string]: unknown;
   };
   const hasAPI = typeof cand.getState === 'function' && typeof cand.setState === 'function';
   const version = cand[STORE_BRAND];
-  return hasAPI && version === STORE_VERSION;
+  return hasAPI && typeof cand.persistImmediately === 'function' && version === STORE_VERSION;
 }
 
 let storeSingleton = g[STORE_KEY] as unknown;
 if (!isValidStore(storeSingleton)) {
-  storeSingleton = create<FileExplorerState>()(
-    persist(stateCreator, createPersistOptions(defaultPersistStorageAdapter))
-  );
+  storeSingleton = createFileExplorerStore(defaultPersistStorageAdapter);
   (storeSingleton as Record<string, unknown>)[STORE_BRAND] = STORE_VERSION as unknown as number;
   g[STORE_KEY] = storeSingleton as unknown;
 }

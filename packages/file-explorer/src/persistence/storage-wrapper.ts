@@ -6,12 +6,9 @@ const logger = createLogger('Persistence');
 
 export type PersistedStateDiscardReason = 'malformed-value' | 'unavailable-read';
 
-export type StorageOperationResult =
-  | { success: true }
-  | { success: false; message: string; error: unknown };
-
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+export interface StorageOperationResult {
+  success: true;
+}
 
 const getErrorMetadata = (error: unknown, name: string): { errorName: string; name: string } => ({
   errorName: error instanceof Error ? error.name : typeof error,
@@ -133,7 +130,6 @@ async function getItemWithStorageOnly(
 
 async function setItemWithWorker(
   workerStorage: WorkerStorage,
-  storageAdapter: StorageAdapter,
   name: string,
   value: unknown,
   shouldLog: boolean
@@ -143,20 +139,9 @@ async function setItemWithWorker(
     return { success: true };
   } catch (error) {
     if (shouldLog) {
-      logger.error(
-        'Worker setItem failed, falling back to immediate approach:',
-        getErrorMetadata(error, name)
-      );
+      logger.error('Worker setItem failed:', getErrorMetadata(error, name));
     }
-    try {
-      await storageAdapter.setItem(name, JSON.stringify(value));
-      return { success: true };
-    } catch (fallbackError) {
-      if (shouldLog) {
-        logger.error('Error setting item in storage:', getErrorMetadata(fallbackError, name));
-      }
-      return { error: fallbackError, message: getErrorMessage(fallbackError), success: false };
-    }
+    throw error;
   }
 }
 
@@ -165,12 +150,8 @@ async function setItemWithStorage(
   name: string,
   value: unknown
 ): Promise<StorageOperationResult> {
-  try {
-    await storageAdapter.setItem(name, JSON.stringify(value));
-    return { success: true };
-  } catch (error) {
-    return { error, message: getErrorMessage(error), success: false };
-  }
+  await storageAdapter.setItem(name, JSON.stringify(value));
+  return { success: true };
 }
 
 export function createStorageWrapper(
@@ -195,24 +176,31 @@ export function createStorageWrapper(
     },
     removeItem: async (name: string) => {
       try {
-        await storageAdapter.removeItem(name);
+        if (useWorker && workerStorage) {
+          await workerStorage.removeItem(name);
+        } else {
+          await storageAdapter.removeItem(name);
+        }
         return { success: true };
       } catch (error) {
         if (shouldLog) {
           logger.error('Error removing item from storage:', getErrorMetadata(error, name));
         }
-        return { error, message: getErrorMessage(error), success: false };
+        throw error;
       }
     },
     setItem: async (name: string, value: unknown) => {
       if (useWorker && workerStorage) {
-        return await setItemWithWorker(workerStorage, storageAdapter, name, value, shouldLog);
+        return await setItemWithWorker(workerStorage, name, value, shouldLog);
       }
-      const result = await setItemWithStorage(storageAdapter, name, value);
-      if (!result.success && shouldLog) {
-        logger.error('Error setting item in storage:', getErrorMetadata(result.error, name));
+      try {
+        return await setItemWithStorage(storageAdapter, name, value);
+      } catch (error) {
+        if (shouldLog) {
+          logger.error('Error setting item in storage:', getErrorMetadata(error, name));
+        }
+        throw error;
       }
-      return result;
     },
   };
 }

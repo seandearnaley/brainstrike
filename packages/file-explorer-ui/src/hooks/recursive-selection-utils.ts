@@ -40,6 +40,8 @@ export function yieldToBrowser(): Promise<void> {
 export function hasPersistApi(store: unknown): store is PersistableFileExplorerStore {
   return (
     typeof store === 'function' &&
+    'persistImmediately' in store &&
+    typeof store.persistImmediately === 'function' &&
     'persist' in store &&
     typeof (store as { persist?: unknown }).persist === 'object' &&
     (store as { persist?: { getOptions?: unknown } }).persist !== null &&

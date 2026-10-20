@@ -1,3 +1,4 @@
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -110,9 +111,10 @@ const defaultMockStoreState = (): MockStoreState => ({
 });
 
 let mockStoreState: MockStoreState = defaultMockStoreState();
+let mockPersistenceStore: ReturnType<typeof createFileExplorerStore>;
 
 // Canonical-writer capture: persistFileExplorerStateImmediately writes the
-// whole store snapshot through the ADAPTERS storage adapter.
+// whole store snapshot through its existing persistence owner/adapter.
 const mockAdapterStorage = {
   clear: vi.fn(async () => undefined),
   getAllKeys: vi.fn(async () => []),
@@ -141,6 +143,15 @@ vi.mock('../shell/file-explorer-provider', () => ({
     const storeFn = (selector: (state: Record<string, unknown>) => unknown) =>
       selector(mockStoreState as unknown as Record<string, unknown>);
     storeFn.getState = () => mockStoreState;
+    storeFn.persistImmediately = async () => {
+      mockPersistenceStore.setState({
+        excludeFilters: mockStoreState.excludeFilters,
+        includeFilters: mockStoreState.includeFilters,
+        useRegex: mockStoreState.useRegex,
+        viewFilterPresetId: mockStoreState.viewFilterPresetId,
+      });
+      await mockPersistenceStore.persistImmediately();
+    };
     // Add persist API to the store function
     storeFn.persist = {
       getOptions: () => ({
@@ -211,10 +222,13 @@ function threadStore(touchedPaths: string[], files: string[]): ExplorerThreadSta
 describe('ToolbarPresetSelector', () => {
   const mockOnFilterChange = vi.fn();
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.mocked(useViewFilterPresets).mockReturnValue(defaultMockViewFilterPresetsResult());
     mockStoreState = defaultMockStoreState();
+    mockPersistenceStore = createFileExplorerStore(mockAdapterStorage);
+    await waitFor(() => expect(mockPersistenceStore.persist.hasHydrated()).toBe(true));
+    mockPersistenceStore.persist.setOptions({ name: 'file-explorer-storage-v4', version: 1 });
     mockHasHydrated = true;
     hydrationListeners.length = 0;
   });

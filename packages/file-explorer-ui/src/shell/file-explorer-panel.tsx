@@ -7,6 +7,7 @@ import { cn, LoadingFallback, SELECTION_BAR_SCROLL_PADDING } from '@brainstrike/
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
+import { useExplorerCloseLifecycle } from './explorer-close-lifecycle';
 
 const logger = createLogger('FileExplorerPanel');
 
@@ -175,8 +176,9 @@ export interface FileExplorerPanelProps {
  */
 const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   const { rootActions, selectionActions } = props;
-  const { fileSystemAdapter, storageAdapter } = useAdapters();
+  const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
+  const closeLifecycle = useExplorerCloseLifecycle();
   // Persist + restore the explorer scroll position across sessions. Wired to the
   // outer scroll root; the hook resolves the active (single-root vs forest)
   // scroller and captures via a capture-phase listener.
@@ -234,11 +236,11 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   const handleMaxSelectionCountChange = useCallback(
     (count: number) => {
       setMaxSelectionCount(count);
-      void persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
+      void persistFileExplorerStateImmediately(store).catch((error: unknown) => {
         logger.error('Failed to persist max selection count immediately', { error });
       });
     },
-    [setMaxSelectionCount, store, storageAdapter]
+    [setMaxSelectionCount, store]
   );
 
   // Local state for UI
@@ -311,6 +313,9 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   // the expanded paths will already have been cleared by then. Also block stale
   // clearing while we are still checking IndexedDB for stored handles.
   useEffect(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     if (isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner) {
       setAccessLoading(true);
       return;
@@ -319,6 +324,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       setAccessLoading(false);
     }
   }, [
+    closeLifecycle,
     isCheckingStoredHandles,
     pendingRestore,
     showDeniedBanner,
@@ -736,6 +742,9 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   );
 
   useEffect(() => {
+    if (closeLifecycle?.isPreparing()) {
+      return;
+    }
     if (rootDirectoryHandle) {
       // Storage v5: resolve the durable RootId UUID via rootIdByPath. The
       // one-arg form would return handle.path and clobber the UUID identity
@@ -770,8 +779,12 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       //
       // isCheckingStoredHandles: true during the initial 500ms while useRestoreAccess
       // checks IndexedDB for stored handles. Don't clear during this time.
-      const isWaitingForRestore =
-        isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner;
+      const isWaitingForRestore = [
+        isCheckingStoredHandles,
+        pendingRestore,
+        showDeniedBanner,
+        showStaleBanner,
+      ].some(Boolean);
       const hasRecoverablePersistedFolder =
         currentFolderId !== null && Boolean(store.getState().folderStates[currentFolderId]);
       if (!(isWaitingForRestore || hasRecoverablePersistedFolder)) {
@@ -779,6 +792,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       }
     }
   }, [
+    closeLifecycle,
     rootDirectoryHandle,
     // rootIdByPath gets a new Map identity on each root registration; the
     // effect body is idempotent when the resolved id is stable, so the extra

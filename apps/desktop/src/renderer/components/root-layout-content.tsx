@@ -26,6 +26,10 @@ import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
+import {
+  hasRendererClosePreparationStarted,
+  registerRendererClosePreparation,
+} from '@brainstrike/app-state/renderer-close';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
@@ -67,6 +71,13 @@ import { WorktreeMapPageContent } from './worktree-map-page-content';
 const BROWSER_NAVIGATION_ITEM: NavigationItem = { icon: Globe, name: 'Browser', path: '/browser' };
 const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
 const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
+
+const explorerCloseLifecycle = {
+  isPreparing: hasRendererClosePreparationStarted,
+  registerPersistence: (prepare: () => Promise<void>, begin: () => void) =>
+    registerRendererClosePreparation(prepare, 'persistence', begin),
+  registerProducer: registerRendererClosePreparation,
+};
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
@@ -169,6 +180,7 @@ export default function RootLayoutContent() {
       }
       return callBoundary(() => bridge.fileSystem.deleteRootData(rootId));
     },
+    explorerCloseLifecycle,
     // Every desktop window has its own log buffer and Electron main's (BST-1791).
     logsPageContent: <LogsPageContent />,
     nativeIndexRetry: nativeSearch,

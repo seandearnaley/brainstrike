@@ -1,3 +1,4 @@
+import { useExplorerCloseProducer } from './shell/explorer-close-lifecycle';
 /**
  * Toolbar Preset Selector
  *
@@ -8,7 +9,6 @@
  * at the top level with stable dependencies.
  */
 
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
@@ -188,6 +188,7 @@ const ToolbarPresetSelectorInner = React.memo(
       }),
       [includeFilters, excludeFilters, useRegex]
     );
+    const { isPreparing, track } = useExplorerCloseProducer();
     const [optimisticPresetId, setOptimisticPresetId] = useState<string | null>(null);
 
     // The active preset is the exact preset whose filter triplet matches the live filter state.
@@ -226,7 +227,7 @@ const ToolbarPresetSelectorInner = React.memo(
       // Pre-rehydration the store holds DEFAULT filters — syncing (and
       // persisting) the preset id against them clobbers the user's stored
       // settings. Wait for hydration.
-      if (!isHydrated || loading || error || optimisticPresetId) {
+      if (isPreparing() || !isHydrated || loading || error || optimisticPresetId) {
         return;
       }
 
@@ -236,13 +237,15 @@ const ToolbarPresetSelectorInner = React.memo(
       }
 
       setViewFilterPresetId(selectedPresetId);
-      void persistNow().catch((error: unknown) => {
+      void track(persistNow()).catch((error: unknown) => {
         if (isDevEnv()) {
           logger.warn('Failed to persist preset sync', { error });
         }
       });
     }, [
       error,
+      isPreparing,
+      track,
       isHydrated,
       loading,
       optimisticPresetId,
@@ -255,6 +258,10 @@ const ToolbarPresetSelectorInner = React.memo(
     // Handle preset selection with persistence
     const handlePresetSelect = useCallback(
       async (preset: ViewFilterPreset) => {
+        if (isPreparing()) {
+          logger.debug('Preset selection retired with Explorer');
+          return;
+        }
         setOptimisticPresetId(preset.id);
         // Apply the filter payload before setting the preset id so the synchronization
         // effect never observes a new preset id against stale filter state.
@@ -276,7 +283,7 @@ const ToolbarPresetSelectorInner = React.memo(
         // Persist the store snapshot immediately (async, doesn't block UI) so
         // a quick app quit cannot lose the change to the debounce window.
         try {
-          await persistNow();
+          await track(persistNow());
         } catch (error) {
           if (isDevEnv()) {
             logger.warn('Failed to persist preset selection', { error });
@@ -284,6 +291,8 @@ const ToolbarPresetSelectorInner = React.memo(
         }
       },
       [
+        isPreparing,
+        track,
         setViewFilterPresetId,
         setFilters,
         setUseRegex,
@@ -326,7 +335,6 @@ ToolbarPresetSelectorInner.displayName = 'ToolbarPresetSelectorInner';
 const ToolbarPresetSelector = React.memo(
   ({ onFilterChange, className }: ToolbarPresetSelectorProps) => {
     const store = useFileExplorerStoreContext();
-    const { storageAdapter } = useAdapters();
     const isHydrated = useStoreHydrated(store);
 
     // Subscribe to each store field independently so preset label updates
@@ -348,8 +356,8 @@ const ToolbarPresetSelector = React.memo(
         logger.warn('Preset selection not persisted immediately: store has no persist API');
         return;
       }
-      await persistFileExplorerStateImmediately(store, storageAdapter);
-    }, [store, storageAdapter]);
+      await persistFileExplorerStateImmediately(store);
+    }, [store]);
 
     return (
       <ToolbarPresetSelectorInner
