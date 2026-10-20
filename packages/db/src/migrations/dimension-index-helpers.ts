@@ -98,22 +98,11 @@ interface DimensionCountRow {
   count: unknown;
 }
 
-interface DistinctDimensionRow {
-  dimensions: number;
-}
-
 function mapDimensionCountRow(value: unknown): DimensionCountRow {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Dimension index count row must be an object.');
   }
   return value as DimensionCountRow;
-}
-
-function mapDistinctDimensionRow(value: unknown): DistinctDimensionRow {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError('Dimension index row must be an object.');
-  }
-  return value as DistinctDimensionRow;
 }
 
 /**
@@ -405,21 +394,6 @@ export async function dropDimensionIndex(
 }
 
 /**
- * Get all distinct dimensions currently in use by embedding sets.
- *
- * @param db - PGlite database instance
- * @returns Array of distinct dimension values
- */
-export async function getDistinctDimensions(
-  db: Pick<DimensionIndexDb, 'query'>
-): Promise<number[]> {
-  const result = await db.query(
-    'SELECT DISTINCT dimensions FROM embedding_sets WHERE dimensions IS NOT NULL ORDER BY dimensions'
-  );
-  return result.rows.map((row) => mapDistinctDimensionRow(row).dimensions);
-}
-
-/**
  * Ensure an HNSW index exists for a given dimension.
  * This is idempotent - safe to call multiple times.
  *
@@ -684,6 +658,8 @@ export async function precreateEmptyDimensionIndex(
  * @param db - PGlite database instance
  * @param dimension - The embedding dimension to check
  * @returns true if index exists
+ * @internal Test inspector: dimension-hnsw-indexes.integration.test.ts asserts
+ * index creation and removal with it.
  */
 export async function dimensionIndexExists(
   db: Pick<DimensionIndexDb, 'query'>,
@@ -696,20 +672,4 @@ export async function dimensionIndexExists(
   );
   const value = result.rows[0];
   return Number(value === undefined ? 0 : (mapDimensionCountRow(value).count ?? 0)) > 0;
-}
-
-/**
- * Drop all dimension-based HNSW indexes.
- * Useful for cleanup during migration rollback.
- *
- * @param db - PGlite database instance
- * @param dimensions - Array of dimensions whose indexes to drop
- */
-export async function dropAllDimensionIndexes(
-  db: Pick<DimensionIndexDb, 'exec'>,
-  dimensions: number[]
-): Promise<void> {
-  for (const dim of dimensions) {
-    await dropDimensionIndex(db, dim);
-  }
 }

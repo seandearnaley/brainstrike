@@ -12,7 +12,6 @@ import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getMigrationStatus,
-  resetMigrations,
   runMigrations,
   splitMigrationStatements,
 } from '../src/drizzle/migrate.js';
@@ -616,32 +615,6 @@ describe('Drizzle Migration Runner', () => {
         expect(status.total).toBeGreaterThan(0);
         expect(status.applied).toBe(status.total);
         expect(status.pending).toHaveLength(0);
-      },
-      MIGRATION_RUN_TIMEOUT_MS
-    );
-  });
-
-  describe('resetMigrations', () => {
-    it(
-      'should drop all tables',
-      async () => {
-        // First run migrations
-        await runMigrations(db);
-
-        // Verify tables exist
-        let tables = await db.query<{ tablename: string }>(`
-        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
-      `);
-        expect(tables.rows.length).toBeGreaterThan(0);
-
-        // Reset
-        await resetMigrations(db);
-
-        // Verify tables are gone
-        tables = await db.query(`
-        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
-      `);
-        expect(tables.rows).toHaveLength(0);
       },
       MIGRATION_RUN_TIMEOUT_MS
     );

@@ -4,12 +4,8 @@ import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('useIndexedChunkCount');
+/** @internal Test seam: use-document-count.test.ts spies on its errors. */
 export const indexedChunkCountLogger = logger;
-
-/**
- * @deprecated Use useIndexedChunkCount instead for clearer terminology
- */
-export const documentCountLogger = logger;
 
 /**
  * Hook to get the count of indexed chunks (chunks with embeddings) in a collection.
