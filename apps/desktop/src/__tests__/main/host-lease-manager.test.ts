@@ -9,7 +9,7 @@ vi.mock('@brainstrike/host-lease', async (original) => ({
   launchHost: launch,
 }));
 // The fake utility's pid 123 names no real process: the start time its ready
-// identity reads is the one its host record carries (BST-2176).
+// record is checked against is the one that record carries (BST-2176).
 vi.mock('@brainstrike/state-store', async (original) => {
   const actual = await original<typeof import('@brainstrike/state-store')>();
   return {
@@ -36,6 +36,15 @@ class Child extends EventEmitter {
   }
 }
 const root = '/private/host-lease-test';
+/** What the fake utility's ready report carries: its own pid and start time. */
+const readyRecord = {
+  endpoint: '/private/socket',
+  hostVersion: '0.1.0',
+  pid: 123,
+  protocolVersion: 2,
+  start: 'child',
+  token: 'a'.repeat(64),
+};
 const start: HostStartOptions = { lifetime: 'app', parent: { pid: 42, start: 'parent' }, root };
 let attachment: HostAttachment;
 beforeEach(() => {
@@ -74,7 +83,7 @@ describe('desktop host lease ownership', () => {
       expect(fork).toHaveBeenCalledOnce();
       expect(child.posts).toEqual([{ event: 'lifetime' }]);
       expect(ready).toBe(false);
-      child.emit('message', { event: 'ready' });
+      child.emit('message', { event: 'ready', record: readyRecord });
       await acquisition;
     } finally {
       await owner.close();
@@ -89,7 +98,7 @@ describe('desktop host lease ownership', () => {
     const child = new Child();
     const owner = createDesktopHostLease({
       fork: () => {
-        queueMicrotask(() => child.emit('message', { event: 'ready' }));
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
       },
       root,
@@ -120,7 +129,7 @@ describe('desktop host lease ownership', () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const child = new Child();
     const fork = vi.fn(() => {
-      queueMicrotask(() => child.emit('message', { event: 'ready' }));
+      queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
       return child;
     });
     const owner = createDesktopHostLease({ entryPath: '/entry.js', fork, root });
@@ -191,7 +200,7 @@ describe('desktop host lease ownership', () => {
       const onLost = vi.fn();
       const owner = createDesktopHostLease({
         fork: () => {
-          queueMicrotask(() => child.emit('message', { event: 'ready' }));
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
           return child;
         },
         onLost,
@@ -213,7 +222,7 @@ describe('desktop host lease ownership', () => {
       attachment = { ...attachment, close: vi.fn(close) };
       const owner = createDesktopHostLease({
         fork: () => {
-          queueMicrotask(() => child.emit('message', { event: 'ready' }));
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
           return child;
         },
         onLost: vi.fn(),
@@ -251,7 +260,7 @@ describe('desktop host lease ownership', () => {
     };
     const owner = createDesktopHostLease({
       fork: () => {
-        queueMicrotask(() => asked.emit('message', { event: 'ready' }));
+        queueMicrotask(() => asked.emit('message', { event: 'ready', record: readyRecord }));
         return asked;
       },
       platformModule: '/fixture.js',
@@ -281,7 +290,7 @@ describe('desktop host lease ownership', () => {
       const onLost = vi.fn();
       const owner = createDesktopHostLease({
         fork: () => {
-          queueMicrotask(() => child.emit('message', { event: 'ready' }));
+          queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
           return child;
         },
         onLost,
@@ -318,7 +327,7 @@ describe('desktop host lease ownership', () => {
     const onAskedLost = vi.fn();
     const owner = createDesktopHostLease({
       fork: () => {
-        queueMicrotask(() => asked.emit('message', { event: 'ready' }));
+        queueMicrotask(() => asked.emit('message', { event: 'ready', record: readyRecord }));
         return asked;
       },
       onLost: onAskedLost,
@@ -349,7 +358,7 @@ describe('desktop host lease ownership', () => {
     const owner = createDesktopHostLease({
       closeTimeoutMs: 200,
       fork: () => {
-        queueMicrotask(() => child.emit('message', { event: 'ready' }));
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
       },
       root,
@@ -363,10 +372,10 @@ describe('desktop host lease ownership', () => {
   });
   it('keeps the platform port open while a timed-out host is still cleaning up, and closes it once that host exits', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
-    // Slow startup: the launcher's startup deadline fires before the host is ready.
+    // The launch's caller cancels the start before the host is ready.
     launch.mockImplementation(async (_root: string, options: HostLaunchOptions) => {
       const deadline = new AbortController();
-      setTimeout(() => deadline.abort(new Error('Host startup timed out')), 10);
+      setTimeout(() => deadline.abort(new Error('Host start cancelled')), 10);
       await options.spawn(start, deadline.signal);
       return attachment;
     });
@@ -399,7 +408,7 @@ describe('desktop host lease ownership', () => {
     const order: string[] = [];
     const owner = createDesktopHostLease({
       fork: () => {
-        queueMicrotask(() => child.emit('message', { event: 'ready' }));
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
       },
       lifetimeChannel: () => ({
@@ -430,7 +439,7 @@ describe('desktop host lease ownership', () => {
         queueMicrotask(() => {
           child.pid = 123;
           child.emit('spawn');
-          child.emit('message', { event: 'ready' });
+          child.emit('message', { event: 'ready', record: readyRecord });
         });
         return child;
       },
@@ -447,7 +456,7 @@ describe('desktop host lease ownership', () => {
     const owner = createDesktopHostLease({
       closeTimeoutMs: 20,
       fork: () => {
-        queueMicrotask(() => child.emit('message', { event: 'ready' }));
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
       },
       root,
@@ -563,7 +572,7 @@ describe('parent-only content clear', () => {
     child.exitOnClose = false;
     const owner = createDesktopHostLease({
       fork: () => {
-        queueMicrotask(() => child.emit('message', { event: 'ready' }));
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
       },
       platformModule: '/fixture.js',

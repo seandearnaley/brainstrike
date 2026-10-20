@@ -153,6 +153,7 @@ import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
 import { registerWorktreesIpcHandlers } from './ipc-worktrees';
+import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { registerLoggingIpcHandlers } from './logging-ipc';
 import {
   createDesktopGracefulShutdown,
@@ -183,7 +184,6 @@ import {
 } from './native-index-activation-error';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
-  createInitialWindowAfterNativeReader,
   createNativeStartupFailureReporter,
   observeNativeReaderStartup,
 } from './native-index-startup-window';
@@ -1358,9 +1358,11 @@ if (singleInstanceLockAcquired) {
           reportNativeIndexActivationError('Agent host profile unavailable', error)
         );
       void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
-      const nativeReaderStartup = observeNativeReaderStartup(
+      void observeNativeReaderStartup(
         nativeIndexActivation.acquireRead(),
         reportInitialNativeFailure
+      ).then((outcome) =>
+        logger.info('Initial native reader startup settled', { kind: outcome.kind })
       );
       logger.debug('Configured desktop renderer target', { rendererTarget });
 
@@ -1985,17 +1987,11 @@ if (singleInstanceLockAcquired) {
             'main-thread watchdog failed to start; continuing application startup'
           );
         },
-        () => {
+        async () => {
           logger.debug('Creating main window...');
-          return createInitialWindowAfterNativeReader(
-            nativeReaderStartup,
-            createMainWindow,
-            (outcome) =>
-              logger.info('Initial native reader startup settled before visible renderer load', {
-                kind: outcome.kind,
-              }),
-            isDesktopShuttingDown
-          );
+          // Owner decision 7.3(i): the first window waits for neither the host nor
+          // the index; the renderer shows both as state while they start.
+          return isDesktopShuttingDown() ? undefined : await createMainWindow();
         }
       );
       const mainWindow = await initialWindowCreation;
@@ -2193,6 +2189,7 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
       }
     },
+    lifecycleDelays: lifecycleDelaySeam(),
     // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
     // ADR-0017: the host reports its native processes; Main ends them if it dies.

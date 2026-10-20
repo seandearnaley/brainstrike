@@ -55,7 +55,12 @@ test('inactive persisted collection cleanup removes only its native rows without
     throw new Error('No current saved search configuration');
   });
   const installQueryTarget = vi.fn();
+  const profileRuntime = createDesktopProfileRuntime(() => ({
+    acquire: async () => {},
+    close: async () => {},
+  }));
   const runtime = createNativeIndexRuntime({
+    admitProfile: (signal) => profileRuntime.acquire(signal),
     closeQueries: async () => {},
     createIndexOwner: async (authority) => {
       const opening = openIndexer(
@@ -74,10 +79,7 @@ test('inactive persisted collection cleanup removes only its native rows without
     getAuthority,
     getFileInvalidator: () => undefined,
     installQueryTarget,
-    profile: createDesktopProfileRuntime(() => ({
-      acquire: async () => {},
-      close: async () => {},
-    })),
+    profile: profileRuntime,
   });
   try {
     await runtime.closeIndex();

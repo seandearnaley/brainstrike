@@ -1,4 +1,4 @@
-export { attachHost, type HostAttachment } from './client.js';
+export { attachHost, attachStartedHost, type HostAttachment } from './client.js';
 export {
   type HostLaunchOptions,
   type HostSpawner,

@@ -113,16 +113,18 @@ export function nativeRuntimeFixture() {
     queryTargetInstalled = true;
     events.push('reader-install');
   });
+  const profileRuntime = createDesktopProfileRuntime(() => ({
+    acquire: acquireProfile,
+    close: closeProfile,
+  }));
   const runtime = createNativeIndexRuntime({
+    admitProfile: (signal) => profileRuntime.acquire(signal),
     closeQueries,
     createIndexOwner,
     getAuthority,
     getFileInvalidator: () => () => {},
     installQueryTarget,
-    profile: createDesktopProfileRuntime(() => ({
-      acquire: acquireProfile,
-      close: closeProfile,
-    })),
+    profile: profileRuntime,
   });
   return {
     acquireProfile,

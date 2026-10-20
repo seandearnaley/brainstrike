@@ -6,6 +6,7 @@ import { app, dialog } from 'electron';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 import { initializeDesktopEnvironment } from './desktop-env';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
+import { installLifecycleDelaySeam } from './lifecycle-delay-seam';
 
 function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown()): void {
   const message = error instanceof Error ? error.message : String(error);
@@ -39,6 +40,8 @@ if (process.argv.includes('--version')) {
       isPackaged: app.isPackaged,
       userDataPath: app.getPath('userData'),
     });
+    // After the environment files load and before anything is spawned: no child inherits it.
+    installLifecycleDelaySeam();
     const runtime = getDesktopBootstrapRuntime();
     if (runtime.singleInstanceLockAcquired) {
       const earlyQuit = (event: Electron.Event): void => {

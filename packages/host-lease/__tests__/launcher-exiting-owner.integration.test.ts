@@ -93,7 +93,7 @@ const realHost =
     hosts.push(host);
     started.count += 1;
     return {
-      identity: { pid: host.record.pid, start: host.record.start },
+      record: host.record,
       release: async () => undefined,
       retire: () => host.close(),
     };
@@ -266,7 +266,6 @@ test('an attach never outlasts the launch deadline', async () => {
       offered.push(timeoutMs);
       return Promise.reject(new Error('Host token authentication failed'));
     },
-    attachTimeoutMs: 1500,
     lifetime: 'cli',
     spawn: noStart(() => undefined),
     startupTimeoutMs: 300,

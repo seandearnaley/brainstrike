@@ -32,6 +32,7 @@ it('forks before full Main evaluation and physically joins the utility if Main b
     'desktop-database-location',
     'desktop-env',
     'desktop-shutdown-state',
+    'lifecycle-delay-seam',
     'agent-host-entry',
   ]);
   try {

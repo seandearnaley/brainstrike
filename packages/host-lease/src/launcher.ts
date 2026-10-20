@@ -25,30 +25,57 @@ import { verifyWindowsPrivateDirectory } from './windows-acl.js';
  */
 export interface StartedHost {
   /**
-   * The started host's PID and OS start time, as its root lease names it. Its
-   * starter reads them when the host reports ready (BST-2176).
+   * The record the host's ready message carried (lifecycle R3): its endpoint
+   * and token, and the PID and OS start time its root lease names. The starter
+   * checked that PID and start time against the process it started.
    */
-  readonly identity: { readonly pid: number; readonly start: string };
+  readonly record: HostRecord;
   /** The launch attached: the host keeps the lifetime it was started with. */
   release(): Promise<void>;
   /** The launch gave up on it: cancel the host and join its exit. */
   retire(): Promise<void>;
 }
+/**
+ * Starts a host and resolves once it reports ready. Only a `failed` report,
+ * the host's exit or `signal` (the launch's caller cancelling) ends a start;
+ * the launch puts no deadline on it.
+ */
 export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<StartedHost>;
+/**
+ * R5(a), the R2 exception: attaching to an owner this launch did not start (a
+ * host a CLI started, or the winner of a start race) is bounded, because a
+ * live but unreachable owner that is not ours is refused (`LiveHostUnavailableError`),
+ * never waited on, killed or replaced.
+ */
+const OWNER_ATTACH_TIMEOUT_MS = 1500;
 export interface HostLaunchOptions {
-  /** The new host uses canonical JSON-RPC; old-path callers retain their handshake. */
+  /**
+   * Attaches to an owner this launch did not start, within `timeoutMs`. The
+   * new host uses canonical JSON-RPC; old-path callers retain their handshake.
+   */
   readonly attach?: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>;
   /**
-   * An attach's budget, 1.5 s by default. The host this launch started gets
-   * all of it once its starter reports ready (BST-2176); any other owner's
-   * attach is also clipped to what the startup deadline has left.
+   * Attaches to the host this launch started, from the record its ready
+   * message carried: no host.json read, no root lease or ACL re-check, no
+   * polling and no deadline. It fails only with that host (its transport
+   * closed, or it exited). The desktop supplies it. Without it (the Node CLI
+   * starter) that host is attached over its socket like an owner this launch
+   * did not start, under the same bound: an R2 exception this redesign kept.
    */
-  readonly attachTimeoutMs?: number;
+  readonly attachStarted?: (record: HostRecord) => Promise<HostAttachment>;
+  /**
+   * E2E `record-read` delay seam: awaited before each read of a published
+   * host record. Absent outside the desktop's test-mode seam.
+   */
+  readonly beforeRecordRead?: () => Promise<void>;
   readonly lifetime: HostLifetime;
+  /** Cancels a start in progress (quit during startup); never aborted by the launch itself. */
+  readonly signal?: AbortSignal;
   readonly spawn: HostSpawner;
   /**
-   * The acquisition deadline, 30 s by default: waiting for a starting or
-   * leaving owner, attaching to one, and starting a host until it is ready.
+   * R5(a), the R2 exception: how long, 30 s by default, the launch waits for
+   * an owner it did not start (one starting or leaving, or a race's winner)
+   * before refusing. It never bounds starting or attaching this launch's own host.
    */
   readonly startupTimeoutMs?: number;
 }
@@ -81,7 +108,9 @@ async function liveLease(root: string): Promise<LockOwner | null> {
   }
   if (process.platform === 'win32') {
     // BST-2237: read in this process from one directory handle. A PowerShell
-    // verify here cost each check a process start, and timed out at 5 s.
+    // verify here cost each check a process start, and timed out at 5 s. Only
+    // owners this launch did not start are discovered here; the host it starts
+    // is attached from its ready report.
     try {
       verifyWindowsPrivateDirectory(root);
     } catch (cause) {
@@ -121,11 +150,13 @@ async function pause(signal: AbortSignal): Promise<void> {
     signal.addEventListener('abort', abort, { once: true });
   });
 }
+type ReadRecord = (root: string) => Promise<HostRecord | null>;
 /** The owner's record once published, or null when that owner released or replaced its lease. */
 async function publishedRecord(
   root: string,
   lease: LockOwner,
-  timeoutMs: number
+  timeoutMs: number,
+  readRecord: ReadRecord
 ): Promise<HostRecord | null> {
   return runWithTimeout(
     async (signal) => {
@@ -135,7 +166,7 @@ async function publishedRecord(
         if (!current || current.token !== lease.token) {
           return null;
         }
-        const record = await readHostRecord(root);
+        const record = await readRecord(root);
         if (record && matches(record, current)) {
           return record;
         }
@@ -237,9 +268,13 @@ async function attachOrAwaitExit(
   }
 }
 
-async function existingRecord(root: string, lease: LockOwner | null): Promise<HostRecord | null> {
+async function existingRecord(
+  root: string,
+  lease: LockOwner | null,
+  readRecord: ReadRecord
+): Promise<HostRecord | null> {
   try {
-    return await readHostRecord(root);
+    return await readRecord(root);
   } catch (cause) {
     if (lease) {
       throw new LiveHostUnavailableError(lease.pid, cause);
@@ -252,11 +287,15 @@ async function existingRecord(root: string, lease: LockOwner | null): Promise<Ho
  * A starting or exiting owner is waited for: attach once it publishes, or start
  * a host after it releases. One deadline bounds the whole wait.
  */
-async function liveOwnerRecord(root: string, timeoutMs: number): Promise<HostRecord | null> {
+async function liveOwnerRecord(
+  root: string,
+  timeoutMs: number,
+  readRecord: ReadRecord
+): Promise<HostRecord | null> {
   const waitUntil = Date.now() + timeoutMs;
   for (;;) {
     const lease = await liveLease(root);
-    const existing = await existingRecord(root, lease);
+    const existing = await existingRecord(root, lease, readRecord);
     const live = existing !== null && isLive(existing);
     if (live && !lease) {
       throw new LiveHostUnavailableError(
@@ -274,7 +313,7 @@ async function liveOwnerRecord(root: string, timeoutMs: number): Promise<HostRec
     if (remaining <= 0) {
       throw new LiveHostUnavailableError(lease.pid, new Error('Host record publication timed out'));
     }
-    const record = await publishedRecord(root, lease, remaining);
+    const record = await publishedRecord(root, lease, remaining, readRecord);
     if (record) {
       return record;
     }
@@ -291,13 +330,16 @@ function startOptionsFor(root: string, lifetime: HostLifetime): HostStartOptions
   return { lifetime, parent: { pid: process.pid, start }, root };
 }
 
-/** One launch: its root, options and the deadline its acquisition shares. */
+/** One launch: its root, options and the deadline its waits for other owners share. */
 interface Launch {
   readonly attachClient: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>;
-  readonly attachTimeoutMs: number;
+  /** Attaches the host this launch started, from its ready record. */
+  readonly attachStarted: (record: HostRecord) => Promise<Step>;
   readonly deadline: number;
   readonly options: HostLaunchOptions;
+  readonly readRecord: ReadRecord;
   readonly root: string;
+  readonly signal: AbortSignal;
 }
 /** An attachment, or AGAIN: the owner left, so acquisition starts over. */
 const AGAIN = Symbol('acquire again');
@@ -312,7 +354,7 @@ async function attachOwner(launch: Launch, record: HostRecord, deadline: number)
       launch.root,
       record,
       deadline,
-      launch.attachTimeoutMs,
+      OWNER_ATTACH_TIMEOUT_MS,
       launch.attachClient
     )) ?? AGAIN
   );
@@ -331,8 +373,27 @@ async function attachWinner(launch: Launch, cause: unknown): Promise<Step> {
   if (!winner) {
     return AGAIN;
   }
-  const record = await publishedRecord(launch.root, winner, remaining(launch.deadline));
+  const record = await publishedRecord(
+    launch.root,
+    winner,
+    remaining(launch.deadline),
+    launch.readRecord
+  );
   return record ? attachOwner(launch, record, launch.deadline) : AGAIN;
+}
+/**
+ * The Node CLI starter's host, which has no private channel to its launcher:
+ * attached over its socket from its ready record, like any owner and under
+ * the owner attach bound. An idle CLI host can leave, and another owner take
+ * the root, before the attach; a host no longer holding the root sends the
+ * launch back to the start.
+ */
+async function attachStartedOwner(launch: Launch, record: HostRecord): Promise<Step> {
+  const lease = await liveLease(launch.root);
+  if (!(lease && matches(record, lease))) {
+    return AGAIN;
+  }
+  return attachOwner(launch, record, Date.now() + OWNER_ATTACH_TIMEOUT_MS);
 }
 /** Retire a host the launch gave up on; a failed retirement joins the launch's own failure. */
 async function retireAfter(started: StartedHost, cause: unknown): Promise<never> {
@@ -348,71 +409,30 @@ async function retireAfter(started: StartedHost, cause: unknown): Promise<never>
   throw cause;
 }
 /**
- * Start a host under the launch's one deadline. At the deadline the starter's
- * signal aborts and the launch waits for that starter to settle, so its
- * cancellation, and the exit of any child it started, is joined before the
- * launch rejects. A host reported started after the deadline is retired.
- */
-async function startWithin(launch: Launch, options: HostStartOptions): Promise<StartedHost> {
-  const deadline = new AbortController();
-  const timer = setTimeout(
-    () => deadline.abort(new Error('Host startup timed out')),
-    remaining(launch.deadline)
-  );
-  let started: StartedHost;
-  try {
-    started = await launch.options.spawn(options, deadline.signal);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (deadline.signal.aborted) {
-    return retireAfter(started, deadline.signal.reason);
-  }
-  return started;
-}
-/**
- * BST-2176: attach to the host this launch started under `deadline`, its own
- * attach budget, never what the startup deadline has left. The record read,
- * the handshake and any wait for that host to leave all share it. Only the
- * host its starter named gets that budget: an owner that replaced it is
- * attached as any other, under the launch's deadline, once the launch has
- * retired the host it started.
- */
-async function attachStarted(
-  launch: Launch,
-  started: StartedHost,
-  deadline: number
-): Promise<Step> {
-  const acquired = await liveLease(launch.root);
-  if (!acquired) {
-    throw new Error('Host starter returned without a live root lease');
-  }
-  if (!matches(started.identity, acquired)) {
-    return AGAIN;
-  }
-  // The host this launch started may itself be leaving by now (an idle CLI
-  // host with no client yet): the same exit-aware attach as any other owner,
-  // and one that released before publishing sends the launch back to the start.
-  const record = await publishedRecord(launch.root, acquired, remaining(deadline));
-  return record ? attachOwner(launch, record, deadline) : AGAIN;
-}
-/**
  * BST-2167: the launch owns the host it started until it settles it. An
- * attachment releases that host to its lifetime; giving up, or a host that
- * left on its own, retires it, so no started host outlives a failed launch.
+ * attachment releases that host to its lifetime; a failed attach, or a host
+ * that left on its own, retires it, so no started host outlives a failed launch.
+ *
+ * Lifecycle R2/R3: the start ends only with the host's ready report, its
+ * `failed` report, its exit or the caller's signal, and the host is attached
+ * from the record its ready report carried. Nothing here rediscovers that host
+ * through host.json or its root lease, and no clock retires it.
  */
 async function startAndAttach(launch: Launch): Promise<Step> {
   const startOptions = startOptionsFor(launch.root, launch.options.lifetime);
   let started: StartedHost;
   try {
-    started = await startWithin(launch, startOptions);
+    started = await launch.options.spawn(startOptions, launch.signal);
   } catch (cause) {
     return attachWinner(launch, cause);
   }
-  const attachDeadline = Date.now() + launch.attachTimeoutMs;
+  if (launch.signal.aborted) {
+    // Its caller cancelled, but the starter reported a host anyway: never abandon it.
+    return retireAfter(started, launch.signal.reason);
+  }
   let step: Step;
   try {
-    step = await attachStarted(launch, started, attachDeadline);
+    step = await launch.attachStarted(started.record);
   } catch (cause) {
     return retireAfter(started, cause);
   }
@@ -438,28 +458,28 @@ export async function launchHost(
   }
   assertNotSyncedRoot(root);
   const startupTimeoutMs = options.startupTimeoutMs ?? 30_000;
-  const attachTimeoutMs = options.attachTimeoutMs ?? 1500;
-  if (![startupTimeoutMs, attachTimeoutMs].every((value) => Number.isFinite(value) && value > 0)) {
+  if (!(Number.isFinite(startupTimeoutMs) && startupTimeoutMs > 0)) {
     throw new RangeError('Host launch deadlines must be positive finite milliseconds');
   }
-  // BST-2142: one deadline bounds acquisition. An owner that leaves while it
-  // is waited for, attached to or raced against sends the launcher back to the
-  // start, never to an error naming an owner that is gone. BST-2176: the host
-  // this launch started then attaches under its own attachTimeoutMs, so a
-  // self-started launch settles within startupTimeoutMs + attachTimeoutMs,
-  // plus joining the exit of a host it retires.
+  // BST-2142: one deadline, measured from the launch's start, bounds waiting
+  // for owners this launch did not start. An owner that leaves while it is
+  // waited for, attached to or raced against sends the launcher back to the
+  // start, never to an error naming an owner that is gone. The host this
+  // launch starts is never bounded by it.
   const launch: Launch = {
     attachClient: options.attach ?? attachHost,
-    attachTimeoutMs,
+    attachStarted: options.attachStarted ?? ((record) => attachStartedOwner(launch, record)),
     deadline: Date.now() + startupTimeoutMs,
     options,
+    readRecord: (path) => readHostRecord(path, options.beforeRecordRead),
     root,
+    signal: options.signal ?? new AbortController().signal,
   };
   for (;;) {
     if (Date.now() >= launch.deadline) {
       throw new Error('Host startup timed out');
     }
-    const owned = await liveOwnerRecord(root, remaining(launch.deadline));
+    const owned = await liveOwnerRecord(root, remaining(launch.deadline), launch.readRecord);
     const step = owned
       ? await attachOwner(launch, owned, launch.deadline)
       : await startAndAttach(launch);
