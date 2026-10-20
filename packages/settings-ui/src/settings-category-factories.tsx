@@ -13,6 +13,7 @@ import {
   Sigma,
   Webhook,
 } from 'lucide-react';
+import type { TestMemoryEmbedder } from './settings/models/assistant-memory-embedder-test';
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
@@ -196,12 +197,15 @@ export interface CreateAssistantMemorySettingsCategoryOptions {
   /** The host's embedding host runs local embedders on a device the user may choose. */
   readonly onDeviceEmbedding?: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+  /** The host's test of the selected hosted embedder (BST-2227). */
+  readonly testEmbedder?: TestMemoryEmbedder;
 }
 
 export function createAssistantMemorySettingsCategory({
   assistantMemoryBackendAvailable,
   onDeviceEmbedding = false,
   providerKeySources,
+  testEmbedder,
 }: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
   return {
     content: (
@@ -209,6 +213,7 @@ export function createAssistantMemorySettingsCategory({
         assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
         onDeviceEmbedding={onDeviceEmbedding}
         {...(providerKeySources ? { providerKeySources } : {})}
+        {...(testEmbedder ? { testEmbedder } : {})}
       />
     ),
     description: 'Configure the assistant’s observational memory and semantic recall.',

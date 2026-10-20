@@ -48,6 +48,29 @@ const OWNER_NAMED = [
   'web-e2e.yml',
 ];
 const NIGHTLY = 'nightly.yml';
+// BST-2235: the fix agents' own run, started when a Nightly run completes.
+const FOLLOW_UP = 'nightly-fix.yml';
+
+/**
+ * The fix agents run after the night, in their own run, and no required
+ * workflow runs after another: a fix agent's failure never blocks a release.
+ */
+function assertFollowUpNeverJudged(required, read) {
+  const followUp = read(FOLLOW_UP);
+  assert.ok(followUp !== undefined, `.github/workflows/${FOLLOW_UP} must exist`);
+  assert.deepEqual(
+    parseYaml(followUp).on?.workflow_run?.workflows,
+    [parseYaml(read(NIGHTLY)).name],
+    `${FOLLOW_UP} runs after ${NIGHTLY}`
+  );
+  for (const file of required) {
+    assert.equal(
+      parseYaml(read(file)).on?.workflow_run,
+      undefined,
+      `${file} is required for a release, but it runs after another workflow: a fix agent's failure would block the release`
+    );
+  }
+}
 
 function assertRequiredWorkflowsAreScheduled(required, read) {
   assert.ok(required.length > 0, 'the required nightly set must name at least one workflow');
@@ -94,6 +117,17 @@ test('CONTROL: the six judged one by one, or a caller missing one, fails the con
   assert.throws(
     () => assertRequiredNightlyCallsTheSix([NIGHTLY], () => short),
     /must call each owner-named workflow/u
+  );
+});
+
+test('the fix agents’ follow-up runs after the night and is never judged', () => {
+  assertFollowUpNeverJudged(REQUIRED_NIGHTLY_WORKFLOWS, readWorkflow);
+});
+
+test('CONTROL: the follow-up in the required set fails the contract', () => {
+  assert.throws(
+    () => assertFollowUpNeverJudged([NIGHTLY, FOLLOW_UP], readWorkflow),
+    /nightly-fix\.yml is required for a release, but it runs after another workflow/u
   );
 });
 
@@ -185,6 +219,20 @@ test('the six workflows’ own runs never make a SHA green: only the nightly run
   const verdict = judgeSha(SHA.newest, { ...ownRuns, [NIGHTLY]: [] });
   assert.equal(verdict.green, false);
   assert.equal(stateOf(verdict, NIGHTLY), 'missing');
+});
+
+test('a red fix-agent follow-up on a green night’s SHA leaves it releasable', () => {
+  const followUp = [run(SHA.newest, { conclusion: 'failure', event: 'workflow_run' })];
+  const verdict = judgeSha(SHA.newest, {
+    ...night(SHA.newest, NIGHT.third),
+    [FOLLOW_UP]: followUp,
+  });
+  assert.equal(verdict.green, true);
+  assert.deepEqual(
+    verdict.workflows.map((entry) => [entry.workflow, entry.state]),
+    [[NIGHTLY, 'success']],
+    'the verdict judges the nightly run alone'
+  );
 });
 
 test('only scheduled runs on that exact SHA count', () => {
@@ -383,6 +431,34 @@ test('a given green SHA resolves, reading every page of its runs', async () => {
     ['1', '2'],
     "three runs per workflow at two per page needs the Link header's second page"
   );
+});
+
+test('a red fix-agent follow-up never stops the resolver releasing a green night', async () => {
+  const failedFix = (sha) => run(sha, { conclusion: 'failure', event: 'workflow_run' });
+  const runs = {
+    ...nights(night(SHA.middle, NIGHT.second), night(SHA.newest, NIGHT.third)),
+    [FOLLOW_UP]: [failedFix(SHA.middle), failedFix(SHA.newest)],
+  };
+  const given = await runResolver(['--given', SHA.newest], {
+    commits: { [SHA.newest]: SHA.newest },
+    runs,
+  });
+  assert.equal(given.status, 0, given.stderr);
+  assert.equal(given.stdout, `sha=${SHA.newest}\n`);
+  const newest = await runResolver(['--newest-green', '--lookback-days', '14'], { runs });
+  assert.equal(newest.status, 0, newest.stderr);
+  assert.equal(newest.stdout, `sha=${SHA.newest}\n`);
+  for (const result of [given, newest]) {
+    assert.deepEqual(
+      [
+        ...new Set(
+          result.requests.filter((url) => url.pathname.endsWith('/runs')).map((u) => u.pathname)
+        ),
+      ],
+      ['/repos/o/r/actions/workflows/nightly.yml/runs'],
+      'the resolver never reads the follow-up’s runs'
+    );
+  }
 });
 
 test('a pushed tag is judged as the given commit it points to', async () => {

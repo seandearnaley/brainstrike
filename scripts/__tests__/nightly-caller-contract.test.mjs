@@ -25,7 +25,12 @@ import { resultsArtifactPattern } from '../lib/nightly-test-results.mjs';
  * - limits: at most ten levels and 50 unique reusable workflows;
  * - artifacts: one run is one artifact namespace, so no two workflows'
  *   artifacts may collide and no download may reach another workflow's;
- * - the verdict: the run fails unless every call succeeded.
+ * - the verdict: the run fails unless every call succeeded;
+ * - only tests: no workflow of the night runs a fix agent. BST-2235 (owner
+ *   decision 2026-10-19): the agents run after the night in nightly-fix.yml,
+ *   which GitHub starts as its own run (`on: workflow_run`), so an agent's
+ *   failure never changes this run's conclusion, which a release resolves a
+ *   commit by.
  *
  * Each check is a function over source text, so the CONTROL tests can mutate
  * the real files and watch the check fail.
@@ -292,6 +297,37 @@ function assertResultsStayHome(sources) {
   }
 }
 
+/** What in a workflow runs a fix agent: a call, the action, or its credential. */
+function fixAgentsIn(source) {
+  const { jobs = {}, on } = parseYaml(source);
+  const found = [];
+  for (const [id, job] of Object.entries(jobs)) {
+    if (String(job.uses ?? '').endsWith('/nightly-fix-agent.yml')) {
+      found.push(`${id} calls nightly-fix-agent.yml`);
+    }
+    for (const step of job.steps ?? []) {
+      if (String(step.uses ?? '').startsWith('anthropics/claude-code-action@')) {
+        found.push(`${id} runs claude-code-action`);
+      }
+    }
+  }
+  if (JSON.stringify({ jobs, secrets: on?.workflow_call?.secrets }).includes('CLAUDE_CODE_OAUTH')) {
+    found.push('it takes CLAUDE_CODE_OAUTH_TOKEN');
+  }
+  return found;
+}
+
+/** Nothing in the night's call tree runs a fix agent, so only tests decide its verdict. */
+function assertNightRunsOnlyTests(sources) {
+  for (const file of [NIGHTLY, ...callTree(NIGHTLY, sources).files]) {
+    assert.deepEqual(
+      fixAgentsIn(sources.get(file)),
+      [],
+      `${file} runs a fix agent inside the night, so the agent's failure would fail the run a release resolves; nightly-fix.yml runs the agents after the night`
+    );
+  }
+}
+
 function judgeStep(source) {
   const step = parseYaml(source).jobs[VERDICT]?.steps?.find(({ name }) => name === JUDGE_STEP);
   assert.ok(step, `${NIGHTLY} › ${VERDICT} must have a "${JUDGE_STEP}" step`);
@@ -367,6 +403,10 @@ test('each workflow’s Notify Linear reads its own test results, never a siblin
   assertResultsStayHome(allWorkflows());
 });
 
+test('no workflow of the night runs a fix agent, so only tests decide its verdict', () => {
+  assertNightRunsOnlyTests(allWorkflows());
+});
+
 test('the verdict waits for every call and judges each result', () => {
   assertVerdict(readWorkflow(NIGHTLY));
 });
@@ -429,12 +469,8 @@ test('CONTROL: an inherited, missing or undeclared secret fails the secrets chec
 
 test('CONTROL: a call granting less than its tree asks for fails the permissions check', () => {
   const source = readWorkflow(NIGHTLY);
-  const narrowed = mutate(
-    source,
-    /(\n {2}desktop-e2e:\n[\s\S]*?) {6}contents: write\n/u,
-    '$1      contents: read\n'
-  );
-  assert.throws(() => assertPermissions(narrowed, allWorkflows()), /desktop-e2e must grant/u);
+  const narrowed = mutate(source, /(\n {2}test:\n[\s\S]*?) {6}pull-requests: read\n/u, '$1');
+  assert.throws(() => assertPermissions(narrowed, allWorkflows()), /test must grant/u);
   const widened = mutate(source, 'permissions: {}', 'permissions:\n  contents: read');
   assert.throws(() => assertPermissions(widened, allWorkflows()), /grants nothing by default/u);
 });
@@ -509,6 +545,39 @@ test('CONTROL: a sibling’s results job, or a renamed results artifact, fails t
   assert.throws(
     () => assertResultsStayHome(withFile('web-e2e.yml', renamed)),
     /web-e2e\.yml's Notify Linear .* misses/u
+  );
+});
+
+// BST-2189's inline fix job, as desktop-e2e.yml ran it before BST-2235.
+const INLINE_FIX_JOB = `
+  fix-nightly:
+    name: Fix nightly test
+    needs: [notify-linear]
+    if: ${actions(`${FORK_GUARD} && needs.notify-linear.outputs.fix_issues != '[]'`)}
+    strategy:
+      fail-fast: false
+      matrix:
+        issue: ${actions('fromJSON(needs.notify-linear.outputs.fix_issues)')}
+    uses: ./.github/workflows/nightly-fix-agent.yml
+    with:
+      issue: ${actions('matrix.issue')}
+      runs_on: ubuntu-latest
+`;
+
+test('CONTROL: a fix agent back inside a workflow of the night fails the only-tests check', () => {
+  const inline = `${readWorkflow('desktop-e2e.yml')}${INLINE_FIX_JOB}`;
+  assert.throws(
+    () => assertNightRunsOnlyTests(withFile('desktop-e2e.yml', inline)),
+    /desktop-e2e\.yml runs a fix agent inside the night/u
+  );
+  const action = mutate(
+    readWorkflow('web-e2e.yml'),
+    /(\n {4}steps:\n)/u,
+    '$1      - uses: anthropics/claude-code-action@v1\n'
+  );
+  assert.throws(
+    () => assertNightRunsOnlyTests(withFile('web-e2e.yml', action)),
+    /web-e2e\.yml runs a fix agent inside the night/u
   );
 });
 

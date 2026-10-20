@@ -14,7 +14,10 @@ crosses the wire as `host-lease.host-closing`, and a lost handshake connection a
 `host-lease.connection-closed` (BST-2158). Changing a frame's shape bumps
 `PROTOCOL_VERSION`.
 
-Keep discovery and credential records private with owner-only permissions. Validate
+Keep discovery and credential records private with owner-only permissions. On
+Windows, host start sets and every lease check verifies the data root's private
+owner and DACL natively (`secure-fs-native`), on one directory handle; neither
+starts a process, and a failed check fails the launch (BST-2237). Validate
 record shape, path, generation and process identity before attachment. Public
 clients receive the authenticated host protocol, not desktop-private platform
 credentials or capabilities. Authentication failure does not start another owner.

@@ -4,8 +4,10 @@ const bindings = require('bindings');
 
 const {
   SecureRoot: NativeSecureRoot,
+  applyPrivateDirectorySync,
   tryExclusiveFlock,
   replaceFileSync,
+  verifyPrivateDirectorySync,
 } = bindings({
   bindings: 'secure_fs_native',
   ['module_root']: __dirname,
@@ -60,3 +62,6 @@ exports.SecureRoot = SecureRoot;
 exports.tryExclusiveFlock = tryExclusiveFlock;
 
 exports.replaceFileSync = replaceFileSync;
+
+exports.applyPrivateDirectorySync = applyPrivateDirectorySync;
+exports.verifyPrivateDirectorySync = verifyPrivateDirectorySync;

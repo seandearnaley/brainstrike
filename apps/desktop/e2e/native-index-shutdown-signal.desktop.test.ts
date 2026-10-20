@@ -33,7 +33,6 @@ const ROOT_ID = 'native-shutdown-signal-root';
 let rootDir = '';
 
 interface LogRecord {
-  readonly error?: { readonly message?: string };
   readonly level?: number;
   readonly msg?: string;
   readonly reason?: string;
@@ -110,23 +109,17 @@ function signal(mainPid: number, target: SignalTarget): void {
 }
 
 /**
- * A helper the group signal killed, as an owner outside the shutdown steps this spec covers
- * logs it at error: a killed renderer, or a renderer read that met the exited SQLite query
- * process. Those classifications are tracked apart from BST-2135; every other level-50
- * record fails the spec.
+ * A renderer the group signal killed, as its owner outside the shutdown steps this spec covers
+ * logs it at error. That classification is tracked apart from BST-2135; every other level-50
+ * record fails the spec. A renderer read that meets the exited SQLite query process is logged
+ * at info while quitting (BST-2192), so it never reaches this filter.
  */
 function isSignalKilledHelper(record: LogRecord): boolean {
-  if (record.reason === 'killed') {
-    return (
-      (record.scope === 'CreateWindow' && record.msg === 'Renderer process gone') ||
-      (record.scope === 'EmbeddingHostManager' &&
-        record.msg === 'embedding-host renderer exited (killed, code 15)')
-    );
-  }
   return (
-    record.scope === 'DesktopIpcRegistry' &&
-    record.msg === 'Untyped failure crossed a process boundary' &&
-    record.error?.message === 'SQLite query process exited.'
+    record.reason === 'killed' &&
+    ((record.scope === 'CreateWindow' && record.msg === 'Renderer process gone') ||
+      (record.scope === 'EmbeddingHostManager' &&
+        record.msg === 'embedding-host renderer exited (killed, code 15)'))
   );
 }
 
