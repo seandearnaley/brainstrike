@@ -12,9 +12,9 @@ vi.mock('@brainstrike/embeddings/backend', () => ({
 
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatRelativeTimeFromNow } from '../embedding-set-management/format-utils';
 import {
   buildBaseLabel,
-  formatRelativeTimeFromNow,
   getBackfillAriaLabel,
   getBackfillButtonText,
   getBackfillTooltip,

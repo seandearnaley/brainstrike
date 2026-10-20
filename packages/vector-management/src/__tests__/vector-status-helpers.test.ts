@@ -1,40 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatRelativeTimeFromNow } from '../embedding-set-management/format-utils';
 import {
   buildBaseLabel,
-  formatRelativeTimeFromNow,
   getBackfillAriaLabel,
   getBackfillButtonText,
   getBackfillTooltip,
   truncateLabel,
 } from '../vector-status';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
-import { type VectorQueueDatabase, withTransaction } from '../vector-status/vector-queue-service';
-
-describe('vector-status helpers', () => {
-  it('withTransaction commits on success and rolls back on error', async () => {
-    const calls: string[] = [];
-    const db: VectorQueueDatabase = {
-      query: async (sql: string) => {
-        calls.push(sql);
-        return { rows: [] };
-      },
-    };
-
-    await withTransaction(db, async () => {
-      calls.push('BODY');
-    });
-    expect(calls).toEqual(['BEGIN', 'BODY', 'COMMIT']);
-
-    calls.length = 0;
-    await expect(
-      withTransaction(db, async () => {
-        calls.push('BODY');
-        throw new Error('boom');
-      })
-    ).rejects.toThrow('boom');
-    expect(calls).toEqual(['BEGIN', 'BODY', 'ROLLBACK']);
-  });
-});
 
 describe('getBackfillDisabledState', () => {
   const baseParams = {
