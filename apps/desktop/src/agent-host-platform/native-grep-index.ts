@@ -17,6 +17,19 @@ function hasNoConfiguredIndex(
   );
 }
 
+/**
+ * The requested folders the index authorizes. A folder it leaves out (a
+ * worktree not opted in) has no indexed candidates; the live pass reads it
+ * like any fresh file, where asking Main for it would fail the whole grep.
+ */
+function indexedRootIds(
+  { rootId, rootIds }: Pick<Parameters<GrepIndexSearch>[0], 'rootId' | 'rootIds'>,
+  authorized: readonly string[]
+): readonly string[] {
+  const requested = rootId === undefined ? (rootIds ?? authorized) : [rootId];
+  return requested.filter((id) => authorized.includes(id));
+}
+
 export function nativeGrepIndex(
   index: Pick<IndexSearchCapability, 'grep' | 'status'>
 ): GrepIndexSearch {
@@ -44,10 +57,10 @@ export function nativeGrepIndex(
             'The requested grep collection is not the current authorized collection.'
           );
         }
-        const rootIds =
-          options.rootId === undefined
-            ? (options.rootIds ?? status.authorizedRootIds)
-            : [options.rootId];
+        const rootIds = indexedRootIds(options, status.authorizedRootIds);
+        if (rootIds.length === 0) {
+          return [];
+        }
         const found = await index.grep({
           caseSensitive: options.caseSensitive ?? false,
           ...(selection.filePaths === undefined ? {} : { filePaths: selection.filePaths }),

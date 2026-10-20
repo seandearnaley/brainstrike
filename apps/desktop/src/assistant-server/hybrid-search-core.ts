@@ -157,6 +157,7 @@ export async function runHybridSearchWith(
       rootId: root?.rootId,
       signal,
       threshold: input.vectorThreshold ?? DEFAULT_VECTOR_THRESHOLD,
+      workspaceRoots: runtimeData?.workspaceRoots,
     });
     const fileMap = await store.fileRecords(native.hits.map(({ hit }) => hit.fileId));
     assertAdmittedRetrievalFileRoots(
