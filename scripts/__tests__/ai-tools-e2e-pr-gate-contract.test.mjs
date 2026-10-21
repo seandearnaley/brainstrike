@@ -16,7 +16,7 @@ const WEB_SMOKE_COMMAND = [
   '--project=functional',
   '--grep "@web-smoke"',
   '--workers=2',
-  '--max-failures=1',
+  '--max-failures=0',
   '--global-timeout=600000',
 ].join(' ');
 // The global timeout is a failure ceiling, not a latency target (BST-1713).
@@ -69,7 +69,7 @@ function desktopSmokeLaneCommand(specs) {
     '--project=smoke',
     '--workers=1',
     '--retries=0',
-    '--max-failures=1',
+    '--max-failures=0',
     '--global-timeout=900000',
     '--grep="@smoke"',
   ].join(' ');
@@ -91,7 +91,7 @@ const DESKTOP_TOOLS_NIGHTLY_COMMAND = [
   '--project=smoke',
   '--workers=1',
   '--retries=0',
-  '--max-failures=1',
+  '--max-failures=0',
   '--global-timeout=120000',
   '--grep="@smoke"',
 ].join(' ');
