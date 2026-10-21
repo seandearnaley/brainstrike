@@ -81,7 +81,11 @@ import {
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
-import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
+import {
+  isDesktopShuttingDown,
+  isExpectedShutdownRefusal,
+  markDesktopShuttingDown,
+} from './desktop-shutdown-state';
 import {
   createErrorLogSink,
   ERROR_LOG_FILE_NAME,
@@ -566,9 +570,17 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
               chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
           ),
         ]);
-        const failures = [...preparations, ...closes].flatMap((result) =>
+        const rejections = [...preparations, ...closes].flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
         );
+        // A renderer that a signal to Main's process group ended is retired, not failed (BST-2285).
+        const retired = rejections.filter(isExpectedShutdownRefusal);
+        if (retired.length > 0) {
+          logger.info('Renderers ended before acknowledging their producers; retired', {
+            errors: retired,
+          });
+        }
+        const failures = rejections.filter((error) => !isExpectedShutdownRefusal(error));
         if (failures.length > 0) {
           throw new AggregateError(failures, 'Desktop renderer producers failed to close');
         }

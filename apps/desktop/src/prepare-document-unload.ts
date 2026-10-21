@@ -1,5 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { MessageChannelMain, type MessagePortMain } from 'electron';
+import { RendererExitedError } from './desktop-shutdown-state';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 
@@ -94,21 +95,25 @@ export function prepareDocumentUnload(
     };
     // After its ACK the renderer may close its end: the outcome is already decided.
     let acknowledged = false;
+    // A closed channel or window, an exited process or an undeliverable request is the
+    // renderer's end (R2), typed so quit can retire it (BST-2285); a live refusal or hang is not.
     const closed = (): void =>
       finish(
         retiring ??
           (acknowledged
             ? undefined
-            : new Error('Renderer closed before acknowledging its producers'))
+            : new RendererExitedError('Renderer closed before acknowledging its producers'))
       );
     const portClosed = (): void => {
       if (!(retiring || acknowledged)) {
-        finish(new Error('Renderer closed before acknowledging its producers'));
+        finish(new RendererExitedError('Renderer closed before acknowledging its producers'));
       }
     };
     // Other crash and hang listeners still read the window during this event's dispatch.
     const crashed = (): void => {
-      setImmediate(() => retire(new Error('Renderer exited before acknowledging its producers')));
+      setImmediate(() =>
+        retire(new RendererExitedError('Renderer exited before acknowledging its producers'))
+      );
     };
     const unresponsive = (): void => {
       setImmediate(() =>
@@ -142,7 +147,9 @@ export function prepareDocumentUnload(
       contents.mainFrame.postMessage(DESKTOP_IPC_CHANNELS.agent.prepareClose, null, [port2]);
       transferred = true;
     } catch (cause) {
-      finish(new Error('Renderer close preparation could not be delivered', { cause }));
+      finish(
+        new RendererExitedError('Renderer close preparation could not be delivered', { cause })
+      );
     }
   });
 }
