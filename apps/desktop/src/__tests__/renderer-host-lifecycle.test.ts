@@ -813,6 +813,65 @@ describe('RendererHostLifecycle', () => {
     expect(restartedStatus.runtimeId).not.toBe('embedding-host:old-runtime');
   });
 
+  it('keeps owning a window whose destroy() throws, so a retry destroys it and the host starts again', async () => {
+    const failedWindow = createFakeWindow(65);
+    const nextWindow = createFakeWindow(66);
+    failedWindow.loadURL.mockResolvedValue(undefined);
+    nextWindow.loadURL.mockResolvedValue(undefined);
+    const createdWindows = [failedWindow, nextWindow];
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      const created = createdWindows.shift();
+      if (!created) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, created);
+    });
+    Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [failedWindow, nextWindow]) });
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+    const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+    lifecycle.setStatus(
+      createStatus({
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
+      })
+    );
+    await initialStart;
+    failedWindow.destroy.mockImplementationOnce(() => {
+      throw new Error('destroy failed');
+    });
+
+    expect(() => lifecycle.destroyHostWindow()).toThrow('destroy failed');
+    // The window is still alive: the owner keeps it, so the next stop retries destroy().
+    lifecycle.destroyHostWindow();
+    expect(failedWindow.destroy).toHaveBeenCalledTimes(2);
+    lifecycle.setStatus(
+      createStatus({
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host:old',
+        state: 'stopped',
+      })
+    );
+    await lifecycle.ensureStarted({ waitForRunning: false });
+    await vi.waitFor(() => expect(nextWindow.loadURL).toHaveBeenCalledTimes(1));
+  });
+
   it('lets a stopping host settle before replacing its window', async () => {
     const stoppingWindow = createFakeWindow(71);
     const restartedWindow = createFakeWindow(72);

@@ -316,10 +316,32 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       );
     }
     if (window && !window.isDestroyed()) {
-      void this.retire(window);
       clearWindowRoleByWebContentsId(window.webContents.id);
-      window.destroy();
+      try {
+        void this.destroyAndRetire(window);
+      } catch (error) {
+        // Still alive: keep owning it, so the next stop retries destroy().
+        this.hostWindow = window;
+        throw error;
+      }
     }
+  }
+
+  /**
+   * Destroys `window`; the next window this lifecycle creates first joins its `closed`. A
+   * `destroy()` that throws leaves the window alive, so its retirement is withdrawn (only its
+   * `closed` could settle it) and the error is the caller's.
+   */
+  private destroyAndRetire(window: BrowserWindow): Promise<void> {
+    const previous = this.retiring;
+    const closed = this.retire(window);
+    try {
+      window.destroy();
+    } catch (error) {
+      this.retiring = previous;
+      throw error;
+    }
+    return closed;
   }
 
   /** Records the `closed` of a window about to be destroyed; register it before `destroy()`. */
@@ -339,13 +361,16 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       return;
     }
     this.disposed = true;
-    this.destroyHostWindow();
-    // Any caller already awaiting the previously captured startup promise still needs a concrete
-    // disposal signal here; otherwise it would sit until the status wait timeout fires.
-    this.startupPromise = null;
-    this.rejectPendingStatusWaiters(createLifecycleDisposedError(this.options.role));
-    this.events.removeAllListeners();
-    this.status = this.options.createStoppedStatus();
+    try {
+      this.destroyHostWindow();
+    } finally {
+      // Any caller already awaiting the previously captured startup promise still needs a concrete
+      // disposal signal here; otherwise it would sit until the status wait timeout fires.
+      this.startupPromise = null;
+      this.rejectPendingStatusWaiters(createLifecycleDisposedError(this.options.role));
+      this.events.removeAllListeners();
+      this.status = this.options.createStoppedStatus();
+    }
   }
 
   private createWindowClosedError(): Error {
@@ -479,8 +504,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
             owner.clearHostWindow(window);
             clearWindowRoleByWebContentsId(window.webContents.id);
             // The failed window's renderer is released before any retry or later start.
-            const closed = owner.retire(window);
-            window.destroy();
+            const closed = owner.destroyAndRetire(window);
             yield* Effect.promise(() => closed);
             return yield* Effect.fail(failure);
           })
