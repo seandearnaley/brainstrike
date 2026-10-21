@@ -1,6 +1,7 @@
 # ADR-0026: Lifecycle: readiness by message, liveness by exit, joined quit
 
-- **Status:** Accepted (Sean adopted the lifecycle redesign's recommendations, 2026-10-20)
+- **Status:** Accepted (Sean adopted the lifecycle redesign's recommendations, 2026-10-20);
+  R4 amended by [ADR-0027](0027-canonical-electron-quit.md)
 - **Date:** 2026-10-20
 - **Follows:** [ADR-0015](0015-desktop-platform-ipc-reset-diagnostics.md),
   [ADR-0017](0017-cli-first-agent-host.md), [ADR-0018](0018-derived-sqlite-indexer.md)

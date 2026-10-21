@@ -60,11 +60,12 @@ closing mounted capabilities (BST-2251). Read errors remain owned by their calle
 ## Graceful shutdown ownership
 
 Quit is one ordered, joined retirement with no global deadline
-([ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md) R4). Main runs
-`DESKTOP_SHUTDOWN_STEP_ORDER` once, each step until it settles, then the database
-close, then exits 0. A failed step is recorded and the next step still runs. A step
-still running after 10 s is named once at warn; it is waited for, never abandoned, so
-a later physical join is never skipped. Only an orchestration that breaks before its
+([ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md) R4, as amended
+by [ADR-0027](../adr/0027-canonical-electron-quit.md)). Main runs
+`DESKTOP_SHUTDOWN_STEP_ORDER` once as plain ordered awaits, each step until it settles,
+then the database close, then exits 0. A failed step is recorded and the next step
+still runs. A slow step is waited for, never abandoned, so a later physical join is
+never skipped; its duration is in the completion record. Only an orchestration that breaks before its
 steps can run exits 1. The sequence is finite because each owner's close is a bounded
 ladder it owns, not because a clock gives up on it.
 
@@ -106,6 +107,9 @@ once and rejects visibly if it fails again (BST-2248).
 The Git inventory service retains its watcher generation through failed stop and
 refuses restart until retirement succeeds. Notes Vault cleanup runs only in its
 awaited graceful step; the synchronous `will-quit` ledger never launches a retry.
+
+Git runs through `execFile` on every platform (ADR-0027), so there is no per-command
+native Job for quit to join. Windows agent commands keep their wrapper and Job.
 
 Parser host Stop joins every owned generation’s exit and listeners; there is no
 caller-side wait to give up on it. A failed kill remains visible and retryable,
