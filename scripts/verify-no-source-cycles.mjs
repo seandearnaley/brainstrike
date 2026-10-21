@@ -77,36 +77,28 @@ function parseRepoRootArgument(argv) {
 }
 
 /**
- * One graph PER APP, not a merged one: the two renderers do not resolve
- * `@brainstrike/*` identically, so a single shared alias set would faithfully
- * represent neither. `apps/web` pins `@brainstrike/file-explorer` to `dist` (its
- * worker artifact must be prebuilt) while desktop takes the registry's source;
- * a merged graph would silently analyze the wrong module for one of them.
+ * One graph PER APP, not a merged one: each renderer has its own entrypoint and
+ * its own app-local aliases (`@` is `apps/web/src` for one and `apps/desktop/src`
+ * for the other), so a single shared alias set would faithfully represent
+ * neither.
  *
  * `overrides` mirrors the entries each app places BEFORE the registry spread in
  * its own `vite.config.mts`. `scripts/__tests__/verify-no-source-cycles.test.mjs`
  * asserts parity with those configs, so an override added there and forgotten
  * here fails loudly instead of quietly changing which modules are analyzed.
  *
- * TWO DELIBERATE DIVERGENCES, both where the web build consumes `dist`:
- *
- * 1. `apps/web` pins `@brainstrike/file-explorer` to `dist`, and this guard does
- *    NOT mirror that. Two reasons, both decisive. First, `dist` is COMPILED
- *    OUTPUT — analyzing it would make a *source*-cycle guard report on generated
- *    JavaScript. Second, it only exists after a build, so mirroring it made the
- *    guard pass locally (where dist was present) and fail in CI's Static job,
- *    which does not build. The web pin exists so the emitted worker artifact is
- *    available to a module Worker at RUNTIME; that is not a module-structure
- *    concern. Desktop already analyzes this package's source, so using source
- *    for both is the consistent and correct choice.
- * 2. `@brainstrike/embedding-worker/worker` resolves through the package's
- *    `exports` to the prebuilt `dist/embedding.worker.js` (the registry skips
- *    `*.worker` bundles on purpose), imported only by the web E2E memory probe.
- *    The guard analyzes `src/embedding.worker.ts`, the source that bundle is
- *    built from, for the same two reasons. It is the pin
- *    `apps/web/vitest.config.mts` already declares, and the module production
- *    reaches anyway through `@brainstrike/embedding-worker/vite`'s
- *    `?worker&url` import.
+ * ONE DELIBERATE DIVERGENCE, where the web build consumes `dist`:
+ * `@brainstrike/embedding-worker/worker` resolves through the package's
+ * `exports` to the prebuilt `dist/embedding.worker.js` (the registry skips
+ * `*.worker` bundles on purpose), imported only by the web E2E memory probe.
+ * The guard analyzes `src/embedding.worker.ts`, the source that bundle is built
+ * from, for two reasons, both decisive. First, `dist` is COMPILED OUTPUT —
+ * analyzing it would make a *source*-cycle guard report on generated
+ * JavaScript. Second, it only exists after a build, so mirroring it would pass
+ * locally (where dist is present) and fail in CI's Static job, which does not
+ * build. It is the pin `apps/web/vitest.config.mts` already declares, and the
+ * module production reaches anyway through `@brainstrike/embedding-worker/vite`'s
+ * `?worker&url` import.
  */
 export const RENDERER_APPS = Object.freeze([
   {
@@ -115,7 +107,7 @@ export const RENDERER_APPS = Object.freeze([
     overrides: [
       ['@brainstrike/file-tree-worker', 'packages/file-tree-worker/src/vite.ts'],
       ['@brainstrike/workers', 'packages/workers'],
-      // Divergence 2 above: the source of the prebuilt bundle the build loads.
+      // The divergence above: the source of the prebuilt bundle the build loads.
       ['@brainstrike/embedding-worker/worker', 'packages/embedding-worker/src/embedding.worker.ts'],
       // App-local aliases. Unused by any import today, but modelled anyway: an
       // unmodelled alias makes its imports look third-party, and third-party is

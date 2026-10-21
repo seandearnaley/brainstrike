@@ -1,4 +1,4 @@
-interface ShutdownRendererWindow {
+export interface ShutdownRendererWindow {
   close(): void;
   destroy(): void;
   isDestroyed(): boolean;

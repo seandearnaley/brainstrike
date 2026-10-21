@@ -255,6 +255,7 @@ export const DESKTOP_IPC_CHANNELS = {
     powerSnapshot: 'app:power-snapshot',
     powerState: 'app:power-state',
     probe: 'runtime:probe',
+    requestReload: 'app:lifecycle:request-reload',
     resolveOllamaCapabilities: 'runtime:resolveOllamaCapabilities',
     verifyEmbeddingDimensions: 'runtime:verifyEmbeddingDimensions',
   },

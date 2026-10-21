@@ -129,6 +129,7 @@ declare global {
     desktopLifecycle?: {
       isTestMode: boolean;
       noteReloadIntent: (reason: string) => Promise<void>;
+      requestReload: (reason: string) => Promise<void>;
     };
     electronAPI?: DesktopElectronApi;
     embeddingHost?: EmbeddingHostRuntimeBridge | VisibleEmbeddingHostBridge;

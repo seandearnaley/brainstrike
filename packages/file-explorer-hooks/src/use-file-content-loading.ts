@@ -10,7 +10,7 @@ import {
 } from './file-content-processor.js';
 import { buildInaccessibleContent } from './inaccessible-content.js';
 
-const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation and WorkerStorage timeouts
+const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation
 
 interface UseFileContentLoadingReturn {
   clearFileContents: (compositeKeys: string[]) => void;
