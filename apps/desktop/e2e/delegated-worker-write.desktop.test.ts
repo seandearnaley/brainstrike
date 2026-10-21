@@ -382,6 +382,13 @@ async function assertWorkerWrite(
         await expect
           .poll(() => rootRuns(electron.getUserDataDir()), { timeout: 30_000 })
           .toEqual(stoppedRuns);
+        // The wake delegated nothing, so no child is still running into the
+        // user's next turn: the stopped child is the root's only child.
+        expect(
+          (await readHostThreadTree(electron.getUserDataDir())).flatMap(({ child: listed }) =>
+            listed ? [listed.callSign] : []
+          )
+        ).toEqual([childName]);
         provider.setScript({ finalText: 'PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723' });
         await root
           .getByRole('textbox', { name: 'Message input' })
