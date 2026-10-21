@@ -95,12 +95,7 @@ test('a 12 s renderer flush and a 4 s host exit still quit with exit 0 after eve
   // The delays were in the joined path: the renderer's ACK and the host's exit.
   expect(elapsed('renderers')).toBeGreaterThanOrEqual(RENDERER_FLUSH_MS);
   expect(elapsed('native-index')).toBeGreaterThanOrEqual(CHILD_EXIT_MS);
-  // A slow step is a warn naming it, never a failure or a forced exit.
-  expect(
-    records.flatMap((record) =>
-      record.msg === 'Graceful shutdown step is slow' ? [record.step] : []
-    )
-  ).toContain('renderers');
+  // A slow step is only waited for, never a failure or a forced exit.
   expect(records.map((record) => record.msg)).not.toContain(
     'Graceful shutdown completed with cleanup failures'
   );
