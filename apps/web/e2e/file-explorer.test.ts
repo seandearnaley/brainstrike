@@ -283,7 +283,7 @@ test.describe('File Explorer', () => {
       // report the regression the next morning. The tree is sized to the
       // invariant's actual need — enough rows for an interior window with a
       // spacer on both sides — not to a round number, to stay cheap enough for
-      // a lane that runs --workers=2 --max-failures=1.
+      // a lane that runs --workers=2 --max-failures=0.
       const rowCount = 240;
       const scrollTarget = 2400;
 
