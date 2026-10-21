@@ -469,7 +469,8 @@ export function useThreadWorkspaceCoordinator({
     logFailure(message, error, { threadId });
   });
   // Document unload (ADR-0026 R1): send the one dirty snapshot, then join the writes this owner
-  // admitted until the host acknowledges them. Reads are not durable and are never joined.
+  // admitted until none is pending, so a write a hydration read admits while the flush waits is
+  // joined too. Reads are not durable and are never joined.
   const flush = useEffectEvent(async () => {
     closePreparedRef.current = true;
     const dirty = saveTimerRef.current !== null;
@@ -485,10 +486,15 @@ export function useThreadWorkspaceCoordinator({
         );
       });
     }
-    const results = await Promise.allSettled([...pendingWritesRef.current]);
-    const failures = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
-    );
+    const failures: unknown[] = [];
+    while (pendingWritesRef.current.size > 0) {
+      const results = await Promise.allSettled([...pendingWritesRef.current]);
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          failures.push(result.reason);
+        }
+      }
+    }
     if (failures.length > 0) {
       throw new AggregateError(failures, 'Thread workspace snapshot writes failed before unload');
     }

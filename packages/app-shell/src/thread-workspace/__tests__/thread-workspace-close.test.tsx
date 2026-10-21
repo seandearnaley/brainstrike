@@ -92,6 +92,71 @@ describe('thread workspace app-owned close', () => {
     }
   });
 
+  it('drains to quiescence: a write a pending hydration read admits while the flush waits is joined too', async () => {
+    const harness = createHarness();
+    const mounted = renderHook(
+      ({ activeThreadId }) =>
+        useThreadWorkspaceCoordinator({
+          activeThreadId,
+          debounceMs: 50,
+          facade: harness.facade,
+          navigation: harness.navigation,
+          openThreadIds: OPEN_THREADS,
+          repository: harness.repository,
+          resourceId: 'brainstrike:workspace',
+          subscribe: harness.subscribe,
+        }),
+      { initialProps: { activeThreadId: 'thread-a' } }
+    );
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    // Switching to thread-b admits thread-a's outgoing write and starts thread-b's hydration read.
+    const outgoingAck = Promise.withResolvers<void>();
+    const inheritedAdmitted = Promise.withResolvers<void>();
+    const inheritedAck = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<WorkspaceSnapshotV1 | null>();
+    vi.mocked(harness.repository.getThreadWorkspace).mockReturnValueOnce(read.promise);
+    vi.mocked(harness.repository.setThreadWorkspace)
+      .mockImplementationOnce(async (id, _owner, snapshot) => {
+        await outgoingAck.promise;
+        harness.rows.set(id, snapshot);
+      })
+      .mockImplementationOnce(async (id, _owner, snapshot) => {
+        inheritedAdmitted.resolve();
+        await inheritedAck.promise;
+        harness.rows.set(id, snapshot);
+      });
+    mounted.rerender({ activeThreadId: 'thread-b' });
+
+    let prepared = false;
+    const closing = prepareRendererClose().then(() => {
+      prepared = true;
+    });
+    try {
+      // The read settles while the flush waits: thread-b has no row, so it inherits and writes.
+      await act(async () => {
+        read.resolve(null);
+        await inheritedAdmitted.promise;
+      });
+      outgoingAck.resolve();
+      await act(async () => {
+        for (let turn = 0; turn < 10; turn += 1) {
+          await Promise.resolve();
+        }
+      });
+      expect(prepared).toBe(false);
+      expect(harness.rows.has('thread-b')).toBe(false);
+    } finally {
+      inheritedAck.resolve();
+      outgoingAck.resolve();
+      await act(async () => {
+        await closing;
+      });
+      mounted.unmount();
+    }
+    expect(prepared).toBe(true);
+    expect(harness.rows.has('thread-b')).toBe(true);
+  });
+
   it.each(['inherited', 'live-edit after hydration failure'] as const)(
     'close joins an admitted %s snapshot before a reopened coordinator reads it',
     async (branch) => {
