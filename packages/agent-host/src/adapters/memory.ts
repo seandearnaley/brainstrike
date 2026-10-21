@@ -189,6 +189,11 @@ function stillOwnsNativeWork(error: unknown): boolean {
   );
 }
 
+/** A turn's semantic recall: what it found, or the typed failure its notice names. */
+export type HostMemoryRecall =
+  | { readonly messages: readonly MastraDBMessage[] }
+  | { readonly failure: HostMemoryStepError };
+
 export interface HostMemoryStep {
   readonly context: NativeContext;
   readonly messages: readonly MastraDBMessage[];
@@ -227,7 +232,10 @@ export class HostMemory implements HostRunOwner {
   /** Admitted work drained and the native turn ended, once. */
   private ending: Promise<void> | undefined;
   private turnOutcome: Promise<void> | undefined;
-  /** Failures `endTurn` already made the run's outcome; `close` reports only later ones. */
+  /**
+   * Failures already made visible, with their causes: the run's outcome
+   * (`endTurn`) or a failed recall's notice. `close` reports only later ones.
+   */
   private readonly reported = new Set<unknown>();
   private closing: Promise<void> | undefined;
   private joined = false;
@@ -569,10 +577,39 @@ export class HostMemory implements HostRunOwner {
     });
   }
 
-  recall(options: Omit<Parameters<Memory['recall']>[0], 'threadId'>): ReturnType<Memory['recall']> {
-    return this.admit('recall', () =>
-      this.memory.recall({ ...options, threadId: this.identity.threadId })
-    );
+  /**
+   * Semantic recall. A failed recall is not the turn's outcome: it resolves to
+   * its typed failure (BST-2202), logged under its reference, for the run's
+   * notice. Only cancellation rejects.
+   */
+  recall(options: Omit<Parameters<Memory['recall']>[0], 'threadId'>): Promise<HostMemoryRecall> {
+    return this.admit('recall', async () => {
+      try {
+        const { messages } = await this.memory.recall({
+          ...options,
+          threadId: this.identity.threadId,
+        });
+        return { messages };
+      } catch (cause) {
+        if (this.expectedCancellation(cause, true)) {
+          throw cause;
+        }
+        const failure = this.stepFailure('recall', cause);
+        // The notice reports it: the provider join that repeats it is not new.
+        this.markReported(cause);
+        logger.error('Memory recall failed; the turn continues without it', {
+          cause,
+          code: failure.failure.code,
+          ...(failure.failure.correlationId === undefined
+            ? {}
+            : { correlationId: failure.failure.correlationId }),
+          runId: this.identity.runId,
+          step: failure.step,
+          threadId: this.identity.threadId,
+        });
+        return { failure };
+      }
+    });
   }
 
   getWorkingMemory(): ReturnType<Memory['getWorkingMemory']> {
@@ -682,6 +719,24 @@ export class HostMemory implements HostRunOwner {
     return this.ending;
   }
 
+  /** The failure itself (an object or not), then each of its causes. */
+  private markReported(failure: unknown): void {
+    this.reported.add(failure);
+    for (const candidate of memoryFailureCauses(failure)) {
+      this.reported.add(candidate);
+    }
+  }
+
+  /** Already visible: itself, or a provider join that repeats only visible failures. */
+  private wasReported(cause: unknown): boolean {
+    return (
+      this.reported.has(cause) ||
+      (cause instanceof AggregateError &&
+        cause.errors.length > 0 &&
+        cause.errors.every((member) => this.wasReported(member)))
+    );
+  }
+
   /** Every listed failure joined: the outcome, naming the first failure's step. */
   private joinedFailure(failures: readonly unknown[]): HostMemoryFailure | undefined {
     const [first] = failures;
@@ -700,7 +755,7 @@ export class HostMemory implements HostRunOwner {
     this.turnOutcome ??= this.endingTurn().then(() => {
       const failures = [...new Set(this.failures)];
       for (const failure of failures) {
-        this.reported.add(failure);
+        this.markReported(failure);
       }
       const failure = this.joinedFailure(failures);
       if (failure) {
@@ -742,8 +797,8 @@ export class HostMemory implements HostRunOwner {
         );
       }
       // Every tail joined: the failures are an outcome, not a leak. Those
-      // `endTurn` reported are the run's; later ones are its settlement's.
-      const failure = this.joinedFailure(failures.filter((cause) => !this.reported.has(cause)));
+      // already reported are the run's; later ones are its settlement's.
+      const failure = this.joinedFailure(failures.filter((cause) => !this.wasReported(cause)));
       if (failure) {
         throw failure;
       }

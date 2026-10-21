@@ -652,6 +652,9 @@ export function createHostRunContext(
         threadId: run.threadId,
       });
     },
+    recordRecallFailed: async (detail) => {
+      await publish(run.threadId, [{ detail, runId: run.id, type: 'memory.recall.failed' }]);
+    },
     runId: run.id,
     signal: run.controller.signal,
     threadId: run.threadId,

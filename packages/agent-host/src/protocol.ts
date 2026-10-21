@@ -125,7 +125,8 @@ export * from './workspace-wire.js';
 // `revision`. The required parameter is why this is a version bump and not a v11 addition.
 // Config status carries `watchError` while the config file watcher cannot run. Additions since:
 // `memory/embedder/probe` (BST-2227), a new method, so a v12 client that never calls it sees
-// nothing new.
+// nothing new; `memory.recall.failed` (a turn's failed semantic recall, which the turn answers
+// without), a new variant.
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
@@ -723,6 +724,12 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       }),
       Schema.Struct({
         type: Schema.Literal('memory.settlement.failed'),
+        ...RunFields,
+        detail: Schema.String.check(Schema.isMinCodePoints(1)),
+      }),
+      // A turn's failed semantic recall, which the turn answers without.
+      Schema.Struct({
+        type: Schema.Literal('memory.recall.failed'),
         ...RunFields,
         detail: Schema.String.check(Schema.isMinCodePoints(1)),
       }),

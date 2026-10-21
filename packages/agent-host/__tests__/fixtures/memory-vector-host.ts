@@ -26,6 +26,7 @@ import {
 } from '@mastra/core/vector';
 import type { MockLanguageModelV4 } from 'ai/test';
 import { expect, onTestFinished } from 'vitest';
+import { z } from 'zod';
 import { StateStoreHostMemory } from '../../src/adapters/state-store-host-memory.js';
 import { HostCore } from '../../src/core.js';
 import type { HostPlatform, HostRunContext } from '../../src/ports.js';
@@ -81,6 +82,9 @@ export class RecordedVectorCalls extends MastraVector {
   }
 }
 
+/** The read tool a `toolTurn` run calls before its answer. */
+const FIXTURE_READ_TOOL = 'readFixtureNote';
+
 export function deterministicEmbedding(text: string): number[] {
   return Array.from({ length: 384 }, (_, index) =>
     index === (text.includes('Paris') ? 0 : 1) ? 1 : 0
@@ -110,6 +114,8 @@ export async function memoryVectorHost(options: {
   readonly realIndexer?: boolean;
   readonly semanticScope?: 'thread' | 'resource';
   readonly stateProjectionModule?: string;
+  /** Each run is a turn of two steps: a read tool call, then the answer. */
+  readonly toolTurn?: boolean;
   readonly vector?: RecordedVectorCalls;
   readonly vectorPort?: StateMessageVectorPort;
   readonly onEmbedding?: (values: readonly string[]) => void;
@@ -178,7 +184,7 @@ export async function memoryVectorHost(options: {
   };
   const platform = {
     close: async () => undefined,
-    maxSteps: 1,
+    maxSteps: options.toolTurn ? 2 : 1,
     openRun: async (context) => {
       contexts.push(context);
       const selectedResourceId = runResources.get(context.threadId) ?? resourceId;
@@ -230,11 +236,21 @@ export async function memoryVectorHost(options: {
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveModel: async () => {
-      const model = scriptedModel();
+      const model = scriptedModel(options.toolTurn ? FIXTURE_READ_TOOL : undefined);
       models.push(model);
       return model;
     },
-    tools: {},
+    tools: options.toolTurn
+      ? {
+          [FIXTURE_READ_TOOL]: {
+            description: 'Read a fixed fixture note.',
+            execute: async () => ({ read: true }),
+            identity: 'memory-vector-fixture-reader',
+            inputSchema: z.object({ text: z.string() }),
+            risk: 'read',
+          },
+        }
+      : {},
   } satisfies HostPlatform;
   const openRun = platform.openRun;
   platform.openRun = async (context) => {
