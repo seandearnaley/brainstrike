@@ -55,14 +55,15 @@ export function capturedIntent(options: {
 
 /**
  * Main's reads for a scenario's profile (BST-1930 stage e): every catalog
- * model enabled, no observer candidates, no recall embedder, no roots and no
- * worktree service, unless the scenario says otherwise.
+ * model enabled, no observer candidates, no recall embedder, no workspace
+ * index, no roots and no worktree service, unless the scenario says otherwise.
  */
 export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): DesktopAdmissionReads {
   return {
     acquireWorkspace: () => Promise.reject(new Error('This scenario binds no workspace')),
     catalogModel: async ({ provider }) => ({ isEnabled: true, providerId: provider }),
     enabledObservers: async () => [],
+    indexStatus: async () => ({ kind: 'unavailable', reason: 'This scenario has no index.' }),
     liveWorkspaceRoots: async () => [],
     memoryVectors: async () => undefined,
     worktreesAvailable: async () => false,
@@ -77,6 +78,7 @@ export function noRunAdmission(): DesktopAdmissionReads {
     acquireWorkspace: refuse,
     catalogModel: refuse,
     enabledObservers: refuse,
+    indexStatus: refuse,
     liveWorkspaceRoots: refuse,
     memoryVectors: refuse,
     worktreesAvailable: refuse,

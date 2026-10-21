@@ -1,8 +1,4 @@
-import { wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
-import { Schema, SchemaIssue } from 'effect';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
@@ -16,7 +12,6 @@ import {
 import { VECTOR_PREFERENCES_STORAGE_KEY } from '../platform/vector-preferences-storage-key';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
 import {
-  layoutContract,
   settingsContract,
   storageContract,
   vectorPreferencesContract,
@@ -28,36 +23,8 @@ interface RegisterStoragePreferencesIpcHandlersOptions {
   readonly storage: ElectronStorageAdapter;
 }
 
-const logger = createLogger('StoragePreferencesIpc');
-
-const panelPersistenceStateSchema = Schema.Struct({
-  showConsole: Schema.Boolean,
-  showLeftPanel: Schema.Boolean,
-  showRightPanel: Schema.Boolean,
-  sizes: Schema.mutable(
-    Schema.Array(
-      Schema.Finite.check(
-        Schema.makeFilter((value) => {
-          const issues: { issue: string; path: readonly PropertyKey[] }[] = [];
-          if (Number.isFinite(value)) {
-            return issues;
-          }
-          issues.push({ issue: 'Panel size must be a finite number', path: [] });
-          return issues;
-        })
-      )
-    )
-  ),
-});
-
-type PanelPersistenceState = (typeof panelPersistenceStateSchema)['Type'];
-interface PanelLayoutEnvelope {
-  readonly v1: PanelPersistenceState;
-}
 type DesktopSettingsStoreAccess = ElectronStore<DesktopSettingsStoreSchema> & {
   readonly clear: () => void;
-  readonly get: (key: 'panelLayout') => unknown;
-  readonly set: (key: 'panelLayout', value: PanelLayoutEnvelope) => void;
 };
 
 function getSettingsStoreAccess(
@@ -132,62 +99,6 @@ export function registerStoragePreferencesIpcHandlers({
     clear: () => storage.removeItem(VECTOR_PREFERENCES_STORAGE_KEY),
     read: () => storage.getItem(VECTOR_PREFERENCES_STORAGE_KEY),
     write: (value) => storage.setItem(VECTOR_PREFERENCES_STORAGE_KEY, value),
-  });
-
-  registerDomain(registry, 'preferences', layoutContract, {
-    loadLayout: async (): Promise<LayoutLoadResult> => {
-      const store = getSettingsStoreAccess(getStore);
-      if (!store) {
-        logger.warn('Cannot load layout: store not initialized');
-        return { message: 'Store not initialized', success: false };
-      }
-
-      try {
-        const layout = store.get('panelLayout') as { v1?: unknown } | undefined;
-        const candidate = layout?.v1;
-        if (!candidate) {
-          return { data: null, success: true };
-        }
-
-        const parsed = wireResultDecoder(panelPersistenceStateSchema, { errors: 'all' })(candidate);
-        if (!(parsed._tag === 'Success')) {
-          logger.warn('Invalid panel layout data in store', {
-            issues: SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues,
-          });
-          return { message: 'Invalid panel layout data', success: false };
-        }
-
-        return { data: parsed.success, success: true };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn('Failed to load panel layout', { error: message });
-        return { message, success: false };
-      }
-    },
-    saveLayout: async (state): Promise<LayoutPersistenceResult> => {
-      const store = getSettingsStoreAccess(getStore);
-      if (!store) {
-        logger.warn('Cannot save layout: store not initialized');
-        return { message: 'Store not initialized', success: false };
-      }
-
-      const parsed = wireResultDecoder(panelPersistenceStateSchema, { errors: 'all' })(state);
-      if (!(parsed._tag === 'Success')) {
-        logger.warn('Invalid panel layout payload', {
-          issues: SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues,
-        });
-        return { message: 'Invalid panel layout payload', success: false };
-      }
-
-      try {
-        store.set('panelLayout', { v1: parsed.success });
-        return { success: true };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn('Failed to save panel layout', { error: message });
-        return { message, success: false };
-      }
-    },
   });
 
   registerDomain(registry, 'preferences', settingsContract, {

@@ -123,8 +123,6 @@ describe('renderer main entry', () => {
         saveLastFolder: vi.fn(),
       },
       getUserDataPath: vi.fn(),
-      loadLayout: vi.fn(),
-      saveLayout: vi.fn(),
       storage: {
         clear: vi.fn(),
         getAllKeys: vi.fn(),

@@ -32,7 +32,10 @@ vi.mock('@brainstrike/db', async (original) => ({
 
 import type { HybridSearchInput, QueryEmbeddingSpaceInput, RuntimeData } from '@brainstrike/agent';
 import { runHybridSearchWith } from '../../assistant-server/hybrid-search-core';
-import { searchNativeAssistantChunks } from '../../assistant-server/native-assistant-retrieval';
+import {
+  resolveAdmittedRetrievalRoots,
+  searchNativeAssistantChunks,
+} from '../../assistant-server/native-assistant-retrieval';
 import {
   type RetrievalToolDependencies,
   runQueryEmbeddingSpaceWith,
@@ -674,6 +677,30 @@ it.each([
  * authorize as an untyped fault, so asking for every thread folder failed the
  * whole search as "did not complete successfully" (2026-10-20 debug pack).
  */
+describe('an admitted retrieval scope (BST-1943)', () => {
+  // Admission offers no retrieval tool for an empty scope (ADR 0026); the
+  // executor still refuses one rather than searching the whole collection.
+  it('refuses an empty, duplicated or foreign root scope', () => {
+    for (const [admitted, explicit] of [
+      [[], undefined],
+      [['root-a', 'root-a'], undefined],
+      [['root-a'], 'root-b'],
+    ] as const) {
+      expect(() => resolveAdmittedRetrievalRoots(admitted, explicit)).toThrow(
+        '[ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE]'
+      );
+    }
+  });
+  it('scopes to the admitted roots, or the one named among them', () => {
+    expect(resolveAdmittedRetrievalRoots(undefined, undefined)).toBeUndefined();
+    expect(resolveAdmittedRetrievalRoots(['root-a', 'root-b'], undefined)).toEqual([
+      'root-a',
+      'root-b',
+    ]);
+    expect(resolveAdmittedRetrievalRoots(['root-a', 'root-b'], 'root-b')).toEqual(['root-b']);
+  });
+});
+
 describe('a thread folder the index leaves out', () => {
   const runtimeData = {
     workspaceRoots: [

@@ -31,11 +31,7 @@ import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
-import {
-  layoutContract,
-  settingsContract,
-  storageContract,
-} from './ipc-domains/storage-preferences.contract';
+import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
@@ -265,7 +261,6 @@ function createDisabledLocalRuntimeCatalog(runtimeId: string) {
 
 // Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
-  const layoutBridge = createIpcBridge(ipcRenderer, layoutContract);
   const storageBridge = createIpcBridge(ipcRenderer, storageContract);
   const electronAPI = {
     content: createIpcBridge(ipcRenderer, contentClearContract),
@@ -279,9 +274,6 @@ if (shouldExposeBridge('electronAPI')) {
     },
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
-    loadLayout: layoutBridge.loadLayout,
-    // Panel layout persistence
-    saveLayout: layoutBridge.saveLayout,
     storage: {
       clear: () =>
         DESKTOP_TEST_MODE

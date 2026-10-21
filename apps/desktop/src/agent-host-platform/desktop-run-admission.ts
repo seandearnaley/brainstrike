@@ -23,6 +23,8 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
+import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
+import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import type { AttachedMentionFolders } from '../assistant-server/referenced-files-context';
 import {
@@ -47,7 +49,11 @@ import {
   readEnabledObservers,
   resolveDesktopMemorySettings,
 } from './desktop-run-preconditions';
-import { type DesktopToolDescriptor, desktopToolDescriptors } from './desktop-tool-descriptors';
+import {
+  type DesktopToolDescriptor,
+  desktopToolDescriptors,
+  indexServesRetrieval,
+} from './desktop-tool-descriptors';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
 import { memoryReadinessReason } from './memory-readiness';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
@@ -62,6 +68,7 @@ import {
   platformPermissionPolicy,
 } from './platform-wire';
 
+const logger = createLogger('DesktopRunAdmission');
 type RuntimeWorkspaceRoots = NonNullable<RuntimeData['workspaceRoots']>;
 /**
  * What a desktop run's admission reads from the facts Main owns (BST-1930
@@ -91,6 +98,8 @@ export interface DesktopAdmissionReads {
   cliOwnerIntent?(request: HostRunIntentRequest): Promise<unknown>;
   /** The candidates whose provider and model rows are enabled and whose model is an LLM. */
   enabledObservers(candidates: readonly string[], signal: AbortSignal): Promise<readonly string[]>;
+  /** Main's workspace index status, which decides whether the retrieval tools are offered. */
+  indexStatus(signal: AbortSignal): Promise<IndexerStatus>;
   /** The profile's mounted workspace roots. */
   liveWorkspaceRoots(signal: AbortSignal): Promise<RuntimeWorkspaceRoots>;
   /**
@@ -320,6 +329,7 @@ async function readDesktopNativeAdmission(
   );
   const descriptors = await desktopToolDescriptors({
     enabledNativeToolIds: intent.enabledNativeToolIds,
+    retrieval: await desktopRetrievalAdmitted(reads, roots, request.signal),
     skills: workspaceSkills !== undefined,
     worktrees,
   });
@@ -334,6 +344,31 @@ async function readDesktopNativeAdmission(
     runtime,
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
+}
+/**
+ * ADR 0026: the retrieval lane is optional, so an index that cannot answer
+ * (not ready, TEXT mode, or its status unreadable) leaves its tools out of the
+ * run and never fails it. An unreadable status is logged, never swallowed.
+ */
+async function desktopRetrievalAdmitted(
+  reads: DesktopAdmissionReads,
+  roots: RuntimeWorkspaceRoots,
+  signal: AbortSignal
+): Promise<boolean> {
+  let status: IndexerStatus;
+  try {
+    status = await reads.indexStatus(signal);
+  } catch (cause) {
+    signal.throwIfAborted();
+    logger.error('Workspace index status is unreadable; the retrieval tools are not offered', {
+      cause,
+    });
+    return false;
+  }
+  return indexServesRetrieval(
+    status,
+    roots.map((root) => root.rootId)
+  );
 }
 /** A CLI selection runs without skills; otherwise one scan feeds the prompt and the host's skill tools. */
 function desktopRunSkills(

@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { IdeLayout } from '../layout/ide-layout';
-import { PanelLayoutProvider } from '../providers/panel-layout-provider';
+import { PanelLayoutProvider, type PanelLayoutState } from '../providers/panel-layout-provider';
 
 // react-resizable-panels v4 mock - required because conditional panel rendering
 // doesn't work well with the real library in JSDOM environment
@@ -54,16 +55,16 @@ vi.mock('react-resizable-panels', () => {
   return { Group, Panel, Separator };
 });
 
+// The provider is controlled only; this harness stands in for the app's layout store.
 function LayoutHarness() {
+  const [state, setState] = useState<PanelLayoutState>({
+    showConsole: false,
+    showLeftPanel: true,
+    showRightPanel: false,
+    sizes: [30, 50, 20],
+  });
   return (
-    <PanelLayoutProvider
-      initialState={{
-        showConsole: false,
-        showLeftPanel: true,
-        showRightPanel: false,
-        sizes: [30, 50, 20],
-      }}
-    >
+    <PanelLayoutProvider controlledState={state} onChange={setState}>
       <IdeLayout
         consoleContent={<div>Console</div>}
         leftPanelContent={<div>Left</div>}

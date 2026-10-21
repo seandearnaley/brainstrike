@@ -54,6 +54,13 @@ diagnostics (messages returned, `topK`, scope, latency) are live `run/telemetry`
 never a fact ([ADR-0011](../adr/0011-run-log-and-state-store.md) amendment of
 2026-10-19).
 
+Semantic recall runs once per turn, on its first step, as Mastra's own recall
+runs once per agent call (`processInput`); observation and the history window
+still follow each step. A failed recall is not the turn's outcome: the turn
+answers without recalled history, and the typed failure commits once as
+`memory.recall.failed`, with its cause logged under the reference it names. The
+timeline shows it as an always-visible notice.
+
 Keep observations within the selected chat provider's privacy boundary under
 [ADR-0013](../adr/0013-observational-memory.md), with concrete resolved models and
 explicit credential authority. Actual observer and reflector usage belongs in

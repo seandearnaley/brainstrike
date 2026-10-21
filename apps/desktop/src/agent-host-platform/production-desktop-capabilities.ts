@@ -136,6 +136,10 @@ function desktopAdmissionReads(
         )
         .map((model) => `${model.providerId}/${model.id}`);
     },
+    indexStatus: async () =>
+      dependencies.nativeIndexSearch
+        ? await dependencies.nativeIndexSearch.status()
+        : { kind: 'unavailable', reason: 'This desktop has no workspace index.' },
     liveWorkspaceRoots: async () =>
       await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots),
     localRuntimeModel: async ({ endpoint, model }, signal) => {
