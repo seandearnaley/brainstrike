@@ -170,15 +170,13 @@ async function assertWorkerWrite(
     // the root's wakeup as a worker. A child's own task still follows the
     // root's forwarded user message, so the level markers are read across the
     // remaining user messages.
+    const ledger = 'Background invocations of this turn';
+    const userMessages = messages.filter(
+      (message) =>
+        message && typeof message === 'object' && 'role' in message && message.role === 'user'
+    );
     const task = JSON.stringify(
-      messages.filter(
-        (message) =>
-          message &&
-          typeof message === 'object' &&
-          'role' in message &&
-          message.role === 'user' &&
-          !JSON.stringify(message).includes('Background invocations of this turn')
-      )
+      userMessages.filter((message) => !JSON.stringify(message).includes(ledger))
     );
     const level = task.includes('WORKER_LEVEL_3')
       ? 3
@@ -192,7 +190,13 @@ async function assertWorkerWrite(
       resolveAdvertisedTools(toolNames);
       observed.backgroundStarted ||= history.includes('Background task started.');
       observed.parentResult ||= history.includes(childResult);
-      if (history.includes('Background task started.') || history.includes(childResult)) {
+      // A wake answers its ledger, which says not to call a settled invocation
+      // again, so the parent never delegates from one. Its history cannot say so:
+      // a delivered outcome replaces the dispatch acknowledgement
+      // (packages/agent-host/src/child-delivery.ts), so a stopped child's wake
+      // shows neither the acknowledgement nor a result.
+      const wake = JSON.stringify(userMessages.at(-1)).includes(ledger);
+      if (wake || history.includes('Background task started.') || history.includes(childResult)) {
         return {
           finalText: history.includes(childResult)
             ? parentResult
@@ -382,6 +386,13 @@ async function assertWorkerWrite(
         await expect
           .poll(() => rootRuns(electron.getUserDataDir()), { timeout: 30_000 })
           .toEqual(stoppedRuns);
+        // The wake delegated nothing, so no child is still running into the
+        // user's next turn: the stopped child is the root's only child.
+        expect(
+          (await readHostThreadTree(electron.getUserDataDir())).flatMap(({ child: listed }) =>
+            listed ? [listed.callSign] : []
+          )
+        ).toEqual([childName]);
         provider.setScript({ finalText: 'PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723' });
         await root
           .getByRole('textbox', { name: 'Message input' })
