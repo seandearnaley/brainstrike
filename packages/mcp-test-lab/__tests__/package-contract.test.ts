@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { extname } from 'node:path';
+import { extname, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -25,7 +26,7 @@ async function readManifest(): Promise<PackageManifest> {
 }
 
 async function readTypeScriptConfig(url: URL): Promise<TypeScriptConfig> {
-  const result = ts.parseConfigFileTextToJson(url.pathname, await readFile(url, 'utf8'));
+  const result = ts.parseConfigFileTextToJson(fileURLToPath(url), await readFile(url, 'utf8'));
   if (result.error) {
     throw new Error('Could not parse TypeScript config');
   }
@@ -101,14 +102,14 @@ describe('MCP test lab package contract', () => {
       throw new Error('Workspace source alias registry has no callable export');
     }
     const aliases: readonly { readonly replacement: string }[] = aliasModule.workspaceSrcAliases(
-      new URL('packages/', repositoryRoot).pathname
+      fileURLToPath(new URL('packages/', repositoryRoot))
     );
 
     const paths = rootConfig.compilerOptions?.['paths'] as Record<string, unknown> | undefined;
     expect(paths?.['@brainstrike/mcp-test-lab']).toBeUndefined();
-    expect(aliases.some(({ replacement }) => replacement.includes('/mcp-test-lab/src/'))).toBe(
-      false
-    );
+    // Replacements are host-native paths joined by the registry.
+    const labSource = `${sep}mcp-test-lab${sep}src${sep}`;
+    expect(aliases.some(({ replacement }) => replacement.includes(labSource))).toBe(false);
   });
 
   it('uses NodeNext-compatible extensions for every relative source import and export', async () => {

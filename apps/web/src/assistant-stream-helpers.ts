@@ -290,15 +290,22 @@ async function streamResponse(
   }
 
   const reader = body.getReader();
-
-  try {
-    await pipeStreamToResponse(reader, res, signal);
-  } finally {
+  const cancelReader = async (): Promise<void> => {
     try {
       await reader.cancel();
     } catch {
       // Ignore cancel errors
     }
+  };
+  // The pump sees an abort between reads and while waiting for drain; a read
+  // parked on a quiet upstream is released only by cancelling the reader.
+  signal.addEventListener('abort', cancelReader, { once: true });
+
+  try {
+    await pipeStreamToResponse(reader, res, signal);
+  } finally {
+    signal.removeEventListener('abort', cancelReader);
+    await cancelReader();
     res.end();
   }
 }

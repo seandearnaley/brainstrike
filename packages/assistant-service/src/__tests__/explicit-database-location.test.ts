@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { expect, test } from 'vitest';
 import {
   joinProfileDirectory,
@@ -15,8 +16,9 @@ test('cold launch reuses canonical explicit override selection and profile layou
     rootPath: '/tmp/explicit-existing-database',
     source: 'override',
   });
+  // The profile directory is a host filesystem path, joined with the host's separator.
   expect(joinProfileDirectory(location.rootPath, location.profile)).toBe(
-    '/tmp/explicit-existing-database/profiles/feature-owner'
+    path.join('/tmp/explicit-existing-database', 'profiles', 'feature-owner')
   );
 });
 

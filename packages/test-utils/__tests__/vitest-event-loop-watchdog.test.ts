@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,7 +43,8 @@ function run(args: string[], env: NodeJS.ProcessEnv, cwd = packageRoot): Promise
 // Budgets are generous on purpose: a heartbeat every 100 ms against a 1 s stall
 // leaves nine missed ticks before a kill, so a loaded runner cannot fake a stall.
 function probe(body: string, env: NodeJS.ProcessEnv = {}): Promise<ProbeResult> {
-  const source = `import { startEventLoopWatchdog } from ${JSON.stringify(modulePath)};\n${body}`;
+  // An ESM specifier is a URL: a bare absolute path only works where it has no drive letter.
+  const source = `import { startEventLoopWatchdog } from ${JSON.stringify(pathToFileURL(modulePath).href)};\n${body}`;
   return run(['--input-type=module', '-e', source], {
     BRAINSTRIKE_VITEST_EVENT_LOOP_STALL_MS: '1000',
     ...env,
@@ -59,7 +60,10 @@ describe('vitest event-loop watchdog', () => {
       while (Date.now() < end) { /* blocked event loop */ }
     `);
 
-    expect(result.signal).toBe('SIGKILL');
+    // The worker is gone long before its 15 s spin ends, and not by a clean
+    // exit. How a self-kill is reported is the OS's business (POSIX: signal
+    // SIGKILL, no code; Windows: TerminateProcess, code 1, no signal).
+    expect(result.code).not.toBe(0);
     expect(result.elapsedMs).toBeLessThan(10_000);
     expect(result.stderr).toContain('event loop blocked');
     expect(result.stderr).toContain('probe.test.ts › spins in PGlite');

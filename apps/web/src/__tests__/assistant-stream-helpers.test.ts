@@ -1182,6 +1182,77 @@ describe('assistant-stream-helpers', () => {
     }
   });
 
+  it('releases a read parked on an idle upstream when the downstream closes', async () => {
+    mockOpenAiAssistantProvider();
+
+    let runtimeSignal: AbortSignal | undefined;
+    let upstreamCancelled = false;
+    const handlerFinished = Promise.withResolvers<void>();
+
+    const server = http.createServer((req, res) => {
+      req.resume();
+      void once(req, 'close').then(() => {
+        vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementationOnce(
+          async ({ signal }) => {
+            runtimeSignal = signal;
+            return (async function* stream() {})() as AsyncIterable<StreamChunk>;
+          }
+        );
+        // One small chunk, then an upstream that is merely quiet (a model
+        // still thinking): the pump writes the chunk and waits on its next read.
+        vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValueOnce(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              cancel() {
+                upstreamCancelled = true;
+              },
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('first'));
+              },
+            })
+          )
+        );
+        handleAssistantEndpoint(req, res, NORMAL_ASSISTANT_REQUEST_BODY).then(
+          handlerFinished.resolve,
+          handlerFinished.reject
+        );
+      });
+    });
+
+    try {
+      const port = await listenOnLoopback(server);
+      const request = http.request({
+        headers: {
+          'Content-Length': Buffer.byteLength(NORMAL_ASSISTANT_REQUEST_BODY),
+          'Content-Type': 'application/json',
+        },
+        host: '127.0.0.1',
+        method: 'POST',
+        path: '/api/assistant',
+        port,
+      });
+      request.on('error', () => {
+        // The client is intentionally destroyed while the response is streaming.
+      });
+      request.end(NORMAL_ASSISTANT_REQUEST_BODY);
+      const [response] = (await once(request, 'response')) as [http.IncomingMessage];
+      response.on('error', () => {
+        // ECONNRESET is expected after destroying the downstream response.
+      });
+      // The chunk reached the client, so the pump has already gone back to read.
+      await once(response, 'data');
+      response.destroy();
+      request.destroy();
+
+      await handlerFinished.promise;
+
+      expect(runtimeSignal?.aborted).toBe(true);
+      expect(upstreamCancelled).toBe(true);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it('sends enabled: true status when provider is enabled', async () => {
     mockOpenAiAssistantProvider();
 
