@@ -5,7 +5,7 @@ import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { expect } from '../fixtures/electron-fixture';
 import type { ElectronHarness } from '../fixtures/electron-harness';
-import { readHostThreadWorkspace, waitForAppHost, withAppHost } from './agent-host-log';
+import { readHostThreadWorkspace, waitForAppHost } from './agent-host-log';
 import { configureAssistantProvider } from './assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './context-explorer-locators';
 import { ensureAssistantShellVisible } from './layout-helpers';
@@ -85,18 +85,25 @@ export async function openDurableUiFixture(
   await ensureAssistantShellVisible(page);
   await waitForAppHost(page);
   const userDataDir = electron.getUserDataDir();
-  const listThreads = async (): Promise<string[]> =>
-    (await withAppHost(userDataDir, (client) => client.request('thread/list', {}))).threads.map(
-      (thread) => thread.threadId
-    );
-  const existing = new Set(await listThreads());
+  // The click's thread is the panel it activates. The launch opens a thread of its own first, and
+  // under load its panel and its host row can both appear after the click, so wait for that
+  // launch thread before clicking: the click's thread is then the next active one.
+  let previousThreadId: string | null = null;
+  await expect
+    .poll(async () => {
+      previousThreadId = await readActiveThreadId(page);
+      return previousThreadId;
+    })
+    .not.toBeNull();
   await page.getByTestId('assistant-new-thread-button').click();
-  let threadId: string | undefined;
+  let threadId: string | null = null;
   // The thread this click made is the active one once the host has stored its workspace.
   await expect
     .poll(async () => {
-      threadId = (await listThreads()).find((id) => !existing.has(id));
-      return threadId === undefined ? null : await readHostThreadWorkspace(userDataDir, threadId);
+      threadId = await readActiveThreadId(page);
+      return threadId === null || threadId === previousThreadId
+        ? null
+        : await readHostThreadWorkspace(userDataDir, threadId);
     })
     .not.toBeNull();
   if (!threadId) {
@@ -109,6 +116,16 @@ export async function openDurableUiFixture(
     rootPath,
     threadId,
   };
+}
+
+/** The thread of the one visible assistant thread panel, or null while none is shown. */
+async function readActiveThreadId(page: Page): Promise<string | null> {
+  const panels = page.locator('[data-testid^="assistant-thread-panel-"]:not([hidden])');
+  if ((await panels.count()) !== 1) {
+    return null;
+  }
+  const testId = await panels.getAttribute('data-testid');
+  return testId ? testId.slice('assistant-thread-panel-'.length) : null;
 }
 
 function folderRow(page: Page) {
