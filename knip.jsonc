@@ -323,10 +323,6 @@
         // Worker thread: src/host-state-index.ts starts the built file with
         // `new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST))`.
         "src/host-state-index-worker.ts",
-        // The Windows `--platform` module the integration suites hand the CLI by
-        // path (a platform-conditional knip cannot follow); it imports the
-        // children platform.
-        "__tests__/fixtures/process-platform-cooperative.mjs",
         // Recorders run by hand (`node <file> [output.json]`) to regenerate the
         // committed host-log fixtures the agent-host, assistant-ui and desktop
         // suites read.

@@ -19,26 +19,15 @@ import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost } from '../src/client.js';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '../src/protocol.js';
-import {
-  closeFixtureHost,
-  createFixtureCloseControl,
-  type FixtureCloseControl,
-  fixtureControlEnvironment,
-  removeFixtureRoot,
-} from './fixtures/cooperative-host-fixture.js';
+import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const cliPath = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const platformPath = fileURLToPath(
-  new URL(
-    process.platform === 'win32'
-      ? './fixtures/process-platform-cooperative.mjs'
-      : './fixtures/process-platform-children.mjs',
-    import.meta.url
-  )
+  new URL('./fixtures/process-platform-children.mjs', import.meta.url)
 );
 const exec = promisify(execFile);
 const STALE = /is stale or belongs to another run/u;
-const roots = new Map<string, FixtureCloseControl | undefined>();
+const roots = new Set<string>();
 const closers: (() => Promise<void>)[] = [];
 const CASES = {
   answer: {
@@ -82,17 +71,12 @@ const CASES = {
 type Decision = keyof typeof CASES;
 async function freshRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-at13-child-restart-'));
-  roots.set(root, process.platform === 'win32' ? createFixtureCloseControl(root) : undefined);
+  roots.add(root);
   return root;
 }
-function cli(root: string, tool: string, args: readonly string[]): Promise<unknown> {
-  const control = roots.get(root);
+function cli(root: string, tool: string | undefined, args: readonly string[]): Promise<unknown> {
   return exec(process.execPath, [cliPath, '--root', root, '--platform', platformPath, ...args], {
-    env: {
-      ...process.env,
-      ...(control ? fixtureControlEnvironment(control) : {}),
-      BRAINSTRIKE_CHILD_RESTART_TOOL: tool,
-    },
+    env: { ...process.env, BRAINSTRIKE_CHILD_RESTART_TOOL: tool },
     windowsHide: true,
   }).then(({ stdout }) => JSON.parse(stdout));
 }
@@ -120,14 +104,13 @@ async function owner(root: string): Promise<HostRecord> {
 async function released(root: string): Promise<void> {
   await expect.poll(() => RootLock.inspect(root)?.owner.released, { timeout: 30_000 }).toBe(true);
 }
+/** `host stop` is how a person ends a persistent host; it answers once the host released its root. */
 async function stop(root: string, host: HostRecord): Promise<void> {
   if (processStartTime(host.pid) === host.start) {
-    const control = roots.get(root);
-    if (control) {
-      await closeFixtureHost(host, control);
-    } else {
-      process.kill(host.pid, 'SIGTERM');
-    }
+    expect(await cli(root, undefined, ['host', 'stop'])).toEqual({
+      outcome: 'stopped',
+      rootReleased: true,
+    });
   }
   await expect.poll(() => processStartTime(host.pid)).not.toBe(host.start);
   await released(root);
@@ -145,7 +128,7 @@ afterEach(async (context) => {
   for (const close of closers.splice(0)) {
     await close();
   }
-  for (const [root] of roots) {
+  for (const root of roots) {
     const live = await owner(root).catch(() => undefined);
     if (live) {
       await stop(root, live);

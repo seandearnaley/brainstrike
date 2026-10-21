@@ -1,4 +1,4 @@
-import { type ChildProcess, execFile, fork, spawn } from 'node:child_process';
+import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -12,55 +12,23 @@ import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost, authenticateHostClient, type HostClient } from '../src/client.js';
 import { type HostEvent, HostLogRowSchema } from '../src/protocol.js';
 import { stdioConnection } from '../src/transports.js';
-import {
-  closeFixtureHost,
-  createFixtureCloseControl,
-  type FixtureCloseControl,
-  fixtureControlEnvironment,
-  removeFixtureRoot,
-} from './fixtures/cooperative-host-fixture.js';
+import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 import { observeFixtureChild, recordFixtureEvent } from './fixtures/owned-fixture-process.js';
 
 const cliPath = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const entryPath = fileURLToPath(new URL('../dist/process-entry.js', import.meta.url));
-const platformPath = fileURLToPath(
-  new URL(
-    process.platform === 'win32'
-      ? './fixtures/process-platform-cooperative.mjs'
-      : './fixtures/process-platform.mjs',
-    import.meta.url
-  )
-);
+const platformPath = fileURLToPath(new URL('./fixtures/process-platform.mjs', import.meta.url));
 const exec = promisify(execFile);
 const roots: string[] = [];
-const records: HostRecord[] = [];
+const records: { readonly owner: HostRecord; readonly root: string }[] = [];
 const clients: HostClient[] = [];
 const children: ChildProcess[] = [];
 const cliPids = new Map<string, number[]>();
-const controls = new Map<string, FixtureCloseControl>();
-const ownerControls = new Map<string, FixtureCloseControl>();
 const observations = new Map<ChildProcess, ReturnType<typeof observeFixtureChild>>();
-function environment(root: string): NodeJS.ProcessEnv {
-  const control = controls.get(root);
-  return { ...process.env, ...(control ? fixtureControlEnvironment(control) : {}) };
-}
-function spawnHost(
-  entry: string,
-  args: string[],
-  root: string,
-  stdio: 'pipe' | 'ignore'
-): ChildProcess {
-  if (process.platform === 'win32') {
-    return spawn(process.execPath, [entry, ...args], {
-      env: environment(root),
-      stdio: [stdio, stdio, stdio, 'ipc'],
-      windowsHide: true,
-    });
-  }
-  return fork(entry, args, {
-    env: environment(root),
-    execArgv: [],
+function spawnHost(entry: string, args: string[], stdio: 'pipe' | 'ignore'): ChildProcess {
+  return spawn(process.execPath, [entry, ...args], {
     stdio: [stdio, stdio, stdio, 'ipc'],
+    windowsHide: true,
   });
 }
 function observe(child: ChildProcess, stdout = true): ReturnType<typeof observeFixtureChild> {
@@ -89,19 +57,12 @@ async function receipt(name: string, value: unknown): Promise<void> {
 async function freshRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-process-'));
   roots.push(root);
-  if (process.platform === 'win32') {
-    controls.set(root, createFixtureCloseControl(root));
-  }
   return root;
 }
 async function record(root: string): Promise<HostRecord> {
   const value = decodeHostRecord(JSON.parse(await readFile(join(root, 'host.json'), 'utf8')));
-  if (!records.some((item) => item.pid === value.pid && item.start === value.start)) {
-    records.push(value);
-  }
-  const control = controls.get(root);
-  if (control) {
-    ownerControls.set(`${value.pid}:${value.start}`, control);
+  if (!records.some(({ owner }) => owner.pid === value.pid && owner.start === value.start)) {
+    records.push({ owner: value, root });
   }
   recordFixtureEvent('observed-host-owner', {
     identity: { executable: process.execPath, pid: value.pid, start: value.start },
@@ -114,7 +75,7 @@ async function cli(root: string, args: string[], tool?: string): Promise<unknown
     process.execPath,
     [cliPath, '--root', root, '--platform', platformPath, ...args],
     {
-      env: { ...environment(root), BRAINSTRIKE_M3_TEST_TOOL: tool },
+      env: { ...process.env, BRAINSTRIKE_M3_TEST_TOOL: tool },
       windowsHide: true,
     }
   );
@@ -137,17 +98,10 @@ async function released(root: string): Promise<void> {
   await expect.poll(() => RootLock.inspect(root)?.owner.released).toBe(true);
   await expect(readFile(join(root, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
 }
-async function stopHost(owner: HostRecord): Promise<void> {
+/** `host stop` is how a person ends a persistent host; it answers once the host released its root. */
+async function stopHost(root: string, owner: HostRecord): Promise<void> {
   if (processStartTime(owner.pid) === owner.start) {
-    if (process.platform === 'win32') {
-      const control = ownerControls.get(`${owner.pid}:${owner.start}`);
-      if (!control) {
-        throw new Error('Missing owned Windows host fixture control');
-      }
-      await closeFixtureHost(owner, control);
-    } else {
-      process.kill(owner.pid, 'SIGTERM');
-    }
+    expect(await cli(root, ['host', 'stop'])).toEqual({ outcome: 'stopped', rootReleased: true });
   }
   await gone(owner);
 }
@@ -195,9 +149,9 @@ async function event<T extends HostEvent['type']>(
 }
 afterEach(async (context) => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
-  // Join persistent owners cooperatively before disposing their observation pipes.
-  for (const owner of records.splice(0)) {
-    await stopHost(owner);
+  // Stop persistent owners before disposing their observation pipes.
+  for (const { owner, root } of records.splice(0)) {
+    await stopHost(root, owner);
   }
   for (const child of children.splice(0)) {
     if (child.exitCode === null && child.signalCode === null) {
@@ -213,8 +167,6 @@ afterEach(async (context) => {
     }
     await removeFixtureRoot(root);
   }
-  controls.clear();
-  ownerControls.clear();
   observations.clear();
 });
 test('ordinary CLI starts a separate persistent host, reuses it after client loss and Stop joins a real child', async () => {
@@ -292,7 +244,7 @@ test('ordinary CLI starts a separate persistent host, reuses it after client los
   expect(() => process.kill(nativePid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
   expect((await event(client, threadId, 'run.finished')).outcome).toBe('stopped');
   await client.close();
-  await stopHost(owner);
+  await stopHost(root, owner);
   await released(root);
   expect((await readFile(join(root, 'fixture-platform-closed'), 'utf8')).trim()).toBe(
     String(owner.pid)
@@ -348,7 +300,7 @@ test('CLI-owned run survives its client, restarts a fresh host at the committed 
   const approval = await event(client, threadId, 'interaction.requested');
   await client.close();
   expect(processStartTime(first.pid)).toBe(first.start);
-  await stopHost(first);
+  await stopHost(root, first);
   await released(root);
   await cli(root, [
     'interaction',
@@ -407,7 +359,6 @@ test('a plain Node process serves the same authenticated schema through a symlin
   const child = spawnHost(
     alias,
     [JSON.stringify({ lifetime: 'persistent', root }), platformPath, 'stdio'],
-    root,
     'pipe'
   );
   children.push(child);
@@ -467,7 +418,7 @@ test('a plain Node process serves the same authenticated schema through a symlin
   expect(socketRows.some((row) => row.event.type === 'effect.started')).toBe(false);
   await stdio.close();
   await socket.close();
-  await stopHost(owner);
+  await stopHost(root, owner);
   await released(root);
   await receipt('stdio-socket', {
     hostPid: owner.pid,
@@ -497,7 +448,6 @@ test('a losing standalone root contender never constructs a second platform or d
   const contender = spawnHost(
     entryPath,
     [JSON.stringify({ lifetime: 'persistent', root }), platformPath],
-    root,
     'ignore'
   );
   children.push(contender);
@@ -518,6 +468,6 @@ test('a losing standalone root contender never constructs a second platform or d
   });
   expect(await record(root)).toEqual(owner);
   expect(processStartTime(owner.pid)).toBe(owner.start);
-  await stopHost(owner);
+  await stopHost(root, owner);
   await released(root);
 });
