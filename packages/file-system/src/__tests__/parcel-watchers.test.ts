@@ -15,11 +15,7 @@ import {
   selectParcelBackend,
 } from '../adapters/parcel-backend.js';
 import { classifyParcelWatchFailure } from '../adapters/parcel-watch-failure.js';
-import {
-  PARCEL_SUBSCRIBE_TIMEOUT_MS,
-  ParcelSubscribeTimeoutError,
-  startParcelWatch,
-} from '../adapters/parcel-watchers.js';
+import { startJoinedParcelWatch, startParcelWatch } from '../adapters/parcel-watchers.js';
 import type { DirectoryHandle, FileSystemChange } from '../types.js';
 
 type SubscribeCallback = (
@@ -595,32 +591,23 @@ describe('startParcelWatch', () => {
     stop();
   });
 
-  it('rejects with a typed timeout error when subscribe hangs, then cleans up late resolution', async () => {
-    expect(PARCEL_SUBSCRIBE_TIMEOUT_MS).toBe(10_000);
-    const late: { resolve: (() => void) | null } = { resolve: null };
-    const unsubscribed = vi.fn(() => Promise.resolve());
-    const module = {
-      subscribe: () =>
-        new Promise((resolve) => {
-          late.resolve = () => {
-            resolve({ unsubscribe: unsubscribed });
-          };
-        }),
-    } as unknown as ParcelWatcherModule;
-
-    await expect(
-      startParcelWatch(makeHandle(root), collect, {
-        loadModule: () => Promise.resolve(module),
-        subscribeTimeoutMs: 30,
-      })
-    ).rejects.toBeInstanceOf(ParcelSubscribeTimeoutError);
-
-    // The hung promise resolving later must be unsubscribed, not leaked.
-    expect(late.resolve).not.toBeNull();
-    late.resolve?.();
-    await vi.waitFor(() => {
-      expect(unsubscribed).toHaveBeenCalledTimes(1);
+  it('awaits its beforeSubscribe seam before the native subscribe starts', async () => {
+    const fake = createFakeBinding();
+    const subscribe = vi.spyOn(fake.module, 'subscribe');
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    const watching = startParcelWatch(makeHandle(root), collect, {
+      beforeSubscribe: () => gate,
+      loadModule: () => Promise.resolve(fake.module),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(subscribe).not.toHaveBeenCalled();
+    release?.();
+    const stop = await watching;
+    expect(subscribe).toHaveBeenCalledOnce();
+    stop();
   });
 
   it('returns an idempotent disposer that unsubscribes exactly once', async () => {
@@ -769,21 +756,57 @@ describe('startParcelWatch', () => {
     expect(classifyParcelWatchFailure(backend, new Error(message))).toBe('backend-error');
   });
 
-  it('emits failed with a structured failure when subscribe times out', async () => {
+  // Lifecycle redesign PR D: a slow native subscribe is joined; health stays `starting` until it settles.
+  it('joins a subscribe slower than any former deadline and reports starting, then healthy', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let subscribed = false;
+      const unsubscribe = vi.fn(() => Promise.resolve());
+      const module = {
+        subscribe: () => {
+          subscribed = true;
+          return new Promise((resolve) => {
+            setTimeout(() => resolve({ unsubscribe }), 12_000);
+          });
+        },
+      } as unknown as ParcelWatcherModule;
+      const health: import('../types.js').WatcherHealthTransition[] = [];
+      const watching = startJoinedParcelWatch(makeHandle(root), collect, {
+        loadModule: () => Promise.resolve(module),
+        onHealth: (event) => health.push(event),
+      });
+      watching.catch(() => undefined);
+      // Only setTimeout is faked: setImmediate lets the real realpath and binding load settle.
+      while (!subscribed) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await vi.advanceTimersByTimeAsync(11_999);
+      expect(health.map((event) => event.state)).toEqual(['starting']);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const stop = await watching;
+      expect(health.map((event) => event.state)).toEqual(['starting', 'healthy']);
+      await stop();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('emits failed with a structured failure when the native subscribe rejects', async () => {
     const module = {
-      subscribe: () => new Promise(() => undefined),
+      subscribe: () => Promise.reject(new Error('native subscribe refused')),
     } as unknown as ParcelWatcherModule;
     const health: import('../types.js').WatcherHealthTransition[] = [];
     await expect(
       startParcelWatch(makeHandle(root), collect, {
         loadModule: () => Promise.resolve(module),
         onHealth: (event) => health.push(event),
-        subscribeTimeoutMs: 30,
       })
-    ).rejects.toBeInstanceOf(ParcelSubscribeTimeoutError);
+    ).rejects.toThrow('native subscribe refused');
     expect(health.map((event) => event.state)).toEqual(['starting', 'failed']);
     expect(health[1]?.failure).toMatchObject({
-      code: 'subscribe-timeout',
+      code: 'subscribe-failed',
       retryable: true,
       terminal: false,
     });

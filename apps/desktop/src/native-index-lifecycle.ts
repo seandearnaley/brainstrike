@@ -77,6 +77,8 @@ export type NativeIndexState =
       readonly from: number;
       readonly generation: number;
       readonly settings: NativeIndexSettings;
+      /** The failure an automatic or Retry re-open of these settings is retrying, kept visible. */
+      readonly retrying?: Extract<NativeIndexCause, { readonly kind: 'source-failure' }>;
     }
   | { readonly kind: 'ready'; readonly generation: number; readonly settings: NativeIndexSettings }
   | {
@@ -277,11 +279,19 @@ function failure(
   };
 }
 
-/** Only the generation that failed reopens; a later save or close already superseded it. */
+/**
+ * Only the generation that failed reopens; a later save or close already superseded it. The
+ * re-opening generation keeps the failure it retries, so status names it until the open settles
+ * (smoke45: a re-open that outlasted a status poll reported no cause).
+ */
 function reopen(state: NativeIndexState, generation: number): NativeIndexTransition {
-  return state.kind === 'failed' && state.generation === generation
-    ? settingsSaved(state, state.settings)
-    : unchanged(state);
+  if (!(state.kind === 'failed' && state.generation === generation)) {
+    return unchanged(state);
+  }
+  const transition = settingsSaved(state, state.settings);
+  return transition.state.kind === 'transitioning'
+    ? { ...transition, state: { ...transition.state, retrying: state.cause } }
+    : transition;
 }
 
 function opened(state: NativeIndexState, generation: number): NativeIndexTransition {

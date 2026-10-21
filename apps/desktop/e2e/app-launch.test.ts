@@ -197,9 +197,11 @@ test.describe('Electron App Launch', () => {
   });
 });
 
-// Drive the public preload ports continuously, as background indexing does.
-// This pins app-owned shutdown ordering without substituting a mocked host.
-test('joins renderer IPC producers before closing their hosts @smoke', async ({
+// Drive the public preload ports continuously, as background indexing does. Quit joins only
+// the document's durable writers (ADR-0026 R1), never these producers: they run until their
+// window closes, which quit does before it retires any host they call. Observed: every read
+// they issue after quit starts still succeeds, so none is refused and none fails.
+test('renderer IPC producers are not joined at quit: they run until their window closes and the app exits 0 with no error record @smoke', async ({
   electron,
 }, testInfo) => {
   const page = await electron.ensureWindow();
@@ -231,7 +233,9 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
         await Promise.all([
           catalog.read().then((result) => {
             if (!result.ok) {
-              throw new Error(result.error.message);
+              throw new Error(
+                `${result.error.category}/${result.error.code}: ${result.error.message}`
+              );
             }
             return result.value;
           }),
@@ -263,6 +267,12 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
   expect(ownedProcess.exitCode).toBe(0);
   expect(ownedProcess.signalCode).toBeNull();
   expect(producerErrors).toEqual([]);
+  const errorRecords = log
+    .split('\n')
+    .filter((line) => line.startsWith('{'))
+    .map((line) => JSON.parse(line) as { level?: number; msg?: string })
+    .filter((record) => (record.level ?? 0) >= 50);
+  expect(errorRecords).toEqual([]);
   expect(log).not.toContain('chunking-host lifecycle has been disposed');
   expect(log).not.toContain('Chunking host is not running (state: stopped)');
   expect(log).not.toContain('DB host manager is closing');

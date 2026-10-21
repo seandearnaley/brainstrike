@@ -2,7 +2,7 @@
 import { PassThrough } from 'node:stream';
 import { authenticateHostClient } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION, parseHostParams } from '@brainstrike/agent-host/protocol';
-import { registerRendererClosePreparation } from '@brainstrike/app-state/renderer-close';
+import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import {
   EMPTY_WORKSPACE_SNAPSHOT,
   WORKSPACE_MEMORY_RESOURCE_ID,
@@ -75,7 +75,7 @@ test('joins an admitted workspace save ACK before closing the frame host connect
     () => events.push('save-ack'),
     () => events.push('save-rejected')
   );
-  const unregister = registerRendererClosePreparation(async () => await save);
+  const unregister = registerDurableFlush(async () => await save);
   let prepare: (() => Promise<void>) | undefined;
   Object.assign(window, {
     agentHost: {

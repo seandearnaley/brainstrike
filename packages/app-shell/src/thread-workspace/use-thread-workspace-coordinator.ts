@@ -4,7 +4,7 @@ import {
 } from '@brainstrike/app-state/factory-reset';
 import {
   hasRendererClosePreparationStarted,
-  registerRendererClosePreparation,
+  registerDurableFlush,
 } from '@brainstrike/app-state/renderer-close';
 import { isBoundaryRefusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
@@ -393,23 +393,35 @@ export function useThreadWorkspaceCoordinator({
   const resetPreparedRef = useRef(hasFactoryResetPreparationStarted());
   const closePreparedRef = useRef(hasRendererClosePreparationStarted());
   const pendingOperationsRef = useRef(new Set<Promise<unknown>>());
+  /** The admitted snapshot writes: an unload joins these, never a read. */
+  const pendingWritesRef = useRef(new Set<Promise<unknown>>());
   const repository = useMemo<ThreadWorkspaceRepository | null>(() => {
     if (!sourceRepository) {
       return null;
     }
-    const track = <T>(pending: Promise<T>): Promise<T> => {
-      pendingOperationsRef.current.add(pending);
+    const track = <T>(pending: Promise<T>, ...sets: Set<Promise<unknown>>[]): Promise<T> => {
+      for (const set of sets) {
+        set.add(pending);
+      }
       const settled = () => {
-        pendingOperationsRef.current.delete(pending);
+        for (const set of sets) {
+          set.delete(pending);
+        }
       };
       void pending.then(settled, settled);
       return pending;
     };
     return {
-      getThreadWorkspace: (threadId) => track(sourceRepository.getThreadWorkspace(threadId)),
-      getThreadWorkspaces: (threadIds) => track(sourceRepository.getThreadWorkspaces(threadIds)),
+      getThreadWorkspace: (threadId) =>
+        track(sourceRepository.getThreadWorkspace(threadId), pendingOperationsRef.current),
+      getThreadWorkspaces: (threadIds) =>
+        track(sourceRepository.getThreadWorkspaces(threadIds), pendingOperationsRef.current),
       setThreadWorkspace: (threadId, ownerId, snapshot) =>
-        track(sourceRepository.setThreadWorkspace(threadId, ownerId, snapshot)),
+        track(
+          sourceRepository.setThreadWorkspace(threadId, ownerId, snapshot),
+          pendingOperationsRef.current,
+          pendingWritesRef.current
+        ),
     };
   }, [sourceRepository]);
   const prepareReset = useEffectEvent(async () => {
@@ -456,11 +468,14 @@ export function useThreadWorkspaceCoordinator({
     }
     logFailure(message, error, { threadId });
   });
-  const prepareClose = useEffectEvent(async () => {
+  // Document unload (ADR-0026 R1): send the one dirty snapshot, then join the writes this owner
+  // admitted until none is pending, so a write a hydration read admits while the flush waits is
+  // joined too. Reads are not durable and are never joined.
+  const flush = useEffectEvent(async () => {
     closePreparedRef.current = true;
-    const flush = saveTimerRef.current !== null;
+    const dirty = saveTimerRef.current !== null;
     clearWorkspaceSaveTimer(saveTimerRef);
-    if (flush && repository && activeThreadId !== null && !resetPreparedRef.current) {
+    if (dirty && repository && activeThreadId !== null && !resetPreparedRef.current) {
       const snapshot = captureWorkspaceSnapshot(facadeRef.current);
       cacheRef.current.set(activeThreadId, snapshot);
       repository.setThreadWorkspace(activeThreadId, resourceId, snapshot).catch((error) => {
@@ -472,18 +487,16 @@ export function useThreadWorkspaceCoordinator({
       });
     }
     const failures: unknown[] = [];
-    // An admitted hydration can produce an inherited/live-edit save when its read settles.
-    while (pendingOperationsRef.current.size > 0) {
-      const results = await Promise.allSettled([...pendingOperationsRef.current]);
-      failures.push(
-        ...results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
-      );
+    while (pendingWritesRef.current.size > 0) {
+      const results = await Promise.allSettled([...pendingWritesRef.current]);
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          failures.push(result.reason);
+        }
+      }
     }
     if (failures.length > 0) {
-      throw new AggregateError(
-        failures,
-        'Thread workspace operations failed during close preparation'
-      );
+      throw new AggregateError(failures, 'Thread workspace snapshot writes failed before unload');
     }
   });
   useEffect(() => {
@@ -491,7 +504,7 @@ export function useThreadWorkspaceCoordinator({
       closePreparedRef.current = true;
       return;
     }
-    return registerRendererClosePreparation(prepareClose);
+    return registerDurableFlush(flush);
   }, []);
   // Before workspace effects: later effects in this hook read facadeRef, and
   // same-commit effect order is declaration order.

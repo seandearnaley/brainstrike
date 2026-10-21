@@ -4,11 +4,7 @@ import type { Stats } from 'node:fs';
 import fs from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ParcelWatcherModule } from '../adapters/parcel-backend.js';
-import {
-  ParcelSubscribeTimeoutError,
-  ParcelWatchRetirementError,
-  startJoinedParcelWatch,
-} from '../adapters/parcel-watchers.js';
+import { startJoinedParcelWatch } from '../adapters/parcel-watchers.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -89,8 +85,8 @@ describe('joined Parcel producer retirement', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
 
-  it('retains failed retirement of a late timed-out subscription with an explicit retry owner', async () => {
-    vi.useFakeTimers();
+  // Lifecycle R2: a slow native subscribe is joined, never failed by a clock.
+  it('joins a late acquisition: health stays starting, and the subscription it owns retires', async () => {
     vi.spyOn(fs.promises, 'realpath').mockResolvedValue('/workspace');
     let acquire: ((subscription: { unsubscribe: () => Promise<void> }) => void) | undefined;
     const held = new Promise<{ unsubscribe: () => Promise<void> }>((resolve) => {
@@ -107,37 +103,23 @@ describe('joined Parcel producer retirement', () => {
     const starting = startJoinedParcelWatch(
       { kind: 'directory', name: 'workspace', path: '/workspace', platform: 'electron' },
       vi.fn(),
-      { loadModule: async () => binding, onHealth: health, subscribeTimeoutMs: 1 }
-    ).then(
-      () => {
-        throw new Error('Expected timed-out startup failure');
-      },
-      (error: unknown) => {
-        settled = true;
-        return error;
-      }
-    );
+      { loadModule: async () => binding, onHealth: health }
+    ).finally(() => {
+      settled = true;
+    });
     await vi.waitFor(() => expect(binding.subscribe).toHaveBeenCalledOnce());
-    await vi.advanceTimersByTimeAsync(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(settled).toBe(false);
-    expect(health).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'failed' }));
-    const unsubscribe = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('Late unsubscribe failed'))
-      .mockResolvedValueOnce(undefined);
+    expect(health).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'starting' }));
+    const unsubscribe = vi.fn(() => Promise.resolve());
     acquire?.({ unsubscribe });
-    const failure = await starting;
-    expect(failure).toBeInstanceOf(ParcelWatchRetirementError);
-    if (!(failure instanceof ParcelWatchRetirementError)) {
-      throw new Error('Expected physical retirement owner');
-    }
-    await failure.retire();
-    await failure.retire();
-    expect(unsubscribe).toHaveBeenCalledTimes(2);
+    const retire = await starting;
+    expect(health).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'healthy' }));
+    await retire();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
-  it('joins admitted event work after late acquisition rejection without inventing a cleanup retry owner', async () => {
-    vi.useFakeTimers();
+  it('joins admitted event work before a rejected acquisition fails, owning no subscription', async () => {
     vi.spyOn(fs.promises, 'realpath').mockResolvedValue('/workspace');
     let callback: Parameters<ParcelWatcherModule['subscribe']>[1] | undefined;
     let rejectAcquisition: ((error: unknown) => void) | undefined;
@@ -160,11 +142,12 @@ describe('joined Parcel producer retirement', () => {
       unsubscribe: vi.fn(),
       writeSnapshot: vi.fn(),
     };
+    const health = vi.fn();
     let settled = false;
     const starting = startJoinedParcelWatch(
       { kind: 'directory', name: 'workspace', path: '/workspace', platform: 'electron' },
       vi.fn(),
-      { loadModule: async () => binding, subscribeTimeoutMs: 1000 }
+      { loadModule: async () => binding, onHealth: health }
     ).then(
       () => {
         throw new Error('Expected failed acquisition');
@@ -177,23 +160,18 @@ describe('joined Parcel producer retirement', () => {
     await vi.waitFor(() => expect(binding.subscribe).toHaveBeenCalledOnce());
     callback?.(null, [{ path: '/workspace/a.ts', type: 'update' }]);
     await vi.waitFor(() => expect(stat).toHaveBeenCalledOnce());
-    await vi.advanceTimersByTimeAsync(1000);
-    const acquisitionFailure = new Error('Late native acquisition refused.');
+    const acquisitionFailure = new Error('Native acquisition refused.');
     rejectAcquisition?.(acquisitionFailure);
-    await vi.advanceTimersByTimeAsync(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     try {
       expect(settled).toBe(false);
     } finally {
       releaseStat?.({ isDirectory: () => false } as Stats);
     }
-    const failure = await starting;
-    expect(failure).not.toBeInstanceOf(ParcelWatchRetirementError);
-    expect(failure).not.toHaveProperty('retire');
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) {
-      throw new Error('Expected complete startup error evidence');
-    }
-    expect(failure.errors).toEqual([expect.any(ParcelSubscribeTimeoutError), acquisitionFailure]);
+    expect(await starting).toBe(acquisitionFailure);
+    expect(health).toHaveBeenLastCalledWith(
+      expect.objectContaining({ failure: expect.objectContaining({ code: 'subscribe-failed' }) })
+    );
     expect(binding.unsubscribe).not.toHaveBeenCalled();
   });
 });

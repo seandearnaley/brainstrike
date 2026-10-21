@@ -53,7 +53,7 @@ function line() {
 const rootId = 'generated-root';
 const port = await openIndexer(
   { dbPath, embedding: { indexMode: 'text-only' }, rootIds: [rootId] },
-  { closeMs: 5000, exitMs: 5000, requestMs: 30_000, startupMs: 30_000 }
+  { closeMs: 5000, exitMs: 5000 }
 );
 // Lines whose lowercase gains ASCII letters (U+0130 -> i, U+212A -> k) or that
 // only a Unicode-aware fold equates; the differential patterns target them.

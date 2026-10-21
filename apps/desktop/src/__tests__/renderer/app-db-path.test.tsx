@@ -95,6 +95,7 @@ vi.mock('../../renderer/agent-host-client', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('agentHost', { onPrepareClose: vi.fn(() => () => undefined) });
+  vi.stubGlobal('desktopLifecycle', { requestReload: vi.fn(async () => undefined) });
   const existing = document.getElementById('root');
   if (existing) {
     existing.remove();

@@ -9,7 +9,7 @@ import { openConnection } from '@brainstrike/sqlite-native';
 import { largeText, StateStore, type StateStoreHooks } from '@brainstrike/state-store';
 import { expect, it } from 'vitest';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const secret = 'uniquequartzcanary';
 function isFileList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((file: unknown) => typeof file === 'string');

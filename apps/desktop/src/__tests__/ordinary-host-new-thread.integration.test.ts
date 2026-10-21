@@ -110,7 +110,7 @@ test(
         embedding: { indexMode: 'text-only' },
         rootIds: ['owned-root'],
       },
-      { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+      { closeMs: 5000, exitMs: 5000 }
     );
     const configuredServerId = parseConfiguredMcpServerId('fixture.ordinary');
     let host: Awaited<ReturnType<typeof startAgentHost>> | undefined;

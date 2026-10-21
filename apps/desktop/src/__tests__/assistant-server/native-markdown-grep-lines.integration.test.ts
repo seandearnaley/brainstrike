@@ -98,7 +98,7 @@ it('reports each markdown hit on its source line, once, through the real index a
       rootIds: ['root'],
       scopes: [collection, workspace],
     },
-    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 },
+    { closeMs: 5000, exitMs: 5000 },
     {
       kill: () => child.kill(),
       onError: (listener) => {

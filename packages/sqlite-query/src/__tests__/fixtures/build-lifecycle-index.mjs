@@ -15,7 +15,7 @@ const [dbPath, mode] = process.argv.slice(2);
 const rootIds = ['proof-root', 'runaway-root', 'wide-root'];
 const port = await openIndexer(
   { dbPath, embedding: { indexMode: 'text-only' }, rootIds },
-  { closeMs: 5000, exitMs: 5000, requestMs: 30_000, startupMs: 30_000 }
+  { closeMs: 5000, exitMs: 5000 }
 );
 const commit = async (rootId, fileId, relativePath, content) => {
   const plan = await port.prepareFile({ chunkLines: 1, content, fileId, relativePath, rootId });

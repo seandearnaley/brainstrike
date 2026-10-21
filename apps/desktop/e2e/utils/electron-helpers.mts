@@ -965,7 +965,36 @@ export async function noteRendererReloadIntent(page: Page, reason: string): Prom
   }, reason);
 }
 
+/**
+ * Reloads the page the way the app does (`desktopLifecycle.requestReload`): Main flushes the
+ * document's durable writers, then replaces it (ADR-0026 R1). A test that reloads after a change
+ * therefore keeps what a user's reload keeps.
+ */
 export async function reloadRenderer(page: Page, reason: string): Promise<void> {
+  const navigated = page.waitForEvent('framenavigated', {
+    predicate: (frame) => frame === page.mainFrame(),
+  });
+  await page.evaluate(async (reloadReason: string) => {
+    const lifecycle = (
+      window as Window & {
+        desktopLifecycle?: { requestReload?: (reason: string) => Promise<void> };
+      }
+    ).desktopLifecycle;
+    if (!lifecycle?.requestReload) {
+      throw new Error('desktopLifecycle.requestReload is unavailable');
+    }
+    await lifecycle.requestReload(reloadReason);
+  }, reason);
+  await navigated;
+  await waitForAppReady(page);
+}
+
+/**
+ * Replaces the document WITHOUT flushing it, for the harness's state reset only: like Factory
+ * Reset, a reset must not let the old document write its stale state back into the profile it
+ * just cleared (`resetAppState`). Every other reload goes through `reloadRenderer`.
+ */
+export async function reloadClearedRenderer(page: Page, reason: string): Promise<void> {
   await noteRendererReloadIntent(page, reason);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);

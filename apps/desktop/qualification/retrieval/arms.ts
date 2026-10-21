@@ -35,7 +35,7 @@ export type GrepPools =
 export type ArmSearch = (arm: RetrievalArm, query: string, limit: number) => Promise<CandidatePool>;
 
 /** The recorded measurement's explicit deadlines, with room for the full corpus. */
-const DEADLINES = { closeMs: 5000, exitMs: 5000, requestMs: 60_000, startupMs: 60_000 };
+const DEADLINES = { closeMs: 5000, exitMs: 5000 };
 
 export interface NativeCorpus {
   /** Native chunk IDs by `relativePath:chunkIndex:contentHash`. */

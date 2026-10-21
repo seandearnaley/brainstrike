@@ -29,12 +29,13 @@ if (!entryPath) {
   throw new Error('Indexer proof entry is required.');
 }
 const mode = process.env['BRAINSTRIKE_INDEXER_PROOF_MODE'];
+// Only the close ladder has clocks (lifecycle R5(b)); startup and requests have none.
 const deadlines = {
-  closeMs: mode === 'close' ? 150 : 5000,
+  closeMs: mode === 'close' || mode === 'startup' ? 150 : 5000,
   exitMs: 1000,
-  requestMs: mode === 'request' ? 150 : 5000,
-  startupMs: mode === 'startup' ? 150 : 5000,
 };
+/** Past every former startup or request deadline (150 ms in these modes). */
+const pastFormerDeadline = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 300));
 async function run(): Promise<void> {
   await app.whenReady();
   const { openIndexer } = await import('@brainstrike/indexer');
@@ -69,8 +70,18 @@ async function run(): Promise<void> {
           mode === 'positive' ? undefined : entryPath
         );
   if (mode === 'startup') {
-    await assert.rejects(manager.start(), /startup exceeded/);
+    // A utility that never reports ready is waited for, not retired by a clock (R3);
+    // close escalates its unanswered cooperative close to a kill and joins the exit (R5(b)).
+    const starting = manager.start().then(
+      () => 'ready',
+      (error: unknown) => error
+    );
+    await pastFormerDeadline();
+    assert.equal(manager.exited, false);
+    // The escalation is not a failure: the kill is ours and its exit is joined.
     await manager.close();
+    assert.equal(manager.exited, true);
+    assert.ok((await starting) instanceof Error);
     await assert.rejects(manager.start(), /closed/);
     return;
   }
@@ -112,16 +123,25 @@ async function run(): Promise<void> {
     // The retained old owner was explicitly joined before fresh-host recovery below.
   }
   if (mode === 'request') {
-    await assert.rejects(
-      port.search({ limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'sqlite' }),
-      /request exceeded/
-    );
-    assert.equal(manager.exited, true);
+    // An unanswered request retires nothing (R2): the same utility keeps serving, and its
+    // exit at close is what ends the request.
+    const unanswered = port
+      .search({ limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'sqlite' })
+      .then(
+        () => 'answered',
+        (error: unknown) => error
+      );
+    await pastFormerDeadline();
+    assert.equal(manager.exited, false);
+    assert.equal((await port.info()).pid, info.pid);
     await manager.close();
+    assert.equal(manager.exited, true);
+    assert.ok((await unanswered) instanceof Error);
     return;
   }
   if (mode === 'close') {
-    await assert.rejects(manager.close(), /close failed/);
+    // An unanswered close escalates to one kill (R5(b)); the joined exit completes the close.
+    await manager.close();
     assert.equal(manager.exited, true);
     await manager.close();
     return;
