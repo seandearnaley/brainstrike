@@ -138,6 +138,11 @@ once on its own, then waits for the user's Reconnect; views rebind from the
 replacement's committed log. A send the lost host never answered is settled from
 that log (interrupted, or returned to the composer as not sent), never resent.
 
+A host's explicit `host.closing` refusal retires admission on that client
+connection for both host RPC and catalog commands. Earlier replies still join;
+later commands return the original refusal without sending into the retiring
+transport. Other failures do not imply this terminal state.
+
 Stop, deletion and host close fence admission and join provider, tool and memory
 work before releasing storage or Root. A terminal outcome does not prove physical
 retirement; failed joins remain visible and retain ownership. Live/replay details
