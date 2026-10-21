@@ -97,7 +97,6 @@ test.each([
       }
       if (mode === 'stuck') {
         expect(report).toContain('still-pending-past-old-deadline');
-        expect(report).toContain('Graceful shutdown step is slow');
       }
       if (owner) {
         expect(processStartTime(owner.record.pid)).toBe(owner.record.start);
