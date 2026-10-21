@@ -1,11 +1,5 @@
-/** Pure contracts for desktop persisted storage and layout preferences. */
+/** Pure contracts for desktop persisted storage and preferences. */
 import type { StorageAdapter } from '@brainstrike/storage';
-import type {
-  LayoutElectronAPI,
-  LayoutLoadResult,
-  LayoutPersistenceResult,
-  PanelPersistenceState,
-} from '@brainstrike/ui';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
   type AssertTrue,
@@ -45,14 +39,6 @@ function parseExactStringPair(
   };
 }
 
-function parsePanelLayout(raw: readonly unknown[]): [state: PanelPersistenceState] {
-  assertArgCount(raw, 1, 'layout save');
-  // The existing main handler owns the Zod validation and returns a structured
-  // LayoutPersistenceResult for invalid state. Preserve that public behavior;
-  // the contract only rejects an invalid positional tuple here.
-  return [raw[0] as PanelPersistenceState];
-}
-
 export const storageContract = {
   clear: rawChannel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.storage.clear,
@@ -77,19 +63,6 @@ export const storageContract = {
   setItem: rawChannel<[key: string, value: string], void>({
     channel: DESKTOP_IPC_CHANNELS.storage.setItem,
     parseArgs: parseExactStringPair('storage setItem'),
-    roles: ['visible-ui'],
-  }),
-} as const satisfies Contract;
-
-export const layoutContract = {
-  loadLayout: rawChannel<[], LayoutLoadResult>({
-    channel: DESKTOP_IPC_CHANNELS.preferences.layoutLoad,
-    parseArgs: parseExactNoArgs('layout load'),
-    roles: ['visible-ui'],
-  }),
-  saveLayout: rawChannel<[state: PanelPersistenceState], LayoutPersistenceResult>({
-    channel: DESKTOP_IPC_CHANNELS.preferences.layoutSave,
-    parseArgs: parsePanelLayout,
     roles: ['visible-ui'],
   }),
 } as const satisfies Contract;
@@ -123,8 +96,4 @@ export const vectorPreferencesContract = {
 /** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type StorageBridgeDerivationProof = AssertTrue<
   BridgeMatches<typeof storageContract, StorageAdapter>
->;
-/** @internal Compile-time assertion that the runtime contract matches its public wire types. */
-export type LayoutBridgeDerivationProof = AssertTrue<
-  BridgeMatches<typeof layoutContract, LayoutElectronAPI>
 >;

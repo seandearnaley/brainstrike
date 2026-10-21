@@ -12,7 +12,6 @@ import type {
   WatcherHealthEvent,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import type { LayoutElectronAPI } from '@brainstrike/ui';
 import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,
@@ -106,7 +105,7 @@ export interface DesktopFactoryResetBridge {
   readonly unavailableReason: string | undefined;
 }
 
-export interface VisibleDesktopElectronApi extends LayoutElectronAPI {
+export interface VisibleDesktopElectronApi {
   content: ContentClearCapability;
   factoryReset: DesktopFactoryResetBridge;
   fileSystem: DesktopFileSystemTransport;
@@ -233,8 +232,6 @@ const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
   'factoryReset',
   'fileSystem',
   'getUserDataPath',
-  'loadLayout',
-  'saveLayout',
   'storage',
 ]);
 const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
