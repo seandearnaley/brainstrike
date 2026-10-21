@@ -214,14 +214,13 @@ export async function startAgentHost(
             return;
           }
           const replyFinished = Promise.withResolvers<void>();
-          // Each dispatched message settles after its response write (BST-2174).
-          const dispatched = new Set<Promise<void>>();
           const retiring = new AbortController();
           let dispatchingMessage: Message | undefined;
           let shutdownMessage: Message | undefined;
           socket.once('close', () => replyFinished.resolve());
+          const reader = new StreamMessageReader(socket);
           const connection = createMessageConnection(
-            new StreamMessageReader(socket),
+            reader,
             new StreamMessageWriter(socket),
             undefined,
             {
@@ -235,11 +234,9 @@ export async function startAgentHost(
                   } finally {
                     dispatchingMessage = previous;
                   }
-                  dispatched.add(handled);
                   try {
                     await handled;
                   } finally {
-                    dispatched.delete(handled);
                     if (message === shutdownMessage) {
                       replyFinished.resolve();
                     }
@@ -262,11 +259,13 @@ export async function startAgentHost(
             ...clientCapabilities(),
           });
           socket.once('close', () => connection.dispose());
-          // Cancel, then join, the requests already admitted when retirement
-          // reaches this socket; later ones refuse as closing.
+          // The transport owns decoding, queued dispatch and response writes.
+          // A snapshot of dispatched requests misses closing refusals received
+          // while an older request joins (BST-2282).
           return async () => {
             retiring.abort();
-            await Promise.allSettled([...dispatched]);
+            await reader.drain();
+            await connection.drain();
           };
         },
         acquireRoot: async (retainRun) => {

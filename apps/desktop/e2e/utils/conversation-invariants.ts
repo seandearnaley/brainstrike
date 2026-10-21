@@ -75,7 +75,7 @@ function chunkOf(event: HostEvent): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** The host ledger's tool-call rule (`isHostToolCallChunk`): one per committed `tool-call` chunk. */
+/** Completed streams contain one tool-call chunk per call, also recorded in model.step. */
 function isToolCallChunk(event: HostEvent): boolean {
   return chunkOf(event)?.['type'] === 'tool-call';
 }

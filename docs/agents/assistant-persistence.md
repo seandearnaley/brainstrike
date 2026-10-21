@@ -16,6 +16,10 @@ storage decision; [StateStore](state-store.md) owns its physical lifecycle.
   shell slices and MCP progress are transient telemetry. Late subscribers receive
   bounded in-memory replay with ordinals and explicit omission notices; committed
   parts replace the overlay without duplicating it.
+- A model step and its approval interactions commit together. Tool-call counts
+  recognize the step's assistant calls before exposing its approvals. The stream
+  consumer commits independently; its copy of a call may arrive in either order.
+  Ledger and child cards count each `(runId, toolCallId)` once across both records.
 - Stop, terminal watchdog abort and orderly host shutdown preserve observed
   partial replies. An unclean process exit can lose uncommitted text; recovery
   records interruption. A replaced failed attempt contributes no partial reply.

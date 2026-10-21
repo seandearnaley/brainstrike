@@ -4,8 +4,9 @@ import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
-import { fromBoundaryResponseError, watchPeerReset } from './boundary-wire.js';
+import { watchPeerReset } from './boundary-wire.js';
 import { createHostCatalogClient, type HostCatalog } from './catalog/transport.js';
+import { sendHostRequest } from './client-request.js';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_CHILDREN_CHANGED,
@@ -52,15 +53,9 @@ async function sendTyped(
   method: string,
   send: () => Promise<unknown>
 ): Promise<unknown> {
-  try {
-    return await send();
-  } catch (cause) {
-    throw fromBoundaryResponseError(
-      cause,
-      (message, fields) => logger.error(message, { ...fields, method }),
-      connection
-    );
-  }
+  return await sendHostRequest(connection, send, (message, fields) =>
+    logger.error(message, { ...fields, method })
+  );
 }
 /** A result this client cannot read is logged, and its user sees the internal fault. */
 function readResult<M extends HostMethod>(method: M, result: unknown): HostResults[M] {

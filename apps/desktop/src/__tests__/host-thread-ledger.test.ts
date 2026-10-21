@@ -145,13 +145,27 @@ test("a mounted view's fold and Core's read reconcile by the later committed row
       row.event.type === 'stream.chunk' &&
       z.object({ type: z.string() }).parse(row.event.chunk).type === 'tool-call'
   );
-  if (!call) {
+  if (call?.event.type !== 'stream.chunk') {
     throw new Error('The recording has no streamed tool call');
   }
   const toolCalls = () =>
     ledger.getSnapshot().runs.reduce((total, run) => total + run.toolCallCount, 0);
   expect(toolCalls()).toBe(2);
-  source.publish([...rows, { ...call, seq: (rows.at(-1)?.seq ?? 0) + 1 }]);
+  const duplicate = { ...call, seq: (rows.at(-1)?.seq ?? 0) + 1 };
+  source.publish([...rows, duplicate]);
+  expect(toolCalls()).toBe(2);
+  const later = Schema.decodeUnknownSync(HostLogRowSchema)({
+    ...call,
+    event: {
+      ...call.event,
+      chunk: {
+        ...z.object({ type: z.string() }).passthrough().parse(call.event.chunk),
+        toolCallId: 'later-call',
+      },
+    },
+    seq: duplicate.seq + 1,
+  });
+  source.publish([...rows, duplicate, later]);
   expect(toolCalls()).toBe(3);
   // An older read of Core's ledger never replaces the view's later fold.
   ledger.seed([ledgerRead(threadId, rows)]);

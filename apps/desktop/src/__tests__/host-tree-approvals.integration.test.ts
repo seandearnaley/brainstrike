@@ -21,7 +21,8 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
 } from '@brainstrike/assistant-contract';
-import { afterEach, expect, test } from 'vitest';
+import { StateStore } from '@brainstrike/state-store';
+import { afterEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { respondToHostApproval } from '../renderer/host-approval-response';
 import { HostTreeApprovals } from '../renderer/host-tree-approvals';
@@ -102,6 +103,83 @@ async function delegatingHost(
   clients.push(client);
   return client;
 }
+
+test('the committed child approval already counts its call while the stream consumer is held', async () => {
+  const client = await delegatingHost([]);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const session = new CommittedThreadSession(client, threadId);
+  const tree = new HostTreeApprovals(client, threadId, session);
+  const leave = session.connect();
+  const release = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  const approval = Promise.withResolvers<void>();
+  const unsubscribe = tree.subscribe(() => {
+    if (tree.getSnapshot().length > 0) {
+      approval.resolve();
+    }
+  });
+  const append = StateStore.prototype.append;
+  const store = vi.spyOn(StateStore.prototype, 'append').mockImplementation(async function (
+    this: StateStore,
+    items,
+    ...options
+  ) {
+    if (
+      items.some(({ event }) => {
+        const chunk = event['chunk'];
+        return (
+          event.type === 'stream.chunk' &&
+          chunk !== null &&
+          typeof chunk === 'object' &&
+          'type' in chunk &&
+          chunk.type === 'tool-call' &&
+          'toolName' in chunk &&
+          chunk.toolName === 'write_file'
+        );
+      })
+    ) {
+      held.resolve();
+      await release.promise;
+    }
+    return append.call(this, items, ...options);
+  });
+  try {
+    await client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Delegate the notes',
+      threadId,
+    });
+    await Promise.all([held.promise, approval.promise]);
+    const waiting = tree.getSnapshot()[0];
+    expect(waiting).toBeDefined();
+    if (!waiting) {
+      throw new Error('No child approval');
+    }
+    // Both arrive on the child's one ordered log. Its model.step and approval
+    // committed together while the separate stream.chunk has not committed.
+    const { rows } = await client.request('thread/read', {
+      fromSeq: 0,
+      threadId: waiting.threadId,
+    });
+    expect(rows.some(({ event }) => event.type === 'model.step')).toBe(true);
+    expect(tree.read(waiting.threadId)).toEqual({ status: 'needs-input', toolCalls: 1 });
+    release.resolve();
+    // The later stream copy must not count the same tool call twice.
+    await client.request('run/stop', {
+      commandId: randomUUID(),
+      runId: waiting.approval.runId,
+      threadId: waiting.threadId,
+    });
+    expect(tree.read(waiting.threadId)?.toolCalls).toBe(1);
+  } finally {
+    release.resolve();
+    store.mockRestore();
+    unsubscribe();
+    await tree.close();
+    await leave();
+  }
+});
 
 test('a host thread’s tree shows its child’s approval by call sign until the child’s thread answers it', async () => {
   const writes: unknown[] = [];
