@@ -15,17 +15,6 @@ const execFileMock = vi.hoisted(() =>
   )
 );
 
-const windowsRunMock = vi.hoisted(() =>
-  vi.fn(async (_options: Record<string, unknown>) => ({
-    exitCode: 0,
-    stderr: '',
-    stdout: '',
-    timedOut: false,
-  }))
-);
-
-vi.mock('../git-command-windows', () => ({ runWindowsGitCommand: windowsRunMock }));
-
 vi.mock('node:child_process', async (importOriginal) => {
   const mod = await importOriginal<typeof import('node:child_process')>();
   return {
@@ -39,7 +28,6 @@ import { execFileGitRunner } from '../git-ipc-handlers';
 
 beforeEach(() => {
   execFileMock.mockClear();
-  windowsRunMock.mockClear();
 });
 
 describe('execFileGitRunner', () => {
@@ -51,9 +39,8 @@ describe('execFileGitRunner', () => {
       timeoutMs: 5000,
     });
 
-    const windows = process.platform === 'win32';
-    expect(windows ? windowsRunMock : execFileMock).toHaveBeenCalledTimes(1);
-    const options = windows ? windowsRunMock.mock.calls[0]?.[0] : execFileMock.mock.calls[0]?.[2];
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const options = execFileMock.mock.calls[0]?.[2];
     expect(options?.['env']).toMatchObject({
       GIT_INDEX_FILE: '/tmp/private.index',
       GIT_TERMINAL_PROMPT: '0',

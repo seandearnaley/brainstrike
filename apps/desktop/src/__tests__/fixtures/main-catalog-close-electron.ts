@@ -223,7 +223,6 @@ async function main(): Promise<void> {
         'factory-reset': step('factory-reset'),
         'file-system': step('file-system'),
         forge: step('forge'),
-        'git-commands': step('git-commands'),
         'git-inventory': step('git-inventory'),
         'main-catalog': step('main-catalog'),
         'mcp-runtime': step('mcp-runtime'),

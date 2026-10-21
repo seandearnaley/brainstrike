@@ -119,7 +119,6 @@ describe('desktop graceful shutdown', () => {
       'embedding-host',
       'git-inventory',
       'forge',
-      'git-commands',
       'database-drain',
     ]);
   });
@@ -268,7 +267,7 @@ describe('desktop graceful shutdown', () => {
     expect(planRun).toHaveBeenCalledTimes(1);
   });
 
-  it('a renderers step that takes 15 s still runs file-system, notes-vault and git-commands and exits 0', async () => {
+  it('a renderers step that takes 15 s still runs file-system and notes-vault and exits 0', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const { events, logger, options } = createHarness(
       { renderers: () => new Promise<void>((resolve) => setTimeout(resolve, 15_000)) },
@@ -280,7 +279,7 @@ describe('desktop graceful shutdown', () => {
     await running;
 
     expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
-    for (const physicalJoin of ['file-system', 'notes-vault', 'git-commands']) {
+    for (const physicalJoin of ['file-system', 'notes-vault']) {
       expect(events).toContain(`step:${physicalJoin}`);
     }
     expect(events.slice(-2)).toEqual([
@@ -301,20 +300,14 @@ describe('desktop graceful shutdown', () => {
       expect.objectContaining({
         steps: expect.arrayContaining([
           { elapsedMs: 15_000, failed: false, step: 'renderers' },
-          { elapsedMs: 0, failed: false, step: 'git-commands' },
+          { elapsedMs: 0, failed: false, step: 'notes-vault' },
         ]),
       })
     );
   });
 
   // The steps a 2-core Windows run found in flight when the old deadline forced exit 1.
-  it.each([
-    'snapshot-maintenance',
-    'main-catalog',
-    'native-index',
-    'forge',
-    'git-commands',
-  ] as const)(
+  it.each(['snapshot-maintenance', 'main-catalog', 'native-index', 'forge'] as const)(
     'a %s step that takes 15 s is joined, every later step runs, and nothing forces an exit',
     async (slow) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
