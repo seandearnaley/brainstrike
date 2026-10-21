@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { fromBoundaryResponseError } from '../boundary-wire.js';
+import { sendHostRequest } from '../client-request.js';
 
 const logger = createLogger('HostCatalogClient');
 export async function sendCatalogRequest(
@@ -8,13 +8,9 @@ export async function sendCatalogRequest(
   method: string,
   request: unknown
 ): Promise<unknown> {
-  try {
-    return await connection.sendRequest(method, request);
-  } catch (cause) {
-    throw fromBoundaryResponseError(
-      cause,
-      (message, fields) => logger.error(message, { ...fields, method }),
-      connection
-    );
-  }
+  return await sendHostRequest(
+    connection,
+    () => connection.sendRequest(method, request),
+    (message, fields) => logger.error(message, { ...fields, method })
+  );
 }

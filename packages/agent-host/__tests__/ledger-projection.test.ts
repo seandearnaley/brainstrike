@@ -63,6 +63,28 @@ const startedWith = (event: Record<string, unknown>): HostLogRow[] => {
   })({ ...first, event: { ...first.event, ...event } });
   return rows.map((row) => (row === first ? replaced : row));
 };
+test('a model step counts its calls before the stream copy arrives, without counting either twice', () => {
+  const calls = rows.filter(
+    ({ event }) =>
+      event.type === 'stream.chunk' &&
+      typeof event.chunk === 'object' &&
+      event.chunk !== null &&
+      !Array.isArray(event.chunk) &&
+      event.chunk['type'] === 'tool-call'
+  );
+  expect(calls).toHaveLength(2);
+  const committed = rows.filter((row) => !calls.includes(row));
+  const fold = new ThreadLedgerFold();
+  for (const row of committed) {
+    fold.apply(row);
+  }
+  expect(fold.read().runs.map((run) => run.toolCallCount)).toEqual([1, 1]);
+  for (const row of calls) {
+    fold.apply(row);
+  }
+  expect(fold.read().runs.map((run) => run.toolCallCount)).toEqual([1, 1]);
+});
+
 test('a committed log folds into ledger runs and per-call usage', () => {
   const { runs, usage } = folded(rows);
   expect(runs).toHaveLength(2);
