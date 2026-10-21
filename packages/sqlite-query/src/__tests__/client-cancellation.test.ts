@@ -1,6 +1,7 @@
 import { assertCoverageAuthority, fault } from '@brainstrike/indexer/coverage-reader';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  SQLITE_QUERY_EXIT_REPORT_MS,
   SqliteQueryClient,
   SqliteQueryDeadlineError,
   SqliteQueryProcessExitedError,
@@ -363,4 +364,67 @@ it('a late old-generation reply cannot settle a replacement with the same reques
   const closing = second.close();
   replacement.exit();
   await closing;
+});
+
+// Lifecycle redesign PR D (R5(b)): after its kill, close joins the exit however long it takes.
+it('joins an exit that arrives 6 s after the kill: close resolves and nothing is abandoned', async () => {
+  vi.useFakeTimers();
+  try {
+    const owner = reader();
+    const slowExits: number[] = [];
+    const opening = SqliteQueryClient.open({
+      databasePath: '/recorded/index.sqlite',
+      deadlineMs: 1000,
+      onSlowExit: (elapsedMs) => slowExits.push(elapsedMs),
+      spawn: () => owner.process,
+      startupDeadlineMs: 1000,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const client = await opening;
+    let settled = false;
+    const closing = client.close().finally(() => {
+      settled = true;
+    });
+    closing.catch(() => undefined);
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5999);
+    expect(settled).toBe(false);
+    // The late exit is reported once, at the report window, and still joined.
+    expect(slowExits).toEqual([SQLITE_QUERY_EXIT_REPORT_MS]);
+    owner.exit();
+    await expect(closing).resolves.toBeUndefined();
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// Lifecycle redesign PR D: background coverage opens with no deadline; only the exit ends it.
+it('a client opened with no deadline waits out a slow startup and read, and never stops its process', async () => {
+  vi.useFakeTimers();
+  try {
+    const owner = reader(false);
+    const opening = SqliteQueryClient.open({
+      databasePath: '/recorded/index.sqlite',
+      spawn: () => owner.process,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(owner.requests).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    owner.message({ id: owner.requests[0]?.id, kind: 'ready' });
+    const client = await opening;
+
+    const read = client.grep(options);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(owner.requests).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    owner.message(grepRows(owner.requests[1]?.id ?? 0));
+    expect(await read).toMatchObject({ rows: [['chunk-2']] });
+    expect(owner.process.kill).not.toHaveBeenCalled();
+    const closing = client.close();
+    owner.exit();
+    await closing;
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -381,12 +381,11 @@ test('VERDICT: the renderer source graph has no cycles', async () => {
 });
 
 test('the app overrides mirror what each vite config declares before the registry', () => {
-  // The guard resolves per app because the two renderers do NOT resolve
-  // @brainstrike/* identically — apps/web pins @brainstrike/file-explorer to
-  // dist, desktop does not. Review caught that a single shared alias set
-  // analysed a DIFFERENT module than the one that ships (file-tree-worker's
-  // Node entry instead of its browser-adapted src/vite.ts). This pins the
-  // mirror: an override added to a vite config and forgotten here fails.
+  // The guard resolves per app: each renderer has its own entrypoint and
+  // app-local aliases. Review caught that a single shared alias set analysed a
+  // DIFFERENT module than the one that ships (file-tree-worker's Node entry
+  // instead of its browser-adapted src/vite.ts). This pins the mirror: an
+  // override added to a vite config and forgotten here fails.
   const overridesFor = (configPath) => readFileSync(path.join(REPO_ROOT, configPath), 'utf8');
 
   for (const [configPath, expected] of [
@@ -404,21 +403,7 @@ test('the app overrides mirror what each vite config declares before the registr
     }
   }
 
-  // The one deliberate divergence, pinned so it stays deliberate. apps/web pins
-  // @brainstrike/file-explorer to dist for a RUNTIME worker-artifact reason;
-  // this guard must NOT mirror it, because dist is compiled output (wrong input
-  // for a source-cycle guard) and only exists after a build — mirroring it made
-  // the guard pass locally and fail in CI's Static job, which does not build.
-  assert.ok(
-    readFileSync(path.join(REPO_ROOT, 'apps/web/vite.config.mts'), 'utf8').includes(
-      'file-explorer/dist'
-    ),
-    'apps/web no longer pins @brainstrike/file-explorer to dist. The guard deliberately does not ' +
-      'mirror that pin; if the pin is gone, delete this assertion and the explanation beside ' +
-      'RENDERER_APPS so the divergence is not documented as live when it no longer is.'
-  );
-
-  // The second deliberate divergence. The web BUILD resolves
+  // The deliberate divergence. The web BUILD resolves
   // @brainstrike/embedding-worker/worker through `exports` to the prebuilt dist
   // bundle; the guard analyses the source that bundle is built from, which is
   // the pin the web Vitest lane already declares. Both halves are pinned so the

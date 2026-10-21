@@ -59,7 +59,6 @@ interface ElectronOutputBuffer {
 const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
-const electronAppCloseTimeoutMs = 10_000;
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
   'This renderer process has either no Content Security',
@@ -796,7 +795,18 @@ async function startElectron(
   }
 }
 
-/** Join the owned process, never a CDP disconnect or merely a sent signal. */
+interface ElectronExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+
+/**
+ * Joins the owned process's application-owned shutdown, never a CDP disconnect or merely a
+ * sent signal, and requires exit code 0 (ADR-0026 R4). The harness keeps no close budget of
+ * its own: the join runs under the Playwright test timeout, so a slow quit is a slow test and a
+ * failed quit is a failed test. A SIGTERM is only cleanup after the close itself failed; the
+ * test still fails.
+ */
 export async function closeElectronApp(
   appContext: ElectronAppContext | Pick<ElectronAppContext, 'app'>
 ): Promise<void> {
@@ -806,73 +816,51 @@ export async function closeElectronApp(
     return;
   }
   intentionallyClosingApps.add(app);
-  let exitListener: () => void = () => undefined;
-  const exited = new Promise<true>((resolve) => {
-    exitListener = () => resolve(true);
+  let exitListener: (code: number | null, signal: NodeJS.Signals | null) => void = () => undefined;
+  const exited = new Promise<ElectronExit>((resolve) => {
+    exitListener = (code, signal) => resolve({ code, signal });
     process.once('exit', exitListener);
   });
   try {
-    // Hidden windows retain their command listeners until app-owned retirement.
-    const graceful = app.close().then(() => exited);
-    const joined = await waitForWithTimeout(
-      graceful,
-      electronAppCloseTimeoutMs,
-      'Electron app close'
-    );
-    if (joined) {
-      return;
-    }
-    throw new Error('Electron did not complete application-owned shutdown');
-  } catch (closeError) {
     try {
-      if (process.exitCode === null && process.signalCode === null) {
-        const failure = Promise.withResolvers<never>();
-        const onError = (error: Error): void => failure.reject(error);
-        process.once('error', onError);
-        try {
-          process.kill('SIGTERM');
-          const joined = await waitForWithTimeout(
-            Promise.race([exited, failure.promise]),
-            5000,
-            'Electron SIGTERM exit'
-          );
-          if (!joined) {
-            throw new Error('Electron process remains alive after SIGTERM; preserve its profile');
-          }
-        } finally {
-          process.off('error', onError);
-        }
+      // Hidden windows retain their command listeners until app-owned retirement.
+      await app.close();
+      const { code, signal } = await exited;
+      if (code !== 0 || signal !== null) {
+        throw new Error(
+          `Electron's application-owned shutdown ended with code=${code} signal=${signal ?? 'none'}; expected exit code 0`
+        );
       }
-    } catch (retireError) {
-      throw new AggregateError(
-        [closeError, retireError],
-        'Electron shutdown and retirement failed'
-      );
+    } catch (closeError) {
+      await retireAfterFailedClose(process, exited, closeError);
+      // Retirement must not turn a broken graceful-shutdown test green.
+      throw closeError;
     }
-    // Retirement must not turn a broken graceful-shutdown test green.
-    throw closeError;
   } finally {
     process.off('exit', exitListener);
     intentionallyClosingApps.delete(app);
   }
 }
 
-async function waitForWithTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  label: string
-): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => {
-      console.warn(`${label} timed out after ${timeoutMs}ms`);
-      resolve(null);
-    }, timeoutMs);
-  });
+/** Cleanup after a failed close: SIGTERM a process still running, then join its exit. */
+async function retireAfterFailedClose(
+  process: ReturnType<ElectronApplication['process']>,
+  exited: Promise<ElectronExit>,
+  closeError: unknown
+): Promise<void> {
+  if (process.exitCode !== null || process.signalCode !== null) {
+    return;
+  }
+  const failure = Promise.withResolvers<never>();
+  const onError = (error: Error): void => failure.reject(error);
+  process.once('error', onError);
   try {
-    return await Promise.race([promise, timeout]);
+    process.kill('SIGTERM');
+    await Promise.race([exited, failure.promise]);
+  } catch (retireError) {
+    throw new AggregateError([closeError, retireError], 'Electron shutdown and retirement failed');
   } finally {
-    clearTimeout(timer);
+    process.off('error', onError);
   }
 }
 
@@ -977,7 +965,36 @@ export async function noteRendererReloadIntent(page: Page, reason: string): Prom
   }, reason);
 }
 
+/**
+ * Reloads the page the way the app does (`desktopLifecycle.requestReload`): Main flushes the
+ * document's durable writers, then replaces it (ADR-0026 R1). A test that reloads after a change
+ * therefore keeps what a user's reload keeps.
+ */
 export async function reloadRenderer(page: Page, reason: string): Promise<void> {
+  const navigated = page.waitForEvent('framenavigated', {
+    predicate: (frame) => frame === page.mainFrame(),
+  });
+  await page.evaluate(async (reloadReason: string) => {
+    const lifecycle = (
+      window as Window & {
+        desktopLifecycle?: { requestReload?: (reason: string) => Promise<void> };
+      }
+    ).desktopLifecycle;
+    if (!lifecycle?.requestReload) {
+      throw new Error('desktopLifecycle.requestReload is unavailable');
+    }
+    await lifecycle.requestReload(reloadReason);
+  }, reason);
+  await navigated;
+  await waitForAppReady(page);
+}
+
+/**
+ * Replaces the document WITHOUT flushing it, for the harness's state reset only: like Factory
+ * Reset, a reset must not let the old document write its stale state back into the profile it
+ * just cleared (`resetAppState`). Every other reload goes through `reloadRenderer`.
+ */
+export async function reloadClearedRenderer(page: Page, reason: string): Promise<void> {
   await noteRendererReloadIntent(page, reason);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);

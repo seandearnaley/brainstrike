@@ -100,7 +100,7 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       rootIds: ['root'],
       scopes: [collection, workspace],
     },
-    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 },
+    { closeMs: 5000, exitMs: 5000 },
     {
       kill: () => child.kill(),
       onError: (listener) => {

@@ -34,7 +34,7 @@ const fixtureSchema = Schema.Struct({
   truthSchema: objects,
   version: Schema.Literals([8, 9]),
 });
-export const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+export const deadlines = { closeMs: 5000, exitMs: 5000 };
 
 function insert(db: Database.Database, tables: typeof rows.Type): void {
   for (const [table, records] of Object.entries(tables)) {

@@ -89,7 +89,7 @@ const CHECK_EVERY_MS = 5000;
 /** No embedding progress for this long ends the run as invalid. */
 const STALL_WINDOW_MS = 120_000;
 const BENCH_ROOT_ID = 'thread-embedding-benchmark-root';
-const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
+const UNWRITTEN_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
 const GREP_PATTERN = 'total +=';
 /** Each check's search differs, so the debounced controller runs every one. */
 const SEARCH_QUERIES = ['vector latency', 'latency vector', 'search tokens', 'tokens search'];
@@ -337,7 +337,7 @@ test.describe('Foreground latency under thread message embedding', () => {
         await installRendererFrameProbe(view);
         await installMainProbes(app, {
           chatThreadId,
-          grepFilePath: NEVER_INDEXED_GREP_PATH,
+          grepFilePath: UNWRITTEN_GREP_PATH,
           grepPattern: GREP_PATTERN,
           periodMs: PROBE_PERIOD_MS,
           readTargetPath: probeRoot.readTargetPath,

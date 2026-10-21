@@ -35,10 +35,23 @@ describe('validateDesktopBridgeContract', () => {
     }
   );
 
+  it.each([undefined, {}, { requestReload: 42 }])(
+    'requires a callable desktop reload capability: %j',
+    (desktopLifecycle) => {
+      const result = validateDesktopBridgeContract({ desktopLifecycle });
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        throw new Error('Expected invalid reload capability');
+      }
+      expect(result.missing).toContain('window.desktopLifecycle.requestReload');
+    }
+  );
+
   it('passes with current catalog/source owners and no retired database bridge', () => {
     const result = validateDesktopBridgeContract({
       agentHost: { onPrepareClose: () => () => undefined },
       collectionCatalog: { snapshot: async () => [] },
+      desktopLifecycle: { requestReload: async () => undefined },
       electronAPI: {
         content: { clear: async () => ({}) },
         factoryReset: { resetLocal: async () => ({ success: true }) },

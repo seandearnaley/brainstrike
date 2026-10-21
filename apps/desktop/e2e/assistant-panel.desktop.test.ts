@@ -166,8 +166,11 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     await sendBtn.click();
 
     await expect(window.getByText('hello desktop').first()).toBeVisible({ timeout: 10_000 });
+    // The reply is the behaviour under test, not how fast a loaded machine produces it: wait
+    // for it under the test's own timeout. A fixed 15 s window failed on a 2-core Windows box
+    // under load while the reply was still on its way (lifecycle redesign §6.6).
     await expect(window.getByText('Hello from desktop assistant!').first()).toBeVisible({
-      timeout: 15_000,
+      timeout: test.info().timeout,
     });
   });
 

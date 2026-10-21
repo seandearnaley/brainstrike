@@ -54,7 +54,7 @@ const other: IndexFileBinding = {
   fileId: 'other-profile',
   profile: hosted,
 };
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 function manifestFile(plan: ScopedFilePlan): ScopedManifestFile {
   const { fileId, rootId, relativePath, sourcePath, embeddingSetId } = plan.snapshot;
   return {

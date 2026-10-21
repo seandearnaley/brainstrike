@@ -224,13 +224,15 @@ it.each(['startup', 'cleanup'] as const)(
   }
 );
 
-it.each(['validated', 'deadline', 'request'] as const)(
+// Lifecycle redesign PR D: neither a slow populated startup nor a slow request retires the utility.
+it.each(['validated', 'slow-startup', 'slow-request'] as const)(
   'keeps populated startup separate from interactive requests: %s',
   async (scenario) => {
     vi.useFakeTimers();
     let message: ((frame: unknown) => void) | undefined;
     let exited: (() => void) | undefined;
     let connection: IndexerConnection | undefined;
+    const sent: unknown[] = [];
     const kill = vi.fn(() => true);
     mocks.acquire.mockImplementation(async (options: unknown, deadlines: unknown) => {
       connection = createIndexerConnection(options, deadlines, {
@@ -244,7 +246,9 @@ it.each(['validated', 'deadline', 'request'] as const)(
           message = listener;
           return () => {};
         },
-        send: () => {},
+        send: (frame) => {
+          sent.push(frame);
+        },
       });
       await connection.ready;
       return mocks.manager;
@@ -268,34 +272,33 @@ it.each(['validated', 'deadline', 'request'] as const)(
     try {
       expect(settled).toBe(false);
       expect(kill).not.toHaveBeenCalled();
-      if (scenario === 'deadline') {
-        await vi.advanceTimersByTimeAsync(29_999);
+      if (scenario === 'slow-startup') {
+        // Past the former 60 s startup deadline: still waiting, never killed.
+        await vi.advanceTimersByTimeAsync(60_000);
         expect(kill).not.toHaveBeenCalled();
         expect(settled).toBe(false);
-        await vi.advanceTimersByTimeAsync(2);
-        expect(kill).toHaveBeenCalledOnce();
-        expect(settled).toBe(false);
-      } else {
-        if (!message) {
-          throw new Error('Expected the owned utility transport.');
+      }
+      if (!message) {
+        throw new Error('Expected the owned utility transport.');
+      }
+      const info = await writer().info();
+      message({ kind: 'ready', value: info });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await read).toHaveProperty('info');
+      expect(kill).not.toHaveBeenCalled();
+      if (scenario === 'slow-request') {
+        if (!connection) {
+          throw new Error('Expected the owned connection.');
         }
-        message({ kind: 'ready', value: await writer().info() });
-        await vi.advanceTimersByTimeAsync(0);
-        expect(await read).toHaveProperty('info');
+        const nativePort = await connection.ready;
+        const request = nativePort.info();
+        request.catch(() => undefined);
+        // Past the former 5 s request deadline: answered, never killed.
+        await vi.advanceTimersByTimeAsync(7000);
         expect(kill).not.toHaveBeenCalled();
-        if (scenario === 'request') {
-          if (!connection) {
-            throw new Error('Expected the owned connection.');
-          }
-          const nativePort = await connection.ready;
-          const request = nativePort.info().catch((error: unknown) => error);
-          await vi.advanceTimersByTimeAsync(4999);
-          expect(kill).not.toHaveBeenCalled();
-          await vi.advanceTimersByTimeAsync(2);
-          expect(kill).toHaveBeenCalledOnce();
-          exited?.();
-          await expect(request).resolves.toMatchObject({ code: 'indexer-request-timeout' });
-        }
+        const { id } = sent.at(-1) as { readonly id: number };
+        message({ id, kind: 'response', ok: true, value: info });
+        await expect(request).resolves.toEqual(info);
       }
     } finally {
       exited?.();
@@ -306,13 +309,7 @@ it.each(['validated', 'deadline', 'request'] as const)(
         await connection.close();
       }
     }
-    if (scenario === 'deadline') {
-      const failure = await read;
-      expect(failure).toBeInstanceOf(NativeIndexRefusalError);
-      expect((failure as NativeIndexRefusalError).cause).toMatchObject({
-        code: 'indexer-startup-timeout',
-      });
-    }
+    expect(kill).not.toHaveBeenCalled();
   }
 );
 

@@ -17,7 +17,7 @@ import { acquireIndexerHost, closeIndexerRuntime, getReadyIndexerHost } from '..
 it('refuses an exited host with its typed exit, so retirement can settle that outcome', async () => {
   await acquireIndexerHost(
     { dbPath: '/owned/profile/index.sqlite', embedding: { indexMode: 'text-only' }, rootIds: [] },
-    { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 60_000 }
+    { closeMs: 1000, exitMs: 1000 }
   );
   expect(getReadyIndexerHost()).toBe(manager);
   manager.exited = true;

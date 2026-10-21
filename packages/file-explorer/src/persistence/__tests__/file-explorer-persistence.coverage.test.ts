@@ -11,10 +11,6 @@ vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 
-vi.mock('../worker-init', () => ({
-  initWorker: vi.fn(() => ({ useWorker: false, workerStorage: null })),
-}));
-
 // Simulates a non-test runtime via the detection seam. Never remove the real
 // `__vitest_worker__` global to get there: vitest's throttled task-update
 // timer crashes the worker if it fires while that global is absent (BST-591).

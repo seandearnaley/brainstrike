@@ -72,6 +72,29 @@ describe('closeDesktopRenderers', () => {
     expect(visible.webContents.listenerCount('render-process-gone')).toBe(1);
   });
 
+  it('destroys a window whose renderer hangs mid-close and joins its closed (ADR-0026 R2)', async () => {
+    const visible = rendererWindow();
+    const draining = closeDesktopRenderers([visible], () => false);
+    visible.webContents.emit('unresponsive');
+    expect(visible.destroy).not.toHaveBeenCalled();
+    await draining;
+    expect(visible.destroy).toHaveBeenCalledOnce();
+    expect(visible.webContents.listenerCount('unresponsive')).toBe(0);
+    expect(visible.webContents.listenerCount('render-process-gone')).toBe(0);
+  });
+
+  it('overrides a page’s beforeunload veto: app-owned quit is terminal (ADR-0026 R4)', async () => {
+    const visible = rendererWindow();
+    const draining = closeDesktopRenderers([visible], () => false);
+    const veto = { preventDefault: vi.fn() };
+    visible.webContents.emit('will-prevent-unload', veto);
+    expect(veto.preventDefault).toHaveBeenCalledOnce();
+    visible.emit('closed');
+    await draining;
+    expect(visible.destroy).not.toHaveBeenCalled();
+    expect(visible.webContents.listenerCount('will-prevent-unload')).toBe(0);
+  });
+
   it('fails the renderer close with its cause when destroying an exited renderer throws', async () => {
     const visible = rendererWindow();
     const failure = new Error('native destroy refused');

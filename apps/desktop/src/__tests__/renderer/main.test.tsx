@@ -96,6 +96,7 @@ describe('renderer main entry', () => {
     onPrepareCloseMock.mockClear();
     hostPermissionPolicyPersistenceMock.mockClear();
     vi.stubGlobal('agentHost', { onPrepareClose: onPrepareCloseMock });
+    vi.stubGlobal('desktopLifecycle', { requestReload: vi.fn(async () => undefined) });
     vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
     startAppReloadRecoveryMock.mockReset();
     startAppReloadRecoveryMock.mockReturnValue(stopAppReloadRecoveryMock);

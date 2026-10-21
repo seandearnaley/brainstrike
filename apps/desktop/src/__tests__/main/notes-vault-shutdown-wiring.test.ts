@@ -27,7 +27,7 @@ describe('Notes Vault shutdown ownership (BST-2248)', () => {
         close.mockResolvedValueOnce(undefined);
       }
       close.mockReturnValueOnce(heldRetry.promise);
-      const graceful = Promise.resolve(plan.steps['notes-vault'](new AbortController().signal));
+      const graceful = Promise.resolve(plan.steps['notes-vault']());
       if (fail) {
         await expect(graceful).rejects.toBe(failure);
       } else {

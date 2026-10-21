@@ -134,44 +134,6 @@ const subjects: readonly [
     [{ paths: null }, { paths: ['/w'] }],
   ],
   [
-    'grep options',
-    tools.GrepIndexOptionsSchema,
-    oldTools.GrepIndexOptionsSchema,
-    'error',
-    [
-      { pattern: 'x' },
-      { caseSensitive: true, maxResults: 1, pattern: 'x', rootIds: ['r'] },
-      { maxResults: undefined, pattern: 'x' },
-      { maxResults: Number.MAX_SAFE_INTEGER + 1, pattern: 'x' },
-    ],
-  ],
-  [
-    'grep request',
-    tools.GrepIndexRequestSchema,
-    oldTools.GrepIndexRequestSchema,
-    'error',
-    [
-      { options: { pattern: 'x' }, threadId: 't' },
-      { options: { pattern: 'x', rider: true }, threadId: 't' },
-    ],
-  ],
-  [
-    'grep result',
-    tools.GrepIndexResultSchema,
-    oldTools.GrepIndexResultSchema,
-    'error',
-    [
-      {
-        candidatesTruncated: false,
-        matches: [{ after: [], before: [], line: 1, lineText: 'x', path: 'p' }],
-        scanLimited: false,
-        skippedMissingLineMetadata: 0,
-        totalMatches: 1,
-        truncated: false,
-      },
-    ],
-  ],
-  [
     'worktree create',
     tools.WorktreeCreateRequestSchema,
     oldTools.WorktreeCreateRequestSchema,

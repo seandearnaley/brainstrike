@@ -10,7 +10,7 @@ import { afterEach, expect, it, type TestContext } from 'vitest';
 import { createIndexerConnection, IndexerLifecycleError } from '../dist/transport.js';
 import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const owners = new WeakMap<TestContext['task'], ObservationLifecycle>();
 function ownerFor(context: TestContext) {
   const owner = new ObservationLifecycle(context);

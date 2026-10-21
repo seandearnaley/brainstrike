@@ -26,7 +26,6 @@ import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
-import { nativeGrepIndex } from './agent-host-platform/native-grep-index';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
@@ -107,6 +106,14 @@ import { createProcessCounterSampler } from './diagnostics/process-counter-sampl
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import { installWebAssemblyCounter } from './diagnostics/webassembly-counter';
 import { resolveBuiltRendererPath } from './dist-root';
+import {
+  admitDocumentClose,
+  type DocumentUnloadOwner,
+  flushDocumentBeforeUnload,
+  installDocumentUnload,
+  reloadDocument,
+  visibleDocumentWindows,
+} from './document-unload';
 import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
@@ -194,7 +201,7 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
-import { prepareDesktopRendererClose } from './prepare-desktop-renderer-close';
+import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -386,14 +393,34 @@ let snapshotMaintenance: SnapshotStartupMaintenance | undefined;
 let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
-const SIGNAL_SHUTDOWN_TIMEOUT_MS = process.platform === 'win32' ? 10_000 : 5000;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
+
+/** Every unload of a visible document flushes it first (ADR-0026 R1, `document-unload.ts`). */
+function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
+  return {
+    // Resolved when a document unloads, not when its window is created.
+    delays: { delay: (point) => lifecycleDelaySeam().delay(point) },
+    isQuitting: isDesktopShuttingDown,
+    lastWindowQuits: process.platform !== 'darwin',
+    quit: () => app.quit(),
+    visibleWindows: visibleDocumentWindows,
+  };
+}
+
+/** Menu Reload and a renderer's reload request: flush the document, then replace it. */
+function reloadVisibleDocument(window: BrowserWindow, reason: string, source: 'main' | 'renderer') {
+  void reloadDocument(window, documentUnloadOwner(), () => {
+    noteNextWindowReload(window, { reason, source });
+    window.webContents.reload();
+  });
+}
+
 let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
 
 // One shutdown run's step BODIES, built when the run starts so they capture
 // its state. They live here beside the module state they read and clear. The
-// keys are sorted, not ordered: the run ORDER, failure isolation, forced-exit
-// budget and logs are `main/desktop-graceful-shutdown.ts`'s
+// keys are sorted, not ordered: the run ORDER, failure isolation, slow-step
+// report and logs are `main/desktop-graceful-shutdown.ts`'s
 // `DESKTOP_SHUTDOWN_STEP_ORDER`, which is where a new step is ordered.
 function planDesktopShutdownRun(): DesktopShutdownRunPlan {
   let embeddingRetirement: Promise<void> | undefined;
@@ -406,9 +433,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
     return embeddingRetirement;
   };
   return {
-    // The reserved slice: `desktop-graceful-shutdown.ts` runs it after the ordered
-    // steps even when the deadline aborted one. `database-drain` has already
-    // stopped what issues database work, so this is the host close alone.
+    // `desktop-graceful-shutdown.ts` runs it after every ordered step settled.
+    // `database-drain` has already stopped what issues database work, so this
+    // is the host close alone.
     closeDatabase: () => nativeIndexActivation.close(),
     // Runs last, after the aggregate failure warn (the shutdown module logs
     // it first): the durable NDJSON file is the last writer standing, so it
@@ -515,8 +542,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
-      // own stop.
-      renderers: async (signal) => {
+      // own stop. Every window is joined to `closed`: a renderer that cannot
+      // answer is destroyed by its own ladder, never abandoned (ADR-0026).
+      renderers: async () => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
         nativeIndexActivation.fenceTerminal();
@@ -525,9 +553,12 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         const preparations = await Promise.allSettled(
           windows
             .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
-            .map((window) => prepareDesktopRendererClose(window, signal))
+            .map((window) => prepareDocumentUnload(window, lifecycleDelaySeam()))
         );
-        signal.throwIfAborted();
+        // Prepared or not, quit closes them: past the user-close interception.
+        for (const window of windows) {
+          admitDocumentClose(window);
+        }
         const closes = await Promise.allSettled([
           closeDesktopRenderers(
             windows,
@@ -550,7 +581,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
 }
 
 const gracefulShutdown = createDesktopGracefulShutdown({
-  deadlineMs: SIGNAL_SHUTDOWN_TIMEOUT_MS,
+  // Only for an orchestration that broke before its steps could run.
   exitProcess: (code) => process.exit(code),
   logger,
   markShuttingDown: markDesktopShuttingDown,
@@ -562,9 +593,9 @@ const gracefulShutdown = createDesktopGracefulShutdown({
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
   logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
 
-  // The graceful run logs and resolves even when cleanup fails, so we always
-  // continue to quit the process rather than hanging on a partial shutdown.
-  await gracefulShutdown.run('signal', signal);
+  // The graceful run joins every step and resolves even when cleanup fails, so we
+  // always continue to quit once it settled.
+  await gracefulShutdown.run('signal');
 
   allowImmediateQuit = true;
   app.quit();
@@ -622,7 +653,10 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
 
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
-const embeddingHostManager = new EmbeddingHostManager({ storage });
+const embeddingHostManager = new EmbeddingHostManager({
+  lifecycleDelays: lifecycleDelaySeam,
+  storage,
+});
 
 const profileReset = createDesktopProfileResetOwner({
   profilePath: () => {
@@ -853,6 +887,7 @@ const nativeIndexActivation = createNativeIndexActivation({
   application: applicationIpcDomain,
   catalog: workspaceRootCatalog,
   embedding: embeddingHostManager,
+  lifecycleDelays: lifecycleDelaySeam,
   modelCatalog,
   onError: (operation, error) =>
     reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
@@ -919,8 +954,8 @@ ipcDisposers.add(
     restartHost: () =>
       restartLaunchedAgentHost({
         acquireProfile: () => nativeIndexActivation.acquireProfile(),
-        exited: agentHostPrivateClients.exited,
         logger,
+        stopLaunchedHost: agentHostPrivateClients.stopForRelaunch,
       }),
     showDataFolder: async () => {
       const failure = await shell.openPath(resolveDesktopDatabaseProfileDirectory());
@@ -1190,7 +1225,6 @@ if (singleInstanceLockAcquired) {
   if (e2eTestMode) {
     // The loaded foreground-latency benchmark times main-process operations (BST-1925).
     installE2eForegroundLatencyProbes({
-      grepIndex: nativeGrepIndex(nativeIndexSearch),
       hostRequest: (method, params) => agentHostMainClient.request(method, params),
     });
   }
@@ -1613,11 +1647,7 @@ if (singleInstanceLockAcquired) {
                   logger.warn('Skipped menu reload because no target window was focused');
                   return;
                 }
-                noteNextWindowReload(targetWindow, {
-                  reason: 'menu-reload',
-                  source: 'main',
-                });
-                targetWindow.webContents.reload();
+                reloadVisibleDocument(targetWindow, 'menu-reload', 'main');
               },
               label: 'Reload',
             },
@@ -1662,6 +1692,13 @@ if (singleInstanceLockAcquired) {
                   return;
                 }
                 developerDatabaseResetInFlight = true;
+                // The visible documents flush into the profile BEFORE it is cleared, and are
+                // replaced afterwards whatever the reset's outcome: a flushed document is fenced.
+                const documents = visibleDocumentWindows();
+                await Promise.all(
+                  documents.map((window) => flushDocumentBeforeUnload(window, lifecycleDelaySeam()))
+                );
+                let replaced: readonly BrowserWindow[] = documents;
                 try {
                   // BST-1330: same drains as shutdown/factory reset — a bare
                   // resetLocalDatabase() could race in-flight live refreshes.
@@ -1676,19 +1713,14 @@ if (singleInstanceLockAcquired) {
                     }
                     await nativeIndexActivation.resume();
                   });
+                  // The hidden hosts reload with the visible documents after a reset.
+                  replaced = BrowserWindow.getAllWindows();
                   await dialog.showMessageBox({
                     buttons: ['OK'],
                     message: 'Local database has been reset. The app will reload.',
                     title: 'Database Reset',
                     type: 'info',
                   });
-                  for (const win of BrowserWindow.getAllWindows()) {
-                    noteNextWindowReload(win, {
-                      reason: 'developer-reset-local-database',
-                      source: 'main',
-                    });
-                    win.webContents.reloadIgnoringCache();
-                  }
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error);
                   dialog.showErrorBox(
@@ -1697,6 +1729,19 @@ if (singleInstanceLockAcquired) {
                   );
                 } finally {
                   developerDatabaseResetInFlight = false;
+                }
+                if (isDesktopShuttingDown()) {
+                  return;
+                }
+                for (const win of replaced) {
+                  if (win.isDestroyed()) {
+                    continue;
+                  }
+                  noteNextWindowReload(win, {
+                    reason: 'developer-reset-local-database',
+                    source: 'main',
+                  });
+                  win.webContents.reloadIgnoringCache();
                 }
               },
               id: 'dev-reset-db',
@@ -1795,6 +1840,7 @@ if (singleInstanceLockAcquired) {
         registerMainPlatformIpcHandlers({
           getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
           noteNextWindowReload,
+          requestReload: (window, reason) => reloadVisibleDocument(window, reason, 'renderer'),
         })
       );
 
@@ -1806,7 +1852,10 @@ if (singleInstanceLockAcquired) {
         }
         const storedWindowState = readStoredWindowState(store);
         const win = await createWindow({
-          onBeforeLoad: bindWorkspaceOpenWindow,
+          onBeforeLoad: (window) => {
+            installDocumentUnload(window, documentUnloadOwner());
+            bindWorkspaceOpenWindow(window);
+          },
           windowState: storedWindowState,
         });
         // app.on('activate') recreates this window; dispose the persistence
@@ -2082,11 +2131,10 @@ if (singleInstanceLockAcquired) {
   app.quit();
 }
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+// Quit on the last visible window's close is decided where that close is intercepted, so the
+// quit prepares the window first (`installDocumentUnload`). Subscribing still matters: without a
+// listener Electron itself quits whenever every window, hidden hosts included, has closed.
+app.on('window-all-closed', () => undefined);
 
 // Clean shutdown
 app.on('before-quit', (event) => {
@@ -2103,7 +2151,7 @@ app.on('before-quit', (event) => {
   gracefulShutdownInFlight = true;
   void (async () => {
     try {
-      await gracefulShutdown.run('before-quit', 'before-quit');
+      await gracefulShutdown.run('before-quit');
     } catch (error) {
       logger.error('Graceful shutdown failed in before-quit handler', { error });
     }

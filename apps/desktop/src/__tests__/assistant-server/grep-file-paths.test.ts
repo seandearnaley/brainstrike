@@ -9,10 +9,8 @@ import { resolveGrepFilePaths } from '../../assistant-server/grep-file-paths';
  * reported a clean zero-match result instead of rejecting the malformed scope,
  * and a hosted model abandoned native grep for shell commands.
  *
- * Both passes match root-relative paths (`file_records.path` is root-relative —
- * the repository's own comment notes roots can "share a relative path"), so one
- * normalized allowlist serves the indexed and live passes alike. That is the
- * other half of the ticket: they must be pinned to the SAME list.
+ * Grep matches root-relative paths (roots can share a relative path), so the
+ * search and its probes take one normalized allowlist.
  */
 
 const ROOT_A: RuntimeWorkspaceRoot = {

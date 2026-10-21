@@ -66,6 +66,8 @@ R2 exception: not ours to wait on):
   a race's winner. It never bounds the start or attach of the launch's own host.
 - **Owner attach, 1.5 s**: the handshake with such an owner, clipped to what the
   startup deadline has left; a live but unreachable owner is refused.
+- The caller's `signal` (quit) ends either wait at once with its own reason
+  (BST-2279): quit has no deadline of its own to bound them (ADR-0026).
 - **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
   external CLI path this redesign did not convert: readiness 30 s
   (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the

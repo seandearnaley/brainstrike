@@ -23,9 +23,7 @@ describe('command session manager lifecycle wiring', () => {
         throw new Error('Main did not publish its shutdown owner');
       }
       let closed = false;
-      const close = Promise.resolve(
-        plan.steps['child-processes'](new AbortController().signal)
-      ).then(() => {
+      const close = Promise.resolve(plan.steps['child-processes']()).then(() => {
         closed = true;
       });
       await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());

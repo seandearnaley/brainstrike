@@ -8,7 +8,6 @@ interface StartupOwner {
   readonly options: { waitForRunning?: boolean } | undefined;
   send(command: EmbeddingHostCommand): void;
   stopping(): Promise<EmbeddingHostStatus> | null;
-  readonly timeoutMs: number;
 }
 
 /** Admission state for one hidden renderer; native plans never configure its legacy worker. */

@@ -1,24 +1,20 @@
 /**
- * Live retrieval and grep fixtures for the agent host's search tools.
+ * Live retrieval fixtures for the agent host's retrieval tools.
  *
- * Host threads always read the workspace through Main's native index
- * (`hostIndexSearch` / `desktop-read/grep-index`, served by `nativeGrepIndex`)
- * and a catalog-only retrieval store (`hostRetrievalStore`, served by Main's
- * StateStore catalog reads). These fixtures give a suite exactly
- * those shapes: a native `IndexSearchCapability` answering the way Main's
- * does, and a store restricted to the catalog reads the host can reach.
+ * Host threads read Main's native index (`hostIndexSearch`) and a catalog-only
+ * retrieval store (`hostRetrievalStore`, served by Main's StateStore catalog
+ * reads). These fixtures give a suite exactly those shapes: a native
+ * `IndexSearchCapability` answering the way Main's does, and a store restricted
+ * to the catalog reads the host can reach. Grep reads the disk (ADR 0026), so
+ * its suites use real folders instead.
  */
 import { embeddingProfileHash } from '@brainstrike/indexer';
 import type {
-  IndexerGrepRequest,
-  IndexerGrepResult,
   IndexerSearchHit,
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { vi } from 'vitest';
-import { nativeGrepIndex } from '../../agent-host-platform/native-grep-index';
-import type { GrepIndexSearch } from '../../assistant-server/grep-search-core';
 import type { RetrievalStore } from '../../assistant-server/retrieval-store';
 
 export const nativeProfile = {
@@ -141,91 +137,5 @@ export function catalogOnly(store: RetrievalStore): RetrievalStore {
     embeddingSet: store.embeddingSet,
     embeddingSpaces: store.embeddingSpaces,
     fileRecords: store.fileRecords,
-  };
-}
-
-/** One indexed grep chunk, in the row shape the grep suites author. */
-export interface IndexedGrepRow {
-  readonly content: string;
-  readonly embedding_set_id?: string;
-  readonly path: string;
-  readonly root_id?: string;
-  readonly start_line: number;
-}
-
-interface NativeGrepFixtureOptions {
-  readonly authorizedCollectionIds?: readonly string[];
-  readonly authorizedRootIds?: readonly string[];
-}
-
-/**
- * Main's native grep index (`nativeGrepIndex`) over a fake text-only indexer
- * that answers like the SQLite grep reader: it honours the requested roots,
- * exact file selection and candidate limit, and attributes each hit to a root.
- */
-export function nativeGrepFixture(options: NativeGrepFixtureOptions = {}) {
-  const authorizedRootIds = options.authorizedRootIds ?? ['root'];
-  const authorizedCollectionIds = options.authorizedCollectionIds ?? ['selected'];
-  const grep = vi.fn<IndexSearchCapability['grep']>();
-  const status = vi.fn<IndexSearchCapability['status']>(async () => ({
-    authorizedCollectionIds: [...authorizedCollectionIds],
-    authorizedRootIds: [...authorizedRootIds],
-    embedding: { indexMode: 'text-only' },
-    kind: 'ready',
-    rootReadiness: authorizedRootIds.map((rootId) => ({ rootId, scanComplete: true })),
-    storeId: nativeStoreId,
-  }));
-  const answer =
-    (rows: readonly IndexedGrepRow[]) =>
-    async (request: IndexerGrepRequest): Promise<IndexerGrepResult> => {
-      const selected = rows
-        .map((row, index) => ({ index, rootId: row.root_id ?? request.rootIds[0] ?? null, row }))
-        .filter(
-          ({ row, rootId }) =>
-            rootId !== null &&
-            request.rootIds.includes(rootId) &&
-            (request.filePaths === undefined || request.filePaths.includes(row.path))
-        );
-      const hits = selected.slice(0, request.limit).map(({ index, row, rootId }) => ({
-        chunkId: `chunk-${index}`,
-        chunkIndex: 0,
-        chunkSize: row.content.length,
-        chunkType: 'text' as const,
-        content: row.content,
-        contentHash: 'c'.repeat(64),
-        embeddingSetId: row.embedding_set_id ?? authorizedCollectionIds[0] ?? null,
-        endLine: row.start_line + row.content.split('\n').length - 1,
-        endOffset: row.content.length,
-        fileId: `file-${index}`,
-        relativePath: row.path,
-        rootId,
-        score: 1,
-        startLine: row.start_line,
-        startOffset: 0,
-        tokenCount: 1,
-      }));
-      return {
-        candidateCount: hits.length,
-        candidatesTruncated: false,
-        embedding: { indexMode: 'text-only' },
-        hits,
-        scanLimited: false,
-        storeId: nativeStoreId,
-        truncated: selected.length > hits.length,
-      };
-    };
-  const index: GrepIndexSearch = nativeGrepIndex({ grep, status });
-  return {
-    grep,
-    index,
-    /** Every later grep answers from these indexed rows. */
-    serve: (rows: readonly IndexedGrepRow[]) => {
-      grep.mockImplementation(answer(rows));
-    },
-    /** The next grep answers from these rows (probe sequencing). */
-    serveOnce: (rows: readonly IndexedGrepRow[]) => {
-      grep.mockImplementationOnce(answer(rows));
-    },
-    status,
   };
 }

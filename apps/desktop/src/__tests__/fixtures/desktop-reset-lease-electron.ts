@@ -56,7 +56,7 @@ app
         assert(guard?.isReleased === true, 'Renderer replacement preceded guard release');
         events.push('renderer');
       },
-      logger: { error: () => undefined, info: () => undefined },
+      logger: { debug: () => undefined, error: () => undefined, info: () => undefined },
       prepareDatabaseProfileReset: async () => {
         guard = await profileReset.prepare();
         events.push('guard');

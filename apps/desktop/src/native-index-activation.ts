@@ -125,7 +125,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       const databasePath = path.join(resolveDesktopDatabaseProfileDirectory(), 'index.sqlite');
       const creation = acquireIndexerHost(
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
-        { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 60_000 }
+        // R5(b) only, the close ladder: 30 s of cooperative close (source retirement and the
+        // close request) before the utility is killed, then 1 s before its still-joined exit is
+        // reported slow. Startup and requests have no deadline (R2): slowness never retires it.
+        { closeMs: 30_000, exitMs: 1000 },
+        dependencies.lifecycleDelays
       );
       creation.catch(() => undefined);
       return {

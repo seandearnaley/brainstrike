@@ -147,6 +147,7 @@ describe('preload power bridge', () => {
       | {
           isTestMode: boolean;
           noteReloadIntent: (reason: string) => Promise<void>;
+          requestReload: (reason: string) => Promise<void>;
         }
       | undefined;
   }
@@ -460,6 +461,20 @@ describe('preload power bridge', () => {
     await desktopLifecycleApi?.noteReloadIntent('factory-reset');
 
     expect(mockInvoke).toHaveBeenCalledWith('app:lifecycle:note-reload-intent', 'factory-reset');
+  });
+
+  it('exposes the narrow document reload request separately from intent attribution', async () => {
+    mockInvoke.mockClear();
+    mockInvoke.mockResolvedValue(undefined);
+    const api = getDesktopLifecycleApi();
+    if (!api) {
+      throw new Error('Desktop lifecycle capability missing');
+    }
+    await api.requestReload('failed-chunk-recovery');
+    expect(mockInvoke).toHaveBeenCalledExactlyOnceWith(
+      'app:lifecycle:request-reload',
+      'failed-chunk-recovery'
+    );
   });
 
   it('echoes the main-issued factory-reset generation in the renderer-ready ping', () => {

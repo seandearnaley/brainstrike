@@ -5,7 +5,7 @@ import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const vector = Array.from({ length: 384 }, (_, i) => (i === 0 ? 1 : 0));
 test('public prompt operations join the real metadata and vector owners across edits, reopen and deletion', async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'prompt-library-owner-')));

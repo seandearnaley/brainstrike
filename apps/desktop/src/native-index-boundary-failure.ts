@@ -8,8 +8,11 @@ import {
   type NativeIndexRefusalCause,
   NativeIndexRefusalError,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { createLogger } from '@brainstrike/logging';
 
 import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
+
+const logger = createLogger('NativeIndexBoundary');
 
 const descriptions: Readonly<
   Record<NativeIndexRefusalCause['kind'], Pick<BoundaryFailure, 'category' | 'message' | 'remedy'>>
@@ -110,10 +113,25 @@ export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): Bo
     return failure;
   }
   const correlationId = crypto.randomUUID();
-  log('Native index refusal retained its original cause', {
-    cause: error.cause,
-    code: error.code,
-    correlationId,
-  });
+  const retained = { cause: error.cause, code: error.code, correlationId };
+  // ADR-0026: quit's one terminal reason. The refusal keeps its kind across the boundary and
+  // its cause stays correlated here, at debug: an expected retirement is not an error record.
+  if (isQuitTerminalRefusal(error)) {
+    logger.debug('Native index refusal retained its original cause', retained);
+  } else {
+    log('Native index refusal retained its original cause', retained);
+  }
   return { ...failure, correlationId };
+}
+
+/**
+ * Quit's one terminal reason (ADR-0026): the typed refusal of a native index closed for
+ * shutdown. Classified by its kind and reason, never by message text.
+ */
+export function isQuitTerminalRefusal(error: unknown): error is NativeIndexRefusalError {
+  return (
+    error instanceof NativeIndexRefusalError &&
+    error.refusal.kind === 'closed' &&
+    error.refusal.reason === 'shutdown'
+  );
 }

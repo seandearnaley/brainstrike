@@ -3,14 +3,33 @@ import { once } from 'node:events';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
-import { _electron } from 'playwright';
+import { _electron, type ElectronApplication, type Page } from 'playwright';
 import { expect, test } from 'vitest';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import { electronExecutablePath } from './helpers/electron-executable';
 
 const desktop = resolve(import.meta.dirname, '../..');
 
-for (const control of ['preparation failure', 'cancelled native close'] as const) {
+/** View → Reload on the app's visible window, the way the user picks it. */
+async function reloadFromMenu(app: ElectronApplication, page: Page): Promise<void> {
+  const id = await (await app.browserWindow(page)).evaluate((window) => window.id);
+  await app.evaluate(({ BrowserWindow, Menu }, windowId) => {
+    const target = BrowserWindow.fromId(windowId);
+    const item = Menu.getApplicationMenu()
+      ?.items.find(({ label }) => label === 'View')
+      ?.submenu?.items.find(({ label }) => label === 'Reload');
+    if (!(target && item)) {
+      throw new Error('The app Reload menu target is unavailable');
+    }
+    item.click(undefined, target, target.webContents);
+  }, id);
+}
+
+for (const control of [
+  'preparation failure',
+  'cancelled native close',
+  'reloaded document',
+] as const) {
   test(`app-owned close remains terminal after ${control}`, {
     timeout: getAdjustedTimeout('e2e'),
   }, async () => {
@@ -54,11 +73,30 @@ for (const control of ['preparation failure', 'cancelled native close'] as const
     try {
       const page = await app.firstWindow();
       await page.waitForSelector('#root > *');
+      if (control === 'reloaded document') {
+        // The prepare latch belongs to one document generation: Main flushes this document
+        // before its reload, and the replacement prepares again, on its own, at quit.
+        const flushed = page.waitForEvent('console', {
+          predicate: (message) => message.text() === 'first generation flushed',
+        });
+        await page.evaluate(() => {
+          window.agentHost?.onPrepareClose(async () => {
+            console.info('first generation flushed');
+          });
+        });
+        const replaced = page.waitForEvent('framenavigated', {
+          predicate: (frame) => frame === page.mainFrame(),
+        });
+        await reloadFromMenu(app, page);
+        await flushed;
+        await replaced;
+        await page.waitForSelector('#root > *');
+      }
       await page.evaluate((mode) => {
         if (!window.agentHost) {
           throw new Error('Renderer close capability is unavailable');
         }
-        if (mode === 'preparation failure') {
+        if (mode !== 'cancelled native close') {
           window.agentHost.onPrepareClose(async () => {
             throw new Error('Expected terminal preparation failure');
           });
@@ -73,28 +111,31 @@ for (const control of ['preparation failure', 'cancelled native close'] as const
       await exited;
       expect(mainProcess.signalCode).toBeNull();
       expect(page.isClosed()).toBe(true);
-      if (control === 'preparation failure') {
+      if (control !== 'cancelled native close') {
+        // The latest document's own preparation ran at quit, and quit still ended it.
         expect(mainProcess.exitCode).toBe(0);
         expect(output).toContain('Desktop renderer producers failed to close');
         expect(output).toContain('Graceful shutdown completed with cleanup failures');
         expect(output).not.toContain('forcing exit');
         return;
       }
-      expect(mainProcess.exitCode).toBe(1);
-      const timeoutRecord = output
+      // ADR-0026 R4: app-owned quit is terminal, so the page's beforeunload veto is
+      // overridden and the window close is joined; no deadline forces an exit.
+      expect(mainProcess.exitCode).toBe(0);
+      const completed = output
         .split('\n')
         .find(
-          (line) =>
-            line.startsWith('{') &&
-            line.includes('Timed out waiting for graceful shutdown; forcing exit')
+          (line) => line.startsWith('{') && line.includes('"msg":"Graceful shutdown completed"')
         );
-      if (!timeoutRecord) {
-        throw new Error('Main did not report its terminal close deadline');
+      if (!completed) {
+        throw new Error('Main did not report its completed graceful shutdown');
       }
-      expect(JSON.parse(timeoutRecord)).toMatchObject({
-        inFlightStep: { step: 'renderers' },
-        msg: 'Timed out waiting for graceful shutdown; forcing exit',
+      expect(JSON.parse(completed)).toMatchObject({
+        steps: expect.arrayContaining([
+          { elapsedMs: expect.any(Number), failed: false, step: 'renderers' },
+        ]),
       });
+      expect(output).not.toContain('Graceful shutdown completed with cleanup failures');
     } finally {
       await writeFile(join(evidence, 'main.log'), output);
       await app.close();

@@ -12,10 +12,6 @@ vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 
-vi.mock('../worker-init', () => ({
-  initWorker: vi.fn(() => ({ useWorker: false, workerStorage: null })),
-}));
-
 vi.mock('../test-environment', () => ({
   detectTestEnvironment: vi.fn(() => false),
 }));
@@ -74,9 +70,7 @@ describe('file explorer persistence log redaction', () => {
     };
     const { createStorageWrapper } = await import('../storage-wrapper');
 
-    await createStorageWrapper(invalidJsonStorage, false, null, true).getItem(
-      'file-explorer-storage-v5'
-    );
+    await createStorageWrapper(invalidJsonStorage, true).getItem('file-explorer-storage-v5');
 
     expect(JSON.stringify(mockLogger.error.mock.calls)).not.toContain(sensitiveMarker);
     expect(mockLogger.error).toHaveBeenCalledWith(

@@ -22,7 +22,6 @@ import {
 import { mergeState, serializeState } from './state-serialization';
 import { createStorageWrapper, type PersistedStateDiscardReason } from './storage-wrapper';
 import { detectTestEnvironment } from './test-environment';
-import { initWorker } from './worker-init';
 
 const logger = createLogger('Persistence');
 
@@ -74,7 +73,6 @@ export function createPersistedFileExplorerSnapshot(state: FileExplorerState): {
 export const createPersistOptions = (
   storageAdapter: StorageAdapter
 ): PersistOptions<FileExplorerState, SerializedState> => {
-  const { workerStorage, useWorker } = initWorker(storageAdapter, isTest, shouldLog);
   let pendingRecoveryNotice: PersistenceRecoveryNotice | null = null;
   let currentReadWasUnavailable = false;
   let recoveryProbeValueJson: string | null = null;
@@ -117,10 +115,10 @@ export const createPersistOptions = (
     }
   }
 
+  // Writes go straight to the adapter the app composed: desktop hands in its one write-behind
+  // writer over Main's storage (ADR-0026 R1); web writes localStorage immediately.
   const persistedStorage = createStorageWrapper(
     storageAdapter,
-    useWorker,
-    workerStorage,
     shouldLog,
     recordPersistedStateDiscard
   ) as PersistStorage<SerializedState>;

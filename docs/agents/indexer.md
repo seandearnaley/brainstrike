@@ -146,17 +146,28 @@ acquisition reads it again and installs that snapshot; after ten attempts a
 moved authority, or a caller still unobserved, fails visibly. VECTOR completion
 reads its manifest and coverage again when the revision moved between them.
 
-A request past its deadline retires its indexer process and is never retried.
-The agent host's state index joins a retired worker's exit and starts a new one
-on its next request; three replacements in a row with none served stop it
-(`state-index.retired`). The Node transport catches threads up as bounded
+Liveness is the process's exit, never a clock (lifecycle redesign R2, PR D). No
+indexer request, startup, canonical attach or scan has a deadline: a slow reply is
+load, and nothing retires the utility, refuses its other calls or closes admission
+for it. The process is retired only on its exit or a transport/protocol fault,
+whose request is never retried. Admission closes only on `close()`, `destroy()`,
+the exit or such a fault. A startup without a ready report after 10 s is logged as
+stalled, once. The only clocks are the close ladder's (R5(b), `closeMs`/`exitMs`):
+a cooperative close (canonical attachments, then the close request) that outlives
+its window escalates to one kill, and the exit is then joined however long it
+takes, with a warning when it is late. The agent host's state index joins a
+retired worker's exit and starts a new one on its next request; three
+replacements in a row with none served (crashes, never slow replies) stop it
+(`state-index.retired`). The background coverage reader has no deadline either;
+only a user's grep keeps its R5(a) bound, a typed refusal of that grep. The Node transport catches threads up as bounded
 `catchUpStateStep` requests before a catch-up, rebuild or thread-scoped read. The
 worker's read itself projects at most one more step and refuses past it as
 `state-behind` (an append raced the last step), and the transport steps again, so
 no single request carries a backlog. A native generation whose startup sync
 fails with a typed `timeout` or `availability` fault re-opens its saved settings
 after 2 s, 10 s and 30 s, shown in its refusal cause; any other failure waits for
-the user (`native-index-reopen.ts`).
+the user (`native-index-reopen.ts`). While a re-open is opening, status keeps the
+failure it retries in its reason, so an unavailable index always names its cause.
 
 Whole-root deletion uses the original mounted root and its acknowledged bindings,
 joins its source/read/inference owners, then removes only that root's canonical

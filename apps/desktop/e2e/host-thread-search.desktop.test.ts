@@ -26,7 +26,7 @@ async function enableModel(page: Page): Promise<void> {
   await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
-test('a host run’s content search runs in the agent host, reading only the index half from Main', async ({
+test('a host run’s content search runs in the agent host over the folder on disk', async ({
   electron,
   modelProvider,
   window: page,
@@ -74,7 +74,7 @@ test('a host run’s content search runs in the agent host, reading only the ind
     expect(run?.results).toHaveLength(1);
     // The host's live ripgrep pass found the on-disk marker.
     expect(run?.results[0]?.output).toMatchObject({
-      files: [expect.objectContaining({ path: 'notes.txt', source: 'live' })],
+      files: [expect.objectContaining({ path: 'notes.txt' })],
       liveEngine: 'ripgrep',
       outputMode: 'files',
     });

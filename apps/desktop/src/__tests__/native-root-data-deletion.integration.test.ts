@@ -130,7 +130,7 @@ it('holds native acknowledgment ahead of real catalog deletion and preserves rem
     { embeddingSetId: 'actual-collection', kind: 'collection' },
     { embeddingSetId: 'other-collection', kind: 'collection' },
   ];
-  const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+  const deadlines = { closeMs: 5000, exitMs: 5000 };
   const options = {
     dbPath: path.join(directory, 'index.sqlite'),
     embedding: { indexMode: 'text-only' },

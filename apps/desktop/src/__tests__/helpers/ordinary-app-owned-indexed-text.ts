@@ -541,7 +541,6 @@ export async function qualifyOrdinaryAppIndexedText(
         lineText: searchLine,
         path: 'indexed-proof.md',
         rootId: mountedRootId,
-        source: 'both',
       });
       expect(result.truncated).toBe(false);
       expect(

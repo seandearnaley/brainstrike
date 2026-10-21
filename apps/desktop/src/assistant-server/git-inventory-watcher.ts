@@ -48,8 +48,9 @@ export const GIT_INVENTORY_WATCH_MAX_BATCH_MS = 2000;
  * Injected watch function (BST-1112). Resolves once the native subscription
  * is ACQUIRED, with a disposer that settles only once the native unsubscribe
  * has settled. A rejection owns no subscription, except a typed
- * `ParcelWatchRetirementError`: its timed-out subscribe was acquired late,
- * and its `retire` still has to release it.
+ * `ParcelWatchRetirementError`: the start failed after its subscription was
+ * acquired and that subscription's retirement failed too, so its `retire`
+ * still has to release it.
  *
  * Both halves are awaitable so `disposeAll()` can join every native
  * operation before Electron frees Main's Node environment. A @parcel/watcher
@@ -496,9 +497,9 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       );
     } catch (error) {
       if (error instanceof ParcelWatchRetirementError) {
-        // The timed-out subscribe was acquired late and its cleanup failed:
-        // the native subscription is still owned, and the claim's remover
-        // retries its retirement.
+        // The start failed after acquiring its subscription, and that
+        // subscription's cleanup failed: it is still owned, and the claim's
+        // remover retries its retirement.
         sub.dispose = error.retire;
       }
       // Same stale-identity guard as the realpath catch above: only write
