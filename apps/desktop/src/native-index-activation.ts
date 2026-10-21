@@ -695,13 +695,19 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     dispatch: async (event) => (await lifecycle).dispatch(event),
     onError: dependencies.onError,
   });
-  const currentReader = async (): Promise<Graph> => {
+  const currentReader = async (joinOpen = false): Promise<Graph> => {
     // Capture this command's input before owner construction can yield to a later save.
     // Only the lifecycle owner may accept it as an initial configuration.
     const settings = captureSettings();
     const owner = await lifecycle;
     let state = await owner.start(settings);
     if (
+      // An explicit owner joins an open in flight, such as the one resume() started;
+      // reads join only boot's first open (BST-2277).
+      (joinOpen &&
+        (state.kind === 'opening' ||
+          state.kind === 'transitioning' ||
+          state.kind === 'validating')) ||
       (state.kind === 'opening' && state.generation === 1) ||
       (state.kind === 'validating' && state.previous.kind === 'idle' && state.generation === 0)
     ) {
@@ -742,7 +748,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       : read();
   };
   const acquire = async (): Promise<IndexerPort & ScopedIndexerPort> => {
-    const current = await currentReader();
+    const current = await currentReader(true);
     await current.sources?.startup;
     assertCurrent(current);
     const state = await (await lifecycle).state();
@@ -761,7 +767,22 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const stopSources = (): Promise<void> =>
     dispatch({ kind: 'stop-sources', reason: 'root-data-deletion' });
-  const admission = createNativeIndexProfileAdmission(lifecycle, runtime);
+  /**
+   * A resumed generation's starter (reset resume, host-loss recovery): open the idle index
+   * from its saved settings, as boot does. Reads never start it (BST-2277). The outcome is
+   * the lifecycle's state, which readers see with its cause; a refusal is reported here.
+   */
+  const openResumed = async (): Promise<void> => {
+    try {
+      await (await lifecycle).start(captureSettings());
+      await graph?.sources?.startup;
+    } catch (error) {
+      dependencies.onError('open after resume', error);
+    }
+  };
+  const admission = createNativeIndexProfileAdmission(lifecycle, runtime, () => {
+    void openResumed();
+  });
   const fenceTerminal = (): void => {
     failures.cancel();
     admission.fenceTerminal();
@@ -811,6 +832,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (failures.length > 1) {
       throw new AggregateError(failures, 'Native reset resume and retirement failed');
     }
+    // Not waited on: quit cancels a reset's replacement startup, and an indexer start cannot
+    // be cancelled. Shutdown joins this open through the lifecycle permit like any other.
+    void openResumed();
   };
   const reconfigure = async (roots = false): Promise<void> => {
     const settings = captureSettings();
@@ -820,7 +844,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.storage, lifecycle);
   const assertReadAdmission = async (): Promise<void> => {
     const state = await (await lifecycle).state();
-    if (state.kind !== 'idle' && nativeIndexReadiness(state).kind !== 'ready') {
+    if (nativeIndexReadiness(state).kind !== 'ready') {
       throw stateError(state);
     }
   };
