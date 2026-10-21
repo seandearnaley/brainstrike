@@ -422,8 +422,8 @@ let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<v
 
 // One shutdown run's step BODIES, built when the run starts so they capture
 // its state. They live here beside the module state they read and clear. The
-// keys are sorted, not ordered: the run ORDER, failure isolation, slow-step
-// report and logs are `main/desktop-graceful-shutdown.ts`'s
+// keys are sorted, not ordered: the run ORDER, failure isolation and logs are
+// `main/desktop-graceful-shutdown.ts`'s
 // `DESKTOP_SHUTDOWN_STEP_ORDER`, which is where a new step is ordered.
 function planDesktopShutdownRun(): DesktopShutdownRunPlan {
   let embeddingRetirement: Promise<void> | undefined;

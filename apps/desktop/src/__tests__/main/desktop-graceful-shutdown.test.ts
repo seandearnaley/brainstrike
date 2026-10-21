@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createDesktopGracefulShutdown,
-  DESKTOP_SHUTDOWN_SLOW_STEP_MS,
   DESKTOP_SHUTDOWN_STEP_ORDER,
   type DesktopGracefulShutdownOptions,
   type DesktopShutdownStepName,
@@ -289,12 +288,8 @@ describe('desktop graceful shutdown', () => {
     // Exit 0: Main quits normally once every owner settled; nothing forces an exit.
     expect(options.exitProcess).not.toHaveBeenCalled();
     expect(logger.error).not.toHaveBeenCalled();
-    // The slow step is named once at warn while it runs, and only logged.
-    expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Graceful shutdown step is slow', {
-      elapsedMs: 10_000,
-      step: 'renderers',
-      trigger: 'before-quit',
-    });
+    // A slow step is only waited for: nothing warns, fails or forces an exit.
+    expect(logger.warn).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith(
       'Graceful shutdown completed',
       expect.objectContaining({
@@ -324,42 +319,9 @@ describe('desktop graceful shutdown', () => {
       expect(events).toContain('close:database');
       expect(options.exitProcess).not.toHaveBeenCalled();
       expect(logger.error).not.toHaveBeenCalled();
-      expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Graceful shutdown step is slow', {
-        elapsedMs: 10_000,
-        step: slow,
-        trigger: 'signal',
-      });
+      expect(logger.warn).not.toHaveBeenCalled();
     }
   );
-
-  it('names a slow step only at the documented threshold, and a throwing slow log never fails the run', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    const { events, logger, options } = createHarness(
-      {
-        'native-index': () =>
-          new Promise<void>((resolve) => setTimeout(resolve, DESKTOP_SHUTDOWN_SLOW_STEP_MS + 1)),
-      },
-      { now: () => Date.now() }
-    );
-    logger.warn.mockImplementation(() => {
-      throw new Error('logger broke');
-    });
-
-    const running = createDesktopGracefulShutdown(options).run('signal');
-    await vi.advanceTimersByTimeAsync(DESKTOP_SHUTDOWN_SLOW_STEP_MS - 1);
-    expect(logger.warn).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(2);
-    await running;
-
-    expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Graceful shutdown step is slow', {
-      elapsedMs: DESKTOP_SHUTDOWN_SLOW_STEP_MS,
-      step: 'native-index',
-      trigger: 'signal',
-    });
-    expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
-    expect(options.exitProcess).not.toHaveBeenCalled();
-    expect(vi.getTimerCount()).toBe(0);
-  });
 
   it.each([
     [
