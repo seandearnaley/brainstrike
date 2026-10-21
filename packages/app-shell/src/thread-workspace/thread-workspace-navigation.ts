@@ -15,6 +15,8 @@ export class ThreadWorkspaceNavigation {
   private ready: { resourceId: string; threadId: string } | null = null;
   private pending: { resourceId: string; threadId: string; appId: string } | null = null;
   private readonly readyJoins = new Map<string, PromiseWithResolvers<void>>();
+  /** The last attempt's failure, kept until the next attempt so a later join rejects with it. */
+  private failure: { resourceId: string; threadId: string; error: unknown } | null = null;
 
   constructor(
     private readonly actions: {
@@ -45,6 +47,9 @@ export class ThreadWorkspaceNavigation {
     if (this.ready?.resourceId === resourceId && this.ready.threadId === threadId) {
       return Promise.resolve();
     }
+    if (this.failure?.resourceId === resourceId && this.failure.threadId === threadId) {
+      return Promise.reject(this.failure.error);
+    }
     const key = readyJoinKey(resourceId, threadId);
     let join = this.readyJoins.get(key);
     if (!join) {
@@ -56,6 +61,7 @@ export class ThreadWorkspaceNavigation {
 
   loading(resourceId: string, threadId: string | null): void {
     this.ready = null;
+    this.failure = null;
     if (this.pending?.resourceId !== resourceId || this.pending.threadId !== threadId) {
       this.pending = null;
     }
@@ -63,6 +69,7 @@ export class ThreadWorkspaceNavigation {
 
   complete(resourceId: string, threadId: string): void {
     this.ready = { resourceId, threadId };
+    this.failure = null;
     const pending = this.pending;
     this.pending = null;
     if (pending?.resourceId === resourceId && pending.threadId === threadId) {
@@ -80,6 +87,7 @@ export class ThreadWorkspaceNavigation {
       this.pending = null;
       this.actions.reportError(error);
     }
+    this.failure = { error, resourceId, threadId };
     this.takeReadyJoin(resourceId, threadId)?.reject(error);
   }
 

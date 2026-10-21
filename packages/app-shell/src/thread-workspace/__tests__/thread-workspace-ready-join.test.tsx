@@ -132,6 +132,26 @@ describe("joining a thread's workspace (BST-2288)", () => {
     }
   });
 
+  it('rejects at once for a join that arrives after the hydration read failed', async () => {
+    const harness = createHarness();
+    const failure = new Error('workspace read failed');
+    vi.mocked(harness.repository.getThreadWorkspace).mockRejectedValueOnce(failure);
+    const mounted = mount(harness, harness.repository);
+    try {
+      await drain();
+      const { outcome, settled } = observe(
+        harness.navigation.whenReady(RESOURCE_ID, 'thread-a'),
+        harness
+      );
+      await drain();
+      expect(outcome.settled).toBe(true);
+      await settled;
+      expect(outcome.error).toBe(failure);
+    } finally {
+      mounted.unmount();
+    }
+  });
+
   it('resolves at once for the workspace the coordinator already applied', async () => {
     const harness = createHarness();
     harness.rows.set('thread-a', CLOSED_PANE);
