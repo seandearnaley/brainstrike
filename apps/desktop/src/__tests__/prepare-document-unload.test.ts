@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { LIFECYCLE_DELAYS_ENV } from '@brainstrike/host-lease/lifecycle-delays';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { RendererExitedError } from '../desktop-shutdown-state';
 import { createLifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { prepareDocumentUnload, RENDERER_CLOSE_PREPARATION_MS } from '../prepare-document-unload';
@@ -132,6 +133,41 @@ test.each([
     expectReleased(window);
   }
 );
+
+// BST-2285 (ADR-0026 R2): a renderer whose channel closed, whose frame can take no message,
+// whose process exited or whose window closed has ended; a signal to Main's process group does
+// all of these. Its typed exit lets quit treat it as a retirement; a live renderer's refusal or
+// hang stays a plain failure.
+test.each([
+  ['port loss', true],
+  ['send failure', true],
+  ['render-process-gone', true],
+  ['window closed', true],
+  ['negative ACK', false],
+  ['unresponsive', false],
+] as const)('%s settles as the renderer exit: %s', async (failure, exited) => {
+  const window = windowFixture();
+  if (failure === 'send failure') {
+    window.webContents.mainFrame.postMessage.mockImplementation(() => {
+      throw new Error('send failed');
+    });
+  }
+  const outcome = prepareDocumentUnload(window, noDelays).catch((error: unknown) => error);
+  const channel = channels.created[0];
+  if (failure === 'port loss') {
+    channel?.port1.emit('close');
+  } else if (failure === 'negative ACK') {
+    channel?.port1.emit('message', { data: { prepared: false } });
+  } else if (failure === 'window closed') {
+    window.emit('closed');
+  } else if (failure === 'render-process-gone' || failure === 'unresponsive') {
+    window.webContents.emit(failure);
+  }
+  const error = await outcome;
+  expect(error).toBeInstanceOf(Error);
+  expect(error instanceof RendererExitedError).toBe(exited);
+  expectReleased(window);
+});
 
 test('escalates a renderer that never answers to destroy after its ladder, then joins closed', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
