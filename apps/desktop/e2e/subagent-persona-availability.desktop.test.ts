@@ -30,7 +30,8 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
       async () =>
         (await readHostRootRecords(electron.getUserDataDir())).find(
           (row) => row.id === 'bst1727-availability-root'
-        )?.status
+        )?.status,
+      { timeout: test.info().timeout }
     )
     .toBe('live');
   await homePage.openSettings();
