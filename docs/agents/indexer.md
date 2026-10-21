@@ -130,6 +130,12 @@ native authority in the same turn that it stops the utility's attachments, and
 admitted work that fails on that revocation settles as their cancellation
 (BST-1955).
 
+Only explicit owners start Main's index: boot, `resume()` after a reset or
+deletion, and host-loss recovery once a replacement host is admitted (BST-2004).
+A read that finds the index idle refuses it as `transitioning` and starts
+nothing, so no read waits on an open (BST-2277). A refused open stays the
+lifecycle's state, which readers see with its cause.
+
 Every root's scan shares one writer (BST-2055). Replacing its bindings or
 removing a file first joins every admitted read, including a scan's own coverage
 and manifest proofs. A proof waits only for such a change in flight, not for an

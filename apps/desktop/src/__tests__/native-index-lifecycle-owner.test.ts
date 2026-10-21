@@ -192,12 +192,12 @@ it('a pending failed close refuses resume until its physical cleanup succeeds', 
   await expect(lifecycle.dispatch({ kind: 'terminal', reason: 'root-data-deletion' })).rejects.toBe(
     failure
   );
-  await expect(lifecycle.dispatch({ kind: 'resume', settings: TEXT })).rejects.toBeInstanceOf(
+  await expect(lifecycle.dispatch({ kind: 'profile-resume' })).rejects.toBeInstanceOf(
     NativeIndexEventRefusedError
   );
   await lifecycle.dispatch({ kind: 'terminal', reason: 'root-data-deletion' });
-  await expect(lifecycle.dispatch({ kind: 'resume', settings: TEXT })).resolves.toMatchObject({
-    kind: 'ready',
+  await expect(lifecycle.dispatch({ kind: 'profile-resume' })).resolves.toMatchObject({
+    kind: 'resuming',
   });
 });
 
