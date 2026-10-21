@@ -187,6 +187,10 @@
       "types": "./dist/use-document-title.d.ts",
       "import": "./dist/use-document-title.js"
     },
+    "./thread-workspace-navigation": {
+      "types": "./dist/thread-workspace/live-thread-workspace-navigation.d.ts",
+      "import": "./dist/thread-workspace/live-thread-workspace-navigation.js"
+    },
     "./styles.css": "./styles.css",
     "./roots/root-identity-context": {
       "types": "./dist/roots/root-identity-context.d.ts",

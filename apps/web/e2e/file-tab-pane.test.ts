@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
@@ -91,44 +91,35 @@ test.describe('Per-file explorer pane', () => {
   });
 
   test('manual close sticks per file across reload; the toggle reopens', async ({ page }) => {
+    // A close made while the thread's stored workspace is still loading is
+    // parked behind that read, and the unload flush joins writes, never reads:
+    // join the hydration first.
+    await joinActiveThreadWorkspace(page);
     // Close the auto-opened pane — this records an EXPLICIT open: false that
     // must survive through the per-thread workspace snapshot.
     await page.getByRole('button', { name: 'Toggle explorer pane' }).click();
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
 
-    // A debounce timer firing is not the writer's commit acknowledgement.
-    // Prove the active file's explicit close reached its authoritative snapshot
-    // before reload discards this renderer and its pending asynchronous work.
-    await expect
-      .poll(async () =>
-        page.evaluate(async () => {
-          const workspace =
-            await window.__brainstrikeWebE2ETestHooks__?.readActiveThreadWorkspace();
-          const file = workspace?.activeFileTab;
-          const snapshot = workspace?.snapshot;
-          if (!(file && snapshot)) {
-            return null;
-          }
-          return {
-            activeFile: file.path.split('/').at(-1),
-            activeSelection:
-              snapshot.fileTabs.activeTabId === file.compositeKey &&
-              snapshot.apps.selection.kind === 'file' &&
-              snapshot.apps.selection.tabId === file.compositeKey,
-            paneOpen: snapshot.editors[file.compositeKey]?.pane?.open,
-          };
-        })
-      )
-      .toEqual({ activeFile: 'app.ts', activeSelection: true, paneOpen: false });
+    // A debounce timer firing is not the writer's commit acknowledgement, and
+    // neither is a read that happens to observe it: join the flush that
+    // commits the dirty snapshot, then read the authoritative row once.
+    await prepareReload(page);
+    expect(await readActiveFilePane(page)).toEqual({
+      activeFile: 'app.ts',
+      activeSelection: true,
+      paneOpen: false,
+    });
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
 
-    // The tab restores (hydration is DB-backed, allow the PGlite boot)…
+    // The tab restores from its own store before the database boots…
     await expect(
       page.getByTestId('workspace-tab-strip').getByRole('tab', { name: /app\.ts/ })
-    ).toBeVisible({ timeout: 20_000 });
-    // …and the pane stays CLOSED: absent state means open, so a restored
-    // closed pane proves the sticky close round-tripped as explicit state.
+    ).toBeVisible();
+    // …and its pane shows the default (absent state means open) until the
+    // thread's stored workspace arrives. Join that hydration, then the pane is
+    // CLOSED: the sticky close round-tripped as explicit state.
+    await joinActiveThreadWorkspace(page);
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
 
     // The header toggle reopens it. The mock harness cannot restore directory
@@ -142,3 +133,49 @@ test.describe('Per-file explorer pane', () => {
     await expect(pane.getByTestId('file-tab-pane-unavailable')).toBeVisible();
   });
 });
+
+/** Joins the coordinator's report that the active thread's stored workspace is applied. */
+async function joinActiveThreadWorkspace(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const lifecycle = window.__brainstrikeWebE2ELifecycle__;
+    if (!lifecycle) {
+      throw new Error('The web E2E lifecycle hooks are not installed.');
+    }
+    await lifecycle.joinActiveThreadWorkspace();
+  });
+}
+
+/** Runs the unload flush desktop runs before each reload it owns, joining every durable write. */
+async function prepareReload(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const lifecycle = window.__brainstrikeWebE2ELifecycle__;
+    if (!lifecycle) {
+      throw new Error('The web E2E lifecycle hooks are not installed.');
+    }
+    await lifecycle.prepareReload();
+  });
+}
+
+/** Reads the active file's pane from the active thread's stored workspace, once. */
+async function readActiveFilePane(page: Page) {
+  return page.evaluate(async () => {
+    const hooks = window.__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('The web E2E database test hooks are not installed.');
+    }
+    const workspace = await hooks.readActiveThreadWorkspace();
+    const file = workspace?.activeFileTab;
+    const snapshot = workspace?.snapshot;
+    if (!(file && snapshot)) {
+      return null;
+    }
+    return {
+      activeFile: file.path.split('/').at(-1),
+      activeSelection:
+        snapshot.fileTabs.activeTabId === file.compositeKey &&
+        snapshot.apps.selection.kind === 'file' &&
+        snapshot.apps.selection.tabId === file.compositeKey,
+      paneOpen: snapshot.editors[file.compositeKey]?.pane?.open,
+    };
+  });
+}
