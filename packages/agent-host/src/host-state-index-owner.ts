@@ -11,7 +11,11 @@ import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('AgentHostStateIndex');
 
-/** Replacements in a row, none of whose workers served a request, before the owner stops. */
+/**
+ * Replacements in a row, none of whose workers served a request, before the owner stops. Only a
+ * worker that ended (it exited, or a transport or protocol fault retired it) is replaced; a slow
+ * reply never is, so this counts crashes, not load (lifecycle R2).
+ */
 const STATE_INDEX_REPLACEMENTS = 3;
 
 /** Every state port the host hands out; each call reaches the owner's current worker. */
@@ -24,9 +28,9 @@ type ConnectedPort = Awaited<IndexerConnection['ready']>;
 
 /**
  * The owner's one worker, as one value. `retired` is the owner's decision (a
- * request the connection retired, a failed start, an observed exit), never read
- * off a physical exit. A retired worker still owns the SQLite writer until a join
- * of its exit succeeds, so nothing starts beside it before then.
+ * fault the connection retired it for, a failed start, an observed exit), never
+ * read off a physical exit. A retired worker still owns the SQLite writer until a
+ * join of its exit succeeds, so nothing starts beside it before then.
  */
 type WorkerState =
   | { readonly kind: 'idle' }
@@ -48,9 +52,10 @@ export interface StateIndexOwner {
 const closingError = (): Error => new Error('Host resource owner is closing');
 
 /**
- * The connection retires its worker on a request deadline or a transport or
- * protocol failure. Afterwards the worker has exited, or the connection reports
- * that it could not join the exit. Any other failure is the live worker's answer.
+ * The connection retires its worker only on a transport or protocol failure, or
+ * its exit; no request has a deadline. Afterwards the worker has exited, or the
+ * connection reports that it could not join the exit. Any other failure is the
+ * live worker's answer.
  */
 function retires(connection: IndexerConnection, cause: unknown): boolean {
   return connection.exited || cause instanceof IndexerLifecycleError;
@@ -58,23 +63,12 @@ function retires(connection: IndexerConnection, cause: unknown): boolean {
 
 /** A retired worker, as the host's boundary reports it: the next request restarts it. */
 function retiredFailure(cause: unknown): BoundaryFailureError {
-  const timeout =
-    cause instanceof Error &&
-    cause.name === 'IndexerError' &&
-    String(Reflect.get(cause, 'code')).endsWith('-timeout');
   return new BoundaryFailureError(
-    timeout
-      ? fault({
-          category: 'timeout',
-          code: 'state-index.request-timeout',
-          message:
-            "The agent host's state index did not answer in time. It restarts on the next request.",
-        })
-      : fault({
-          category: 'availability',
-          code: 'state-index.unavailable',
-          message: "The agent host's state index stopped. It restarts on the next request.",
-        }),
+    fault({
+      category: 'availability',
+      code: 'state-index.unavailable',
+      message: "The agent host's state index stopped. It restarts on the next request.",
+    }),
     { cause }
   );
 }
@@ -248,7 +242,7 @@ export function createStateIndexOwner(options: {
     closed = true;
     closing ??= (async () => {
       if (state.kind === 'starting') {
-        // Stop a start still pending rather than wait out its startup deadline.
+        // A start has no deadline: close is what ends one still pending (its R5(b) ladder).
         await join(state.connection);
       }
       await advancing?.catch(() => undefined);

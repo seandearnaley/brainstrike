@@ -211,27 +211,52 @@ describe('query transport physical settlement', () => {
       expect.objectContaining({ message: 'independent device abort', name: 'AbortError' }),
     ]);
   });
-  it('escalates a non-cooperative cancellation into the existing Stop join', async () => {
+  // Lifecycle redesign PR D (R2): a slow cancel acknowledgement is load; no timer stops the host.
+  it('joins a cancel the host acknowledges after 12 s, and never stops the host', async () => {
     const controller = new AbortController();
     const reason = new Error('caller stopped');
     const { outcome, settled } = await start(controller.signal);
     controller.abort(reason);
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    await expect(outcome).resolves.toBe(reason);
-  });
-  it('keeps a timed-out request owned until Stop physically joins', async () => {
-    const { outcome, settled } = await start();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
     expect(settled).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    expect(await outcome).toEqual(
-      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') })
+    manager.acceptQueryEmbeddingResponseReport(
+      91,
+      createEmbeddingHostQueryEmbeddingErrorReport(request, queryCancellation())
     );
+    await expect(outcome).resolves.toBe(reason);
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
+  it('refuses only a query past its bound, typed, and keeps the host running for the next', async () => {
+    const { outcome, settled } = await start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flush();
+    expect(settled).toHaveBeenCalledOnce();
+    expect(await outcome).toMatchObject({
+      failure: { category: 'timeout', code: 'embedding-host.query-timeout', kind: 'refusal' },
+    });
+    expect(window.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:query-embedding-cancel',
+      expect.objectContaining({ requestId: request.requestId })
+    );
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+
+    window.webContents.send.mockClear();
+    const next = await start();
+    complete();
+    await expect(next.outcome).resolves.toHaveLength(384);
   });
   it('joins retirement after cancellation delivery fails and keeps both causes', async () => {
     const controller = new AbortController();
@@ -254,19 +279,6 @@ describe('query transport physical settlement', () => {
         message: 'Embedding host query cancellation could not be sent.',
       }),
     ]);
-  });
-  it('retains a request after Stop failure until the destroyed window actually closes', async () => {
-    const { outcome, settled } = await start();
-    const stopError = new Error('Stop join failed');
-    await vi.advanceTimersByTimeAsync(60_000);
-    stopAck.reject(stopError);
-    await flush();
-    expect(window.destroy).toHaveBeenCalled();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    window.emit('closed');
-    const error = await outcome;
-    expect((error as AggregateError).errors).toContain(stopError);
   });
   it('retains a query through explicit Stop until its acknowledgement', async () => {
     const { outcome, settled } = await start();
@@ -311,7 +323,7 @@ describe('query transport physical settlement', () => {
     await expect(outcome).resolves.toBe(reason);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-  it('retains a timeout and cancellation delivery failure through physical Stop', async () => {
+  it('refuses a timed-out query with its undeliverable cancel, and never stops the host', async () => {
     const { outcome, settled } = await start();
     window.webContents.send.mockImplementation((event: string) => {
       if (event === 'embedding-host:query-embedding-cancel') {
@@ -319,15 +331,19 @@ describe('query transport physical settlement', () => {
       }
     });
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    expect(settled).toHaveBeenCalledOnce();
     const error = await outcome;
     expect((error as AggregateError).errors).toEqual([
-      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') }),
+      expect.objectContaining({
+        failure: expect.objectContaining({ code: 'embedding-host.query-timeout' }),
+      }),
       expect.objectContaining({
         message: 'Embedding host query cancellation could not be sent.',
       }),
     ]);
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.destroy).not.toHaveBeenCalled();
   });
   it('joins physical Stop when the initial request send fails', async () => {
     window.webContents.send.mockImplementation((event: string) => {
@@ -342,21 +358,6 @@ describe('query transport physical settlement', () => {
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('could not be sent') })
     );
-  });
-  it('keeps a late independent failure during timeout retirement', async () => {
-    const { outcome, settled } = await start();
-    await vi.advanceTimersByTimeAsync(60_000);
-    manager.acceptQueryEmbeddingResponseReport(
-      91,
-      createEmbeddingHostQueryEmbeddingErrorReport(request, new Error('device failed'))
-    );
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    expect(((await outcome) as AggregateError).errors).toEqual([
-      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') }),
-      expect.objectContaining({ message: 'device failed' }),
-    ]);
   });
   it('retains malformed result evidence during caller cancellation', async () => {
     const controller = new AbortController();
@@ -423,8 +424,11 @@ describe('query transport physical settlement', () => {
     await stop;
   });
   it('does not admit a replacement before a forced retirement closes', async () => {
-    await start();
-    await vi.advanceTimersByTimeAsync(60_000);
+    const controller = new AbortController();
+    await start(controller.signal);
+    controller.abort(new Error('caller stopped'));
+    // A cancel the host never answers holds the host until an explicit Stop retires it.
+    const stop = manager.stop().catch((error: unknown) => error);
     stopAck.reject(new Error('Stop failed'));
     await flush();
     const started = vi.fn();
@@ -435,6 +439,7 @@ describe('query transport physical settlement', () => {
     await flush();
     expect(started).not.toHaveBeenCalled();
     window.emit('closed');
+    expect(await stop).toBeInstanceOf(Error);
     expect(await replacement).toBeInstanceOf(Error);
     expect(started).not.toHaveBeenCalled();
     await manager.ensureStarted().then(started);
@@ -490,30 +495,14 @@ describe('query transport physical settlement', () => {
       }
     });
     controller.abort(reason);
-    await vi.advanceTimersByTimeAsync(10_000);
+    // A cancel the host never answers holds the host until an explicit Stop retires it.
+    const stop = manager.stop().catch((error: unknown) => error);
+    await flush();
     expect(window.destroy).toHaveBeenCalled();
     expect(settled).not.toHaveBeenCalled();
     window.emit('closed');
-    expect(((await outcome) as AggregateError).errors).toEqual([reason, stopFailure]);
-  });
-  it('keeps a failed destruction owned and retries through the existing restart seam', async () => {
-    const { outcome, settled } = await start();
-    const destructionFailure = new Error('destroy failed');
-    window.destroy.mockImplementationOnce(() => {
-      throw destructionFailure;
-    });
-    await vi.advanceTimersByTimeAsync(60_000);
-    stopAck.reject(new Error('Stop failed'));
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    const retry = manager.destroyAndRestart().catch((error: unknown) => error);
-    await flush();
-    expect(window.destroy).toHaveBeenCalledTimes(2);
-    expect(settled).not.toHaveBeenCalled();
-    window.emit('closed');
-    expect(failureCauses(await outcome)).toContain(destructionFailure);
-    expect(await retry).toBeInstanceOf(Error);
+    expect(failureCauses(await outcome)).toEqual([reason, stopFailure]);
+    expect(failureCauses(await stop)).toEqual([stopFailure]);
   });
   it.each([false, true])(
     'preserves Stop and destruction failures after physical close (caller aborted: %s)',
@@ -658,27 +647,25 @@ describe('query transport physical settlement', () => {
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
 
-  it('retains a document sibling until shared query timeout Stop actually joins', async () => {
-    const { outcome, settled } = await start();
-    const documentSettled = vi.fn();
+  it('refuses a query and a document sibling past their windows each alone, never stopping the host', async () => {
+    const { outcome } = await start();
     const document = manager
       .documentEmbeddings({ ...QUERY, texts: ['document sibling'] })
-      .catch((error: unknown) => {
-        documentSettled();
-        return error;
-      });
+      .catch((error: unknown) => error);
     await flush();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(settled).not.toHaveBeenCalled();
-    expect(documentSettled).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(2);
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledOnce();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    expect(await outcome).toBeInstanceOf(Error);
-    expect(await document).toBeInstanceOf(Error);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flush();
+    expect(await outcome).toMatchObject({
+      failure: { code: 'embedding-host.query-timeout', kind: 'refusal' },
+    });
+    expect(await document).toMatchObject({ code: 'embedding-host.unresponsive' });
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.destroy).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-  it('settles a timed-out query when closed makes BrowserWindow webContents inaccessible', async () => {
+  it('settles a cancelled query when closed makes BrowserWindow webContents inaccessible', async () => {
+    const controller = new AbortController();
     const contents = window.webContents;
     let destroyed = false;
     Object.defineProperty(window, 'webContents', {
@@ -695,13 +682,16 @@ describe('query transport physical settlement', () => {
       destroyed = true;
       window.emit('closed');
     });
-    const { outcome, settled } = await start();
+    const { outcome, settled } = await start(controller.signal);
     const stopError = new Error('Stop join failed');
-    await vi.advanceTimersByTimeAsync(60_000);
+    controller.abort(new Error('caller stopped'));
+    // A cancel the host never answers holds the host until an explicit Stop retires it.
+    const stop = manager.stop().catch((error: unknown) => error);
     stopAck.reject(stopError);
     await flush();
     expect(settled).toHaveBeenCalledOnce();
     expect(failureCauses(await outcome)).toContain(stopError);
+    expect(failureCauses(await stop)).toContain(stopError);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
     expect(contents.listenerCount('render-process-gone')).toBe(0);
     expect(window.listenerCount('closed')).toBe(0);

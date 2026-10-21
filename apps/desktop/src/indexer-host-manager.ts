@@ -1,7 +1,7 @@
-import { runWithTimeout } from '@brainstrike/effect-kit';
 import type { IndexerOptions, IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type { IndexerConnection, IndexerDeadlines } from '@brainstrike/indexer/transport';
+import { createLogger } from '@brainstrike/logging';
 import { app, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import {
@@ -13,15 +13,25 @@ import {
 } from './canonical-utility-parent';
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
+import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 
+const logger = createLogger('IndexerHostManager');
+
 interface OwnedCollectionScan {
-  fault?: { readonly error: unknown };
   release(): void;
   readonly work: Promise<unknown>;
 }
 
-/** Main owns lifecycle only. SQLite and its writer worker belong to the utility process. */
+/**
+ * Main owns lifecycle only. SQLite and its writer worker belong to the utility process.
+ *
+ * Liveness is the utility's exit (lifecycle R2): no request, attach or scan has a deadline, and
+ * admission closes only on `close()`, `destroy()`, the exit, or a transport/protocol fault that
+ * retires the utility. The one clock is the close ladder's (R5(b)): a cooperative retirement of
+ * the canonical attachments that has not finished `closeMs` after it began kills the utility, and
+ * the attachments then settle on that exit.
+ */
 export class IndexerHostManager {
   readonly databasePath: string;
   readonly acquisitionEmbedding: IndexerOptions['embedding'];
@@ -29,9 +39,11 @@ export class IndexerHostManager {
   readonly #options: IndexerOptions;
   readonly #deadlines: IndexerDeadlines;
   readonly #entryPath: string;
+  readonly #lifecycleDelays: (() => LifecycleDelaySeam) | undefined;
   #connection: IndexerConnection | undefined;
   #start: Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> | undefined;
   #canonical: CanonicalUtilityParent | undefined;
+  #kill: (() => boolean) | undefined;
   #exitCleanup: Promise<void> | undefined;
   #exitCleanupFailed = false;
   #transportFailure: unknown;
@@ -42,7 +54,12 @@ export class IndexerHostManager {
   /** Counts fences. An acquisition a fence overtook belongs to the fenced graph (BST-2140). */
   #fences = 0;
 
-  private constructor(options: IndexerOptions, deadlines: IndexerDeadlines, entryPath: string) {
+  private constructor(
+    options: IndexerOptions,
+    deadlines: IndexerDeadlines,
+    entryPath: string,
+    lifecycleDelays: (() => LifecycleDelaySeam) | undefined
+  ) {
     const embedding =
       options.embedding.indexMode === 'vector-configured'
         ? Object.freeze({
@@ -53,15 +70,21 @@ export class IndexerHostManager {
     this.#options = { ...options, embedding, rootIds: Object.freeze([...options.rootIds]) };
     this.#deadlines = deadlines;
     this.#entryPath = entryPath;
+    this.#lifecycleDelays = lifecycleDelays;
     this.databasePath = options.dbPath;
     this.acquisitionEmbedding = embedding;
     this.rootIds = this.#options.rootIds;
   }
 
+  /**
+   * `lifecycleDelays` is Main's E2E seam accessor (`lifecycleDelaySeam`), read at the boundary:
+   * `canonical-attach` here and the utility's own `indexer-request`. Absent, nothing is delayed.
+   */
   static async create(
     input: unknown,
     deadlineInput: unknown,
-    entryPath = resolveBundledSiblingPath('Indexer host', 'indexer-host-entry.js')
+    entryPath = resolveBundledSiblingPath('Indexer host', 'indexer-host-entry.js'),
+    lifecycleDelays?: () => LifecycleDelaySeam
   ): Promise<IndexerHostManager> {
     const { validateIndexerOptions, validateIndexerDeadlines } = await import(
       '@brainstrike/indexer/transport'
@@ -69,7 +92,8 @@ export class IndexerHostManager {
     return new IndexerHostManager(
       validateIndexerOptions(input),
       validateIndexerDeadlines(deadlineInput),
-      entryPath
+      entryPath,
+      lifecycleDelays
     );
   }
 
@@ -90,7 +114,11 @@ export class IndexerHostManager {
     if (this.#closed) {
       throw new Error('Indexer host closed before launch.');
     }
-    const child = utilityProcess.fork(this.#entryPath, [], { serviceName: 'brainstrike-indexer' });
+    const child = utilityProcess.fork(this.#entryPath, [], {
+      env: { ...process.env, ...this.#lifecycleDelays?.().childEnv(['indexer-request']) },
+      serviceName: 'brainstrike-indexer',
+    });
+    this.#kill = () => child.kill();
     const protocolErrors = new Set<(error: unknown) => void>();
     const canonical = new CanonicalUtilityParent(
       (message) => {
@@ -151,6 +179,12 @@ export class IndexerHostManager {
         child.on('message', message);
         return () => child.off('message', message);
       },
+      onStall: (stage, elapsedMs) => {
+        logger.warn('Indexer utility is slow; still joined, never retired for it', {
+          elapsedMs,
+          stage,
+        });
+      },
       send: (message) => child.postMessage(message),
     });
     const port = await this.#connection.ready;
@@ -160,82 +194,54 @@ export class IndexerHostManager {
   async attachCanonicalWorkspace(
     dependencies: CanonicalRemoteWorkspaceDependencies
   ): Promise<CanonicalWorkspaceAttachment> {
-    if (this.#sourceRetirementOwned) {
-      throw new Error('Indexer canonical source retirement owns attachment admission.');
-    }
-    const fences = this.#fences;
-    await this.start();
-    this.#refuseFencedAcquisition(fences);
-    if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
-      throw new Error('Indexer canonical attachment admission is closed.');
-    }
-    const attachment = await this.#bounded(
-      this.#canonical.attachWorkspace(dependencies),
-      this.#deadlines.requestMs
-    );
-    return {
-      cancel: () => this.#bounded(attachment.cancel(), this.#deadlines.requestMs),
-      close: () => this.#bounded(attachment.close(), this.#deadlines.closeMs),
-      trigger: () => this.#bounded(attachment.trigger(), this.#deadlines.requestMs),
-    };
+    const canonical = await this.#admitAttachment();
+    return canonical.attachWorkspace(dependencies);
   }
 
   async attachCanonicalCollection(
     dependencies: CanonicalCollectionDependencies
   ): Promise<CanonicalCollectionAttachment> {
-    if (this.#sourceRetirementOwned) {
-      throw new Error('Indexer canonical source retirement owns attachment admission.');
-    }
-    const fences = this.#fences;
-    await this.start();
-    this.#refuseFencedAcquisition(fences);
-    if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
-      throw new Error('Indexer canonical attachment admission is closed.');
-    }
-    const attachment = await this.#bounded(
-      this.#canonical.attachCollection(dependencies),
-      this.#deadlines.requestMs
-    );
+    const canonical = await this.#admitAttachment();
+    const attachment = await canonical.attachCollection(dependencies);
     const scans = new Set<OwnedCollectionScan>();
     return {
-      cancel: () => this.#bounded(attachment.cancel(), this.#deadlines.requestMs),
-      close: async () => {
-        await this.#bounded(this.#joinScans(attachment.close(), scans), this.#deadlines.closeMs);
-        this.#reportScanFailures(scans);
-      },
+      cancel: () => attachment.cancel(),
+      close: () => this.#joinScans(attachment.close(), scans),
       scan: (requestId) => {
         if (this.#closed || this.#sourceRetirementOwned) {
           return Promise.reject(new Error('Indexer canonical scan admission is closed.'));
         }
-        const admission = attachment.startScan(requestId);
-        // Preserve the original admission and terminal correlation even when
-        // the initiating caller's ACK deadline expires first.
-        const terminal = admission.then((admitted) => admitted.join());
-        let admissionExpired = false;
-        const scan = this.#bounded(admission, this.#deadlines.requestMs, () => {
-          admissionExpired = true;
-        }).then(() => terminal);
+        // Owned from admission to the terminal receipt: close and source retirement join it.
+        const work = attachment.startScan(requestId).then((admitted) => admitted.join());
         const owned: OwnedCollectionScan = {
           release: () => {
             this.#scans.delete(owned);
             scans.delete(owned);
           },
-          work: terminal,
+          work,
         };
         this.#scans.add(owned);
         scans.add(owned);
-        void terminal.then(owned.release, (error: unknown) => {
-          if (admissionExpired) {
-            // The caller only observed its deadline. Close must report this
-            // independent fault before engine release; retry can then join cleanup.
-            owned.fault = { error };
-            return;
-          }
-          owned.release();
-        });
-        return scan;
+        void work.then(owned.release, owned.release);
+        return work;
       },
     };
+  }
+
+  /** The started utility's canonical channel, refused while closed or while sources retire. */
+  async #admitAttachment(): Promise<CanonicalUtilityParent> {
+    if (this.#sourceRetirementOwned) {
+      throw new Error('Indexer canonical source retirement owns attachment admission.');
+    }
+    const fences = this.#fences;
+    await this.start();
+    // E2E seam: the attach boundary as a loaded machine reaches it; admission is checked after.
+    await this.#lifecycleDelays?.().delay('canonical-attach');
+    this.#refuseFencedAcquisition(fences);
+    if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
+      throw new Error('Indexer canonical attachment admission is closed.');
+    }
+    return this.#canonical;
   }
 
   /** Synchronously stops the canonical attachments' admitted requests; see `fenceAttachments`. */
@@ -261,19 +267,15 @@ export class IndexerHostManager {
   retireCanonicalSources(): Promise<void> {
     this.#sourceRetirementOwned = true;
     const admitted = this.#canonical?.retireAttachments();
-    this.#sourceRetirement ??= this.#bounded(
-      (async () => {
-        await admitted;
-        await this.#start;
-        if (!admitted) {
-          await this.#canonical?.retireAttachments();
-        }
+    this.#sourceRetirement ??= (async () => {
+      // The utility's startup has no deadline (R3), so it is joined outside the close ladder.
+      await this.#start;
+      await this.#escalated(async () => {
+        await (admitted ?? this.#canonical?.retireAttachments());
         await this.#joinScans(Promise.resolve());
-      })(),
-      this.#deadlines.closeMs
-    )
+      });
+    })()
       .then(() => {
-        this.#reportScanFailures();
         this.#sourceRetirementOwned = false;
       })
       .finally(() => {
@@ -289,38 +291,30 @@ export class IndexerHostManager {
     await Promise.allSettled(owned.map((scan) => scan.work));
   }
 
-  // Consume a fault only after the caller's bounded join succeeds. A timed-out
-  // join may settle later, but cannot report or discard a retained failure.
-  #reportScanFailures(scans = this.#scans): void {
-    const errors = [...scans].flatMap((scan) => {
-      if (!scan.fault) {
-        return [];
+  /**
+   * R5(b): a cooperative retirement of the utility's attachments that has not finished
+   * `closeMs` after it began kills the utility; the work then settles on that exit, which it
+   * still joins. A live utility is never refused or abandoned by this clock.
+   */
+  async #escalated(cooperative: () => Promise<void>): Promise<void> {
+    const escalation = setTimeout(() => {
+      if (this.#kill === undefined || this.exited) {
+        return;
       }
-      scan.release();
-      return [scan.fault.error];
-    });
-    if (errors.length > 0) {
-      throw new AggregateError(
-        errors,
-        'Canonical late-admission scan failed before engine retirement.'
-      );
+      logger.warn('Indexer utility did not finish its cooperative close; killing it', {
+        closeMs: this.#deadlines.closeMs,
+      });
+      if (!this.#kill()) {
+        logger.error('Indexer utility kill was refused; its close still joins its exit', {
+          closeMs: this.#deadlines.closeMs,
+        });
+      }
+    }, this.#deadlines.closeMs);
+    try {
+      await cooperative();
+    } finally {
+      clearTimeout(escalation);
     }
-  }
-
-  #bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout?: () => void): Promise<T> {
-    return runWithTimeout(() => work, {
-      onTimeout: () => {
-        onTimeout?.();
-        this.#closed = true;
-        // Stop admission synchronously. The parent retains unfinished/failed retirement for close().
-        const retirement = this.#canonical?.close();
-        void retirement?.catch(() => {});
-        return new Error(
-          'Canonical utility request exceeded its explicit deadline; its owner remains retained for close.'
-        );
-      },
-      timeoutMs,
-    });
   }
 
   get exited(): boolean {
@@ -336,15 +330,10 @@ export class IndexerHostManager {
         this.#exitCleanupFailed = false;
       }
       await this.#joinScans(this.#exitCleanup ?? Promise.resolve());
-      this.#reportScanFailures();
       this.#reportTransportFailure();
       return;
     }
-    await this.#bounded(
-      this.#joinScans(this.#canonical?.close() ?? Promise.resolve()),
-      this.#deadlines.closeMs
-    );
-    this.#reportScanFailures();
+    await this.#escalated(() => this.#joinScans(this.#canonical?.close() ?? Promise.resolve()));
     await this.#connection?.close();
     await this.#exitCleanup;
     this.#reportTransportFailure();
@@ -357,11 +346,7 @@ export class IndexerHostManager {
         'Indexer has not acquired a process; destroy requires its validated connection.'
       );
     }
-    await this.#bounded(
-      this.#joinScans(this.#canonical?.close() ?? Promise.resolve()),
-      this.#deadlines.closeMs
-    );
-    this.#reportScanFailures();
+    await this.#escalated(() => this.#joinScans(this.#canonical?.close() ?? Promise.resolve()));
     await this.#connection.destroy();
     await this.#exitCleanup;
     this.#reportTransportFailure();

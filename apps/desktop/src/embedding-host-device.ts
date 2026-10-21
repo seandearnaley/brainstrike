@@ -5,7 +5,10 @@ import {
 } from './embedding-host-shared';
 import type { RendererHostLifecycle } from './renderer-host-lifecycle';
 
-// A host that never answers fails the read, as its startup does (HOST_READY_TIMEOUT_MS).
+/**
+ * R5(a): a memory-recall read waiting on the host's device resolution is refused at this bound.
+ * It refuses that read only; the host keeps running.
+ */
 const DEVICE_RESOLUTION_TIMEOUT_MS = 30_000;
 
 type HostLifecycle = Pick<

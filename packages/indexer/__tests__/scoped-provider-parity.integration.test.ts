@@ -29,7 +29,7 @@ for (const distance of ['cosine', 'l2', 'ip'] as const) {
       rootIds: [],
       scopes: [scope],
     };
-    const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+    const deadlines = { closeMs: 5000, exitMs: 5000 };
     let port = await openIndexer(options, deadlines);
     try {
       for (const binding of bindings) {

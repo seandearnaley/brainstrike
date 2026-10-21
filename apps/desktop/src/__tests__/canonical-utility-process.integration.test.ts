@@ -263,7 +263,7 @@ it.each([
         rootIds: [],
         scopes: [scope],
       },
-      { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 },
+      { closeMs: 5000, exitMs: 5000 },
       {
         kill: () => child.kill(),
         onError: (listener) => {

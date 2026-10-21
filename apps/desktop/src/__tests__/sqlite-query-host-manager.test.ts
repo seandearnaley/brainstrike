@@ -96,17 +96,16 @@ it('retains a failed reader exit through reset and joins it on retry', async () 
   await manager.closeAllIndexQueries();
 });
 
-it('joins a held startup before reset allows a replacement owner', async () => {
-  vi.useFakeTimers();
+it('stops and joins a held startup before reset allows a replacement owner', async () => {
   mocks.heldStartup = true;
   const manager = await import('../sqlite-query-host-manager');
   const index = { databasePath: authority.dbPath };
   manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
   const acquisition = manager.openIndexCoverage(authority).catch((error: unknown) => error);
-  const reset = manager.closeAllIndexQueries();
-  await vi.advanceTimersByTimeAsync(5001);
-  expect(await acquisition).toMatchObject({ name: 'SqliteQueryDeadlineError' });
-  await reset;
+  await vi.waitFor(() => expect(mocks.children).toHaveLength(1));
+  // Coverage startup has no deadline: reset is what ends it, by stopping its process.
+  await manager.closeAllIndexQueries();
+  expect(await acquisition).toMatchObject({ name: 'SqliteQueryProcessExitedError' });
   expect(mocks.children[0]?.kill).toHaveBeenCalledOnce();
   manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
   await manager.closeAllIndexQueries();
@@ -124,4 +123,31 @@ it('keeps coverage read admission owned until a held read physically exits on re
   expect(await pending).toBeInstanceOf(Error);
   expect(mocks.children[0]?.kill).toHaveBeenCalledOnce();
   await reader.close();
+});
+
+// Lifecycle redesign PR D: coverage is background work; a slow reader is load, not death.
+it('reads coverage from a reader slower to start and to answer than any former deadline', async () => {
+  vi.useFakeTimers();
+  mocks.heldStartup = true;
+  const manager = await import('../sqlite-query-host-manager');
+  const index = { databasePath: authority.dbPath };
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  const acquisition = manager.openIndexCoverage(authority);
+  acquisition.catch(() => undefined);
+  await vi.advanceTimersByTimeAsync(6000);
+  const child = mocks.children[0];
+  const open = child?.messages[0] as { readonly id: number } | undefined;
+  expect(open).toBeDefined();
+  child?.receive({ id: open?.id, kind: 'ready' });
+  const reader = await acquisition;
+
+  const read = reader.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }]);
+  read.catch(() => undefined);
+  await vi.advanceTimersByTimeAsync(6000);
+  const request = child?.messages[1] as { readonly id: number } | undefined;
+  child?.receive({ id: request?.id, kind: 'nativeCoverage', result: [] });
+  await expect(read).resolves.toEqual([]);
+  expect(child?.kill).not.toHaveBeenCalled();
+  await reader.close();
+  await manager.closeAllIndexQueries();
 });
