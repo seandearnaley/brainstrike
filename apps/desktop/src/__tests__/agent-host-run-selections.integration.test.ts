@@ -91,6 +91,7 @@ function mainReads(
       return { isEnabled: catalog.enabled, providerId: target.provider };
     },
     enabledObservers: async () => [],
+    indexStatus: async () => ({ kind: 'unavailable', reason: 'This profile has no index.' }),
     liveWorkspaceRoots: async () => {
       reads.push('roots');
       return [{ displayName: 'project', path: rootPath, rootId: 'project-root' }];

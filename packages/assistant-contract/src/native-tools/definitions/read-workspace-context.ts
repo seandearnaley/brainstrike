@@ -9,8 +9,7 @@ export const readWorkspaceContext = defineNativeTool({
     loadingTier: 'deferred',
     requiresApproval: false,
   },
-  description:
-    'Read explicit workspace files under strict file and token budgets after semantic search needs exact source',
+  description: 'Read several explicit workspace files at once under strict file and token budgets',
   discovery: { family: 'workspace context', namespace: 'context' },
   // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
   display: {
