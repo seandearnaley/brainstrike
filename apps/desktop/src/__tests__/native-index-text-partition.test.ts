@@ -111,7 +111,9 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
 
     expect(mocks.acquire).toHaveBeenCalledWith(
       expect.objectContaining({ rootIds: ['root'], scopes: [workspace] }),
-      expect.anything()
+      expect.anything(),
+      // No E2E delay seam in this composition.
+      undefined
     );
     expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ managedCollectionId: null, mode: 'TEXT' })

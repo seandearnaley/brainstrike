@@ -227,28 +227,6 @@ describe('document transport physical settlement', () => {
     );
     await expect(outcome).resolves.toBe(reason);
   });
-  it('keeps a timeout alone when the escalated Stop ends the request', async () => {
-    const { outcome, settled } = await start();
-    await vi.advanceTimersByTimeAsync(60_000);
-    manager.acceptDocumentEmbeddingsResponseReport(
-      91,
-      createEmbeddingHostDocumentEmbeddingsErrorReport(
-        request,
-        createEmbeddingHostRuntimeStoppedError()
-      )
-    );
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    const error = await outcome;
-    expect(error).not.toBeInstanceOf(AggregateError);
-    expect(error).toEqual(
-      expect.objectContaining({
-        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
-        message: expect.stringContaining('It sent no progress for 1 min'),
-      })
-    );
-  });
   it('reports a host Stop as a failure to a caller that did not cancel', async () => {
     const { outcome } = await start();
     manager.acceptDocumentEmbeddingsResponseReport(
@@ -262,30 +240,55 @@ describe('document transport physical settlement', () => {
       expect.objectContaining({ code: EMBEDDING_HOST_RUNTIME_STOPPED_CODE, name: 'AbortError' })
     );
   });
-  it('escalates a non-cooperative cancellation into the existing Stop join', async () => {
+  // Lifecycle redesign PR D (R2): a slow cancel acknowledgement is load; no timer stops the host.
+  it('joins a cancel the host acknowledges after 12 s, and never stops the host', async () => {
     const controller = new AbortController();
     const reason = new Error('caller stopped');
     const { outcome, settled } = await start(controller.signal);
     controller.abort(reason);
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    await expect(outcome).resolves.toBe(reason);
-  });
-  it('keeps a timed-out request owned until Stop physically joins', async () => {
-    const { outcome, settled } = await start();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
     expect(settled).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    manager.acceptDocumentEmbeddingsResponseReport(
+      91,
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        createEmbeddingHostDocumentCancellationError()
+      )
+    );
+    await expect(outcome).resolves.toBe(reason);
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
+  // Lifecycle redesign PR D: the silent batch is refused typed (BST-2104 Retry restarts the host);
+  // the window itself never stops the host.
+  it('refuses a silent batch as unresponsive without stopping the host', async () => {
+    const { outcome, settled } = await start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flush();
+    expect(settled).toHaveBeenCalledOnce();
     expect(await outcome).toEqual(
       expect.objectContaining({
         code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
         message: expect.stringContaining('It sent no progress for 1 min'),
       })
     );
+    expect(window.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:document-embeddings-cancel',
+      expect.objectContaining({ requestId: request.requestId })
+    );
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
+    );
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.destroy).not.toHaveBeenCalled();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
   it('joins retirement after cancellation delivery fails and keeps both causes', async () => {
     const controller = new AbortController();
@@ -308,19 +311,6 @@ describe('document transport physical settlement', () => {
         message: 'Embedding host document cancellation could not be sent.',
       }),
     ]);
-  });
-  it('retains a request after Stop failure until the destroyed window actually closes', async () => {
-    const { outcome, settled } = await start();
-    const stopError = new Error('Stop join failed');
-    await vi.advanceTimersByTimeAsync(60_000);
-    stopAck.reject(stopError);
-    await flush();
-    expect(window.destroy).toHaveBeenCalled();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    window.emit('closed');
-    const error = await outcome;
-    expect((error as AggregateError).errors).toContain(stopError);
   });
   it('retains a document through explicit Stop until its acknowledgement', async () => {
     const { outcome, settled } = await start();
@@ -365,7 +355,7 @@ describe('document transport physical settlement', () => {
     await expect(outcome).resolves.toBe(reason);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-  it('retains a timeout and cancellation delivery failure through physical Stop', async () => {
+  it('refuses a silent batch with its undeliverable cancel, and never stops the host', async () => {
     const { outcome, settled } = await start();
     window.webContents.send.mockImplementation((event: string) => {
       if (event === 'embedding-host:document-embeddings-cancel') {
@@ -373,18 +363,17 @@ describe('document transport physical settlement', () => {
       }
     });
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    expect(settled).toHaveBeenCalledOnce();
     const error = await outcome;
     expect((error as AggregateError).errors).toEqual([
-      expect.objectContaining({
-        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
-        message: expect.stringContaining('It sent no progress for 1 min'),
-      }),
+      expect.objectContaining({ code: EMBEDDING_HOST_UNRESPONSIVE_CODE }),
       expect.objectContaining({
         message: 'Embedding host document cancellation could not be sent.',
       }),
     ]);
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
+    expect(window.destroy).not.toHaveBeenCalled();
   });
   it('joins physical Stop when the initial request send fails', async () => {
     window.webContents.send.mockImplementation((event: string) => {
@@ -399,24 +388,6 @@ describe('document transport physical settlement', () => {
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('could not be sent') })
     );
-  });
-  it('keeps a late independent failure during timeout retirement', async () => {
-    const { outcome, settled } = await start();
-    await vi.advanceTimersByTimeAsync(60_000);
-    manager.acceptDocumentEmbeddingsResponseReport(
-      91,
-      createEmbeddingHostDocumentEmbeddingsErrorReport(request, new Error('device failed'))
-    );
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    expect(((await outcome) as AggregateError).errors).toEqual([
-      expect.objectContaining({
-        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
-        message: expect.stringContaining('It sent no progress for 1 min'),
-      }),
-      expect.objectContaining({ message: 'device failed' }),
-    ]);
   });
   it('retains malformed result evidence during caller cancellation', async () => {
     const controller = new AbortController();
@@ -483,8 +454,11 @@ describe('document transport physical settlement', () => {
     await stop;
   });
   it('does not admit a replacement before a forced retirement closes', async () => {
-    await start();
-    await vi.advanceTimersByTimeAsync(60_000);
+    const controller = new AbortController();
+    await start(controller.signal);
+    controller.abort(new Error('caller stopped'));
+    // A cancel the host never answers holds the host until an explicit Stop retires it.
+    const stop = manager.stop().catch((error: unknown) => error);
     stopAck.reject(new Error('Stop failed'));
     await flush();
     const started = vi.fn();
@@ -495,6 +469,7 @@ describe('document transport physical settlement', () => {
     await flush();
     expect(started).not.toHaveBeenCalled();
     window.emit('closed');
+    expect(await stop).toBeInstanceOf(Error);
     expect(await replacement).toBeInstanceOf(Error);
     expect(started).not.toHaveBeenCalled();
     await manager.ensureStarted().then(started);
@@ -555,30 +530,14 @@ describe('document transport physical settlement', () => {
       }
     });
     controller.abort(reason);
-    await vi.advanceTimersByTimeAsync(10_000);
+    // A cancel the host never answers holds the host until an explicit Stop retires it.
+    const stop = manager.stop().catch((error: unknown) => error);
+    await flush();
     expect(window.destroy).toHaveBeenCalled();
     expect(settled).not.toHaveBeenCalled();
     window.emit('closed');
-    expect(((await outcome) as AggregateError).errors).toEqual([reason, stopFailure]);
-  });
-  it('keeps a failed destruction owned and retries through the existing restart seam', async () => {
-    const { outcome, settled } = await start();
-    const destructionFailure = new Error('destroy failed');
-    window.destroy.mockImplementationOnce(() => {
-      throw destructionFailure;
-    });
-    await vi.advanceTimersByTimeAsync(60_000);
-    stopAck.reject(new Error('Stop failed'));
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    const retry = manager.destroyAndRestart().catch((error: unknown) => error);
-    await flush();
-    expect(window.destroy).toHaveBeenCalledTimes(2);
-    expect(settled).not.toHaveBeenCalled();
-    window.emit('closed');
-    expect(failureCauses(await outcome)).toContain(destructionFailure);
-    expect(await retry).toBeInstanceOf(Error);
+    expect(failureCauses(await outcome)).toEqual([reason, stopFailure]);
+    expect(failureCauses(await stop)).toEqual([stopFailure]);
   });
   it.each([false, true])(
     'preserves Stop and destruction failures after physical close (caller aborted: %s)',

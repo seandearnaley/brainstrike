@@ -483,92 +483,113 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(run.add.mock.calls[1]?.[1]?.signal?.aborted).toBe(false);
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-  it.each(['abort', 'timeout'] as const)(
-    'joins shared Stop after a failed %s cancellation send and preserves its causes',
-    async (reason) => {
-      const run = await connectControlledQuery();
-      const timeoutWarnings: (readonly unknown[])[] = [];
-      onTestFinished(
-        addLogListener((entry) => {
-          if (
-            entry.level === 'warn' &&
-            entry.scope === 'EmbeddingHostManager' &&
-            entry.message === 'Embedding host query timed out'
-          ) {
-            timeoutWarnings.push(entry.args);
-          }
-        })
-      );
-      const controller = new AbortController();
-      if (reason === 'timeout') {
-        vi.useFakeTimers();
-        onTestFinished(() => {
-          vi.useRealTimers();
-        });
-      }
-      const request = run.manager
-        .queryEmbedding(query, { signal: controller.signal })
-        .catch((error: unknown) => error);
-      await act(async () => {});
-      expect(run.add).toHaveBeenCalledOnce();
-      const send = hostWindow.webContents.send.getMockImplementation()!;
-      const transportFailure = new Error('Transport write failed');
-      hostWindow.webContents.send.mockImplementation((channel: string, payload: unknown) => {
-        if (channel === EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT) {
-          throw transportFailure;
+  // Lifecycle redesign PR D (R5(a)): a query past its bound is refused alone, never a Stop.
+  it('refuses a query past its bound at once when its cancel cannot be sent, and keeps the host', async () => {
+    const run = await connectControlledQuery();
+    const timeoutWarnings: (readonly unknown[])[] = [];
+    onTestFinished(
+      addLogListener((entry) => {
+        if (
+          entry.level === 'warn' &&
+          entry.scope === 'EmbeddingHostManager' &&
+          entry.message === 'Embedding host query timed out'
+        ) {
+          timeoutWarnings.push(entry.args);
         }
-        send(channel, payload);
-      });
-      if (reason === 'abort') {
-        controller.abort(new Error('Ordinary cancellation reason'));
-      } else {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(60_000);
-        });
-        vi.useRealTimers();
+      })
+    );
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const request = run.manager.queryEmbedding(query).catch((error: unknown) => error);
+    await act(async () => {});
+    expect(run.add).toHaveBeenCalledOnce();
+    const send = hostWindow.webContents.send.getMockImplementation()!;
+    const transportFailure = new Error('Transport write failed');
+    hostWindow.webContents.send.mockImplementation((channel: string, payload: unknown) => {
+      if (channel === EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT) {
+        throw transportFailure;
       }
-      await act(async () => {});
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
-      expect(run.isPhysicallyActive()).toBe(true);
-      expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-      if (reason === 'timeout') {
-        expect(timeoutWarnings).toEqual([
-          [
-            'Embedding host query timed out',
-            {
-              elapsedMs: 60_000,
-              pendingCount: 1,
-              provider: 'local',
-              stage: 'host-response',
-              timeoutMs: 60_000,
-            },
-          ],
-        ]);
+      send(channel, payload);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    vi.useRealTimers();
+    expect(timeoutWarnings).toEqual([
+      [
+        'Embedding host query timed out',
+        {
+          elapsedMs: 60_000,
+          pendingCount: 1,
+          provider: 'local',
+          stage: 'host-response',
+          timeoutMs: 60_000,
+        },
+      ],
+    ]);
+    const failure = await request;
+    expect(failure).toBeInstanceOf(AggregateError);
+    const causes = failureCauses(failure);
+    expect(causes).toContainEqual(
+      expect.objectContaining({
+        failure: expect.objectContaining({ code: 'embedding-host.query-timeout' }),
+      })
+    );
+    expect(causes).toContainEqual(
+      expect.objectContaining({
+        cause: transportFailure,
+        message: 'Embedding host query cancellation could not be sent.',
+      })
+    );
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+    expect(hostWindow.isDestroyed()).toBe(false);
+    expect(run.manager.getStatus().state).toBe('running');
+    // The host still owns the inference it never heard was cancelled, and settles it itself.
+    expect(run.isPhysicallyActive()).toBe(true);
+    run.finish();
+    await waitFor(() => expect(run.isPhysicallyActive()).toBe(false));
+  });
+  it('joins shared Stop after a failed abort cancellation send and preserves its causes', async () => {
+    const run = await connectControlledQuery();
+    const controller = new AbortController();
+    const request = run.manager
+      .queryEmbedding(query, { signal: controller.signal })
+      .catch((error: unknown) => error);
+    await act(async () => {});
+    expect(run.add).toHaveBeenCalledOnce();
+    const send = hostWindow.webContents.send.getMockImplementation()!;
+    const transportFailure = new Error('Transport write failed');
+    hostWindow.webContents.send.mockImplementation((channel: string, payload: unknown) => {
+      if (channel === EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT) {
+        throw transportFailure;
       }
-      expect(hostWindow.isDestroyed()).toBe(false);
-      run.finish();
-      const failure = await request;
-      expect(failure).toBeInstanceOf(AggregateError);
-      const causes = failureCauses(failure);
-      expect(causes).toContainEqual(
-        expect.objectContaining({
-          cause: transportFailure,
-          message: 'Embedding host query cancellation could not be sent.',
-        })
-      );
-      expect(causes).toContainEqual(
-        expect.objectContaining({
-          message:
-            reason === 'abort'
-              ? 'Ordinary cancellation reason'
-              : expect.stringContaining('timed out after 60000ms'),
-        })
-      );
-      expect(run.isPhysicallyActive()).toBe(false);
-      expect(run.add).toHaveBeenCalledOnce();
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
-    }
-  );
+      send(channel, payload);
+    });
+    controller.abort(new Error('Ordinary cancellation reason'));
+    await act(async () => {});
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    expect(run.isPhysicallyActive()).toBe(true);
+    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(hostWindow.isDestroyed()).toBe(false);
+    run.finish();
+    const failure = await request;
+    expect(failure).toBeInstanceOf(AggregateError);
+    const causes = failureCauses(failure);
+    expect(causes).toContainEqual(
+      expect.objectContaining({
+        cause: transportFailure,
+        message: 'Embedding host query cancellation could not be sent.',
+      })
+    );
+    expect(causes).toContainEqual(
+      expect.objectContaining({ message: 'Ordinary cancellation reason' })
+    );
+    expect(run.isPhysicallyActive()).toBe(false);
+    expect(run.add).toHaveBeenCalledOnce();
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
 
   it('rejects query admission when the present host bridge lacks request cancellation', async () => {
     const run = await connectControlledQuery({ cancellationCapability: false });
@@ -579,72 +600,69 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(readModelCatalogMock).not.toHaveBeenCalled();
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-  it.each(['abort', 'timeout'] as const)(
-    'joins queued request %s before releasing identity and skips its preparation',
-    async (reason) => {
-      const run = await connectControlledQuery();
-      const active = run.manager.queryEmbedding(query).catch((error: unknown) => error);
-      await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-      const controller = new AbortController();
-      if (reason === 'timeout') {
-        vi.useFakeTimers();
-        onTestFinished(() => {
-          vi.useRealTimers();
-        });
-      }
-      const queued = run.manager
-        .queryEmbedding(
-          { ...query, modelId: 'model-b', modelKey: 'local:model-b' },
-          { signal: controller.signal }
-        )
-        .catch((error: unknown) => error);
-      await act(async () => {});
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
-      if (reason === 'abort') {
-        controller.abort(new Error('Queued request canceled'));
-      } else {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(60_000);
-        });
-        vi.useRealTimers();
-      }
-      await act(async () => {});
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
-      expect(run.add).toHaveBeenCalledOnce();
-      expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(reason === 'timeout');
-      const sibling =
-        reason === 'abort'
-          ? run.manager.queryEmbedding({
-              ...query,
-              modelId: 'model-c',
-              modelKey: 'local:model-c',
-            })
-          : null;
-      run.finish();
-      expect(failureCauses(await queued)).toContainEqual(
-        expect.objectContaining({
-          message:
-            reason === 'abort'
-              ? 'Queued request canceled'
-              : expect.stringContaining('timed out after 60000ms'),
-        })
-      );
-      if (sibling) {
-        await expect(active).resolves.toHaveLength(2);
-        await expect(sibling).resolves.toHaveLength(2);
-        await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(3));
-        expect(run.add).toHaveBeenCalledTimes(2);
-        expect(readModelCatalogMock).toHaveBeenCalledTimes(2);
-        expect(run.add.mock.calls.map(([task]) => task.model)).toEqual(['model-a', 'model-c']);
-      } else {
-        expect(await active).toBeInstanceOf(Error);
-        expect(run.add).toHaveBeenCalledOnce();
-        expect(readModelCatalogMock).toHaveBeenCalledOnce();
-        expect(run.add.mock.calls[0]?.[0].model).toBe('model-a');
-      }
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
-    }
-  );
+  it('refuses a queued query past its bound alone: its preparation is skipped, the active one completes', async () => {
+    const run = await connectControlledQuery();
+    const active = run.manager.queryEmbedding(query).catch((error: unknown) => error);
+    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const queued = run.manager
+      .queryEmbedding({ ...query, modelId: 'model-b', modelKey: 'local:model-b' })
+      .catch((error: unknown) => error);
+    await act(async () => {});
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    vi.useRealTimers();
+    expect(await queued).toMatchObject({
+      failure: { code: 'embedding-host.query-timeout', kind: 'refusal' },
+    });
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+    run.finish();
+    await expect(active).resolves.toHaveLength(2);
+    expect(run.add).toHaveBeenCalledOnce();
+    expect(readModelCatalogMock).toHaveBeenCalledOnce();
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
+  it('joins queued request abort before releasing identity and skips its preparation', async () => {
+    const run = await connectControlledQuery();
+    const active = run.manager.queryEmbedding(query).catch((error: unknown) => error);
+    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
+    const controller = new AbortController();
+    const queued = run.manager
+      .queryEmbedding(
+        { ...query, modelId: 'model-b', modelKey: 'local:model-b' },
+        { signal: controller.signal }
+      )
+      .catch((error: unknown) => error);
+    await act(async () => {});
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
+    controller.abort(new Error('Queued request canceled'));
+    await act(async () => {});
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
+    expect(run.add).toHaveBeenCalledOnce();
+    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+    const sibling = run.manager.queryEmbedding({
+      ...query,
+      modelId: 'model-c',
+      modelKey: 'local:model-c',
+    });
+    run.finish();
+    expect(failureCauses(await queued)).toContainEqual(
+      expect.objectContaining({ message: 'Queued request canceled' })
+    );
+    await expect(active).resolves.toHaveLength(2);
+    await expect(sibling).resolves.toHaveLength(2);
+    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(3));
+    expect(run.add).toHaveBeenCalledTimes(2);
+    expect(readModelCatalogMock).toHaveBeenCalledTimes(2);
+    expect(run.add.mock.calls.map(([task]) => task.model)).toEqual(['model-a', 'model-c']);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
   it.each(['model-read', 'initialization'] as const)(
     'keeps canceled active %s preparation owned until it settles, then skips its inference',
     async (stage) => {

@@ -20,7 +20,7 @@ import { Schema } from 'effect';
 import { expect, it } from 'vitest';
 import { decoder } from '../src/contracts.js';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const profile = {
   dimensions: 8,
   distance: 'cosine',

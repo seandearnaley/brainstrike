@@ -121,11 +121,22 @@ function createFakeWindow(id: number): FakeWindow {
   const listeners: FakeListenerMap = {};
   const webContentsListeners: FakeListenerMap = {};
   // Mirror Electron: destroy() synchronously flips isDestroyed(), so guarded
-  // double-destroy paths (dispose during in-flight startup) stay single-shot.
+  // double-destroy paths (dispose during in-flight startup) stay single-shot,
+  // and a destroyed window always emits 'closed' to every listener.
   let destroyed = false;
+  const closedListeners = new Set<() => void>();
+  listeners.closed = () => {
+    for (const listener of [...closedListeners]) {
+      listener();
+    }
+  };
   return {
     destroy: vi.fn(() => {
+      if (destroyed) {
+        return;
+      }
       destroyed = true;
+      listeners.closed?.();
     }),
     id,
     isDestroyed: vi.fn(() => destroyed),
@@ -134,12 +145,16 @@ function createFakeWindow(id: number): FakeWindow {
     loadURL: vi.fn(),
     on: vi.fn((event: string, listener: () => void) => {
       if (event === 'closed') {
-        listeners.closed = listener;
+        closedListeners.add(listener);
       }
     }),
     once: vi.fn((event: string, listener: () => void) => {
       if (event === 'closed') {
-        listeners.closed = listener;
+        const once = (): void => {
+          closedListeners.delete(once);
+          listener();
+        };
+        closedListeners.add(once);
       }
     }),
     webContents: {
@@ -792,9 +807,69 @@ describe('RendererHostLifecycle', () => {
     const restartedStatus = await lifecycle.ensureStarted({ waitForRunning: false });
 
     expect(stoppedWindow.destroy).toHaveBeenCalledTimes(1);
-    expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
+    // The replacement loads only once the window it replaces has closed.
+    await vi.waitFor(() => expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1));
     expect(restartedStatus.state).toBe('starting');
     expect(restartedStatus.runtimeId).not.toBe('embedding-host:old-runtime');
+  });
+
+  it('keeps owning a window whose destroy() throws, so a retry destroys it and the host starts again', async () => {
+    const failedWindow = createFakeWindow(65);
+    const nextWindow = createFakeWindow(66);
+    failedWindow.loadURL.mockResolvedValue(undefined);
+    nextWindow.loadURL.mockResolvedValue(undefined);
+    const createdWindows = [failedWindow, nextWindow];
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      const created = createdWindows.shift();
+      if (!created) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, created);
+    });
+    Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [failedWindow, nextWindow]) });
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+    const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+    lifecycle.setStatus(
+      createStatus({
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
+      })
+    );
+    await initialStart;
+    failedWindow.destroy.mockImplementationOnce(() => {
+      throw new Error('destroy failed');
+    });
+
+    expect(() => lifecycle.destroyHostWindow()).toThrow('destroy failed');
+    // The window is still alive: the owner keeps it, so the next stop retries destroy().
+    lifecycle.destroyHostWindow();
+    expect(failedWindow.destroy).toHaveBeenCalledTimes(2);
+    lifecycle.setStatus(
+      createStatus({
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host:old',
+        state: 'stopped',
+      })
+    );
+    await lifecycle.ensureStarted({ waitForRunning: false });
+    await vi.waitFor(() => expect(nextWindow.loadURL).toHaveBeenCalledTimes(1));
   });
 
   it('lets a stopping host settle before replacing its window', async () => {
@@ -856,7 +931,8 @@ describe('RendererHostLifecycle', () => {
     const restarted = await restart;
 
     expect(stoppingWindow.destroy).toHaveBeenCalledTimes(1);
-    expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
+    // The replacement loads only once the window it replaces has closed.
+    await vi.waitFor(() => expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1));
     expect(restarted.state).toBe('starting');
     expect(restarted.runtimeId).not.toBe(runtimeId);
   });
@@ -925,7 +1001,8 @@ describe('RendererHostLifecycle', () => {
     await Promise.resolve();
 
     expect(stoppedWindow.destroy).toHaveBeenCalledTimes(1);
-    expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
+    // The replacement loads only once the window it replaces has closed.
+    await vi.waitFor(() => expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1));
 
     requireCallback(resolveLoad, 'load resolver')();
     await Promise.resolve();
@@ -1330,7 +1407,41 @@ describe('RendererHostLifecycle', () => {
     expect(visibleWindow.webContents.send).toHaveBeenCalledTimes(1);
   });
 
-  it('destroys the host window when startup readiness fails after the window is created', async () => {
+  it('settles startup as error when its renderer is gone before it reports, and replaces it only after it closes', async () => {
+    const hostWindow = createFakeWindow(91);
+    const replacement = createFakeWindow(94);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+    replacement.loadURL.mockResolvedValue(undefined);
+    const created = [hostWindow, replacement];
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      const next = created.shift();
+      if (!next) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, next);
+    });
+    Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [hostWindow, replacement]) });
+    const lifecycle = createWaitLifecycle();
+
+    const startup = lifecycle.ensureStarted({ waitForRunning: true });
+    await vi.waitFor(() =>
+      expect(hostWindow.webContents.listeners.renderProcessGone).toBeDefined()
+    );
+    hostWindow.webContents.listeners.renderProcessGone?.({}, { exitCode: 9, reason: 'killed' });
+
+    await expect(startup).resolves.toMatchObject({
+      lastError: 'embedding-host renderer exited (killed, code 9)',
+      state: 'error',
+    });
+    expect(hostWindow.destroy).not.toHaveBeenCalled();
+
+    const restart = lifecycle.ensureStarted({ waitForRunning: false });
+    await restart;
+    expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(replacement.loadURL).toHaveBeenCalledTimes(1));
+  });
+
+  it('never fails a startup by a clock: a host silent for any time is still starting', async () => {
     vi.useFakeTimers();
     const hostWindow = createFakeWindow(91);
     hostWindow.loadURL.mockResolvedValue(undefined);
@@ -1357,16 +1468,53 @@ describe('RendererHostLifecycle', () => {
       timeoutMessage: 'timeout',
     });
 
-    const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
+    let settled = false;
+    const startupPromise = lifecycle.ensureStarted({ waitForRunning: true }).finally(() => {
+      settled = true;
+    });
 
-    await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(30_001);
-    const status = await startupPromise;
-
-    expect(status.state).toBe('error');
-    expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
-    expect(lifecycle.getHostWindow()).toBeNull();
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(settled).toBe(false);
+    expect(lifecycle.getStatus().state).toBe('starting');
+    expect(hostWindow.destroy).not.toHaveBeenCalled();
+    lifecycle.dispose();
+    await startupPromise;
     vi.useRealTimers();
+  });
+
+  // Lifecycle redesign PR D: readiness is the host's report, never a clock.
+  it('waits for a host that reports running later than any former ready deadline, in one window', async () => {
+    vi.useFakeTimers();
+    try {
+      const hostWindow = createFakeWindow(93);
+      hostWindow.loadURL.mockResolvedValue(undefined);
+      MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+        Object.assign(this, hostWindow);
+      });
+      Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [hostWindow]) });
+      const lifecycle = createWaitLifecycle();
+
+      const startup = lifecycle.ensureStarted({ waitForRunning: true });
+      await vi.advanceTimersByTimeAsync(35_000);
+      lifecycle.setStatus(
+        createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: lifecycle.getStatus().runtimeId,
+          state: 'running',
+        })
+      );
+
+      await expect(startup).resolves.toMatchObject({ state: 'running' });
+      expect(hostWindow.destroy).not.toHaveBeenCalled();
+      expect(lifecycle.getHostWindow()).not.toBeNull();
+      await expect(lifecycle.ensureStarted({ waitForRunning: true })).resolves.toMatchObject({
+        state: 'running',
+      });
+      expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([false, true])(

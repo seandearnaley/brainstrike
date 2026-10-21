@@ -107,10 +107,7 @@ describe('ChunkingHostManager', () => {
       state: 'running',
     });
     mockHostWindow.isDestroyed.mockReturnValue(false);
-    mockHostWindow.on.mockImplementation((_event: string, listener: () => void) => {
-      // Default: simulate synchronous window close so waitForWindowClosed resolves immediately
-      listener();
-    });
+    // Default: simulate a synchronous window close so joinWindowClosed resolves immediately.
     mockHostWindow.once.mockImplementation((_event: string, listener: () => void) => {
       listener();
     });
@@ -154,6 +151,10 @@ describe('ChunkingHostManager', () => {
 
     await rejection;
     expect(manager.requests.size()).toBe(0);
+    // R5(a): expiry refuses only this request; the host is neither destroyed nor moved off running.
+    expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
+    expect(lifecycleState.setStatus).not.toHaveBeenCalled();
+    expect(manager.getStatus().state).toBe('running');
   });
 
   it('logs a late response at warn instead of dropping it silently', async () => {

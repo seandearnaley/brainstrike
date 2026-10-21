@@ -1,11 +1,12 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createIndexerConnection, type IndexerTransport } from '@brainstrike/indexer/transport';
 import { expect, it, vi } from 'vitest';
+import { HOST_STATE_INDEX_DEADLINES } from '../src/host-state-index.js';
 import { createStateIndexOwner } from '../src/host-state-index-owner.js';
 
 const dbPath = '/state/state-index.sqlite';
 const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] };
-const deadlines = { closeMs: 50, exitMs: 50, requestMs: 20, startupMs: 50 };
+const deadlines = { closeMs: 50, exitMs: 50 };
 const info = {
   dbPath,
   embedding: { indexMode: 'text-only' },
@@ -19,11 +20,14 @@ const info = {
 const healthy = { indexerErrors: [] };
 
 /**
- * How a fake worker answers one `state-health` request: never (its deadline
- * retires it), served, refused by a live worker, or with a frame no request
- * asked for (a protocol failure, which also retires it).
+ * How a fake worker answers one `state-health` request: served, served late
+ * (load, never retired for it), refused by a live worker, with a frame no
+ * request asked for (a protocol failure, which retires it), or by exiting.
  */
-type Answer = 'hang' | 'serve' | 'refuse' | 'garble';
+type Answer = 'serve' | 'slow' | 'refuse' | 'garble' | 'crash';
+
+/** How long a `slow` worker takes to answer: longer than any former request deadline. */
+const SLOW_ANSWER_MS = 7000;
 
 /** One fake worker, speaking the real indexer frames over the real connection. */
 interface FakeWorker {
@@ -34,20 +38,20 @@ interface FakeWorker {
   /** False: it refuses termination, so its exit cannot be joined. */
   killable: boolean;
   kills: number;
-  /** False: it never reports ready, so its startup deadline retires it. */
-  readonly starts: boolean;
+  /** How its startup ends: ready, a startup error (which retires it), or never. */
+  readonly starts: 'ready' | 'error' | 'never';
 }
 
 function fake(
   answers: readonly Answer[],
-  overrides: { readonly starts?: boolean; readonly killable?: boolean } = {}
+  overrides: { readonly starts?: FakeWorker['starts']; readonly killable?: boolean } = {}
 ): FakeWorker {
   return {
     answers,
     crash: () => undefined,
     killable: overrides.killable ?? true,
     kills: 0,
-    starts: overrides.starts ?? true,
+    starts: overrides.starts ?? 'ready',
   };
 }
 
@@ -94,8 +98,13 @@ function transport(worker: FakeWorker): IndexerTransport {
     send: (message) => {
       if (!started) {
         started = true;
-        if (worker.starts) {
+        if (worker.starts === 'ready') {
           deliver({ kind: 'ready', value: info });
+        } else if (worker.starts === 'error') {
+          deliver({
+            error: { code: 'open-failed', message: 'Store did not open.' },
+            kind: 'startup-error',
+          });
         }
         return;
       }
@@ -108,6 +117,11 @@ function transport(worker: FakeWorker): IndexerTransport {
       const answer = worker.answers[Math.min(served++, worker.answers.length - 1)];
       if (answer === 'serve') {
         deliver({ id, kind: 'response', ok: true, value: healthy });
+      } else if (answer === 'slow') {
+        setTimeout(
+          () => deliver({ id, kind: 'response', ok: true, value: healthy }),
+          SLOW_ANSWER_MS
+        );
       } else if (answer === 'refuse') {
         deliver({
           error: { code: 'invalid-request', message: 'refused' },
@@ -117,6 +131,8 @@ function transport(worker: FakeWorker): IndexerTransport {
         });
       } else if (answer === 'garble') {
         deliver({ id: id + 1000, kind: 'response', ok: true, value: healthy });
+      } else {
+        exit();
       }
     },
   };
@@ -126,7 +142,10 @@ function transport(worker: FakeWorker): IndexerTransport {
 const unspawnable = 'unspawnable';
 
 /** An owner whose nth worker is `workers[n]`; later workers repeat the last. */
-function owner(workers: readonly (FakeWorker | typeof unspawnable)[]) {
+function owner(
+  workers: readonly (FakeWorker | typeof unspawnable)[],
+  workerDeadlines: unknown = deadlines
+) {
   let starts = 0;
   const index = createStateIndexOwner({
     dbPath,
@@ -136,7 +155,7 @@ function owner(workers: readonly (FakeWorker | typeof unspawnable)[]) {
       if (worker === unspawnable) {
         throw new Error('Worker thread could not be created.');
       }
-      return createIndexerConnection(options, deadlines, transport(worker));
+      return createIndexerConnection(options, workerDeadlines, transport(worker));
     },
   });
   return { index, starts: () => starts };
@@ -145,20 +164,37 @@ function owner(workers: readonly (FakeWorker | typeof unspawnable)[]) {
 const typed = (code: string) => ({ failure: { code, kind: 'fault' } });
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-it('a request deadline retires its worker: that request fails typed and unretried, the next is replaced', async () => {
-  const { index, starts } = owner([fake(['hang']), fake(['serve'])]);
+it('a worker that exits during a request: that request fails typed and unretried, the next is replaced', async () => {
+  const { index, starts } = owner([fake(['crash']), fake(['serve'])]);
   await index.open();
 
-  const timedOut = await index.port.stateHealth().catch((error: unknown) => error);
-  expect(timedOut).toBeInstanceOf(BoundaryFailureError);
-  expect(timedOut).toMatchObject({
-    failure: { category: 'timeout', code: 'state-index.request-timeout', kind: 'fault' },
+  const failed = await index.port.stateHealth().catch((error: unknown) => error);
+  expect(failed).toBeInstanceOf(BoundaryFailureError);
+  expect(failed).toMatchObject({
+    failure: { category: 'availability', code: 'state-index.unavailable', kind: 'fault' },
   });
   expect(starts()).toBe(1);
 
   await expect(index.port.stateHealth()).resolves.toEqual(healthy);
   expect(starts()).toBe(2);
   await index.close();
+});
+
+// Lifecycle redesign PR D: a slow answer is load, not death. The production deadlines retire nothing.
+it('serves a request slower than any former deadline from the same worker, with no replacement', async () => {
+  vi.useFakeTimers();
+  try {
+    const { index, starts } = owner([fake(['slow'])], HOST_STATE_INDEX_DEADLINES);
+    await index.open();
+    const answer = index.port.stateHealth();
+    answer.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(SLOW_ANSWER_MS);
+    await expect(answer).resolves.toEqual(healthy);
+    expect(starts()).toBe(1);
+    await index.close();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('a protocol failure retires its worker the same way', async () => {
@@ -183,28 +219,24 @@ it('a worker that exits between requests is replaced before any request reaches 
   await index.close();
 });
 
-it('a replacement that never starts fails typed, and the next request replaces it again', async () => {
+it('a replacement whose startup fails is typed, and the next request replaces it again', async () => {
   const { index, starts } = owner([
-    fake(['hang']),
-    fake(['serve'], { starts: false }),
+    fake(['crash']),
+    fake(['serve'], { starts: 'error' }),
     fake(['serve']),
   ]);
   await index.open();
-  await expect(index.port.stateHealth()).rejects.toMatchObject(
-    typed('state-index.request-timeout')
-  );
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
 
-  await expect(index.port.stateHealth()).rejects.toMatchObject(
-    typed('state-index.request-timeout')
-  );
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
   expect(starts()).toBe(2);
   await expect(index.port.stateHealth()).resolves.toEqual(healthy);
   expect(starts()).toBe(3);
   await index.close();
 });
 
-it('a timed-out worker whose exit cannot be joined is never asked again, and nothing starts beside it', async () => {
-  const stuck = fake(['hang'], { killable: false });
+it('a faulted worker whose exit cannot be joined is never asked again, and nothing starts beside it', async () => {
+  const stuck = fake(['garble'], { killable: false });
   const { index, starts } = owner([stuck, fake(['serve'])]);
   await index.open();
   await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
@@ -222,8 +254,8 @@ it('a timed-out worker whose exit cannot be joined is never asked again, and not
 });
 
 it('a failed replacement whose exit cannot be joined stays owned; nothing starts beside it', async () => {
-  const replacement = fake(['serve'], { killable: false, starts: false });
-  const { index, starts } = owner([fake(['hang']), replacement, fake(['serve'])]);
+  const replacement = fake(['serve'], { killable: false, starts: 'error' });
+  const { index, starts } = owner([fake(['crash']), replacement, fake(['serve'])]);
   await index.open();
   await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
 
@@ -239,12 +271,10 @@ it('a failed replacement whose exit cannot be joined stays owned; nothing starts
 });
 
 it('stops after three replacements in a row with no request served, refused with a remedy', async () => {
-  const { index, starts } = owner([fake(['hang'])]);
+  const { index, starts } = owner([fake(['crash'])]);
   await index.open();
   for (let attempt = 0; attempt < 4; attempt++) {
-    await expect(index.port.stateHealth()).rejects.toMatchObject(
-      typed('state-index.request-timeout')
-    );
+    await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
   }
   expect(starts()).toBe(4);
 
@@ -263,10 +293,10 @@ it('stops after three replacements in a row with no request served, refused with
 
 it('a served request ends the streak, so a later retirement is replaced again', async () => {
   const { index, starts } = owner([
-    fake(['hang']),
-    fake(['hang']),
-    fake(['hang']),
-    fake(['serve', 'hang']),
+    fake(['crash']),
+    fake(['crash']),
+    fake(['crash']),
+    fake(['serve', 'crash']),
     fake(['serve']),
   ]);
   await index.open();
@@ -294,7 +324,7 @@ it('keeps a live worker that refuses a request, and passes its refusal through u
 });
 
 it('close stops a replacement still starting, and nothing starts after it', async () => {
-  const { index, starts } = owner([fake(['hang']), fake(['serve'], { starts: false })]);
+  const { index, starts } = owner([fake(['crash']), fake(['serve'], { starts: 'never' })]);
   await index.open();
   await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
 
@@ -308,7 +338,7 @@ it('close stops a replacement still starting, and nothing starts after it', asyn
 });
 
 it('close keeps ownership of a retired worker it cannot join, reports it, and retries on the next close', async () => {
-  const stuck = fake(['hang'], { killable: false });
+  const stuck = fake(['garble'], { killable: false });
   const { index, starts } = owner([stuck]);
   await index.open();
   await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
@@ -327,11 +357,9 @@ it('close keeps ownership of a retired worker it cannot join, reports it, and re
 });
 
 it('a replacement whose worker cannot even be created fails typed and counts toward the bound', async () => {
-  const { index, starts } = owner([fake(['hang']), unspawnable, unspawnable, fake(['serve'])]);
+  const { index, starts } = owner([fake(['crash']), unspawnable, unspawnable, fake(['serve'])]);
   await index.open();
-  await expect(index.port.stateHealth()).rejects.toMatchObject(
-    typed('state-index.request-timeout')
-  );
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
 
   for (const attempt of [2, 3]) {
     await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
@@ -343,7 +371,7 @@ it('a replacement whose worker cannot even be created fails typed and counts tow
 });
 
 it('replacements that cannot be created stop at the bound like any other', async () => {
-  const { index, starts } = owner([fake(['hang']), unspawnable]);
+  const { index, starts } = owner([fake(['crash']), unspawnable]);
   await index.open();
   await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
   for (let attempt = 0; attempt < 3; attempt++) {

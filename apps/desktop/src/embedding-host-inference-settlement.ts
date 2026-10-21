@@ -52,10 +52,9 @@ export function queryResponseFailure(
 export function joinDocumentEmbeddingInterruption(
   request: EmbeddingHostDocumentEmbeddingsRequest,
   context: HostRequestInterruptionContext<EmbeddingHostDocumentEmbeddingsResponseReport>,
-  retire: () => Promise<unknown>,
-  timeoutMs: number
+  retire: () => Promise<unknown>
 ): Promise<unknown> {
-  return joinEmbeddingInterruption(context, retire, timeoutMs, {
+  return joinEmbeddingInterruption(context, retire, {
     cancellationCode: EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
     failure: (report) => documentResponseFailure(request.payload, report),
     label: 'Document embedding',
@@ -65,21 +64,22 @@ export function joinDocumentEmbeddingInterruption(
 export function joinQueryEmbeddingInterruption(
   request: EmbeddingHostQueryEmbeddingRequest,
   context: HostRequestInterruptionContext<EmbeddingHostQueryEmbeddingResponseReport>,
-  retire: () => Promise<unknown>,
-  timeoutMs: number
+  retire: () => Promise<unknown>
 ): Promise<unknown> {
-  return joinEmbeddingInterruption(context, retire, timeoutMs, {
+  return joinEmbeddingInterruption(context, retire, {
     cancellationCode: EMBEDDING_HOST_QUERY_CANCELED_CODE,
     failure: (report) => queryResponseFailure(request, report),
     label: 'Query embedding',
   });
 }
 
-/** Join interruption through a terminal response or the manager-owned retirement. */
+/**
+ * Join an interruption through its terminal response, or through the manager-owned retirement
+ * when the host could not be told (a cancel or request that could not be sent: a transport fault).
+ */
 async function joinEmbeddingInterruption<Response>(
   context: HostRequestInterruptionContext<Response>,
   retire: () => Promise<unknown>,
-  timeoutMs: number,
   response: {
     readonly cancellationCode: string;
     readonly failure: (report: Response) => Error | null;
@@ -87,23 +87,17 @@ async function joinEmbeddingInterruption<Response>(
   }
 ): Promise<unknown> {
   // The exact cancel, or a host Stop that ended the request: both answer only after the
-  // physical join. Shutdown and the Stop escalation below both retire the host this way.
+  // physical join. Shutdown and an undeliverable cancel's Stop both retire the host this way.
   const isCancellation = (error: Error): boolean => {
     const code = (error as Error & { code?: unknown }).code;
     return code === response.cancellationCode || code === EMBEDDING_HOST_RUNTIME_STOPPED_CODE;
   };
-  // Sending cancel is only a request. A terminal response is emitted after owned inference.
-  // Give cooperative caller cancellation the existing Stop window, then retire through Stop.
+  // Sending cancel is only a request. A terminal response is emitted after owned inference, and
+  // a delivered cancel waits for it however long the host takes (lifecycle R2): no timer stops a
+  // live host for a slow acknowledgement. Its exit, a fault, or an explicit Stop ends it instead.
   if (context.source === 'abort' && context.error === context.reason) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const settlement = await Promise.race([
-      context.settlement,
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), timeoutMs);
-      }),
-    ]);
-    clearTimeout(timer);
-    if (settlement?.type === 'retired') {
+    const settlement = await context.settlement;
+    if (settlement.type === 'retired') {
       return settlement.error
         ? new AggregateError(
             [context.error, settlement.error],
@@ -111,16 +105,14 @@ async function joinEmbeddingInterruption<Response>(
           )
         : context.error;
     }
-    if (settlement?.type === 'response') {
-      const error = response.failure(settlement.response);
-      if (error && !isCancellation(error)) {
-        return new AggregateError(
-          [context.error, error],
-          `${response.label} failed during cancellation.`
-        );
-      }
-      return context.error;
+    const error = response.failure(settlement.response);
+    if (error && !isCancellation(error)) {
+      return new AggregateError(
+        [context.error, error],
+        `${response.label} failed during cancellation.`
+      );
     }
+    return context.error;
   }
   let completionFailure: Error | null = null;
   void context.settlement.then((settlement) => {

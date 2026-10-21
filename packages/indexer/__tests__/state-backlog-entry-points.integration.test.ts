@@ -1,6 +1,6 @@
 // Every entry point that catches the state index up, over a cold backlog far
-// past one catch-up step and behind a request deadline half that backlog's
-// projection in one request: each is served, and the worker lives.
+// past one catch-up step: each is served, the worker lives, and no request it
+// sends takes half as long as that backlog's projection in one request.
 import { fork } from 'node:child_process';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -22,7 +22,7 @@ type Port = Awaited<ReturnType<typeof openIndexer>>;
 const BACKLOG = STATE_CATCH_UP_STEP_EVENTS * 60;
 /**
  * 20 steps, not 60: overwrite steps grow with rebuild progress (BST-2153); this
- * case proves stepping and the deadline, not that growth.
+ * case proves stepping and the budget, not that growth.
  */
 const REBUILD_BACKLOG = STATE_CATCH_UP_STEP_EVENTS * 20;
 const backlogs: Readonly<Record<string, number>> = {
@@ -34,19 +34,20 @@ const backlogs: Readonly<Record<string, number>> = {
   similar: BACKLOG,
 };
 /**
- * A case's request deadline is its own backlog projected in one request,
+ * A case's request budget is its own backlog projected in one request,
  * measured in this run, divided by this: coverage and a busy runner stretch the
- * work so far that no fixed deadline fits every runner. Carrying the backlog in
- * one request misses the deadline twice over, while a case's largest request
+ * work so far that no fixed budget fits every runner. Carrying the backlog in
+ * one request misses the budget twice over, while a case's largest request
  * measured about a tenth of that one request, and a sixth at worst, idle and
- * under load (BST-2214). The deadline comes from that long request rather than
+ * under load (BST-2214). The budget comes from that long request rather than
  * a few short step samples, which load moves apart from it, and each case has
- * its own: one deadline for every case had to sit both above a rebuild's
+ * its own: one budget for every case had to sit both above a rebuild's
  * overwrite steps (10 to 30 fresh steps) and below the fresh backlog in one
- * request (about 55).
+ * request (about 55). Requests have no deadline (lifecycle R2), so the case
+ * measures every request's round trip against the budget instead.
  */
-const DEADLINES_PER_BACKLOG = 2;
-const calibrationDeadlines = { closeMs: 5000, exitMs: 5000, requestMs: 120_000, startupMs: 5000 };
+const BUDGETS_PER_BACKLOG = 2;
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
   dimensions: 4,
@@ -93,9 +94,9 @@ await import(${JSON.stringify(new URL('../dist/process-entry.js', import.meta.ur
 
 /**
  * openIndexer's own fork and connection, with the slowest requests it sent, so
- * a missed deadline names its request.
+ * a request over its budget is named.
  */
-async function openTimedIndexer(deadlines: unknown) {
+async function openTimedIndexer() {
   const requests = new Map<number, TimedRequest>();
   const child = fork(entry, [], {
     execArgv: [],
@@ -174,7 +175,12 @@ async function openTimedIndexer(deadlines: unknown) {
         .join('; ') || 'none'
     );
   };
-  return { port: await connection.ready, slowest };
+  const longestRoundTripMs = (): number =>
+    Math.max(
+      0,
+      ...[...requests.values()].map((request) => request.roundTripMs ?? Number.POSITIVE_INFINITY)
+    );
+  return { longestRoundTripMs, port: await connection.ready, slowest };
 }
 
 async function elapsed(work: () => Promise<unknown>): Promise<number> {
@@ -193,7 +199,7 @@ beforeAll(async () => {
     stateProjection: { mode: 'dev', module: producer },
     stateRoot: root,
   };
-  const calibration = await openIndexer(options, calibrationDeadlines);
+  const calibration = await openIndexer(options, deadlines);
   const store = await StateStore.open(root, { indexer: createStateStoreIndexer(calibration) });
   const append = (threadId: string, count: number) =>
     store.append(
@@ -277,23 +283,22 @@ const entryPoints: readonly [
 ];
 
 it.each(entryPoints)(
-  '%s over a cold backlog is served, every request inside the deadline',
+  '%s over a cold backlog is served, every request inside its budget',
   async (threadId, serve, check) => {
     const rebuild = threadId === 'rebuild';
     const oneRequest = rebuild ? oneRequestMs.rebuild : oneRequestMs.fresh;
-    const requestMs = Math.ceil(oneRequest / DEADLINES_PER_BACKLOG);
-    const { port, slowest } = await openTimedIndexer({ ...calibrationDeadlines, requestMs });
+    const budgetMs = Math.ceil(oneRequest / BUDGETS_PER_BACKLOG);
+    const { longestRoundTripMs, port, slowest } = await openTimedIndexer();
     const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
     try {
-      const served = await serve(port).catch((error: unknown) => {
-        throw new Error(
-          `requestMs ${requestMs} (${rebuild ? 'rebuild' : 'backlog'} in one request ${Math.round(oneRequest)} ms); slowest requests: ${slowest()}`,
-          { cause: error }
-        );
-      });
+      const served = await serve(port);
+      expect(
+        longestRoundTripMs(),
+        `budget ${budgetMs} ms (${rebuild ? 'rebuild' : 'backlog'} in one request ${Math.round(oneRequest)} ms); slowest requests: ${slowest()}`
+      ).toBeLessThan(budgetMs);
       check(served);
       expect((await port.stateStats(threadId)).cursor).toBe(backlogs[threadId]);
-      // Retirement would have failed the connection: the same worker still answers.
+      // The same worker still answers.
       await expect(port.stateHealth()).resolves.toEqual({ indexerErrors: [] });
     } finally {
       await store.close();

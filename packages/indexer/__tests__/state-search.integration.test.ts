@@ -7,7 +7,7 @@ import { openConnection } from '@brainstrike/sqlite-native';
 import { type RunEvent, StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, it } from 'vitest';
 
-const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+const deadlines = { closeMs: 5000, exitMs: 5000 };
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 
 const owned: (() => Promise<void>)[] = [];

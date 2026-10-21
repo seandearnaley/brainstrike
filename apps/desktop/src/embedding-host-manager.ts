@@ -9,7 +9,7 @@ import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import { EmbeddingHostStartup } from './embedding-host-background-startup';
 import { awaitHostDevice, requestHostDeviceResolution } from './embedding-host-device';
-import { documentBatchTimeout } from './embedding-host-document-timeout';
+import { documentBatchTimeout, queryEmbeddingTimeout } from './embedding-host-document-timeout';
 import {
   documentResponseFailure,
   joinDocumentEmbeddingInterruption,
@@ -46,6 +46,7 @@ import {
 import { createEmbeddingHostStallSeam } from './embedding-host-stall-seam';
 import { waitForHostStartup } from './embedding-host-startup';
 import { HostedEmbeddingRequests } from './hosted-embedding-requests';
+import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import {
   createRuntimeHostPlatformStatus,
@@ -56,18 +57,27 @@ import { RendererHostLifecycle } from './renderer-host-lifecycle';
 
 const logger = createLogger('EmbeddingHostManager');
 
-const HOST_READY_TIMEOUT_MS = 30_000;
+/** R5(a): one inference request's bound, refused alone and typed with its cancel sent; never a host stop. */
 const QUERY_EMBEDDING_TIMEOUT_MS = 60_000;
 const MAX_PENDING_QUERY_EMBEDDING_REQUESTS = 8;
+/** Not a lifecycle timeout: how long an idle host keeps the power-save blocker, a UI grace. */
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
+/** Not a lifecycle timeout: how long an inactive report waits before it is shown, a UI grace. */
 const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
-
-// Leave time for the remaining owners inside main's five-second shutdown budget.
+/** R5(b): quit's cooperative Stop window before the host window is destroyed and its close joined. */
 const EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS = 3000;
+/** R5(b): a Stop's cooperative window before the host window is destroyed and its close joined. */
 const EMBEDDING_HOST_STOP_TIMEOUT_MS = 10_000;
+/** R5(b): a reset's cooperative window (drain, then the replacement runtime's report) before destroy. */
+const EMBEDDING_HOST_RESET_TIMEOUT_MS = 30_000;
 const STOPPED_WITH_INFERENCE = 'Embedding host stopped while inference requests were in flight.';
 
 export interface EmbeddingHostManagerOptions {
+  /**
+   * Main's E2E delay seam accessor (`lifecycleDelaySeam`), read at the boundary:
+   * `hidden-host-ready` delays the host's readiness report. Absent, nothing is delayed.
+   */
+  readonly lifecycleDelays?: () => LifecycleDelaySeam;
   readonly platform?: NodeJS.Platform;
   readonly storage?:
     | import('@brainstrike/storage/electron').ElectronStorageAdapter
@@ -76,6 +86,7 @@ export interface EmbeddingHostManagerOptions {
 
 export class EmbeddingHostManager {
   private readonly hostedRequests: HostedEmbeddingRequests;
+  private readonly lifecycleDelays: (() => LifecycleDelaySeam) | undefined;
   private readonly startup = new EmbeddingHostStartup();
   /** Settings' reads of the running host: WebGPU detection and its model cache. */
   readonly settingsReads = new EmbeddingHostSettingsReads({
@@ -126,18 +137,17 @@ export class EmbeddingHostManager {
 
   constructor(options: EmbeddingHostManagerOptions = {}) {
     this.hostedRequests = new HostedEmbeddingRequests(options.storage);
+    this.lifecycleDelays = options.lifecycleDelays;
     this.powerSaveBlockerEnabled = (options.platform ?? process.platform) === 'darwin';
     this.queryRequests = createHostRequestChannel<
       EmbeddingHostQueryEmbeddingRequest,
       EmbeddingHostQueryEmbeddingResponseReport
     >({
+      // A query past its bound is refused alone (R5(a)): its cancel is sent, the host keeps running.
       joinOnInterrupt: (request, context) =>
-        joinQueryEmbeddingInterruption(
-          request,
-          context,
-          () => this.stopHost(),
-          EMBEDDING_HOST_STOP_TIMEOUT_MS
-        ),
+        context.source === 'timeout'
+          ? Promise.resolve(context.error)
+          : joinQueryEmbeddingInterruption(request, context, () => this.stopHost()),
       onAbort: (request, { reason }) => {
         try {
           this.cancelQueryEmbeddingRequest(request);
@@ -149,27 +159,8 @@ export class EmbeddingHostManager {
           );
         }
       },
-      onTimeout: (request, context) => {
-        logger.warn('Embedding host query timed out', {
-          elapsedMs: Math.max(0, context.timedOutAt - context.startedAt),
-          pendingCount: context.pendingCount,
-          provider: 'local',
-          stage: 'host-response',
-          timeoutMs: context.timeoutMs,
-        });
-        let error: Error = new Error(
-          `Embedding host request ${context.requestId} timed out after ${context.timeoutMs}ms.`
-        );
-        try {
-          this.cancelQueryEmbeddingRequest(request);
-        } catch (deliveryError) {
-          error = new AggregateError(
-            [error, deliveryError],
-            'Query embedding timeout cancellation failed.'
-          );
-        }
-        return { error, policy: 'abandon' };
-      },
+      onTimeout: (request, context) =>
+        queryEmbeddingTimeout(context, () => this.cancelQueryEmbeddingRequest(request)),
       requestId: (request) => `${request.runtimeId}:${request.requestId}`,
       responseId: (report) => `${report.runtimeId}:${report.requestId}`,
       role: 'Embedding host',
@@ -187,13 +178,12 @@ export class EmbeddingHostManager {
     >({
       // Each completed slice re-arms the window: a long batch on slow hardware is alive.
       isProgress: (report) => report.type === 'progress',
+      // A silent batch is refused alone (R5(a), BST-2104): its cancel is sent and indexing waits
+      // for Retry, which restarts the host. The window itself never stops the host.
       joinOnInterrupt: (request, context) =>
-        joinDocumentEmbeddingInterruption(
-          request,
-          context,
-          () => this.stopHost(),
-          EMBEDDING_HOST_STOP_TIMEOUT_MS
-        ),
+        context.source === 'timeout'
+          ? Promise.resolve(context.error)
+          : joinDocumentEmbeddingInterruption(request, context, () => this.stopHost()),
       onAbort: (request, { reason }) => {
         try {
           this.cancelDocumentEmbeddingsRequest(request);
@@ -337,7 +327,6 @@ export class EmbeddingHostManager {
       send: (command) =>
         this.requireHostWindow().webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command),
       stopping: () => this.stopping,
-      timeoutMs: HOST_READY_TIMEOUT_MS,
     });
   }
 
@@ -503,7 +492,7 @@ export class EmbeddingHostManager {
           (nextStatus.runtimeId === currentRuntimeId &&
             nextStatus.commandId === command.requestId &&
             nextStatus.state === 'error'),
-        HOST_READY_TIMEOUT_MS
+        EMBEDDING_HOST_RESET_TIMEOUT_MS
       );
       if (status.state === 'error') {
         // A failed drain or replacement startup retires this renderer before any new start.
@@ -701,6 +690,7 @@ export class EmbeddingHostManager {
     }
     const window = this.lifecycle.getHostWindow();
     if (!window || this.documentRequests.size() + this.queryRequests.size() === 0) {
+      // The lifecycle starts no replacement until this window has closed.
       try {
         this.lifecycle.destroyHostWindow();
       } catch (error) {
@@ -790,6 +780,24 @@ export class EmbeddingHostManager {
   }
 
   acceptStatusReport(senderId: number, report: EmbeddingHostStatusReport): void {
+    if (
+      this.lifecycleDelays &&
+      report.state === 'running' &&
+      this.lifecycle.getStatus().state === 'starting'
+    ) {
+      // E2E seam at the host's readiness boundary (`hidden-host-ready`); absent, it proceeds at once.
+      void this.lifecycleDelays()
+        .delay('hidden-host-ready')
+        .then(() => this.applyStatusReport(senderId, report))
+        .catch((error: unknown) => {
+          logger.error('Embedding host readiness report could not be applied', { error });
+        });
+      return;
+    }
+    this.applyStatusReport(senderId, report);
+  }
+
+  private applyStatusReport(senderId: number, report: EmbeddingHostStatusReport): void {
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return;

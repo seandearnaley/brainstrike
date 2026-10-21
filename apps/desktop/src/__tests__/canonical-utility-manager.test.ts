@@ -177,7 +177,7 @@ it.each(['workspace', 'collection'] as const)(
         rootIds: [],
         scopes: [scope],
       },
-      { closeMs: 100, exitMs: 100, requestMs: 20, startupMs: 100 },
+      { closeMs: 100, exitMs: 100 },
       '/explicit/entry.js'
     );
     const read = vi.fn(async () => {});
@@ -198,7 +198,7 @@ it.each(['workspace', 'collection'] as const)(
   }
 );
 
-it('bounds cancellation controls, stops admission on timeout and joins admitted scan and main IO before engine close', async () => {
+it('joins a slow cancellation control without closing admission, and joins admitted scan and main IO before engine close', async () => {
   vi.useFakeTimers();
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
@@ -246,7 +246,7 @@ it('bounds cancellation controls, stops admission on timeout and joins admitted 
       rootIds: [],
       scopes: [scope],
     },
-    { closeMs: 100, exitMs: 100, requestMs: 20, startupMs: 100 },
+    { closeMs: 100, exitMs: 100 },
     '/explicit/entry.js'
   );
   const read = vi.fn(() => held);
@@ -272,10 +272,16 @@ it('bounds cancellation controls, stops admission on timeout and joins admitted 
   expect(read).toHaveBeenCalledOnce();
   const scan = attachment.scan('scan');
   const outcome = scan.catch((error: unknown) => error);
-  const timeout = expect(attachment.cancel()).rejects.toThrow(/owner remains retained/);
-  await vi.advanceTimersByTimeAsync(21);
-  await timeout;
-  await expect(manager.start()).rejects.toThrow(/closed/);
+  let cancelled = false;
+  const cancel = attachment.cancel().then(() => {
+    cancelled = true;
+  });
+  // Lifecycle R2: a slow control is load. Nothing refuses it, and admission stays open.
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(cancelled).toBe(false);
+  await expect(manager.start()).resolves.toBeDefined();
+  heldCancel?.();
+  await cancel;
   const close = manager.close();
   await flush();
   expect(engine.close).not.toHaveBeenCalled();
@@ -285,7 +291,6 @@ it('bounds cancellation controls, stops admission on timeout and joins admitted 
     throw new Error('Scan was never admitted.');
   }
   releaseScan();
-  heldCancel?.();
   await outcome;
   await close;
   expect(engine.close).toHaveBeenCalledOnce();
@@ -341,7 +346,7 @@ function heldCollection(holdAdmission = false): {
         rootIds: [],
         scopes: [scope],
       },
-      { closeMs: 100, exitMs: 100, requestMs: 20, startupMs: 100 },
+      { closeMs: 100, exitMs: 100 },
       '/explicit/entry.js'
     ),
   };
@@ -359,115 +364,102 @@ function releaseStart(): void {
   release?.();
 }
 
-it('bounds missing child admission acknowledgement and fences subsequent work', async () => {
+// Lifecycle R2: a slow scan admission ACK is load. Nothing expires it, and admission stays open.
+it('joins a slow child admission acknowledgement and keeps admission open', async () => {
   vi.useFakeTimers();
   const fixture = heldCollection(true);
   const manager = await fixture.manager;
   const attachment = await manager.attachCanonicalCollection(dependencies(async () => {}));
-  const scan = attachment.scan('scan');
-  const result = scan.catch((error: unknown) => error);
-  await vi.advanceTimersByTimeAsync(21);
-  await expect(result).resolves.toMatchObject({
-    message: expect.stringMatching(/owner remains retained/),
+  let settled = false;
+  const scan = attachment.scan('scan').finally(() => {
+    settled = true;
   });
-  await expect(manager.start()).rejects.toThrow(/closed/);
-  await expect(attachment.scan('late')).rejects.toThrow(/closed|admission/);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(settled).toBe(false);
+  await expect(manager.start()).resolves.toBeDefined();
   expect(fixture.calls).not.toContain('join-scan');
   releaseStart();
   await flush();
+  expect(fixture.calls).toContain('join-scan');
   releaseScan();
+  await expect(scan).resolves.toMatchObject({ reason: 'complete', scanComplete: true });
   await manager.close();
 });
 
-it.each([false, true])(
-  'reports a retained real child failure after an expired admission ACK before releasing the engine (close deadline expires: %s)',
-  async (expireClose) => {
-    vi.useFakeTimers();
-    let startId: number | undefined;
-    let finished!: () => void;
-    const terminal = new Promise<void>((resolve) => {
-      finished = resolve;
-    });
-    const runtime = new CanonicalUtilityChild((input) => {
-      const frame = decodeCanonicalFrame(input);
-      const deliver = (): void => {
-        child.emit('message', frame);
-      };
-      if (frame.kind === 'result' && frame.id === startId) {
-        heldStart = deliver;
-      } else {
-        queueMicrotask(deliver);
-      }
-    });
-    child = Object.assign(new EventEmitter(), {
-      kill: () => true,
-      postMessage: (input: unknown): void => {
-        const frame = decodeCanonicalFrame(input);
-        if (frame.kind === 'call' && frame.op === 'start-scan') {
-          startId = frame.id;
-        }
-        queueMicrotask(() => runtime.receive(frame));
-      },
-    });
-    const manager = await IndexerHostManager.create(
-      {
-        dbPath: '/explicit/derived.sqlite',
-        embedding: { indexMode: 'text-only' },
-        fileBindings: [],
-        rootIds: [],
-        scopes: [scope],
-      },
-      { closeMs: 100, exitMs: 100, requestMs: 20, startupMs: 100 },
-      '/explicit/entry.js'
-    );
-    const source = dependencies(async () => {});
-    source.catalog.loadAuthorizedBatch = async ({ files }) =>
-      files.map(() => ({
-        ...file,
-        chunksProcessed: false,
-        contentHash: null,
-        stat: { mtimeMs: null, size: 0 },
-      }));
-    source.publication.finishScan = async () => {
-      finished();
-      throw new Error('independent fast publication failure');
+it('delivers a real child failure behind a slow admission ACK to its scan, then releases the engine on close', async () => {
+  vi.useFakeTimers();
+  let startId: number | undefined;
+  let finished!: () => void;
+  const terminal = new Promise<void>((resolve) => {
+    finished = resolve;
+  });
+  const runtime = new CanonicalUtilityChild((input) => {
+    const frame = decodeCanonicalFrame(input);
+    const deliver = (): void => {
+      child.emit('message', frame);
     };
-    const attachment = await manager.attachCanonicalCollection(source);
-    const result = attachment.scan('scan').catch((error: unknown) => error);
-    try {
-      await terminal;
-      await flush();
-      expect(heldStart).toBeDefined();
-      await vi.advanceTimersByTimeAsync(21);
-      await expect(result).resolves.toMatchObject({
-        message: expect.stringMatching(/owner remains retained/),
-      });
-      await expect(attachment.scan('late')).rejects.toThrow(/admission is closed/);
-      if (expireClose) {
-        const close = manager.close().catch((error: unknown) => error);
-        await vi.advanceTimersByTimeAsync(101);
-        await expect(close).resolves.toMatchObject({
-          message: expect.stringMatching(/owner remains retained/),
-        });
-        expect(engine.close).not.toHaveBeenCalled();
-      }
-      releaseStart();
-      await flush();
-      await expect(manager.close()).rejects.toMatchObject({
-        errors: [expect.objectContaining({ message: 'independent fast publication failure' })],
-      });
-      expect(engine.close).not.toHaveBeenCalled();
-    } finally {
-      releaseStart();
-      await flush();
-      await manager.close();
-      await runtime.close();
+    if (frame.kind === 'result' && frame.id === startId) {
+      heldStart = deliver;
+    } else {
+      queueMicrotask(deliver);
     }
-    expect(engine.close).toHaveBeenCalledOnce();
+  });
+  child = Object.assign(new EventEmitter(), {
+    kill: () => true,
+    postMessage: (input: unknown): void => {
+      const frame = decodeCanonicalFrame(input);
+      if (frame.kind === 'call' && frame.op === 'start-scan') {
+        startId = frame.id;
+      }
+      queueMicrotask(() => runtime.receive(frame));
+    },
+  });
+  const manager = await IndexerHostManager.create(
+    {
+      dbPath: '/explicit/derived.sqlite',
+      embedding: { indexMode: 'text-only' },
+      fileBindings: [],
+      rootIds: [],
+      scopes: [scope],
+    },
+    { closeMs: 100, exitMs: 100 },
+    '/explicit/entry.js'
+  );
+  const source = dependencies(async () => {});
+  source.catalog.loadAuthorizedBatch = async ({ files }) =>
+    files.map(() => ({
+      ...file,
+      chunksProcessed: false,
+      contentHash: null,
+      stat: { mtimeMs: null, size: 0 },
+    }));
+  source.publication.finishScan = async () => {
+    finished();
+    throw new Error('independent fast publication failure');
+  };
+  const attachment = await manager.attachCanonicalCollection(source);
+  const result = attachment.scan('scan').catch((error: unknown) => error);
+  try {
+    await terminal;
+    await flush();
+    expect(heldStart).toBeDefined();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(manager.start()).resolves.toBeDefined();
+    releaseStart();
+    await flush();
+    expect(await result).toMatchObject({
+      message: expect.stringContaining('independent fast publication failure'),
+    });
+  } finally {
+    releaseStart();
+    await flush();
+    await manager.close();
+    await runtime.close();
   }
-);
+  expect(engine.close).toHaveBeenCalledOnce();
+});
 
-it('owns an admitted full scan beyond the control budget until the exact receipt arrives', async () => {
+it('owns an admitted full scan until the exact receipt arrives', async () => {
   vi.useFakeTimers();
   const fixture = heldCollection();
   const manager = await fixture.manager;
@@ -594,7 +586,7 @@ it('retires canonical sources without closing the engine and permits a fresh sou
       rootIds: [],
       scopes: [scope],
     },
-    { closeMs: 100, exitMs: 100, requestMs: 100, startupMs: 100 },
+    { closeMs: 100, exitMs: 100 },
     '/explicit/entry.js'
   );
   const original = await manager.start();
@@ -657,7 +649,7 @@ async function attachedSources(
       rootIds: [],
       scopes: [scope],
     },
-    { closeMs: 1000, exitMs: 1000, requestMs: 1000, startupMs: 1000 },
+    { closeMs: 1000, exitMs: 1000 },
     '/explicit/entry.js'
   );
   const collection = dependencies(async () => {});

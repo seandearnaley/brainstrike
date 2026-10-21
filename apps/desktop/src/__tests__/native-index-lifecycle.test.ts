@@ -270,8 +270,38 @@ describe('automatic re-open', () => {
   it('a re-open of the failed generation opens its own settings again', () => {
     expect(reduceNativeIndex(failed, reopen(3))).toEqual({
       actions: [openAction(4)],
-      state: { from: 3, generation: 4, kind: 'transitioning', settings: VECTOR },
+      state: {
+        from: 3,
+        generation: 4,
+        kind: 'transitioning',
+        retrying: failed.kind === 'failed' ? failed.cause : undefined,
+        settings: VECTOR,
+      },
     });
+  });
+
+  // Lifecycle redesign PR D (smoke45): status keeps the failure a re-open retries until it settles.
+  it('a re-opening generation keeps the failure it retries in its status reason', () => {
+    const scheduled = reduceNativeIndex(ready, {
+      generation: 3,
+      kind: 'failure',
+      message: 'Canonical attachment failed.',
+      reopen: { attempt: 1, attempts: 3 },
+    }).state;
+    const reopening = reduceNativeIndex(scheduled, reopen(3)).state;
+    expect(nativeIndexReadiness(reopening)).toEqual({
+      cause: { kind: 'transitioning' },
+      kind: 'preparing',
+    });
+    const error = nativeIndexStateError(reopening);
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    expect(error).toMatchObject({ refusal: { kind: 'transitioning' } });
+    expect(error.message).toBe(
+      'Native index is re-opening after a failure: Canonical attachment failed. Retrying automatically (attempt 1 of 3).'
+    );
+    // Once the re-open settles, the retried failure is gone with it.
+    const served = reduceNativeIndex(reopening, { generation: 4, kind: 'opened' }).state;
+    expect(served).toEqual({ generation: 4, kind: 'ready', settings: VECTOR });
   });
 
   it('a re-open after a source-retirement failure re-admits sources in place, as a save does', () => {
@@ -454,10 +484,17 @@ describe('an embedding host that stopped responding', () => {
   });
 
   it('re-opens on Retry indexing, and a second hang blocks the next generation the same way', () => {
-    const retried = reduceNativeIndex(failedOpen(unresponsive), { generation: 3, kind: 'reopen' });
+    const failedState = failedOpen(unresponsive);
+    const retried = reduceNativeIndex(failedState, { generation: 3, kind: 'reopen' });
     expect(retried).toEqual({
       actions: [openAction(4)],
-      state: { from: 3, generation: 4, kind: 'transitioning', settings: VECTOR },
+      state: {
+        from: 3,
+        generation: 4,
+        kind: 'transitioning',
+        retrying: failedState.kind === 'failed' ? failedState.cause : undefined,
+        settings: VECTOR,
+      },
     });
     const served = reduceNativeIndex(retried.state, { generation: 4, kind: 'opened' }).state;
     const again = reduceNativeIndex(served, {
