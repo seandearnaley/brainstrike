@@ -11,7 +11,7 @@ export const hybridSearch = defineNativeTool({
     requiresApproval: false,
   },
   description:
-    'Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable',
+    'Search the Workspace Index by meaning and exact terms together (vector and BM25 keyword rankings, reciprocal rank fusion). A companion to grepSearch for a conceptual question that also carries distinctive terms; use grepSearch for exact strings and identifiers. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable',
   discovery: { family: 'embedding search', namespace: 'semantics' },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.hybridSearch',

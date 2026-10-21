@@ -7,6 +7,7 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   DESKTOP_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
@@ -176,6 +177,28 @@ function request(
 const worktreeService = {
   list: async () => ({ ok: true as const, value: [] }),
 };
+/** A ready VECTOR index over folder A, so every recorded admission offers the retrieval lane. */
+const unexpectedIndexRead = (): Promise<never> =>
+  Promise.reject(new Error('Unexpected index read in tool descriptor admission'));
+const vectorIndex: IndexSearchCapability = {
+  coverage: unexpectedIndexRead,
+  coverageBatch: unexpectedIndexRead,
+  grep: unexpectedIndexRead,
+  rebuild: unexpectedIndexRead,
+  search: unexpectedIndexRead,
+  status: async () => ({
+    authorizedCollectionIds: ['collection'],
+    authorizedRootIds: ['root-a'],
+    embedding: {
+      indexMode: 'vector-configured',
+      profile: { dimensions: 384, dtype: 'q8', modelId: 'Xenova/all-MiniLM-L6-v2', tokenCap: 256 },
+      profileHash: 'profile-hash',
+    },
+    kind: 'ready',
+    rootReadiness: [{ rootId: 'root-a', scanComplete: true }],
+    storeId: 'a'.repeat(64),
+  }),
+};
 const ADMISSIONS = {
   hosted: { request: request(HOSTED, { skills: true }), worktrees: true },
   'no-worktree-service': { request: request(HOSTED), worktrees: false },
@@ -185,6 +208,7 @@ test('Main describes each admission’s tools exactly as recorded from real admi
   const observed: Record<string, unknown> = {};
   for (const [name, admission] of Object.entries(ADMISSIONS)) {
     const captured = await desktopAdmission({
+      nativeIndexSearch: vectorIndex,
       resolveForgeService: () => null,
       resolveWorktreeService: () => (admission.worktrees ? (worktreeService as never) : null),
     }).readConfiguration(admission.request);

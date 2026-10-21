@@ -601,14 +601,16 @@ export function buildDefaultInstructions(
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
   const parallelCallInstruction = buildParallelCallInstruction(names, options.toolDiscoveryEnabled);
+  // ADR 0026: index search is a companion to grep for conceptual questions,
+  // never the default; it is registered only when the index can serve it.
   const hybridSearchClause = names.hybridSearch
-    ? `Use ${names.hybridSearch} when a lookup mixes conceptual intent with distinctive exact terms.`
+    ? `Use ${names.hybridSearch} for a conceptual question that also carries distinctive exact terms.`
     : '';
   const embeddingSpaceClause = names.listEmbeddingSpaces
     ? ` Use ${names.listEmbeddingSpaces} only for coverage or a non-default embedding space.`
     : '';
   const semanticSearchInstruction = names.queryEmbeddingSpace
-    ? `Use ${names.queryEmbeddingSpace} without embeddingSetId for purely conceptual Workspace Index queries.${embeddingSpaceClause}`
+    ? `Use ${names.queryEmbeddingSpace} without embeddingSetId for a conceptual question that exact-text search cannot find.${embeddingSpaceClause}`
     : '';
   const readToolNames = [names.readWorkspaceContext, names.readWorkspaceFile].filter(
     (name): name is string => Boolean(name)
@@ -643,8 +645,8 @@ export function buildDefaultInstructions(
     'For project work, use only registered tools.',
     workspaceInspectionInstruction,
     searchInstruction,
-    hybridSearchClause,
     semanticSearchInstruction,
+    hybridSearchClause,
     readContextInstruction,
     lspInspectInstruction,
     writeInstruction,

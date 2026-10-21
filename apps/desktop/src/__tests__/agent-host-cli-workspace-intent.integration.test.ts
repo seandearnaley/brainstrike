@@ -20,12 +20,7 @@ import type {
   DesktopHostModelProjection,
 } from '../agent-host-platform/desktop-host-intent';
 import { admitHostTools } from './fixtures/admitted-host-tools';
-import {
-  INDEX_UNAVAILABLE,
-  OUTSIDE_CHUNK,
-  OUTSIDE_FILE,
-  UNAVAILABLE,
-} from './fixtures/guarded-retrieval-refusals';
+import { OUTSIDE_CHUNK, OUTSIDE_FILE } from './fixtures/guarded-retrieval-refusals';
 
 // Observe existing owner boundaries. The actual Main adapter, context readers,
 // semantic/hybrid dispatch and native scope validation remain production code.
@@ -621,8 +616,6 @@ function native() {
 test.each([
   { mode: 'semantic', selected: ['root-a'], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
   { mode: 'hybrid', selected: ['root-a'], toolId: NATIVE_TOOL_ID.hybridSearch },
-  { mode: 'semantic', selected: [], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
-  { mode: 'hybrid', selected: [], toolId: NATIVE_TOOL_ID.hybridSearch },
 ])(
   'actual $mode adapter limits omitted-root collection retrieval to $selected',
   async ({ toolId, selected }) => {
@@ -641,17 +634,10 @@ test.each([
       })
     );
     try {
-      const tool = admittedRetrieval(admitted.tools, toolId);
-      const result = tool.execute({ embeddingSetId: 'selected', query: 'marker' }, execution());
-      if (selected.length === 0) {
-        await expect(result).resolves.toMatchObject(UNAVAILABLE);
-        expect(fixture.search).not.toHaveBeenCalled();
-        expect(fixture.grep).not.toHaveBeenCalled();
-        expect(fixture.coverageBatch).not.toHaveBeenCalled();
-        expect(fixture.queryEmbedding).not.toHaveBeenCalled();
-        return;
-      }
-      const output = await result;
+      const output = await admittedRetrieval(admitted.tools, toolId).execute(
+        { embeddingSetId: 'selected', query: 'marker' },
+        execution()
+      );
       expect(fixture.search).toHaveBeenCalled();
       expect
         .soft(
@@ -702,18 +688,21 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
   }
 );
 test.each([
-  { selected: ['root-a'], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
-  { selected: ['root-a'], toolId: NATIVE_TOOL_ID.hybridSearch },
-  { selected: [], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
-  { selected: [], toolId: NATIVE_TOOL_ID.hybridSearch },
+  { index: false, selected: ['root-a'], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
+  { index: false, selected: ['root-a'], toolId: NATIVE_TOOL_ID.hybridSearch },
+  { index: false, selected: [], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
+  { index: false, selected: [], toolId: NATIVE_TOOL_ID.hybridSearch },
+  { index: true, selected: [], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
+  { index: true, selected: [], toolId: NATIVE_TOOL_ID.hybridSearch },
 ])(
-  'a host $toolId without Main’s index refuses for $selected and never reaches the PG adapter',
-  async ({ selected, toolId }) => {
+  'a host run is offered no $toolId when Main’s index ($index) serves none of $selected, and nothing is searched',
+  async ({ index, selected, toolId }) => {
     await workspace();
     const fixture = native();
     const admitted = await admitHostTools(
       desktopAdmission({
         embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
+        ...(index ? { nativeIndexSearch: fixture.capability } : {}),
       }),
       request({
         ...intent(),
@@ -722,68 +711,16 @@ test.each([
       })
     );
     try {
-      const result = admittedRetrieval(admitted.tools, toolId).execute(
-        { embeddingSetId: 'selected', query: 'marker' },
-        execution()
+      // ADR 0026: a tool the index cannot serve is not offered, so it can reach neither store.
+      expect(Object.values(admitted.tools).map((tool) => tool.permissionToolId)).not.toContain(
+        toolId
       );
-      if (selected.length === 0) {
-        await expect(result).resolves.toMatchObject(UNAVAILABLE);
-        expect(retrieval.embeddingSet).not.toHaveBeenCalled();
-        expect(owner.hybrid).not.toHaveBeenCalled();
-        expect(owner.semantic).not.toHaveBeenCalled();
-        expect(fixture.queryEmbedding).not.toHaveBeenCalled();
-        return;
-      }
-      // The host reads only Main's workspace index; it has no PG similarity path.
-      await expect(result).resolves.toMatchObject(INDEX_UNAVAILABLE);
+      expect(retrieval.embeddingSet).not.toHaveBeenCalled();
       expect(owner.hybrid).not.toHaveBeenCalled();
       expect(owner.semantic).not.toHaveBeenCalled();
-    } finally {
-      await admitted.close();
-    }
-  }
-);
-test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
-  'a host %s without Main’s index refuses before PG could return an unselected root’s file',
-  async (toolId) => {
-    await workspace();
-    const fixture = native();
-    const chunk = {
-      chunkIndex: 0,
-      content: 'Unselected B marker',
-      embeddingSetId: 'selected',
-      endLine: 1,
-      endOffset: 'Unselected B marker'.length,
-      fileRecordId: 'file-b',
-      id: 'chunk-b',
-      startLine: 1,
-      startOffset: 0,
-      tokenCount: 3,
-    };
-    owner.semantic.mockResolvedValue([{ chunk, rank: 1, similarity: 0.9 }]);
-    owner.hybrid.mockResolvedValue({
-      metadata: { ftsResultCount: 1, fusedResultCount: 1, totalMs: 0, vectorResultCount: 1 },
-      results: [{ chunk, position: 1, rrfScore: 0.1, sourceCount: 2 }],
-    });
-    const admitted = await admitHostTools(
-      desktopAdmission({
-        embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
-      }),
-      request({
-        ...intent(),
-        cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
-        enabledNativeToolIds: [toolId],
-      })
-    );
-    try {
-      await expect(
-        admittedRetrieval(admitted.tools, toolId).execute(
-          { embeddingSetId: 'selected', query: 'marker' },
-          execution()
-        )
-      ).resolves.toMatchObject(INDEX_UNAVAILABLE);
-      expect(owner.hybrid).not.toHaveBeenCalled();
-      expect(owner.semantic).not.toHaveBeenCalled();
+      expect(fixture.search).not.toHaveBeenCalled();
+      expect(fixture.grep).not.toHaveBeenCalled();
+      expect(fixture.queryEmbedding).not.toHaveBeenCalled();
     } finally {
       await admitted.close();
     }
@@ -858,14 +795,9 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     }
   }
 );
-test.each([
-  { backend: 'native', toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
-  { backend: 'native', toolId: NATIVE_TOOL_ID.hybridSearch },
-  { backend: 'pg', toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
-  { backend: 'pg', toolId: NATIVE_TOOL_ID.hybridSearch },
-])(
-  'actual $backend $toolId adapter: Main’s index returns valid selected-root content; PG alone refuses',
-  async ({ backend, toolId }) => {
+test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
+  'actual native %s adapter: Main’s index returns valid selected-root content',
+  async (toolId) => {
     const paths = await workspace();
     const fixture = native();
     const content = 'Selected A marker';
@@ -890,27 +822,10 @@ test.each([
     owner.files.mockResolvedValue([
       { id: 'file-a', name: 'a.txt', path: 'a.txt', rootId: 'root-a', tokenCount: 3 },
     ]);
-    const chunk = {
-      chunkIndex: 0,
-      content,
-      embeddingSetId: 'selected',
-      endLine: 1,
-      endOffset: content.length,
-      fileRecordId: 'file-a',
-      id: 'chunk-a',
-      startLine: 1,
-      startOffset: 0,
-      tokenCount: 3,
-    };
-    owner.semantic.mockResolvedValue([{ chunk, rank: 1, similarity: 0.9 }]);
-    owner.hybrid.mockResolvedValue({
-      metadata: { ftsResultCount: 1, fusedResultCount: 1, totalMs: 0, vectorResultCount: 1 },
-      results: [{ chunk, position: 1, rrfScore: 0.1, sourceCount: 2 }],
-    });
     const admitted = await admitHostTools(
       desktopAdmission({
         embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
-        ...(backend === 'native' ? { nativeIndexSearch: fixture.capability } : {}),
+        nativeIndexSearch: fixture.capability,
       }),
       request({
         ...intent(),
@@ -923,13 +838,6 @@ test.each([
         { embeddingSetId: 'selected', query: 'marker' },
         execution()
       );
-      if (backend === 'pg') {
-        // Valid PG content is never read: the host has no PG similarity path.
-        expect(output).toMatchObject(INDEX_UNAVAILABLE);
-        expect(owner.hybrid).not.toHaveBeenCalled();
-        expect(owner.semantic).not.toHaveBeenCalled();
-        return;
-      }
       expect(JSON.stringify(output)).toContain(content);
       expect(JSON.stringify(output)).not.toContain('Unselected B marker');
     } finally {

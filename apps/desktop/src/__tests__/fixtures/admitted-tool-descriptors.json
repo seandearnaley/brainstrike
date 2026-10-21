@@ -392,7 +392,7 @@
       "risk": "read"
     },
     "brainstrike_hybridSearch": {
-      "description": "Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable",
+      "description": "Search the Workspace Index by meaning and exact terms together (vector and BM25 keyword rankings, reciprocal rank fusion). A companion to grepSearch for a conceptual question that also carries distinctive terms; use grepSearch for exact strings and identifiers. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable",
       "identity": "brainstrike.hybridSearch",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1003,7 +1003,7 @@
       "risk": "read"
     },
     "brainstrike_queryEmbeddingSpace": {
-      "description": "Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default",
+      "description": "Search the Workspace Index by meaning. A companion to grepSearch for a conceptual question that exact-text search cannot find; omit embeddingSetId to use the Workspace Index",
       "identity": "brainstrike.queryEmbeddingSpace",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1102,7 +1102,7 @@
       "risk": "read"
     },
     "brainstrike_readWorkspaceContext": {
-      "description": "Read explicit workspace files under strict file and token budgets after semantic search needs exact source",
+      "description": "Read several explicit workspace files at once under strict file and token budgets",
       "identity": "brainstrike.readWorkspaceContext",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2110,7 +2110,7 @@
       "risk": "read"
     },
     "brainstrike_hybridSearch": {
-      "description": "Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable",
+      "description": "Search the Workspace Index by meaning and exact terms together (vector and BM25 keyword rankings, reciprocal rank fusion). A companion to grepSearch for a conceptual question that also carries distinctive terms; use grepSearch for exact strings and identifiers. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable",
       "identity": "brainstrike.hybridSearch",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2645,7 +2645,7 @@
       "risk": "read"
     },
     "brainstrike_queryEmbeddingSpace": {
-      "description": "Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default",
+      "description": "Search the Workspace Index by meaning. A companion to grepSearch for a conceptual question that exact-text search cannot find; omit embeddingSetId to use the Workspace Index",
       "identity": "brainstrike.queryEmbeddingSpace",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2744,7 +2744,7 @@
       "risk": "read"
     },
     "brainstrike_readWorkspaceContext": {
-      "description": "Read explicit workspace files under strict file and token budgets after semantic search needs exact source",
+      "description": "Read several explicit workspace files at once under strict file and token budgets",
       "identity": "brainstrike.readWorkspaceContext",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3549,7 +3549,7 @@
       "risk": "read"
     },
     "brainstrike_hybridSearch": {
-      "description": "Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable",
+      "description": "Search the Workspace Index by meaning and exact terms together (vector and BM25 keyword rankings, reciprocal rank fusion). A companion to grepSearch for a conceptual question that also carries distinctive terms; use grepSearch for exact strings and identifiers. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable",
       "identity": "brainstrike.hybridSearch",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3913,7 +3913,7 @@
       "risk": "read"
     },
     "brainstrike_queryEmbeddingSpace": {
-      "description": "Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default",
+      "description": "Search the Workspace Index by meaning. A companion to grepSearch for a conceptual question that exact-text search cannot find; omit embeddingSetId to use the Workspace Index",
       "identity": "brainstrike.queryEmbeddingSpace",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -4012,7 +4012,7 @@
       "risk": "read"
     },
     "brainstrike_readWorkspaceContext": {
-      "description": "Read explicit workspace files under strict file and token budgets after semantic search needs exact source",
+      "description": "Read several explicit workspace files at once under strict file and token budgets",
       "identity": "brainstrike.readWorkspaceContext",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",

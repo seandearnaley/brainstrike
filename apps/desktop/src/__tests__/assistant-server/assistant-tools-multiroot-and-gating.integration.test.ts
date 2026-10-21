@@ -507,7 +507,7 @@ describe('assistant-tools multi-root read tools', () => {
 
   // Main's admission (`desktopToolDescriptors`) now owns the enabled-tool allowlist.
   describe('enabled-tool allowlist (admission descriptors)', () => {
-    const admission = { skills: false, worktrees: true } as const;
+    const admission = { retrieval: true, skills: false, worktrees: true } as const;
     it('passes the suspending tool ids through the enabled-tool allowlist filter', async () => {
       const descriptors = await desktopToolDescriptors({
         ...admission,
