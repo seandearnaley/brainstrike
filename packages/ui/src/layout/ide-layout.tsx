@@ -21,8 +21,6 @@ import {
   Separator,
 } from 'react-resizable-panels';
 import { Button } from '../button';
-import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapters';
-import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import { DEFAULT_PANEL_SIZES, MIN_PANEL_SIZE_THRESHOLD } from '../lib/panel-constants';
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
@@ -527,69 +525,42 @@ function useFileEditorContext() {
   return fileEditorContextValue;
 }
 
-// Resolve panel state from provider if present, otherwise use internal persistence
-function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
+// The layout's state and its one writer both come from PanelLayoutProvider.
+function useProvidedPanelState() {
   const ctx = usePanelLayout();
-  if (!ctx && isDevEnv()) {
-    throw new Error('Missing PanelLayoutProvider');
+  if (!ctx) {
+    throw new Error('IdeLayout must be rendered inside a PanelLayoutProvider');
   }
 
-  const noopAdapter: PanelPersistenceAdapter = useMemo(
-    () => ({
-      flush: async () => {},
-      load: async () => null,
-      save: async () => {},
-    }),
-    []
-  );
-  // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
-  // The middle panel size is calculated dynamically as: 100 - left - right
-  const fallback = usePanelPersistence(
-    [25, 20, 20],
-    false,
-    !!leftPanelContent,
-    false,
-    isDevEnv() ? noopAdapter : null
-  );
+  const { sizes, showConsole, showLeftPanel, showRightPanel } = ctx;
 
-  if (ctx) {
-    const { sizes, showConsole, showLeftPanel, showRightPanel } = ctx;
+  const saveLayout: SaveLayout = (newSizes, sConsole, sLeft, sRight) =>
+    ctx.setState({
+      showConsole: sConsole ?? showConsole,
+      showLeftPanel: sLeft ?? showLeftPanel,
+      showRightPanel: sRight ?? showRightPanel,
+      sizes: newSizes,
+    });
 
-    const saveLayout = (
-      newSizes: number[],
-      sConsole?: boolean,
-      sLeft?: boolean,
-      sRight?: boolean
-    ) =>
-      ctx.setState({
-        showConsole: sConsole ?? showConsole,
-        showLeftPanel: sLeft ?? showLeftPanel,
-        showRightPanel: sRight ?? showRightPanel,
-        sizes: newSizes,
-      });
-
-    const toggleField = (field: 'showConsole' | 'showLeftPanel' | 'showRightPanel') =>
-      ctx.setState({
-        showConsole,
-        showLeftPanel,
-        showRightPanel,
-        sizes,
-        [field]: !ctx[field],
-      });
-
-    return {
-      saveLayout,
+  const toggleField = (field: 'showConsole' | 'showLeftPanel' | 'showRightPanel') =>
+    ctx.setState({
       showConsole,
       showLeftPanel,
       showRightPanel,
       sizes,
-      toggleConsole: () => toggleField('showConsole'),
-      toggleLeftPanel: () => toggleField('showLeftPanel'),
-      toggleRightPanel: () => toggleField('showRightPanel'),
-    } as const;
-  }
+      [field]: !ctx[field],
+    });
 
-  return fallback;
+  return {
+    saveLayout,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
+    sizes,
+    toggleConsole: () => toggleField('showConsole'),
+    toggleLeftPanel: () => toggleField('showLeftPanel'),
+    toggleRightPanel: () => toggleField('showRightPanel'),
+  } as const;
 }
 
 // Panel toggle handler configuration
@@ -993,7 +964,7 @@ export const IdeLayout = React.memo(function IdeLayout({
     toggleConsole,
     toggleLeftPanel,
     toggleRightPanel,
-  } = useResolvedPanelState(leftPanelContent);
+  } = useProvidedPanelState();
 
   // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
   // The middle panel size is calculated dynamically as: 100 - left - right
@@ -1129,8 +1100,7 @@ export const IdeLayout = React.memo(function IdeLayout({
    * whole event dispatch has unwound, so the layout is committed either way.
    * Reading inline and guessing wrong would persist the *pre*-reset layout with
    * no error at all, which is precisely the kind of silent wrong-save this
-   * codebase forbids. `use-panel-persistence` de-dupes identical states, so a
-   * double-click that resets nothing costs nothing.
+   * codebase forbids.
    */
   const handleHorizontalSeparatorDoubleClick = () => {
     queueMicrotask(() => {

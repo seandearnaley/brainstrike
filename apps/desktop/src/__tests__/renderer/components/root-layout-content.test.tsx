@@ -108,7 +108,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    ElectronPanelPersistenceAdapter: vi.fn(() => ({})),
     PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });

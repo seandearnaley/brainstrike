@@ -20,8 +20,7 @@ this package does not require a second PostCSS pipeline.
 
 Components such as `Button` and `Input` are root exports. Use the manifest's
 explicit code/markdown/icon subpaths for those boundaries. Component props and
-exported hooks come from the source; the old `/hooks`/`usePanelPersistence` layout
-example is not a current public entrypoint.
+exported hooks come from the source.
 
 ## Invariants
 

@@ -34,12 +34,6 @@ export * from './error-fallback';
 export type { ExpandableTextareaProps } from './expandable-textarea';
 export { ExpandableTextarea } from './expandable-textarea';
 export * from './hooks';
-export type { PanelPersistenceAdapter } from './hooks/panel-persistence-adapters';
-export {
-  ElectronPanelPersistenceAdapter,
-  LocalStoragePanelPersistenceAdapter,
-} from './hooks/panel-persistence-adapters';
-export type { PanelPersistenceState } from './hooks/use-panel-persistence';
 export * from './import-progress';
 export * from './input';
 export * from './label';
@@ -81,8 +75,6 @@ export * from './tool-approval-dialog';
 export * from './tooltip';
 export * from './tooltip-icon-button';
 export * from './tree-table';
-// Export types
-export * from './types';
 export * from './unsupported-feature';
 // Export hooks
 export * from './use-toast';
