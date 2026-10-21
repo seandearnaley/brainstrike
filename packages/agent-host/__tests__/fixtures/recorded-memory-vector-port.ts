@@ -27,6 +27,7 @@ export function recordedMemoryVectorPort() {
   const events: string[] = [];
   let hits: readonly StateMessageHit[] = [];
   let prepareFailure: unknown;
+  let queryFailure: unknown;
   const port: StateMessageVectorPort = {
     prepareStateMessageVectors: async (request) => {
       prepares.push(structuredClone(request));
@@ -49,6 +50,9 @@ export function recordedMemoryVectorPort() {
     queryStateMessageVectors: async (request) => {
       queries.push(structuredClone(request));
       events.push('query');
+      if (queryFailure !== undefined) {
+        throw queryFailure;
+      }
       return structuredClone(hits);
     },
     upsertStateMessageVectors: async (request) => {
@@ -74,6 +78,9 @@ export function recordedMemoryVectorPort() {
     },
     setPrepareFailure(value: unknown): void {
       prepareFailure = value;
+    },
+    setQueryFailure(value: unknown): void {
+      queryFailure = value;
     },
     upserts,
   };

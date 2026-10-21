@@ -121,6 +121,8 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     // A background memory cycle that failed after the answer: the only sign
     // that the run's memory did not settle.
     (event.kind === 'memory.observation.failed' && event.status === 'failed') ||
+    // A turn's failed recall: the only sign its answer had no recalled history.
+    (event.kind === 'memory.semantic.completed' && event.status === 'failed') ||
     event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'provider.request.warned' ||
     event.kind === 'reference.unavailable' ||
