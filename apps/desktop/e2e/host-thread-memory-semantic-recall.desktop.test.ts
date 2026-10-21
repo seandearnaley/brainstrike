@@ -305,12 +305,30 @@ test('a hosted embedder’s rejection is the turn’s recall notice, then the ru
       .toBe(true);
   }
   expect(await finishedOutcomes(page)).toEqual(['failed']);
-  // The recall's query, then the save's two messages (prompt and answer), embedded at once.
-  expect(modelProvider.refusals()).toEqual(
-    Array.from({ length: 3 }, () =>
+  // Every refusal is the embedder's: no other provider route was refused.
+  const refusals = modelProvider.refusals();
+  expect(refusals).toEqual(
+    refusals.map(() =>
       expect.objectContaining({ knob: 'OPENAI_BASE_URL', method: 'POST', route: '/embeddings' })
     )
   );
+  const turn = modelProvider
+    .requests()
+    .find(({ requestBody }) => (requestBody as { stream?: unknown }).stream === true);
+  if (!turn) {
+    throw new Error('The turn sent no streamed model request');
+  }
+  // The recall embeds its query once, before the turn's model request.
+  expect(refusals.filter(({ requestIndex }) => requestIndex < turn.requestIndex)).toHaveLength(1);
+  // The save embeds the prompt and the answer at once (Mastra `Memory.saveMessages`
+  // maps them through `Promise.all`). The first 401 fails the save, the host aborts
+  // the run on it (agent-host `onStepFinish`, core-run-execution.ts), and the run
+  // signal cancels the other embed (`MemoryProviderLifetime.embeddingCall`). That
+  // embed reaches the provider only if it was sent before the abort, a race decided
+  // within a millisecond (BST-2290), so the save is refused once or twice.
+  const saveRefusals = refusals.filter(({ requestIndex }) => requestIndex > turn.requestIndex);
+  expect(saveRefusals.length).toBeGreaterThanOrEqual(1);
+  expect(saveRefusals.length).toBeLessThanOrEqual(2);
 });
 
 test('an on-device embedder with no execution device refuses with its reason, not a fault', async ({
