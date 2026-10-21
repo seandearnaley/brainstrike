@@ -20,6 +20,7 @@ import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-m
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { webE2ERequiresDurableWrites } from './web-e2e-durable-writes';
+import { installWebE2ELifecycleHooks } from './web-e2e-lifecycle-hooks';
 import { WebE2ETestHooks } from './web-e2e-test-hooks';
 // Import global CSS
 import './app/globals.css';
@@ -213,6 +214,11 @@ const webDbPath = resolveWebDbPath();
 const stopAppReloadRecovery = startAppReloadRecovery({ buildId: __BRAINSTRIKE_BUILD_ID__ });
 if (import.meta.hot) {
   import.meta.hot.dispose(stopAppReloadRecovery);
+}
+// Before the first render, so a webdriver spec can join a reload before the database boots.
+const uninstallWebE2ELifecycleHooks = installWebE2ELifecycleHooks();
+if (import.meta.hot) {
+  import.meta.hot.dispose(uninstallWebE2ELifecycleHooks);
 }
 
 root.render(
