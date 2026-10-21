@@ -41,6 +41,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './styles.css',
         './terminal-panel',
         './terminal-panel/availability',
+        './thread-workspace-navigation',
         './types',
         './use-document-title',
         './use-workspace-search-controller',
