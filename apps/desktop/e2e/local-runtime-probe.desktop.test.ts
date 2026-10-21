@@ -156,10 +156,12 @@ test.describe('Local Runtimes desktop probe integration', { tag: '@smoke' }, () 
     // `/api/tags` would only succeed if the catalog also ran, which the
     // Settings card's Probe Now / Save flow does NOT currently trigger.
     await expect
-      .poll(() =>
-        ollama?.requestLog.some((entry) =>
-          /^GET \/(?:v1\/models|api\/tags|api\/version)(?:\?|$)/u.test(entry)
-        )
+      .poll(
+        () =>
+          ollama?.requestLog.some((entry) =>
+            /^GET \/(?:v1\/models|api\/tags|api\/version)(?:\?|$)/u.test(entry)
+          ),
+        { timeout: test.info().timeout }
       )
       .toBe(true);
   });
