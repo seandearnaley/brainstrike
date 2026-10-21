@@ -114,10 +114,57 @@ it('resume opens the index from its saved settings', async () => {
     await f.activation.acquire();
     await f.activation.closeNativeOwner();
     await f.activation.resume();
-    expect(await lifecycleOf(f.activation)).toMatchObject({ kind: 'ready' });
+    await vi.waitFor(async () =>
+      expect(await lifecycleOf(f.activation)).toMatchObject({ kind: 'ready' })
+    );
     expect(await f.status()).toMatchObject({ kind: 'ready' });
     expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
   } finally {
+    await f.activation.close();
+  }
+});
+
+it('resume returns without waiting for the open it starts, so quit never joins it', async () => {
+  // A content clear keeps live settings: its resumed open starts the indexer, which quit's
+  // cancellation of the reset must not wait for.
+  const f = heldOpens();
+  const quit = new AbortController();
+  try {
+    await f.activation.acquireProfile();
+    await f.activation.acquire();
+    await f.activation.closeNativeOwner();
+    f.held.hold = true;
+    let resumed = false;
+    const resuming = f.activation.resume(quit.signal).then(() => {
+      resumed = true;
+    });
+    await vi.waitFor(() => expect(f.held.entered).toBe(true));
+    await vi.waitFor(() => expect(resumed).toBe(true));
+    quit.abort(new Error('Terminal quit'));
+    await resuming;
+  } finally {
+    f.held.release.resolve();
+    await f.activation.close();
+  }
+});
+
+it('acquire after resume joins the open that resume started', async () => {
+  // Root-data deletion resumes, then acquires: the index must serve again, not refuse.
+  const f = heldOpens();
+  try {
+    await f.activation.acquireProfile();
+    await f.activation.acquire();
+    await f.activation.closeNativeOwner();
+    f.held.hold = true;
+    await f.activation.resume();
+    await vi.waitFor(() => expect(f.held.entered).toBe(true));
+    const acquiring = f.activation.acquire();
+    acquiring.catch(() => undefined);
+    f.held.release.resolve();
+    await expect(acquiring).resolves.toBeDefined();
+    expect(await lifecycleOf(f.activation)).toMatchObject({ kind: 'ready' });
+  } finally {
+    f.held.release.resolve();
     await f.activation.close();
   }
 });
@@ -130,13 +177,17 @@ it('resume after a reset cleared the settings resolves with the index refused as
     await f.activation.closeNativeOwner();
     f.storage.getItem.mockResolvedValue(null as unknown as string);
     await f.activation.resume();
-    expect(await lifecycleOf(f.activation)).toMatchObject({
-      cause: { kind: 'setup-required' },
-      kind: 'refused',
-    });
-    expect(f.onError).toHaveBeenCalledWith(
-      'open after resume',
-      expect.any(NativeIndexSetupRequiredError)
+    await vi.waitFor(async () =>
+      expect(await lifecycleOf(f.activation)).toMatchObject({
+        cause: { kind: 'setup-required' },
+        kind: 'refused',
+      })
+    );
+    await vi.waitFor(() =>
+      expect(f.onError).toHaveBeenCalledWith(
+        'open after resume',
+        expect.any(NativeIndexSetupRequiredError)
+      )
     );
   } finally {
     await f.activation.close();

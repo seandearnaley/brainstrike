@@ -695,13 +695,19 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     dispatch: async (event) => (await lifecycle).dispatch(event),
     onError: dependencies.onError,
   });
-  const currentReader = async (): Promise<Graph> => {
+  const currentReader = async (joinOpen = false): Promise<Graph> => {
     // Capture this command's input before owner construction can yield to a later save.
     // Only the lifecycle owner may accept it as an initial configuration.
     const settings = captureSettings();
     const owner = await lifecycle;
     let state = await owner.start(settings);
     if (
+      // An explicit owner joins an open in flight, such as the one resume() started;
+      // reads join only boot's first open (BST-2277).
+      (joinOpen &&
+        (state.kind === 'opening' ||
+          state.kind === 'transitioning' ||
+          state.kind === 'validating')) ||
       (state.kind === 'opening' && state.generation === 1) ||
       (state.kind === 'validating' && state.previous.kind === 'idle' && state.generation === 0)
     ) {
@@ -742,7 +748,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       : read();
   };
   const acquire = async (): Promise<IndexerPort & ScopedIndexerPort> => {
-    const current = await currentReader();
+    const current = await currentReader(true);
     await current.sources?.startup;
     assertCurrent(current);
     const state = await (await lifecycle).state();
@@ -826,7 +832,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (failures.length > 1) {
       throw new AggregateError(failures, 'Native reset resume and retirement failed');
     }
-    await openResumed();
+    // Not waited on: quit cancels a reset's replacement startup, and an indexer start cannot
+    // be cancelled. Shutdown joins this open through the lifecycle permit like any other.
+    void openResumed();
   };
   const reconfigure = async (roots = false): Promise<void> => {
     const settings = captureSettings();
