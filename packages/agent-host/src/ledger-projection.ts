@@ -107,7 +107,7 @@ interface RunFold {
   readonly startedAt: number;
   status: LedgerRun['status'];
   readonly threadId: string;
-  toolCallCount: number;
+  readonly toolCalls: HostToolCallCount;
 }
 /** The observer's calls are one source each; the observer names its own model. */
 const MEMORY_USAGE_KIND = {
@@ -117,20 +117,56 @@ const MEMORY_USAGE_KIND = {
 } as const satisfies Record<string, AssistantRunUsageKind>;
 /** A streamed chunk's kind; every committed chunk passes here, so the schema is built once. */
 const StreamedChunkSchema = Schema.Struct({ type: Schema.String });
+const ToolCallSchema = Schema.Struct({
+  toolCallId: Schema.String,
+  type: Schema.Literal('tool-call'),
+});
+const AssistantPartsSchema = Schema.Struct({
+  content: Schema.Array(Schema.Unknown),
+  role: Schema.Literal('assistant'),
+});
+
 /**
- * Whether a committed `stream.chunk` is one of the model's tool calls: the one
- * rule a run's `toolCallCount` follows, wherever its log is folded.
+ * One call per (run, toolCallId), shared by ledger and child-card projections.
+ * model.step contains the calls and commits together with its approvals;
+ * the independently consumed stream may commit its copy before or after it.
+ * Both name the same call, so either order counts once (BST-2283).
  */
-export function isHostToolCallChunk(streamed: unknown): boolean {
-  const chunk = Schema.decodeUnknownResult(StreamedChunkSchema)(streamed);
-  return chunk._tag === 'Success' && chunk.success.type === 'tool-call';
-}
-/** A streamed tool call or tool error counts toward its run's tool totals. */
-function countToolChunk(run: RunFold, streamed: unknown): void {
-  if (isHostToolCallChunk(streamed)) {
-    run.toolCallCount += 1;
-    return;
+export class HostToolCallCount {
+  private readonly calls = new Set<string>();
+
+  get size(): number {
+    return this.calls.size;
   }
+
+  apply(event: HostEvent): void {
+    if (event.type === 'stream.chunk') {
+      this.record(event.runId, event.chunk);
+      return;
+    }
+    if (event.type !== 'model.step') {
+      return;
+    }
+    for (const message of event.messages) {
+      const parsed = Schema.decodeUnknownResult(AssistantPartsSchema)(message);
+      if (parsed._tag === 'Success') {
+        for (const part of parsed.success.content) {
+          this.record(event.runId, part);
+        }
+      }
+    }
+  }
+
+  private record(runId: string, part: unknown): void {
+    const parsed = Schema.decodeUnknownResult(ToolCallSchema)(part);
+    if (parsed._tag === 'Success') {
+      this.calls.add(JSON.stringify([runId, parsed.success.toolCallId]));
+    }
+  }
+}
+
+/** A streamed tool error counts toward its run's failure total. */
+function countToolError(run: RunFold, streamed: unknown): void {
   const chunk = Schema.decodeUnknownResult(StreamedChunkSchema)(streamed);
   if (chunk._tag === 'Success' && chunk.success.type === 'tool-error') {
     run.failedToolCallCount += 1;
@@ -169,6 +205,7 @@ export class ThreadLedgerFold {
     if (!run) {
       return;
     }
+    run.toolCalls.apply(event);
     if (event.type === 'model.step') {
       this.count(run, row, run, tokensOf(event.usage), 'chat');
     } else if (event.type === 'memory.usage') {
@@ -180,7 +217,7 @@ export class ThreadLedgerFold {
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
       this.count(run, row, model, tokensOf(event.usage), 'compaction-summary');
     } else if (event.type === 'stream.chunk') {
-      countToolChunk(run, event.chunk);
+      countToolError(run, event.chunk);
     } else if (event.type === 'run.finished') {
       run.status = STATUS_BY_OUTCOME[event.outcome];
       run.completedAt = row.ts ?? null;
@@ -271,7 +308,7 @@ export class ThreadLedgerFold {
       startedAt: row.ts,
       status: 'running',
       threadId: row.threadId,
-      toolCallCount: 0,
+      toolCalls: new HostToolCallCount(),
     });
   }
   private count(
@@ -408,7 +445,7 @@ function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun
     startedAt: run.startedAt,
     status: run.status,
     threadId: run.threadId,
-    toolCallCount: run.toolCallCount,
+    toolCallCount: run.toolCalls.size,
   };
 }
 /** A thread's latest root run, with what it still waits on (Core starts one at a time). */

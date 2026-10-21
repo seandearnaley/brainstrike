@@ -31,8 +31,8 @@ export function storedRunSnapshot(event: HostEvent): {
   return { blobs: [{ content, hash }], body: { ...started, blobRefs: [hash], snapshotRef: hash } };
 }
 /**
- * The streamed chunk kinds Core's open folds: the ledger's tool-call and tool-error counts
- * (ledger-projection.ts countToolChunk). Every other chunk is the thread view's alone.
+ * The streamed chunk kinds Core's open folds: the ledger's tool-call and tool-error counts.
+ * A tool-call is counted once across stream and model.step. Every other chunk is the view's alone.
  */
 const HYDRATED_CHUNK_TYPES: ReadonlySet<unknown> = new Set(['tool-call', 'tool-error']);
 /** `false` when no fold of Core's open reads the event, so the hydration read skips its row. */

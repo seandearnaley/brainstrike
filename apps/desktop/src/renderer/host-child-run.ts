@@ -1,6 +1,6 @@
 import { hostAnswerText } from '@brainstrike/agent-host/child-answer';
 import { hostRootRunTurnId } from '@brainstrike/agent-host/committed-identities';
-import { isHostToolCallChunk } from '@brainstrike/agent-host/ledger-projection';
+import { HostToolCallCount } from '@brainstrike/agent-host/ledger-projection';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { SubagentChildRun } from '@brainstrike/assistant-ui';
 
@@ -25,7 +25,7 @@ export class HostChildRunFold {
   private answered = false;
   /** Interactions the latest run asked and nobody has answered yet. */
   private readonly waiting = new Set<string>();
-  private toolCalls = 0;
+  private readonly toolCalls = new HostToolCallCount();
   private value: SubagentChildRun | undefined;
 
   /**
@@ -56,14 +56,17 @@ export class HostChildRunFold {
 
   private read(error: string | undefined): SubagentChildRun | undefined {
     if (error !== undefined) {
-      return { reason: error, status: 'unavailable', toolCalls: this.toolCalls };
+      return { reason: error, status: 'unavailable', toolCalls: this.toolCalls.size };
     }
     return this.latest === undefined
       ? undefined
-      : { status: this.status(), toolCalls: this.toolCalls };
+      : { status: this.status(), toolCalls: this.toolCalls.size };
   }
 
   private fold(event: HostLogRow['event'] | undefined): void {
+    if (event) {
+      this.toolCalls.apply(event);
+    }
     switch (event?.type) {
       case 'run.started':
         this.first ??= event.runId;
@@ -77,11 +80,6 @@ export class HostChildRunFold {
       case 'model.messages':
         if (event.runId === this.latest) {
           this.answer(hostAnswerText(event.messages));
-        }
-        return;
-      case 'stream.chunk':
-        if (isHostToolCallChunk(event.chunk)) {
-          this.toolCalls += 1;
         }
         return;
       case 'interaction.requested':
