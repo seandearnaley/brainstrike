@@ -1,5 +1,6 @@
 import { threadWorkspaceNavigation } from '@brainstrike/app-shell/thread-workspace-navigation';
 import { prepareRendererClose } from '@brainstrike/app-state/renderer-close';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   resolveAssistantMemoryResourceId,
   useAssistantThreadStore,
@@ -16,6 +17,12 @@ export interface WebE2ELifecycleHooks {
    * workspace to the live stores; rejects with the failure when loading it fails.
    */
   readonly joinActiveThreadWorkspace: () => Promise<void>;
+  /**
+   * Resolves once the model registry store has read the catalog; rejects with its error
+   * when that read fails (BST-2291). The read waits for the database, so on a fresh
+   * profile this also joins the first-run bootstrap.
+   */
+  readonly joinModelRegistry: () => Promise<void>;
   /**
    * The flushed unload desktop runs before every reload it owns (ADR-0026 R1): fences the UI
    * and joins every durable writer's flush. A browser cannot join an unload, so a spec that
@@ -39,6 +46,30 @@ async function joinActiveThreadWorkspace(): Promise<void> {
   await threadWorkspaceNavigation.whenReady(resourceId, threadId);
 }
 
+function joinModelRegistry(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const settle = (state: { readonly error: string | null; readonly hasLoaded: boolean }) => {
+      if (state.error !== null) {
+        reject(new Error(`The model registry failed to load: ${state.error}`));
+        return true;
+      }
+      if (state.hasLoaded) {
+        resolve();
+        return true;
+      }
+      return false;
+    };
+    if (settle(useModelRegistryStore.getState())) {
+      return;
+    }
+    const unsubscribe = useModelRegistryStore.subscribe((state) => {
+      if (settle(state)) {
+        unsubscribe();
+      }
+    });
+  });
+}
+
 /** Installs the hooks under webdriver automation only; returns their uninstall. */
 export function installWebE2ELifecycleHooks(): () => void {
   if (window.navigator.webdriver !== true) {
@@ -46,6 +77,7 @@ export function installWebE2ELifecycleHooks(): () => void {
   }
   const hooks: WebE2ELifecycleHooks = {
     joinActiveThreadWorkspace,
+    joinModelRegistry,
     prepareReload: prepareRendererClose,
   };
   window.__brainstrikeWebE2ELifecycle__ = hooks;
