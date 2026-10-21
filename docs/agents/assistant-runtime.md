@@ -143,6 +143,11 @@ connection for both host RPC and catalog commands. Earlier replies still join;
 later commands return the original refusal without sending into the retiring
 transport. Other failures do not imply this terminal state.
 
+Socket retirement keeps reads open while dispatched work joins, so new requests
+can still receive closing refusals. It then pauses reads and joins complete-frame
+decoding and response writes before destroying the transport. An empty dispatch
+queue alone does not prove that the reader has finished its received frames.
+
 Stop, deletion and host close fence admission and join provider, tool and memory
 work before releasing storage or Root. A terminal outcome does not prove physical
 retirement; failed joins remain visible and retain ownership. Live/replay details

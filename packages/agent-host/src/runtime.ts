@@ -259,11 +259,13 @@ export async function startAgentHost(
             ...clientCapabilities(),
           });
           socket.once('close', () => connection.dispose());
-          // The transport owns decoding, queued dispatch and response writes.
-          // A snapshot of dispatched requests misses closing refusals received
-          // while an older request joins (BST-2282).
+          // Keep refusing new requests while dispatched work joins. Once it
+          // settles, stop reads before joining the received decode/dispatch tail:
+          // an empty dispatch queue does not mean the reader is empty (BST-2282).
           return async () => {
             retiring.abort();
+            await connection.drain();
+            socket.pause();
             await reader.drain();
             await connection.drain();
           };
