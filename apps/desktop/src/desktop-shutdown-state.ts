@@ -49,10 +49,24 @@ export function isHostLeaseClosed(error: unknown): boolean {
 }
 
 /**
+ * BST-2285 (ADR-0026 R2): the renderer ended before it acknowledged its close preparation. Its
+ * channel closed, its frame could take no message, its process exited or its window closed. A
+ * signal to Main's process group ends the renderers with Main, so under quit this is a
+ * retirement, like the indexer's exit (BST-2192); outside quit it stays a failure. Defined here,
+ * in the module the build shares between Main's bundles, so it has one class identity.
+ */
+export class RendererExitedError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'RendererExitedError';
+  }
+}
+
+/**
  * Work refused because its owner retired: a closed native index, a host
  * connection that closed or was lost, an indexer or SQLite query process that
- * exited under the call, a closed host lease owner, or a reset reopen cancelled
- * by quit.
+ * exited under the call, a renderer that ended before acknowledging its close
+ * preparation, a closed host lease owner, or a reset reopen cancelled by quit.
  */
 export function isRetirementRefusal(error: unknown): boolean {
   return (
@@ -62,6 +76,8 @@ export function isRetirementRefusal(error: unknown): boolean {
     // process under in-flight calls.
     (error instanceof IndexerError && error.code === 'indexer-exited') ||
     error instanceof SqliteQueryProcessExitedError ||
+    // BST-2285: the same signal ends the renderers before their unload ACK.
+    error instanceof RendererExitedError ||
     isHostLeaseClosed(error) ||
     (error instanceof BoundaryFailureError &&
       error.failure.kind === 'refusal' &&

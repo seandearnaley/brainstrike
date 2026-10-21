@@ -10,6 +10,7 @@ import {
   isRetirementRefusal,
   markDesktopShuttingDown,
   RESET_REOPEN_CANCELLED,
+  RendererExitedError,
 } from '../desktop-shutdown-state';
 
 // What a quit leaves waiting work with (ADR-0015), and what it never covers.
@@ -21,6 +22,10 @@ const retirements = {
   'a host lease owner that closed': new BoundaryFailureError(HOST_LEASE_CLOSED),
   'a lost host connection': new BoundaryFailureError(
     fault({ category: 'availability', code: 'host.connection-lost', message: 'Lost.' })
+  ),
+  // BST-2285: a signal to Main's process group ends the renderers before their unload ACK.
+  'a renderer that exited before acknowledging its producers': new RendererExitedError(
+    'Renderer closed before acknowledging its producers'
   ),
   // BST-2192: a signal to Main's process group ends the SQLite query process under a read.
   'a SQLite query process that exited': new SqliteQueryProcessExitedError(),
@@ -34,6 +39,9 @@ const unrelated = {
   'a plain failure with the exit code': Object.assign(new Error('Indexer process exited.'), {
     code: 'indexer-exited',
   }),
+  'a plain failure with the renderer exit message': new Error(
+    'Renderer closed before acknowledging its producers'
+  ),
   'a plain failure with the SQLite exit message': new Error('SQLite query process exited.'),
   'a SQLite read that exceeded its deadline': new SqliteQueryDeadlineError(1000),
   'an indexer still transitioning': new NativeIndexRefusalError(
