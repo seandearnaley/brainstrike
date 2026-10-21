@@ -21,6 +21,17 @@ async function readE2eDbPath(page: Page): Promise<string> {
   });
 }
 
+/** Joins the model registry's catalog read; rejects with the registry's error. */
+async function joinModelRegistry(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const lifecycle = window.__brainstrikeWebE2ELifecycle__;
+    if (!lifecycle) {
+      throw new Error('The web E2E lifecycle hooks are not installed.');
+    }
+    await lifecycle.joinModelRegistry();
+  });
+}
+
 async function waitForPersistedModelState(
   page: Page,
   modelId: string,
@@ -153,15 +164,16 @@ test.describe('Model Catalog settings (web) @web-settings-state', () => {
   }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    // Read-only: no DB-readiness wait outside @stateful (readiness contract);
-    // the row-visibility wait below gates on the registry instead.
-    await home.goto({ waitForDatabase: false });
+    // Read-only: no DB-readiness wait outside @stateful (readiness contract).
+    // The beforeEach page is fresh; navigating again would restart its
+    // first-run database bootstrap.
     await home.navigateToSettings();
     await settings.openCategory(/Model Catalog/i, 'models');
-    // Expand all only covers sections that exist when clicked.
-    await expect(page.getByTestId(/^model-catalog-section-header-/).first()).toBeVisible({
-      timeout: 30_000,
-    });
+    // Sections exist once the registry has read the catalog, which waits for
+    // that bootstrap: join the read, not a fixed budget (BST-2291). Expand all
+    // only covers sections that exist when clicked.
+    await joinModelRegistry(page);
+    await expect(page.getByTestId(/^model-catalog-section-header-/).first()).toBeVisible();
     await page.getByTestId('model-catalog-expand-all').click();
 
     const firstGridRows = page.getByRole('treegrid').first().locator('tr[data-node-type="model"]');
