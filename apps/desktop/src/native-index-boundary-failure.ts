@@ -116,7 +116,7 @@ export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): Bo
   const retained = { cause: error.cause, code: error.code, correlationId };
   // ADR-0026: quit's one terminal reason. The refusal keeps its kind across the boundary and
   // its cause stays correlated here, at debug: an expected retirement is not an error record.
-  if (isQuitRefusal(error)) {
+  if (isQuitTerminalRefusal(error)) {
     logger.debug('Native index refusal retained its original cause', retained);
   } else {
     log('Native index refusal retained its original cause', retained);
@@ -124,7 +124,14 @@ export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): Bo
   return { ...failure, correlationId };
 }
 
-/** Classified by its typed kind and reason, never by message text. */
-function isQuitRefusal(error: NativeIndexRefusalError): boolean {
-  return error.refusal.kind === 'closed' && error.refusal.reason === 'shutdown';
+/**
+ * Quit's one terminal reason (ADR-0026): the typed refusal of a native index closed for
+ * shutdown. Classified by its kind and reason, never by message text.
+ */
+export function isQuitTerminalRefusal(error: unknown): error is NativeIndexRefusalError {
+  return (
+    error instanceof NativeIndexRefusalError &&
+    error.refusal.kind === 'closed' &&
+    error.refusal.reason === 'shutdown'
+  );
 }

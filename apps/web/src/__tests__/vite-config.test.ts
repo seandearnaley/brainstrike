@@ -16,10 +16,6 @@ function readWebVitestConfig(): string {
 
 const PACKAGES_DIR = path.resolve(process.cwd(), '../../packages');
 
-function readFileExplorerTsupConfig(): string {
-  return readFileSync(path.resolve(PACKAGES_DIR, 'file-explorer/tsup.config.ts'), 'utf8');
-}
-
 /**
  * Registry entries. Deliberately NOT loading the real vite.config.mts here
  * (e.g. via Vite's `loadConfigFromFile`): that file's own top-level imports
@@ -116,26 +112,12 @@ describe('web vite config alias contract', () => {
     expect(config).not.toContain('../../packages/file-tree-worker/dist');
   });
 
-  it('pins file-explorer to DIST deliberately (the ESM worker must load from a built artifact)', () => {
-    // The single documented DIST exception: worker-storage.worker.mjs must
-    // resolve to the emitted ESM artifact, not raw source or the CJS .js
-    // artifact, for a module Worker to execute it. The registry would
-    // otherwise source-alias this like every other package, so it MUST be a
-    // local override placed before the spread.
-    const config = readWebViteConfig();
-
-    expect(config).toMatch(
-      /find:\s*'@brainstrike\/file-explorer'[\s\S]{0,120}replacement:\s*path\.resolve\(\s*__dirname,\s*'\.\.\/\.\.\/packages\/file-explorer\/dist'\s*\)/
-    );
-    // And the registry-derived target (what it would resolve to WITHOUT the
-    // override) is src, confirming this really is an override, not a no-op.
+  it('source-aliases file-explorer through the registry like every other package', () => {
+    // The Explorer serializer worker, the only reason for a DIST pin, is gone (ADR-0026 R1).
+    expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/file-explorer'/);
     expect(resolveThroughAliases('@brainstrike/file-explorer', registryEntries)).toBe(
       path.resolve(PACKAGES_DIR, 'file-explorer/src/index.ts')
     );
-
-    const fileExplorerTsupConfig = readFileExplorerTsupConfig();
-    expect(fileExplorerTsupConfig).toContain("'src/worker-storage.worker.js'");
-    expect(fileExplorerTsupConfig).not.toContain("loader: { '.worker.js': 'copy' }");
   });
 
   it('aliases @brainstrike/workers explicitly (no src/ dir, registry skips it)', () => {

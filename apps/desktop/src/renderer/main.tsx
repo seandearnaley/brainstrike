@@ -1,5 +1,6 @@
 import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/app-reload';
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
+import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
@@ -29,6 +30,7 @@ import {
   redactSensitiveLogValue,
 } from '@brainstrike/logging';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
+import { createWriteBehindStorageAdapter } from '@brainstrike/storage';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';
@@ -89,7 +91,21 @@ const baseFileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, {
   platform: 'electron',
 });
-const storageAdapter = new ElectronRendererStorageAdapter();
+/**
+ * Main's storage owns Explorer persistence (and the theme key). Its writes coalesce here for
+ * this long, then go to Main; every document unload joins the flush (ADR-0026 R1).
+ */
+const STORAGE_WRITE_BEHIND_MS = 100;
+const storageAdapter = createWriteBehindStorageAdapter(new ElectronRendererStorageAdapter(), {
+  delayMs: STORAGE_WRITE_BEHIND_MS,
+});
+if (desktopRendererRole === 'visible-ui' && bridgeValidation.ok) {
+  const unregisterStorageFlush = registerDurableFlush(storageAdapter.flush);
+  // Under HMR this module re-executes with a new adapter; the old registration goes with it.
+  import.meta.hot?.dispose(() => {
+    unregisterStorageFlush();
+  });
+}
 
 // Default to INFO - use LOG_LEVEL=DEBUG env var for verbose debugging
 const rendererLevel = LogLevel.INFO;
@@ -376,6 +392,17 @@ const forwardedDiagnosticRecords =
     ? { subscribe: window.logging.onDurableRecord }
     : undefined;
 
+/** A failed-chunk reload goes through Main, which flushes this document before replacing it. */
+function requestDocumentReload(): void {
+  const lifecycle = window.desktopLifecycle;
+  if (!lifecycle) {
+    throw new Error('The desktop reload capability is unavailable');
+  }
+  void lifecycle.requestReload('failed-chunk-recovery').catch((cause: unknown) => {
+    rendererLogger.error('Desktop reload request was refused', { cause });
+  });
+}
+
 function App() {
   // biome-ignore lint/plugin: Fires a one-time DOM event on mount to signal the desktop app is ready.
   useEffect(() => {
@@ -426,7 +453,7 @@ function App() {
         source="desktop-renderer"
       />
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-        <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__}>
+        <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__} reload={requestDocumentReload}>
           <RootLayoutContent />
         </AppReloadGate>
       </AdaptersProvider>

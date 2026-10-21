@@ -351,6 +351,8 @@ contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,
   noteReloadIntent: (reason: string) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.noteReloadIntent, reason),
+  requestReload: (reason: string): Promise<void> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.requestReload, reason),
 });
 
 // Parser host bridge — exposed for the chunking-host renderer so its

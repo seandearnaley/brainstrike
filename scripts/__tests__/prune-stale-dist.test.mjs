@@ -274,8 +274,8 @@ test('prunes artifacts whose source exists on disk but is excluded from the tsc 
 });
 
 test('keeps outputs of on-disk .js sources outside the program (bundler entries)', () => {
-  // packages/file-explorer bundles src/worker-storage.worker.js via tsup, but
-  // its tsconfig include only covers .ts/.tsx — the worker is NOT a program
+  // A package can bundle a .js source (e.g. a worker entry) via tsup while its
+  // tsconfig include only covers .ts/.tsx — that source is NOT a program
   // member. Its dist outputs must survive, or every build would delete and
   // re-emit them, eroding the concurrent-build disjointness guarantee.
   const dir = makeFixture({

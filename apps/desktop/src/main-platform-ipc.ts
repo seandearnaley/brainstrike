@@ -20,6 +20,7 @@ interface ReloadIntent {
 interface MainPlatformIpcDependencies {
   readonly getPowerSnapshot: () => DesktopPowerSnapshot;
   readonly noteNextWindowReload: (window: BrowserWindow, intent: ReloadIntent) => void;
+  readonly requestReload: (window: BrowserWindow, reason: string) => void;
 }
 
 function getLiveSenderWindow(sender: WebContents): BrowserWindow {
@@ -44,6 +45,7 @@ function normalizeReloadIntentReason(reason: unknown): string {
 export function registerMainPlatformIpcHandlers({
   getPowerSnapshot,
   noteNextWindowReload,
+  requestReload,
 }: MainPlatformIpcDependencies): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
@@ -68,6 +70,19 @@ export function registerMainPlatformIpcHandlers({
         reason: normalizedReason,
         source: 'renderer',
       });
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'runtime',
+    DESKTOP_PRELOAD_IPC_CHANNELS.runtime.requestReload,
+    { roles: ['visible-ui'] },
+    (event, reason: unknown): void => {
+      if (event.senderFrame !== event.sender.mainFrame) {
+        throw new Error('Renderer reload must originate from the current main frame.');
+      }
+      const normalizedReason = normalizeReloadIntentReason(reason);
+      requestReload(getLiveSenderWindow(event.sender), normalizedReason);
     }
   );
 
