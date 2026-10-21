@@ -39,6 +39,12 @@ function createHeldOwner() {
   };
 }
 
+async function drainMicrotasks(): Promise<void> {
+  for (let turn = 0; turn < 10; turn += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe('createWriteBehindWriter', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -110,6 +116,74 @@ describe('createWriteBehindWriter', () => {
 
     await expect(writer.flush()).rejects.toMatchObject({ errors: [failure] });
     await expect(saved).rejects.toBe(failure);
+  });
+
+  it('drains to quiescence: a value buffered while a write is in flight reaches the owner before flush resolves', async () => {
+    vi.useFakeTimers();
+    const owner = createHeldOwner();
+    const writer = createWriteBehindWriter(owner, { delayMs: 100 });
+    void writer.setItem('one', 'first');
+    vi.advanceTimersByTime(100);
+
+    let flushed = false;
+    const flushing = writer.flush().then(() => {
+      flushed = true;
+    });
+    // A store update still runs under `inert` while the first write is pending.
+    void writer.setItem('one', 'newer');
+    owner.acks[0]?.resolve();
+    await drainMicrotasks();
+
+    expect(flushed).toBe(false);
+    expect(owner.setItem).toHaveBeenLastCalledWith('one', 'newer');
+    owner.acks[1]?.resolve();
+    await flushing;
+    expect(owner.values.get('one')).toBe('newer');
+  });
+
+  it('rejects flush with a timed write the owner refused before it, until a newer write of that key lands', async () => {
+    vi.useFakeTimers();
+    const failure = new Error('owner refused the write');
+    const owner = createSyncOwner();
+    owner.setItem.mockImplementationOnce(() => {
+      throw failure;
+    });
+    const writer = createWriteBehindWriter(owner, { delayMs: 100 });
+    const saved = writer.setItem('one', 'refused');
+    void writer.setItem('two', 'landed');
+    vi.advanceTimersByTime(100);
+    // The Explorer wrapper turns this rejection into `{ success: false }`; nothing reports it.
+    await expect(saved).rejects.toBe(failure);
+
+    await expect(writer.flush()).rejects.toMatchObject({ errors: [failure] });
+    // Another key landing does not clear it; a newer write of the same key does.
+    void writer.setItem('two', 'landed again');
+    await expect(writer.flush()).rejects.toMatchObject({ errors: [failure] });
+    expect(owner.values.get('two')).toBe('landed again');
+    void writer.setItem('one', 'newer');
+    await expect(writer.flush()).resolves.toBeUndefined();
+    expect(owner.values.get('one')).toBe('newer');
+  });
+
+  it('clears a refused write once a removal of that key lands, and reports a refused removal', async () => {
+    vi.useFakeTimers();
+    const failure = new Error('owner refused the write');
+    const owner = createSyncOwner();
+    owner.setItem.mockImplementationOnce(() => {
+      throw failure;
+    });
+    const writer = createWriteBehindWriter(owner, { delayMs: 100 });
+    writer.setItem('one', 'refused').catch(() => undefined);
+    await writer.flush().catch(() => undefined);
+
+    await writer.removeItem('one');
+    await expect(writer.flush()).resolves.toBeUndefined();
+
+    owner.removeItem.mockImplementationOnce(() => {
+      throw failure;
+    });
+    await expect(writer.removeItem('one')).rejects.toBe(failure);
+    await expect(writer.flush()).rejects.toMatchObject({ errors: [failure] });
   });
 
   it('reads a buffered value before the owner has it', async () => {

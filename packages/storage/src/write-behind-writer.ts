@@ -1,9 +1,10 @@
 import type { StorageAdapter } from './types.js';
 
 /**
- * The owner a write-behind writer hands each key's latest value to. It must apply writes in
- * invocation order: `localStorage` does, and Main's storage adapter serializes them under its
- * lock. A synchronous owner is written synchronously, so a `flush()` from `pagehide` still lands.
+ * The owner a write-behind writer hands each key's latest value to. It must apply and settle
+ * writes in invocation order: `localStorage` does, and Main's storage adapter serializes them
+ * under its lock. A synchronous owner is written synchronously, so a `flush()` from `pagehide`
+ * still lands.
  */
 export interface WriteBehindAdapter {
   getItem: (key: string) => string | null | Promise<string | null>;
@@ -13,8 +14,9 @@ export interface WriteBehindAdapter {
 
 export interface WriteBehindWriter {
   /**
-   * Writes every buffered key now and resolves once the owner has acknowledged every write
-   * in flight. Rejects with every write that failed; a failure is never retried or dropped.
+   * Writes every buffered key now, and any key buffered while it waits, and resolves once
+   * nothing is buffered or in flight. Rejects with each key whose newest write the owner
+   * refused: that failure stands until a newer write of the key lands. Nothing is retried.
    */
   flush: () => Promise<void>;
   /** Read-after-write: a buffered value wins over the owner's copy. */
@@ -52,7 +54,30 @@ export function createWriteBehindWriter(
     throw new RangeError('delayMs must be a finite, non-negative number');
   }
   const buffered = new Map<string, BufferedWrite>();
-  const inFlight = new Set<Promise<unknown>>();
+  const inFlight = new Set<Promise<void>>();
+  /** Per key, the refusal of its newest write; writes settle in order, so the last one decides. */
+  const refused = new Map<string, unknown>();
+
+  const send = (key: string, start: () => void | Promise<void>): Promise<void> => {
+    let sent: Promise<void>;
+    try {
+      sent = Promise.resolve(start());
+    } catch (error) {
+      sent = Promise.reject(error);
+    }
+    inFlight.add(sent);
+    sent.then(
+      () => {
+        inFlight.delete(sent);
+        refused.delete(key);
+      },
+      (error: unknown) => {
+        inFlight.delete(sent);
+        refused.set(key, error);
+      }
+    );
+    return sent;
+  };
 
   const write = (key: string): void => {
     const entry = buffered.get(key);
@@ -61,36 +86,26 @@ export function createWriteBehindWriter(
     }
     buffered.delete(key);
     clearTimeout(entry.timer);
-    let written: Promise<unknown>;
-    try {
-      written = Promise.resolve(adapter.setItem(key, entry.value));
-    } catch (error) {
-      written = Promise.reject(error);
-    }
-    inFlight.add(written);
-    written.then(
-      () => {
-        inFlight.delete(written);
-        entry.settled.resolve();
-      },
-      (error: unknown) => {
-        inFlight.delete(written);
-        entry.settled.reject(error);
-      }
+    send(key, () => adapter.setItem(key, entry.value)).then(
+      entry.settled.resolve,
+      entry.settled.reject
     );
   };
 
   return {
     flush: async () => {
-      for (const key of [...buffered.keys()]) {
-        write(key);
+      // Until quiescent: a value buffered while earlier writes were in flight goes out too.
+      while (buffered.size > 0 || inFlight.size > 0) {
+        for (const key of [...buffered.keys()]) {
+          write(key);
+        }
+        await Promise.allSettled([...inFlight]);
       }
-      const results = await Promise.allSettled([...inFlight]);
-      const failures = results.flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : []
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Write-behind writes failed to reach their owner');
+      if (refused.size > 0) {
+        throw new AggregateError(
+          [...refused.values()],
+          'Write-behind writes failed to reach their owner'
+        );
       }
     },
     getItem: (key) => {
@@ -105,7 +120,7 @@ export function createWriteBehindWriter(
         // Removal is the key's latest value: callers waiting on the buffered write are done.
         entry.settled.resolve();
       }
-      await adapter.removeItem(key);
+      await send(key, () => adapter.removeItem(key));
     },
     setItem: (key, value) => {
       const previous = buffered.get(key);

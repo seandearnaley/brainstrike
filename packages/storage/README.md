@@ -44,8 +44,10 @@ storage interface and persistence-issue reporting; it is not the asynchronous
 adapter API. Read its failure policy before using it for durable state.
 [`write-behind-writer.ts`](src/write-behind-writer.ts) is the one renderer
 write-behind writer: it buffers writes by key for `delayMs`, and its awaited
-`flush()` resolves only once the owner has acknowledged every write (it rejects
-with each failure). Read-after-write sees pending values and removal cancels the
+`flush()` resolves only once nothing is buffered or in flight, values buffered
+while it waits included. It rejects while any key's newest write was refused,
+even one refused before the flush, until a newer write of that key lands.
+Read-after-write sees pending values and removal cancels the
 pending write. It owns no unload listener; each document unload joins the flush
 through `@brainstrike/app-state/renderer-close`. A queued save is not proof that
 persistence completed; a resolved `flush()` is.
