@@ -33,7 +33,6 @@ import {
   type GitResult,
 } from './assistant-server/git-service';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
-import { runWindowsGitCommand } from './git-command-windows';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('GitIpc');
@@ -174,10 +173,6 @@ export const execFileGitRunner: GitCommandRunner = ({
   timeoutMs,
 }) => {
   const env = createGitCommandEnvironment(process.env, envOverride);
-
-  if (process.platform === 'win32') {
-    return runWindowsGitCommand({ args, binaryStdout, cwd, env, signal, timeoutMs });
-  }
 
   if (binaryStdout) {
     return new Promise<GitCommandRun>((resolve) => {

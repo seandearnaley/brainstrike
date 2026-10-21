@@ -87,7 +87,6 @@ test('a 12 s renderer flush and a 4 s host exit still quit with exit 0 after eve
       'chunking-host',
       'parser-host',
       'embedding-host',
-      'git-commands',
       'database-close',
     ])
   );

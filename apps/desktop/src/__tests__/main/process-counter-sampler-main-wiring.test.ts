@@ -54,7 +54,6 @@ describe('Main process sampler owner composition', () => {
         'factory-reset': () => {},
         'file-system': () => {},
         forge: () => {},
-        'git-commands': () => {},
         'git-inventory': () => {},
         'main-catalog': () => {},
         'mcp-runtime': () => {},

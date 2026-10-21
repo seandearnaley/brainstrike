@@ -123,7 +123,6 @@ import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
-import { disposeLiveWindowsGitCommands } from './git-command-windows';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerBrowserIpcHandlers } from './ipc-browser';
@@ -507,13 +506,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           unregisterForgeIpc = undefined;
           await drain;
         }
-      },
-      // After git-inventory and forge have stopped their own git work: joins
-      // every Windows git command still running for any owner (Changes, git
-      // IPC, worktrees), so no native Job join outlives Main's Node
-      // environment (BST-2250). Nothing to join on other platforms.
-      'git-commands': async () => {
-        await disposeLiveWindowsGitCommands();
       },
       'git-inventory': async () => {
         // Runs BEFORE 'database-drain': this service's `loadRoots` dependency
