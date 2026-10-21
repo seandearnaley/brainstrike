@@ -11,7 +11,6 @@ import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
 import { createDesktopHostLease } from '../../host-lease-manager';
 import {
   createDesktopGracefulShutdown,
-  DESKTOP_SHUTDOWN_SLOW_STEP_MS,
   type DesktopShutdownStepName,
   type DesktopShutdownStepRun,
 } from '../../main/desktop-graceful-shutdown';
@@ -253,8 +252,8 @@ async function main(): Promise<void> {
   }
   if (mode === 'stuck') {
     // ADR-0026 R4: a response held past the step deadline Main used to race (10 s
-    // [5 s]) and past the slow-step report is still joined; nothing forces an exit.
-    await delay(DESKTOP_SHUTDOWN_SLOW_STEP_MS + 1000);
+    // [5 s]) is still joined; nothing forces an exit.
+    await delay(11_000);
     assert.equal(operationSettled, false, 'a held response stays joined past the old deadline');
     assert.equal(shutdownSettled, false);
     assert.equal(childExit, undefined);
@@ -263,15 +262,6 @@ async function main(): Promise<void> {
   }
   await Promise.all([operation, closing]);
   assert.equal(forcedExit, undefined);
-  if (mode === 'stuck') {
-    const slow = events.find((item) => item.event === 'shutdown-warning');
-    const logged = slow?.detail;
-    assert.ok(logged && typeof logged === 'object' && 'message' in logged && 'detail' in logged);
-    assert.equal(logged.message, 'Graceful shutdown step is slow');
-    const fields = logged.detail;
-    assert.ok(fields && typeof fields === 'object' && 'step' in fields);
-    assert.equal(fields.step, 'main-catalog');
-  }
   if (kernel === 'owned') {
     assert.equal(childExit, 0);
   } else {

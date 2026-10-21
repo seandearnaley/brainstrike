@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events';
-import { runShutdownSequence } from '@brainstrike/effect-kit';
 import { expect, it, vi } from 'vitest';
 import type { ParserHostParseRequest } from '../../parser-host-shared';
 
@@ -16,6 +15,22 @@ const request: ParserHostParseRequest = {
   options: { errorRecovery: true, jsx: false, language: 'javascript' },
   requestId: 'held-parser',
 };
+
+/** Main's shutdown shape: each step runs until it settles, and a failure never skips the next. */
+async function runShutdownSequence(
+  steps: readonly { readonly name: string; readonly run: () => unknown }[]
+): Promise<{ readonly steps: readonly Record<string, unknown>[] }> {
+  const settled: Record<string, unknown>[] = [];
+  for (const step of steps) {
+    try {
+      await step.run();
+      settled.push({ outcome: 'succeeded', step: step.name });
+    } catch (error) {
+      settled.push({ error, outcome: 'failed', step: step.name });
+    }
+  }
+  return { steps: settled };
+}
 
 async function turns(count: number): Promise<void> {
   for (let turn = 0; turn < count; turn += 1) {
