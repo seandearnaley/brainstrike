@@ -244,7 +244,19 @@ test('an on-device embedder recalls from the first send, with observations on', 
  * named after the embedder's own provider (never the OpenRouter chat model),
  * with the reference its cause was logged under in Main's diagnostics.
  */
-test('a hosted embedder’s rejection names the memory embedder and its diagnostic reference', async ({
+const embedderRejected = (step: 'recall' | 'save'): RegExp =>
+  new RegExp(
+    `^Memory ${step} failed because its embedding model \\(OpenAI text-embedding-3-small\\) failed: Embedding provider openai refused the request \\(HTTP 401\\)\\. Check the OpenAI API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory\\. Provider response: OpenAI returned HTTP 401\\. Reference: [0-9a-f-]{36}$`,
+    'u'
+  );
+const RECALL_NOTICE = 'Memory recall failed; this answer has no recalled history';
+
+/**
+ * BST-2277 (ADR-0026's memory lane): a failed recall is the turn's notice, not
+ * its outcome, so the turn answers without recalled history. The save that
+ * embeds the turn then meets the same refusal, and that failure ends the run.
+ */
+test('a hosted embedder’s rejection is the turn’s recall notice, then the run’s save failure, each with its reference', async ({
   modelProvider,
   window: page,
 }) => {
@@ -252,7 +264,7 @@ test('a hosted embedder’s rejection names the memory embedder and its diagnost
   modelProvider.setScript(({ requestBody }) => ({
     finalText: (requestBody as { stream?: unknown }).stream === true ? ANSWER : 'Lisbon venue',
   }));
-  // No embeddings are served: the shim refuses the embedder's request with a terminal 401.
+  // No embeddings are served: the shim refuses each embedder request with a terminal 401.
   await enableModel(page);
   await enableSemanticRecall(page, 'openai/text-embedding-3-small');
 
@@ -261,34 +273,44 @@ test('a hosted embedder’s rejection names the memory embedder and its diagnost
   await expect(input).toBeEnabled({ timeout: 30_000 });
   await input.fill(PROMPT);
   await panel.getByRole('button', { exact: true, name: 'Send' }).click();
-  // The failure row: the run timeline also titles the run with the same reason.
-  const typed = panel
-    .getByRole('alert')
-    .getByText(
-      /^Memory recall failed because its embedding model \(OpenAI text-embedding-3-small\) failed: Embedding provider openai refused the request \(HTTP 401\)\. Check the OpenAI API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory\. Provider response: OpenAI returned HTTP 401\. Reference: [0-9a-f-]{36}$/u
-    );
-  await expect(typed.or(page.getByText(GENERIC_FAULT)).first()).toBeVisible({ timeout: 120_000 });
+  // The save failure is the run's failure row.
+  const saved = panel.getByRole('alert').getByText(embedderRejected('save'));
+  await expect(saved.or(page.getByText(GENERIC_FAULT)).first()).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);
   await expect(page.getByText(/OpenRouter rejected/u)).toHaveCount(0);
-  const reference = /Reference: ([0-9a-f-]{36})$/u.exec((await typed.textContent()) ?? '')?.[1];
-  expect(reference).toBeDefined();
-  // The agent host's record of the cause reached Main's logger under that reference.
-  await expect
-    .poll(
-      async () =>
-        (await mainLogRecords(page)).some(
-          (record) =>
-            record.scope === 'AgentHost' &&
-            JSON.stringify(record.args).includes(`"correlationId":"${reference}"`) &&
-            JSON.stringify(record.args).includes('"code":"memory.embedder-failed"')
-        ),
-      { timeout: 30_000 }
-    )
-    .toBe(true);
+  // The recall's failure did not end the turn: its notice, then the answer.
+  await expect(panel.getByText(ANSWER, { exact: true })).toBeVisible();
+  const notice = panel.getByTestId('assistant-run-timeline').filter({ hasText: RECALL_NOTICE });
+  await expect(notice.getByRole('img', { name: 'Failed' })).toBeVisible();
+  const recalled = notice.getByText(embedderRejected('recall'));
+  await expect(recalled).toBeVisible();
+  const references = [await recalled.textContent(), await saved.textContent()].map(
+    (detail) => /Reference: ([0-9a-f-]{36})$/u.exec(detail ?? '')?.[1]
+  );
+  expect(new Set(references).size).toBe(2);
+  // The agent host's record of each cause reached Main's logger under its reference.
+  for (const reference of references) {
+    expect(reference).toBeDefined();
+    await expect
+      .poll(
+        async () =>
+          (await mainLogRecords(page)).some(
+            (record) =>
+              record.scope?.startsWith('AgentHost') === true &&
+              JSON.stringify(record.args).includes(`"correlationId":"${reference}"`) &&
+              JSON.stringify(record.args).includes('"code":"memory.embedder-failed"')
+          ),
+        { timeout: 30_000 }
+      )
+      .toBe(true);
+  }
   expect(await finishedOutcomes(page)).toEqual(['failed']);
-  expect(modelProvider.refusals()).toEqual([
-    expect.objectContaining({ knob: 'OPENAI_BASE_URL', method: 'POST', route: '/embeddings' }),
-  ]);
+  // The recall's query, then the save's two messages (prompt and answer), embedded at once.
+  expect(modelProvider.refusals()).toEqual(
+    Array.from({ length: 3 }, () =>
+      expect.objectContaining({ knob: 'OPENAI_BASE_URL', method: 'POST', route: '/embeddings' })
+    )
+  );
 });
 
 test('an on-device embedder with no execution device refuses with its reason, not a fault', async ({
