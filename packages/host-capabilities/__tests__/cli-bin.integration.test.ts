@@ -33,6 +33,9 @@ function environment(): NodeJS.ProcessEnv {
   const selected = Object.fromEntries(
     [
       'PATH',
+      // pnpm 12 resolves `exec` commands with Rust's `which`, which finds the
+      // .cmd shims pnpm installs on Windows only through PATHEXT.
+      'PATHEXT',
       'SystemRoot',
       'TEMP',
       'TMP',

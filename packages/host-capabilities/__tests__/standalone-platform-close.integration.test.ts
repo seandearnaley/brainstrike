@@ -102,6 +102,6 @@ test('close retires a live command before the host capabilities close', {
 
   expect(order.events).toEqual(['commands:start', 'commands:end', 'host:close child=gone']);
   expect(await waitForPidDead(order.pid)).toBe(true);
-  // The killed command settles with its signal, never as a clean exit.
-  expect(await command).toMatchObject({ exitCode: null, timedOut: false });
+  // The retired command settles as killed on every platform, never as an exit or a timeout.
+  expect(await command).toMatchObject({ exitCode: null, signal: 'SIGKILL', timedOut: false });
 });

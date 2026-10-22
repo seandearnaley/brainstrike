@@ -361,7 +361,7 @@ describe('runExecuteCommand — timeout + no orphan (CRITICAL)', () => {
 
     expect(result.timedOut).toBe(true);
     // Killed by signal → exitCode is null (never silently coerced to 0).
-    expect(result.exitCode).toBe(process.platform === 'win32' ? 1 : null);
+    expect(result.exitCode).toBeNull();
 
     const shellPid = Number.parseInt((await fsPromises.readFile(pidFile, 'utf8')).trim(), 10);
     expect(Number.isInteger(shellPid)).toBe(true);
@@ -791,7 +791,7 @@ describe('runExecuteCommand — incremental streaming via the stream callback', 
     );
 
     expect(result.timedOut).toBe(true);
-    expect(result.exitCode).toBe(process.platform === 'win32' ? 1 : null);
+    expect(result.exitCode).toBeNull();
     // Output produced before the timeout still streamed.
     expect(parts.map((part) => part.chunk).join('')).toContain('early');
     // The SIGTERM→SIGKILL teardown still reaps the tree with streaming active.
