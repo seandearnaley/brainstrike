@@ -186,6 +186,9 @@ export default defineConfig({
           name: 'browser',
           // Output directory for traces and screenshots
           outputDir: 'test-results',
+          // Vitest runs projects with different maxWorkers in separate groups; without its own
+          // group, `vitest run` (test:all) refuses to start beside the unit project.
+          sequence: { groupOrder: 1 },
           testTimeout: 30_000,
         },
       },
