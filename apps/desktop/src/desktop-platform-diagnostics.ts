@@ -1,8 +1,3 @@
-import type {
-  DatabaseWorkSchedulerSnapshot,
-  DimensionIndexMaintenanceRow,
-  DimensionIndexSuspensionRow,
-} from '@brainstrike/db';
 import {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
@@ -27,16 +22,8 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly database: unknown;
   /** Main-owned integrity state; the DB host never sees runtime classification. */
   readonly databaseIntegrity: DatabaseIntegritySnapshot | null;
-  readonly databaseScheduler: DatabaseWorkSchedulerSnapshot | null;
   readonly embeddingHost: RuntimeHostPlatformStatus<'embedding-host'>;
   readonly errors: Partial<Record<DesktopPlatformDiagnosticsProviderName, string>>;
-  readonly indexing: {
-    readonly legacyDatabaseMaintenance?: 'not-applicable';
-    readonly databaseWork: {
-      readonly scheduler: DatabaseWorkSchedulerSnapshot | null;
-    };
-    readonly dimensionIndexMaintenance: DesktopDimensionIndexMaintenanceSnapshot | null;
-  };
   readonly logging: LoggingSettingsPayload;
   readonly migration: {
     readonly attemptCount: number | null;
@@ -54,11 +41,6 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   };
 }
 
-export interface DesktopDimensionIndexMaintenanceSnapshot {
-  readonly maintenance: readonly DimensionIndexMaintenanceRow[];
-  readonly suspensions: readonly DimensionIndexSuspensionRow[];
-}
-
 export interface DesktopPlatformDiagnosticsProviders {
   readonly crashRecovery: {
     readonly getSnapshot: () => DesktopRendererCrashRecoverySnapshot;
@@ -69,18 +51,10 @@ export interface DesktopPlatformDiagnosticsProviders {
   readonly databaseIntegrity: {
     readonly getSnapshot: () => DatabaseIntegritySnapshot;
   } | null;
-  readonly databaseScheduler: {
-    readonly getSnapshot: () => DatabaseWorkSchedulerSnapshot;
-  } | null;
   readonly embeddingHost: {
     readonly getPlatformStatus: () => RuntimeHostPlatformStatus<'embedding-host'>;
     readonly getTelemetrySnapshot: () => EmbeddingTelemetrySnapshot;
   };
-  readonly indexing: {
-    readonly getDimensionIndexMaintenanceSnapshot: () =>
-      | Promise<DesktopDimensionIndexMaintenanceSnapshot>
-      | DesktopDimensionIndexMaintenanceSnapshot;
-  } | null;
   readonly logging: {
     readonly getState: () => LoggingSettingsPayload;
   };
@@ -102,8 +76,6 @@ export interface DesktopPlatformDiagnosticsProviders {
 type DesktopPlatformDiagnosticsProviderName =
   | 'crashRecovery'
   | 'database'
-  | 'databaseScheduler'
-  | 'dimensionIndexMaintenance'
   | 'embeddingHost'
   | 'embeddingTelemetry'
   | 'logging'
@@ -157,18 +129,6 @@ export async function collectDesktopPlatformDiagnostics(
     () => providers.database.getDiagnostics(),
     null
   );
-  const databaseScheduler = await readDiagnosticsProvider(
-    errors,
-    'databaseScheduler',
-    () => providers.databaseScheduler?.getSnapshot() ?? null,
-    null
-  );
-  const dimensionIndexMaintenance = await readDiagnosticsProvider(
-    errors,
-    'dimensionIndexMaintenance',
-    () => providers.indexing?.getDimensionIndexMaintenanceSnapshot() ?? null,
-    { maintenance: [], suspensions: [] }
-  );
   const reset = await readDiagnosticsProvider(
     errors,
     'reset',
@@ -208,7 +168,6 @@ export async function collectDesktopPlatformDiagnostics(
     // In-memory read with no fallback: there is no honest stand-in value, and a
     // fabricated 'healthy' would hide exactly what this field exists to show.
     databaseIntegrity: providers.databaseIntegrity?.getSnapshot() ?? null,
-    databaseScheduler,
     embeddingHost: await readDiagnosticsProvider(
       errors,
       'embeddingHost',
@@ -224,13 +183,6 @@ export async function collectDesktopPlatformDiagnostics(
       }
     ),
     errors,
-    indexing: {
-      ...(providers.indexing === null
-        ? { legacyDatabaseMaintenance: 'not-applicable' as const }
-        : {}),
-      databaseWork: { scheduler: databaseScheduler },
-      dimensionIndexMaintenance,
-    },
     logging: await readDiagnosticsProvider(errors, 'logging', () => providers.logging.getState(), {
       capabilities: {
         canSelectDestination: false,

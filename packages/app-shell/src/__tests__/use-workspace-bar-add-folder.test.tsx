@@ -2,9 +2,8 @@
  * useWorkspaceBar's Add-folder flow: the global add + thread-secondary
  * attach, Recents refresh across the three ways a folder can reappear after
  * a same-session disconnect (Workspace Bar grant, Explorer grant, restore
- * backfill), stale-response ordering, the await-root-registration seam
- * (including its epoch fix for a re-added path) and its no-polling
- * guarantee, abandonment on thread-switch/unmount/final-lookup-race, rapid
+ * backfill), stale-response ordering, abandonment on
+ * thread-switch/unmount/final-lookup-race, rapid
  * double-click serialization, and the two "already attached" no-op guards.
  *
  * Split out of `use-workspace-bar.test.tsx` (BST-1400 full-branch review
@@ -25,15 +24,11 @@ import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { WorkspaceBarBranchMenu } from '@brainstrike/assistant-ui';
 import type { ActionOutcome } from '@brainstrike/context-actions';
-import type { DbHandle } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';
-import {
-  notifyRootRegistered,
-  resetRootRegistrationEventsForTests,
-} from '../roots/root-registration-events';
+import { resetRootRegistrationEventsForTests } from '../roots/root-registration-events';
 
 // `fs` is only dereferenced when the mocked useFileSystem() is CALLED (render
 // time), so vitest's vi.mock hoisting above these imports is safe.
@@ -148,13 +143,6 @@ const THREAD_ID = 'thread-1';
 // rootIds above (`adapter-*`) and from the descriptor id below: the two id
 // spaces share only the path, and everything downstream of this hook
 // (window.git.status, secondaryRootIds) speaks the DB space.
-const ROOT_ID_BY_PATH: Readonly<Record<string, string>> = {
-  '/managed/brainstrike/bright-fox': 'r-worktree-db',
-  '/ws/alpha': 'r-alpha-db',
-  '/ws/brainstrike': 'r-main-db',
-  '/ws/docs': 'r-docs',
-  '/ws/site': 'r-site',
-};
 const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: string }>> = {
   'r-alpha-db': { displayName: 'alpha', path: '/ws/alpha' },
   'r-docs': { displayName: 'docs', path: '/ws/docs' },
@@ -181,32 +169,17 @@ function openLiveRootGate(): { promise: Promise<void>; release: () => void } {
   return liveRootGate;
 }
 
-const query = vi.fn(async (sql: string, params?: unknown[]) => {
-  if (sql.includes('FROM roots') && sql.includes('= ANY')) {
-    const ids = (params?.[0] ?? []) as readonly string[];
-    return {
-      rows: ids.flatMap((id) => {
-        const row = ROOT_ROW_BY_ID[id];
-        return row ? [{ displayName: row.displayName, id, path: row.path, status: 'live' }] : [];
-      }),
-    };
+// The recorded roots as Main's catalog returns them: every row at once, a root
+// the test marks as missing is simply absent.
+const readRoots = vi.fn(async () => {
+  if (liveRootGate) {
+    await liveRootGate.promise;
   }
-  if (sql.includes('FROM roots')) {
-    if (liveRootGate) {
-      await liveRootGate.promise;
-    }
-    // PATH-specific on purpose: an "add folder" test must not pass by
-    // resolving some other root's row.
-    const path = params?.[0] as string;
-    const misses = liveRootMisses.get(path) ?? 0;
-    if (misses > 0) {
-      liveRootMisses.set(path, misses - 1);
-      return { rows: [] };
-    }
-    const id = ROOT_ID_BY_PATH[path];
-    return { rows: id ? [{ id }] : [] };
-  }
-  return { rows: [] };
+  return Object.entries(ROOT_ROW_BY_ID).flatMap(([id, row]) =>
+    (liveRootMisses.get(row.path) ?? 0) > 0
+      ? []
+      : [{ displayName: row.displayName, id, path: row.path, status: 'live' }]
+  );
 });
 // The store action forwards to `repository.updateThreadMetadata(threadId,
 // metadata)`, so this spy sees the REPOSITORY signature — which is exactly the
@@ -219,7 +192,6 @@ const realUpdateThreadMetadata = useAssistantThreadStore.getState().updateThread
 // Hoisted on purpose: the wrapper passes store/context references, which are
 // stable across renders. Fresh literals per render would only exercise a
 // caller-side identity bug, not this hook.
-const database = { query } as unknown as DbHandle;
 const assistantThreadRepository = {
   updateThreadMetadata,
 } as unknown as AssistantThreadRepository;
@@ -264,8 +236,7 @@ interface BarProps {
 
 async function setup(
   metadata: Record<string, unknown> = {},
-  rootDescriptorsOverride: typeof rootDescriptors = rootDescriptors,
-  selectedDatabase: DbHandle | null = database
+  rootDescriptorsOverride: typeof rootDescriptors = rootDescriptors
 ) {
   seedThread(metadata);
   const rendered = renderHook(
@@ -273,7 +244,6 @@ async function setup(
       useWorkspaceBar({
         assistantThreadRepository,
         currentMainRoot,
-        database: selectedDatabase,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors: rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
@@ -321,7 +291,11 @@ beforeEach(() => {
   loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
   loggerMock.warn.mockClear();
-  query.mockClear();
+  readRoots.mockClear();
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
   updateThreadMetadata.mockClear();
   fs.addRootDirectory.mockReset();
   fs.addRootDirectory.mockImplementation(async () => {
@@ -358,6 +332,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.deleteProperty(window, 'threadGroups');
   Reflect.deleteProperty(window, 'platform');
   Reflect.deleteProperty(window, 'worktrees');
   vi.useRealTimers();
@@ -476,100 +451,13 @@ describe('useWorkspaceBar — Add folder', () => {
     expect(result.current.recentRoots).toEqual([{ displayName: 'newer', path: '/ws/newer' }]);
   });
 
-  it('waits for roots reconciliation before attaching a just-added folder', async () => {
-    // The registration effect has not written the row yet when the add resolves.
-    liveRootMisses.set('/ws/docs', 1);
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    // Reconciliation writes the row and announces it — no more polling for it.
-    await act(async () => {
-      notifyRootRegistered(['/ws/docs']);
-    });
-    await waitFor(() =>
-      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
-        secondaryRootIds: ['r-docs'],
-      })
-    );
-    expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  // BST-1400 review fix: a PRIOR registration of the same path (the exact
-  // remove-then-re-add shape `use-workspace-bar.ts`'s docblock covers — a
-  // re-add mints a fresh adapter id, so reconciliation genuinely notifies
-  // TWICE for `/ws/docs`) must not let a membership-style "was this path
-  // EVER registered?" check resolve the wait against the STALE first
-  // registration. Only the SECOND notifyRootRegistered may satisfy it.
-  it('waits for the SECOND registration of a re-added path — not the stale first one', async () => {
-    // Models an earlier registration of this exact path this session (e.g. a
-    // prior Add folder, or the boot batch), before this test's Add folder
-    // click even happens.
-    notifyRootRegistered(['/ws/docs']);
-
-    liveRootMisses.set('/ws/docs', 1);
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    // A membership-set bug would have resolved instantly off the FIRST
-    // (stale) registration above and already landed this write by now.
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-
-    // The re-add's own (SECOND) registration.
-    await act(async () => {
-      notifyRootRegistered(['/ws/docs']);
-    });
-    await waitFor(() =>
-      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
-        secondaryRootIds: ['r-docs'],
-      })
-    );
-    expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  it('does not poll the database while awaiting root registration (no interval churn)', async () => {
-    vi.useFakeTimers();
-    // Never notified in this test — models reconciliation taking a while.
+  it('surfaces a folder that has no recorded root instead of silently dropping it', async () => {
     liveRootMisses.set('/ws/docs', Number.POSITIVE_INFINITY);
     const { result } = await setup();
     await act(async () => {
       result.current.onAddFolder();
     });
-    // Scoped to /ws/docs specifically (PATH-specific, like the query mock
-    // itself notes) — setup() also issues its OWN single-root lookup for the
-    // MAIN root's path, which is unrelated to this Add-folder flow and must
-    // not be counted here.
-    const docsLookup = (call: unknown[]) =>
-      typeof call[0] === 'string' &&
-      call[0].includes('FROM roots') &&
-      !call[0].includes('= ANY') &&
-      (call[1] as unknown[] | undefined)?.[0] === '/ws/docs';
-    const lookupsAfterAdd = query.mock.calls.filter(docsLookup).length;
-    // Pins the "exactly one read before the wait" half of the design — without
-    // this, a broken Add-folder flow that issued NO read at all would still
-    // pass the post-window comparison below at a vacuous 0 === 0.
-    expect(lookupsAfterAdd).toBe(1);
-    await act(async () => {
-      // The old 20x250ms retry loop would have issued ~16 more queries across
-      // this window; the event-based wait issues none until notified or timed
-      // out — there is no interval driving it.
-      await vi.advanceTimersByTimeAsync(4000);
-    });
-    expect(query.mock.calls.filter(docsLookup).length).toBe(lookupsAfterAdd);
-  });
-
-  it('surfaces a folder that never reconciles instead of silently dropping it', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/docs', Number.POSITIVE_INFINITY);
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
+    await act(async () => {});
     expect(toastSpy).toHaveBeenCalledWith({
       description: expect.stringContaining('docs'),
       title: 'Folder added, but not attached to this thread',
@@ -577,26 +465,6 @@ describe('useWorkspaceBar — Add folder', () => {
     });
     expect(updateThreadMetadata).not.toHaveBeenCalled();
     expect(loggerMock.error).toHaveBeenCalled();
-  });
-
-  it('abandons an in-flight folder attachment when the selected thread changes', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/docs', 3);
-    const { rerender, result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    await act(async () => {
-      rerender({ selectedMemoryThreadId: 'thread-2' });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-    // The write captured thread-1's folder set; landing it now would replace
-    // thread-2's folders with thread-1's.
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    expect(toastSpy).not.toHaveBeenCalled();
   });
 
   it('abandons an in-flight folder attachment when the thread changes during the final lookup', async () => {
@@ -617,15 +485,14 @@ describe('useWorkspaceBar — Add folder', () => {
   });
 
   it('abandons an in-flight folder attachment when the hook unmounts', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/docs', 3);
     const { result, unmount } = await setup();
+    const gate = openLiveRootGate();
     await act(async () => {
       result.current.onAddFolder();
     });
     unmount();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
+      gate.release();
     });
     expect(updateThreadMetadata).not.toHaveBeenCalled();
     expect(toastSpy).not.toHaveBeenCalled();
@@ -685,28 +552,4 @@ describe('useWorkspaceBar — Add folder', () => {
     await act(async () => {});
     expect(updateThreadMetadata).not.toHaveBeenCalled();
   });
-});
-
-it('attaches a native added folder using its canonical catalog identity with no PG provider', async () => {
-  const readRoots = vi.fn(async () =>
-    Object.entries(ROOT_ROW_BY_ID).map(([id, root]) => ({ ...root, id, status: 'live' }))
-  );
-  Object.defineProperty(window, 'threadGroups', {
-    configurable: true,
-    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
-  });
-  try {
-    const { result } = await setup({}, rootDescriptors, null);
-    await waitFor(() =>
-      expect(result.current.primaryRoot?.rootId).toBe(ROOT_ID_BY_PATH['/ws/brainstrike'])
-    );
-    await act(async () => result.current.onAddFolder?.());
-    expect(updateThreadMetadata).toHaveBeenCalledWith(
-      THREAD_ID,
-      expect.objectContaining({ secondaryRootIds: [ROOT_ID_BY_PATH['/ws/docs']] })
-    );
-    expect(query).not.toHaveBeenCalled();
-  } finally {
-    Reflect.deleteProperty(window, 'threadGroups');
-  }
 });

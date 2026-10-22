@@ -53,7 +53,6 @@ describe('desktop diagnostics IPC', () => {
       databaseIntegrity: {
         getSnapshot: vi.fn(() => ({ revision: 0, state: { kind: 'healthy' } })),
       },
-      databaseScheduler: { getSnapshot: vi.fn(() => ({ activeCount: 0 })) },
       embeddingHost: {
         getPlatformStatus: vi.fn(() => ({
           active: false,
@@ -77,7 +76,6 @@ describe('desktop diagnostics IPC', () => {
           peakVectorsInFlight: 0,
         })),
       },
-      indexing: null,
       logging: {
         getState: vi.fn(() => ({
           capabilities: { fileDestination: false },
@@ -113,7 +111,6 @@ describe('desktop diagnostics IPC', () => {
       value: {
         database: { hasDatabaseHandle: true },
         databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
-        indexing: { legacyDatabaseMaintenance: 'not-applicable' },
         reset: { userDataPath: '<redacted>' },
         telemetry: {
           backgroundRuntimeMetrics: [],

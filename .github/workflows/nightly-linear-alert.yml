@@ -14,15 +14,6 @@ on:
         required: false
         type: string
         default: ''
-      # BST-2235: the runner image of the lanes whose failing and flaky tests
-      # get a fix agent (BST-2189) after the night. Set, Notify Linear uploads
-      # the issues it filed or commented on as nightly-fix-issues, which
-      # nightly-fix.yml reads from the nightly run once it completes. An
-      # artifact name is unique within a run, so one workflow of the night sets it.
-      fix_runs_on:
-        required: false
-        type: string
-        default: ''
     secrets:
       LINEAR_API_KEY:
         required: true
@@ -78,20 +69,3 @@ jobs:
           --parts "$PARTS"
           --run-url "$RUN_URL"
           --sha "$HEAD_SHA"
-      - name: Write the fix queue
-        id: fix-queue
-        if: inputs.fix_runs_on != ''
-        env:
-          FIX_ISSUES: ${{ steps.file.outputs.fix_issues }}
-          RUNS_ON: ${{ inputs.fix_runs_on }}
-        run: >-
-          jq -c -n --arg runs_on "$RUNS_ON" --argjson issues "$FIX_ISSUES"
-          '{runs_on: $runs_on, issues: $issues}' > "$RUNNER_TEMP/fix-issues.json"
-      - name: Upload the fix queue
-        if: inputs.fix_runs_on != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: nightly-fix-issues
-          path: ${{ runner.temp }}/fix-issues.json
-          retention-days: 7
-          if-no-files-found: error

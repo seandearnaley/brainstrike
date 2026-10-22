@@ -10,10 +10,6 @@
   "devDependencies": {
     "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/api": "catalog:",
-    "@stryker-mutator/core": "catalog:",
-    "@stryker-mutator/typescript-checker": "catalog:",
-    "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -34,10 +30,8 @@
   "scripts": {
     "build": "pnpm run clean && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "mutation": "stryker run",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },

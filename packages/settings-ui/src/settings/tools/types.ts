@@ -60,29 +60,6 @@ export interface ToolStats {
   total: number;
 }
 
-interface BaseToolsLiveQueryConfig {
-  /** Parameters for the SQL query */
-  params?: readonly unknown[];
-  /** SQL query that returns ToolDisplayMetadata rows */
-  query: string;
-  /** Optional selector to transform or filter live rows */
-  select?: (rows: ToolDisplayMetadata[]) => ToolDisplayMetadata[];
-}
-
-/**
- * Configuration for live tool queries via PGlite.
- */
-export type ToolsLiveQueryConfig =
-  | (BaseToolsLiveQueryConfig & {
-      key?: never;
-      mode?: 'query';
-    })
-  | (BaseToolsLiveQueryConfig & {
-      /** Stable row identity column required by PGlite incremental live queries */
-      key: string;
-      mode: 'incremental';
-    });
-
 /**
  * Result of executing a tool test.
  */
@@ -201,8 +178,6 @@ export interface ToolsSettingsOperations {
   subscribeMcpServerStatus?: (listener: (snapshot: McpHostSnapshot) => void) => () => void;
   /** Subscribe to MCP tool projection changes (desktop only). */
   subscribeMcpTools?: (listener: () => void) => () => void;
-  /** Optional live query configuration for tools (PGlite) */
-  toolsLiveQuery?: ToolsLiveQueryConfig;
   /** Validate and write MCP config file text while the file still has `baseRevision` */
   writeMcpConfigText?: (content: string, baseRevision: string) => Promise<McpConfigWriteResult>;
 }

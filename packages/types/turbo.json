@@ -42,14 +42,6 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/test-utils/vitest-lost-file-reporter.mjs"
       ]
-    },
-    "test:coverage": {
-      // Same cross-package input as `test`: the coverage lane loads the same
-      // vitest.config.mts and therefore the same reporter file.
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/test-utils/vitest-lost-file-reporter.mjs"
-      ]
     }
   }
 }

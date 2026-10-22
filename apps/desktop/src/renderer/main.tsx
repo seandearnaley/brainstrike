@@ -1,5 +1,4 @@
 import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/app-reload';
-import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
@@ -381,17 +380,6 @@ declare global {
   }
 }
 
-// Desktop main → renderer durable-record push (Task 6): window.logging is a
-// static preload global, so this is computed once at module scope rather
-// than as an inline object literal inside App's render — an inline literal
-// is a new reference on every render, and DiagnosticSinkBridge's effect
-// depends on forwardedRecords by reference, so it would tear down and
-// rebuild the writer (dispose, re-purge, resubscribe) on every App re-render.
-const forwardedDiagnosticRecords =
-  typeof window.logging?.onDurableRecord === 'function'
-    ? { subscribe: window.logging.onDurableRecord }
-    : undefined;
-
 /** A failed-chunk reload goes through Main, which flushes this document before replacing it. */
 function requestDocumentReload(): void {
   const lifecycle = window.desktopLifecycle;
@@ -447,17 +435,11 @@ function App() {
   }, []);
 
   return (
-    <>
-      <DiagnosticSinkBridge
-        forwardedRecords={forwardedDiagnosticRecords}
-        source="desktop-renderer"
-      />
-      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-        <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__} reload={requestDocumentReload}>
-          <RootLayoutContent />
-        </AppReloadGate>
-      </AdaptersProvider>
-    </>
+    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+      <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__} reload={requestDocumentReload}>
+        <RootLayoutContent />
+      </AppReloadGate>
+    </AdaptersProvider>
   );
 }
 
@@ -505,8 +487,7 @@ function DesktopRendererOutsideElectron() {
         </p>
         <p className="mt-3 text-slate-300 text-sm">
           This is not a desktop app failure — the Electron windows attached to this dev server are
-          unaffected. Close this tab and use the Electron app window, or run the web app (apps/web)
-          for a browser experience.
+          unaffected. Close this tab and use the Electron app window.
         </p>
       </div>
     </div>
@@ -548,7 +529,7 @@ if (!bridgeValidation.ok) {
     });
   } else {
     rendererLogger.error(
-      'Desktop renderer loaded outside Electron — preload bridges cannot exist here. This is not a desktop app failure; close this browser tab and use the Electron window (or apps/web for the browser app).',
+      'Desktop renderer loaded outside Electron — preload bridges cannot exist here. This is not a desktop app failure; close this browser tab and use the Electron window.',
       { userAgent: window.navigator.userAgent }
     );
   }

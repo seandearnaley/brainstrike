@@ -20,22 +20,6 @@ import type {
 } from '../types';
 import { UnifiedToolsSettings } from '../unified-tools-settings';
 
-const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
-  usePGliteLiveQueryMock: vi.fn(() => ({
-    error: null,
-    loading: false,
-    refresh: vi.fn(),
-    rows: [] as ToolDisplayMetadata[],
-  })),
-}));
-
-vi.mock('@brainstrike/db', () => ({
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-
 // Mock child components
 vi.mock('../token-budget-summary', () => ({
   TokenBudgetSummary: () => <div data-testid="token-budget-summary">Budget Summary</div>,
@@ -328,35 +312,7 @@ describe('UnifiedToolsSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: [],
-    });
     localStorage.clear();
-  });
-
-  describe('live query configuration', () => {
-    it('passes incremental query mode and key through for keyed live tool rows', () => {
-      const operations = createMockOperations();
-      operations.toolsLiveQuery = {
-        key: 'id',
-        mode: 'incremental',
-        query: 'SELECT id FROM tools ORDER BY id',
-      };
-
-      render(<UnifiedToolsSettings operations={operations} />);
-
-      expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enabled: true,
-          key: 'id',
-          mode: 'incremental',
-          query: 'SELECT id FROM tools ORDER BY id',
-        })
-      );
-    });
   });
 
   describe('loading state', () => {
@@ -3009,78 +2965,6 @@ describe('UnifiedToolsSettings', () => {
         refreshed.resolve(mockStats);
       });
       await waitFor(() => expect(reloadButton()).toBeEnabled());
-      expect(onToolsChanged).toHaveBeenCalledOnce();
-    });
-
-    it('refreshes live-query rows and stats without fetching the unused catalog', async () => {
-      const operations = createMockOperations();
-      const refreshed = Promise.withResolvers<ToolStats>();
-      const refresh = vi.fn().mockResolvedValue(undefined);
-      const onToolsChanged = vi.fn();
-      operations.toolsLiveQuery = { query: 'SELECT * FROM tools' };
-      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
-      operations.getStats = vi.fn(() => refreshed.promise);
-      usePGliteLiveQueryMock.mockReturnValue({
-        error: null,
-        loading: false,
-        refresh,
-        rows: mockTools,
-      });
-      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
-      fireEvent.click(reloadButton());
-      await waitFor(() => expect(operations.getStats).toHaveBeenCalledOnce());
-      expect(refresh).toHaveBeenCalledOnce();
-      expect(operations.getTools).not.toHaveBeenCalled();
-      expect(reloadButton()).toBeDisabled();
-      expect(onToolsChanged).not.toHaveBeenCalled();
-      await act(async () => refreshed.resolve(mockStats));
-      await waitFor(() => expect(reloadButton()).toBeEnabled());
-      expect(screen.getByTestId('toggle-brainstrike.hybridSearch')).toBeInTheDocument();
-      expect(onToolsChanged).toHaveBeenCalledOnce();
-    });
-
-    it('keeps live-query recovery pending through the latest notification stats refresh', async () => {
-      const operations = createMockOperations();
-      const first = Promise.withResolvers<ToolStats>();
-      const latest = Promise.withResolvers<ToolStats>();
-      const onToolsChanged = vi.fn();
-      let notify: (() => void) | undefined;
-      operations.toolsLiveQuery = { query: 'SELECT * FROM tools' };
-      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
-      operations.subscribeMcpTools = (listener) => {
-        notify = listener;
-        return () => {};
-      };
-      operations.getStats = vi
-        .fn()
-        .mockReturnValueOnce(first.promise)
-        .mockReturnValueOnce(latest.promise);
-      usePGliteLiveQueryMock.mockReturnValue({
-        error: null,
-        loading: false,
-        refresh: vi.fn().mockResolvedValue(undefined),
-        rows: mockTools,
-      });
-      render(
-        <UnifiedToolsSettings
-          mcpAvailable={true}
-          onToolsChanged={onToolsChanged}
-          operations={operations}
-        />
-      );
-      fireEvent.click(reloadButton());
-      await waitFor(() => expect(operations.getStats).toHaveBeenCalledOnce());
-      act(() => notify?.());
-      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
-      await act(async () => first.resolve(faultStats));
-      expect(reloadButton()).toBeDisabled();
-      expect(onToolsChanged).not.toHaveBeenCalled();
-      expect(
-        screen.queryByText(faultStats.preferencesFault?.message ?? '')
-      ).not.toBeInTheDocument();
-      await act(async () => latest.resolve(mockStats));
-      await waitFor(() => expect(reloadButton()).toBeEnabled());
-      expect(operations.getTools).not.toHaveBeenCalled();
       expect(onToolsChanged).toHaveBeenCalledOnce();
     });
 

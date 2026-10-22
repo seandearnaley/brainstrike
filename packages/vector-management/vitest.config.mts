@@ -109,10 +109,7 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: [
-      '@brainstrike/test-utils/vitest.dom-aware.setup',
-      './src/__tests__/setup-mock-queue.tsx',
-    ],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
     unstubGlobals: true,
     ...poolConfig,
     coverage: {
@@ -125,8 +122,6 @@ export default defineConfig({
         '**/mockData/**',
         'src/**/__tests__/**',
         '**/index.ts', // Barrel files - re-exports are tested via their sources
-        '**/vector-status.tsx', // Large UI component - business logic tested via extracted hooks
-        '**/vector-status-with-dialog.tsx', // Wrapper component - tested via integration
         'src/embedding-set-management/**', // UI dialog components - tested via integration
       ],
       provider: 'v8',

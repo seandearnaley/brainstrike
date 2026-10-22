@@ -15,25 +15,17 @@ import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExplorerImportAction } from '../components/explorer-import-action';
-import {
-  __resetImportActivitySnapshotForTests,
-  readImportActivitySnapshot,
-} from '../import-activity-snapshot';
 
 const {
   mockCollections,
   mockCollectionsFetchError,
-  mockDatabase,
-  mockUsePGliteDatabase,
   mockImportFiles,
   mockImportServiceState,
-  mockRefreshCollectionIndexingStats,
   mockSelectedFilePaths,
   mockUseSelectionActionBarPin,
 } = vi.hoisted(() => ({
   mockCollections: { current: [] as CollectionPickerCollection[] },
   mockCollectionsFetchError: { current: null as Error | null },
-  mockDatabase: { query: vi.fn() },
   mockImportFiles: vi.fn().mockResolvedValue(undefined),
   mockImportServiceState: {
     // Captured from the service options so tests can fire the service's first
@@ -43,28 +35,13 @@ const {
     isImporting: false,
     progress: null as Record<string, unknown> | null,
   },
-  mockRefreshCollectionIndexingStats: vi.fn().mockResolvedValue(undefined),
   mockSelectedFilePaths: { current: new Set<string>() },
-  mockUsePGliteDatabase: vi.fn(),
   mockUseSelectionActionBarPin: vi.fn(),
 }));
 
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    refreshCollectionIndexingStats: mockRefreshCollectionIndexingStats,
-  };
-});
-
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    useEmbeddingSetsRepository: () => ({}),
-    usePGliteDatabase: mockUsePGliteDatabase,
-  };
-});
+vi.mock('@brainstrike/db/react', () => ({
+  useEmbeddingSetsRepository: () => ({}),
+}));
 
 vi.mock('@brainstrike/vector-management', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/vector-management')>();
@@ -153,7 +130,6 @@ vi.mock('../enhanced-file-import-service', () => ({
     mockImportServiceState.emitComplete = options.onComplete ?? null;
     return {
       cancelImport: vi.fn(),
-      chunkRepository: null,
       importFiles: mockImportFiles,
       isImporting: mockImportServiceState.isImporting,
       progress: mockImportServiceState.progress,
@@ -233,14 +209,11 @@ async function reopenPicker(): Promise<HTMLElement> {
 afterEach(() => vi.unstubAllGlobals());
 
 beforeEach(() => {
-  mockUsePGliteDatabase.mockReset().mockReturnValue(mockDatabase);
-  __resetImportActivitySnapshotForTests();
   mockCollectionsFetchError.current = null;
   __resetVectorStatusUIStoreForTests();
   __resetBackgroundIndexingPreferencesStoreForTests();
   __resetImportSettingsStoreForTests();
   mockImportFiles.mockClear();
-  mockRefreshCollectionIndexingStats.mockClear();
   mockUseSelectionActionBarPin.mockClear();
   mockImportServiceState.emitProgress = null;
   mockImportServiceState.emitComplete = null;
@@ -326,36 +299,6 @@ describe('ExplorerImportAction', () => {
     expect(mockImportFiles.mock.calls[0]?.[0]).toEqual(mockSelectedFilePaths.current);
   });
 
-  it('refreshes the collection the run imported into, not whatever is active when it lands', async () => {
-    // The picker — and its per-row Delete — sit one click behind a trigger that
-    // stays enabled for the whole run, so the active collection can move out
-    // from under an in-flight import. The service pins its own target at start;
-    // completion has to describe the same run.
-    const user = userEvent.setup();
-    mockCollections.current = [collection({ id: 'docs' }), collection({ id: 'notes' })];
-    const picker = await openPicker();
-
-    await user.click(within(picker).getByRole('option', { name: /Collection docs/ }));
-    await waitFor(() => {
-      expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('docs');
-    });
-    await user.click(
-      within(picker).getByRole('button', { name: 'Import 2 files into the selected collection' })
-    );
-
-    // The user re-points the picker while the run is still going.
-    act(() => {
-      useVectorStatusUIStore.getState().setActiveEmbeddingSetId('notes');
-    });
-
-    await act(async () => {
-      await mockImportServiceState.emitComplete?.([]);
-    });
-
-    expect(mockRefreshCollectionIndexingStats).toHaveBeenCalledTimes(1);
-    expect(mockRefreshCollectionIndexingStats.mock.calls[0]?.[1]).toEqual(['docs']);
-  });
-
   it('folds the post-import counts back into the shared cache', async () => {
     // The picker reads `cachedCollections` and only seeds it while it is empty,
     // so with no Database tab mounted — nobody owning the live query — nothing
@@ -385,10 +328,10 @@ describe('ExplorerImportAction', () => {
     expect(cached?.chunkCount).toBe(40);
   });
 
-  it('still refreshes the run target after the active collection is deleted', async () => {
+  it('still completes after the active collection is deleted', async () => {
     // Deleting the active collection sets the active id to null. Reading it at
     // completion would throw out of the service's onComplete instead of
-    // refreshing the collection that actually gained files.
+    // refreshing the cache for the collection that actually gained files.
     const user = userEvent.setup();
     const picker = await openPicker();
 
@@ -403,12 +346,16 @@ describe('ExplorerImportAction', () => {
     act(() => {
       useVectorStatusUIStore.getState().setActiveEmbeddingSetId(null);
     });
+    mockCollections.current = [collection({ fileCount: 9, id: 'docs' })];
 
     await act(async () => {
       await mockImportServiceState.emitComplete?.([]);
     });
 
-    expect(mockRefreshCollectionIndexingStats.mock.calls[0]?.[1]).toEqual(['docs']);
+    expect(
+      useVectorStatusUIStore.getState().cachedCollections.find((entry) => entry.id === 'docs')
+        ?.fileCount
+    ).toBe(9);
   });
 
   it('opens the create-collection dialog from the picker', async () => {
@@ -449,15 +396,6 @@ describe('ExplorerImportAction', () => {
       // The service (and the app-wide embedding-queue-active flag it owns)
       // dies with this subtree, so the bar must be held open.
       expect(mockUseSelectionActionBarPin).toHaveBeenCalledWith(true);
-    });
-
-    it('publishes its progress for the app-wide import observability hook', async () => {
-      await renderAction(<ExplorerImportAction />);
-
-      expect(readImportActivitySnapshot()).toEqual({
-        progress: expect.objectContaining({ completed: 3, phase: 'importing', total: 8 }),
-        selectedFileCount: 2,
-      });
     });
 
     it('keeps the progress panel and the pin after the selection empties', async () => {
@@ -628,26 +566,4 @@ describe('ExplorerImportAction', () => {
       expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('created-set-id');
     });
   });
-});
-
-it('refreshes the native collection projection after import without acquiring or refreshing SQL', async () => {
-  vi.stubGlobal('sourceFiles', { import: vi.fn() });
-  mockUsePGliteDatabase.mockImplementation((options) => {
-    if (options?.enabled !== false) {
-      throw new Error('Desktop must not initialize PG');
-    }
-    return null;
-  });
-  const user = userEvent.setup();
-  const picker = await openPicker();
-  await user.click(within(picker).getByRole('option', { name: /Collection docs/ }));
-  await user.click(
-    within(picker).getByRole('button', { name: 'Import 2 files into the selected collection' })
-  );
-  mockCollections.current = [collection({ chunkCount: 12, fileCount: 4, id: 'docs' })];
-  await act(async () => {
-    await mockImportServiceState.emitComplete?.([]);
-  });
-  expect(mockRefreshCollectionIndexingStats).not.toHaveBeenCalled();
-  expect(useVectorStatusUIStore.getState().cachedCollections).toEqual(mockCollections.current);
 });

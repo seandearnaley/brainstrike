@@ -10,16 +10,14 @@ import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-me
 import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
 import {
   type AssistantThreadDraftRuntime,
-  createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { type PromptItem, PromptItemRepository, type PromptItemUsageAction } from '@brainstrike/db';
-import { useDbInitializationStatus, usePGliteDatabase } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
-import type { QueueAdapter } from '@brainstrike/queue';
 import type {
+  PromptItem,
   PromptItemRepositoryPort,
+  PromptItemUsageAction,
   PromptLibraryCapability,
 } from '@brainstrike/types/prompt-item';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
@@ -28,7 +26,6 @@ import { useAssistantComposerCommandStore } from './assistant-composer-command-s
 import {
   createHostAssistantThreadRepository,
   useAssistantThreadHost,
-  withAssistantThreadHost,
 } from './assistant-thread-host-context';
 import {
   buildDraftRuntimeForProvider,
@@ -251,7 +248,6 @@ async function resolveRequestedPromptRuntime({
 }
 
 interface ConnectedPromptManagerProps {
-  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly suggestionsEnabled?: boolean;
 }
 
@@ -264,11 +260,17 @@ export function ConnectedPromptManager(props: ConnectedPromptManagerProps) {
   const capability = transport
     ? createBoundaryCapability<PromptLibraryCapability>(transport)
     : undefined;
-  return capability ? (
-    <NativePromptManager {...props} capability={capability} />
-  ) : (
-    <WebPromptManager {...props} />
-  );
+  if (!capability) {
+    return (
+      <div
+        className="m-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs"
+        role="alert"
+      >
+        Prompt Workbench requires the prompt library capability.
+      </div>
+    );
+  }
+  return <NativePromptManager {...props} capability={capability} />;
 }
 function NativePromptManager({
   capability,
@@ -280,51 +282,17 @@ function NativePromptManager({
     () => (host ? createHostAssistantThreadRepository(host) : null),
     [host]
   );
-  return (
-    <PromptManager
-      {...props}
-      db={null}
-      nativeEmbeddingHost
-      repository={repository}
-      threadRepository={threadRepository}
-    />
-  );
-}
-function WebPromptManager(props: ConnectedPromptManagerProps) {
-  const db = usePGliteDatabase();
-  const status = useDbInitializationStatus();
-  const repository = useMemo(() => (db ? new PromptItemRepository(db) : null), [db]);
-  const host = useAssistantThreadHost();
-  const threadRepository = useMemo(
-    () => (db ? withAssistantThreadHost(createPgliteAssistantThreadRepository(db), host) : null),
-    [db, host]
-  );
-  return (
-    <PromptManager
-      {...props}
-      db={db}
-      dbInitializationStatus={status}
-      repository={repository}
-      threadRepository={threadRepository}
-    />
-  );
+  return <PromptManager {...props} repository={repository} threadRepository={threadRepository} />;
 }
 function PromptManager({
-  loadEmbeddingQueue,
   suggestionsEnabled = true,
-  db,
-  dbInitializationStatus,
   repository,
   threadRepository,
-  nativeEmbeddingHost = false,
 }: ConnectedPromptManagerProps & {
-  readonly db: ReturnType<typeof usePGliteDatabase>;
-  readonly dbInitializationStatus?: ReturnType<typeof useDbInitializationStatus>;
-  readonly repository: PromptItemRepositoryPort | null;
+  readonly repository: PromptItemRepositoryPort;
   readonly threadRepository: AssistantThreadCatalogRepository | null;
-  readonly nativeEmbeddingHost?: boolean;
 }) {
-  useEnsureModelRegistry({ db });
+  useEnsureModelRegistry();
   const models = useModelRegistryStore((state) => state.models);
   const providers = useModelRegistryStore((state) => state.providers);
   const getAvailableProviders = useAssistantPreferencesStore(
@@ -377,18 +345,13 @@ function PromptManager({
   const { handleLibraryChanged, handleRequestSuggestions, indexingError, readiness } =
     usePromptLibraryController({
       embedder,
-      loadEmbeddingQueue,
       localModelConfigMap,
-      nativeEmbeddingHost,
       repository,
       suggestionsEnabled,
     });
 
   const recordAppliedUsage = useCallback(
     async (itemId: string, action: PromptItemUsageAction): Promise<void> => {
-      if (!repository) {
-        throw new Error('Cannot record prompt usage before the database is ready.');
-      }
       try {
         await repository.recordUsage(itemId, action);
         setUsageError(null);
@@ -403,7 +366,7 @@ function PromptManager({
 
   const handleUseItem = useCallback(
     async (item: PromptItem, renderedContent: string, action: PromptItemUsageAction) => {
-      if (!(repository && threadRepository)) {
+      if (!threadRepository) {
         throw new Error('Cannot use a prompt before the database is ready.');
       }
       if (!renderedContent.trim()) {
@@ -483,26 +446,6 @@ function PromptManager({
     ]
   );
 
-  if (!repository) {
-    // Lazy DB init is still in flight (usePGliteDatabase triggers it) — this is
-    // the normal startup path, not a failure. Only a terminal init state without
-    // a database is a real error.
-    if (dbInitializationStatus === 'idle' || dbInitializationStatus === 'initializing') {
-      return (
-        <div className="grid h-full place-items-center text-muted-foreground text-xs">
-          Opening Prompt Workbench…
-        </div>
-      );
-    }
-    return (
-      <div
-        className="m-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs"
-        role="alert"
-      >
-        Prompt Workbench requires an initialized database.
-      </div>
-    );
-  }
   if (readiness.status === 'loading' || readiness.repository !== repository) {
     return (
       <div className="grid h-full place-items-center text-muted-foreground text-xs">

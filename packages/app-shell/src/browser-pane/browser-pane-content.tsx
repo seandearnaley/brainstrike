@@ -28,7 +28,6 @@ import {
   useState,
 } from 'react';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
-import { useQuickOpenStore } from '../stores/quick-open-store';
 import { type BrowserBridge, type BrowserTab, resolveBrowserBridge } from './browser-bridge';
 import {
   browserTabLabel,
@@ -49,15 +48,13 @@ import {
  * exactly that box.
  *
  * OCCLUSION (novel — a native view paints above all DOM): the pane must hide
- * whenever it would be covered. Five sources, unified into a single
+ * whenever it would be covered. Four sources, unified into a single
  * `setOccluded`:
  * 1. this nav-rail route is not the active shell tab (its DOM is
  *    `display:none`, so the reserved region reports a zero rect);
  * 2. Settings is the active shell route (BST-1668 made it a route, not a modal);
  * 3. the command palette is open;
- * 4. Quick Open (Cmd/Ctrl+P) is open — a SEPARATE store from the command
- *    palette, and `QuickOpenHost` portals a full-screen dialog on every route;
- * 5. a tab-strip menu (context or All-tabs) is open — reported by `TabStrip`'s
+ * 4. a tab-strip menu (context or All-tabs) is open — reported by `TabStrip`'s
  *    `onMenuOpenChange` (BST-1840), since those menus drop into the pane.
  * (Other transient overlays — toasts, popovers, page context menus — are a
  * documented follow-up.)
@@ -179,7 +176,6 @@ export function BrowserPaneContent(): ReactElement {
 
   const activeShellTab = usePanelLayoutStore((state) => state.activeTab);
   const paletteOpen = useCommandPaletteStore((state) => state.isOpen);
-  const quickOpenOpen = useQuickOpenStore((state) => state.isOpen);
   const routeActive = activeShellTab === 'browser';
   // A COUNT, not a flag: opening the All-tabs menu straight from an open tab
   // menu reports the new open before the old close (Radix reports from commit
@@ -189,7 +185,7 @@ export function BrowserPaneContent(): ReactElement {
   const handleStripMenuOpenChange = useCallback((open: boolean): void => {
     setOpenStripMenuCount((count) => count + (open ? 1 : -1));
   }, []);
-  const occluded = !routeActive || paletteOpen || quickOpenOpen || openStripMenuCount > 0;
+  const occluded = !routeActive || paletteOpen || openStripMenuCount > 0;
 
   // The URL input follows the active tab's url unless the user is editing.
   // `draft === null` means "follow the active tab" (derived, no sync effect);

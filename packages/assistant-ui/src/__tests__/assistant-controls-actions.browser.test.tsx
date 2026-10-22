@@ -1,5 +1,5 @@
 // @boundaries-ignore Browser-only test loads the consuming app theme for real Controls interaction.
-import '../../../../apps/web/src/app/globals.css';
+import '../../../../apps/desktop/src/renderer/styles.css';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';

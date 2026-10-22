@@ -8,18 +8,9 @@ import type {
 import type { WorkspaceSearchResults } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
 
-const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
-  usePGliteLiveQueryMock: vi.fn((): { rows: unknown[] } => ({ rows: [] })),
-}));
-
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
+// The native collection picker and coverage banner have their own projection tests.
+vi.mock('../search-collection-picker', () => ({ SearchCollectionPicker: () => null }));
+vi.mock('../search-coverage-banner', () => ({ SearchCoverageBanner: () => null }));
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(({ count }: { count: number }) => ({
@@ -68,21 +59,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-import { SEMANTIC_UNAVAILABLE_NO_CHUNKS } from '../use-semantic-availability';
+import { SEMANTIC_UNAVAILABLE_NO_CHUNKS } from '../semantic-availability';
 import { WorkspaceSearchPanel } from '../workspace-search-panel';
-
-/** Workspace-index stats row used to drive `useSemanticAvailability` per-test. */
-function workspaceIndexRow(embeddedChunkCount: number | null) {
-  return {
-    chunkCount: 0,
-    embeddedChunkCount,
-    fileCount: 0,
-    id: 'workspace-index',
-    name: 'Workspace Index',
-    pendingChunkCount: 0,
-    systemRole: 'workspace-index' as const,
-  };
-}
 
 function makeResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSearchResults {
   return {
@@ -126,6 +104,7 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof WorkspaceSea
     resolveAdapterRootId,
     runSemanticSearch: vi.fn(),
     runTextSearch: vi.fn(),
+    semanticAvailability: { available: true, reason: null },
     workspaceDbRootIds: ['root-a'],
     ...overrides,
   };
@@ -264,11 +243,12 @@ describe('WorkspaceSearchPanel', () => {
     // NOT NULL`), so a pressed-Semantic Enter against a zero-embedding set would
     // silently return lexical-only results. The submit must be gated like the
     // toggle: fail VISIBLY (error card) while preserving the user's mode.
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [workspaceIndexRow(0)] });
     act(() => {
       useWorkspaceSearchStore.setState({ mode: 'semantic', query: 'foobar' });
     });
-    const { props } = renderPanel();
+    const { props } = renderPanel({
+      semanticAvailability: { available: false, reason: SEMANTIC_UNAVAILABLE_NO_CHUNKS },
+    });
 
     fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
 
@@ -281,7 +261,6 @@ describe('WorkspaceSearchPanel', () => {
   });
 
   it('available semantic submit runs the semantic search', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [workspaceIndexRow(42)] });
     act(() => {
       useWorkspaceSearchStore.setState({ mode: 'semantic', query: 'foobar' });
     });

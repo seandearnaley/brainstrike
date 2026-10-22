@@ -26,8 +26,7 @@ import type {
 } from './background-indexer.worker';
 import { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
 import { emitIndexedFile, emitIndexingBacklog, emitIndexingError } from './telemetry';
-import type { TokenCacheStore } from './token-cache-store';
-import type { TokenCacheEntry, TokenCountingMode } from './types';
+import type { TokenCacheEntry, TokenCacheStoreLike, TokenCountingMode } from './types';
 import {
   attachTerminalWorkerErrorDetails,
   clearTimerRef,
@@ -46,11 +45,11 @@ import {
 
 const logger = createLogger('BackgroundTokenIndexer');
 
-type TokenCacheStoreLike = Pick<TokenCacheStore, 'get' | 'getBatch' | 'set'>;
+type BackgroundTokenStore = Pick<TokenCacheStoreLike, 'get' | 'getBatch' | 'set'>;
 
 async function persistResultToStore(
   result: IndexerResult,
-  store: TokenCacheStoreLike,
+  store: BackgroundTokenStore,
   onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void
 ): Promise<void> {
   if (result.skipped) {
@@ -123,7 +122,7 @@ export interface UseBackgroundTokenIndexerOptions {
   /** Callback for progress updates */
   onProgress?: (progress: IndexingProgress) => void;
   /** Token cache store for persistence (null to disable indexing) */
-  store: TokenCacheStoreLike | null;
+  store: BackgroundTokenStore | null;
   /** Worker URL override for app-owned worker graphs */
   workerUrl?: string;
 }

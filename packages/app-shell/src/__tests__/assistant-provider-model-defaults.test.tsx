@@ -21,11 +21,11 @@ const configured = vi.hoisted((): { current: ConfiguredAssistantProviders } => (
 vi.mock('../hooks/use-configured-assistant-providers', () => ({
   useConfiguredAssistantProviders: () => configured.current,
 }));
-// The renderer's open database; the registry counts as loaded, so nothing reads it.
-const DATABASE = { kind: 'database' } as const;
-vi.mock('@brainstrike/db/react', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
-  usePGliteDatabase: () => DATABASE,
+// The renderer's model catalog source; the registry counts as loaded, so nothing reads it.
+const DATABASE = { kind: 'catalog' } as const;
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/app-state/hooks/use-model-registry')>()),
+  useModelRegistrySource: () => DATABASE,
 }));
 
 const toast = vi.hoisted(() => vi.fn());

@@ -5,7 +5,6 @@ import type {
   McpHostControlRequest,
 } from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
-import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   Accordion,
   Button,
@@ -44,19 +43,15 @@ import {
 import type {
   McpConfigInfo,
   McpServerInfo,
-  ToolDisplayMetadata,
   ToolGroup,
   ToolStats,
   UnifiedToolsSettingsProps,
 } from './types';
 
-const EMPTY_LIVE_QUERY = 'SELECT 1 WHERE 1 = 0';
 const INITIAL_TOOLS_READ = Promise.resolve(false);
 
 interface UseToolsDataManagerParams {
   dispatch: (action: ToolsDataAction) => void;
-  liveQuery: ReturnType<typeof usePGliteLiveQuery<ToolDisplayMetadata>>;
-  liveQueryEnabled: boolean;
   mcpAvailable: boolean;
   operations: UnifiedToolsSettingsProps['operations'];
   statsRef: { current: ToolStats | null };
@@ -64,8 +59,6 @@ interface UseToolsDataManagerParams {
 
 function useToolsDataManager({
   dispatch,
-  liveQuery,
-  liveQueryEnabled,
   mcpAvailable,
   operations,
   statsRef,
@@ -90,18 +83,13 @@ function useToolsDataManager({
     const readEpoch = ++toolsReadEpochRef.current;
     // Publish the pending promise before calling operations, which may notify.
     const read = Promise.resolve()
-      .then(() =>
-        Promise.all([liveQueryEnabled ? null : operations.getTools(), operations.getStats()])
-      )
+      .then(() => Promise.all([operations.getTools(), operations.getStats()]))
       .then(([toolsData, stats]): boolean | Promise<boolean> => {
         if (readEpoch !== toolsReadEpochRef.current) {
           return latestToolsReadRef.current;
         }
         statsRef.current = stats;
-        // Live-query rows own the catalog; only preference stats need a host read.
-        if (toolsData !== null) {
-          dispatch({ tools: toolsData, type: 'SET_TOOLS' });
-        }
+        dispatch({ tools: toolsData, type: 'SET_TOOLS' });
         dispatch({ error: null, type: 'SET_LOAD_ERROR' });
         dispatch({ error: stats.preferencesFault?.message ?? null, type: 'SET_PREFERENCES_ERROR' });
         return true;
@@ -123,7 +111,7 @@ function useToolsDataManager({
       });
     latestToolsReadRef.current = read;
     return read;
-  }, [operations, statsRef, dispatch, liveQueryEnabled]);
+  }, [operations, statsRef, dispatch]);
   const loadToolsData = useCallback(async (): Promise<boolean> => {
     dispatch({ loading: true, type: 'SET_LOADING' });
     return await fetchAndApplyTools();
@@ -157,11 +145,8 @@ function useToolsDataManager({
   }, [applyMcpConfigInfo, clearMcpError, operations, mcpAvailable, dispatch]);
 
   useEffect(() => {
-    if (liveQueryEnabled) {
-      return;
-    }
     void fetchAndApplyTools();
-  }, [fetchAndApplyTools, liveQueryEnabled]);
+  }, [fetchAndApplyTools]);
 
   useEffect(() => {
     if (!(mcpAvailable && subscribeMcpServerStatus)) {
@@ -184,21 +169,10 @@ function useToolsDataManager({
     void loadMcpData();
   }, [loadMcpData]);
 
-  const refreshTools = useCallback(async (): Promise<boolean> => {
-    if (liveQueryEnabled) {
-      try {
-        await liveQuery.refresh();
-        return await fetchAndApplyTools();
-      } catch (err) {
-        dispatch({
-          error: err instanceof Error ? err.message : 'Failed to refresh tools',
-          type: 'SET_LOAD_ERROR',
-        });
-        return false;
-      }
-    }
-    return await loadToolsData();
-  }, [liveQueryEnabled, liveQuery, fetchAndApplyTools, loadToolsData, dispatch]);
+  const refreshTools = useCallback(
+    async (): Promise<boolean> => await loadToolsData(),
+    [loadToolsData]
+  );
 
   useEffect(() => {
     if (!(mcpAvailable && subscribeMcpConfig)) {
@@ -244,25 +218,9 @@ export function UnifiedToolsSettings({
 }: UnifiedToolsSettingsProps) {
   const [dataState, dispatch] = useReducer(toolsDataReducer, initialToolsDataState);
   const _statsStateRef = useRef<ToolStats | null>(null);
-  const liveQueryConfig = operations.toolsLiveQuery;
-  const liveQueryEnabled = Boolean(liveQueryConfig);
-  const liveQueryOptions: UsePGliteLiveQueryOptions<ToolDisplayMetadata> = {
-    query: liveQueryConfig?.query ?? EMPTY_LIVE_QUERY,
-    ...(liveQueryConfig?.params === undefined ? {} : { params: liveQueryConfig.params }),
-    ...(liveQueryConfig?.select === undefined ? {} : { select: liveQueryConfig.select }),
-    enabled: liveQueryEnabled,
-    ...(liveQueryConfig?.mode === 'incremental'
-      ? { key: liveQueryConfig.key, mode: 'incremental' as const }
-      : {}),
-  };
-  const liveQuery = usePGliteLiveQuery<ToolDisplayMetadata>(liveQueryOptions);
-  const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
-  const loading = liveQueryEnabled ? liveQuery.loading || dataState.loading : dataState.loading;
-  const error =
-    dataState.error ??
-    dataState.loadError ??
-    dataState.mcpError ??
-    (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
+  const tools = dataState.tools;
+  const loading = dataState.loading;
+  const error = dataState.error ?? dataState.loadError ?? dataState.mcpError ?? null;
   const { mcpServers, mcpConfigInfo, mcpRevision, errorBoundaryKey } = dataState;
 
   const [uiState, uiDispatch] = useReducer(toolsUiReducer, initialToolsUiState);
@@ -277,8 +235,6 @@ export function UnifiedToolsSettings({
 
   const { handleMcpConfigUpdated, loadMcpData, loadToolsData, refreshTools } = useToolsDataManager({
     dispatch,
-    liveQuery,
-    liveQueryEnabled,
     mcpAvailable,
     operations,
     statsRef: _statsStateRef,
@@ -308,16 +264,12 @@ export function UnifiedToolsSettings({
   }, [operations, refreshTools, onToolsChanged]);
 
   const handleErrorBoundaryReset = useCallback(() => {
-    dispatch({ loading: !liveQueryEnabled, type: 'RESET' });
+    dispatch({ loading: true, type: 'RESET' });
     dispatch({ type: 'INCREMENT_BOUNDARY_KEY' });
     uiDispatch({ toolId: null, type: 'SET_EXPANDED_TOOL_ID' });
-    if (liveQueryEnabled) {
-      void liveQuery.refresh();
-    } else {
-      void loadToolsData();
-    }
+    void loadToolsData();
     void loadMcpData();
-  }, [liveQueryEnabled, liveQuery, loadMcpData, loadToolsData]);
+  }, [loadMcpData, loadToolsData]);
 
   const handleToggleTool = useCallback(
     async (toolId: string, currentlyEnabled: boolean) => {

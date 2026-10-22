@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import type { PromptItem } from '@brainstrike/db';
+import type { PromptItem } from '@brainstrike/types/prompt-item';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';

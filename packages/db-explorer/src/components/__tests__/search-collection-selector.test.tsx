@@ -95,11 +95,10 @@ describe('SearchCollectionSelector', () => {
     });
   });
 
-  it('is ready on the desktop catalog path, which has no database handle', () => {
+  it('is ready on the desktop catalog path', () => {
     render(
       <SearchCollectionSelector
         activeCollectionId="set-1"
-        db={null}
         onCollectionChange={vi.fn()}
         onCreateCollection={vi.fn()}
         onDeleteCollection={vi.fn()}
@@ -121,7 +120,6 @@ describe('SearchCollectionSelector', () => {
     render(
       <SearchCollectionSelector
         activeCollectionId={null}
-        db={null}
         onCollectionChange={vi.fn()}
         onCreateCollection={vi.fn()}
         onDeleteCollection={vi.fn()}
@@ -136,7 +134,6 @@ describe('SearchCollectionSelector', () => {
     render(
       <SearchCollectionSelector
         activeCollectionId="set-1"
-        db={{} as never}
         onCollectionChange={vi.fn()}
         onCreateCollection={vi.fn()}
         onDeleteCollection={vi.fn()}
@@ -158,7 +155,6 @@ describe('SearchCollectionSelector', () => {
     render(
       <SearchCollectionSelector
         activeCollectionId={null}
-        db={{} as never}
         onCollectionChange={onCollectionChange}
         onCreateCollection={onCreateCollection}
         onDeleteCollection={onDeleteCollection}
@@ -224,7 +220,6 @@ describe('SearchCollectionSelector', () => {
     render(
       <SearchCollectionSelector
         activeCollectionId="user-collection"
-        db={{} as never}
         onCollectionChange={onCollectionChange}
         onCreateCollection={vi.fn()}
         onDeleteCollection={onDeleteCollection}
@@ -258,7 +253,6 @@ describe('SearchCollectionSelector', () => {
 
     const props = {
       activeCollectionId: 'workspace-index',
-      db: {} as never,
       onCollectionChange,
       onCreateCollection: vi.fn(),
       onDeleteCollection: vi.fn(),
@@ -332,7 +326,6 @@ describe('SearchCollectionSelector', () => {
     render(
       <SearchCollectionSelector
         activeCollectionId="curated-set"
-        db={{} as never}
         onCollectionChange={onCollectionChange}
         onCreateCollection={vi.fn()}
         onDeleteCollection={onDeleteCollection}
@@ -376,7 +369,6 @@ describe('SearchCollectionSelector', () => {
     render(
       <SearchCollectionSelector
         activeCollectionId="set-optimistic"
-        db={{} as never}
         onCollectionChange={vi.fn()}
         onCreateCollection={vi.fn()}
         onDeleteCollection={vi.fn()}

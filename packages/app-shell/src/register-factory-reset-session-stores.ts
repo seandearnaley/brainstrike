@@ -7,7 +7,6 @@ import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-
 import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import { resetThreadContextStore } from '@brainstrike/assistant-ui/thread-context-store';
-import { resetDatabaseDemoStoreToDefault } from '@brainstrike/db-explorer/database-demo-store';
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
@@ -58,14 +57,14 @@ registerFactoryResetSessionStore(() => {
 registerFactoryResetSessionStore(() => {
   // BST-1258 unified workspace tabs. Both stores PERSIST (localStorage is
   // cleared by the blanket wipe), but the LIVE instances must reset too or a
-  // reset-without-reload on web resurrects the open tab set on the next
-  // persist write — the resetDatabaseDemoStoreToDefault bug class.
+  // reset-without-reload resurrects the open tab set on the next persist
+  // write.
   useWorkspaceTabSelectionStore.getState().reset();
   useTabManagerStore.getState().clearTabs();
 });
 
 registerFactoryResetSessionStore(() => {
-  // Thread group/placement rows live in PGlite (wiped with the DB); this
+  // Thread group/placement rows live in the host's state store; this
   // clears the in-memory mirror plus the persisted view prefs slice so a
   // reset-without-reload doesn't resurrect stale groups.
   useAssistantThreadGroupsStore.getState().reset();
@@ -108,15 +107,6 @@ registerFactoryResetSessionStore(() => {
   // A pending composer repopulation is the text of a message the reset just
   // deleted — it must not land in a fresh profile's first prompt.
   useRewindComposerStore.getState().consume();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The Database tab's panel store is persisted, but it is also a mounted
-  // singleton: `localStorage.clear()` drops the saved slice while the live
-  // instance keeps `debugDrawerOpen` true, so the collection debug drawer
-  // stayed open — and kept issuing chunk/coverage queries — against the
-  // database the reset had just emptied.
-  resetDatabaseDemoStoreToDefault();
 });
 
 registerFactoryResetSessionStore(() => {

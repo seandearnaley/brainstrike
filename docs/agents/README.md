@@ -2,7 +2,7 @@
 
 These pages contain the non-obvious invariants for a subsystem. Use the relevant
 page when the task needs it; there is no mandatory document-reading itinerary.
-Root `AGENTS.md` owns working rules, [validation](ci-quality.md) owns delivery
+Root `AGENTS.md` owns working rules, `pnpm check` owns delivery
 policy, and accepted decisions live in `docs/adr/`. Verify implementation details
 against current source and tests. Historical notes are reference, not more rules. Earlier records live in the
 [contract history](../archive/agent-contract-history/README.md).
@@ -14,7 +14,6 @@ against current source and tests. Historical notes are reference, not more rules
 | Providers, credentials and MCP | [Providers](assistant-providers.md), [provider cassettes](provider-cassettes.md) |
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
 | Canonical SQLite state and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
-| Catalogs and remaining PGlite | [Database](database.md) |
 | Derived search and indexing | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
 | Embeddings and local LLM | [Local inference](local-inference.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |

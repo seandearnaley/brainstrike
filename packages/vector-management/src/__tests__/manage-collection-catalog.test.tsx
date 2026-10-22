@@ -33,9 +33,7 @@ test('Manage renders canonical counts without a database and marks inactive vect
       }),
     },
   });
-  render(
-    <ManageEmbeddingSetsDialog db={null} onOpenChange={() => undefined} open repository={null} />
-  );
+  render(<ManageEmbeddingSetsDialog onOpenChange={() => undefined} open repository={null} />);
   expect(await screen.findByText('Documents')).toBeVisible();
   expect(screen.getByText('2')).toBeVisible();
   expect(screen.getByText('4')).toBeVisible();
@@ -56,9 +54,7 @@ test('Manage surfaces a catalog failure rather than offering an empty collection
       }),
     },
   });
-  render(
-    <ManageEmbeddingSetsDialog db={null} onOpenChange={() => undefined} open repository={null} />
-  );
+  render(<ManageEmbeddingSetsDialog onOpenChange={() => undefined} open repository={null} />);
   expect(await screen.findByRole('alert')).toHaveTextContent('Catalog read failed');
   expect(
     screen.queryByText('No collections yet. Create your first collection to get started.')

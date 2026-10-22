@@ -40,7 +40,6 @@ export function CommittedWorkspaceControls({
     <WorkspaceBarHost
       assistantThreadRepository={repository}
       {...(mainRoot ? { currentMainRoot: mainRoot } : {})}
-      database={null}
       memoryResourceId={WORKSPACE_MEMORY_RESOURCE_ID}
       rootDescriptors={rootDescriptors}
       selectedMemoryThreadId={threadId}

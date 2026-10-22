@@ -19,7 +19,7 @@ Use native parent/blocking/duplicate/related relations. Do not encode an unsuppo
 relation into prose as though it existed. State unsupported operations honestly.
 
 PR descriptions reference the relevant resolved `BST-###` outcome and report actual
-validation under [delivery rules](ci-quality.md). Do not create a ticket for every
+validation under `pnpm check`. Do not create a ticket for every
 implementation slice, proof or review comment. Complete a ticket only when its
 whole user-visible outcome is demonstrated; a linked partial PR is insufficient.
 

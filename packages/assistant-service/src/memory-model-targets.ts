@@ -1,8 +1,8 @@
-// hosted-web subpath, not the agent root — see the note in request.ts
-// (Vercel function-size trace, PR #2127).
-
-import type { SupportedProvider } from '@brainstrike/agent/client';
-import { isSupportedProvider, type RuntimeData } from '@brainstrike/agent/hosted-web';
+import type { RuntimeData } from '@brainstrike/agent';
+import {
+  isSupportedProvider,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
 
 export interface DesktopMemoryModelTargetDescriptor {
   readonly model: string;

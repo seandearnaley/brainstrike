@@ -43,4 +43,4 @@ infer concurrency values from platform names.
 
 [`package.json`](package.json) owns exports and scripts. Local consumers use
 `workspace:*`. Select
-checks with [validation guidance](../../docs/agents/ci-quality.md).
+checks with `pnpm check`.

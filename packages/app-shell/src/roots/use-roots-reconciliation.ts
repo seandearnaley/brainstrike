@@ -1,30 +1,10 @@
-import type { DbHandle } from '@brainstrike/db/react';
 import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { type ChangesBridge, resolveChangesBridge } from '../changes/changes-bridge';
-import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import { notifyRootRegistered } from './root-registration-events';
-import { mapHostRecordedRoots, type ReconcileRootsArgs, reconcileRoots } from './root-registry';
-
-/**
- * Desktop Main's root registry owns folder records (BST-1990), so reconciliation
- * only maps onto them there; elsewhere (web) it writes them.
- */
-function reconcileAdapterRoots(
-  adapter: FileSystemAdapter,
-  db: DbHandle | null,
-  args: Omit<ReconcileRootsArgs, 'query'>
-): ReturnType<typeof reconcileRoots> {
-  if (adapter.ownsRootRecords) {
-    return mapHostRecordedRoots(args);
-  }
-  if (!db) {
-    throw new Error('Browser root catalog is unavailable.');
-  }
-  return reconcileRoots({ ...args, query: db.query });
-}
+import { mapHostRecordedRoots, type ReconcileRootsResult } from './root-registry';
 
 const logger = createLogger('useRootsReconciliation');
 
@@ -97,35 +77,6 @@ const warnedUnmappedRoots = new Set<string>();
 
 type DbRootIdMap = Map<string, string>;
 
-async function refreshManagedWorktreePaths(
-  bridge: ReturnType<typeof resolveWorktreesBridge>,
-  knownRef: RefObject<boolean>,
-  managedWorktreeCapabilityRequired: boolean,
-  pathsRef: RefObject<ReadonlySet<string>>
-): Promise<void> {
-  if (!bridge) {
-    if (!managedWorktreeCapabilityRequired) {
-      // Web has no managed-worktree capability, so the empty set is
-      // authoritative. A missing/malformed desktop bridge stays unknown.
-      knownRef.current = true;
-    }
-    return;
-  }
-  try {
-    const listed = await bridge.listManagedPaths();
-    if (listed.ok) {
-      pathsRef.current = new Set(listed.value.map((entry) => entry.path));
-      knownRef.current = true;
-      return;
-    }
-    logger.warn('could not list managed worktrees; keeping the previous set', {
-      error: listed.error,
-    });
-  } catch (error) {
-    logger.warn('could not list managed worktrees; keeping the previous set', { error });
-  }
-}
-
 interface SettlingMapPromise {
   promise: Promise<DbRootIdMap>;
   resolve: (map: DbRootIdMap) => void;
@@ -150,7 +101,6 @@ function retainMountedKeys(
 
 export interface UseRootsReconciliationArgs {
   adapter: FileSystemAdapter;
-  db: DbHandle | null;
 }
 
 export interface UseRootsReconciliationResult {
@@ -198,15 +148,11 @@ export interface UseRootsReconciliationResult {
 
 interface PerformRootRegistrationArgs {
   adapter: FileSystemAdapter;
-  db: DbHandle | null;
   dbRootIdMap: DbRootIdMap;
   descriptor: RootDescriptor;
-  managedWorktreePathsKnownRef: RefObject<boolean>;
-  managedWorktreePathsRef: RefObject<ReadonlySet<string>>;
   publishCanonicalKind: (adapterRootId: string, kind: string) => void;
   /** Publishes the canonical adapter-rootId → DB-rootId pair to reactive state. */
   publishCanonicalMapping: (adapterRootId: string, dbRootId: string) => void;
-  worktreesBridge: ReturnType<typeof resolveWorktreesBridge>;
 }
 
 interface ApplyBootReconciliationResultArgs {
@@ -214,7 +160,7 @@ interface ApplyBootReconciliationResultArgs {
   dbRootIdMapRef: RefObject<DbRootIdMap>;
   publishCanonicalKind: (adapterRootId: string, kind: string) => void;
   publishCanonicalMapping: (adapterRootId: string, dbRootId: string) => void;
-  result: Awaited<ReturnType<typeof reconcileRoots>>;
+  result: ReconcileRootsResult;
 }
 
 function applyBootReconciliationResult({
@@ -223,7 +169,7 @@ function applyBootReconciliationResult({
   publishCanonicalKind,
   publishCanonicalMapping,
   result,
-}: ApplyBootReconciliationResultArgs): { dbRootIdMap: DbRootIdMap; insertedAny: boolean } {
+}: ApplyBootReconciliationResultArgs): DbRootIdMap {
   const dbRootIdMap: DbRootIdMap = new Map();
   for (const descriptor of adapterRoots) {
     const dbRootId = result.dbRootIdByAdapterRootId.get(descriptor.rootId);
@@ -236,12 +182,6 @@ function applyBootReconciliationResult({
   for (const [rootKey, dbRootId] of dbRootIdMap) {
     dbRootIdMapRef.current.set(rootKey, dbRootId);
   }
-  // Insert-vs-match (BST-1400 item 11): an ordinary boot with only
-  // already-registered roots matches every one of them — the git inventory's
-  // own eager app-ready build already discovered those, so re-nudging it here
-  // would be one wasted extra build every single session. Only a GENUINE new
-  // row (see `insertedAdapterRootIds`'s doc in root-registry.ts) needs it.
-  let insertedAny = false;
   for (const descriptor of adapterRoots) {
     const dbRootId = dbRootIdMap.get(descriptor.rootId);
     if (dbRootId === undefined) {
@@ -255,15 +195,10 @@ function applyBootReconciliationResult({
     // Wakes any `awaitRootRegistration` waiter outside this component subtree
     // (e.g. `useWorkspaceBar`'s MAIN-root resolution) — see
     // `root-registration-events.ts` for why this can't be a React context read.
-    // Fires for EVERY successfully-mapped root, matched or inserted — a
-    // matched-and-restored-to-'live' root (the remove-then-re-add shape) is
-    // just as real a registration for a waiter's purposes as a fresh insert.
+    // Fires for EVERY successfully-mapped root.
     notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
-    if (result.insertedAdapterRootIds.has(descriptor.rootId)) {
-      insertedAny = true;
-    }
   }
-  return { dbRootIdMap, insertedAny };
+  return dbRootIdMap;
 }
 
 /**
@@ -272,14 +207,10 @@ function applyBootReconciliationResult({
  */
 async function performRootRegistration({
   adapter,
-  db,
   descriptor,
   dbRootIdMap,
-  managedWorktreePathsKnownRef,
-  managedWorktreePathsRef,
   publishCanonicalMapping,
   publishCanonicalKind,
-  worktreesBridge,
 }: PerformRootRegistrationArgs): Promise<void> {
   if (!adapter.restoreRoots) {
     // Mirrors the boot no-op: on adapters without restoreRoots the registered
@@ -304,26 +235,14 @@ async function performRootRegistration({
     // Already mapped — the boot reconcile (or an earlier registerRoot) won.
     return;
   }
-  if (!(db || adapter.ownsRootRecords)) {
-    logger.warn('registerRoot skipped: db handle unavailable', {
+  if (!adapter.ownsRootRecords) {
+    logger.warn('registerRoot skipped: the adapter does not own root records', {
       rootId: descriptor.rootId,
     });
     return;
   }
   try {
-    const platformKind = adapter.platform === 'electron' ? 'path' : 'fsa';
-    await refreshManagedWorktreePaths(
-      worktreesBridge,
-      managedWorktreePathsKnownRef,
-      adapter.platform === 'electron',
-      managedWorktreePathsRef
-    );
-    const result = await reconcileAdapterRoots(adapter, db, {
-      adapterRoots: [descriptor],
-      managedWorktreePaths: managedWorktreePathsRef.current,
-      managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
-      platformKind,
-    });
+    const result = await mapHostRecordedRoots({ adapterRoots: [descriptor] });
     const dbRootId = result.dbRootIdByAdapterRootId.get(descriptor.rootId);
     if (dbRootId !== undefined) {
       dbRootIdMap.set(descriptor.rootId, dbRootId);
@@ -351,7 +270,7 @@ async function performRootRegistration({
 /**
  * Runs once per app boot (ref guard) to ensure a DB roots row exists for every
  * adapter root that has a persistent backing store entry. No-ops unless
- * adapter.restoreRoots exists and the db handle is ready. Errors are logged at
+ * adapter.restoreRoots exists and the adapter owns its root records. Errors are logged at
  * error level and swallowed — reconciliation must never block boot.
  *
  * Returns ref-stable callbacks:
@@ -363,13 +282,8 @@ async function performRootRegistration({
  */
 export function useRootsReconciliation({
   adapter,
-  db,
 }: UseRootsReconciliationArgs): UseRootsReconciliationResult {
   const hasRunRef = useRef(false);
-  // Resolved ONCE per hook instance: the bridge identity is an effect input.
-  const worktreesBridge = useMemo(() => resolveWorktreesBridge(), []);
-  const managedWorktreePathsKnownRef = useRef(false);
-  const managedWorktreePathsRef = useRef<ReadonlySet<string>>(new Set());
 
   // Reactive snapshot of the canonical adapter-rootId → DB-rootId mapping
   // (adapter-id keys only — never the path fallback keys held in
@@ -410,12 +324,10 @@ export function useRootsReconciliation({
   // was enqueued before it was called.
   const pendingRegistrationsRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Latest adapter/db for mid-session registration, read at call time so
+  // Latest adapter for mid-session registration, read at call time so
   // registerRoot stays identity-stable without stale captures.
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
-  const dbRef = useRef(db);
-  dbRef.current = db;
 
   // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
   // the pair is already present so a re-resolved boot map never churns the Map
@@ -483,49 +395,32 @@ export function useRootsReconciliation({
       settledWithoutRestoreRef.current = false;
       publishReconciliationSettled(false);
     }
-    if (!(db || adapter.ownsRootRecords)) {
-      // Deliberately NOT settled: db is not ready YET and the effect re-runs
-      // when it arrives. Settling empty here would be permanent (promises
-      // resolve once), silently dropping the later real mapping. No consumer
-      // can await resolveDbRootId before db exists — the sync service is
-      // constructed from the same db handle, so it doesn't exist yet either.
+    if (!adapter.ownsRootRecords) {
+      // Deliberately NOT settled: settling empty here would be permanent
+      // (promises resolve once), silently dropping a later real mapping from
+      // an adapter that does own its root records.
       return;
     }
     hasRunRef.current = true;
 
-    const platformKind = adapter.platform === 'electron' ? 'path' : 'fsa';
     const { resolve } = settling;
 
     void adapter
       .restoreRoots()
       .then(async (adapterRoots) => {
-        await refreshManagedWorktreePaths(
-          worktreesBridge,
-          managedWorktreePathsKnownRef,
-          adapter.platform === 'electron',
-          managedWorktreePathsRef
-        );
-        const result = await reconcileAdapterRoots(adapter, db, {
-          adapterRoots,
-          managedWorktreePaths: managedWorktreePathsRef.current,
-          managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
-          platformKind,
-        });
-        const { dbRootIdMap, insertedAny } = applyBootReconciliationResult({
+        const result = await mapHostRecordedRoots({ adapterRoots });
+        const dbRootIdMap = applyBootReconciliationResult({
           adapterRoots,
           dbRootIdMapRef,
           publishCanonicalKind,
           publishCanonicalMapping,
           result,
         });
-        // Host restoration can write roots after Main's eager inventory build.
-        // Its renderer mapping reports no inserts, but those roots still need
-        // discovery (BST-1990: missing branch badges in the folders panel).
-        if (insertedAny || (adapter.ownsRootRecords && dbRootIdMap.size > 0)) {
+        // Host restoration can write roots after Main's eager inventory build,
+        // and those roots still need discovery (BST-1990: missing branch
+        // badges in the folders panel).
+        if (dbRootIdMap.size > 0) {
           refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
-        }
-        if (insertedAny) {
-          refreshNativeIndexAfterRootRegistration();
         }
         resolve(dbRootIdMap);
         publishReconciliationSettled(true);
@@ -536,14 +431,7 @@ export function useRootsReconciliation({
         resolve(new Map());
         publishReconciliationSettled(true);
       });
-  }, [
-    adapter,
-    db,
-    publishCanonicalKind,
-    publishCanonicalMapping,
-    publishReconciliationSettled,
-    worktreesBridge,
-  ]);
+  }, [adapter, publishCanonicalKind, publishCanonicalMapping, publishReconciliationSettled]);
 
   // Reads the settling ref at call time (the effect may have re-keyed it when
   // a restoreRoots-capable adapter replaced an incapable one). The null case
@@ -565,14 +453,10 @@ export function useRootsReconciliation({
         await awaitBootSettle();
         await performRootRegistration({
           adapter: adapterRef.current,
-          db: dbRef.current,
           dbRootIdMap: dbRootIdMapRef.current,
           descriptor,
-          managedWorktreePathsKnownRef,
-          managedWorktreePathsRef,
           publishCanonicalKind,
           publishCanonicalMapping,
-          worktreesBridge,
         });
       };
       // Serialize registrations so two adds for the same path cannot interleave
@@ -582,7 +466,7 @@ export function useRootsReconciliation({
       pendingRegistrationsRef.current = chained;
       return await chained;
     },
-    [awaitBootSettle, publishCanonicalKind, publishCanonicalMapping, worktreesBridge]
+    [awaitBootSettle, publishCanonicalKind, publishCanonicalMapping]
   );
 
   // A folder re-added after removal comes back under its one id (BST-1990), so a

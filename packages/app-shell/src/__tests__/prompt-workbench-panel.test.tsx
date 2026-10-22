@@ -6,7 +6,7 @@ import type {
   PromptItemSimilarityResult,
   PromptItemUsageAction,
   UpdatePromptItemInput,
-} from '@brainstrike/db';
+} from '@brainstrike/types/prompt-item';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';

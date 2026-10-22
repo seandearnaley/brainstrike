@@ -1,5 +1,4 @@
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import type { ThreadSearchRepository } from '@brainstrike/db';
 import type { AssistantThreadHostCapability } from './assistant-thread-host-context';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { useThreadSearchStore } from './thread-search-store';
@@ -28,39 +27,30 @@ async function hostRootThread(
   return current;
 }
 
-/** The navigation target of a result: the host's for its own threads, else history's. */
+/** The navigation target of a result: the host's own thread. */
 async function navigationRoot(
-  repository: ThreadSearchRepository | null,
-  host: AssistantThreadHostCapability | undefined,
+  host: AssistantThreadHostCapability,
   ownerResourceId: string,
-  threadId: string,
-  messageId: string | undefined
-): Promise<{ readonly rootThreadId: string } | null> {
-  if (host && (await host.ownsThread(threadId))) {
+  threadId: string
+): Promise<{ readonly rootThreadId: string }> {
+  if (await host.ownsThread(threadId)) {
     return { rootThreadId: await hostRootThread(host, ownerResourceId, threadId) };
   }
-  if (!repository) {
-    throw new Error('Conversation storage is not ready.');
-  }
-  return await repository.getNavigationTarget(ownerResourceId, threadId, messageId);
+  throw new Error('Conversation storage is not ready.');
 }
 
 /** Resolve native ownership again at activation, after results may have gone stale. */
 export async function navigateThreadSearchResult(
-  repository: ThreadSearchRepository | null,
   ownerResourceId: string,
   threadId: string,
-  messageId?: string,
-  host?: AssistantThreadHostCapability
+  messageId: string | undefined,
+  host: AssistantThreadHostCapability
 ): Promise<void> {
   const requestId = useThreadSearchStore.getState().beginNavigation();
   try {
-    const target = await navigationRoot(repository, host, ownerResourceId, threadId, messageId);
+    const target = await navigationRoot(host, ownerResourceId, threadId);
     if (useThreadSearchStore.getState().navigationRevision !== requestId) {
       return;
-    }
-    if (!target) {
-      throw new Error('This search result is no longer available in this workspace.');
     }
     if (messageId) {
       useThreadSearchStore.getState().setNavigationTarget({

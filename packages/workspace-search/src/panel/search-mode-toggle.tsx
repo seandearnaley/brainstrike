@@ -2,7 +2,7 @@ import { cn, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@b
 import { FileText, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
-import { type SemanticAvailability, useSemanticAvailability } from './use-semantic-availability';
+import type { SemanticAvailability } from './semantic-availability';
 
 const BUTTON_BASE =
   'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-xs transition-colors';
@@ -21,10 +21,10 @@ function modeButtonClass(isActive: boolean, gated: boolean): string {
  * Segmented control for switching between text and semantic search. Matches the
  * app's canonical segmented pattern (the retrieval-mode control in
  * `search-config-panel`): active tab reads primary, inactive reads muted.
- * Store-driven — no props.
+ * Store-driven apart from the semantic availability prop.
  *
  * The Semantic button is gated (with a named tooltip reason) when semantic
- * search cannot run for the selected set — see {@link useSemanticAvailability}.
+ * search cannot run for the selected set.
  * We use `aria-disabled` rather than the native `disabled` attribute so the
  * button stays focusable/hoverable and its Radix tooltip can announce the
  * reason (a natively-disabled button drops out of the a11y tree and swallows
@@ -47,15 +47,11 @@ function modeButtonClass(isActive: boolean, gated: boolean): string {
 export function SearchModeToggle({
   semanticAvailability,
 }: {
-  semanticAvailability?: SemanticAvailability;
-} = {}): ReactNode {
+  semanticAvailability: SemanticAvailability;
+}): ReactNode {
   const mode = useWorkspaceSearchStore((state) => state.mode);
   const setMode = useWorkspaceSearchStore((state) => state.setMode);
-  const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
-  const { available: semanticAvailable, reason: semanticReason } = useSemanticAvailability(
-    collectionId,
-    semanticAvailability
-  );
+  const { available: semanticAvailable, reason: semanticReason } = semanticAvailability;
 
   const semanticGated = !semanticAvailable;
 

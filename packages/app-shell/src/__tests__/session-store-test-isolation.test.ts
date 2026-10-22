@@ -5,7 +5,6 @@ import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
-import { useQuickOpenStore } from '../stores/quick-open-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { useThreadSearchStore } from '../thread-search-store';
 
@@ -31,7 +30,6 @@ describe('app-shell session-store test isolation', () => {
     useDiagnosticSinkHealthStore.getState().markDisabled('previous test failure');
     useThreadSearchStore.getState().setQuery('stale search');
     useCommandPaletteStore.getState().open({ tabScope: 'assistant-threads' });
-    useQuickOpenStore.getState().open();
     useOnScreenThreadStore.getState().setOnScreenThreadId('thread-stale');
     useWorktreeCheckoutIntentStore.getState().publish({
       branch: 'codex/stale',
@@ -52,7 +50,6 @@ describe('app-shell session-store test isolation', () => {
       openTarget: null,
       tabScope: null,
     });
-    expect(useQuickOpenStore.getState().isOpen).toBe(false);
     expect(useOnScreenThreadStore.getState().onScreenThreadId).toBeNull();
     expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
   });

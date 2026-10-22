@@ -4,7 +4,7 @@ import { createContext, type ReactNode, useContext, useMemo } from 'react';
 const logger = createLogger('RootIdentity');
 
 // Module-level set so each unmapped DB root id only warns ONCE across the app's
-// lifetime (not once per render / per quick-open query).
+// lifetime (not once per render / per lookup).
 const warnedUnmappedDbRoots = new Set<string>();
 
 /**
@@ -15,7 +15,7 @@ const warnedUnmappedDbRoots = new Set<string>();
  * The two identities COINCIDE for roots registered through reconcileRoots but
  * DIVERGE for legacy/path-matched roots (documented in
  * migrations/047-run-usage-root-id.ts). Any consumer that has a DB root_id and
- * needs the adapter id (e.g. ⌘P quick-open, to build the open compositeKey and
+ * needs the adapter id (e.g. workspace search, to build the open compositeKey and
  * to gate by currently-mounted roots) MUST translate through this context — it
  * is the only authoritative correlation, derived from the reconciliation map.
  */
@@ -98,7 +98,7 @@ export function RootIdentityProvider({
  * MOUNTED root whose adapter id was path-matched to a different pre-existing
  * roots.id (so roots.id != adapter rootId) cannot be resolved by the fallback —
  * only by this authoritative provider. Such a drop is logged once per id (see
- * `use-file-mentions.ts`); the durable fix is to mount this provider around the
+ * the consumers); the durable fix is to mount this provider around the
  * consuming subtree too.
  */
 export function useOptionalRootIdentity(): RootIdentity | null {

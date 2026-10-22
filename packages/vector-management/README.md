@@ -39,4 +39,4 @@ Exports and scripts live in [`package.json`](package.json) and
 [`index.ts`](src/index.ts). See [inference](../../docs/agents/local-inference.md)
 and [indexing](../../docs/agents/indexer.md) contracts.
 Select checks with
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

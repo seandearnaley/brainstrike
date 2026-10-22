@@ -5,7 +5,6 @@
  * to its row, and a folder whose row is gone or no longer live is marked
  * `removed` rather than shown as if it still worked.
  */
-import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useState } from 'react';
 import { subscribeRootRegistered } from '../roots/root-registration-events';
@@ -60,14 +59,13 @@ function secondaryRoot(id: string, row: RootRow | undefined): ThreadCheckoutRoot
  * after the mount is published, so its producer notification also refreshes the read.
  */
 export function useThreadRoots(args: {
-  readonly database: DbHandle | null;
   readonly mountedKey: string;
   readonly primaryRootId: string | undefined;
   readonly secondaryRootIds: readonly string[];
   readonly secondaryRootIdsKey: string;
 }): ThreadRoots {
   const catalog = getThreadGroupsCapability();
-  const { database, mountedKey, primaryRootId, secondaryRootIds, secondaryRootIdsKey } = args;
+  const { mountedKey, primaryRootId, secondaryRootIds, secondaryRootIdsKey } = args;
   // Tagged with the ids it was read for, so a result is never rendered under
   // another thread's folders and a bail-out needs no clearing setState
   // (react-hooks/set-state-in-effect). A re-read for a mount change keeps the
@@ -76,7 +74,7 @@ export function useThreadRoots(args: {
   const [resolved, setResolved] = useState<ResolvedThreadRoots | null>(null);
   useEffect(() => {
     const ids = [...new Set([...(primaryRootId ? [primaryRootId] : []), ...secondaryRootIds])];
-    if (!(database || catalog) || ids.length === 0) {
+    if (!catalog || ids.length === 0) {
       return;
     }
     let cancelRead = (): void => {};
@@ -86,15 +84,9 @@ export function useThreadRoots(args: {
       cancelRead = () => {
         cancelled = true;
       };
-      (catalog
-        ? catalog.readRoots().then((rows) => ({ rows: rows.filter((row) => ids.includes(row.id)) }))
-        : database
-          ? database.query<RootRow>(
-              'SELECT id, display_name AS "displayName", path, status FROM roots WHERE id = ANY($1::text[])',
-              [ids]
-            )
-          : Promise.reject(new Error('Workspace root catalog unavailable'))
-      )
+      catalog
+        .readRoots()
+        .then((rows) => ({ rows: rows.filter((row) => ids.includes(row.id)) }))
         .then((result) => {
           if (cancelled) {
             return;
@@ -124,8 +116,8 @@ export function useThreadRoots(args: {
       unsubscribe();
       cancelRead();
     };
-  }, [database, catalog, key, mountedKey, primaryRootId, secondaryRootIds]);
-  const current = (database || catalog) && resolved?.key === key ? resolved : null;
+  }, [catalog, key, mountedKey, primaryRootId, secondaryRootIds]);
+  const current = catalog && resolved?.key === key ? resolved : null;
   return {
     loadedSecondaryRoots: current?.roots ?? NO_ROOTS,
     primaryRemoved: current?.primaryRemoved ?? false,

@@ -1,7 +1,5 @@
-import { type DbHandle, useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import {
   buildQuerySelectionManifest,
-  createErroredQuerySelectionManifest,
   createLoadingQuerySelectionManifest,
   resolveQuerySelection,
 } from '@brainstrike/file-explorer';
@@ -13,7 +11,6 @@ import {
   useFileExplorerStoreSelector,
 } from './shell/file-explorer-provider';
 import { defaultCollator } from './utils/file-node-collator';
-import { loadQuerySelectionSnapshot } from './utils/query-selection-snapshot';
 import { acquireSelectionProjectionStructuralCache } from './utils/selection-projection';
 
 export interface SelectionResolverState {
@@ -26,53 +23,6 @@ export interface SelectionResolverState {
 
 const EMPTY_RELATIVE_PATHS: string[] = [];
 export const QUERY_SELECTION_LOADING_PROMOTION_MS = 100;
-let inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
-let failedSnapshotKeyByDatabase = new WeakMap<DbHandle, string>();
-
-/** @internal Test seam: the use-selection-resolver suites reset the snapshot-load caches. */
-export function __resetSelectionResolverCachesForTests(): void {
-  inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
-  failedSnapshotKeyByDatabase = new WeakMap<DbHandle, string>();
-}
-
-function getSnapshotAttemptKey(fingerprint: string | null, snapshotId: string): string {
-  return JSON.stringify([fingerprint, snapshotId]);
-}
-
-function hasTerminalSnapshotFailure(args: {
-  db: DbHandle | null;
-  snapshotAttemptKey: string | null;
-}): boolean {
-  const { db, snapshotAttemptKey } = args;
-  return (
-    db !== null &&
-    snapshotAttemptKey !== null &&
-    failedSnapshotKeyByDatabase.get(db) === snapshotAttemptKey
-  );
-}
-
-function loadQuerySelectionSnapshotDeduped(db: DbHandle, snapshotId: string): Promise<string[]> {
-  let loadsForDatabase = inFlightSnapshotLoads.get(db);
-  if (!loadsForDatabase) {
-    loadsForDatabase = new Map<string, Promise<string[]>>();
-    inFlightSnapshotLoads.set(db, loadsForDatabase);
-  }
-
-  const existingLoad = loadsForDatabase.get(snapshotId);
-  if (existingLoad) {
-    return existingLoad;
-  }
-
-  const load = loadQuerySelectionSnapshot(db, snapshotId);
-  loadsForDatabase.set(snapshotId, load);
-  const removeSettledLoad = () => {
-    if (loadsForDatabase.get(snapshotId) === load) {
-      loadsForDatabase.delete(snapshotId);
-    }
-  };
-  void load.then(removeSettledLoad, removeSettledLoad);
-  return load;
-}
 
 function buildMaterializedFallbackPaths(args: {
   descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
@@ -180,17 +130,6 @@ function getLoadingPromotionDelay(args: {
   );
 }
 
-function clearLoadingPromotionStart(args: {
-  fingerprint: string | null;
-  startRef: { current: LoadingPromotionStart | null };
-  snapshotId: string;
-}): void {
-  const { fingerprint, snapshotId, startRef } = args;
-  if (startRef.current?.fingerprint === fingerprint && startRef.current.snapshotId === snapshotId) {
-    startRef.current = null;
-  }
-}
-
 function resolveImmediateQueryManifest(args: {
   descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
   latestManifest: SelectionResolverStoreState['querySelectionManifest'];
@@ -237,22 +176,14 @@ function matchesDescriptorManifest(args: {
 }
 
 function canReuseSnapshotManifest(args: {
-  db: DbHandle | null;
   descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
   manifest: SelectionResolverStoreState['querySelectionManifest'];
-  snapshotAttemptKey: string | null;
 }): boolean {
-  const { db, descriptor, manifest, snapshotAttemptKey } = args;
+  const { descriptor, manifest } = args;
   if (!matchesDescriptorManifest({ descriptor, manifest })) {
     return false;
   }
-  if (manifest?.status === 'ready') {
-    return true;
-  }
-  if (manifest?.status === 'error') {
-    return hasTerminalSnapshotFailure({ db, snapshotAttemptKey });
-  }
-  return manifest?.status === 'loading' && db === null;
+  return manifest?.status === 'ready' || manifest?.status === 'loading';
 }
 
 function isCurrentQueryDescriptor(
@@ -292,7 +223,6 @@ function ensureLoadingManifest(args: {
 }
 
 export function useSelectionResolver(): SelectionResolverState {
-  const db = useOptionalPGliteDatabase();
   const store = useFileExplorerStoreContext();
   const [selectedFilePaths, selectionModel, currentFolderId, querySelectionManifest, setManifest] =
     useFileExplorerStoreSelector(
@@ -326,9 +256,6 @@ export function useSelectionResolver(): SelectionResolverState {
     }
 
     const snapshotId = descriptor.manifestSnapshotId;
-    const snapshotAttemptKey = snapshotId
-      ? getSnapshotAttemptKey(descriptor.manifestFingerprint, snapshotId)
-      : null;
 
     const latestManifest = latestState.querySelectionManifest;
     if (
@@ -344,10 +271,8 @@ export function useSelectionResolver(): SelectionResolverState {
     }
 
     const latestManifestStatus = latestManifest?.status;
-    if (
-      canReuseSnapshotManifest({ db, descriptor, manifest: latestManifest, snapshotAttemptKey })
-    ) {
-      if (latestManifestStatus === 'ready' || latestManifestStatus === 'error') {
+    if (canReuseSnapshotManifest({ descriptor, manifest: latestManifest })) {
+      if (latestManifestStatus === 'ready') {
         loadingPromotionStartRef.current = null;
       }
       return;
@@ -402,88 +327,8 @@ export function useSelectionResolver(): SelectionResolverState {
       loadTokenRef.current += 1;
     };
 
-    if (!db) {
-      return cancelPendingLoad;
-    }
-
-    void loadQuerySelectionSnapshotDeduped(db, snapshotId)
-      .then((filePaths) => {
-        clearTimeout(loadingPromotionTimer);
-        if (token !== loadTokenRef.current) {
-          return;
-        }
-        if (failedSnapshotKeyByDatabase.get(db) === snapshotAttemptKey) {
-          failedSnapshotKeyByDatabase.delete(db);
-        }
-        clearLoadingPromotionStart({
-          fingerprint: descriptor.manifestFingerprint,
-          snapshotId,
-          startRef: loadingPromotionStartRef,
-        });
-        const currentState = store.getState();
-        if (
-          !isCurrentQueryDescriptor(currentState, descriptor) ||
-          matchesDescriptorManifest({
-            descriptor,
-            manifest: currentState.querySelectionManifest,
-            status: 'ready',
-          })
-        ) {
-          return;
-        }
-        setManifest(
-          buildQuerySelectionManifest({
-            filePaths,
-            fingerprint: descriptor.manifestFingerprint,
-            snapshotId: descriptor.manifestSnapshotId,
-          })
-        );
-      })
-      .catch((error: unknown) => {
-        clearTimeout(loadingPromotionTimer);
-        if (token !== loadTokenRef.current) {
-          return;
-        }
-        clearLoadingPromotionStart({
-          fingerprint: descriptor.manifestFingerprint,
-          snapshotId,
-          startRef: loadingPromotionStartRef,
-        });
-        failedSnapshotKeyByDatabase.set(
-          db,
-          getSnapshotAttemptKey(descriptor.manifestFingerprint, snapshotId)
-        );
-        const currentState = store.getState();
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const currentManifest = currentState.querySelectionManifest;
-        if (
-          !isCurrentQueryDescriptor(currentState, descriptor) ||
-          matchesDescriptorManifest({
-            descriptor,
-            manifest: currentManifest,
-            status: 'ready',
-          }) ||
-          (matchesDescriptorManifest({
-            descriptor,
-            manifest: currentManifest,
-            status: 'error',
-          }) &&
-            currentManifest?.errorMessage === errorMessage)
-        ) {
-          return;
-        }
-        setManifest(
-          createErroredQuerySelectionManifest({
-            errorMessage,
-            fingerprint: descriptor.manifestFingerprint,
-            snapshotId: descriptor.manifestSnapshotId,
-          })
-        );
-      });
-
     return cancelPendingLoad;
   }, [
-    db,
     // Folder hydration can clear a ready manifest while preserving descriptor
     // identity. Track only null/non-null invalidation so ready/loading/error
     // publications do not re-arm reads or recreate the old publish loop.

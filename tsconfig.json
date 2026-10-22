@@ -155,12 +155,6 @@
       "@brainstrike/vector-management": [
         "./packages/vector-management/src"
       ],
-      "@brainstrike/web-state-store": [
-        "./packages/web-state-store/src"
-      ],
-      "@brainstrike/web-writer": [
-        "./packages/web-writer/src"
-      ],
       "@brainstrike/db-explorer": [
         "./packages/db-explorer/src"
       ],
@@ -178,9 +172,6 @@
       ],
       "@brainstrike/context-actions/commands": [
         "./packages/context-actions/src/commands/index.ts"
-      ],
-      "@brainstrike/pipeline": [
-        "./packages/pipeline/src"
       ],
       "@brainstrike/file-import": [
         "./packages/file-import/src"
@@ -220,9 +211,6 @@
       ],
       "@brainstrike/workspace-search": [
         "./packages/workspace-search/src"
-      ],
-      "@web/*": [
-        "./apps/web/src/*"
       ],
       "@desktop/*": [
         "./apps/desktop/src/*"
@@ -375,9 +363,6 @@
       "path": "./packages/context-actions"
     },
     {
-      "path": "./packages/pipeline"
-    },
-    {
       "path": "./packages/file-import"
     },
     {
@@ -397,9 +382,6 @@
     },
     {
       "path": "./packages/build-utils"
-    },
-    {
-      "path": "./apps/web"
     }
   ]
 }
