@@ -628,6 +628,8 @@ export function hostEventSchema(json: JsonSchemaFactory) {
     [
       Schema.Struct({
         binding: ThreadWorkspaceBindingSchema,
+        /** ADR-0028 step 3: the root run that moved its thread into a worktree it created. */
+        enteredBy: Schema.optional(Schema.Struct({ runId: Id })),
         type: Schema.Literal('workspace.binding.updated'),
       }),
       Schema.Struct({

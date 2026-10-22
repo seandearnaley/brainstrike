@@ -245,7 +245,7 @@ export class HostCore {
     this.compactions.fold(row);
     this.rewrites.fold(row);
     this.presentations.fold(row);
-    this.workspaces.fold(row);
+    this.workspaces.fold(row, this.runs);
     this.rewinds.fold(row);
     const event = row.event;
     switch (event.type) {
@@ -391,10 +391,11 @@ export class HostCore {
   }
 
   updateWorkspaceBinding(
-    params: HostParams<'thread/workspace/binding/update'>
+    params: HostParams<'thread/workspace/binding/update'>,
+    enteredBy?: { readonly runId: string }
   ): Promise<{ accepted: true }> {
     return this.command('thread/workspace/binding/update', params, () =>
-      this.workspaces.setBinding(params, this.platform, this.pendingAdmissions)
+      this.workspaces.setBinding(params, this.platform, this.pendingAdmissions, enteredBy)
     );
   }
 

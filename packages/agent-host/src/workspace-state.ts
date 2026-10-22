@@ -6,10 +6,15 @@ import {
 } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { mergeAssistantThreadMetadata } from '@brainstrike/assistant-data/assistant-thread-metadata-merge';
 import { Schema } from 'effect';
-import { acceptHostWorkspaceSnapshot, readHostWorkspaceSnapshot } from './core-state.js';
+import {
+  acceptHostWorkspaceSnapshot,
+  type HostRunState,
+  readHostWorkspaceSnapshot,
+} from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
 import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
+import { foldHostWorktreeEntry } from './worktree-binding.js';
 /** In-memory projections of Core's existing thread log; owns no writer or queue. */
 export class HostThreadWorkspaceState {
   private readonly snapshots = new Map<string, HostParams<'thread/workspace/set'>['snapshot']>();
@@ -27,11 +32,13 @@ export class HostThreadWorkspaceState {
       durability: 'normal' | 'full'
     ) => Promise<void>
   ) {}
-  fold(row: HostLogRow): void {
+  /** The binding, and the run its commit names as having moved the thread (ADR-0028). */
+  fold(row: HostLogRow, runs: ReadonlyMap<string, HostRunState>): void {
     if (row.event.type === 'workspace.updated') {
       this.snapshots.set(row.threadId, row.event.snapshot);
     } else if (row.event.type === 'workspace.binding.updated') {
       this.bindings.set(row.threadId, row.event.binding);
+      foldHostWorktreeEntry(runs, row.event);
     }
   }
   forget(threadId: string): void {
@@ -69,7 +76,9 @@ export class HostThreadWorkspaceState {
   async setBinding(
     params: HostParams<'thread/workspace/binding/update'>,
     platform: HostPlatform,
-    pending: Map<AbortController, string>
+    pending: Map<AbortController, string>,
+    /** Core's own worktree entry (ADR-0028); a client's binding update never names a run. */
+    enteredBy?: { readonly runId: string }
   ): Promise<{
     accepted: true;
   }> {
@@ -94,7 +103,7 @@ export class HostThreadWorkspaceState {
       await this.commit(
         'thread/workspace/binding/update',
         params,
-        { binding, type: 'workspace.binding.updated' },
+        { binding, ...(enteredBy ? { enteredBy } : {}), type: 'workspace.binding.updated' },
         'full'
       );
       return { accepted: true };

@@ -21,6 +21,7 @@ import type { HostPlatform, HostRunAdmissionRequest } from '../src/ports.js';
 import type { HostLogRow } from '../src/protocol.js';
 import {
   type CallOptions,
+  crashableStorePort,
   finished,
   recordingAdmission,
   stream,
@@ -99,9 +100,13 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
         : admission;
     },
   };
-  const core = await HostCore.open(store, platform, () => () => undefined);
+  let writer = crashableStorePort(store);
+  let core = await HostCore.open(writer.port, platform, () => () => undefined);
+  const crashed: HostCore[] = [];
   cleanup.push(async () => {
     await core.close();
+    // A crashed Core can no longer commit its own teardown; only its joins matter here.
+    await Promise.allSettled(crashed.map((dead) => dead.close()));
     await store.close();
     await rm(root, { force: true, recursive: true });
   });
@@ -115,7 +120,20 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
     },
     threadId,
   });
-  return { core, requests, store, threadId };
+  return {
+    core,
+    /** The process dies mid-run; a fresh Core recovers over the same committed store. */
+    crash: async (): Promise<HostCore> => {
+      writer.dead = true;
+      crashed.push(core);
+      writer = crashableStorePort(store);
+      core = await HostCore.open(writer.port, platform, () => () => undefined);
+      return core;
+    },
+    requests,
+    store,
+    threadId,
+  };
 }
 
 async function rowsWhere(
@@ -224,6 +242,71 @@ test('a root run that creates a worktree ends there, and the next run works in i
 
 test('an approved worktree call ends its run there too, before any further step', async () => {
   await rootEntersWorktree('edit');
+});
+
+test('a host restarted after an approved worktree entry ends that run there and continues in it', async () => {
+  const offered: string[] = [];
+  let restarted = false;
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (userTexts(call).some((input) => input.includes(WORKTREE.root.path))) {
+        return stream(text('Continuing in the worktree.'));
+      }
+      if (!call.prompt.some((message) => message.role === 'tool')) {
+        return stream(toolCall('create_worktree', {}, 'wt-call'));
+      }
+      if (!restarted) {
+        // The process dies while the step after the entry is in flight.
+        return await new Promise<never>((_resolve, reject) => {
+          call.abortSignal?.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      }
+      return stream(text('Still in the old checkout.'));
+    },
+  });
+  const { core, crash, requests, threadId } = await host(model, offered, 'edit');
+  const first = (
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Fix it.',
+      threadId,
+    })
+  ).runId;
+  const asked = await rowsWhere(core, threadId, (all) =>
+    all.some(({ event }) => event.type === 'interaction.requested')
+  );
+  const request = asked.find(({ event }) => event.type === 'interaction.requested')?.event;
+  if (request?.type !== 'interaction.requested') {
+    throw new Error('Expected an approval request');
+  }
+  await core.respond({
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: request.interactionId,
+    runId: first,
+    threadId,
+  });
+  await expect.poll(() => model.doStreamCalls.length, { timeout: 15_000 }).toBe(2);
+
+  restarted = true;
+  const recovered = await crash();
+  const rows = await rowsWhere(recovered, threadId, (all) => {
+    const next = started(all).find((run) => run.runId !== first);
+    return next !== undefined && all.some(finished(next.runId));
+  });
+
+  // The recovered run kept the boundary: one tool-free step, then it ended.
+  expect(toolNames(model.doStreamCalls[2] as CallOptions)).toEqual([]);
+  expect(rows.find(finished(first))?.event).toMatchObject({ outcome: 'completed' });
+  // Its continuation was started and admitted in the worktree.
+  expect(started(rows).find((run) => run.runId !== first)).toMatchObject({
+    parentMessageId: first,
+  });
+  expect(requests.at(-1)?.workspaceBinding).toMatchObject({
+    operatingRootId: WORKTREE.root.rootId,
+  });
+  expect(offered).toEqual(['offered']);
 });
 
 test('a delegated child is never offered a worktree to move its parent into', async () => {

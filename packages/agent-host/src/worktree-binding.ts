@@ -4,14 +4,16 @@ import type { HostChildRuns } from './core-child-runs.js';
 import type { HostRunAction } from './core-run-execution.js';
 import type { HostRunState } from './core-state.js';
 import type { HostEnteredWorktree } from './ports.js';
+import type { HostEvent } from './protocol.js';
 
 type HostBindingCommands = Pick<HostCore, 'readWorkspaceBinding' | 'updateWorkspaceBinding'>;
 
 /**
  * ADR-0028 step 3: a root run's call binds its thread to the worktree it
- * created, through the binding's own command path, and ends the run after this
- * step; its next run is admitted there (ADR-0017: a run keeps its binding). A
- * child never moves its parent's thread, so it is offered no entry.
+ * created, through the binding's own command path, naming the run; folding that
+ * commit ends the run after this step. Its next run is admitted there
+ * (ADR-0017: a run keeps its binding). A child never moves its parent's
+ * thread, so it is offered no entry.
  */
 export function hostWorktreeEntry(
   core: HostBindingCommands,
@@ -24,14 +26,36 @@ export function hostWorktreeEntry(
   }
   return async (worktree) => {
     const { binding } = core.readWorkspaceBinding(run.threadId);
-    await core.updateWorkspaceBinding({
-      commandId: `${action.toolCallId}-worktree`,
-      patch: enteredWorktreeBinding(binding, worktree),
-      threadId: run.threadId,
-    });
-    run.enteredWorktree = { branch: worktree.branch, path: worktree.root.path };
-    run.steered = true;
+    await core.updateWorkspaceBinding(
+      {
+        commandId: `${action.toolCallId}-worktree`,
+        patch: enteredWorktreeBinding(binding, worktree),
+        threadId: run.threadId,
+      },
+      { runId: run.id }
+    );
   };
+}
+
+/**
+ * The committed entry, live and on replay: the run that moved its thread into a
+ * worktree ends after that step and continues there, so a host that restarts
+ * mid-step recovers the same boundary rather than acting in the old checkout.
+ */
+export function foldHostWorktreeEntry(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: Extract<HostEvent, { type: 'workspace.binding.updated' }>
+): void {
+  const run = event.enteredBy ? runs.get(event.enteredBy.runId) : undefined;
+  if (!run) {
+    return;
+  }
+  const path = event.binding.operatingRootPath;
+  if (!path) {
+    throw new Error('A committed worktree entry names no operating root path.');
+  }
+  run.enteredWorktree = { branch: event.binding.checkoutBranch ?? null, path };
+  run.steered = true;
 }
 
 /**
