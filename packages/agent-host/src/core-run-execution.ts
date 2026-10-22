@@ -1,6 +1,7 @@
 import {
   resolveAssistantResilienceConfig,
   resolveProviderError,
+  ToolExecutions,
 } from '@brainstrike/agent/provider-runtime';
 import { wouldTruncateMcpModelOutput } from '@brainstrike/agent/tool-runtime';
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
@@ -517,6 +518,8 @@ async function runHostSdkAttempt(
     // The SDK call's own signal: a watchdog expiry ends provider work without
     // reading as the user's Stop.
     const attempt = new AbortController();
+    // The watchdog never judges a running tool or delegated child (ADR-0009).
+    const toolExecutions = new ToolExecutions();
     const owner = await ports.openRun(run);
     const admission = await ensureHostRunAdmission(ports.platform, run);
     const result = streamText({
@@ -584,6 +587,8 @@ async function runHostSdkAttempt(
           outcome.fail(cause);
         }
       },
+      onToolExecutionEnd: ({ toolCall }) => toolExecutions.end(toolCall.toolCallId),
+      onToolExecutionStart: ({ toolCall }) => toolExecutions.start(toolCall.toolCallId),
       prepareStep: async ({ messages }) => {
         // Resolved approval tool results precede the first model call in the SDK.
         // Commit those public SDK messages before the provider sees them.
@@ -652,12 +657,8 @@ async function runHostSdkAttempt(
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
       ...hostTelemetry('brainstrike.host-run', run),
     });
-    const tools = hostRunTools(run);
-    const watched = watchHostStream(
-      result.fullStream,
-      resilience,
-      (toolName) => Object.hasOwn(tools, toolName),
-      (error) => stopHostStreamAttempt(run, attempt, error)
+    const watched = watchHostStream(result.fullStream, resilience, toolExecutions, (error) =>
+      stopHostStreamAttempt(run, attempt, error)
     );
     for await (const chunk of watched) {
       outcome.observe(chunk);
