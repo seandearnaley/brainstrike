@@ -48,4 +48,4 @@ pnpm --filter @brainstrike/embeddings exec vitest run src/__tests__/embedding-wo
 ```
 
 CI is disabled due to cost; validation must run locally. Select checks with
-[validation guidance](../../../../docs/agents/ci-quality.md).
+`pnpm check`.

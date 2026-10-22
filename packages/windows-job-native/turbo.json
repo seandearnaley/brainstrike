@@ -8,10 +8,6 @@
       "cache": false,
       "dependsOn": ["$TURBO_EXTENDS$", "build"],
       "passThroughEnv": ["CI", "COVERAGE"]
-    },
-    "test:coverage": {
-      "cache": false,
-      "dependsOn": ["$TURBO_EXTENDS$", "build"]
     }
   }
 }

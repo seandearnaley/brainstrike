@@ -10,14 +10,6 @@
     },
     "test:integration": {
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/file-import#build"]
-    },
-    "test:coverage": {
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/file-import#build"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_EXTENDS$",
-        "../test-utils/fixtures/canonical-provided-chunks.json"
-      ]
     }
   }
 }

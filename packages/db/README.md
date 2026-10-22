@@ -76,4 +76,4 @@ pnpm --filter @brainstrike/db exec vitest run --project unit __tests__/<file>
 
 Declare local dependencies with `workspace:*`.
 **CI is disabled due to cost; validation must run locally.** Follow
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

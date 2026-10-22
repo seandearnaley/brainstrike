@@ -62,4 +62,4 @@ Declare `"@brainstrike/storage": "workspace:*"` in a consuming workspace.
 [`package.json`](package.json) owns exports and scripts. From this package use
 `pnpm build`, `pnpm type-check`, `pnpm test` or `pnpm test:browser` as appropriate.
 **CI is disabled due to cost; validation must run locally.** See
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

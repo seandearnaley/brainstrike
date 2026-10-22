@@ -16,34 +16,14 @@ const nodeEnvironment = { ...process.env };
 nodeEnvironment.ELECTRON_RUN_AS_NODE = '1';
 nodeEnvironment.SQLITE_QUERY_TEST_EXEC_PATH = executable;
 nodeEnvironment.INDEXER_TEST_EXEC_PATH = process.execPath;
-// The sandbox requires Electron's SQLite memory-accounting build in coverage too.
-const coverage = process.argv.includes('--coverage');
-if (coverage) {
-  const preload = fileURLToPath(
-    new URL('../../../scripts/native-ipc-coverage.cjs', import.meta.url)
-  );
-  nodeEnvironment.BRAINSTRIKE_NATIVE_COVERAGE_ENTRY = fileURLToPath(
-    new URL('../dist/query-host.js', import.meta.url)
-  );
-  nodeEnvironment.NODE_OPTIONS = `${nodeEnvironment.NODE_OPTIONS ?? ''} --require ${JSON.stringify(preload)}`;
-}
 const child = spawn(
   executable,
   [
     fileURLToPath(new URL('../../../node_modules/vitest/vitest.mjs', import.meta.url)),
     'run',
-    ...(coverage
-      ? [
-          '--coverage',
-          '--coverage.reporter=json',
-          '--coverage.reporter=lcov',
-          '--coverage.reporter=text',
-        ]
-      : [
-          'src/__tests__/sandbox.integration.test.ts',
-          'src/__tests__/scoped-grep.integration.test.ts',
-          'src/__tests__/trigram-grep-differential.integration.test.ts',
-        ]),
+    'src/__tests__/sandbox.integration.test.ts',
+    'src/__tests__/scoped-grep.integration.test.ts',
+    'src/__tests__/trigram-grep-differential.integration.test.ts',
   ],
   {
     cwd: fileURLToPath(new URL('..', import.meta.url)),

@@ -78,15 +78,6 @@
       // this task without knowing that rule. Keep this list in sync with the
       // root turbo.jsonc `test.passThroughEnv`.
       "passThroughEnv": ["CI", "COVERAGE"]
-    },
-    // db#test:coverage runs the SAME unit project as db#test, including
-    // migration-runner-types.test.ts, so it needs the same
-    // @brainstrike/utils#build edge. Inherits `["topo"]` from the root
-    // test:coverage task; $TURBO_EXTENDS$ appends the build edge. Nightly's
-    // native Vitest shards use the root test:coverage:db:shard task, which
-    // declares this exact edge directly.
-    "test:coverage": {
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/utils#build"]
     }
   }
 }

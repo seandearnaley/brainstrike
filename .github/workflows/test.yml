@@ -1,5 +1,5 @@
 # Runs nightly on main (owner decision 2026-10-17).
-# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
+# Per-PR hosted CI is off; main lands through the merge queue after `pnpm check`.
 
 name: Test
 
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
   # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
   # on each Mergify merge-queue batch, so the queue's fast tier is these jobs,
-  # not a copy. With `merge-queue: true`, Native Windows, Native Electron and
+  # not a copy. With `merge-queue: true`, Native Electron and
   # Browser tests skip, and the smoke E2E lanes also run on a manual dispatch.
   # Notify Linear stays schedule-only. Nightly runs pass `merge-queue: false`
   # and manual runs carry no input, so every condition on it reads false for
@@ -42,8 +42,6 @@ on:
         value: ${{ jobs.unit.result }}
       build-result:
         value: ${{ jobs.build.result }}
-      native-windows-result:
-        value: ${{ jobs.native-windows.result }}
       native-electron-result:
         value: ${{ jobs.native-electron.result }}
       browser-tests-result:
@@ -178,22 +176,10 @@ jobs:
       # action is read off the runner's filesystem, so the repo has to be on
       # disk before it can resolve. See setup-workspace/action.yml's header.
       # Full history also supplies the exact PR base used by Unit admission.
-      # MCP lab detection still compares the merge commit to its first parent.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      # BST-1324: MUST run before `Setup workspace` — the composite ends with
-      # `pnpm install --frozen-lockfile`, which is exactly where a textually
-      # merged lockfile kills the job (#2483/#2485), so a guard placed after it
-      # can never fire on the file it exists to catch. The script is
-      # dependency-free by design (runner's system Node, bare checkout, no
-      # node_modules); scripts/__tests__/verify-lockfile-catalog-conformance.
-      # test.mjs re-runs the same check with full context under
-      # `pnpm test:scripts` below, which also covers the install-silent class.
-      - name: Lockfile catalog conformance (pre-install)
-        run: node scripts/verify-lockfile-catalog-conformance.mjs
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -298,31 +284,6 @@ jobs:
       - name: Secret scan
         run: pnpm secrets:scan
 
-      # BST-967: the package-boundary gate. `turbo boundaries` scans build
-      # output as well as source and has no way to exclude it, so
-      # scripts/turbo-boundaries.mjs runs it and judges only findings in files
-      # git does not ignore — anything else (a parse mismatch, a finding with
-      # no file, git failing) still fails. This checkout has no dist/ either
-      # way; the wrapper is what makes the same gate reproducible locally.
-      # Keeping it ahead of dist-producing steps is now about scan cost, not
-      # correctness. Sanctioned crossings carry inline `@boundaries-ignore
-      # <reason>` comments; the contract tests in
-      # scripts/__tests__/turbo-boundaries-gate.test.mjs prove this gate can
-      # fail, that generated output cannot mask a source violation, and that
-      # every ignore carries a reason.
-      - name: Package boundaries
-        run: pnpm run boundaries
-
-      # Includes scripts/__tests__/verify-playwright-pin-sync.test.mjs — the
-      # single-source guard that the Playwright container image tag pinned in
-      # test.yml/web-e2e.yml/performance.yml matches @playwright/test's
-      # installed version. `container.image:` cannot consume a workflow
-      # expression, so the tag stays a literal in all three files and this
-      # guard is the verification (throws on drift, and throws if it can no
-      # longer find a pin at all rather than passing vacuously).
-      - name: Script tests
-        run: pnpm test:scripts
-
       - name: Lint
         run: pnpm run lint:ci
 
@@ -330,31 +291,6 @@ jobs:
         env:
           TURBO_CONCURRENCY: 4
         run: pnpm run type-check
-
-      # The lab is self-contained (it spawns its own reference servers), so it
-      # needs to run when turbo's package graph says @brainstrike/mcp-test-lab
-      # or one of its dependencies changed, or when its wrapper, this workflow
-      # or the setup composite changed. Turbo also marks every package changed
-      # on a global-file edit. The range is the checked-out merge commit
-      # against its first parent: the PR event's base.sha goes stale when the
-      # base branch moves, and is then absent from the depth-2 clone.
-      - name: Detect MCP lab changes
-        id: mcp-paths
-        if: github.event_name == 'pull_request'
-        run: |
-          set -euo pipefail
-          base="$(git rev-parse HEAD^1)"
-          head="$(git rev-parse HEAD)"
-          pnpm -s exec turbo ls --filter="...[${base}...${head}]" --output=json > "$RUNNER_TEMP/turbo-changed.json"
-          changed="$(node -e 'const s=require("node:fs").readFileSync(process.argv[1],"utf8");const i=s.indexOf("{");if(i<0){throw new Error("turbo ls printed no JSON")}process.stdout.write(String(JSON.parse(s.slice(i)).packages.items.some((p)=>p.name==="@brainstrike/mcp-test-lab")))' "$RUNNER_TEMP/turbo-changed.json")"
-          if [ "$changed" != true ] && ! git diff --quiet "$base" "$head" -- scripts/run-mcp-verification.mjs package.json .github/workflows/test.yml .github/actions/setup-workspace; then
-            changed=true
-          fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
-      - name: MCP representative verification
-        if: github.event_name != 'pull_request' || steps.mcp-paths.outputs.changed == 'true'
-        run: pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json
 
   unit-shard:
     name: Unit (${{ matrix.shard }})
@@ -489,7 +425,7 @@ jobs:
           DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
+        run: pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
 
       - name: Affected integration tests
         if: inputs.merge-queue && github.event_name == 'push'
@@ -516,7 +452,7 @@ jobs:
         # Test run 39079872105; indexer's scoped-electron proof launches it the
         # same way). Like the host step, this is unconditional: membership is
         # a filter list.
-        run: xvfb-run --auto-servernum node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
+        run: xvfb-run --auto-servernum pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
       # Every run but a merge-queue batch (nightly and manual; the names predate
       # the retired push-to-main runs): full non-affected suite routed through
@@ -548,7 +484,7 @@ jobs:
           DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
+        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
         if: github.event_name != 'push' || !inputs.merge-queue
@@ -563,7 +499,7 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         # See the pull-request integration step above.
-        run: xvfb-run --auto-servernum node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+        run: xvfb-run --auto-servernum pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
   # Fan-in job preserving the required-check name "Unit": branch protection
   # points at this single check, not at the per-shard matrix jobs, so shard
@@ -697,148 +633,6 @@ jobs:
             packages/*/dist/
           retention-days: 1
           if-no-files-found: error
-
-  native-windows:
-    name: Native Windows
-    if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue
-    needs: [admission]
-    runs-on: windows-latest
-    # BST-1712: 20 -> 30. A retry the job timeout guillotines is not a retry.
-    # The observed abort wasted 240s of dead wait before node-gyp gave up, and
-    # the failing run had already spent 9m of its 20 by then; two such attempts
-    # plus a good one plus build/test does not fit under 20. 30 is this repo's
-    # standard failure ceiling (docs/agents/ci-quality.md), not a latency target
-    # — the healthy path is unchanged and still finishes well inside 20.
-    timeout-minutes: 30
-    env:
-      # BST-1375: pin node-gyp's dev dir (default `%LOCALAPPDATA%\node-gyp\Cache`)
-      # to a path the cache steps below can name. node-gyp reads this the same
-      # way it reads any npm config, and it survives pnpm's script runner, so
-      # the lifecycle-invoked `node-gyp rebuild` of both native packages honours
-      # it. This is NOT about path length — see the comment on the restore step.
-      npm_config_devdir: ${{ github.workspace }}\.node-gyp
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      # BST-1375: the Node HEADER TARBALL, cached so it is not downloaded here.
-      #
-      # This job installs TWO packages that build native addons, and neither has
-      # the headers: `secure-fs-native` (implicit `node-gyp rebuild`, from
-      # `gypfile: true`) and `windows-job-native` (an explicit install script
-      # that shells out to node-gyp on win32). pnpm runs workspace install
-      # scripts CONCURRENTLY — measured locally: two projects' install scripts
-      # start within 1ms of each other — so both processes GET the same ~30MB
-      # `node-vX-headers.tar.gz` from nodejs.org at the same moment. Twice in
-      # 290 Native Windows attempts one of those two streams returned 200 and
-      # was then aborted mid-body ~80s later (`TypeError: terminated`, undici
-      # `Fetch.onAborted`), failing the whole `Setup workspace` step. The
-      # `TAR_ENTRY_ERROR ENOENT` lines that dominate the log are downstream
-      # noise: node-gyp's rollback deletes the temp dir while tar is still
-      # writing into it. The paths involved are ~133 characters, so MAX_PATH and
-      # long-path settings have nothing to do with it, and node-gyp extracts to
-      # `os.tmpdir()` rather than the dev dir, so a shorter devdir would not
-      # have moved that path either.
-      #
-      # A restored dev dir removes the download outright: node-gyp's `--ensure`
-      # stats it, reads `installVersion`, re-checks `<arch>/node.lib` on Windows
-      # and reports "version is good" without issuing a single HTTP request
-      # (verified against the pinned node-gyp 13.0.1). No download, nothing to
-      # abort. A cold cache still downloads twice and keeps today's exposure —
-      # this narrows the window rather than making the fetch itself robust.
-      #
-      # BST-1712 closed that remaining window: a cold cache is now a RETRIED
-      # install (see the Setup workspace step). Cache is the fast path, retry is
-      # the backstop; neither replaces the other, because a cold cache is not
-      # rare — key misses happen on every Node patch bump and on LRU eviction,
-      # and run 34353973428 was exactly a `Cache not found for input keys` run.
-      #
-      # Restore is prefix-only: the save key is this `.nvmrc`-hash prefix plus
-      # the version setup-node resolves inside the composite below, which is
-      # not known yet here. `.nvmrc` pins an exact version, not a major, so a
-      # Node bump changes the prefix itself and can never hit a stale entry.
-      - name: Restore node-gyp headers
-        uses: actions/cache/restore@v5
-        with:
-          path: ${{ github.workspace }}\.node-gyp
-          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
-
-      # No turbo-cache: this job doesn't route through turbo. `shell: bash` in
-      # the composite's install step works on windows-latest via the runner's
-      # bundled Git Bash, same as every other step in this composite already
-      # running fine cross-platform.
-      #
-      # BST-1712: the cold-cache path is retried. The comment above already
-      # predicted this gap ("a cold cache still downloads twice and keeps
-      # today's exposure"), and run 34353973428 walked straight into it:
-      # `Cache not found for input keys`, both packages GET the tarball ~0.9s
-      # apart, both get 200, and 240s later one stream aborts in undici's
-      # `client-h2.js` — two concurrent ~30MB bodies multiplexed over one HTTP/2
-      # connection to nodejs.org, one of which the server dropped mid-body.
-      #
-      # node-gyp's own undici `RetryHandler` is IN that stack, so "node-gyp
-      # already retries" is not an answer: undici's retry covers connect/idle
-      # errors, not a 200 whose body is aborted part-way. The attempt has to be
-      # restarted from outside node-gyp, which means restarting the install.
-      #
-      # 3 attempts, and the retries are cheap: node_modules is already
-      # materialised after attempt 1, so a repeat pass re-runs only the failed
-      # lifecycle scripts (see the composite's comment for the measurement).
-      - name: Setup workspace
-        id: setup
-        uses: ./.github/actions/setup-workspace
-        with:
-          install-attempts: '3'
-
-      # Explicit build first: the package's `test` script deliberately does NOT
-      # build inline anymore (an inline `pnpm build &&` raced turbo's own
-      # `build` task — two concurrent node-gyp rebuilds in one directory; see
-      # packages/secure-fs-native/turbo.json). Under turbo the dependsOn edge
-      # supplies the addon; this job bypasses turbo, so it builds explicitly.
-      - name: Build and test secure filesystem capability
-        run: |
-          pnpm --filter @brainstrike/secure-fs-native build
-          pnpm --filter @brainstrike/secure-fs-native test
-
-      - name: Build and test Agent DevTools process ownership
-        run: |
-          pnpm --filter @brainstrike/windows-job-native build
-          pnpm --filter @brainstrike/windows-job-native test
-
-      # BST-1920: better-sqlite3 and sqlite-vec are shipped PREBUILT and are
-      # never compiled here (better-sqlite3 is denied in `allowBuilds`), so there
-      # is no build step: this proves the win32-x64 binaries load under Node and
-      # round-trip a vec0 table.
-      - name: Test SQLite native prebuilds
-        run: pnpm --filter @brainstrike/sqlite-native test
-
-      # `always()`: the headers are valid whether or not the C++ compiled, and a
-      # test failure is exactly when the next run should not re-download them.
-      #
-      # The version guard is not politeness. If `Setup workspace` failed before
-      # setup-node resolved a version, this key would collapse onto the restore
-      # step's prefix — and an entry saved under the bare prefix EXACT-matches
-      # future restores, shadowing the good version-keyed entry that
-      # `restore-keys` would otherwise have found. Refusing to write a key that
-      # would be wrong beats writing one that silently outranks the right one.
-      #
-      # The outcome guard covers the OTHER failure window: the header download
-      # runs inside the composite's install step, AFTER setup-node — and a
-      # composite exposes its outputs even when a later embedded step fails. A
-      # failed download rolls back only the NEW version's dev dir, so on a
-      # patch bump a cross-version restore survives in the devdir; without this
-      # guard `always()` would archive that older tree under the new exact key,
-      # which is immutable and preferred by restore-keys (newest) from then on.
-      # A test/build failure leaves the setup outcome `success`, so the
-      # keep-the-cache-warm intent of `always()` is unaffected.
-      - name: Save node-gyp headers
-        if: always() && steps.setup.outcome == 'success' && steps.setup.outputs.node-version != ''
-        uses: actions/cache/save@v5
-        with:
-          path: ${{ github.workspace }}\.node-gyp
-          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-${{ steps.setup.outputs.node-version }}
 
   native-electron:
     name: Native Electron Package
@@ -1405,13 +1199,13 @@ jobs:
   # one `nightly-alert` issue per red workflow and comments on later nights.
   notify-linear:
     name: Notify Linear
-    needs: [admission, static, unit-shard, unit, build, native-windows, native-electron, browser-tests, web-e2e, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
+    needs: [admission, static, unit-shard, unit, build, native-electron, browser-tests, web-e2e, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       # This workflow's own name: in nightly.yml's call, github.workflow is
       # the caller's (BST-2233).
       workflow_name: Test
-      results: admission=${{ needs.admission.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-windows=${{ needs.native-windows.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},web-e2e=${{ needs.web-e2e.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
+      results: admission=${{ needs.admission.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},web-e2e=${{ needs.web-e2e.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

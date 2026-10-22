@@ -20,14 +20,6 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
       ]
-    },
-    "test:coverage": {
-      // Same cross-package input as `test`: the coverage lane loads the same
-      // vitest.config.mts and therefore the same agent helper.
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
-      ]
     }
   }
 }

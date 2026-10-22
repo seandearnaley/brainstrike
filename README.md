@@ -40,21 +40,18 @@ covers local model servers.
   [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and package manifests for inventory.
 
 Current boundaries are documented in [subsystem contracts](docs/agents/).
-[ADRs](docs/adr/) record architecture decisions;
-[archived documents](docs/archive/README.md) are historical evidence.
+[ADRs](docs/adr/) record architecture decisions.
 
 ## Checks and contributions
 
-**CI is disabled due to cost; validation must run locally.** Choose checks for
-what changed, using [validation guidance](docs/agents/ci-quality.md).
-Documentation changes need review and link checks, not app regressions.
+**Per-PR CI is off; run `pnpm check` locally before queueing.** Documentation
+changes need review and link checks, not app regressions.
 
 Useful root commands:
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm check:routine` | Routine local validation plan |
-| `pnpm check --full` | Complete integration, coverage and E2E plan |
+| `pnpm check` | Secrets scan, lint, type-check, build, tests and desktop smoke |
 | `pnpm build` | Build workspaces |
 | `pnpm type-check` | Type checking |
 | `pnpm test` | Unit and integration tests |
@@ -71,8 +68,7 @@ owner authorization. Follow [agent/contribution policy](AGENTS.md).
 
 Dependency versions are owned by workspace catalogs and overrides in
 `pnpm-workspace.yaml`; use `workspace:*` for local packages. After version changes,
-run `pnpm install` and `node scripts/verify-catalog-references.mjs`. Installation
-alone does not prove catalog compliance.
+run `pnpm install`.
 
 ## License
 

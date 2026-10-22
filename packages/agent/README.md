@@ -37,7 +37,7 @@ there is no separate peer-install recipe.
 From this package, `pnpm build`, `pnpm type-check`, `pnpm test` and
 `pnpm test:integration` use the existing configured build/check paths.
 **CI is disabled due to cost; validation must run locally.** Select checks with
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.
 
 Contracts: [providers](../../docs/agents/assistant-providers.md),
 [runtime](../../docs/agents/assistant-runtime.md),

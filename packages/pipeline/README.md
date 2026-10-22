@@ -48,4 +48,4 @@ pnpm --filter @brainstrike/pipeline test
 ```
 
 CI is disabled due to cost; validation must run locally. See
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

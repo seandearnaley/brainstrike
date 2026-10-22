@@ -25,10 +25,6 @@
       // `build` builds this package's dist and, through `^build`, every dist
       // those children load.
       "dependsOn": ["$TURBO_EXTENDS$", "build"]
-    },
-    "test:coverage": {
-      // The coverage lane includes those same real-process suites.
-      "dependsOn": ["$TURBO_EXTENDS$", "build"]
     }
   }
 }

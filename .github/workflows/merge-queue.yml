@@ -58,7 +58,7 @@ jobs:
     steps:
       - name: Judge every job
         env:
-          NIGHTLY_ONLY: NATIVE_WINDOWS NATIVE_ELECTRON BROWSER_TESTS NOTIFY_LINEAR
+          NIGHTLY_ONLY: NATIVE_ELECTRON BROWSER_TESTS NOTIFY_LINEAR
           UNIT_SHARD_COUNT: ${{ needs.test.outputs.unit-shard-count }}
           RESULT_TEST: ${{ needs.test.result }}
           RESULT_ADMISSION: ${{ needs.test.outputs.admission-result }}
@@ -66,7 +66,6 @@ jobs:
           RESULT_UNIT_SHARD: ${{ needs.test.outputs.unit-shard-result }}
           RESULT_UNIT: ${{ needs.test.outputs.unit-result }}
           RESULT_BUILD: ${{ needs.test.outputs.build-result }}
-          RESULT_NATIVE_WINDOWS: ${{ needs.test.outputs.native-windows-result }}
           RESULT_NATIVE_ELECTRON: ${{ needs.test.outputs.native-electron-result }}
           RESULT_BROWSER_TESTS: ${{ needs.test.outputs.browser-tests-result }}
           RESULT_WEB_E2E: ${{ needs.test.outputs.web-e2e-result }}

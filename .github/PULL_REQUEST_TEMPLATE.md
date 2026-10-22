@@ -1,8 +1,6 @@
 Ticket: BST-###
 
-Defect density: paste the output of `pnpm defect-density -- <touched paths>`; when HOT, link the root-cause note.
-
-CI is disabled due to cost; validation must run locally.
+Per-PR CI is off; run `pnpm check` locally before queueing.
 
 ## Change
 

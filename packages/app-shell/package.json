@@ -220,7 +220,6 @@
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\" && vitest run --config vitest.compiled.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },

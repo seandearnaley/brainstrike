@@ -32,4 +32,4 @@ Build IDs and other exports are defined in [`index.ts`](src/index.ts) and
 Use the package's existing scripts, including integration checks for emitted
 build boundaries when relevant. Local consumers use `workspace:*`.
 Select checks with
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

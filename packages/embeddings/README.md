@@ -59,4 +59,4 @@ local worker payloads.
 Use this package's `build`, `type-check`, `test` and `test:integration` scripts.
 Model/hardware probes are explicit work and have different prerequisites from
 unit checks. **CI is disabled due to cost; validation must run locally.** Follow
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

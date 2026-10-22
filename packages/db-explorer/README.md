@@ -37,4 +37,4 @@ view/cache state does not create another durable product fact. See
 
 Local consumers use `workspace:*`; the manifest owns dependency versions and
 scripts. Follow
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

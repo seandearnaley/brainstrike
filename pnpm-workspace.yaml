@@ -120,16 +120,6 @@ catalog:
   # 3.53.4, a failed opfs-sahpool init removes the whole pool (upstream check-in
   # ad1bbfc2bd adds preserveOnInitFailure in 3.54), and the owner gated shipping on that fix.
   '@sqlite.org/sqlite-wasm': 3.53.4-build2
-  # LOCKSTEP: typescript-checker and vitest-runner peer-depend on
-  # `@stryker-mutator/core` at an EXACT version ("10.0.0"), never a range, so the
-  # `^` below is looser than what the plugins actually accept. Bump all four in
-  # one change. A desync does NOT fail the install — strict-peer-dependencies is
-  # off, so pnpm only warns, and Stryker then dies at plugin load the next time
-  # someone runs `pnpm mutation`. See BST-1287.
-  '@stryker-mutator/api': ^10.0.0
-  '@stryker-mutator/core': ^10.0.0
-  '@stryker-mutator/typescript-checker': ^10.0.0
-  '@stryker-mutator/vitest-runner': ^10.0.0
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
   '@tanstack/react-table': ^9.3.1
@@ -182,7 +172,6 @@ catalog:
   ignore: 7.0.12
   jsdom: 30.1.3
   jszip: ^3.10.2
-  knip: ^6.41.0
   lucide-react: ^1.58.0
   mermaid: ^12.2.0
   minimatch: ^10.2.6
@@ -373,7 +362,6 @@ patchedDependencies:
   # SemanticRecall and BackgroundTaskManager hunks are retired: nothing reaches them.
   '@mastra/core@1.78.0': patches/@mastra__core@1.78.0.patch
   '@assistant-ui/core@0.3.29': patches/@assistant-ui__core@0.3.29.patch
-  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
   # The worker client's leader announcements also stop once it closes: 0.5.10

@@ -18,15 +18,6 @@
         "@brainstrike/agent-host#build"
       ],
       "cache": false
-    },
-    "test:coverage": {
-      // Coverage runs the same integration suites; see test:integration.
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "build",
-        "@brainstrike/agent-host#build"
-      ],
-      "cache": false
     }
   }
 }

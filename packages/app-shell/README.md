@@ -65,6 +65,6 @@ contracts: [UI](../../docs/agents/ui-conventions.md),
 
 Use this package's `build`, `type-check`, `test` and `test:integration` scripts for
 the affected boundary. **CI is disabled due to cost; validation must run locally.**
-Follow [validation guidance](../../docs/agents/ci-quality.md).
+Follow `pnpm check`.
 
 ISC. See the repository [LICENSE](../../LICENSE).

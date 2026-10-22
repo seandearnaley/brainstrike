@@ -26,4 +26,4 @@ invalid input behind an arbitrary default.
 Implementation details and dependency/build versions belong to the source and
 manifest, not another cached inventory. Local consumers use `workspace:*`.
 Select checks with
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

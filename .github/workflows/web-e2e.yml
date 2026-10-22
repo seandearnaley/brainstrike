@@ -1,5 +1,5 @@
 # Runs nightly on main (owner decision 2026-10-17).
-# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
+# Per-PR hosted CI is off; main lands through the merge queue after `pnpm check`.
 
 name: Web E2E
 

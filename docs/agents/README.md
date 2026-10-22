@@ -2,7 +2,7 @@
 
 These pages contain the non-obvious invariants for a subsystem. Use the relevant
 page when the task needs it; there is no mandatory document-reading itinerary.
-Root `AGENTS.md` owns working rules, [validation](ci-quality.md) owns delivery
+Root `AGENTS.md` owns working rules, `pnpm check` owns delivery
 policy, and accepted decisions live in `docs/adr/`. Verify implementation details
 against current source and tests. Historical notes are reference, not more rules. Earlier records live in the
 [contract history](../archive/agent-contract-history/README.md).

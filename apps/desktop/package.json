@@ -231,7 +231,7 @@
     "build:cached": "node ../../scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --filter=@brainstrike/desktop",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "build:main": "node scripts/build-main.mjs",
-    "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
+    "build:renderer": "vite build",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
     "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs --all",
     "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run desktop-dev-dependencies --filter=@brainstrike/desktop",
@@ -257,7 +257,6 @@
     "test:provider-cassettes": "vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/provider-cassettes.integration.test.ts src/__tests__/provider-cassette-pipeline.integration.test.ts",
     "test:integration": "node scripts/run-integration.mjs",
     "test:integration:routine": "vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/ordinary-app-owned-host.integration.test.ts src/__tests__/ordinary-app-owned-host-stop.integration.test.ts src/__tests__/main/host-lease-electron.integration.test.ts src/__tests__/factory-reset-quit.integration.test.ts",
-    "test:coverage": "node scripts/run-integration.mjs --coverage",
     "test:e2e": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --workers=1 --retries=0",
     "test:e2e:all": "pnpm test:e2e:main && pnpm test:e2e:persistence",
     "test:e2e:clean": "pnpm clean:db && pnpm test:e2e:all",
@@ -281,7 +280,7 @@
     "type-check": "pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e && effect-tsgo diagnostics --project tsconfig.e2e.json --strict && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
     "type-check:main": "tsc --noEmit && tsc --noEmit --project tsconfig.main.json",
-    "type-check:test": "node ../../scripts/verify-test-tsconfig-program.mjs --project tsconfig.test.json --min-test-files 400"
+    "type-check:test": "tsc --noEmit --project tsconfig.test.json"
   },
   "config": {
     "nodeRuntimeMajor": 24

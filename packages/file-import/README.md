@@ -43,4 +43,4 @@ canonical publication helpers. Declare local dependencies with `workspace:*` and
 use the existing package scripts. A database-shaped port does not imply direct
 renderer SQL authority.
 Follow
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

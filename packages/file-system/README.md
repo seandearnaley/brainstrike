@@ -48,4 +48,4 @@ and data-retention semantics.
 boundary. See [workspace](../../docs/agents/workspace-context.md) and
 [indexing](../../docs/agents/indexer.md) contracts.
 Follow
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

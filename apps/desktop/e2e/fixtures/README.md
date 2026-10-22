@@ -41,5 +41,5 @@ Script responses through `modelProvider.setScript()`; this proves behavior again
 the shim, not a live provider. Use disposable profiles and fake credentials for
 automation.
 
-See the [E2E guide](../README.md) and [validation guidance](../../../../docs/agents/ci-quality.md)
+See the [E2E guide](../README.md) and `pnpm check`
 for setup and check selection.

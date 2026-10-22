@@ -47,6 +47,6 @@ inference uses the browser-safe runtime.
 ## Validation
 
 **CI is disabled due to cost; validation must run locally.** Select checks using
-[validation guidance](../../docs/agents/ci-quality.md). The
+`pnpm check`. The
 [web E2E guide](e2e/README.md) covers built-preview and focused Playwright runs.
 Follow the root [contribution policy](../../AGENTS.md).
