@@ -291,6 +291,35 @@ test('a configuration that sets its own lifecycle hook is refused; its transform
   expect(cycles).toEqual([expect.objectContaining({ kind: 'observation', outcome: 'completed' })]);
 });
 
+test('a Memory tool call that fails answers the model and never fails the turn', async () => {
+  const f = await fixture(
+    {},
+    {
+      observationalMemory: {
+        model: new MockLanguageModelV4(),
+        observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
+        reflection: { observationTokens: 50_000 },
+        retrieval: { scope: 'thread' },
+      },
+      semanticRecall: false,
+    }
+  );
+  try {
+    const user = message(f.identity, 'user');
+    await f.adapter.commitStep([user]);
+    await f.adapter.beginTurn([user]);
+    // The model asks for a part the message does not have, as a real run did.
+    const input = { cursor: user.id, detail: 'high', limit: 1, mode: 'messages', partIndex: 5 };
+    await expect(f.adapter.executeTool('recall', input, 'call-1')).rejects.toThrow(
+      /Part index 5 not found/
+    );
+    await expect(f.adapter.endTurn()).resolves.toBeUndefined();
+  } finally {
+    await f.adapter.close();
+    await f.storage.close();
+  }
+});
+
 test('explicitly disabled OM needs no concrete models and preserves ordinary recall', async () => {
   const f = await fixture({}, { observationalMemory: { enabled: false }, semanticRecall: false });
   try {

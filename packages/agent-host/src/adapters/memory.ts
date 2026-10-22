@@ -626,9 +626,12 @@ export class HostMemory implements HostRunOwner {
    * Execute one of the native Memory's own model-facing tools (`listTools`:
    * working memory, OM recall) with this run's identities, as Mastra's agent
    * runtime supplies them. The vendor tool validates its own input.
+   *
+   * The vendor tool's own failure answers its call, so the model sees it; like
+   * a failed recall, it is never the turn's outcome.
    */
-  executeTool(name: string, input: unknown, toolCallId: string): Promise<unknown> {
-    return this.admit('tool', async () => {
+  async executeTool(name: string, input: unknown, toolCallId: string): Promise<unknown> {
+    const outcome = await this.admit('tool', async () => {
       const tool = this.memory.listTools()[name];
       if (!tool?.execute) {
         throw new Error(`Native Memory offers this run no ${name} tool`);
@@ -645,8 +648,19 @@ export class HostMemory implements HostRunOwner {
         memory: this.memory,
         observe: noopObserve,
       };
-      return tool.execute(input, context);
+      try {
+        return { value: await tool.execute(input, context) };
+      } catch (cause) {
+        if (this.providers.ownsCancellation(cause)) {
+          throw cause;
+        }
+        return { failure: cause };
+      }
     });
+    if ('failure' in outcome) {
+      throw outcome.failure;
+    }
+    return outcome.value;
   }
 
   recordPrompt(request: ProviderRequest): Promise<void> {
