@@ -106,11 +106,10 @@ export interface NativeToolNameResolver {
  * How long one execution of this tool may run (BST-1777).
  *
  * Declared ONLY by tools whose input schema carries a model-settable
- * `timeoutMs`. It is the single source for three things that used to be
- * restated by hand and drifted: the executor's default/ceiling, the per-tool
- * execution guard's per-call budget, and the stream watchdog's
- * `tool-executing` backstop. A tool that declares none is bounded by the
- * global guard default (`BRAINSTRIKE_TOOL_TIMEOUT_MS`).
+ * `timeoutMs`. It is the single source for two things that used to be
+ * restated by hand and drifted: the executor's default/ceiling and the
+ * per-tool execution guard's per-call budget. A tool that declares none is
+ * bounded by the global guard default (`BRAINSTRIKE_TOOL_TIMEOUT_MS`).
  */
 export interface NativeToolExecutionBudget {
   /** Budget when the call omits `timeoutMs`. */

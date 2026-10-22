@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   defineNativeTool,
   InvalidNativeToolDefinitionError,
-  MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS,
   NATIVE_TOOL_EXECUTION_BUDGETS,
   NATIVE_TOOL_ID,
   NATIVE_TOOLS,
@@ -22,10 +21,6 @@ describe('native tool execution budgets', () => {
       [NATIVE_TOOL_ID.runPython]: { defaultMs: 30_000, maxMs: 600_000 },
       [NATIVE_TOOL_ID.runSkillScript]: { defaultMs: 120_000, maxMs: 600_000 },
     });
-  });
-
-  it('derives the largest budget instead of restating it', () => {
-    expect(MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS).toBe(600_000);
   });
 
   // The schema is what the MODEL is told; the budget is what the guard grants.

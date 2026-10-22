@@ -54,6 +54,7 @@ export { type ModelStepFields, modelStepFields } from './stream/model-step';
 export {
   describeStreamStall,
   StreamStalledError,
+  ToolExecutions,
   withInactivityTimeout,
 } from './stream/with-inactivity-timeout';
 export {

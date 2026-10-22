@@ -34,7 +34,6 @@ describe('data-stream stall handling', () => {
         firstOutputMs: 1000,
         interOutputMs: 30,
         reasoningGapMs: 1000,
-        toolExecutingMs: 1000,
       }),
       () => {}
     );
