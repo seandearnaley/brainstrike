@@ -40,7 +40,6 @@ export function resolveDesktopTestShard(
  * them to that pass, so the two passes partition the suite.
  */
 export const ELECTRON_RUNTIME_TESTS = [
-  'src/__tests__/assistant-server/native-assistant-retrieval.integration.test.ts',
   'src/__tests__/assistant-server/native-markdown-grep-lines.integration.test.ts',
 ];
 // Shared by integration and coverage so real child entrypoints keep emitted siblings.

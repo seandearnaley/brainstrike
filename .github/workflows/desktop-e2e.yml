@@ -335,9 +335,5 @@ jobs:
       # Each shard is one part of the gate: a red shard needs its own failing test.
       parts: desktop-full-regression-gate=shard-1 shard-2 shard-3 shard-4
       results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }}
-      # BST-2235: the failing and flaky tests' issues it files go to the night's
-      # fix queue, and nightly-fix.yml runs one fix agent (BST-2189) per issue
-      # after the night, on the runner image these lanes use.
-      fix_runs_on: ubuntu-latest
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

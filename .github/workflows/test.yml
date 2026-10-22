@@ -289,14 +289,9 @@ jobs:
     # required `Unit` fan-in below. `.turbo` cache keys include `runner.arch`,
     # so this cannot cross-restore an incompatible ARM cache layer.
     runs-on: ubicloud-standard-4
-    # Desktop is a separate package partition: its serial unit + integration
-    # execution dominated recent runs (8m + 12m). Three native Vitest shards
-    # preserve every file and one worker per VM without making PGlite suites
-    # compete on the same host. The remaining UI packages keep their own row.
-    # DB and Agent retain two native shards each. Rest owns every other
-    # affected package.
-    # scripts/__tests__/unit-shard-partition.test.mjs verifies complete,
-    # disjoint coverage; Unit below remains the required fan-in.
+    # Desktop has three native Vitest shards and Agent two; the remaining UI
+    # packages keep their own row and Rest owns every other affected package.
+    # Unit below remains the required fan-in.
     timeout-minutes: 30
     strategy:
       fail-fast: false

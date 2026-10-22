@@ -41,8 +41,10 @@ invariant, not internal call order or the text of other files.
 
 `pnpm check` must pass before a change is queued. Hosted CI runs nightly on main;
 main lands only through Mergify's merge queue: enqueue with
-`gh pr comment <number> --body '@mergifyio queue'`. Report actual checks and
-failures; never describe a partial run as a full pass.
+`gh pr comment <number> --body '@mergifyio queue'`. Do not enable workflows,
+dispatch hosted checks, request automated reviews, sign or publish without the
+owner's authorization. Report actual checks and failures; never describe a
+partial run as a full pass.
 
 ## Find specialist context when needed
 

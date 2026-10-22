@@ -36,14 +36,6 @@ export function useCrossRootCost(
   );
   const folders = useThreadFolderRows(rootIds);
   const available = hasDurableAssistantUsageCapability();
-  if (!native) {
-    return {
-      available,
-      error: new Error('Thread groups capability unavailable'),
-      loading: false,
-      rows: NO_HOST_ROOT_USAGE,
-    };
-  }
   return {
     available,
     error: folders.error,

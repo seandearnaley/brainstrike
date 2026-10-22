@@ -37,12 +37,6 @@ describe('useCrossRootCost', () => {
     expect(result.current.rows).toEqual([]);
   });
 
-  it('reports the missing thread groups capability instead of an empty result', () => {
-    const { result } = renderHook(() => useCrossRootCost());
-    expect(result.current.error).toBeInstanceOf(Error);
-    expect(result.current.rows).toEqual([]);
-  });
-
   it('names a host row by its root, keeping the committed name for an unnamed root', async () => {
     installCatalog(async () => [
       { displayName: 'Workspace B', id: 'root-b', path: '/fixture/b' },

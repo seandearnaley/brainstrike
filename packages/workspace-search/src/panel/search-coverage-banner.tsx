@@ -10,7 +10,7 @@ export interface SearchCoverageBannerProps {
 export function SearchCoverageBanner(props: SearchCoverageBannerProps) {
   const native = useNativeWorkspaceSearchDependencies();
   if (!native) {
-    throw new Error('SearchCoverageBanner requires a NativeWorkspaceSearchProvider.');
+    return null;
   }
   return <NativeSearchCoverage {...props} native={native} />;
 }

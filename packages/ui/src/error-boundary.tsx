@@ -2,9 +2,8 @@
 // `./scroll-area`), never from this package's own `@brainstrike/ui` barrel.
 // The barrel re-exports this module, so importing it from here closes a source
 // cycle: rolldown concatenates a cycle's modules into one chunk in arbitrary
-// order, which can throw `Cannot access 'X' before initialization` at startup.
-// The chunk-cycle guard cannot see it — one chunk has no cross-chunk edge to
-// flag — so `scripts/verify-no-source-cycles.mjs` enforces it instead (BST-890).
+// order, which can throw `Cannot access 'X' before initialization` at startup
+// (BST-890).
 
 import { createLogger } from '@brainstrike/logging';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
