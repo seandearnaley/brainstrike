@@ -62,23 +62,18 @@ export function executeCommandExecutor(shell: ExecuteCommandShell): NativeToolEx
         const stream = resolveShellOutputStreamer(options, (error) => {
           logToolFailure('executeCommand output streaming failed', error, resolvedInput);
         });
-        try {
-          // Mis-attribution guard (BST-1392 review) lives in
-          // execute-command-correlation.ts.
-          return await runExecuteCommandWithShellCorrelation(
-            resolvedInput,
-            runtimeData,
-            {
-              signal: resolveGuardedToolSignal(options),
-              ...(stream ? { stream } : {}),
-              windowsCommandEntry: shell.windowsCommandEntry,
-            },
-            shell.correlation?.(context) ?? {}
-          );
-        } catch (error) {
-          logToolFailure('executeCommand failed', error, resolvedInput);
-          throw error;
-        }
+        // Mis-attribution guard (BST-1392 review) lives in
+        // execute-command-correlation.ts.
+        return await runExecuteCommandWithShellCorrelation(
+          resolvedInput,
+          runtimeData,
+          {
+            signal: resolveGuardedToolSignal(options),
+            ...(stream ? { stream } : {}),
+            windowsCommandEntry: shell.windowsCommandEntry,
+          },
+          shell.correlation?.(context) ?? {}
+        );
       },
       id: NATIVE_TOOL_ID.executeCommand,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],

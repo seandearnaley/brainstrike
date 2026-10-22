@@ -11,7 +11,6 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
-  logToolFailure,
   type NativeToolBuildContext,
   type NativeToolDefinition,
   parseToolExecuteInput,
@@ -44,16 +43,7 @@ export function commandSessionExecutors<Context extends NativeToolBuildContext>(
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
           input
         );
-        try {
-          return runInspectCommandSessions(
-            resolvedInput,
-            context.runtimeData,
-            dependencies(context)
-          );
-        } catch (error) {
-          logToolFailure('inspectCommandSessions failed', error, resolvedInput);
-          throw error;
-        }
+        return runInspectCommandSessions(resolvedInput, context.runtimeData, dependencies(context));
       },
       id: NATIVE_TOOL_ID.inspectCommandSessions,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
@@ -69,16 +59,11 @@ export function commandSessionExecutors<Context extends NativeToolBuildContext>(
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
           input
         );
-        try {
-          return await runManageCommandSession(resolvedInput, context.runtimeData, {
-            ...dependencies(context),
-            executionThreadId: readToolExecutionThreadId([input, options]),
-            ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
-          });
-        } catch (error) {
-          logToolFailure('manageCommandSession failed', error, resolvedInput);
-          throw error;
-        }
+        return await runManageCommandSession(resolvedInput, context.runtimeData, {
+          ...dependencies(context),
+          executionThreadId: readToolExecutionThreadId([input, options]),
+          ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
+        });
       },
       id: NATIVE_TOOL_ID.manageCommandSession,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],

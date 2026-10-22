@@ -88,6 +88,47 @@ describe('guardToolExecution', () => {
     expect(logger.error).toHaveBeenCalled();
   });
 
+  it('logs a failing tool once, with no late-rejection line when no timeout fired', async () => {
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw new Error('disk full');
+      }),
+      { logger, timeoutMs: 1000, toolName: 'demo' }
+    );
+    await tool.execute({ context: {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(logger.error.mock.calls.map(([message]) => message)).toEqual(['Tool execution failed']);
+  });
+
+  it("never counts the model's refused input as an app error", async () => {
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    const refusing = [
+      new ToolInputError('"3a08d2e9" is not one of this thread\'s folders: beaker.'),
+      new BoundaryFailureError(
+        refusal({
+          category: 'conflict',
+          code: 'workspace.folder-removed',
+          message: 'The folder "bravo" was removed from the workspace.',
+          remedy: 'Re-add the folder to continue.',
+        })
+      ),
+    ];
+    for (const error of refusing) {
+      const tool = guardToolExecution(
+        makeTool(() => {
+          throw error;
+        }),
+        { logger, timeoutMs: 1000, toolName: 'brainstrike.readWorkspaceFile' }
+      );
+      const result = (await tool.execute({ context: {} })) as GuardedToolError;
+      expect(result.error.code).toBe('tool_input_invalid');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledTimes(2);
+  });
+
   it('returns a correctable input error without hiding its trusted model-facing message', async () => {
     const tool = guardToolExecution(
       makeTool(() => {

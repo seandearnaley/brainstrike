@@ -13,11 +13,7 @@ import { runFindWorkspaceSymbol } from './find-workspace-symbol-tool.js';
 import { runGlobWorkspace } from './glob-workspace-tool.js';
 import { withRepeatedCallGuard } from './tool-call-loop-guards.js';
 import { attachGlobWorkspaceTelemetry } from './tool-call-telemetry.js';
-import {
-  logToolFailure,
-  parseToolExecuteInput,
-  type ToolExecuteInput,
-} from './tool-execute-support.js';
+import { parseToolExecuteInput, type ToolExecuteInput } from './tool-execute-support.js';
 import { readStateScope } from './workspace-file-staleness.js';
 import { projectFindWorkspaceSymbolModelOutput } from './workspace-inspection-model-projections.js';
 import { projectGlobWorkspaceModelOutput } from './workspace-search-model-projections.js';
@@ -36,12 +32,7 @@ export const SEARCH_NATIVE_TOOL_EXECUTORS: {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
         input
       );
-      try {
-        return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('findWorkspaceSymbol failed', error, resolvedInput);
-        throw error;
-      }
+      return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
     },
     id: NATIVE_TOOL_ID.findWorkspaceSymbol,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
@@ -55,21 +46,16 @@ export const SEARCH_NATIVE_TOOL_EXECUTORS: {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
         input
       );
-      try {
-        return await withRepeatedCallGuard({
-          input: resolvedInput,
-          run: async () =>
-            attachGlobWorkspaceTelemetry(
-              resolvedInput,
-              await runGlobWorkspace(resolvedInput, runtimeData)
-            ),
-          threadScope: readStateScope(runtimeData),
-          toolId: NATIVE_TOOL_ID.globWorkspace,
-        });
-      } catch (error) {
-        logToolFailure('globWorkspace failed', error, resolvedInput);
-        throw error;
-      }
+      return await withRepeatedCallGuard({
+        input: resolvedInput,
+        run: async () =>
+          attachGlobWorkspaceTelemetry(
+            resolvedInput,
+            await runGlobWorkspace(resolvedInput, runtimeData)
+          ),
+        threadScope: readStateScope(runtimeData),
+        toolId: NATIVE_TOOL_ID.globWorkspace,
+      });
     },
     id: NATIVE_TOOL_ID.globWorkspace,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],

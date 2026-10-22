@@ -47,7 +47,6 @@ import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-curs
 import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection.js';
 import { runReadWorkspaceFile } from './read-workspace-file-tool.js';
 import {
-  logToolFailure,
   parseToolExecuteInput,
   readToolCallId,
   type ToolExecuteContext,
@@ -134,25 +133,20 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
         input
       );
-      try {
-        // BST-1188: readWorkspaceFile deliberately does NOT use the plain
-        // identical-args repeated-call guard (`withRepeatedCallGuard`)
-        // other read/search tools use — an args-only streak has no
-        // way to know the file changed between calls, so it would either
-        // permanently refuse a legitimate re-read after an edit (the
-        // refusal short-circuits BEFORE the file is ever checked) or stamp
-        // a "results have not changed" warning on content that in fact did
-        // change (PR #2323 review). The mtime-aware `readWorkspaceFile`
-        // loop guard below is the ONLY mechanism — it always re-reads the
-        // file first, so it can never go stale in that way.
-        return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry, {
-          domainModelResultCharBudget: resolvedDomainCharBudget,
-          threadScope: readToolExecutionThreadId([input, context]) ?? readStateScope(runtimeData),
-        });
-      } catch (error) {
-        logToolFailure('readWorkspaceFile failed', error, resolvedInput);
-        throw error;
-      }
+      // BST-1188: readWorkspaceFile deliberately does NOT use the plain
+      // identical-args repeated-call guard (`withRepeatedCallGuard`)
+      // other read/search tools use — an args-only streak has no
+      // way to know the file changed between calls, so it would either
+      // permanently refuse a legitimate re-read after an edit (the
+      // refusal short-circuits BEFORE the file is ever checked) or stamp
+      // a "results have not changed" warning on content that in fact did
+      // change (PR #2323 review). The mtime-aware `readWorkspaceFile`
+      // loop guard below is the ONLY mechanism — it always re-reads the
+      // file first, so it can never go stale in that way.
+      return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry, {
+        domainModelResultCharBudget: resolvedDomainCharBudget,
+        threadScope: readToolExecutionThreadId([input, context]) ?? readStateScope(runtimeData),
+      });
     },
     id: NATIVE_TOOL_ID.readWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
@@ -171,12 +165,7 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
           input
         );
-        try {
-          return await readToolOutputArtifact({ ...resolvedInput, mode: 'cursor' }, { reader });
-        } catch (error) {
-          logToolFailure('readToolOutputArtifact failed', error, resolvedInput);
-          throw error;
-        }
+        return await readToolOutputArtifact({ ...resolvedInput, mode: 'cursor' }, { reader });
       },
       id: NATIVE_TOOL_ID.readToolOutputArtifact,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
@@ -190,12 +179,7 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceDirectory],
         input
       );
-      try {
-        return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('readWorkspaceDirectory failed', error, resolvedInput);
-        throw error;
-      }
+      return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
     },
     id: NATIVE_TOOL_ID.readWorkspaceDirectory,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceDirectory],
@@ -210,19 +194,14 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.writeWorkspaceFile],
         input
       );
-      try {
-        return await runWriteWorkspaceFile(
-          resolvedInput,
-          runtimeData,
-          ports.fileMutations,
-          readToolCallId(context),
-          readToolExecutionThreadId([input, context]),
-          context?.abortSignal
-        );
-      } catch (error) {
-        logToolFailure('writeWorkspaceFile failed', error, resolvedInput);
-        throw error;
-      }
+      return await runWriteWorkspaceFile(
+        resolvedInput,
+        runtimeData,
+        ports.fileMutations,
+        readToolCallId(context),
+        readToolExecutionThreadId([input, context]),
+        context?.abortSignal
+      );
     },
     id: NATIVE_TOOL_ID.writeWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.writeWorkspaceFile],
@@ -237,19 +216,14 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.stringReplaceWorkspaceFile],
         input
       );
-      try {
-        return await runStringReplaceWorkspaceFile(
-          resolvedInput,
-          runtimeData,
-          ports.fileMutations,
-          readToolCallId(context),
-          readToolExecutionThreadId([input, context]),
-          context?.abortSignal
-        );
-      } catch (error) {
-        logToolFailure('stringReplaceWorkspaceFile failed', error, resolvedInput);
-        throw error;
-      }
+      return await runStringReplaceWorkspaceFile(
+        resolvedInput,
+        runtimeData,
+        ports.fileMutations,
+        readToolCallId(context),
+        readToolExecutionThreadId([input, context]),
+        context?.abortSignal
+      );
     },
     id: NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.stringReplaceWorkspaceFile],
@@ -264,19 +238,14 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.deleteWorkspaceFile],
         input
       );
-      try {
-        return await runDeleteWorkspaceFile(
-          resolvedInput,
-          runtimeData,
-          ports.fileMutations,
-          readToolCallId(context),
-          readToolExecutionThreadId([input, context]),
-          context?.abortSignal
-        );
-      } catch (error) {
-        logToolFailure('deleteWorkspaceFile failed', error, resolvedInput);
-        throw error;
-      }
+      return await runDeleteWorkspaceFile(
+        resolvedInput,
+        runtimeData,
+        ports.fileMutations,
+        readToolCallId(context),
+        readToolExecutionThreadId([input, context]),
+        context?.abortSignal
+      );
     },
     id: NATIVE_TOOL_ID.deleteWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.deleteWorkspaceFile],
@@ -291,19 +260,14 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
         input
       );
-      try {
-        return await runRenameWorkspaceFile(
-          resolvedInput,
-          runtimeData,
-          ports.fileMutations,
-          readToolCallId(context),
-          readToolExecutionThreadId([input, context]),
-          context?.abortSignal
-        );
-      } catch (error) {
-        logToolFailure('renameWorkspaceFile failed', error, resolvedInput);
-        throw error;
-      }
+      return await runRenameWorkspaceFile(
+        resolvedInput,
+        runtimeData,
+        ports.fileMutations,
+        readToolCallId(context),
+        readToolExecutionThreadId([input, context]),
+        context?.abortSignal
+      );
     },
     id: NATIVE_TOOL_ID.renameWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
@@ -317,12 +281,7 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
       const resolvedInput = normalizeManageCanvasInput(
         parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas], input)
       );
-      try {
-        return await runManageCanvas(resolvedInput, ports.canvas);
-      } catch (error) {
-        logToolFailure('manageCanvas failed', error, resolvedInput);
-        throw error;
-      }
+      return await runManageCanvas(resolvedInput, ports.canvas);
     },
     id: NATIVE_TOOL_ID.manageCanvas,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas],
@@ -340,12 +299,7 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
         input
       );
-      try {
-        return await runManageTaskList(resolvedInput, ports.taskList);
-      } catch (error) {
-        logToolFailure('manageTaskList failed', error, resolvedInput);
-        throw error;
-      }
+      return await runManageTaskList(resolvedInput, ports.taskList);
     },
     id: NATIVE_TOOL_ID.manageTaskList,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
@@ -361,12 +315,7 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
               NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
               input
             );
-            try {
-              return await runWebExtract(resolvedInput, webExtract);
-            } catch (error) {
-              logToolFailure('webExtract failed', error, resolvedInput);
-              throw error;
-            }
+            return await runWebExtract(resolvedInput, webExtract);
           },
           id: NATIVE_TOOL_ID.webExtract,
           inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
@@ -386,12 +335,7 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
               NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
               input
             );
-            try {
-              return await runWebSearch(resolvedInput, webSearch);
-            } catch (error) {
-              logToolFailure('webSearch failed', error, resolvedInput);
-              throw error;
-            }
+            return await runWebSearch(resolvedInput, webSearch);
           },
           id: NATIVE_TOOL_ID.webSearch,
           inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
