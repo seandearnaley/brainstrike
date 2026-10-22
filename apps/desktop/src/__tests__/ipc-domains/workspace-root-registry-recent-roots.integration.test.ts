@@ -39,6 +39,9 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath (real StateS
   });
 
   it('loads persisted worktree kinds through the canonical catalog', async () => {
+    // The worktree service records the native absolute path it created, and the
+    // registry mounts that same path, so both sides use this platform's form.
+    const worktreePath = path.join(directory, 'managed', 'app', 'bright-fox');
     const storage = createStorage();
     const createRegistry = () =>
       new WorkspaceRootRegistry({
@@ -62,8 +65,8 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath (real StateS
         createdAt: '2026-10-13T00:00:00.000Z',
         createdBy: 'agent',
         id: 'bright-fox',
-        path: '/managed/app/bright-fox',
-        repoCommonDir: '/repo/.git',
+        path: worktreePath,
+        repoCommonDir: path.join(directory, 'repo', '.git'),
         runId: null,
         setupOutput: null,
         setupReason: null,
@@ -73,7 +76,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath (real StateS
     });
     const firstRegistry = createRegistry();
     firstRegistry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
-    const descriptor = await firstRegistry.addRootByPath('/managed/app/bright-fox');
+    const descriptor = await firstRegistry.addRootByPath(worktreePath);
 
     const relaunchedRegistry = createRegistry();
     const storedRoots = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as unknown;

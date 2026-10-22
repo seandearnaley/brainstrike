@@ -108,8 +108,11 @@ The Git inventory service retains its watcher generation through failed stop and
 refuses restart until retirement succeeds. Notes Vault cleanup runs only in its
 awaited graceful step; the synchronous `will-quit` ledger never launches a retry.
 
-Git runs through `execFile` on every platform (ADR-0027), so there is no per-command
-native Job for quit to join. Windows agent commands keep their wrapper and Job.
+Git runs as a plain Node child on every platform (ADR-0027), so there is no
+per-command native Job for quit to join. Windows agent commands keep their wrapper and
+Job. The git runner settles at the child's `close`; output past its capture ceiling
+closes the pipe instead of killing git, since a kill on Windows reaches only the
+`cmd\git.exe` launcher and leaves the real git running in the repository.
 
 Parser host Stop joins every owned generation’s exit and listeners; there is no
 caller-side wait to give up on it. A failed kill remains visible and retryable,

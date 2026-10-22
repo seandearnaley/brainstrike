@@ -11,7 +11,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { GitCommandRun, GitCommandRunner } from '../assistant-server/git-service';
+import {
+  GIT_MAX_BUFFER_BYTES,
+  type GitCommandRun,
+  type GitCommandRunner,
+} from '../assistant-server/git-service';
 import {
   createGitIpcHandlers,
   createPinnedGitEnvironment,
@@ -682,6 +686,39 @@ describe('execFileGitRunner — errno discrimination (real runner)', () => {
     expect(run.exitCode).toBeNull();
     expect(run.timedOut).toBe(false);
   });
+});
+
+describe('execFileGitRunner — output past the capture ceiling (real runner)', () => {
+  it('keeps the prefix and settles only after git has ended itself on the closed pipe', async () => {
+    const repo = await makeRepo();
+    const lines = (prefix: string) =>
+      `${Array.from({ length: 260_000 }, (_, i) => `${prefix}-line-${i}`).join('\n')}\n`;
+    await fsPromises.writeFile(path.join(repo, 'big.txt'), lines('original'), 'utf8');
+    await execFileAsync('git', ['add', 'big.txt'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add big file'], { cwd: repo });
+    await fsPromises.writeFile(path.join(repo, 'big.txt'), lines('changed'), 'utf8');
+    const trace = path.join(await makeDir('brainstrike-git-ipc-trace-'), 'events.jsonl');
+
+    const run = await execFileGitRunner({
+      args: ['diff', '--', '.'],
+      cwd: repo,
+      env: { GIT_TRACE2_EVENT: trace },
+      timeoutMs: 30_000,
+    });
+
+    expect(run).toMatchObject({ exitCode: null, failureReason: 'maxBuffer', timedOut: false });
+    expect(run.stdout).toHaveLength(GIT_MAX_BUFFER_BYTES);
+    expect(run.stdout.startsWith('diff --git a/big.txt b/big.txt')).toBe(true);
+    // git's own trace, read the moment the run settles, already holds its last
+    // record: it ended itself (an exit, or the closed pipe's SIGPIPE). A killed
+    // git records no ending, and on Windows a kill stops only the cmd\git.exe
+    // launcher, leaving the real git running in the repository.
+    const events = (await fsPromises.readFile(trace, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { event: string });
+    expect(['atexit', 'signal']).toContain(events.at(-1)?.event);
+  }, 30_000);
 });
 
 describe('execFileGitRunner — binary stdout (real runner)', () => {

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, createReadStream } from 'node:fs';
 import { copyFile, mkdir, open, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
@@ -848,7 +848,7 @@ async function copyExistingModelCache(disposable: string): Promise<CachedModelAs
   if (!(index.includes(APP_RENDERER_ORIGIN) && index.includes('transformers-cache'))) {
     throw new Error('Installed model cache has the wrong origin or cache name');
   }
-  const origin = source.split('/').at(-1);
+  const origin = basename(source);
   if (!(origin && /^[a-f0-9]{40}$/u.test(origin))) {
     throw new Error('Installed model cache has no canonical storage origin');
   }

@@ -73,10 +73,13 @@ describe('tool-persistence', () => {
   });
 
   it('reports unreadable when the read fails with a non-ENOENT error', async () => {
-    const fileRoot = join(userDataDir, 'not-a-directory');
-    await writeFile(fileRoot, 'blocked', 'utf-8');
+    // A directory where the file belongs fails the read with EISDIR on every platform.
+    await mkdir(join(userDataDir, 'mcp', 'tool-preferences.json'), { recursive: true });
 
-    await expect(loadToolPreferences(fileRoot)).resolves.toMatchObject({ status: 'unreadable' });
+    await expect(loadToolPreferences(userDataDir)).resolves.toMatchObject({
+      reason: expect.stringContaining('EISDIR'),
+      status: 'unreadable',
+    });
   });
 
   it('throws when save fails due to invalid directory path', async () => {
