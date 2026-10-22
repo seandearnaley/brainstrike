@@ -1,8 +1,8 @@
-import type { PromptEmbeddingProfile } from '@brainstrike/db';
 import {
   type buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
 } from '@brainstrike/db-explorer/embedding-models';
+import type { PromptEmbeddingProfile } from '@brainstrike/types/prompt-item';
 import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 
 /**

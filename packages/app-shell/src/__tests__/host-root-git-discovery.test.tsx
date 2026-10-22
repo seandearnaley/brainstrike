@@ -1,4 +1,3 @@
-import type { DbHandle } from '@brainstrike/db/react';
 import type {
   FileSystemAdapter,
   GitInventory,
@@ -28,10 +27,6 @@ it('discovers roots recorded by the host during restore after the eager inventor
   }
   const previous = window.changes;
   window.changes = bridge as Partial<ChangesBridge>;
-  const query = vi.fn(async () => ({
-    rows: [{ id: rootId, kind: 'path', path: rootPath, status: 'live' }],
-  }));
-  const db = { query } as unknown as DbHandle;
   const root: RootDescriptor = {
     displayName: 'docs',
     handle: { kind: 'directory', name: 'docs', path: rootPath, platform: 'electron' },
@@ -46,7 +41,7 @@ it('discovers roots recorded by the host during restore after the eager inventor
     restoreRoots: async () => [root],
   } as FileSystemAdapter;
   try {
-    const { result, rerender } = renderHook(() => useRootsReconciliation({ adapter, db }));
+    const { result, rerender } = renderHook(() => useRootsReconciliation({ adapter }));
     await act(async () => {
       expect(await result.current.resolveDbRootId(rootPath, rootId)).toBe(rootId);
     });

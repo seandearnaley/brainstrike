@@ -8,8 +8,6 @@ import {
   createBoundaryCapability,
 } from '@brainstrike/assistant-contract/boundary-result';
 import type { EmbeddingSetSystemRole } from '@brainstrike/db';
-import type { usePGliteDatabase } from '@brainstrike/db/react';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   getCollectionPickerProtection,
   Select,
@@ -24,31 +22,7 @@ import {
   onQueueDrained,
 } from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
-import { canonicalizeCollectionTimestamps, normalizeTimestamp } from './collection-timestamps';
-
-/**
- * Row shape returned by the collections query
- */
-export interface CollectionRow {
-  category: string | null;
-  chunkCount: null | string | number;
-  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
-  createdAt: string | Date;
-  description: string | null;
-  dimensions: number;
-  distance: string;
-  embeddingCount: null | string | number;
-  fileCount: null | string | number;
-  id: string;
-  modelId: string;
-  modelKey: string;
-  name: string | null;
-  statsAvailable?: boolean | string;
-  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
-  statsLastRefreshedAt?: string | Date | null;
-  systemRole?: EmbeddingSetSystemRole | null;
-  tags: string | null;
-}
+import { canonicalizeCollectionTimestamps } from './collection-timestamps';
 
 /**
  * Normalized collection data with file count
@@ -81,33 +55,6 @@ export interface CollectionWithDocCount {
   vectorStatsUnavailableReason?: string;
 }
 
-/**
- * SQL query to fetch all embedding sets with their file counts.
- * Uses LEFT JOIN to include collections with zero files.
- */
-const COLLECTIONS_QUERY = `
-    SELECT
-      s.id,
-      s.model_key AS "modelKey",
-      s.model_id AS "modelId",
-      s.dimensions,
-      s.distance,
-      s.created_at AS "createdAt",
-      s.name,
-      s.description,
-      s.tags,
-      s.category,
-      s.system_role AS "systemRole",
-      stats.file_count AS "fileCount",
-      stats.chunk_count AS "chunkCount",
-      stats.embedded_chunk_count AS "embeddingCount",
-      stats.last_refreshed_at AS "statsLastRefreshedAt",
-      stats.embedding_set_id IS NOT NULL AS "statsAvailable"
-    FROM embedding_sets s
-    LEFT JOIN collection_indexing_stats stats ON stats.embedding_set_id = s.id
-    ORDER BY s.created_at DESC, s.id DESC
-  `.trim();
-
 export type CollectionSelectSize = 'compact' | 'default';
 
 /**
@@ -137,13 +84,6 @@ export interface CollectionSelectProps {
    * Additional className for the content dropdown
    */
   contentClassName?: string;
-  /**
-   * Database instance for querying collections.
-   * Required if collections/loading/error are not provided (will fetch internally).
-   * Ignored if collections are provided externally.
-   */
-  db?: ReturnType<typeof usePGliteDatabase>;
-
   /**
    * Custom empty state to render when no collections exist
    * If not provided, the select will be disabled with the placeholder text
@@ -219,63 +159,20 @@ function useErrorReporting(error: Error | null | undefined, onError?: (error: Er
  * Hook to resolve collection data from either external props or internal fetch
  */
 function useResolvedCollectionData(
-  db: ReturnType<typeof usePGliteDatabase> | undefined,
   externalCollections?: CollectionWithDocCount[],
   externalLoading?: boolean,
   externalError?: Error | null
 ) {
   const shouldFetchInternally = externalCollections === undefined;
-  const internalData = useCollections(shouldFetchInternally ? db : null);
+  const internalData = useCollections();
 
   return {
     collections: externalCollections ?? internalData.collections,
     error: externalError ?? internalData.error,
     loading: externalLoading ?? internalData.loading,
     shouldFetchInternally,
+    sourceReady: internalData.sourceReady,
   };
-}
-
-/**
- * Hook to fetch and normalize collection data
- */
-function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[] {
-  return rows.map((row) => ({
-    category: row.category,
-    chunkCount: Number(row.chunkCount ?? 0),
-    // `createdAt` is non-nullable, so it is narrowed inline rather than through
-    // normalizeTimestamp — nothing here may invent a missing timestamp.
-    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
-    description: row.description,
-    dimensions: row.dimensions,
-    distance: row.distance as 'cosine' | 'l2' | 'ip',
-    embeddingCount: Number(row.embeddingCount ?? 0),
-    fileCount: Number(row.fileCount ?? 0),
-    id: row.id,
-    modelId: row.modelId,
-    modelKey: row.modelKey,
-    name: row.name,
-    statsAvailable:
-      row.statsAvailable === undefined
-        ? true
-        : row.statsAvailable === true || row.statsAvailable === 'true',
-    statsLastRefreshedAt: normalizeTimestamp(row.statsLastRefreshedAt),
-    systemRole: row.systemRole ?? null,
-    tags: row.tags,
-  }));
-}
-
-function mergeCollections(
-  liveCollections: CollectionWithDocCount[],
-  cachedCollections: CollectionWithDocCount[]
-): CollectionWithDocCount[] {
-  const merged = new Map<string, CollectionWithDocCount>();
-  for (const collection of cachedCollections) {
-    merged.set(collection.id, collection);
-  }
-  for (const collection of liveCollections) {
-    merged.set(collection.id, collection);
-  }
-  return Array.from(merged.values()).sort(compareCollectionsDesc);
 }
 
 function upsertCollectionSnapshot(
@@ -390,49 +287,39 @@ function getCollectionCatalog(): CollectionCatalogCapability | undefined {
  * so they ping-pong the store forever once those diverge (React "maximum update
  * depth"). Exactly one `useCollections` may be mounted at a time.
  */
-export async function fetchCollectionsSnapshot(
-  db: ReturnType<typeof usePGliteDatabase>
-): Promise<CollectionWithDocCount[]> {
+export async function fetchCollectionsSnapshot(): Promise<CollectionWithDocCount[]> {
   const catalog = getCollectionCatalog();
-  if (catalog) {
-    const entries = await catalog.snapshot();
-    return entries
-      .map(
-        (entry): CollectionWithDocCount => ({
-          ...entry,
-          category: entry.category ?? null,
-          chunkCount: entry.counts.chunks,
-          description: entry.description ?? null,
-          // Existing cache count is only meaningful when statsAvailable is true.
-          embeddingCount: entry.vectors.kind === 'available' ? entry.vectors.count : 0,
-          fileCount: entry.counts.files,
-          name: entry.name ?? null,
-          statsAvailable: entry.vectors.kind === 'available',
-          tags: entry.tags ?? null,
-          ...(entry.vectors.kind === 'unavailable'
-            ? { vectorStatsUnavailableReason: entry.vectors.reason }
-            : {}),
-          statsLastRefreshedAt: null,
-        })
-      )
-      .sort(compareCollectionsDesc);
-  }
   // NO SILENT FALLBACKS: an empty array here is indistinguishable from "this
   // workspace has no collections", which reads to the user as an invitation to
-  // create a duplicate. An unusable handle is a programming error - throw.
-  if (!(db && typeof (db as { query?: unknown }).query === 'function')) {
-    throw new Error(
-      'fetchCollectionsSnapshot requires an initialized database handle exposing query().'
-    );
+  // create a duplicate. A missing catalog is a programming error - throw.
+  if (!catalog) {
+    throw new Error('fetchCollectionsSnapshot requires the collection catalog capability.');
   }
-  const result = await (
-    db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
-  ).query(COLLECTIONS_QUERY);
-  return normalizeCollectionRows(result.rows);
+  const entries = await catalog.snapshot();
+  return entries
+    .map(
+      (entry): CollectionWithDocCount => ({
+        ...entry,
+        category: entry.category ?? null,
+        chunkCount: entry.counts.chunks,
+        description: entry.description ?? null,
+        // Existing cache count is only meaningful when statsAvailable is true.
+        embeddingCount: entry.vectors.kind === 'available' ? entry.vectors.count : 0,
+        fileCount: entry.counts.files,
+        name: entry.name ?? null,
+        statsAvailable: entry.vectors.kind === 'available',
+        tags: entry.tags ?? null,
+        ...(entry.vectors.kind === 'unavailable'
+          ? { vectorStatsUnavailableReason: entry.vectors.reason }
+          : {}),
+        statsLastRefreshedAt: null,
+      })
+    )
+    .sort(compareCollectionsDesc);
 }
 
 /**
- * Live collections projection, backed by a PGlite live query.
+ * Collections projection, read from the native collection catalog.
  *
  * ⚠️ MOUNT AT MOST ONE INSTANCE AT A TIME (settled BST-1212 — do not
  * relitigate). This hook does not just READ the shared
@@ -448,12 +335,10 @@ export async function fetchCollectionsSnapshot(
  * one-shot `fetchCollectionsSnapshot` — see
  * `packages/db-explorer/src/components/explorer-collection-picker.tsx`. Keeping
  * the shared cache current across create/rename/delete is the
- * `onEmbeddingSetUpdated` contract, not a reason to mount a second live query.
+ * `onEmbeddingSetUpdated` contract, not a reason to mount a second reader.
  */
-export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
+export function useCollections() {
   const catalog = getCollectionCatalog();
-  const isImporting = useVectorStatusUIStore((s) => s.isImporting);
-  const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
   const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
   const setCachedCollections = useVectorStatusUIStore((s) => s.setCachedCollections);
@@ -462,14 +347,6 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   const cachedCollectionsRef = useRef(cachedCollections);
   const pendingMutationsRef = useRef(new Map<string, PendingCollectionMutationReason>());
   cachedCollectionsRef.current = cachedCollections;
-  // Only enable live queries when:
-  // 1. Database is available
-  // 2. Schema has been verified (migrations completed, tables exist)
-  // 3. Not currently importing files
-  //
-  // Background embedding must not detach foreground collection updates: the
-  // collection selector is the user's navigation surface while indexing runs.
-  const liveQueryEnabled = !catalog && Boolean(db) && schemaVerified && !isImporting;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;
@@ -495,29 +372,15 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     },
     { error: null, loading: false }
   );
-  // Track if we've done the initial fetch (separate from live query)
+  // Track if we've done the initial fetch
   const initialFetchedRef = useRef(false);
 
-  const {
-    rows: rawCollections,
-    loading,
-    error,
-    refresh,
-  } = usePGliteLiveQuery<CollectionRow>({
-    cacheKey: makeLiveQueryKey('collections'),
-    enabled: liveQueryEnabled,
-    key: 'id',
-    mode: 'incremental',
-    query: COLLECTIONS_QUERY,
-  });
-
   const refreshCollectionsSnapshot = useCallback(async () => {
-    const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
-    if (!(catalog || (schemaVerified && canQuery))) {
+    if (!catalog) {
       return;
     }
     try {
-      const normalizedRows = await fetchCollectionsSnapshot(db ?? null);
+      const normalizedRows = await fetchCollectionsSnapshot();
       clearSatisfiedPendingCollectionMutations(normalizedRows, pendingMutationsRef.current);
       const nextCollections = applyPendingCollectionMutations(
         normalizedRows,
@@ -534,10 +397,9 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       dispatchFetch({ error: normalized, type: 'error' });
       throw normalized;
     }
-  }, [catalog, db, schemaVerified, setCachedCollections]);
+  }, [catalog, setCachedCollections]);
 
-  // Listen for embedding set update events (create/delete/rename) and refresh live query
-  // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
+  // Listen for embedding set update events (create/delete/rename) and refresh the snapshot
   useEffect(() => {
     const handleEmbeddingSetUpdated = (detail: EmbeddingSetUpdatedEventDetail | null) => {
       if (detail?.reason === 'deleted' && detail.id) {
@@ -551,7 +413,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
           pendingMutationsRef.current.set(detail.collection.id, detail.reason);
         }
         // Second ingress into the shared cache. It must land in the same
-        // timestamp form as the query path or the two sort against each other.
+        // timestamp form as the snapshot path or the two sort against each other.
         const eventCollection = canonicalizeCollectionTimestamps(detail.collection);
         cachedCollectionsRef.current = upsertCollectionSnapshot(
           cachedCollectionsRef.current,
@@ -559,93 +421,23 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
         );
         upsertCachedCollection(eventCollection);
       }
-      if (liveQueryEnabled) {
-        void refresh();
-      }
       void refreshCollectionsSnapshot();
     };
 
     return onEmbeddingSetUpdated(handleEmbeddingSetUpdated);
-  }, [
-    liveQueryEnabled,
-    refresh,
-    refreshCollectionsSnapshot,
-    removeCachedCollection,
-    upsertCachedCollection,
-  ]);
-
-  const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
-
-  useEffect(() => {
-    const wasEnabled = previousLiveQueryEnabledRef.current;
-    previousLiveQueryEnabledRef.current = liveQueryEnabled;
-    if (!(liveQueryEnabled && !wasEnabled)) {
-      return;
-    }
-    void refresh();
-  }, [liveQueryEnabled, refresh]);
+  }, [refreshCollectionsSnapshot, removeCachedCollection, upsertCachedCollection]);
 
   useEffect(() => {
     const handleQueueDrained = () => {
-      if (liveQueryEnabled) {
-        void refresh();
-      }
       void refreshCollectionsSnapshot();
     };
 
     return onQueueDrained(handleQueueDrained);
-  }, [liveQueryEnabled, refresh, refreshCollectionsSnapshot]);
+  }, [refreshCollectionsSnapshot]);
 
-  const collections = useMemo<CollectionWithDocCount[]>(
-    () => normalizeCollectionRows(rawCollections),
-    [rawCollections]
-  );
-
-  const resolvedCollections = useMemo(() => {
-    if (!liveQueryEnabled) {
-      return cachedCollections;
-    }
-    if (loading) {
-      return mergeCollections(collections, cachedCollections);
-    }
-    return applyPendingCollectionMutations(
-      collections,
-      cachedCollections,
-      pendingMutationsRef.current
-    );
-  }, [cachedCollections, collections, liveQueryEnabled, loading]);
-
-  // Sync live query results to the Zustand store cache when available
+  // Initial fetch: ALWAYS runs once when the catalog is available, regardless of embedding state.
   useEffect(() => {
-    if (!liveQueryEnabled || loading) {
-      return;
-    }
-    clearSatisfiedPendingCollectionMutations(collections, pendingMutationsRef.current);
-    if (collections.length === 0 && cachedCollections.length === 0) {
-      return;
-    }
-    const nextCollections = applyPendingCollectionMutations(
-      collections,
-      cachedCollectionsRef.current,
-      pendingMutationsRef.current
-    );
-    if (areCollectionsEqual(nextCollections, cachedCollectionsRef.current)) {
-      return;
-    }
-    cachedCollectionsRef.current = nextCollections;
-    setCachedCollections(nextCollections);
-  }, [cachedCollections, collections, liveQueryEnabled, loading, setCachedCollections]);
-
-  // Initial fetch: ALWAYS runs once when db and schema are ready, regardless of embedding state.
-  // This ensures collections load at least once. The live query provides real-time updates afterward.
-  // Performance note: A single fetch is fine; we only disable live queries (which fire on every
-  // mutation) during bulk operations, not one-time queries.
-  useEffect(() => {
-    const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
-    const shouldFetch =
-      (catalog || (schemaVerified && canQuery)) &&
-      !fetchState.loading &&
-      !initialFetchedRef.current;
+    const shouldFetch = catalog && !fetchState.loading && !initialFetchedRef.current;
     if (!shouldFetch) {
       return;
     }
@@ -674,21 +466,18 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       cancelled = true;
     };
-  }, [catalog, db, refreshCollectionsSnapshot, schemaVerified]);
+  }, [catalog, refreshCollectionsSnapshot]);
 
-  // Reset initial fetch flag when db changes (e.g., reconnection)
+  // Reset initial fetch flag when the catalog changes
   useEffect(() => {
     initialFetchedRef.current = false;
-  }, [catalog, db]);
+  }, [catalog]);
 
-  // Return live data when enabled, otherwise return cached data from Zustand store
-  // Use initial loading/error state when live query is disabled
   return {
-    collections: resolvedCollections,
-    error: liveQueryEnabled ? error : fetchState.error,
-    loading: liveQueryEnabled ? loading : fetchState.loading,
-    /** Desktop reads the native catalog; web waits for its database handle. */
-    sourceReady: Boolean(catalog || db),
+    collections: cachedCollections,
+    error: fetchState.error,
+    loading: fetchState.loading,
+    sourceReady: Boolean(catalog),
   };
 }
 
@@ -725,17 +514,15 @@ export function formatCollectionLabel(collection: CollectionWithDocCount): strin
  *
  * This is the core select dropdown used by both:
  * - SearchCollectionSelector (db-explorer) - with additional UI chrome
- * - EmbeddingSetSelector (vector-management) - compact version for Vector Status
  *
  * Features:
- * - Live query for real-time collection updates (when db provided without collections)
+ * - Native catalog read for collection updates (when collections are not provided)
  * - Accepts pre-fetched collections to avoid duplicate queries
  * - Configurable size (compact/default)
  * - Customizable placeholders
  * - Error callback for parent handling
  */
 export function CollectionSelect({
-  db,
   selectedId,
   onSelectionChange,
   size = 'default',
@@ -750,12 +537,8 @@ export function CollectionSelect({
   error: externalError,
 }: CollectionSelectProps) {
   // Resolve collection data from external props or internal fetch
-  const { collections, loading, error, shouldFetchInternally } = useResolvedCollectionData(
-    db,
-    externalCollections,
-    externalLoading,
-    externalError
-  );
+  const { collections, loading, error, shouldFetchInternally, sourceReady } =
+    useResolvedCollectionData(externalCollections, externalLoading, externalError);
 
   // Report errors to parent (only once per unique error)
   useErrorReporting(error, onError);
@@ -780,8 +563,8 @@ export function CollectionSelect({
     [collections, selectedId]
   );
   const hasCollections = collections.length > 0;
-  // When external collections are provided, don't check db for loading state
-  const isLoading = loading || (shouldFetchInternally && !db);
+  // When external collections are provided, don't check the catalog for loading state
+  const isLoading = loading || (shouldFetchInternally && !sourceReady);
   const styles = SIZE_STYLES[size];
 
   // Show empty state when no collections and not loading

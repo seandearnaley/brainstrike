@@ -6,22 +6,12 @@ import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
 } from '@brainstrike/app-state/stores/database-status-store';
-import { databaseQueryTelemetry } from '@brainstrike/db';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { SystemDiagnosticsPanel } from '../diagnostics/system-diagnostics-panel';
 import { createSystemDiagnosticsSettingsCategory } from '../diagnostics/system-diagnostics-settings-category';
-
-// Mock QueueDiagnosticsPanel from vector-management
-vi.mock('@brainstrike/vector-management', () => ({
-  QueueDiagnosticsPanel: ({ showRefresh }: { showRefresh?: boolean }) => (
-    <div data-show-refresh={showRefresh} data-testid="queue-diagnostics-panel">
-      Queue Diagnostics Mock
-    </div>
-  ),
-}));
 
 // Mock the optional token cache context hook
 const mockUseOptionalTokenCacheContext = vi.fn();
@@ -254,154 +244,6 @@ describe('SystemDiagnosticsPanel', () => {
 
       expect(screen.getByText('Token Cache Worker')).toBeInTheDocument();
       expect(screen.getByText('Token counting and indexing worker')).toBeInTheDocument();
-    });
-
-    it('renders coarse database query telemetry by feature area', () => {
-      try {
-        databaseQueryTelemetry.recordQuery({ durationMs: 12, feature: 'queue-stats' });
-        databaseQueryTelemetry.recordQuery({
-          durationMs: 20,
-          failed: true,
-          feature: 'queue-stats',
-        });
-        databaseQueryTelemetry.recordQuery({
-          durationMs: 4,
-          feature: 'token-estimation',
-          hitCount: 3,
-          lookupCount: 4,
-        });
-        databaseQueryTelemetry.recordLiveSubscriptionStarted();
-        databaseQueryTelemetry.recordLiveUpdate();
-
-        const telemetrySnapshot = databaseQueryTelemetry.getSnapshot();
-        const queueMetrics = telemetrySnapshot.features['queue-stats'];
-        render(<SystemDiagnosticsPanel />);
-
-        expect(screen.getByText('Database Queries')).toBeInTheDocument();
-        expect(screen.getByText('Queue stats')).toBeInTheDocument();
-        expect(screen.getByText('Token estimation')).toBeInTheDocument();
-        expect(screen.getByText('75% cache hit')).toBeInTheDocument();
-        expect(screen.getByText('1 active')).toBeInTheDocument();
-        expect(screen.getByTestId('database-live-update-metrics')).toHaveTextContent(
-          `${telemetrySnapshot.liveUpdateCount} ${telemetrySnapshot.liveUpdateCount === 1 ? 'update' : 'updates'}`
-        );
-        expect(screen.getByTestId('database-live-update-metrics')).not.toHaveTextContent('/ min');
-        expect(screen.getByTestId('database-query-queue-stats-metrics')).toHaveTextContent(
-          `${queueMetrics.queryCount} queries · ${queueMetrics.failureCount} failed · p50 ${Math.round(queueMetrics.durationP50Ms)} ms · p95 ${Math.round(queueMetrics.durationP95Ms)} ms · max ${Math.round(queueMetrics.maxDurationMs)} ms · ${queueMetrics.droppedSampleCount} dropped`
-        );
-        expect(screen.getByTestId('database-query-queue-stats-metrics')).not.toHaveTextContent(
-          '/ min'
-        );
-      } finally {
-        databaseQueryTelemetry.recordLiveSubscriptionEnded();
-      }
-    });
-
-    it('uses exact query totals for healthy overflow status', () => {
-      const baseline = databaseQueryTelemetry.snapshot();
-      const snapshot = {
-        ...baseline,
-        droppedSampleCount: 4,
-        features: {
-          'file-tree': {
-            ...baseline.features['file-tree'],
-            droppedSampleCount: 4,
-            failureCount: 0,
-            queriesPerMinute: 5,
-            queryCount: 5,
-          },
-          'live-query': {
-            ...baseline.features['live-query'],
-            failureCount: 0,
-            queriesPerMinute: 0,
-            queryCount: 0,
-          },
-          'queue-stats': {
-            ...baseline.features['queue-stats'],
-            failureCount: 0,
-            queriesPerMinute: 0,
-            queryCount: 0,
-          },
-          'token-estimation': {
-            ...baseline.features['token-estimation'],
-            failureCount: 0,
-            queriesPerMinute: 0,
-            queryCount: 0,
-          },
-        },
-        sampleCount: 1,
-      };
-      const getSnapshot = vi.spyOn(databaseQueryTelemetry, 'getSnapshot').mockReturnValue(snapshot);
-      const subscribe = vi
-        .spyOn(databaseQueryTelemetry, 'subscribe')
-        .mockImplementation(() => () => undefined);
-
-      try {
-        render(<SystemDiagnosticsPanel />);
-
-        expect(screen.getByText('5 queries')).toHaveAttribute('data-status', 'success');
-        expect(screen.getByText('Retention overflow').parentElement).toHaveClass(
-          'text-muted-foreground'
-        );
-      } finally {
-        getSnapshot.mockRestore();
-        subscribe.mockRestore();
-      }
-    });
-
-    it('renders an explicit failed query-telemetry snapshot without throwing', () => {
-      const baseline = databaseQueryTelemetry.snapshot();
-      const getSnapshot = vi.spyOn(databaseQueryTelemetry, 'getSnapshot').mockReturnValue({
-        ...baseline,
-        availability: 'failed',
-        unavailableReason: 'retention clock unavailable',
-      });
-      const subscribe = vi
-        .spyOn(databaseQueryTelemetry, 'subscribe')
-        .mockImplementation(() => () => undefined);
-
-      try {
-        render(<SystemDiagnosticsPanel />);
-
-        expect(screen.getByRole('alert')).toHaveTextContent(
-          'Query telemetry unavailable: retention clock unavailable'
-        );
-        expect(screen.getByText(/^\d+ queries?$/)).toHaveAttribute('data-status', 'error');
-      } finally {
-        getSnapshot.mockRestore();
-        subscribe.mockRestore();
-      }
-    });
-
-    it('updates database query telemetry while diagnostics remains open', async () => {
-      vi.useFakeTimers();
-      try {
-        render(<SystemDiagnosticsPanel />);
-        const sampleCountBefore = databaseQueryTelemetry.getSnapshot().sampleCount;
-
-        act(() => {
-          databaseQueryTelemetry.recordQuery({ durationMs: 9, feature: 'file-tree' });
-        });
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(1000);
-        });
-
-        const expectedCount = sampleCountBefore + 1;
-        expect(
-          screen.getByText(`${expectedCount} ${expectedCount === 1 ? 'query' : 'queries'}`)
-        ).toBeInTheDocument();
-        expect(screen.getByText('File tree')).toBeInTheDocument();
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it('renders queue diagnostics panel', () => {
-      render(<SystemDiagnosticsPanel />);
-
-      return waitFor(() => {
-        expect(screen.getByTestId('queue-diagnostics-panel')).toBeInTheDocument();
-      });
     });
 
     it('surfaces renderer long-task aggregates in system diagnostics', () => {
@@ -769,15 +611,6 @@ describe('SystemDiagnosticsPanel', () => {
       // Wait for refresh to complete
       await vi.waitFor(() => {
         expect(refreshButton).not.toBeDisabled();
-      });
-    });
-
-    it('passes showQueueRefresh prop to QueueDiagnosticsPanel', () => {
-      render(<SystemDiagnosticsPanel showQueueRefresh={false} />);
-
-      return waitFor(() => {
-        const queuePanel = screen.getByTestId('queue-diagnostics-panel');
-        expect(queuePanel).toHaveAttribute('data-show-refresh', 'false');
       });
     });
   });

@@ -8,59 +8,61 @@ import {
 } from '../assistant-thread-host-context';
 import { useCreateThreadInFolder } from '../hooks/use-create-thread-in-folder';
 
-const {
-  createPgliteAssistantThreadRepositoryMock,
-  createThreadMock,
-  toastMock,
-  updateThreadMetadataMock,
-  useAssistantThreadStoreMock,
-  usePGliteDatabaseMock,
-} = vi.hoisted(() => {
-  const createThread = vi.fn();
-  const updateThreadMetadata = vi.fn();
-  return {
-    createPgliteAssistantThreadRepositoryMock: vi.fn(),
-    createThreadMock: createThread,
-    toastMock: vi.fn(),
-    updateThreadMetadataMock: updateThreadMetadata,
-    useAssistantThreadStoreMock: vi.fn(
-      (
-        selector: (state: {
-          createThread: typeof createThread;
-          updateThreadMetadata: typeof updateThreadMetadata;
-        }) => unknown
-      ) => selector({ createThread, updateThreadMetadata })
-    ),
-    usePGliteDatabaseMock: vi.fn(),
-  };
-});
+const { createThreadMock, toastMock, updateThreadMetadataMock, useAssistantThreadStoreMock } =
+  vi.hoisted(() => {
+    const createThread = vi.fn();
+    const updateThreadMetadata = vi.fn();
+    return {
+      createThreadMock: createThread,
+      toastMock: vi.fn(),
+      updateThreadMetadataMock: updateThreadMetadata,
+      useAssistantThreadStoreMock: vi.fn(
+        (
+          selector: (state: {
+            createThread: typeof createThread;
+            updateThreadMetadata: typeof updateThreadMetadata;
+          }) => unknown
+        ) => selector({ createThread, updateThreadMetadata })
+      ),
+    };
+  });
 
 vi.mock('@brainstrike/assistant-data', () => ({
-  createPgliteAssistantThreadRepository: createPgliteAssistantThreadRepositoryMock,
   useAssistantThreadStore: useAssistantThreadStoreMock,
   WORKSPACE_MEMORY_RESOURCE_ID: 'workspace-memory',
-}));
-
-vi.mock('@brainstrike/db/react', () => ({
-  usePGliteDatabase: usePGliteDatabaseMock,
 }));
 
 vi.mock('@brainstrike/ui', () => ({ toast: toastMock }));
 
 describe('useCreateThreadInFolder', () => {
-  const database = { name: 'test-database' };
-  const repository = { name: 'test-repository' };
+  // The repository the host-owned catalog builds around the attached host.
+  const repository = expect.objectContaining({
+    createThread: expect.any(Function),
+    updateThreadMetadata: expect.any(Function),
+  });
+  const host: AssistantThreadHostCapability = {
+    createThread: vi.fn(),
+    deleteThread: vi.fn(),
+    listThreads: vi.fn(),
+    ownsThread: vi.fn(),
+    renameThread: vi.fn(),
+    renderThread: vi.fn(),
+    updateThreadBinding: vi.fn(),
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
+  };
+  const wrapper = ({ children }: { readonly children: ReactNode }) =>
+    createElement(AssistantThreadHostContext.Provider, { value: host }, children);
 
   beforeEach(() => {
     vi.clearAllMocks();
-    usePGliteDatabaseMock.mockReturnValue(database);
-    createPgliteAssistantThreadRepositoryMock.mockReturnValue(repository);
     createThreadMock.mockResolvedValue({ id: 'thread-1' });
     updateThreadMetadataMock.mockResolvedValue(undefined);
   });
 
   it('creates one thread before writing the complete operating-root binding once', async () => {
-    const { result } = renderHook(() => useCreateThreadInFolder());
+    const { result } = renderHook(() => useCreateThreadInFolder(), { wrapper });
 
     result.current?.({
       displayName: 'brainstrike',
@@ -86,7 +88,7 @@ describe('useCreateThreadInFolder', () => {
   });
 
   it('omits operatingRootPath when the folder has no path', async () => {
-    const { result } = renderHook(() => useCreateThreadInFolder());
+    const { result } = renderHook(() => useCreateThreadInFolder(), { wrapper });
 
     result.current?.({ displayName: 'notes', path: null, rootId: 'root-web-1' });
 
@@ -105,7 +107,7 @@ describe('useCreateThreadInFolder', () => {
 
   it('surfaces a rejected metadata write without retrying it', async () => {
     updateThreadMetadataMock.mockRejectedValueOnce(new Error('metadata unavailable'));
-    const { result } = renderHook(() => useCreateThreadInFolder());
+    const { result } = renderHook(() => useCreateThreadInFolder(), { wrapper });
 
     result.current?.({
       displayName: 'brainstrike',
@@ -123,9 +125,7 @@ describe('useCreateThreadInFolder', () => {
     expect(updateThreadMetadataMock).toHaveBeenCalledOnce();
   });
 
-  it('creates through the host and reports a refused host binding without a legacy fallback', async () => {
-    const history = { createThread: vi.fn(), updateThreadMetadata: vi.fn() };
-    createPgliteAssistantThreadRepositoryMock.mockReturnValue(history);
+  it('creates through the host and reports a refused host binding', async () => {
     createThreadMock.mockImplementation(
       (owner: { createThread: (resourceId: string) => Promise<{ id: string }> }, resourceId) =>
         owner.createThread(resourceId)
@@ -144,7 +144,7 @@ describe('useCreateThreadInFolder', () => {
       'The folder binding is unavailable.',
       'Reconnect the folder.'
     );
-    const host: AssistantThreadHostCapability = {
+    const refusingHost: AssistantThreadHostCapability = {
       createThread: vi.fn(async (resourceId: string) => ({
         createdAt: new Date('2026-10-08T00:00:00Z'),
         id: 'host-thread-1',
@@ -164,16 +164,14 @@ describe('useCreateThreadInFolder', () => {
         throw new Error('Unexpected workspace snapshot access in this fixture');
       },
     };
-    const wrapper = ({ children }: { readonly children: ReactNode }) =>
-      createElement(AssistantThreadHostContext.Provider, { value: host }, children);
-    const { result } = renderHook(() => useCreateThreadInFolder(), { wrapper });
+    const refusingWrapper = ({ children }: { readonly children: ReactNode }) =>
+      createElement(AssistantThreadHostContext.Provider, { value: refusingHost }, children);
+    const { result } = renderHook(() => useCreateThreadInFolder(), { wrapper: refusingWrapper });
 
     result.current?.({ displayName: 'brainstrike', path: '/repo', rootId: 'root-1' });
 
     await waitFor(() => expect(toastMock).toHaveBeenCalledOnce());
-    expect(host.createThread).toHaveBeenCalledExactlyOnceWith('workspace-memory');
-    expect(history.createThread).not.toHaveBeenCalled();
-    expect(history.updateThreadMetadata).not.toHaveBeenCalled();
+    expect(refusingHost.createThread).toHaveBeenCalledExactlyOnceWith('workspace-memory');
     expect(toastMock.mock.calls[0]?.[0]).toMatchObject({ variant: 'destructive' });
     expect(String(toastMock.mock.calls[0]?.[0]?.description)).toContain(refusal.message);
     expect(String(toastMock.mock.calls[0]?.[0]?.description)).toContain('Reconnect the folder.');
@@ -181,7 +179,7 @@ describe('useCreateThreadInFolder', () => {
 
   it('surfaces a rejected thread creation without writing metadata', async () => {
     createThreadMock.mockRejectedValueOnce(new Error('create unavailable'));
-    const { result } = renderHook(() => useCreateThreadInFolder());
+    const { result } = renderHook(() => useCreateThreadInFolder(), { wrapper });
 
     result.current?.({
       displayName: 'brainstrike',
@@ -199,13 +197,10 @@ describe('useCreateThreadInFolder', () => {
     expect(updateThreadMetadataMock).not.toHaveBeenCalled();
   });
 
-  it('returns null without creating a repository while the database is unavailable', () => {
-    usePGliteDatabaseMock.mockReturnValue(null);
-
+  it('returns null while no agent host is attached', () => {
     const { result } = renderHook(() => useCreateThreadInFolder());
 
     expect(result.current).toBeNull();
-    expect(createPgliteAssistantThreadRepositoryMock).not.toHaveBeenCalled();
     expect(createThreadMock).not.toHaveBeenCalled();
     expect(updateThreadMetadataMock).not.toHaveBeenCalled();
   });

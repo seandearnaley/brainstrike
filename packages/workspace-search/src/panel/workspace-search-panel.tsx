@@ -8,11 +8,7 @@ import { SearchCoverageBanner } from './search-coverage-banner';
 import { SearchInputBar } from './search-input-bar';
 import { SearchModeToggle } from './search-mode-toggle';
 import { type SearchOpenTarget, SearchResultsTree } from './search-results-tree';
-import {
-  SEMANTIC_UNAVAILABLE_NO_CHUNKS,
-  type SemanticAvailability,
-  useSemanticAvailability,
-} from './use-semantic-availability';
+import { SEMANTIC_UNAVAILABLE_NO_CHUNKS, type SemanticAvailability } from './semantic-availability';
 
 /** Text-mode live-search debounce window. */
 const TEXT_DEBOUNCE_MS = 250;
@@ -27,7 +23,7 @@ export interface WorkspaceSearchPanelProps {
   resolveAdapterRootId: (dbRootId: string) => string | null;
   runSemanticSearch: () => void;
   runTextSearch: () => void;
-  semanticAvailability?: SemanticAvailability;
+  semanticAvailability: SemanticAvailability;
   /** DB root ids of currently mounted, live workspace roots (query scope). */
   workspaceDbRootIds: readonly string[];
 }
@@ -56,13 +52,9 @@ export function WorkspaceSearchPanel({
   const wholeWord = useWorkspaceSearchStore((state) => state.wholeWord);
   const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
 
-  // Same live-stats signal (shared query + cache key) the mode toggle gates on
-  // — see {@link useSemanticAvailability}. Load-bearing for the SUBMIT gate
-  // below, not just the toggle's entry gate.
-  const { available: semanticAvailable, reason: semanticReason } = useSemanticAvailability(
-    collectionId,
-    semanticAvailability
-  );
+  // Same availability signal the mode toggle gates on. Load-bearing for the
+  // SUBMIT gate below, not just the toggle's entry gate.
+  const { available: semanticAvailable, reason: semanticReason } = semanticAvailability;
 
   // Gate the SUBMIT path, not just the toggle's ENTRY: the toggle only blocks
   // clicking into semantic, but Enter/Retry route to `runSemanticSearch` off the
@@ -163,7 +155,7 @@ export function WorkspaceSearchPanel({
           wrap rather than overflow, so every control stays inside the panel. */}
       <div className="flex flex-col gap-2 border-b p-2">
         <div className="flex flex-wrap items-center gap-2">
-          <SearchModeToggle {...(semanticAvailability ? { semanticAvailability } : {})} />
+          <SearchModeToggle semanticAvailability={semanticAvailability} />
           <div className="min-w-32 flex-1">
             <SearchCollectionPicker />
           </div>

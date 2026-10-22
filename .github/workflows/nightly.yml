@@ -29,15 +29,6 @@ jobs:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-  performance:
-    name: Performance E2E
-    if: github.repository == 'seandearnaley/brainstrike'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/performance.yml
-    secrets:
-      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-
   desktop-e2e:
     name: Desktop E2E
     if: github.repository == 'seandearnaley/brainstrike'
@@ -50,31 +41,19 @@ jobs:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-  web-e2e:
-    name: Web E2E
-    if: github.repository == 'seandearnaley/brainstrike'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/web-e2e.yml
-    secrets:
-      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-
   # The night is green only when every call succeeded; a release resolves a
   # commit by this run's result.
   verdict:
     name: Nightly verdict
     if: github.repository == 'seandearnaley/brainstrike' && always()
-    needs: [test, performance, desktop-e2e, web-e2e]
+    needs: [test, desktop-e2e]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Judge every called workflow
         env:
           RESULT_TEST: ${{ needs.test.result }}
-          RESULT_PERFORMANCE: ${{ needs.performance.result }}
           RESULT_DESKTOP_E2E: ${{ needs.desktop-e2e.result }}
-          RESULT_WEB_E2E: ${{ needs.web-e2e.result }}
         run: |
           set -euo pipefail
           failed=0

@@ -46,8 +46,6 @@ on:
         value: ${{ jobs.native-electron.result }}
       browser-tests-result:
         value: ${{ jobs.browser-tests.result }}
-      web-e2e-result:
-        value: ${{ jobs.web-e2e.result }}
       desktop-e2e-smoke-result:
         value: ${{ jobs.desktop-e2e-smoke.result }}
       desktop-e2e-delegated-result:
@@ -209,20 +207,6 @@ jobs:
             {
               "include": [
                 {
-                  "shard": "db-1",
-                  "partition": "db",
-                  "pr_filters": "--filter=\"@brainstrike/db\"",
-                  "push_filters": "--filter=\"@brainstrike/db\"",
-                  "vitest_shard": "1/2"
-                },
-                {
-                  "shard": "db-2",
-                  "partition": "db",
-                  "pr_filters": "--filter=\"@brainstrike/db\"",
-                  "push_filters": "--filter=\"@brainstrike/db\"",
-                  "vitest_shard": "2/2"
-                },
-                {
                   "shard": "agent-1",
                   "partition": "agent",
                   "pr_filters": "--filter=\"@brainstrike/agent\"",
@@ -267,9 +251,9 @@ jobs:
                 {
                   "shard": "rest",
                   "partition": "rest",
-                  "pr_filters": "--filter=\"!@brainstrike/db\" --filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\"",
+                  "pr_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\"",
                   "vitest_shard": "",
-                  "push_filters": "--filter=\"!@brainstrike/db\" --filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\""
+                  "push_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\""
                 }
               ]
             }
@@ -605,30 +589,12 @@ jobs:
           TAILWIND_DEBUG: '1'
         run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful
 
-      - name: Validate CSS bundle
-        run: |
-          CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-          echo "CSS bundle size: ${CSS_SIZE} bytes"
-
-          if [ "$CSS_SIZE" -lt 50000 ]; then
-            echo "::error::CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources."
-            exit 1
-          fi
-
-          PAT='*,:after,:before,::backdrop{box-sizing:border-box'
-          DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
-          if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-            echo "::error::Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import \"tailwindcss\" statements."
-            exit 1
-          fi
-
       - name: Upload build artifacts
         if: github.event_name != 'workflow_dispatch' || inputs.merge-queue
         uses: actions/upload-artifact@v7
         with:
           name: build-artifacts
           path: |
-            apps/web/dist/
             apps/desktop/dist/
             packages/*/dist/
           retention-days: 1
@@ -835,7 +801,7 @@ jobs:
         # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
         # `pnpm test:scripts` (Static job) if a package gains test:browser
         # without being added here.
-        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/canonical-ingestion --filter=@brainstrike/db --filter=@brainstrike/embedding-worker --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui --filter=@brainstrike/web-state-store --filter=@brainstrike/web-writer
+        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/canonical-ingestion --filter=@brainstrike/embedding-worker --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui
 
       - name: Upload browser test artifacts
         if: failure()
@@ -844,127 +810,18 @@ jobs:
           name: browser-test-results
           include-hidden-files: true
           path: |
-            packages/db/test-results/
             packages/assistant-ui/test-results/
             packages/embedding-worker/test-results/
             packages/ui/test-results/
             packages/storage/test-results/
             packages/mcp-app-host/test-results/
             packages/canonical-ingestion/test-results/
-            packages/web-state-store/test-results/
-            packages/web-writer/test-results/
-            packages/db/.vitest/attachments/failure-screenshots/
             packages/assistant-ui/.vitest/attachments/failure-screenshots/
             packages/embedding-worker/.vitest/attachments/failure-screenshots/
             packages/ui/.vitest/attachments/failure-screenshots/
             packages/storage/.vitest/attachments/failure-screenshots/
             packages/mcp-app-host/.vitest/attachments/failure-screenshots/
             packages/canonical-ingestion/.vitest/attachments/failure-screenshots/
-            packages/web-state-store/.vitest/attachments/failure-screenshots/
-            packages/web-writer/.vitest/attachments/failure-screenshots/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  web-e2e:
-    name: Web E2E
-    if: >-
-      github.repository == 'seandearnaley/brainstrike' &&
-      always() &&
-      (
-        needs.admission.result != 'success' ||
-        (
-          (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
-          needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success'
-        )
-      )
-    needs: [admission, build]
-    runs-on: ubicloud-standard-4
-    # Official browser/system-dependency fleet; fixed CfT is provisioned below.
-    # Root is Playwright's documented mode for trusted E2E and permits explicit
-    # system-tool installation. No custom image publication is required.
-    container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
-      options: --user 0
-    timeout-minutes: 25
-    env:
-      NODE_ENV: production
-      PORT: "8080"
-      BASE_URL: http://127.0.0.1:8080
-      # Browsers are preinstalled here in the image; point Playwright at them.
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      # Off (BST-2168): `Install dependencies` deliberately leaves the native
-      # addons uninstalled, but pnpm's pre-run check holds a filtered `run` to
-      # every workspace dependency of the selected project, and web reaches
-      # both addons (BST-2080). Right after a frozen install in a fresh
-      # container there is no drift to find. Unset, the default (`install`)
-      # would try to build the addons here instead.
-      pnpm_config_verify_deps_before_run: "false"
-    steps:
-      - name: Require successful admission
-        if: needs.admission.result != 'success'
-        run: |
-          echo "::error::Quiet-head admission failed; refusing to skip the required Web E2E check."
-          exit 1
-
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install web test system tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends unzip lsof procps
-
-      # `jobs.<id>.env` cannot read the `runner` context, so the directory is
-      # exported here for every later step (playwright.config.mts reads it).
-      - name: Provision qualified web Chromium
-        shell: bash
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          BRAINSTRIKE_WEB_CHROMIUM_DIR="$RUNNER_TEMP/web-chromium"
-          echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"
-          test "$(node --version)" = "v$(cat .nvmrc)"
-          mkdir -p apps/web/test-results
-          node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR" > apps/web/test-results/web-chromium-provisioning.json
-
-      - name: Install dependencies
-        # Exclude desktop and the native addon projects: this container has no
-        # C toolchain, this job runs the downloaded web build rather than
-        # building it, and web E2E loads no native surface. windows-job-native
-        # compiles on Linux since M3 (#3543) (BST-2080). Do NOT revert to a bare
-        # full install; node-gyp will fail before Playwright starts.
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native' --filter '!@brainstrike/windows-job-native'
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
-
-      - name: Run web smoke
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
-
-      - name: Upload web smoke traces
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-smoke-main-test-results
-          path: apps/web/test-results/
           retention-days: 1
           if-no-files-found: ignore
 
@@ -1199,13 +1056,13 @@ jobs:
   # one `nightly-alert` issue per red workflow and comments on later nights.
   notify-linear:
     name: Notify Linear
-    needs: [admission, static, unit-shard, unit, build, native-electron, browser-tests, web-e2e, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
+    needs: [admission, static, unit-shard, unit, build, native-electron, browser-tests, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       # This workflow's own name: in nightly.yml's call, github.workflow is
       # the caller's (BST-2233).
       workflow_name: Test
-      results: admission=${{ needs.admission.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},web-e2e=${{ needs.web-e2e.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
+      results: admission=${{ needs.admission.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

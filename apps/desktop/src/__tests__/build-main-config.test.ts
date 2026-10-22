@@ -205,16 +205,10 @@ describe('main-process bundle config', () => {
     expect(Object.keys(aliases)).toEqual([
       '@brainstrike/assistant-data/assistant-memory-repository',
       '@brainstrike/assistant-data/assistant-memory-resource',
-      '@brainstrike/assistant-data/assistant-thread-run-reaper',
       '@brainstrike/notes-vault/core',
       '@brainstrike/types/catalog-args',
       '@brainstrike/workspace-search/core',
     ]);
-    expect(
-      aliases['@brainstrike/assistant-data/assistant-thread-run-reaper']?.endsWith(
-        path.join('packages', 'assistant-data', 'src', 'assistant-thread-run-reaper.ts')
-      )
-    ).toBe(true);
     expect(
       aliases['@brainstrike/assistant-data/assistant-memory-repository']?.endsWith(
         path.join('packages', 'assistant-data', 'src', 'assistant-memory-repository.ts')

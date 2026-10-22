@@ -1,4 +1,4 @@
-import type { PromptItemKind } from '@brainstrike/db';
+import type { PromptItemKind } from '@brainstrike/types/prompt-item';
 
 export interface PromptWorkbenchModelOption {
   readonly key: string;

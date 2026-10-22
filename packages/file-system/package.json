@@ -1,21 +1,19 @@
 {
   "name": "@brainstrike/file-system",
-  "description": "Platform-aware file system adapters for web and desktop",
+  "description": "Platform-aware file system adapters for desktop",
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@parcel/watcher": "catalog:",
-    "idb": "catalog:"
+    "@parcel/watcher": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "electron": "catalog:",
-    "fake-indexeddb": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",

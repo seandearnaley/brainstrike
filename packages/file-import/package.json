@@ -4,19 +4,13 @@
   "dependencies": {
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
-    "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/queue": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@electric-sql/pglite": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -33,20 +27,10 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
-    "./browser-queue-port": {
-      "types": "./dist/browser-queue-port.d.ts",
-      "import": "./dist/browser-queue-port.js",
-      "require": "./dist/browser-queue-port.js"
-    },
     "./chunking-worker-context": {
       "types": "./dist/chunking-worker-context.d.ts",
       "import": "./dist/chunking-worker-context.js",
       "require": "./dist/chunking-worker-context.js"
-    },
-    "./enhanced-import": {
-      "types": "./dist/enhanced-import.d.ts",
-      "import": "./dist/enhanced-import.js",
-      "require": "./dist/enhanced-import.js"
     },
     "./canonical-symbol-inserts": {
       "types": "./dist/canonical-symbol-inserts.d.ts",
@@ -73,7 +57,6 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "types": "dist/index.d.ts"

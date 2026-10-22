@@ -3,38 +3,15 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
-    "@brainstrike/logging": "workspace:*",
-    "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "@electric-sql/pglite": "catalog:",
-    "@electric-sql/pglite-pg_textsearch": "catalog:",
-    "@electric-sql/pglite-pgvector": "catalog:",
-    "drizzle-orm": "catalog:",
-    "effect": "catalog:"
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
-    "@brainstrike/test-utils": "workspace:*",
-    "@brainstrike/tokenization": "workspace:*",
-    "@effect/tsgo": "catalog:",
-    "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
-    "@types/react-dom": "catalog:",
-    "@vitest/browser-playwright": "catalog:",
-    "@vitest/coverage-v8": "catalog:",
-    "drizzle-kit": "^0.31.11",
-    "esbuild": "catalog:",
-    "fake-indexeddb": "catalog:",
-    "jsdom": "catalog:",
-    "playwright": "catalog:",
-    "tsx": "^4.23.15",
     "typescript": "catalog:",
-    "vite": "catalog:",
-    "vite-plugin-wasm": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {
@@ -47,27 +24,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
-    "./browser-pglite-storage": {
-      "types": "./dist/browser-pglite-storage.d.ts",
-      "import": "./dist/browser-pglite-storage.js",
-      "require": "./dist/browser-pglite-storage.js"
-    },
     "./react": {
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js",
       "require": "./dist/react.js"
-    },
-    "./pglite-factory": {
-      "types": "./dist/pglite-factory.d.ts",
-      "import": "./dist/pglite-factory.js",
-      "require": "./dist/pglite-factory.js"
-    },
-    "./pglite-verification-factory": {
-      "types": "./dist/pglite-verification-factory.d.ts",
-      "import": "./dist/pglite-verification-factory.js",
-      "require": "./dist/pglite-verification-factory.js"
-    },
-    "./test-support/migrated-test-db": "./__tests__/helpers/cross-package-migrated-test-db.ts"
+    }
   },
   "files": [
     "dist"
@@ -80,29 +41,12 @@
   },
   "private": true,
   "scripts": {
-    "bench:hybrid-search": "pnpm --filter @brainstrike/types --filter @brainstrike/queue --filter @brainstrike/indexing-contract --filter @brainstrike/tokenization --filter @brainstrike/utils run build && tsx scripts/benchmark-hybrid-search.ts",
-    "bench:live-query-params": "tsx scripts/benchmark-live-query-params.ts",
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc --build",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "db:export": "tsx scripts/export-migrations.ts",
-    "db:generate": "node scripts/forbid-db-generate.mjs",
-    "db:generate:unsafe": "drizzle-kit generate",
-    "db:migrate": "node scripts/forbid-db-generate.mjs",
-    "db:migrate:unsafe": "pnpm db:generate:unsafe && pnpm db:export",
-    "db:schema:catalog": "tsx scripts/generate-schema-catalog-snapshot.ts --out=__tests__/fixtures/schema-catalog.snapshot.txt",
-    "db:schema:ddl": "tsx scripts/generate-current-schema-ddl.ts --out=src/migrations/current-schema-ddl.ts",
-    "db:schema:dump": "tsx scripts/dump-schema.ts",
     "dev": "tsc --build --watch",
-    "eval:retrieval": "pnpm --filter @brainstrike/types --filter @brainstrike/queue --filter @brainstrike/indexing-contract --filter @brainstrike/tokenization --filter @brainstrike/utils run build && tsx src/evaluation/retrieval-eval-cli.ts",
-    "test": "vitest run --project unit",
-    "test:all": "vitest run",
-    "test:browser": "vitest run --project browser",
-    "test:crash-gate": "vitest run --project unit --reporter=verbose --reporter=@brainstrike/test-utils/vitest-lost-file-reporter --disableConsoleIntercept __tests__/crash-injection-gate.integration.test.ts",
-    "test:pg-textsearch-durability": "node ../../scripts/run-env.mjs TEST_ENABLE_PG_TEXTSEARCH_DURABILITY=true -- vitest run --project unit --reporter=verbose --reporter=@brainstrike/test-utils/vitest-lost-file-reporter --disableConsoleIntercept __tests__/pg-textsearch-durability-gate.integration.test.ts",
-    "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
-    "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
+    "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict"
+    "type-check": "tsc --noEmit"
   },
   "type": "module",
   "types": "./dist/index.d.ts"

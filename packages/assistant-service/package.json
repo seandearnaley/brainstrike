@@ -4,7 +4,6 @@
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/canonical-ingestion": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
@@ -32,11 +31,6 @@
     "node": ">=22"
   },
   "exports": {
-    "./http": {
-      "types": "./dist/http.d.ts",
-      "import": "./dist/http.mjs",
-      "require": "./dist/http.js"
-    },
     "./mcp-content-application-port": {
       "types": "./dist/mcp-content-application-port.d.ts",
       "import": "./dist/mcp-content-application-port.mjs",
@@ -67,20 +61,10 @@
       "import": "./dist/provider-credential-projection.mjs",
       "require": "./dist/provider-credential-projection.js"
     },
-    "./request": {
-      "types": "./dist/request.d.ts",
-      "import": "./dist/request.mjs",
-      "require": "./dist/request.js"
-    },
     "./secret-errors": {
       "types": "./dist/secret-errors.d.ts",
       "import": "./dist/secret-errors.mjs",
       "require": "./dist/secret-errors.js"
-    },
-    "./types": {
-      "types": "./dist/types.d.ts",
-      "import": "./dist/types.mjs",
-      "require": "./dist/types.js"
     }
   },
   "files": [

@@ -32,10 +32,6 @@
   },
   "exports": {
     "./styles.css": "./styles.css",
-    "./components/db-schema-verifier": {
-      "types": "./dist/components/db-schema-verifier.d.ts",
-      "import": "./dist/components/db-schema-verifier.js"
-    },
     "./components/global-download-indicator": {
       "types": "./dist/components/global-download-indicator.d.ts",
       "import": "./dist/components/global-download-indicator.js"

@@ -14,8 +14,6 @@ child run. Mastra is a memory library behind that host adapter. See
 | `@brainstrike/agent/client` | Browser-safe catalog, context and tool metadata |
 | `@brainstrike/agent/provider-runtime` | Node host provider/auth/runtime composition without browser inference registration |
 | `@brainstrike/agent/provider-request` | Shared provider-history request preparation |
-| `@brainstrike/agent/hosted-web` | Hosted server request/stream boundary without local inference or PGlite stores |
-| `@brainstrike/agent/request-boundary` | Lightweight transport request-size configuration |
 | `@brainstrike/agent/code-execution` | Existing code-executor seam |
 
 The broad root entry registers browser-local inference and exports older adapters;

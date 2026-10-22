@@ -202,8 +202,6 @@ describe('createGlobalCommands', () => {
     const ctx = makeContext([]);
     const available = commands.filter((command) => command.isAvailable?.(ctx) ?? true);
     expect(available.map((command) => command.id)).toEqual(['thread.new']);
-    // quickOpen has no handler yet → hidden, never offered as a stub.
-    expect(available.some((command) => command.id === 'palette.quickOpen')).toBe(false);
   });
 
   it('runs a supplied handler and reports a thrown handler as a failure outcome', async () => {

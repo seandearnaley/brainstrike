@@ -63,7 +63,7 @@ existing operating-root, checkout, secondary-root and Forge metadata keys.
 The transitional legacy-thread writer is not a supported old-data route under
 [ADR-0020](0020-greenfield-data-lifecycle.md). At adoption, its removal was assigned
 to the M4 integration branch. Current development branches from `main`; the
-[database contract](../agents/database.md) describes current storage ownership.
+[state store](../agents/state-store.md) describes current storage ownership.
 Current-schema threads have one host owner, with no shadow history row, new table,
 identity or backfill. Checkout transitions borrow the existing atomic metadata
 projection; switching to Local removes prior branch,

@@ -68,7 +68,6 @@ jobs:
           RESULT_BUILD: ${{ needs.test.outputs.build-result }}
           RESULT_NATIVE_ELECTRON: ${{ needs.test.outputs.native-electron-result }}
           RESULT_BROWSER_TESTS: ${{ needs.test.outputs.browser-tests-result }}
-          RESULT_WEB_E2E: ${{ needs.test.outputs.web-e2e-result }}
           RESULT_DESKTOP_E2E_SMOKE: ${{ needs.test.outputs.desktop-e2e-smoke-result }}
           RESULT_DESKTOP_E2E_DELEGATED: ${{ needs.test.outputs.desktop-e2e-delegated-result }}
           RESULT_DESKTOP_E2E: ${{ needs.test.outputs.desktop-e2e-result }}

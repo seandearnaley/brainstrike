@@ -1,5 +1,4 @@
 export {
-  type CollectionRow,
   CollectionSelect,
   type CollectionSelectProps,
   type CollectionSelectSize,

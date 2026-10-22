@@ -1,22 +1,13 @@
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { TokenCacheEntry, TokenCountingMode } from '@brainstrike/token-cache/cache-runtime';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  __resetTokenCacheRekeyWipeForTests,
   __resetTokenCacheWorkerInitErrorsForTests,
-  runTokenCacheRekeyWipeOnce,
-  TOKEN_CACHE_REKEY_V5_MARKER,
   type TokenCacheContextValue,
   TokenCacheProvider,
   useOptionalTokenCacheContext,
   useTokenCacheContext,
 } from '../indexing/token-cache-context';
-
-const { tokenCacheStoreInstances, tokenCacheStoreOptions } = vi.hoisted(() => ({
-  tokenCacheStoreInstances: [] as { clearAll: ReturnType<typeof vi.fn> }[],
-  tokenCacheStoreOptions: [] as unknown[],
-}));
 
 // Mock dependencies
 vi.mock('@brainstrike/app-state/stores/token-preferences-store', () => ({
@@ -34,16 +25,6 @@ vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
   ),
   FileHasher: class {
     init = vi.fn().mockResolvedValue(undefined);
-  },
-  TokenCacheStore: class {
-    clearAll = vi.fn().mockResolvedValue(0);
-    get = vi.fn().mockResolvedValue(null);
-    set = vi.fn().mockResolvedValue(undefined);
-
-    constructor(_db: unknown, options: unknown) {
-      tokenCacheStoreInstances.push(this as unknown as { clearAll: ReturnType<typeof vi.fn> });
-      tokenCacheStoreOptions.push(options);
-    }
   },
   useTokenCache: vi.fn(() => ({
     cacheVersion: 1,
@@ -115,24 +96,19 @@ describe('TokenCacheContext', () => {
   afterEach(() => {
     vi.clearAllMocks();
     __resetTokenCacheWorkerInitErrorsForTests();
-    __resetTokenCacheRekeyWipeForTests();
-    localStorage.removeItem(TOKEN_CACHE_REKEY_V5_MARKER);
-    tokenCacheStoreInstances.length = 0;
   });
 
   it('provides token cache context when within provider', async () => {
-    const db = { query: vi.fn() } as any;
-
     const TestComponent = () => {
-      const { getTokenCount, isReady } = useTokenCacheContext();
-      if (!isReady) {
+      const { getTokenCount, isOperational } = useTokenCacheContext();
+      if (!isOperational) {
         return <div>Loading...</div>;
       }
       return <div>Count: {getTokenCount('root', '/foo.ts')}</div>;
     };
 
     render(
-      <TokenCacheProvider db={db}>
+      <TokenCacheProvider>
         <TestComponent />
       </TokenCacheProvider>
     );
@@ -158,22 +134,9 @@ describe('TokenCacheContext', () => {
     expect(result.current).toBeNull();
   });
 
-  it('initializes persistent store when db is provided', async () => {
-    const db = { query: vi.fn() } as any;
-    const { result } = renderHook(() => useTokenCacheContext(), {
-      wrapper: ({ children }) => <TokenCacheProvider db={db}>{children}</TokenCacheProvider>,
-    });
-    // Wait for effects to run and set isReady to true
-    await waitFor(() => expect(result.current.isReady).toBe(true));
-    expect(tokenCacheStoreOptions.at(-1)).toMatchObject({
-      telemetry: { recordLookup: expect.any(Function) },
-    });
-  });
-
   it('provides a working countTextTokens function', async () => {
-    const db = { query: vi.fn() } as any;
     const { result } = renderHook(() => useTokenCacheContext(), {
-      wrapper: ({ children }) => <TokenCacheProvider db={db}>{children}</TokenCacheProvider>,
+      wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
     });
 
     await waitFor(() => expect(result.current.isWorkerReady).toBe(true));
@@ -181,9 +144,9 @@ describe('TokenCacheContext', () => {
     expect(count).toBeGreaterThan(0);
   });
 
-  it('uses fallback store when no db is provided', () => {
+  it('provides the in-memory store', () => {
     const { result } = renderHook(() => useTokenCacheContext(), {
-      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
     });
 
     expect(result.current.store).toBeDefined();
@@ -194,7 +157,7 @@ describe('TokenCacheContext', () => {
 
   it('stores and retrieves memory-mode token entries by folder and path', async () => {
     const { result } = renderHook(() => useTokenCacheContext(), {
-      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
     });
     const store = asMemoryStore(result.current.store);
     const entry = createTokenCacheEntry({
@@ -211,7 +174,7 @@ describe('TokenCacheContext', () => {
 
   it('supports memory-mode batch reads, totals, stats, and counting-mode filters', async () => {
     const { result } = renderHook(() => useTokenCacheContext(), {
-      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
     });
     const store = asMemoryStore(result.current.store);
     const entries = [
@@ -263,7 +226,7 @@ describe('TokenCacheContext', () => {
 
   it('deletes and clears memory-mode token entries without touching other folders', async () => {
     const { result } = renderHook(() => useTokenCacheContext(), {
-      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
     });
     const store = asMemoryStore(result.current.store);
     await store.setBatch([
@@ -287,60 +250,25 @@ describe('TokenCacheContext', () => {
     await expect(store.vacuum()).resolves.toBeUndefined();
   });
 
-  it('reuses the persistent store when the db wrapper object changes but query stays the same', async () => {
-    const query = vi.fn();
-    let currentDb = { query } as any;
-
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <TokenCacheProvider db={currentDb}>{children}</TokenCacheProvider>
-    );
-
-    const { result, rerender } = renderHook(() => useTokenCacheContext(), { wrapper });
-    await waitFor(() => expect(result.current.isPersisted).toBe(true));
-
-    const initialStore = result.current.store;
-
-    currentDb = { query };
-    rerender();
-
-    await waitFor(() => expect(result.current.isPersisted).toBe(true));
-    expect(result.current.store).toBe(initialStore);
-  });
-
-  describe('two-tier readiness semantics (BST-150)', () => {
-    it('is operational but not persisted when db is null', async () => {
+  describe('readiness semantics (BST-150)', () => {
+    it('is operational but never persisted', async () => {
       const { result } = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+        wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
       });
 
       // Wait for worker + hasher to initialize (isOperational)
       await waitFor(() => expect(result.current.isOperational).toBe(true));
 
-      // Without DB, persistence is not available
+      // There is no persistent tier
       expect(result.current.isPersisted).toBe(false);
       expect(result.current.persistenceMode).toBe('memory');
       // isReady (deprecated) equals isPersisted
       expect(result.current.isReady).toBe(false);
     });
 
-    it('is both operational and persisted when db is provided', async () => {
-      const db = { query: vi.fn() } as any;
-      const { result } = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={db}>{children}</TokenCacheProvider>,
-      });
-
-      // Wait for full initialization
-      await waitFor(() => expect(result.current.isPersisted).toBe(true));
-
-      expect(result.current.isOperational).toBe(true);
-      expect(result.current.isPersisted).toBe(true);
-      expect(result.current.persistenceMode).toBe('persistent');
-      expect(result.current.isReady).toBe(true);
-    });
-
     it('enables token counting when operational (even without persistence)', async () => {
       const { result } = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+        wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
       });
 
       // Wait for operational state
@@ -350,29 +278,12 @@ describe('TokenCacheContext', () => {
       const count = result.current.getTokenCount('folder', '/file.ts');
       expect(count).toBe(100); // From mock
     });
-
-    it('exposes persistenceMode correctly', async () => {
-      // Test memory mode (no DB)
-      const { result: resultNoDb } = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
-      });
-      await waitFor(() => expect(resultNoDb.current.isOperational).toBe(true));
-      expect(resultNoDb.current.persistenceMode).toBe('memory');
-
-      // Test persistent mode (with DB)
-      const db = { query: vi.fn() } as any;
-      const { result: resultWithDb } = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={db}>{children}</TokenCacheProvider>,
-      });
-      await waitFor(() => expect(resultWithDb.current.isPersisted).toBe(true));
-      expect(resultWithDb.current.persistenceMode).toBe('persistent');
-    });
   });
 
   describe('worker warmup handshake', () => {
     it('sets workerReady after successful warmup', async () => {
       const { result } = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+        wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
       });
 
       // Initially not ready
@@ -400,7 +311,7 @@ describe('TokenCacheContext', () => {
 
       try {
         const { result } = renderHook(() => useTokenCacheContext(), {
-          wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+          wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
         });
 
         await waitFor(() => expect(result.current.isWorkerReady).toBe(true));
@@ -439,7 +350,7 @@ describe('TokenCacheContext', () => {
 
       try {
         const { result } = renderHook(() => useTokenCacheContext(), {
-          wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+          wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
         });
 
         await waitFor(() => expect(mockExec.mock.calls.length).toBeGreaterThanOrEqual(3), {
@@ -476,7 +387,7 @@ describe('TokenCacheContext', () => {
 
       try {
         const firstRender = renderHook(() => useTokenCacheContext(), {
-          wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+          wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
         });
 
         await expect(firstRender.result.current.countTextTokens('hello world')).rejects.toThrow(
@@ -487,7 +398,7 @@ describe('TokenCacheContext', () => {
         firstRender.unmount();
 
         const secondRender = renderHook(() => useTokenCacheContext(), {
-          wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+          wrapper: ({ children }) => <TokenCacheProvider>{children}</TokenCacheProvider>,
         });
 
         await expect(secondRender.result.current.countTextTokens('hello again')).rejects.toThrow(
@@ -511,9 +422,7 @@ describe('TokenCacheContext', () => {
 
       const { result } = renderHook(() => useTokenCacheContext(), {
         wrapper: ({ children }) => (
-          <TokenCacheProvider db={null} lazyWorkerInit={true}>
-            {children}
-          </TokenCacheProvider>
+          <TokenCacheProvider lazyWorkerInit={true}>{children}</TokenCacheProvider>
         ),
       });
 
@@ -526,108 +435,6 @@ describe('TokenCacheContext', () => {
         await expect(result.current.countTextTokens('hello world')).resolves.toBeGreaterThan(0);
       });
       expect(vi.mocked(createTokenCacheWorkerPool)).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('RootId re-key wipe (storage v5)', () => {
-    let logEntries: LogRecord[];
-    let removeLogListener: () => void;
-
-    beforeEach(() => {
-      __resetTokenCacheRekeyWipeForTests();
-      localStorage.removeItem(TOKEN_CACHE_REKEY_V5_MARKER);
-      logEntries = [];
-      removeLogListener = addLogListener((entry) => {
-        logEntries.push(entry);
-      });
-    });
-
-    afterEach(() => {
-      removeLogListener();
-    });
-
-    it('clears the cache exactly once and sets the marker only after the clear resolves', async () => {
-      let resolveClear: (removed: number) => void = () => {};
-      const clearAll = vi.fn(
-        () =>
-          new Promise<number>((resolve) => {
-            resolveClear = resolve;
-          })
-      );
-
-      // Concurrent invocations (StrictMode double-effect analog) must coalesce.
-      const first = runTokenCacheRekeyWipeOnce({ clearAll });
-      const second = runTokenCacheRekeyWipeOnce({ clearAll });
-
-      expect(clearAll).toHaveBeenCalledTimes(1);
-      // Marker must NOT be set while the clear is still in flight.
-      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBeNull();
-
-      resolveClear(3);
-      await Promise.all([first, second]);
-
-      expect(clearAll).toHaveBeenCalledTimes(1);
-      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
-    });
-
-    it('does not clear when the marker is already set', async () => {
-      localStorage.setItem(TOKEN_CACHE_REKEY_V5_MARKER, 'true');
-      const clearAll = vi.fn().mockResolvedValue(0);
-
-      await runTokenCacheRekeyWipeOnce({ clearAll });
-
-      expect(clearAll).not.toHaveBeenCalled();
-      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
-    });
-
-    it('logs a warning, leaves the marker unset on clear failure, and retries next boot', async () => {
-      const clearAll = vi.fn().mockRejectedValue(new Error('db unavailable'));
-
-      await runTokenCacheRekeyWipeOnce({ clearAll });
-
-      expect(clearAll).toHaveBeenCalledTimes(1);
-      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBeNull();
-      const warnRecords = logEntries.filter((entry) => entry.level === LogLevel.WARN);
-      expect(warnRecords.length).toBeGreaterThanOrEqual(1);
-      expect(JSON.stringify(warnRecords)).toContain('db unavailable');
-
-      // Simulate the next boot: module state resets, marker still absent → retry.
-      __resetTokenCacheRekeyWipeForTests();
-      clearAll.mockResolvedValue(2);
-
-      await runTokenCacheRekeyWipeOnce({ clearAll });
-
-      expect(clearAll).toHaveBeenCalledTimes(2);
-      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
-    });
-
-    it('runs the wipe through the persistent store when the provider gets a db', async () => {
-      const db = { query: vi.fn() } as any;
-
-      render(
-        <TokenCacheProvider db={db}>
-          <div />
-        </TokenCacheProvider>
-      );
-
-      await waitFor(() => {
-        expect(tokenCacheStoreInstances).toHaveLength(1);
-        expect(tokenCacheStoreInstances[0]?.clearAll).toHaveBeenCalledTimes(1);
-      });
-      await waitFor(() => {
-        expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
-      });
-    });
-
-    it('does not wipe or set the marker when only the in-memory store is available', async () => {
-      const { result } = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
-      });
-
-      await waitFor(() => expect(result.current.isOperational).toBe(true));
-
-      expect(tokenCacheStoreInstances).toHaveLength(0);
-      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBeNull();
     });
   });
 });

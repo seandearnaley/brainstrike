@@ -28,9 +28,8 @@ installed metadata rather than copying model-size/version tables.
 The renderer composition root registers an explicit queue factory and streaming
 worker URL before local backend initialization. `TransformersBackend` refuses
 when Web Workers or that factory are unavailable; it does not bootstrap a second
-queue or silently run inference in Node. Web setup lives in
-[`create-embedding-queue.ts`](../../apps/web/src/create-embedding-queue.ts); desktop
-setup belongs to the hidden embedding-host adapters.
+queue or silently run inference in Node. Setup belongs to the hidden
+embedding-host adapters.
 
 Use [`inference-plan.ts`](src/inference-plan.ts) to preserve the selected model,
 optional revision, device, dtype, pooling, prompts and actual dimensions. Inference
@@ -38,25 +37,17 @@ results must validate before publication. An unavailable selected device does no
 authorize a fallback. Genuine GPU device loss retires the existing worker; the
 next explicit request acquires a fresh runtime.
 
-## Durable jobs and native ingestion
-
-`startEmbeddingWorker` processes the surviving database-backed `JobQueue` path;
-its options/controller live in
-[`embedding-worker.ts`](src/worker/embedding-worker.ts). Producer-owned
-`embeddingInputHash` and `sourceContentHash` travel in job payloads and fence stale
-chunk publication. Cache reuse requires matching content/model identity. See the
-[worker runtime guide](src/worker/README.md).
+## Native ingestion
 
 Desktop native ingestion uses its canonical producer, scoped index and hidden
-inference owner. A shared queue/service import does not make PGlite its persistence
-owner. Stop, reset and disposal must join the actual owned work. Detaching a
+inference owner. Stop, reset and disposal must join the actual owned work. Detaching a
 subscriber does not stop work owned by a longer-lived host. Hosted embeddings use
 their provider adapters and resolved credential boundary, keeping secrets outside
 local worker payloads.
 
 ## Development
 
-Use this package's `build`, `type-check`, `test` and `test:integration` scripts.
+Use this package's `build`, `type-check` and `test` scripts.
 Model/hardware probes are explicit work and have different prerequisites from
 unit checks. **CI is disabled due to cost; validation must run locally.** Follow
 `pnpm check`.

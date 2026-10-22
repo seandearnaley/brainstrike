@@ -26,12 +26,6 @@
       "path": "../db"
     },
     {
-      "path": "../embedding-worker"
-    },
-    {
-      "path": "../embeddings"
-    },
-    {
       "path": "../indexing-contract"
     },
     {
@@ -39,12 +33,6 @@
     },
     {
       "path": "../logging"
-    },
-    {
-      "path": "../utils"
-    },
-    {
-      "path": "../types"
     },
     {
       "path": "../worker-runtime"

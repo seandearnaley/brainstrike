@@ -29,6 +29,6 @@ describe('DatabasePanel', () => {
     expect(await screen.findByTestId('database-panel')).toBeInTheDocument();
     expect(await screen.findByTestId('mock-database-panel')).toBeInTheDocument();
     expect(mockDatabaseTabRender).toHaveBeenCalledTimes(1);
-    expect(capturedDatabaseTabProps).toEqual({ loadEmbeddingQueue: null });
+    expect(capturedDatabaseTabProps).toEqual({});
   });
 });

@@ -1,11 +1,6 @@
 import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 /** @vitest-environment happy-dom */
-import { afterEach, expect, test, vi } from 'vitest';
-
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
-}));
+import { afterEach, expect, test } from 'vitest';
 
 import {
   fetchCollectionsSnapshot,
@@ -15,7 +10,7 @@ import {
 afterEach(() => {
   Reflect.deleteProperty(window, 'collectionCatalog');
 });
-test('desktop collection snapshot uses its owner without a database and keeps inactive vector counts unavailable', async () => {
+test('desktop collection snapshot uses its owner and keeps inactive vector counts unavailable', async () => {
   Object.defineProperty(window, 'collectionCatalog', {
     configurable: true,
     value: {
@@ -37,12 +32,12 @@ test('desktop collection snapshot uses its owner without a database and keeps in
       }),
     },
   });
-  const [collection] = await fetchCollectionsSnapshot(null);
+  const [collection] = await fetchCollectionsSnapshot();
   expect(collection).toMatchObject({ chunkCount: 4, fileCount: 2, statsAvailable: false });
   expect(collection && formatCollectionLabel(collection)).toContain('2 files');
   expect(collection && formatCollectionLabel(collection)).toContain('unavailable');
 });
-test('desktop catalog failure remains a failure without querying another store', async () => {
+test('desktop catalog failure remains a failure', async () => {
   Object.defineProperty(window, 'collectionCatalog', {
     configurable: true,
     value: {
@@ -57,7 +52,5 @@ test('desktop catalog failure remains a failure without querying another store',
       }),
     },
   });
-  const query = vi.fn();
-  await expect(fetchCollectionsSnapshot({ query } as never)).rejects.toThrow('Catalog unavailable');
-  expect(query).not.toHaveBeenCalled();
+  await expect(fetchCollectionsSnapshot()).rejects.toThrow('Catalog unavailable');
 });

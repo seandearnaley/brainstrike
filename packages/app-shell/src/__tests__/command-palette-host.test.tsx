@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => null }));
 const noHandlers = {};
 vi.mock('../use-global-command-handlers', () => ({
   useGlobalCommandHandlers: () => noHandlers,

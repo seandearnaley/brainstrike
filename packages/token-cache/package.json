@@ -9,7 +9,6 @@
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@electric-sql/pglite": "catalog:",
     "effect": "catalog:",
     "xxhash-wasm": "catalog:"
   },

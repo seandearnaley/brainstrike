@@ -1,34 +1,6 @@
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { unsubscribeMock, subscribeMock, usePGliteDatabaseMock, usePGliteLiveQueryMock } =
-  vi.hoisted(() => {
-    const unsubscribe = vi.fn(async () => undefined);
-    const subscribe = vi.fn(() => unsubscribe);
-    return {
-      subscribeMock: subscribe,
-      unsubscribeMock: unsubscribe,
-      usePGliteDatabaseMock: vi.fn(),
-      // The live-query hook drives the real subscription lifecycle (its own
-      // package tests prove subscribe-on-mount / unsubscribe-on-unmount). Here we
-      // simulate that: when enabled, calling the hook registers a subscription,
-      // and React cleanup must invoke the returned unsubscribe on unmount.
-      usePGliteLiveQueryMock: vi.fn(),
-    };
-  });
-
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteDatabase: usePGliteDatabaseMock,
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteDatabase: usePGliteDatabaseMock,
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-
 import { useCrossRootCost } from '../use-cross-root-cost';
 
 type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
@@ -37,32 +9,17 @@ function setDesktopAgentHost(bridge: AgentHostBridge): void {
   (window as unknown as { agentHost?: AgentHostBridge }).agentHost = bridge;
 }
 
-describe('useCrossRootCost', () => {
-  it('does not subscribe to the retired PGlite usage table', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    renderHook(() => useCrossRootCost());
-    expect(
-      usePGliteLiveQueryMock.mock.calls.every(
-        ([options]) => !String(options.query).includes('brainstrike_assistant_run_usage')
-      )
-    ).toBe(true);
+function installCatalog(readRoots: () => Promise<unknown>): void {
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
   });
+}
 
+describe('useCrossRootCost', () => {
   beforeEach(() => {
-    subscribeMock.mockClear();
-    unsubscribeMock.mockClear();
-    usePGliteDatabaseMock.mockReset();
-    usePGliteLiveQueryMock.mockReset();
     // Default: durable assistant backend present (desktop) unless a test clears it.
     setDesktopAgentHost({ connect: async () => undefined });
-    // Default live-query behavior: a real subscribe/unsubscribe pair tied to
-    // React's effect lifecycle, plus empty rows.
-    usePGliteLiveQueryMock.mockImplementation((options: { enabled?: boolean }) => {
-      if (options.enabled) {
-        subscribeMock();
-      }
-      return { error: null, loading: false, refresh: vi.fn(), rows: [] };
-    });
   });
 
   afterEach(() => {
@@ -71,27 +28,26 @@ describe('useCrossRootCost', () => {
     vi.restoreAllMocks();
   });
 
-  it('is unavailable on web and subscribes to no database query', () => {
+  it('is unavailable without a durable assistant backend', async () => {
     setDesktopAgentHost(undefined);
+    installCatalog(async () => []);
     const { result } = renderHook(() => useCrossRootCost());
+    await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.available).toBe(false);
     expect(result.current.rows).toEqual([]);
-    expect(subscribeMock).not.toHaveBeenCalled();
   });
 
-  it('names a host row by its root, as the usage aggregation joins the roots table', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    usePGliteLiveQueryMock.mockImplementation((options: { query: string }) => ({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: options.query.includes('FROM roots')
-        ? [
-            { displayName: 'Workspace B', id: 'root-b' },
-            { displayName: null, id: 'root-c' },
-          ]
-        : [],
-    }));
+  it('reports the missing thread groups capability instead of an empty result', () => {
+    const { result } = renderHook(() => useCrossRootCost());
+    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.rows).toEqual([]);
+  });
+
+  it('names a host row by its root, keeping the committed name for an unnamed root', async () => {
+    installCatalog(async () => [
+      { displayName: 'Workspace B', id: 'root-b', path: '/fixture/b' },
+      { displayName: null, id: 'root-c', path: '/fixture/c' },
+    ]);
     const hostRow = {
       estimatedCacheCreationTokens: 0,
       estimatedCacheReadTokens: 0,
@@ -110,6 +66,7 @@ describe('useCrossRootCost', () => {
 
     const { result } = renderHook(() => useCrossRootCost(hostRootUsage));
 
+    await waitFor(() => expect(result.current.loading).toBe(false));
     expect(
       result.current.rows.map(({ rootDisplayName, rootId }) => [rootId, rootDisplayName])
     ).toEqual([
@@ -119,20 +76,12 @@ describe('useCrossRootCost', () => {
       ['root-c', 'Committed name'],
     ]);
   });
-  it('reads native folder names without a PGlite provider and surfaces catalog failure', async () => {
+
+  it('reads native folder names and surfaces catalog failure', async () => {
     const readRoots = vi
       .fn()
       .mockResolvedValue([{ displayName: 'Current folder', id: 'root-b', path: '/fixture' }]);
-    Object.defineProperty(window, 'threadGroups', {
-      configurable: true,
-      value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
-    });
-    usePGliteDatabaseMock.mockImplementation(({ enabled }: { enabled?: boolean } = {}) => {
-      if (enabled !== false) {
-        throw new Error('Native costs attempted PGlite');
-      }
-      return null;
-    });
+    installCatalog(readRoots);
     const usage = [
       {
         estimatedCacheCreationTokens: 0,
@@ -150,7 +99,6 @@ describe('useCrossRootCost', () => {
     const { result, unmount } = renderHook(() => useCrossRootCost(usage));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.rows[0]?.rootDisplayName).toBe('Current folder');
-    expect(subscribeMock).not.toHaveBeenCalled();
     unmount();
     const failure = new Error('Catalog unavailable');
     readRoots.mockRejectedValue(failure);

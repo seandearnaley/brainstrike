@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/db": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",

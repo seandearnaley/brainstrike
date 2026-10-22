@@ -47,19 +47,11 @@ describe('navigateThreadSearchResult for host threads', () => {
     vi.restoreAllMocks();
   });
 
-  it('opens a host root thread at the matched message without asking history', async () => {
+  it('opens a host root thread at the matched message', async () => {
     const open = vi.spyOn(useAssistantThreadStore.getState(), 'openThreadTab');
-    const history = { getNavigationTarget: vi.fn() };
 
-    await navigateThreadSearchResult(
-      history as never,
-      OWNER,
-      'host-root',
-      'host-message',
-      host(['host-root'], {})
-    );
+    await navigateThreadSearchResult(OWNER, 'host-root', 'host-message', host(['host-root'], {}));
 
-    expect(history.getNavigationTarget).not.toHaveBeenCalled();
     expect(open).toHaveBeenCalledWith(OWNER, 'host-root');
     expect(useThreadSearchStore.getState().navigationTarget).toMatchObject({
       messageId: 'host-message',
@@ -71,7 +63,6 @@ describe('navigateThreadSearchResult for host threads', () => {
     const open = vi.spyOn(threadWorkspaceNavigation, 'open').mockImplementation(() => undefined);
 
     await navigateThreadSearchResult(
-      null,
       OWNER,
       'host-grandchild',
       undefined,
@@ -90,13 +81,7 @@ describe('navigateThreadSearchResult for host threads', () => {
   });
 
   it('surfaces a host thread whose origin no longer resolves', async () => {
-    await navigateThreadSearchResult(
-      null,
-      OWNER,
-      'host-orphan',
-      undefined,
-      host(['host-orphan'], {})
-    );
+    await navigateThreadSearchResult(OWNER, 'host-orphan', undefined, host(['host-orphan'], {}));
 
     expect(useThreadSearchStore.getState().navigationError).toBe(
       'The child conversation is missing or does not belong to this workspace.'

@@ -1,5 +1,5 @@
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
+import type { EmbeddingSetSystemRole } from '@brainstrike/db';
 import {
   Badge,
   Select,
@@ -13,11 +13,6 @@ import { fetchCollectionsSnapshot } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
-import {
-  COLLECTION_STATS_QUERY,
-  type CollectionStatsRow,
-  resolveEffectiveStatsRow,
-} from './collection-stats-query';
 
 export interface SearchCollectionPickerProps {
   onCollectionChange?: (id: string) => void;
@@ -29,18 +24,28 @@ export interface SearchCollectionPickerProps {
  * nothing to choose). Imported sets require an explicit collection scope even
  * when only one exists. The workspace-index row carries a "Managed" badge.
  */
-type PickerRow = Pick<CollectionStatsRow, 'id' | 'name'> & {
-  systemRole?: CollectionStatsRow['systemRole'];
-};
-
-export function SearchCollectionPicker(props: SearchCollectionPickerProps) {
-  if (typeof window !== 'undefined' && 'collectionCatalog' in window) {
-    return <NativeCollectionPicker {...props} />;
-  }
-  return <WebCollectionPicker {...props} />;
+interface PickerRow {
+  id: string;
+  name: string | null;
+  systemRole?: EmbeddingSetSystemRole | null;
 }
 
-function NativeCollectionPicker(props: SearchCollectionPickerProps) {
+/**
+ * Resolves the row for the currently selected embedding set. `collectionId
+ * === null` means "resolve the workspace-index set" (the store's
+ * documented convention — see `workspace-search-store.ts`).
+ */
+function resolveEffectiveRow<T extends PickerRow>(
+  rows: readonly T[],
+  collectionId: string | null
+): T | null {
+  if (collectionId) {
+    return rows.find((row) => row.id === collectionId) ?? null;
+  }
+  return rows.find((row) => row.systemRole === 'workspace-index') ?? null;
+}
+
+export function SearchCollectionPicker(props: SearchCollectionPickerProps) {
   const [snapshot, setSnapshot] = useState<{ rows: readonly PickerRow[]; error: string | null }>({
     error: null,
     rows: [],
@@ -48,7 +53,7 @@ function NativeCollectionPicker(props: SearchCollectionPickerProps) {
   useEffect(() => {
     let pending: ReturnType<typeof fetchCollectionsSnapshot> | null = null;
     const refresh = () => {
-      const read = fetchCollectionsSnapshot(null);
+      const read = fetchCollectionsSnapshot();
       pending = read;
       read.then(
         (rows) => {
@@ -78,16 +83,6 @@ function NativeCollectionPicker(props: SearchCollectionPickerProps) {
   return <CollectionPickerRows {...props} rows={snapshot.rows} />;
 }
 
-function WebCollectionPicker(props: SearchCollectionPickerProps) {
-  const { rows } = usePGliteLiveQuery<CollectionStatsRow>({
-    cacheKey: makeLiveQueryKey('workspace-search-collection-stats'),
-    key: 'id',
-    mode: 'incremental',
-    query: COLLECTION_STATS_QUERY,
-  });
-  return <CollectionPickerRows {...props} rows={rows} />;
-}
-
 function CollectionPickerRows({
   onCollectionChange,
   rows,
@@ -96,7 +91,7 @@ function CollectionPickerRows({
   const setCollectionId = useWorkspaceSearchStore((state) => state.setCollectionId);
 
   const effectiveId = useMemo(
-    () => resolveEffectiveStatsRow(rows, collectionId)?.id ?? '',
+    () => resolveEffectiveRow(rows, collectionId)?.id ?? '',
     [rows, collectionId]
   );
 

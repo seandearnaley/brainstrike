@@ -30,11 +30,8 @@ function resolve(
   overrides: Partial<Parameters<typeof resolveThreadPanelContentState>[0]> = {}
 ): ReturnType<typeof resolveThreadPanelContentState> {
   return resolveThreadPanelContentState({
-    databaseError: null,
-    databaseStartupLoading: false,
     folderGrouping: null,
     loadState: { status: 'ready' },
-    repositoryReady: true,
     threadFiltersActive: false,
     threads: [thread('thread-a')],
     view: POPULATED_FLAT,
@@ -60,44 +57,11 @@ describe('resolveThreadPanelContentState', () => {
     expect(REQUIRED_INPUT_CONTRACT).toEqual([true, true]);
   });
 
-  it('shows the treegrid once the repository is ready and threads exist', () => {
+  it('shows the treegrid once threads exist', () => {
     expect(resolve()).toEqual({ kind: 'tree' });
   });
 
   it.each([
-    {
-      expected: {
-        description: 'Reading Mastra memory from PGlite.',
-        kind: 'card',
-        testId: 'threads-loading-card',
-        title: 'Loading threads...',
-        variant: 'muted',
-      },
-      name: 'database startup still running',
-      overrides: { databaseStartupLoading: true, repositoryReady: false },
-    },
-    {
-      expected: {
-        description: 'PGlite refused to open.',
-        kind: 'card',
-        testId: 'threads-error-card',
-        title: 'Assistant memory database failed',
-        variant: 'error',
-      },
-      name: 'database provider failed',
-      overrides: { databaseError: new Error('PGlite refused to open.'), repositoryReady: false },
-    },
-    {
-      expected: {
-        description: 'The assistant is unavailable until PGlite memory initializes.',
-        kind: 'card',
-        testId: 'threads-error-card',
-        title: 'Assistant memory database unavailable',
-        variant: 'error',
-      },
-      name: 'repository missing after startup settled',
-      overrides: { repositoryReady: false },
-    },
     {
       expected: {
         description: 'Reading Mastra memory from PGlite.',
@@ -196,16 +160,6 @@ describe('resolveThreadPanelContentState', () => {
     expect(resolve({ threads: [], view: EMPTY_FLAT })).toMatchObject({
       testId: 'threads-placeholder-card',
     });
-  });
-
-  it('prefers the startup-loading card over the unavailable card while both could apply', () => {
-    expect(
-      resolve({
-        databaseError: new Error('ignored while startup is still running'),
-        databaseStartupLoading: true,
-        repositoryReady: false,
-      })
-    ).toMatchObject({ testId: 'threads-loading-card' });
   });
 });
 

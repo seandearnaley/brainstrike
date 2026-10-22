@@ -14,7 +14,6 @@ against current source and tests. Historical notes are reference, not more rules
 | Providers, credentials and MCP | [Providers](assistant-providers.md), [provider cassettes](provider-cassettes.md) |
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
 | Canonical SQLite state and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
-| Catalogs and remaining PGlite | [Database](database.md) |
 | Derived search and indexing | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
 | Embeddings and local LLM | [Local inference](local-inference.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |

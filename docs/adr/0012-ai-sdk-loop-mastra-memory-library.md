@@ -37,9 +37,8 @@ Brainstrike state lives in Brainstrike tables.
   processors, the 606-line patch and the 4.7K-line PGlite storage adapter.
   The original six-week parallel-runtime window was superseded by
   [ADR-0020](0020-greenfield-data-lifecycle.md): greenfield development requires
-  no legacy-data compatibility period or switch-back gate. Surviving web and
-  conformance PGlite consumers are distinct from the retired desktop engine;
-  see the current [database contract](../agents/database.md).
+  no legacy-data compatibility period or switch-back gate. The PGlite engine has
+  since been removed with the web app.
 - A Mastra server adapter would move ownership of auth, CORS, secrets and the desktop
   loopback lifecycle for no capability Brainstrike lacks. A Mastra browser runtime
   needs a product decision naming which runtime owns browser state, credentials,

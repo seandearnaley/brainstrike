@@ -1,5 +1,4 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
@@ -12,12 +11,6 @@ import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
 import { RootsContext } from '../use-delegated-conversation-root';
 import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
-
-vi.mock('@brainstrike/db/react', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
-  useDbProviderError: () => null,
-  usePGliteDatabase: () => null,
-}));
 
 vi.mock('@brainstrike/file-explorer-hooks', async () => {
   const { createContext } = await import('react');
@@ -175,7 +168,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 vi.mock('@brainstrike/vector-management', () => ({
-  EmbeddingRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
   SearchEmbedderProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -198,14 +190,8 @@ vi.mock('../command-palette-host', () => ({
   CommandPaletteHost: () => <div data-testid="command-palette-host" />,
 }));
 
-// The quick-open host pulls in the file-explorer store, DB live query, and the
-// file-open seam; mock it the same way as the command palette host.
-vi.mock('../quick-open-host', () => ({
-  QuickOpenHost: () => <div data-testid="quick-open-host" />,
-}));
-
 // The workspace-connect host pulls in the file-system context and the desktop
-// bridge; mock it the same way as the command palette and quick-open hosts.
+// bridge; mock it the same way as the command palette host.
 vi.mock('../workspace-connect/workspace-connect-host', () => ({
   WorkspaceConnectHost: () => <div data-testid="workspace-connect-host" />,
 }));
@@ -243,19 +229,12 @@ vi.mock('../agent-sidebar-panel', () => ({
 }));
 
 vi.mock('../connected-prompt-manager-lazy', () => ({
-  ConnectedPromptManagerLazy: ({
-    loadEmbeddingQueue,
-    suggestionsEnabled,
-  }: {
-    loadEmbeddingQueue: (() => Promise<unknown>) | null;
-    suggestionsEnabled?: boolean;
-  }) => {
+  ConnectedPromptManagerLazy: ({ suggestionsEnabled }: { suggestionsEnabled?: boolean }) => {
     if (mockHandlers.promptManagerSuspended) {
       throw mockHandlers.promptManagerSuspense;
     }
     return (
       <div
-        data-has-embedding-queue={loadEmbeddingQueue ? 'true' : 'false'}
         data-suggestions-enabled={suggestionsEnabled ? 'true' : 'false'}
         data-testid="connected-prompt-manager"
       />
@@ -305,6 +284,7 @@ describe('RootLayoutContent', () => {
   ) =>
     render(
       <RootLayoutContent
+        deleteRootData={async () => undefined}
         navigationItems={navigationItems}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
         {...overrides}
@@ -375,6 +355,7 @@ describe('RootLayoutContent', () => {
     });
     view.rerender(
       <RootLayoutContent
+        deleteRootData={async () => undefined}
         diagnosticFeatureFlags={['diagnostics-v2']}
         gitPageContent={<div data-testid="git-page">Git</div>}
         navigationItems={navigationItems}
@@ -406,16 +387,6 @@ describe('RootLayoutContent', () => {
 
     view.unmount();
     expect(disconnect).toHaveBeenCalledTimes(1);
-  });
-
-  it('forwards the app embedding queue loader to the prompt workbench', () => {
-    const loadEmbeddingQueue = vi.fn(async () => ({ id: 'queue' }) as unknown as QueueAdapter);
-    renderComponent({ loadEmbeddingQueue });
-
-    expect(screen.getByTestId('connected-prompt-manager')).toHaveAttribute(
-      'data-has-embedding-queue',
-      'true'
-    );
   });
 
   it('shows a stable prompt-workbench fallback while the lazy panel graph loads', () => {

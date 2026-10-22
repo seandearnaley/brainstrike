@@ -117,7 +117,6 @@ export function NativeLibraryPanel({
       ) : null}
       <SearchCollectionSelector
         activeCollectionId={collectionId}
-        db={null}
         onCollectionChange={select}
         onCreateCollection={dialogs.handleCreateCollection}
         onDeleteCollection={dialogs.handleDeleteCollection}
@@ -135,7 +134,6 @@ export function NativeLibraryPanel({
         createDialog={
           dialogs.createCollectionOpen ? (
             <CreateCollectionDialog
-              db={null}
               onClose={dialogs.closeCreateDialog}
               onCreated={(id, set) => {
                 upsert(collectionCacheSnapshotFromEmbeddingSet(set));

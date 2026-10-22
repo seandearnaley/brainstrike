@@ -37,10 +37,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@brainstrike/db": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
-    "@electric-sql/pglite": "catalog:",
     "@modelcontextprotocol/node": "catalog:",
     "@modelcontextprotocol/server": "catalog:",
     "@modelcontextprotocol/server-legacy": "catalog:",
@@ -127,16 +125,6 @@
       "import": "./dist/browser-safe.mjs",
       "require": "./dist/browser-safe.js"
     },
-    "./hosted-web": {
-      "types": "./dist/hosted-web.d.ts",
-      "import": "./dist/hosted-web.mjs",
-      "require": "./dist/hosted-web.js"
-    },
-    "./request-boundary": {
-      "types": "./dist/request-boundary.d.ts",
-      "import": "./dist/request-boundary.mjs",
-      "require": "./dist/request-boundary.js"
-    },
     "./tool-metadata": {
       "types": "./dist/tool-metadata.d.ts",
       "import": "./dist/tool-metadata.mjs",
@@ -172,7 +160,7 @@
   "module": "./dist/index.mjs",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && tsup && node scripts/verify-hosted-web-bundle.mjs",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && tsup",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "concurrently --kill-others --names types,bundle \"tsc --project tsconfig.json --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",

@@ -10,10 +10,6 @@ function readDesktopViteConfig(): string {
   return readFileSync(path.resolve(process.cwd(), 'vite.config.mts'), 'utf8');
 }
 
-function readWebViteConfig(): string {
-  return readFileSync(path.resolve(process.cwd(), '../web/vite.config.mts'), 'utf8');
-}
-
 const PACKAGES_DIR = path.resolve(process.cwd(), '../../packages');
 
 /**
@@ -103,7 +99,7 @@ describe('desktop vite config alias contract', () => {
     expect(resolveThroughAliases('@brainstrike/workers', registryEntries)).toBeNull();
   });
 
-  it('source-aliases context-actions + commands in BOTH renderer vite configs via the registry (chunk-init TDZ)', () => {
+  it('source-aliases context-actions + commands in the renderer vite config via the registry (chunk-init TDZ)', () => {
     // Resolving these to their built `dist` (instead of source, like every other
     // @brainstrike package) lands `defineContextAction` in a separate chunk from
     // the source feature `*/context-actions` that call it at module-init →
@@ -124,12 +120,11 @@ describe('desktop vite config alias contract', () => {
       // this line exists to guard.
       expect(resolved).not.toMatch(/[/\\]dist[/\\]/);
     }
-    // Both configs spread the shared registry and neither shadows these two
+    // The config spreads the shared registry and does not shadow these two
     // with a stale literal override.
-    for (const config of [readDesktopViteConfig(), readWebViteConfig()]) {
-      expect(config).toContain('workspaceSrcAliases(');
-      expect(config).not.toMatch(/find:\s*'@brainstrike\/context-actions/);
-    }
+    const config = readDesktopViteConfig();
+    expect(config).toContain('workspaceSrcAliases(');
+    expect(config).not.toMatch(/find:\s*'@brainstrike\/context-actions/);
   });
 
   it('uses a dedicated strict dev-server port for the desktop renderer', () => {

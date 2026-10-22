@@ -44,17 +44,8 @@ export default defineConfig({
     // every base-config-derived lane; the manual `test:models` script
     // re-includes them via vitest.models.config.mts.
     exclude: ['**/node_modules/**', '**/dist/**', '**/*.models.test.*'],
-    // PGlite WASM init + migrate inside beforeEach hooks exceeds the 10s
-    // default under loaded CI runners (embedding-worker-db-completion ran into
-    // this twice on whole-repo Unit runs); 30s matches packages/db's heavy-lane
-    // precedent (vitest.config.mts hookTimeout). Kept identical on both lanes.
     hookTimeout: 30_000,
-    // Full `*.test.*` suffix breadth. The pure `test` script additionally
-    // passes --exclude "**/*.integration.test.*", so the env-sensitive
-    // integration lane (real PGlite / wall-clock timing) runs ONLY via
-    // `test:integration` (vitest.integration.config.mts). Base `test:coverage`
-    // keeps this full include so coverage measures pure + integration in one
-    // process; `.models.test.*` stays excluded via `exclude` above.
+    // Full `*.test.*` suffix breadth; `.models.test.*` stays excluded via `exclude` above.
     include: ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',

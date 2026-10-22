@@ -1,10 +1,10 @@
 import {
   buildPromptItemEmbeddingText,
   type PromptEmbeddingProfile,
+  type PromptItemRepositoryPort,
   type PromptItemSimilarityOptions,
   type PromptItemSimilarityResult,
-} from '@brainstrike/db';
-import type { PromptItemRepositoryPort } from '@brainstrike/types/prompt-item';
+} from '@brainstrike/types/prompt-item';
 import type {
   EmbeddingSetModelInfo,
   UseSearchEmbedderResult,

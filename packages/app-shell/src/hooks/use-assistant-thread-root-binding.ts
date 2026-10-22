@@ -1,6 +1,5 @@
 import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import type { DbHandle } from '@brainstrike/db/react';
 import { useCallback } from 'react';
 import {
   type AssistantOperatingRootCandidate,
@@ -15,7 +14,6 @@ import { getThreadGroupsCapability } from '../thread-groups-capability';
 interface UseAssistantThreadRootBindingArgs {
   readonly assistantThreadRepository: AssistantThreadCatalogRepository | null;
   readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
-  readonly database: DbHandle | null;
   readonly memoryResourceId: string;
   readonly selectedMemoryThreadId: string | undefined;
 }
@@ -47,7 +45,6 @@ interface UseAssistantThreadRootBindingResult {
 export function useAssistantThreadRootBinding({
   assistantThreadRepository,
   currentMainRoot,
-  database,
   memoryResourceId,
   selectedMemoryThreadId,
 }: UseAssistantThreadRootBindingArgs): UseAssistantThreadRootBindingResult {
@@ -84,13 +81,13 @@ export function useAssistantThreadRootBinding({
     if (!currentMainRoot) {
       return;
     }
-    if (!(database || getThreadGroupsCapability())) {
+    if (!getThreadGroupsCapability()) {
       throw new Error(
         'Cannot bind an assistant thread root before the workspace database is ready.'
       );
     }
-    return resolveDurableAssistantOperatingRootBinding(database, currentMainRoot);
-  }, [currentMainRoot, database, selectedThreadMetadataPending, threadRootBinding]);
+    return resolveDurableAssistantOperatingRootBinding(currentMainRoot);
+  }, [currentMainRoot, selectedThreadMetadataPending, threadRootBinding]);
   const persistThreadRootBinding = useCallback(
     async (binding: Omit<AssistantOperatingRootBinding, 'persisted'>): Promise<void> => {
       if (!(assistantThreadRepository && selectedMemoryThreadId)) {

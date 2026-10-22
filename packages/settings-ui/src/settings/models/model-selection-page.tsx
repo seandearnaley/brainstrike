@@ -115,7 +115,6 @@ export function ModelCatalogHeaderActions() {
 }
 
 export function ModelSelectionPage() {
-  const db = useModelRegistrySource();
   const { downloadedModels, downloadProgress, error, hasLoaded, isDownloading, models, providers } =
     useModelRegistryStore(
       useShallow((state) => ({
@@ -135,7 +134,7 @@ export function ModelSelectionPage() {
   const { busyModelIds, toggle, toggleMany } = useModelToggle();
   const applyBulkChange = useModelBulkToggle({ busyModelIds, toggleMany });
 
-  useEnsureModelRegistry({ db });
+  useEnsureModelRegistry();
   useDownloadedModelsRead();
 
   // Reads the store at call time so the handler stays identity-stable while

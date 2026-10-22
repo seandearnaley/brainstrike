@@ -29,9 +29,8 @@ export routines. Keep their escaping and record/column contracts. Read the
 exported component props when composing a surface instead of duplicating them here.
 
 Persistent preference/state stores belong to `@brainstrike/app-state`; feature
-view/cache state does not create another durable product fact. See
-[database](../../docs/agents/database.md) and
-[UI](../../docs/agents/ui-conventions.md) contracts.
+view/cache state does not create another durable product fact. See the
+[UI](../../docs/agents/ui-conventions.md) contract.
 
 ## Development
 

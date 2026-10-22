@@ -2,7 +2,6 @@ import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-r
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
-import type { DbHandle } from '@brainstrike/db/react';
 import {
   type EmbeddingProviderType,
   parseEmbeddingProviderModelKey,
@@ -36,7 +35,6 @@ type EmbeddingSetWithStats = EmbeddingSet & {
 };
 
 interface ManageEmbeddingSetsDialogProps {
-  db: DbHandle | null;
   onOpenChange: (open: boolean) => void;
   onSetSelected?: (setId: string) => void;
   open: boolean;
@@ -176,7 +174,6 @@ function dialogReducer(state: DialogState, action: DialogAction): DialogState {
 export function ManageEmbeddingSetsDialog({
   open,
   onOpenChange,
-  db,
   repository,
   onSetSelected,
 }: ManageEmbeddingSetsDialogProps) {
@@ -186,13 +183,13 @@ export function ManageEmbeddingSetsDialog({
 
   // Get all models from database - single source of truth
   const dbModels = useModelRegistryStore((state) => state.models);
-  useEnsureModelRegistry({ db, enabled: open });
+  useEnsureModelRegistry({ enabled: open });
 
   const loadSets = useCallback(async () => {
     await Promise.resolve();
     dispatch({ type: 'sets_loading' });
     try {
-      const snapshot = await fetchCollectionsSnapshot(db);
+      const snapshot = await fetchCollectionsSnapshot();
       const mapped: EmbeddingSetWithStats[] = snapshot.map((entry) => ({
         ...mapRowToSet({ ...entry, lastEmbeddedAt: entry.statsLastRefreshedAt ?? null }),
         ...(entry.vectorStatsUnavailableReason
@@ -207,7 +204,7 @@ export function ManageEmbeddingSetsDialog({
         type: 'sets_error',
       });
     }
-  }, [db]);
+  }, []);
 
   // biome-ignore lint/plugin: Load sets when dialog opens — standard modal data loading for controlled open prop
   useEffect(() => {

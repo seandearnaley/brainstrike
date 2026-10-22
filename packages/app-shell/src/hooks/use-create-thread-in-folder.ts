@@ -1,11 +1,9 @@
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantThreadCatalogRepository,
-  createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
 import {
@@ -29,24 +27,13 @@ export interface ThreadFolderBinding {
  * file-system-access root): the display name + durable root id ARE the
  * binding, and the path is display-only.
  */
-export function useCreateThreadInFolder(
-  providedRepository?: AssistantThreadCatalogRepository | null
-): ((folder: ThreadFolderBinding) => void) | null {
+export function useCreateThreadInFolder(): ((folder: ThreadFolderBinding) => void) | null {
   const host = useAssistantThreadHost();
-  const database = usePGliteDatabase({ enabled: !host && providedRepository === undefined });
-  // The host's existing thread owner creates the thread and commits its folder
-  // binding when the app has one. A refused binding is reported below; it never
-  // falls back to a history thread.
+  // The host's thread owner creates the thread and commits its folder binding.
+  // A refused binding is reported below; it never falls back to a history thread.
   const repository = useMemo(
-    () =>
-      providedRepository === undefined
-        ? host
-          ? createHostAssistantThreadRepository(host)
-          : database
-            ? createPgliteAssistantThreadRepository(database)
-            : null
-        : providedRepository,
-    [database, host, providedRepository]
+    () => (host ? createHostAssistantThreadRepository(host) : null),
+    [host]
   );
   return useCreateThreadInFolderRepository(repository);
 }
