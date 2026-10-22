@@ -246,6 +246,13 @@ export default defineConfig({
     // Dev/preview middleware for /api/chat to support E2E and local dev
     devChatApiPlugin(),
   ],
+  // `pnpm start` (the E2E webServer) serves the built app here; the port comes from PORT, not from a
+  // POSIX `${PORT:-8080}` in the script, so the same command runs under cmd.exe on Windows.
+  preview: {
+    host: true,
+    port: Number(process.env['PORT'] ?? 8080),
+    strictPort: true,
+  },
   resolve: {
     // Array form: first match wins, so deliberate overrides/exceptions come
     // BEFORE the shared registry spread (mirrors apps/desktop/vite.config.mts

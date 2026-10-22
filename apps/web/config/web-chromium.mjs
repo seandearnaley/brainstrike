@@ -1,6 +1,8 @@
 // BST-1964: upstream fix https://github.com/chromium/chromium/commit/909a0222ba0f48ace3fd3a011b379dcd998871bb
 // Remove this executable override when bundled Chromium passes the same native
 // cold-roundtrip and app persistence qualification gates.
+import { isAbsolute, join } from 'node:path';
+
 export const WEB_CHROMIUM_VERSION = '154.0.8037.57';
 
 /** @param {string} platform @param {string} arch
@@ -13,15 +15,18 @@ export function getWebChromiumTarget(platform, arch) {
     'darwin-x64': 'mac-x64',
     'linux-arm64': 'linux-arm64',
     'linux-x64': 'linux64',
+    'win32-x64': 'win64',
   };
   const artifact = artifacts[`${platform}-${arch}`];
   if (!artifact) {
     throw new Error(`Unsupported web Chromium host: ${platform}/${arch}`);
   }
+  const executables = {
+    darwin: `chrome-${artifact}/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+    win32: `chrome-${artifact}/chrome.exe`,
+  };
   const executable =
-    platform === 'darwin'
-      ? `chrome-${artifact}/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
-      : `chrome-${artifact}/chrome`;
+    executables[/** @type {'darwin' | 'win32'} */ (platform)] ?? `chrome-${artifact}/chrome`;
   return {
     executable,
     platform: artifact,
@@ -33,11 +38,11 @@ export function getWebChromiumTarget(platform, arch) {
  * @returns {string}
  */
 export function getWebChromiumExecutablePath(directory, platform, arch) {
-  if (!directory?.startsWith('/')) {
+  if (!(directory && isAbsolute(directory))) {
     throw new Error(
       'BRAINSTRIKE_WEB_CHROMIUM_DIR must name an explicit absolute provisioning directory'
     );
   }
   const target = getWebChromiumTarget(platform, arch);
-  return `${directory}/${WEB_CHROMIUM_VERSION}/${target.platform}/${target.executable}`;
+  return join(directory, WEB_CHROMIUM_VERSION, target.platform, target.executable);
 }

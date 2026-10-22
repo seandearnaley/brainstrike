@@ -57,10 +57,19 @@ export async function provisionWebChromium(directory) {
     throw new Error(`CfT executable is not a file: ${executablePath}`);
   }
   await access(stagedExecutable, constants.X_OK);
-  const versionCheck = spawnSync(stagedExecutable, ['--version'], {
-    encoding: 'utf8',
-    timeout: 10_000,
-  });
+  // Windows chrome.exe ignores --version and opens a browser; its version is in the file's version resource.
+  const versionCheck =
+    process.platform === 'win32'
+      ? spawnSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-Command',
+            `(Get-Item -LiteralPath '${stagedExecutable}').VersionInfo.ProductVersion`,
+          ],
+          { encoding: 'utf8', timeout: 10_000 }
+        )
+      : spawnSync(stagedExecutable, ['--version'], { encoding: 'utf8', timeout: 10_000 });
   if (versionCheck.error) {
     throw versionCheck.error;
   }
@@ -78,7 +87,10 @@ export async function provisionWebChromium(directory) {
     url: target.url,
     version: WEB_CHROMIUM_VERSION,
   };
-  await rename(extracted, installDirectory);
+  // Move the archive's single top folder into the claimed directory: Windows refuses to rename a
+  // directory onto an existing one, even an empty one.
+  const topFolder = target.executable.split('/')[0];
+  await rename(join(extracted, topFolder), join(installDirectory, topFolder));
   await rm(staging, { recursive: true });
   process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
   return receipt;
