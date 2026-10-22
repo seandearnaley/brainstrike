@@ -1,6 +1,7 @@
 import {
   type AssistantResilienceConfig,
   StreamStalledError,
+  ToolExecutions,
 } from '@brainstrike/agent/provider-runtime';
 import type { TextStreamPart, ToolSet } from 'ai';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
@@ -13,16 +14,14 @@ import {
 
 type Part = TextStreamPart<ToolSet>;
 
-// The tool backstop is derived in production (minutes); a unit window keeps
-// the phase choice observable. Every window is distinct, and the fake clock
-// pins which one expires: the stream is still open one millisecond before it.
+// Every window is distinct, and the fake clock pins which one expires: the
+// stream is still open one millisecond before it.
 const config: AssistantResilienceConfig = {
   streamFirstOutputMs: 2600,
   streamInactivityMs: 300,
   streamReasoningGapMs: 2400,
   streamStallAttempts: 2,
   toolCallInputMs: 2200,
-  toolExecutingMs: 2000,
   toolTimeoutMs: 1000,
 };
 
@@ -40,105 +39,72 @@ async function* source(parts: readonly Part[]): AsyncGenerator<Part> {
   await new Promise<never>(() => undefined);
 }
 
-const toolCall = (providerExecuted: boolean): Part =>
-  ({
-    input: { text: 'look' },
-    toolCallId: 'call-1',
-    toolName: 'probe',
-    type: 'tool-call',
-    ...(providerExecuted ? { providerExecuted: true } : {}),
-  }) as Part;
+const toolCall: Part = {
+  input: { text: 'look' },
+  toolCallId: 'call-1',
+  toolName: 'probe',
+  type: 'tool-call',
+} as Part;
 
-async function drain(
-  parts: readonly Part[]
-): Promise<{ readonly error: unknown; readonly expired: HostStreamWatchdogError[] }> {
+function drain(
+  parts: readonly Part[],
+  toolExecutions: ToolExecutions
+): {
+  readonly drained: Promise<{
+    readonly error: unknown;
+    readonly expired: HostStreamWatchdogError[];
+  }>;
+  readonly settled: () => boolean;
+} {
   const expired: HostStreamWatchdogError[] = [];
-  try {
-    for await (const _part of watchHostStream(
-      source(parts),
-      config,
-      (name) => name === 'probe',
-      (error) => expired.push(error)
-    )) {
-      // Consume like Core does.
-    }
-  } catch (error) {
-    return { error, expired };
-  }
-  throw new Error('A silent stream must not end without a watchdog expiry');
-}
-
-/** Drains on the fake clock: the stream survives `windowMs - 1` of silence and expires at `windowMs`. */
-async function drainUntilExpiry(
-  windowMs: number,
-  parts: readonly Part[]
-): ReturnType<typeof drain> {
   let settled = false;
-  const drained = drain(parts).finally(() => {
-    settled = true;
-  });
-  await vi.advanceTimersByTimeAsync(windowMs - 1);
-  expect(settled).toBe(false);
-  await vi.advanceTimersByTimeAsync(1);
-  expect(settled).toBe(true);
-  return drained;
+  const drained = (async () => {
+    try {
+      for await (const _part of watchHostStream(source(parts), config, toolExecutions, (error) =>
+        expired.push(error)
+      )) {
+        // Consume like Core does.
+      }
+    } catch (error) {
+      return { error, expired };
+    } finally {
+      settled = true;
+    }
+    throw new Error('A silent stream must not end without a watchdog expiry');
+  })();
+  return { drained, settled: () => settled };
 }
 
-test('a running host tool is measured against the tool backstop, not the answer window', async () => {
-  const { error, expired } = await drainUntilExpiry(2000, [{ type: 'start' }, toolCall(false)]);
+test('a provider that goes quiet after a tool call, before the tool runs, stalls on the answer window', async () => {
+  const { drained, settled } = drain([{ type: 'start' }, toolCall], new ToolExecutions());
+  await vi.advanceTimersByTimeAsync(config.streamInactivityMs - 1);
+  expect(settled()).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+
+  const { error, expired } = await drained;
   expect(error).toBeInstanceOf(StreamStalledError);
   expect(error).toMatchObject({
-    inactivityMs: 2000,
+    inactivityMs: config.streamInactivityMs,
     lastPartType: 'tool-call',
-    phase: 'tool-executing',
+    phase: 'streaming',
   });
   expect(expired).toEqual([error]);
 });
 
-test('a provider-executed tool call stays on the provider answer window', async () => {
-  const { error } = await drainUntilExpiry(300, [{ type: 'start' }, toolCall(true)]);
-  expect(error).toMatchObject({ inactivityMs: 300, phase: 'streaming' });
+test('a running tool is never judged by the stream watchdog', async () => {
+  const toolExecutions = new ToolExecutions();
+  const { settled } = drain([{ type: 'start' }, toolCall], toolExecutions);
+  await vi.advanceTimersByTimeAsync(0);
+  toolExecutions.start('call-1');
+  await vi.advanceTimersByTimeAsync(100 * config.streamFirstOutputMs);
+  expect(settled()).toBe(false);
 });
 
-test('an approval request settles the call: the wait is on a human, not the tool', async () => {
-  const { error } = await drainUntilExpiry(300, [
-    { type: 'start' },
-    toolCall(false),
-    {
-      approvalId: 'approval-1',
-      toolCall: toolCall(false),
-      type: 'tool-approval-request',
-    } as Part,
-  ]);
-  expect(error).toMatchObject({ phase: 'streaming' });
-});
-
-test('a call the host approves in-stream runs on the tool backstop again', async () => {
-  // The recorded host shape for an allowed tool: request and approved response
-  // arrive together, then the SDK executes the call.
-  const { error } = await drainUntilExpiry(2000, [
-    { type: 'start' },
-    toolCall(false),
-    { approvalId: 'approval-1', toolCall: toolCall(false), type: 'tool-approval-request' } as Part,
-    {
-      approvalId: 'approval-1',
-      approved: true,
-      toolCall: toolCall(false),
-      type: 'tool-approval-response',
-    } as Part,
-  ]);
-  expect(error).toMatchObject({ inactivityMs: 2000, phase: 'tool-executing' });
-});
-
-test('expiry stops the provider attempt, and a tool-executing stall also cancels the run', () => {
+test('expiry stops the provider attempt, never the run', () => {
   const attempt = new AbortController();
   const run = { controller: new AbortController(), id: 'run-1', threadId: 'thread-1' };
-  const streaming = new StreamStalledError(300, { partsSeen: 2, phase: 'streaming' });
-  stopHostStreamAttempt(run as HostRunState, attempt, streaming);
-  expect(attempt.signal.reason).toBe(streaming);
+  const stall = new StreamStalledError(300, { partsSeen: 2, phase: 'streaming' });
+  stopHostStreamAttempt(run as HostRunState, attempt, stall);
+  expect(attempt.signal.reason).toBe(stall);
   expect(run.controller.signal.aborted).toBe(false);
-
-  const tool = new StreamStalledError(2000, { partsSeen: 2, phase: 'tool-executing' });
-  stopHostStreamAttempt(run as HostRunState, new AbortController(), tool);
-  expect(run.controller.signal.reason).toBe(tool);
 });
