@@ -11,8 +11,8 @@ export interface UnseenDiagnosticsCountResult {
 }
 
 /**
- * Reactive count of diagnostic events recorded since the session watermark
- * (`useDiagnosticsSeenStore.lastSeenAtMs`), backing the status-bar chip. The
+ * Reactive count of this launch's diagnostic events recorded after the person
+ * last opened the chip (`useDiagnosticsSeenStore.lastSeenAtMs`). The
  * retained diagnostic log is read through the native capability.
  */
 export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {

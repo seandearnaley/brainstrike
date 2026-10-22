@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import type { QueryDiagnosticsInput } from '@brainstrike/agent';
 import type {
   DiagnosticEventsQueryFilter,
@@ -186,11 +187,14 @@ export const mainDiagnosticEventsReader: Pick<
       lastSeenMs: group?.lastSeenMs ?? null,
     };
   },
+  // A launch begins when Main's process starts, so an error Main logs before any window
+  // loads is unseen, and an earlier launch's retained events never are.
   getUnseenCounts: async (sinceMs) => {
+    const launchSinceMs = Math.max(sinceMs, performance.timeOrigin);
     let errorCount = 0;
     let warningCount = 0;
-    for (const event of await retainedEvents({ sinceMs })) {
-      if (event.occurredAt <= sinceMs) {
+    for (const event of await retainedEvents({ sinceMs: launchSinceMs })) {
+      if (event.occurredAt <= launchSinceMs) {
         continue;
       }
       if (event.severity === 'warn') {

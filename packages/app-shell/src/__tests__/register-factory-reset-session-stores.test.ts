@@ -198,9 +198,7 @@ describe('register-factory-reset-session-stores', () => {
     expect(result.success).toBe(true);
 
     expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
-    // The watermark is RE-SEEDED to "now", not restored to a fixed initial
-    // value, so the assertion is that it advanced past the stale value.
-    expect(useDiagnosticsSeenStore.getState().lastSeenAtMs).toBeGreaterThan(staleWatermark);
+    expect(useDiagnosticsSeenStore.getState().lastSeenAtMs).toBe(0);
   });
 
   // Its own case for the same reason as the diagnostics stores above: without
