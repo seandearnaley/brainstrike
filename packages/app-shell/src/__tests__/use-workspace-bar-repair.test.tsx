@@ -8,9 +8,8 @@
  */
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import type { DbHandle } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';
 import { resetRootRegistrationEventsForTests } from '../roots/root-registration-events';
@@ -59,24 +58,7 @@ const ROWS: Record<string, { displayName: string; path: string; status: string }
   'r-bravo': { displayName: 'bravo', path: '/ws/bravo', status: 'disconnected' },
   'r-charlie': { displayName: 'charlie', path: '/ws/charlie', status: 'live' },
 };
-const query = vi.fn(async (sql: string, params?: unknown[]) => {
-  if (sql.includes('FROM roots') && sql.includes('= ANY')) {
-    const ids = (params?.[0] ?? []) as readonly string[];
-    return {
-      rows: ids.flatMap((id) => {
-        const row = ROWS[id];
-        return row ? [{ ...row, id }] : [];
-      }),
-    };
-  }
-  if (sql.includes('FROM roots')) {
-    const path = params?.[0];
-    const id = Object.entries(ROWS).find(([, row]) => row.path === path)?.[0];
-    return { rows: id ? [{ id }] : [] };
-  }
-  return { rows: [] };
-});
-const database = { query } as unknown as DbHandle;
+const readRoots = vi.fn(async () => Object.entries(ROWS).map(([id, row]) => ({ ...row, id })));
 const updateThreadMetadata = vi.fn(async () => {});
 const assistantThreadRepository = { updateThreadMetadata } as unknown as AssistantThreadRepository;
 
@@ -108,7 +90,6 @@ async function setup(metadata: Record<string, unknown>, rootDescriptors: Descrip
       useWorkspaceBar({
         assistantThreadRepository,
         currentMainRoot: { displayName: 'alpha', path: '/ws/alpha' },
-        database,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors: props.rootDescriptors,
         selectedMemoryThreadId: THREAD_ID,
@@ -125,11 +106,17 @@ const BRAVO_PRIMARY = {
   operatingRootPath: '/ws/bravo',
 };
 
+afterEach(() => Reflect.deleteProperty(window, 'threadGroups'));
+
 beforeEach(() => {
   ROWS['r-bravo'] = { displayName: 'bravo', path: '/ws/bravo', status: 'disconnected' };
   resetRootRegistrationEventsForTests();
   useChangesLiveRefreshStore.getState().reset();
-  query.mockClear();
+  readRoots.mockClear();
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
   toastSpy.mockClear();
   updateThreadMetadata.mockClear();
 });

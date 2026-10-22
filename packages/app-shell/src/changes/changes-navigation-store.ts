@@ -14,8 +14,7 @@ import { create } from 'zustand';
  * The active changeset lives here rather than in `ChangesSurface`'s local
  * state on purpose. There is no route-params concept in this app, so an
  * external caller — the assistant turn footer's "→ Review" link — needs a way
- * to say "show this changeset" before switching the panel tab
- * (`quick-open-host.tsx` sets the same two-step precedent). The earlier shape
+ * to say "show this changeset" before switching the panel tab. The earlier shape
  * of this store held a separate `pendingChangeset` that the surface copied
  * into its own `useState` inside an effect. That made the store and the
  * component two sources of truth for one fact, needed a consume-and-clear

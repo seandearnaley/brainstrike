@@ -18,14 +18,6 @@ vi.mock('../use-thread-workspace-coordinator', () => ({
     captured.repository = options.repository;
   },
 }));
-vi.mock('@brainstrike/db/react', () => ({
-  usePGliteDatabase: (options?: { enabled?: boolean }) => {
-    if (options?.enabled !== false) {
-      throw new Error('A host workspace must not open PGlite');
-    }
-    return null;
-  },
-}));
 afterEach(() => {
   cleanup();
   captured.repository = null;

@@ -105,9 +105,9 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
   // - @brainstrike/notes-vault ships a bundler-target ESM dist with
   //   EXTENSIONLESS relative imports, which Node's runtime resolver cannot
   //   load from this CJS bundle. Its one main-process subpath is inlined.
-  // - @brainstrike/assistant-data is ESM-only. Main inlines the shared
-  //   startup-reaper and canonical history-mapper subpaths from source rather
-  //   than requiring an export Node cannot execute from this CJS bundle.
+  // - @brainstrike/assistant-data is ESM-only. Main inlines the canonical
+  //   history-mapper and memory-resource subpaths from source rather than
+  //   requiring an export Node cannot execute from this CJS bundle.
   // - @brainstrike/workspace-search/core is a browser ESM barrel with
   //   extensionless relative imports. Inline this exact public subpath for
   //   the native assistant consumer; retain the shared fusion implementation.
@@ -120,10 +120,6 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
     '@brainstrike/assistant-data/assistant-memory-resource': path.resolve(
       appRoot,
       '../../packages/assistant-data/src/assistant-memory-resource.ts'
-    ),
-    '@brainstrike/assistant-data/assistant-thread-run-reaper': path.resolve(
-      appRoot,
-      '../../packages/assistant-data/src/assistant-thread-run-reaper.ts'
     ),
     '@brainstrike/notes-vault/core': path.resolve(
       appRoot,

@@ -17,15 +17,6 @@ import {
   type AssistantMemorySettingsSectionProps,
 } from '../assistant-memory-settings-section';
 
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: vi.fn(() => ({})),
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: vi.fn(() => ({})),
-}));
-
 vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));

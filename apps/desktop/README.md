@@ -78,7 +78,7 @@ launches include `--no-sandbox`, so they do not demonstrate Chromium sandboxing.
 ## Testing and debugging
 
 **CI is disabled due to cost; validation must run locally.** Use
-[validation guidance](../../docs/agents/ci-quality.md) and the
+`pnpm check` and the
 [desktop E2E guide](e2e/README.md) to select appropriate checks.
 
 `pnpm dev:agent-debug` is an opt-in disposable debugging session. Never use Sean's

@@ -33,7 +33,6 @@ const { adapter, roots, reconciliation } = vi.hoisted(() => ({
   },
   roots: [{ path: '/owned/repo', rootId: 'root' }],
 }));
-vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => null }));
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({ fileSystemAdapter: adapter }),
 }));

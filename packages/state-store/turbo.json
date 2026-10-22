@@ -21,12 +21,6 @@
       // memory-domain imports agent-host's emitted token calculator, and
       // memory-erasure hands that same dist module to the writer worker.
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
-    },
-    "test:coverage": {
-      // Coverage includes the integration suites and native writer processes.
-      // The memory-domain suite imports the production token calculator.
-      "cache": false,
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
     }
   }
 }

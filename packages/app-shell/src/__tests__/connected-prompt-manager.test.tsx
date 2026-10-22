@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import type { PromptItem } from '@brainstrike/db';
+import type { PromptItem } from '@brainstrike/types/prompt-item';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { type ComponentProps, useMemo } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import {
@@ -53,22 +54,18 @@ const mocks = vi.hoisted(() => {
       },
     },
     createThread: vi.fn(),
-    db: { exec: vi.fn(), query: vi.fn() } as { exec: unknown; query: unknown } | null,
-    dbInitializationStatus: 'ready' as 'error' | 'idle' | 'initializing' | 'ready',
     embedDocumentWithRecovery,
     embedPendingPromptItems: vi.fn(),
     embedQueryWithRecovery,
-    forbidDatabase: false,
     getAvailableProviders: vi.fn(),
-    loadEmbeddingQueue: vi.fn(),
     onLibraryError: vi.fn(),
     onUseError: vi.fn(),
     panelRenderCount: 0,
     queryPromptSuggestions: vi.fn(),
     recallRequest: null as Promise<unknown> | null,
     recordUsage: vi.fn(),
-    renameThread: vi.fn(),
     sharedEmbedder: { embedDocumentWithRecovery, embedQueryWithRecovery },
+    useCapabilityRepository: false,
   };
 });
 
@@ -95,52 +92,14 @@ const repository = {
   update: vi.fn(),
 };
 
-vi.mock('@brainstrike/db', async () => {
-  const actual = await vi.importActual<object>('@brainstrike/db');
+vi.mock('../prompt-library-repository', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../prompt-library-repository')>();
   return {
     ...actual,
-    PromptItemRepository: class {
-      create = repository.create;
-      getEmbeddingProfile = repository.getEmbeddingProfile;
-      list = repository.list;
-      listNeedingEmbedding = repository.listNeedingEmbedding;
-      markEmbeddingError = repository.markEmbeddingError;
-      recordUsage = repository.recordUsage;
-      searchSimilar = repository.searchSimilar;
-      storeEmbedding = repository.storeEmbedding;
-      update = repository.update;
-    },
-    useDbInitializationStatus: () => {
-      if (mocks.forbidDatabase) {
-        throw new Error('Desktop must not initialize PGlite');
-      }
-      return mocks.dbInitializationStatus;
-    },
-    usePGliteDatabase: () => mocks.db,
-  };
-});
-vi.mock('@brainstrike/db/react', async () => {
-  const actual = await vi.importActual<object>('@brainstrike/db/react');
-  return {
-    ...actual,
-    PromptItemRepository: class {
-      create = repository.create;
-      getEmbeddingProfile = repository.getEmbeddingProfile;
-      list = repository.list;
-      listNeedingEmbedding = repository.listNeedingEmbedding;
-      markEmbeddingError = repository.markEmbeddingError;
-      recordUsage = repository.recordUsage;
-      searchSimilar = repository.searchSimilar;
-      storeEmbedding = repository.storeEmbedding;
-      update = repository.update;
-    },
-    useDbInitializationStatus: () => {
-      if (mocks.forbidDatabase) {
-        throw new Error('Desktop must not initialize PGlite');
-      }
-      return mocks.dbInitializationStatus;
-    },
-    usePGliteDatabase: () => mocks.db,
+    createPromptLibraryRepository: (
+      ...args: Parameters<typeof actual.createPromptLibraryRepository>
+    ) =>
+      mocks.useCapabilityRepository ? actual.createPromptLibraryRepository(...args) : repository,
   };
 });
 
@@ -210,17 +169,6 @@ vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
 vi.mock('@brainstrike/vector-management', () => ({
   useSharedSearchEmbedder: () => mocks.sharedEmbedder,
 }));
-
-vi.mock('@brainstrike/assistant-data', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/assistant-data')>();
-  return {
-    ...actual,
-    createPgliteAssistantThreadRepository: () => ({
-      createThread: mocks.createThread,
-      renameThread: mocks.renameThread,
-    }),
-  };
-});
 
 vi.mock('../prompt-library-embedding', async () => {
   const actual = await vi.importActual<typeof import('../prompt-library-embedding')>(
@@ -516,21 +464,46 @@ vi.mock('../prompt-workbench-panel', () => ({
   ),
 }));
 
+function defaultHost(): AssistantThreadHostCapability {
+  return {
+    createThread: (resourceId: string) => mocks.createThread(resourceId),
+    deleteThread: vi.fn(),
+    listThreads: vi.fn(async () => []),
+    ownsThread: vi.fn(),
+    renameThread: vi.fn(),
+    renderThread: vi.fn(),
+    updateThreadBinding: vi.fn(),
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
+  };
+}
+
+/** The manager as the desktop shell mounts it: a host owns the threads. */
+function Manager(props: ComponentProps<typeof ConnectedPromptManager>) {
+  const host = useMemo(defaultHost, []);
+  return (
+    <AssistantThreadHostContext.Provider value={host}>
+      <ConnectedPromptManager {...props} />
+    </AssistantThreadHostContext.Provider>
+  );
+}
+
 describe('ConnectedPromptManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    mocks.db = { exec: vi.fn(), query: vi.fn() };
-    mocks.dbInitializationStatus = 'ready';
-    mocks.forbidDatabase = false;
-    Reflect.deleteProperty(window, 'promptLibrary');
+    mocks.useCapabilityRepository = false;
+    Object.defineProperty(window, 'promptLibrary', {
+      configurable: true,
+      value: { request: vi.fn() },
+    });
     mocks.assistantProviderSettings.google = {
       googleIncludeThoughts: true,
       googleThinkingLevel: 'high',
       maxOutputTokens: 768,
     };
     mocks.getAvailableProviders.mockResolvedValue(['google', 'openai']);
-    mocks.loadEmbeddingQueue.mockResolvedValue({ id: 'prompt-embedding-queue' });
     mocks.embedPendingPromptItems.mockResolvedValue([]);
     mocks.queryPromptSuggestions.mockResolvedValue([]);
     mocks.recordUsage.mockResolvedValue(testItem);
@@ -544,7 +517,6 @@ describe('ConnectedPromptManager', () => {
       title,
       updatedAt: new Date('2026-07-10T12:00:00Z'),
     }));
-    mocks.renameThread.mockResolvedValue(undefined);
     useAssistantComposerCommandStore.getState().reset();
     useAssistantComposerCommandStore.getState().recordDraft('thread-active', 'Live draft');
     useAssistantThreadStore.setState({
@@ -562,8 +534,8 @@ describe('ConnectedPromptManager', () => {
     });
   });
 
-  it('opens the native prompt capability without a database provider or legacy queue', async () => {
-    mocks.forbidDatabase = true;
+  it('opens the native prompt capability', async () => {
+    mocks.useCapabilityRepository = true;
     const request = vi.fn(async () => ({
       accepted: true,
       items: [],
@@ -586,16 +558,15 @@ describe('ConnectedPromptManager', () => {
         }),
       },
     });
-    render(<ConnectedPromptManager loadEmbeddingQueue={null} />);
+    render(<Manager />);
     await screen.findByTestId('prompt-workbench-panel');
     await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalledOnce());
     expect(request).toHaveBeenCalledWith({ filter: {}, operation: 'list' });
-    expect(mocks.loadEmbeddingQueue).not.toHaveBeenCalled();
     expect(repository.list).not.toHaveBeenCalled();
   });
 
-  it('loads database prompts and projects the active thread, live draft, and enabled LLMs', async () => {
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+  it('loads prompts and projects the active thread, live draft, and enabled LLMs', async () => {
+    render(<Manager />);
 
     expect(screen.getByText('Opening Prompt Workbench…')).toBeInTheDocument();
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
@@ -606,19 +577,10 @@ describe('ConnectedPromptManager', () => {
       { key: 'google::gemini-3.1-pro-preview', label: 'Google · Gemini 3.1 Pro' },
     ]);
     await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalled());
-    expect(mocks.loadEmbeddingQueue).toHaveBeenCalled();
-    expect(mocks.loadEmbeddingQueue.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.embedPendingPromptItems.mock.invocationCallOrder[0] ?? 0
-    );
   });
 
   it('does not subscribe the hidden workbench to draft changes when suggestions are disabled', async () => {
-    const { rerender } = render(
-      <ConnectedPromptManager
-        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
-        suggestionsEnabled={false}
-      />
-    );
+    const { rerender } = render(<Manager suggestionsEnabled={false} />);
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
     expect(screen.getByTestId('composer-context')).toBeEmptyDOMElement();
     const hiddenRenderCount = mocks.panelRenderCount;
@@ -630,12 +592,7 @@ describe('ConnectedPromptManager', () => {
     expect(mocks.panelRenderCount).toBe(hiddenRenderCount);
     expect(mocks.queryPromptSuggestions).not.toHaveBeenCalled();
 
-    rerender(
-      <ConnectedPromptManager
-        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
-        suggestionsEnabled={true}
-      />
-    );
+    rerender(<Manager suggestionsEnabled={true} />);
     expect(screen.getByTestId('composer-context')).toHaveTextContent('Hidden update');
     const visibleRenderCount = mocks.panelRenderCount;
 
@@ -652,7 +609,7 @@ describe('ConnectedPromptManager', () => {
     localStorage.setItem('brainstrike-prompt-store', malformedLegacyValue);
     repository.list.mockResolvedValue([testItem]);
 
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
     expect(screen.getByTestId('first-item-embedding-status')).toHaveTextContent('ready');
@@ -662,42 +619,20 @@ describe('ConnectedPromptManager', () => {
     expect(screen.getByTestId('system-error')).toBeEmptyDOMElement();
   });
 
-  it('shows the loading state, not the database alert, while the database is initializing', () => {
-    mocks.db = null;
-    mocks.dbInitializationStatus = 'initializing';
+  it('surfaces an alert when the prompt library capability is missing', () => {
+    Reflect.deleteProperty(window, 'promptLibrary');
 
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
-
-    expect(screen.getByText('Opening Prompt Workbench…')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('shows the loading state before lazy database initialization has started', () => {
-    mocks.db = null;
-    mocks.dbInitializationStatus = 'idle';
-
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
-
-    expect(screen.getByText('Opening Prompt Workbench…')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('surfaces the database alert when initialization has failed', () => {
-    mocks.db = null;
-    mocks.dbInitializationStatus = 'error';
-
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Prompt Workbench requires an initialized database.'
+      'Prompt Workbench requires the prompt library capability.'
     );
-    expect(screen.queryByText('Opening Prompt Workbench…')).not.toBeInTheDocument();
   });
 
   it('keeps an initial database listing failure fatal', async () => {
     repository.list.mockRejectedValueOnce(new Error('Prompt database is unavailable.'));
 
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Prompt database is unavailable.');
     expect(screen.queryByTestId('prompt-workbench-panel')).not.toBeInTheDocument();
@@ -706,7 +641,7 @@ describe('ConnectedPromptManager', () => {
 
   it('stages insertions into the active thread rather than the selected sidebar thread', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await user.click(await screen.findByRole('button', { name: 'Insert test item' }));
 
     await waitFor(() =>
@@ -723,7 +658,7 @@ describe('ConnectedPromptManager', () => {
   it('keeps an applied composer command successful when usage tracking fails', async () => {
     const user = userEvent.setup();
     mocks.recordUsage.mockRejectedValueOnce(new Error('Usage counter is unavailable.'));
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(await screen.findByRole('button', { name: 'Insert test item' }));
 
@@ -746,7 +681,7 @@ describe('ConnectedPromptManager', () => {
 
   it('atomically creates a titled thread, configures it, and stages the prompt', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await user.click(await screen.findByRole('button', { name: 'New thread from test item' }));
 
     await waitFor(() =>
@@ -754,8 +689,7 @@ describe('ConnectedPromptManager', () => {
         [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-new',
       })
     );
-    expect(mocks.createThread).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID, testItem.title);
-    expect(mocks.renameThread).not.toHaveBeenCalled();
+    expect(mocks.createThread).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID);
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-new']).toMatchObject({
       model: 'gpt-5.4',
       provider: 'openai',
@@ -789,7 +723,7 @@ describe('ConnectedPromptManager', () => {
     };
     render(
       <AssistantThreadHostContext.Provider value={host}>
-        <ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />
+        <ConnectedPromptManager />
       </AssistantThreadHostContext.Provider>
     );
     await user.click(await screen.findByRole('button', { name: 'New thread from test item' }));
@@ -810,7 +744,7 @@ describe('ConnectedPromptManager', () => {
 
   it('applies a runnable prompt model to the active thread before staging it', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await user.click(await screen.findByRole('button', { name: 'Compose test prompt' }));
 
     expect(
@@ -837,7 +771,7 @@ describe('ConnectedPromptManager', () => {
       },
       runtimeKind: 'hosted',
     });
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(await screen.findByRole('button', { name: 'Compose configured prompt' }));
 
@@ -876,7 +810,7 @@ describe('ConnectedPromptManager', () => {
 
   it('applies canonical prompt model settings to a newly created thread', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(
       await screen.findByRole('button', { name: 'New thread from configured prompt' })
@@ -904,7 +838,7 @@ describe('ConnectedPromptManager', () => {
         },
       },
     });
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(
       await screen.findByRole('button', { name: 'Compose model-only configured prompt' })
@@ -942,7 +876,7 @@ describe('ConnectedPromptManager', () => {
         openai: { maxOutputTokens: 512, reasoningEffort: 'high' },
       },
     });
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(
       await screen.findByRole('button', { name: 'Compose model-only configured prompt' })
@@ -969,7 +903,7 @@ describe('ConnectedPromptManager', () => {
     ['Compose settings without model', /model settings.*configured model/i],
   ])('rejects %s before mutating the runtime or composer', async (buttonName, expectedMessage) => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(await screen.findByRole('button', { name: buttonName }));
 
@@ -998,7 +932,7 @@ describe('ConnectedPromptManager', () => {
     ['presence penalty above range', /presencePenalty.*between -2 and 2/i],
   ])('rejects %s before any compose mutation', async (settingLabel, expectedMessage) => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(
       await screen.findByRole('button', { name: `Compose prompt with ${settingLabel}` })
@@ -1021,7 +955,7 @@ describe('ConnectedPromptManager', () => {
 
   it('rejects invalid model settings before creating a durable thread', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await user.click(
       await screen.findByRole('button', { name: 'New thread from invalid configured prompt' })
@@ -1042,7 +976,7 @@ describe('ConnectedPromptManager', () => {
 
   it('rejects whitespace-only rendered prompts before mutating the active thread runtime', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await user.click(await screen.findByRole('button', { name: 'Compose whitespace prompt' }));
 
     await waitFor(() =>
@@ -1061,7 +995,7 @@ describe('ConnectedPromptManager', () => {
 
   it('rejects whitespace-only rendered prompts before creating a durable thread', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await user.click(
       await screen.findByRole('button', { name: 'New thread from whitespace prompt' })
     );
@@ -1081,7 +1015,7 @@ describe('ConnectedPromptManager', () => {
   it('refuses to stage a prompt whose requested provider is unavailable', async () => {
     const user = userEvent.setup();
     mocks.getAvailableProviders.mockResolvedValue(['local']);
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await user.click(await screen.findByRole('button', { name: 'Compose test prompt' }));
 
     await waitFor(() =>
@@ -1099,7 +1033,7 @@ describe('ConnectedPromptManager', () => {
 
   it('routes contextual recall through query embeddings without a lexical substitute', async () => {
     const user = userEvent.setup();
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await user.click(await screen.findByRole('button', { name: 'Recall suggestions' }));
 
     await waitFor(() =>
@@ -1114,25 +1048,28 @@ describe('ConnectedPromptManager', () => {
 
   it('does not start query inference when recall is disabled while prerequisites load', async () => {
     const user = userEvent.setup();
-    let resolveQueue!: (queue: { id: string }) => void;
-    const queueReady = new Promise<{ id: string }>((resolve) => {
-      resolveQueue = resolve;
+    let resolveProfile!: (profile: unknown) => void;
+    const profileReady = new Promise<unknown>((resolve) => {
+      resolveProfile = resolve;
     });
-    mocks.loadEmbeddingQueue.mockReturnValue(queueReady);
+    repository.getEmbeddingProfile.mockReturnValue(profileReady);
     mocks.embedQueryWithRecovery.mockResolvedValue([0.1, 0.2]);
     const renderManager = (suggestionsEnabled: boolean) => (
-      <ConnectedPromptManager
-        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
-        suggestionsEnabled={suggestionsEnabled}
-      />
+      <Manager suggestionsEnabled={suggestionsEnabled} />
     );
     const view = render(renderManager(true));
 
     await user.click(await screen.findByRole('button', { name: 'Recall suggestions' }));
-    await waitFor(() => expect(mocks.loadEmbeddingQueue).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(repository.getEmbeddingProfile).toHaveBeenCalledTimes(2));
     view.rerender(renderManager(false));
 
-    resolveQueue({ id: 'prompt-embedding-queue' });
+    resolveProfile({
+      dimensions: 384,
+      distance: 'cosine',
+      id: 'default',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+    });
     await mocks.recallRequest?.catch(() => undefined);
 
     expect(mocks.embedQueryWithRecovery).not.toHaveBeenCalled();
@@ -1159,10 +1096,7 @@ describe('ConnectedPromptManager', () => {
       });
     });
     const renderManager = (suggestionsEnabled: boolean) => (
-      <ConnectedPromptManager
-        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
-        suggestionsEnabled={suggestionsEnabled}
-      />
+      <Manager suggestionsEnabled={suggestionsEnabled} />
     );
     const view = render(renderManager(true));
 
@@ -1184,7 +1118,7 @@ describe('ConnectedPromptManager', () => {
     };
     repository.list.mockResolvedValueOnce([pendingItem]).mockResolvedValue([testItem]);
 
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await waitFor(() =>
       expect(screen.getByTestId('first-item-embedding-status')).toHaveTextContent('ready')
@@ -1204,7 +1138,7 @@ describe('ConnectedPromptManager', () => {
       )
       .mockResolvedValue([]);
 
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await screen.findByTestId('prompt-workbench-panel');
     await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalledTimes(1));
 
@@ -1221,7 +1155,7 @@ describe('ConnectedPromptManager', () => {
       .mockResolvedValueOnce([{ ...testItem, embeddingStatus: 'pending' }])
       .mockRejectedValueOnce(new Error('Could not refresh indexed prompts.'));
 
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Could not refresh indexed prompts.'
@@ -1231,7 +1165,7 @@ describe('ConnectedPromptManager', () => {
   it('clears a stale indexing error after a later indexing pass succeeds', async () => {
     const user = userEvent.setup();
     mocks.embedPendingPromptItems.mockRejectedValue(new Error('Embedding worker unavailable.'));
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
 
     await waitFor(() =>
       expect(screen.getByTestId('system-error')).toHaveTextContent('Embedding worker unavailable.')
@@ -1245,7 +1179,7 @@ describe('ConnectedPromptManager', () => {
   it('leaves explicit indexing failure ownership to the workbench warning', async () => {
     const user = userEvent.setup();
     mocks.embedPendingPromptItems.mockRejectedValue(new Error('Embedding worker unavailable.'));
-    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+    render(<Manager />);
     await waitFor(() =>
       expect(screen.getByTestId('system-error')).toHaveTextContent('Embedding worker unavailable.')
     );

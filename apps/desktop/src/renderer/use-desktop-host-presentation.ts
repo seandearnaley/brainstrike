@@ -15,7 +15,6 @@ import {
   useComposerDraftChannel,
   useConfiguredAssistantProviders,
   useEnableModel,
-  useFileMentions,
   useOpenRouterModelMetadata,
 } from '@brainstrike/app-shell';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
@@ -62,8 +61,6 @@ type Presentation = Pick<
   | 'composerDraftCommand'
   | 'onComposerDraftCommandApplied'
   | 'onComposerTextChange'
-  | 'fileMentions'
-  | 'onFileMentionQueryChange'
   | 'slashCommands'
   | 'isComposerDisabled'
   | 'disabledReason'
@@ -258,8 +255,6 @@ export function useDesktopHostPresentation(
   useEnsureModelRegistry();
   const composerDraft = useComposerDraftChannel(threadId);
   const slashCommands = useAssistantSlashCommands(threadId);
-  const [fileMentionQuery, setFileMentionQuery] = useState('');
-  const { fileMentions } = useFileMentions(fileMentionQuery);
   const globalModel = useAssistantPreferencesStore((state) => state.selectedModel);
   const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
   const setModel = useAssistantPreferencesStore((state) => state.setModel);
@@ -486,11 +481,9 @@ export function useDesktopHostPresentation(
     ...picker,
     catalogKey: catalog.state === 'ready' ? [...catalog.keys].sort().join('\n') : catalog.state,
     composerDraftCommand: composerDraft.command,
-    fileMentions,
     onComposerDraftCommandApplied: composerDraft.onApplied,
     onComposerTextChange: composerDraft.onTextChange,
     onEnableModel,
-    onFileMentionQueryChange: setFileMentionQuery,
     onModelChange,
     onProviderSettingsChange,
     onProviderSettingsValidationChange: providerDraft.report,

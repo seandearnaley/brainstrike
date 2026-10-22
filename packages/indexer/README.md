@@ -63,7 +63,7 @@ when termination/join fails. Keep profile/reset ownership until cleanup succeeds
 Build and check with this package's configured `build`, `test`, `test:integration`
 and `type-check` scripts. Integration checks require actual native dependencies.
 **CI is disabled due to cost; validation must run locally.** Use
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.
 
 Contract: [indexer](../../docs/agents/indexer.md).
 Decision: [ADR-0018](../../docs/adr/0018-derived-sqlite-indexer.md).

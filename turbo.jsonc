@@ -354,35 +354,6 @@
         "@brainstrike/platform-utils#dev"
       ]
     },
-    // --- Mutation Testing Task --- //
-    "mutation": {
-      // Ensures the package is built before mutation testing is run.
-      "dependsOn": [
-        "build"
-      ],
-      // Mutation testing reports are output artifacts.
-      "outputs": [
-        "reports/mutation/**"
-      ],
-      // Mutation testing should not be cached as it should always re-run to ensure fresh analysis.
-      "cache": false,
-      // Show full logs for mutation testing as they contain important analysis information
-      "outputLogs": "full"
-    },
-    // --- Composite Check Task (for CI) --- //
-    "check": {
-      // Runs lint, type-check, and test tasks within the same package.
-      // Note: This assumes these tasks are defined in the respective package.json files.
-      "dependsOn": [
-        "lint",
-        "type-check",
-        "test",
-        "test:integration"
-      ],
-      // This composite task itself doesn't need caching.
-      "cache": false,
-      "outputs": []
-    },
     // --- Browser Test Task (Vitest 4 Browser Mode) --- //
     "test:browser": {
       // Browser tests require the package to be built
@@ -407,95 +378,6 @@
       "cache": false,
       // Show all logs for browser tests
       "outputLogs": "full"
-    },
-    // --- Test:Coverage Task --- //
-    "test:coverage": {
-      // Runs package-local Vitest coverage scripts. Keeping coverage flags inside
-      // this task avoids Turborepo passthrough args invalidating dependency builds.
-      // `dependsOn: ["topo"]` mirrors `test` (same source-import graph, same
-      // transit-node cascade; see the topo comment). The same B4 build-edge
-      // exceptions apply per-package (logging's and utils' own builds; db's
-      // @brainstrike/utils#build).
-      "dependsOn": [
-        "topo"
-      ],
-      // Coverage runs should hash NODE_ENV + explicit test mode without invalidating unrelated tasks globally.
-      "env": [
-        "COVERAGE",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      // Coverage output artifacts (e.g., coverage reports).
-      "outputs": [
-        "coverage/**",
-        "test-results/**"
-      ],
-      // Only show logs from cache misses and errors
-      "outputLogs": "new-only"
-    },
-    // Nightly DB coverage uses Vitest's native file sharding and blob report
-    // merge. This task is the one package-local invocation shared by both
-    // shards. It imports workspace dependencies from source through `topo`,
-    // and keeps db#test's exact @brainstrike/utils build exception because
-    // migration-runner-types.test.ts launches a nested TypeScript compiler.
-    // Heavy PGlite coverage is environment-sensitive, so a cached green may
-    // never replace execution. Blob and per-shard coverage directories are
-    // artifacts for Vitest's native merge, not a bespoke reconciliation map.
-    "test:coverage:db:shard": {
-      "cache": false,
-      "dependsOn": [
-        "topo",
-        "@brainstrike/utils#build"
-      ],
-      "env": [
-        "COVERAGE",
-        "DB_TEST_SHARD",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [
-        ".vitest-reports/**",
-        "test-results/**"
-      ],
-      "outputLogs": "new-only"
-    },
-    // --- Script Tests (root) --- //
-    // `pnpm test:scripts` runs this root task. The script tests load real
-    // Vitest configs (apps/desktop, apps/web, embedding-worker, web-writer),
-    // and those import @brainstrike/build-utils, which exports only dist.
-    // effect-diagnostics-execution type-checks fixtures against the real desktop
-    // wire modules, which resolve agent-host, assistant-contract and indexer
-    // through their dist types (BST-2216).
-    // Script tests read the whole repository, so a cached green is never sound.
-    "//#test:scripts:run": {
-      "cache": false,
-      "dependsOn": [
-        "@brainstrike/agent-host#build",
-        "@brainstrike/assistant-contract#build",
-        "@brainstrike/build-utils#build",
-        "@brainstrike/indexer#build"
-      ],
-      "outputs": []
-    },
-    // --- Coverage Merge Task --- //
-    "coverage:merge": {
-      // Merges coverage files from all packages/apps.
-      // No outputs to cache, and should always run fresh.
-      "cache": false,
-      "outputs": [
-        ".nyc_output/coverage.json"
-      ]
-    },
-    // --- Coverage Report Task --- //
-    "coverage:report": {
-      // Generates a combined coverage report from merged data.
-      // No outputs to cache, and should always run fresh.
-      "cache": false,
-      "outputs": [
-        "coverage/**"
-      ]
     },
     // --- E2E Test Task --- //
     "test:e2e": {

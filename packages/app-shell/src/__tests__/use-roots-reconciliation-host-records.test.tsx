@@ -38,10 +38,7 @@ it('registers a folder re-added under its one id again after it was removed', as
     platform: 'electron',
     restoreRoots: vi.fn(async (): Promise<RootDescriptor[]> => [descriptor]),
   } as unknown as FileSystemAdapter;
-  const query = vi.fn(async (sql: string) =>
-    sql.includes('SELECT') ? { rows: [{ id: 'one-id', path: '/workspace/docs' }] } : { rows: [] }
-  );
-  const { result } = renderHook(() => useRootsReconciliation({ adapter, db: null }));
+  const { result } = renderHook(() => useRootsReconciliation({ adapter }));
   await waitFor(() => expect(result.current.rootsReconciliationSettled).toBe(true));
 
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([['one-id', 'one-id']]);
@@ -63,6 +60,4 @@ it('registers a folder re-added under its one id again after it was removed', as
   await expect(waiter).resolves.toBeUndefined();
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([['one-id', 'one-id']]);
   await expect(result.current.resolveDbRootId('/workspace/docs', 'one-id')).resolves.toBe('one-id');
-  // The host owns the record: the hook only ever read it.
-  expect(query).not.toHaveBeenCalled();
 });

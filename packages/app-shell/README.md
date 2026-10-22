@@ -1,6 +1,6 @@
 # @brainstrike/app-shell
 
-Shared React layout and feature composition for Brainstrike web and desktop.
+Shared React layout and feature composition for the Brainstrike desktop app.
 The shell integrates UI with injected platform capabilities; it is not a second
 agent runtime or canonical storage owner.
 
@@ -43,13 +43,11 @@ uses the host's public run/thread IDs; it does not persist a second transcript o
 own inference. Closing a panel releases presentation; Stop and deletion use the
 existing host cancellation/retirement owner.
 
-Database-backed workspace sync/import modules remain for their supported
-consumers. They do not establish desktop PGlite ownership: desktop canonical
-catalog/conversations and native indexing use their existing host/index owners.
-Select capabilities at the platform composition boundary rather than importing a
-provider or engine into a UI wrapper.
+Desktop canonical catalog/conversations and native indexing use their existing
+host/index owners. Select capabilities at the platform composition boundary rather
+than importing a provider or engine into a UI wrapper.
 
-Transient palette, quick-open, visible-thread and checkout intent live in
+Transient palette, visible-thread and checkout intent live in
 [`src/stores`](src/stores/README.md). Persistent client preferences/layout state
 belong to [`@brainstrike/app-state`](../app-state/README.md); settings presentation
 belongs to `@brainstrike/settings-ui`. New persistent state participates in reset.
@@ -65,6 +63,6 @@ contracts: [UI](../../docs/agents/ui-conventions.md),
 
 Use this package's `build`, `type-check`, `test` and `test:integration` scripts for
 the affected boundary. **CI is disabled due to cost; validation must run locally.**
-Follow [validation guidance](../../docs/agents/ci-quality.md).
+Follow `pnpm check`.
 
 ISC. See the repository [LICENSE](../../LICENSE).

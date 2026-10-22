@@ -11,16 +11,13 @@ export default defineConfig({
   // tsc owns declarations (emitDeclarationOnly); stated per verify-tsup-build-invariants.
   dts: false,
   entry: [
-    'src/http.ts',
     'src/mcp-content-application-port.ts',
     'src/memory-model-targets.ts',
     'src/node-native-text-services.ts',
     'src/node-workspace-services.ts',
     'src/ports.ts',
     'src/provider-credential-projection.ts',
-    'src/request.ts',
     'src/secret-errors.ts',
-    'src/types.ts',
   ],
   format: ['esm', 'cjs'],
   outDir: 'dist',

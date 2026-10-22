@@ -96,52 +96,19 @@ export interface ThreadPanelFolderGroupingState {
 }
 
 export function resolveThreadPanelContentState({
-  databaseError,
-  databaseStartupLoading,
   folderGrouping,
   loadState,
-  repositoryReady,
   threadFiltersActive,
   threads,
   view,
 }: {
-  readonly databaseError: Error | null;
-  readonly databaseStartupLoading: boolean;
   readonly folderGrouping: ThreadPanelFolderGroupingState | null;
   readonly loadState: ThreadPanelLoadState | null;
-  readonly repositoryReady: boolean;
   /** True when `threads` has already been narrowed by the Show only filters. */
   readonly threadFiltersActive: boolean;
   readonly threads: readonly AssistantMemoryThread[];
   readonly view: ThreadListView;
 }): ThreadPanelContentState {
-  if (!repositoryReady) {
-    if (databaseStartupLoading) {
-      return {
-        description: 'Reading Mastra memory from PGlite.',
-        kind: 'card',
-        testId: 'threads-loading-card',
-        title: 'Loading threads...',
-        variant: 'muted',
-      };
-    }
-    if (databaseError) {
-      return {
-        description: databaseError.message,
-        kind: 'card',
-        testId: 'threads-error-card',
-        title: 'Assistant memory database failed',
-        variant: 'error',
-      };
-    }
-    return {
-      description: 'The assistant is unavailable until PGlite memory initializes.',
-      kind: 'card',
-      testId: 'threads-error-card',
-      title: 'Assistant memory database unavailable',
-      variant: 'error',
-    };
-  }
   if (loadState?.status === 'error') {
     return {
       description: loadState.error,

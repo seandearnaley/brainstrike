@@ -115,7 +115,6 @@ export {
   useCheckpointForToolCall,
   useCheckpointTurnRevert,
 } from './edit-checkpoint-context';
-export type { FileMention } from './file-mentions';
 export {
   FollowUpQueueBridge,
   FollowUpQueueChips,

@@ -1,44 +1,13 @@
 import { detectPlatform } from '@brainstrike/platform-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MockFileSystemAdapter } from '../adapters/mock-file-system-adapter.js';
-import { WebFileSystemAdapter } from '../adapters/web-adapter.js';
-import {
-  createFileSystemAdapter,
-  createMockFileSystemAdapter,
-  createWebFileSystemAdapter,
-} from '../factory.js';
+import { createMockFileSystemAdapter } from '../factory.js';
 
 describe('File System Factory', () => {
-  describe('createFileSystemAdapter', () => {
-    it('should create web file system adapter for web platform', () => {
-      const adapter = createFileSystemAdapter('web');
-      expect(adapter).toBeInstanceOf(WebFileSystemAdapter);
-    });
-
-    it('should reject electron adapter creation from the browser-safe entrypoint', () => {
-      expect(() => createFileSystemAdapter('electron')).toThrow(
-        "Electron file system adapter is node-only. Import '@brainstrike/file-system/electron' in Electron main."
-      );
-    });
-
-    it('should throw error for unknown platform', () => {
-      expect(() => createFileSystemAdapter('unknown' as never)).toThrow(
-        'Unknown platform: unknown'
-      );
-    });
-  });
-
   describe('createMockFileSystemAdapter', () => {
     it('should create a mock file system adapter', () => {
       const adapter = createMockFileSystemAdapter();
       expect(adapter).toBeInstanceOf(MockFileSystemAdapter);
-    });
-  });
-
-  describe('createWebFileSystemAdapter', () => {
-    it('should create a web file system adapter', () => {
-      const adapter = createWebFileSystemAdapter();
-      expect(adapter).toBeInstanceOf(WebFileSystemAdapter);
     });
   });
 

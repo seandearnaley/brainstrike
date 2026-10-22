@@ -5,7 +5,6 @@ import {
   type ReactElement,
   type ReactNode,
   useCallback,
-  useEffect,
   useRef,
   useState,
   useTransition,
@@ -14,7 +13,6 @@ import { preloadDatabaseTab } from './database-tab';
 
 interface AgentSidebarPanelProps {
   readonly databaseContent: ReactNode;
-  readonly preloadDatabaseTabOnMount?: boolean;
   readonly promptsContent: ReactNode | ((isActive: boolean) => ReactNode);
   readonly threadsContent: ReactNode;
 }
@@ -98,7 +96,6 @@ export function AgentSidebarPanel({
   threadsContent,
   databaseContent,
   promptsContent,
-  preloadDatabaseTabOnMount = false,
 }: AgentSidebarPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<AgentSidebarTab>(() => readInitialAgentSidebarTab());
   const [requestedTab, setRequestedTab] = useState<AgentSidebarTab | null>(null);
@@ -133,13 +130,6 @@ export function AgentSidebarPanel({
     },
     [requestDatabaseTabPrefetch]
   );
-
-  useEffect(() => {
-    if (!preloadDatabaseTabOnMount) {
-      return;
-    }
-    requestDatabaseTabPrefetch();
-  }, [preloadDatabaseTabOnMount, requestDatabaseTabPrefetch]);
 
   const pendingMark = (tab: AgentSidebarTab): '' | undefined =>
     isSwitching && requestedTab === tab ? '' : undefined;
@@ -211,7 +201,6 @@ export function AgentSidebarPanel({
       <TabsContent
         className="min-h-0 flex-1 overflow-hidden"
         data-testid="database-tab-content"
-        forceMount={preloadDatabaseTabOnMount}
         keepMounted
         value="database"
       >

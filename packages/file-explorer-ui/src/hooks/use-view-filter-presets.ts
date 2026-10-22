@@ -5,25 +5,15 @@ import {
 /**
  * View Filter Presets Hook
  *
- * Provides reactive access to view filter presets stored in the database.
- * Supports both web (Drizzle live queries) and Electron (repository polling).
+ * Provides access to the view filter presets owned by the native preset capability.
  */
 
-import { viewFilterPresets } from '@brainstrike/db';
-import {
-  useDbInitializing,
-  useDbProviderError,
-  useDrizzleDb,
-  useDrizzleLiveQuery,
-  useViewFilterPresetsRepository,
-} from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import type {
   CreateViewFilterPresetInput,
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import { asc } from 'drizzle-orm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('useViewFilterPresets');
@@ -41,7 +31,7 @@ interface UseViewFilterPresetsResult {
   loading: boolean;
   /** All presets ordered by sort order */
   presets: ViewFilterPreset[];
-  /** Refresh presets from database (useful for Electron after external changes) */
+  /** Refresh presets from the preset capability (useful after external changes) */
   refresh: () => Promise<void>;
   /** Update an existing preset */
   updatePreset: (
@@ -53,8 +43,7 @@ interface UseViewFilterPresetsResult {
 /**
  * Hook for managing view filter presets.
  *
- * This hook automatically detects whether to use Drizzle live queries (web)
- * or the repository pattern (Electron) based on what's available.
+ * Presets are read through the native preset capability's repository.
  *
  * @example
  * ```tsx
@@ -73,62 +62,16 @@ interface UseViewFilterPresetsResult {
  */
 export function useViewFilterPresets(): UseViewFilterPresetsResult {
   const capability = getViewFilterPresetCapability();
-  const drizzleDb = useDrizzleDb({ enabled: !capability });
-  const dbInitializing = useDbInitializing({ enabled: !capability });
-  const dbProviderError = useDbProviderError({ enabled: !capability });
-  const webRepository = useViewFilterPresetsRepository({ enabled: !capability });
-  const nativeRepository = useMemo(
+  const repository = useMemo(
     () => (capability ? createViewFilterPresetRepository(capability) : null),
     [capability]
   );
-  const repository = nativeRepository ?? webRepository;
 
-  // State for Electron/repository-based presets
   const [repoPresets, setRepoPresets] = useState<ViewFilterPreset[]>([]);
   const [repoLoading, setRepoLoading] = useState(true);
   const [repoError, setRepoError] = useState<Error | null>(null);
 
-  // Track if we're using Drizzle (web) or repository (Electron) path
-  const useDrizzlePath = Boolean(drizzleDb);
-
-  // Build the live query for Drizzle path
-  const query = useMemo(() => {
-    if (!drizzleDb) {
-      return null;
-    }
-    return drizzleDb.select().from(viewFilterPresets).orderBy(asc(viewFilterPresets.sortOrder));
-  }, [drizzleDb]);
-
-  // Use live query for reactive updates (web path only)
-  const {
-    rows,
-    loading: drizzleLoading,
-    error: drizzleError,
-  } = useDrizzleLiveQuery<typeof viewFilterPresets.$inferSelect>(query, {
-    enabled: useDrizzlePath,
-  });
-
-  // Transform Drizzle rows to ViewFilterPreset type
-  const drizzlePresets: ViewFilterPreset[] = useMemo(() => {
-    if (!rows) {
-      return [];
-    }
-    return rows.map((row) => ({
-      createdAt: row.createdAt,
-      description: row.description,
-      excludes: row.excludes ?? [],
-      icon: row.icon as ViewFilterPreset['icon'],
-      id: row.id,
-      includes: row.includes ?? [],
-      isDefault: row.isDefault,
-      name: row.name,
-      sortOrder: row.sortOrder,
-      updatedAt: row.updatedAt,
-      useRegex: row.useRegex,
-    }));
-  }, [rows]);
-
-  // Fetch presets using repository (Electron path)
+  // Fetch presets using the repository
   // Returns a cleanup function for AbortController cancellation
   const fetchPresetsFromRepo = useCallback(
     async (signal?: AbortSignal) => {
@@ -151,9 +94,9 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
         if (signal?.aborted) {
           return;
         }
-        const error = err instanceof Error ? err : new Error(String(err));
-        logger.error('Failed to fetch presets from repository', { error: error.message });
-        setRepoError(error);
+        const fetchError = err instanceof Error ? err : new Error(String(err));
+        logger.error('Failed to fetch presets from repository', { error: fetchError.message });
+        setRepoError(fetchError);
       } finally {
         if (!signal?.aborted) {
           setRepoLoading(false);
@@ -168,13 +111,13 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
   const fetchPresetsRef = useRef(fetchPresetsFromRepo);
   fetchPresetsRef.current = fetchPresetsFromRepo;
 
-  // Fetch repository data when repository changes (Electron path).
+  // Fetch repository data when repository changes.
   // This effect must re-run on React dev replay as well as true repository changes.
   // Suppressing the replay with a ref leaves the first aborted request as the only
   // one that ever ran, which traps the UI in "Loading presets..." forever.
   useEffect(() => {
-    if (useDrizzlePath || !repository) {
-      // Not using repository path, ensure loading is false
+    if (!repository) {
+      // No repository, ensure loading is false
       setRepoLoading(false);
       return;
     }
@@ -185,15 +128,11 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
     return () => {
       controller.abort();
     };
-  }, [useDrizzlePath, repository]);
+  }, [repository]);
 
-  // Select the appropriate presets based on path
-  const presets = useDrizzlePath ? drizzlePresets : repoPresets;
-  // Only surface provider initialization as loading when the repository does not
-  // yet exist. Once the repository is usable, callers should render its data
-  // immediately instead of staying trapped behind a global DB spinner.
-  const loading = useDrizzlePath ? drizzleLoading : repoLoading || (!repository && dbInitializing);
-  const error = useDrizzlePath ? drizzleError : (repoError ?? dbProviderError);
+  const presets = repoPresets;
+  const loading = repoLoading;
+  const error = repoError;
 
   const createPreset = useCallback(
     async (input: CreateViewFilterPresetInput): Promise<ViewFilterPreset> => {
@@ -203,14 +142,11 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
       logger.info('Creating view filter preset', { name: input.name });
       const created = await repository.create(input);
 
-      // For Electron path, refresh the presets list
-      if (!useDrizzlePath) {
-        await fetchPresetsFromRepo();
-      }
+      await fetchPresetsFromRepo();
 
       return created;
     },
-    [repository, useDrizzlePath, fetchPresetsFromRepo]
+    [repository, fetchPresetsFromRepo]
   );
 
   const updatePreset = useCallback(
@@ -221,14 +157,11 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
       logger.info('Updating view filter preset', { id });
       const updated = await repository.update(id, input);
 
-      // For Electron path, refresh the presets list
-      if (!useDrizzlePath) {
-        await fetchPresetsFromRepo();
-      }
+      await fetchPresetsFromRepo();
 
       return updated;
     },
-    [repository, useDrizzlePath, fetchPresetsFromRepo]
+    [repository, fetchPresetsFromRepo]
   );
 
   const deletePreset = useCallback(
@@ -239,14 +172,11 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
       logger.info('Deleting view filter preset', { id });
       const deleted = await repository.delete(id);
 
-      // For Electron path, refresh the presets list
-      if (!useDrizzlePath) {
-        await fetchPresetsFromRepo();
-      }
+      await fetchPresetsFromRepo();
 
       return deleted;
     },
-    [repository, useDrizzlePath, fetchPresetsFromRepo]
+    [repository, fetchPresetsFromRepo]
   );
 
   const getPreset = useCallback(
@@ -255,11 +185,10 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
   );
 
   const refresh = useCallback(async () => {
-    if (!useDrizzlePath && repository) {
+    if (repository) {
       await fetchPresetsFromRepo();
     }
-    // For Drizzle path, the live query handles refreshes automatically
-  }, [useDrizzlePath, repository, fetchPresetsFromRepo]);
+  }, [repository, fetchPresetsFromRepo]);
 
   return {
     createPreset,

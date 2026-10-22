@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useMemo } from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const useWorktreeMapMock = vi.fn();
@@ -31,38 +32,11 @@ vi.mock('../../terminal-panel/terminal-bridge', () => ({
 // test can prove WHICH one ran.
 const createThreadMock = vi.fn();
 const selectThreadMock = vi.fn();
-// (corrected at execution: the canonical surface code derives `repository`
-// from `database` via `createPgliteAssistantThreadRepository` — the plan
-// doc's original `createThread(resourceId)` call didn't match the real
-// two-argument store action. `mockDatabase` is a controllable sentinel so one
-// test can prove the guard fires when it's null, and
-// `createPgliteAssistantThreadRepositoryMock` returns a DISTINCT sentinel so
-// `createThread`'s call assertion stays falsifiable for BOTH arguments, not
-// just the resourceId. `vi.hoisted` — not a plain top-level `const` — because
-// these are referenced from a `vi.mock` factory declared further down, and
-// only `vi.hoisted`-declared bindings are guaranteed initialized before a
-// hoisted `vi.mock` factory can run.)
-const { SENTINEL_DATABASE, SENTINEL_REPOSITORY, createPgliteAssistantThreadRepositoryMock } =
-  vi.hoisted(() => {
-    const sentinelDatabase = { kind: 'sentinel-database' } as const;
-    const sentinelRepository = { kind: 'sentinel-repository' } as const;
-    return {
-      createPgliteAssistantThreadRepositoryMock: vi.fn(() => sentinelRepository),
-      SENTINEL_DATABASE: sentinelDatabase,
-      SENTINEL_REPOSITORY: sentinelRepository,
-    };
-  });
-let mockDatabase: unknown = SENTINEL_DATABASE;
-vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => mockDatabase }));
-vi.mock('../../use-active-assistant-thread-ids', () => ({
-  useActiveAssistantThreadIds: () => ({ error: null, loading: false, threadIds: new Set() }),
-}));
 // (bot review fix, PR #2664) Controllable so a test can prove the hand-off
 // item only renders for the card whose thread IS the selected thread.
 let mockSelectedThreadByResourceId: Record<string, string> = {};
 vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/assistant-data')>()),
-  createPgliteAssistantThreadRepository: createPgliteAssistantThreadRepositoryMock,
   useAssistantThreadStore: (
     selector: (state: {
       createThread: typeof createThreadMock;
@@ -116,6 +90,30 @@ import {
   AssistantThreadHostContext,
 } from '../../assistant-thread-host-context';
 import { WorktreeMapSurface } from '../worktree-map-surface';
+
+/** The surface as the desktop shell mounts it: an agent host owns the threads. */
+function Surface() {
+  const host = useMemo<AssistantThreadHostCapability>(
+    () => ({
+      createThread: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      ownsThread: vi.fn(),
+      renameThread: vi.fn(),
+      renderThread: vi.fn(),
+      updateThreadBinding: vi.fn(),
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
+    }),
+    []
+  );
+  return (
+    <AssistantThreadHostContext.Provider value={host}>
+      <WorktreeMapSurface />
+    </AssistantThreadHostContext.Provider>
+  );
+}
 
 function card(overrides: Record<string, unknown> = {}) {
   return {
@@ -178,7 +176,6 @@ describe('WorktreeMapSurface', () => {
       adoptMock,
       archiveMock,
       inspectArchiveMock,
-      createPgliteAssistantThreadRepositoryMock,
       createThreadMock,
       openExternalMock,
       openTerminalAtMock,
@@ -189,8 +186,6 @@ describe('WorktreeMapSurface', () => {
     ]) {
       mock.mockReset();
     }
-    createPgliteAssistantThreadRepositoryMock.mockReturnValue(SENTINEL_REPOSITORY);
-    mockDatabase = SENTINEL_DATABASE;
     mockSelectedThreadByResourceId = {};
     mockTerminalAvailable = true;
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
@@ -211,7 +206,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('renders one section per repository and one card per checkout', () => {
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     expect(screen.getByRole('heading', { name: 'brainstrike' })).toBeInTheDocument();
     expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
@@ -221,7 +216,7 @@ describe('WorktreeMapSurface', () => {
 
   it('searches checkout metadata locally and clears a no-match result', async () => {
     const user = userEvent.setup();
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
     const search = screen.getByRole('searchbox', { name: 'Search worktrees' });
     await user.type(search, 'BRAINSTRIKE bright');
     expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
@@ -252,7 +247,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
     expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(25);
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
     const lane = screen.getAllByTestId('worktree-map-card')[0]?.parentElement;
@@ -287,7 +282,7 @@ describe('WorktreeMapSurface', () => {
       ),
     };
     useWorktreeMapMock.mockReturnValue(state);
-    const view = render(<WorktreeMapSurface />);
+    const view = render(<Surface />);
     await user.click(screen.getByRole('button', { name: 'Needs attention' }));
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     await user.click(screen.getByRole('button', { name: 'Next page' }));
@@ -300,10 +295,10 @@ describe('WorktreeMapSurface', () => {
     }
     scrollport.scrollTop = 500;
     useWorktreeMapMock.mockReturnValue({ ...state, statusByPath: new Map() });
-    view.rerender(<WorktreeMapSurface />);
+    view.rerender(<Surface />);
     expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
     useWorktreeMapMock.mockReturnValue(state);
-    view.rerender(<WorktreeMapSurface />);
+    view.rerender(<Surface />);
     expect(screen.getByText('1–25 of 51')).toBeInTheDocument();
     expect(
       screen.getAllByTestId('worktree-map-card')[0]?.closest('section')?.parentElement?.scrollTop
@@ -334,7 +329,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
     await user.click(screen.getByRole('button', { name: 'Needs attention' }));
     expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
     expect(screen.getByText('bright-fox')).toBeInTheDocument();
@@ -349,7 +344,7 @@ describe('WorktreeMapSurface', () => {
         ['/wt', { kind: 'ready', value: { ahead: null, behind: null, clean: true } }],
       ]),
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
     expect(screen.getByRole('article', { name: 'bright-fox' })).toBeInTheDocument();
     expect(screen.getByText('/wt')).toBeInTheDocument();
     expect(screen.getByText('Clean')).toBeInTheDocument();
@@ -370,7 +365,7 @@ describe('WorktreeMapSurface', () => {
       ],
       statusByPath: new Map(),
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
     expect(screen.getByText('Not on disk')).toBeInTheDocument();
     expect(screen.queryByText('checking…')).not.toBeInTheDocument();
   });
@@ -386,7 +381,7 @@ describe('WorktreeMapSurface', () => {
       ...BASE_STATE,
       repositories: [{ ...BASE_STATE.repositories[0], cards: [card({ thread })] }],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
     expect(screen.getByText('Current thread')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Improve collection navigation/u }));
@@ -398,12 +393,12 @@ describe('WorktreeMapSurface', () => {
       ...BASE_STATE,
       statusByPath: new Map([['/wt', { kind: 'loading' }]]),
     });
-    const { rerender } = render(<WorktreeMapSurface />);
+    const { rerender } = render(<Surface />);
     expect(screen.getByText('checking…')).toBeInTheDocument();
     expect(screen.queryByLabelText('Uncommitted changes')).not.toBeInTheDocument();
 
     useWorktreeMapMock.mockReturnValue(BASE_STATE);
-    rerender(<WorktreeMapSurface />);
+    rerender(<Surface />);
     expect(screen.getByLabelText('Uncommitted changes')).toBeInTheDocument();
     expect(screen.getByLabelText('2 commits ahead of upstream')).toBeInTheDocument();
   });
@@ -413,7 +408,7 @@ describe('WorktreeMapSurface', () => {
       ...BASE_STATE,
       statusByPath: new Map([['/wt', { kind: 'error', message: 'fatal: not a git repository' }]]),
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     expect(screen.getByText('status unavailable: fatal: not a git repository')).toBeInTheDocument();
   });
@@ -433,7 +428,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     expect(screen.getByText('Locked: rebase in progress')).toBeInTheDocument();
     expect(screen.getByTestId('worktree-map-new-thread')).toBeDisabled();
@@ -445,7 +440,7 @@ describe('WorktreeMapSurface', () => {
       error: 'The worktree service is not available in this session.',
       repositories: [],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     expect(
       screen.getByText('The worktree service is not available in this session.')
@@ -455,7 +450,7 @@ describe('WorktreeMapSurface', () => {
 
   it('shows the empty state only when the list genuinely came back empty', () => {
     useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, repositories: [] });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     expect(
       screen.getByText("No worktrees yet — create one from the composer's Mode chip.")
@@ -464,7 +459,7 @@ describe('WorktreeMapSurface', () => {
 
   it('creates a thread, selects it, and publishes the checkout intent for THAT thread id', async () => {
     createThreadMock.mockResolvedValue({ id: 'thread-9' });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
@@ -476,11 +471,11 @@ describe('WorktreeMapSurface', () => {
     expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
     expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
     expect(createThreadMock).toHaveBeenCalledTimes(1);
-    // Falsifiable for BOTH arguments: `SENTINEL_REPOSITORY` proves the real
-    // repository (derived from `database` via
-    // `createPgliteAssistantThreadRepository`) is what's threaded through,
-    // not `expect.anything()` standing in for an unverified first argument.
-    expect(createThreadMock).toHaveBeenCalledWith(SENTINEL_REPOSITORY, 'brainstrike:workspace');
+    // The host-owned catalog repository is what's threaded through.
+    expect(createThreadMock).toHaveBeenCalledWith(
+      expect.objectContaining({ createThread: expect.any(Function) }),
+      'brainstrike:workspace'
+    );
     expect(selectThreadMock).toHaveBeenCalledTimes(1);
     expect(selectThreadMock).toHaveBeenCalledWith('brainstrike:workspace', 'thread-9');
     expect(publishMock).toHaveBeenCalledTimes(1);
@@ -495,7 +490,7 @@ describe('WorktreeMapSurface', () => {
     expect(showItemInFolderMock).not.toHaveBeenCalled();
   });
 
-  it('creates the thread through the host owner in committed mode, never the history repository', async () => {
+  it('creates the thread through the host owner', async () => {
     const hostCreate = vi.fn(async (resourceId: string) => ({
       createdAt: new Date('2026-10-08T00:00:00.000Z'),
       id: 'host-thread-7',
@@ -531,7 +526,6 @@ describe('WorktreeMapSurface', () => {
     await waitFor(() => expect(publishMock).toHaveBeenCalledTimes(1));
     expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
     expect(hostCreate).toHaveBeenCalledExactlyOnceWith('brainstrike:workspace');
-    expect(createThreadMock.mock.calls[0]?.[0]).not.toBe(SENTINEL_REPOSITORY);
     expect(selectThreadMock).toHaveBeenCalledWith('brainstrike:workspace', 'host-thread-7');
     expect(publishMock).toHaveBeenCalledWith({
       branch: 'bs/bright-fox',
@@ -552,7 +546,7 @@ describe('WorktreeMapSurface', () => {
   it('does not refresh from onNewThread — the Map re-loads via the root-identity subscription', async () => {
     const refreshMock = vi.fn();
     useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
@@ -563,7 +557,7 @@ describe('WorktreeMapSurface', () => {
 
   it('states a failure and never creates a thread when mounting the checkout as a root fails', async () => {
     addRootDirectoryByPathMock.mockResolvedValueOnce(null);
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
@@ -589,7 +583,7 @@ describe('WorktreeMapSurface', () => {
     addRootDirectoryByPathMock.mockRejectedValueOnce(
       new Error('Folder was never granted in this app; use Add Folder to grant it.')
     );
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
@@ -603,7 +597,7 @@ describe('WorktreeMapSurface', () => {
 
   it('passes an UNRELATED addRootDirectoryByPath failure through verbatim, not the managed-worktree remedy', async () => {
     addRootDirectoryByPathMock.mockRejectedValueOnce(new Error('disk is full'));
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
@@ -611,11 +605,10 @@ describe('WorktreeMapSurface', () => {
     expect(createThreadMock).not.toHaveBeenCalled();
   });
 
-  it('states a loud error and never calls createThread when the workspace database is not ready', async () => {
-    // (corrected at execution: onNewThread's repository guard, added beside
-    // the existing !worktreeId guard, must fail LOUD — a stated actionError,
-    // never a silent return — and createThread must never be reached.)
-    mockDatabase = null;
+  it('states a loud error and never calls createThread when no agent host is attached', async () => {
+    // (onNewThread's repository guard, added beside the existing !worktreeId
+    // guard, must fail LOUD — a stated actionError, never a silent return —
+    // and createThread must never be reached.)
     render(<WorktreeMapSurface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
@@ -630,7 +623,7 @@ describe('WorktreeMapSurface', () => {
 
   it('publishes no intent and states the failure when thread creation fails', async () => {
     createThreadMock.mockRejectedValue(new Error('database unavailable'));
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
@@ -665,7 +658,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /hand off to local/iu }));
@@ -699,7 +692,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 
@@ -707,7 +700,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('does not show Hand off to Local anywhere when no thread is selected', async () => {
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 
@@ -715,7 +708,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('toggles indexing through the durable-root setter, never the adapter-keyed one', async () => {
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByRole('button', { name: /not indexed/iu }));
 
@@ -730,7 +723,7 @@ describe('WorktreeMapSurface', () => {
     const refreshMock = vi.fn();
     archiveMock.mockResolvedValue({ error: 'worktree has uncommitted changes', ok: false });
     useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
@@ -751,7 +744,7 @@ describe('WorktreeMapSurface', () => {
   it('refreshes the Map after a successful archive so the removed card leaves the list', async () => {
     const refreshMock = vi.fn();
     useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
@@ -782,7 +775,7 @@ describe('WorktreeMapSurface', () => {
         ignoredTopLevelEntryCount: 12,
       },
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
@@ -819,7 +812,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /add as root/iu }));
@@ -857,7 +850,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /adopt/iu }));
@@ -887,7 +880,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /adopt/iu }));
@@ -917,7 +910,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 
@@ -925,7 +918,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('opens the pinned terminal for a card that is inside an open folder', async () => {
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
     await userEvent.click(screen.getByRole('menuitem', { name: /open in terminal/iu }));
@@ -951,7 +944,7 @@ describe('WorktreeMapSurface', () => {
         },
       ],
     });
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 
@@ -963,7 +956,7 @@ describe('WorktreeMapSurface', () => {
 
   it('omits Open in Terminal entirely when the platform has no terminal bridge', async () => {
     mockTerminalAvailable = false;
-    render(<WorktreeMapSurface />);
+    render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 
@@ -981,7 +974,7 @@ describe('WorktreeMapSurface', () => {
     });
 
     it('finishes focus restoration when a test leaves a card menu open', async () => {
-      render(<WorktreeMapSurface />);
+      render(<Surface />);
       const trigger = screen.getByTestId('worktree-map-card-actions');
       await userEvent.click(trigger);
       expect(screen.getByRole('menu')).toBeVisible();

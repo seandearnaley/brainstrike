@@ -1,4 +1,3 @@
-import { DIAGNOSTIC_RETENTION_MAX_AGE_MS, DIAGNOSTIC_RETENTION_MAX_ROWS } from '@brainstrike/db';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetDiagnosticsRetentionStoreForTests,
@@ -15,17 +14,16 @@ const storeWithPersist = useDiagnosticsRetentionStore as PersistApi<
 >;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const DIAGNOSTIC_RETENTION_MAX_AGE_MS = 30 * MS_PER_DAY;
+const DIAGNOSTIC_RETENTION_MAX_ROWS = 20_000;
 
 describe('diagnostics-retention-store', () => {
   beforeEach(() => {
     __resetDiagnosticsRetentionStoreForTests();
   });
 
-  it('defaults maxAgeDays/maxRows to the repository retention constants, so behavior is unchanged until edited', () => {
+  it('defaults maxAgeDays/maxRows to 30 days and 20_000 rows, so behavior is unchanged until edited', () => {
     const state = useDiagnosticsRetentionStore.getState();
-    // Assert equality against the SOURCE OF TRUTH constants rather than
-    // hardcoding 30/20_000 twice, so a future change to either side fails
-    // this test loudly instead of silently drifting.
     expect(state.maxAgeDays).toBe(DIAGNOSTIC_RETENTION_MAX_AGE_MS / MS_PER_DAY);
     expect(state.maxRows).toBe(DIAGNOSTIC_RETENTION_MAX_ROWS);
     expect(diagnosticsRetentionSelectors.maxAgeDays(state)).toBe(state.maxAgeDays);

@@ -22,15 +22,6 @@
       "dependsOn": [
         "topo"
       ]
-    },
-    "test:coverage": {
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "@brainstrike/canonical-ingestion#build",
-        "@brainstrike/secure-fs-native#build",
-        "@brainstrike/indexer#build"
-      ],
-      "cache": false
     }
   }
 }

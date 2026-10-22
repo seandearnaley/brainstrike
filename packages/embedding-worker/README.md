@@ -50,4 +50,4 @@ browser suite. `pnpm test:webgpu-memory` is a separate hardware probe.
 still belongs to the consuming renderer build.
 
 **CI is disabled due to cost; validation must run locally.** Select checks with
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

@@ -8,25 +8,6 @@ import {
   type CollectionWithDocCount,
 } from '../collection-select/collection-select';
 
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: vi.fn(() => ({
-    error: null,
-    loading: false,
-    refresh: vi.fn(),
-    rows: [],
-  })),
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: vi.fn(() => ({
-    error: null,
-    loading: false,
-    refresh: vi.fn(),
-    rows: [],
-  })),
-}));
-
 const workspaceIndexCollection: CollectionWithDocCount = {
   category: null,
   chunkCount: 420,

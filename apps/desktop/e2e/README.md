@@ -1,7 +1,7 @@
 # Desktop E2E tests
 
 **CI is disabled due to cost; validation must run locally.** Select checks with
-[validation guidance](../../../docs/agents/ci-quality.md).
+`pnpm check`.
 
 ## Run locally
 

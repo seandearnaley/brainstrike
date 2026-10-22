@@ -505,23 +505,10 @@ contextBridge.exposeInMainWorld('commandPalette', {
   },
 });
 
-// ⌘P quick-open: the app menu's Cmd+P accelerator pushes this event to the
-// focused window so the renderer (visible-UI root) opens the quick-open finder.
-// Mirrors the commandPalette one-way main→renderer bridge.
-contextBridge.exposeInMainWorld('quickOpen', {
-  onOpen: (callback: () => void) => {
-    const listener = () => callback();
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.quickOpen.open, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.quickOpen.open, listener);
-    };
-  },
-});
-
 // Low-friction folder connection (BST-1393, spec §7): the app menu's
 // Open Folder… / Open Recent, `brainstrike <path>` argv, macOS open-file, and
 // resolving a Finder-dropped folder to an absolute path. The two `on*` members
-// mirror commandPalette/quickOpen; `getDroppedPath` is preload-local.
+// mirror commandPalette; `getDroppedPath` is preload-local.
 let workspaceResetGenerationPayload: unknown = { resetGeneration: null };
 ipcRenderer.on(
   DESKTOP_IPC_CHANNELS.workspace.factoryResetGeneration,

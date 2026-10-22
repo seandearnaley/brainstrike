@@ -34,23 +34,20 @@ export type ComposerAttachmentsAvailability =
 /**
  * The composer input row (textarea + Send/Cancel), defined ONCE so both the
  * trigger-enabled and plain composer paths share it — only the optional
- * `slashPopover`/`mentionPopover` differ. Send / Cancel are unchanged
- * regardless of the trigger features. When both are omitted the row renders
- * without any "/" or "@" menu.
+ * `slashPopover` differs. Send / Cancel are unchanged regardless of the
+ * trigger feature. When it is omitted the row renders without any "/" menu.
  *
- * Since @assistant-ui/react 0.12.26, each popover is a
- * `ComposerPrimitive.Unstable_TriggerPopover` (see `composer-trigger-popover.tsx`
- * / `composer-mention-popover.tsx`) that renders its own `role="listbox"`
- * container directly — they no longer need (or accept) a wrapping Mention/
- * SlashCommand root around the input; they read composer text via the
- * enclosing `Unstable_TriggerPopoverRoot` instead (see
+ * Since @assistant-ui/react 0.12.26, the popover is a
+ * `ComposerPrimitive.Unstable_TriggerPopover` (see `composer-trigger-popover.tsx`)
+ * that renders its own `role="listbox"` container directly — it no longer
+ * needs (or accepts) a wrapping SlashCommand root around the input; it reads
+ * composer text via the enclosing `Unstable_TriggerPopoverRoot` instead (see
  * `ComposerInputWithTriggers` below).
  */
 const ComposerInputRow = ({
   attachmentsAvailability,
   isComposerDisabled,
   hideDefaultCancel,
-  mentionPopover,
   planMode,
   queueControl,
   slashPopover,
@@ -58,7 +55,6 @@ const ComposerInputRow = ({
   attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
   hideDefaultCancel?: boolean | undefined;
-  mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
   /** Rendered in the RUNNING branch (where Send is unmounted) so a draft can
    * be queued for after the run — see follow-up-queue.tsx. */
@@ -95,7 +91,6 @@ const ComposerInputRow = ({
         rows={1}
       />
       {slashPopover}
-      {mentionPopover}
       <div className="bs-composer-primary-actions">
         {attachmentsAvailability?.state === 'enabled' ? (
           <ComposerPrimitive.AddAttachment
@@ -288,26 +283,20 @@ const AttachmentPasteFrame = ({
 };
 
 /**
- * Wraps the composer input row in `Unstable_TriggerPopoverRoot` ONLY when at
- * least one trigger feature (slash commands and/or file mentions) is active —
- * the root itself is cheap, but omitting it entirely when neither feature is
- * present keeps the "no trigger features" path free of any trigger-popover
- * bookkeeping. `slashPopover`/`mentionPopover` (built by the caller from
- * `ComposerTriggerPopover`/`ComposerMentionPopover`) are each a
- * `Unstable_TriggerPopover` declaring its own `char` ("/" or "@") and adapter;
- * both read the same composer text via the shared root and coexist as
- * siblings (this replaces the pre-0.12.26 nested Mention-inside-SlashCommand
- * root pattern, which the library no longer supports — triggers are now
- * siblings under one root, not nested wrappers). When neither is present the
- * bare input row renders, so the trigger chars do nothing special (never an
- * empty menu).
+ * Wraps the composer input row in `Unstable_TriggerPopoverRoot` ONLY when the
+ * slash-command feature is active — the root itself is cheap, but omitting it
+ * entirely when the feature is absent keeps the "no trigger features" path free
+ * of any trigger-popover bookkeeping. `slashPopover` (built by the caller from
+ * `ComposerTriggerPopover`) is an `Unstable_TriggerPopover` declaring its own
+ * `char` ("/") and adapter; it reads the composer text via the shared root.
+ * When it is absent the bare input row renders, so the trigger char does
+ * nothing special (never an empty menu).
  */
 export const ComposerInputWithTriggers = ({
   attachmentsAvailability,
   isComposerDisabled,
   hideDefaultCancel,
   slashPopover,
-  mentionPopover,
   planMode,
   queueControl,
 }: {
@@ -315,7 +304,6 @@ export const ComposerInputWithTriggers = ({
   isComposerDisabled: boolean;
   hideDefaultCancel?: boolean | undefined;
   slashPopover?: ReactNode;
-  mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
   queueControl?: ReactNode;
 }) => {
@@ -325,12 +313,11 @@ export const ComposerInputWithTriggers = ({
       isComposerDisabled={isComposerDisabled}
       {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
       {...(slashPopover ? { slashPopover } : {})}
-      {...(mentionPopover ? { mentionPopover } : {})}
       {...(planMode ? { planMode } : {})}
       {...(queueControl ? { queueControl } : {})}
     />
   );
-  if (!(slashPopover || mentionPopover)) {
+  if (!slashPopover) {
     return row;
   }
   return (

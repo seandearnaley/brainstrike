@@ -126,10 +126,3 @@ export type {
 // Export error class
 // Export configuration constants
 export { BGE_M3_CONFIG, EmbeddingError, FALLBACK_MODEL_CONFIG } from './types.js';
-export type {
-  EmbeddingWorkerController,
-  EmbeddingWorkerOptions,
-  EmbeddingWorkerPipelineCapacity,
-} from './worker/embedding-worker.js';
-// Worker
-export { startEmbeddingWorker } from './worker/embedding-worker.js';

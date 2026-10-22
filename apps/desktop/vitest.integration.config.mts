@@ -1,7 +1,7 @@
 // Integration lane config for @brainstrike/desktop.
 //
 // Runs ONLY the env-sensitive `*.integration.test.*` suffix lane. For desktop
-// that is real PGlite (via wasmLoader.createPGlite), native/external binaries
+// that is native/external binaries
 // (node-pty, git, /bin/sh, ripgrep, oxc-parser N-API, secure-fs-native), a
 // real stdio MCP child process, a loopback HTTP server, and several real-clock
 // timeout/abort/benchmark/mtime assertions. Executed by the `test:integration`

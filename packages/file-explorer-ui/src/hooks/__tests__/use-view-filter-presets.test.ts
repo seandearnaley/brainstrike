@@ -15,28 +15,12 @@ const mockRepository = {
   findById: vi.fn(),
   update: mockUpdate,
 };
-let mockDbInitializing = false;
-let mockDbProviderError: Error | null = null;
-let mockViewFilterPresetsRepository: typeof mockRepository | null = mockRepository;
+let mockCapability: object | undefined = {};
 
-// Mock the database dependencies - repository always available for coverage
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useDbInitializing: vi.fn(() => mockDbInitializing),
-  useDbProviderError: vi.fn(() => mockDbProviderError),
-  useDrizzleDb: vi.fn(() => null),
-  useDrizzleLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
-  useViewFilterPresetsRepository: vi.fn(() => mockViewFilterPresetsRepository),
-  viewFilterPresets: {},
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useDbInitializing: vi.fn(() => mockDbInitializing),
-  useDbProviderError: vi.fn(() => mockDbProviderError),
-  useDrizzleDb: vi.fn(() => null),
-  useDrizzleLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
-  useViewFilterPresetsRepository: vi.fn(() => mockViewFilterPresetsRepository),
-  viewFilterPresets: {},
+// The hook reads presets through the native preset capability's repository.
+vi.mock('../view-filter-preset-capability', () => ({
+  createViewFilterPresetRepository: vi.fn(() => mockRepository),
+  getViewFilterPresetCapability: vi.fn(() => mockCapability),
 }));
 
 vi.mock('@brainstrike/logging', () => ({
@@ -83,9 +67,7 @@ const mockPresets: ViewFilterPreset[] = [
 describe('useViewFilterPresets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDbInitializing = false;
-    mockDbProviderError = null;
-    mockViewFilterPresetsRepository = mockRepository;
+    mockCapability = {};
     mockFindAll.mockResolvedValue(mockPresets);
     mockCreate.mockResolvedValue(mockPresets[0]);
     mockUpdate.mockResolvedValue(mockPresets[0]);
@@ -213,28 +195,14 @@ describe('useViewFilterPresets', () => {
     expect(result.current.error?.message).toBe('String error');
   });
 
-  it('keeps loading true while the database is still initializing', () => {
-    mockDbInitializing = true;
-    mockViewFilterPresetsRepository = null;
+  it('is not loading when the preset capability is unavailable', () => {
+    mockCapability = undefined;
 
     const { result } = renderHook(() => useViewFilterPresets());
 
-    expect(result.current.loading).toBe(true);
+    expect(result.current.loading).toBe(false);
     expect(result.current.presets).toEqual([]);
     expect(result.current.error).toBeNull();
-  });
-
-  it('does not keep loading true once the presets repository is already available', async () => {
-    mockDbInitializing = true;
-
-    const { result } = renderHook(() => useViewFilterPresets());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    expect(mockFindAll).toHaveBeenCalled();
-    expect(result.current.presets).toHaveLength(2);
   });
 
   it('loads presets under React StrictMode effect replay', async () => {
@@ -258,117 +226,5 @@ describe('useViewFilterPresets', () => {
 
     expect(result.current.presets).toHaveLength(2);
     expect(mockFindAll).toHaveBeenCalled();
-  });
-
-  it('surfaces database provider errors when the repository is unavailable', () => {
-    const providerError = new Error('Database unavailable');
-    mockDbProviderError = providerError;
-    mockViewFilterPresetsRepository = null;
-
-    const { result } = renderHook(() => useViewFilterPresets());
-
-    expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBe(providerError);
-  });
-
-  describe('with Drizzle database (web path)', () => {
-    it('returns presets from Drizzle live query', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
-      vi.mocked(useDrizzleDb).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            orderBy: vi.fn().mockReturnValue({}),
-          }),
-        }),
-      } as unknown as ReturnType<typeof useDrizzleDb>);
-
-      vi.mocked(useDrizzleLiveQuery).mockReturnValue({
-        error: null,
-        loading: false,
-        refresh: vi.fn(),
-        rows: mockPresets.map((p) => ({
-          ...p,
-          icon: p.icon,
-        })) as unknown as Record<string, unknown>[],
-        rowsMatchQuery: true,
-      });
-
-      const { result } = renderHook(() => useViewFilterPresets());
-
-      expect(result.current.presets.length).toBe(2);
-      expect(result.current.presets[0]?.name).toBe('Source Files');
-      expect(result.current.loading).toBe(false);
-    });
-
-    it('returns empty presets when rows is null', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
-      vi.mocked(useDrizzleDb).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            orderBy: vi.fn().mockReturnValue({}),
-          }),
-        }),
-      } as unknown as ReturnType<typeof useDrizzleDb>);
-
-      vi.mocked(useDrizzleLiveQuery).mockReturnValue({
-        error: null,
-        loading: false,
-        refresh: vi.fn(),
-        rows: null as unknown as Record<string, unknown>[],
-        rowsMatchQuery: true,
-      });
-
-      const { result } = renderHook(() => useViewFilterPresets());
-
-      expect(result.current.presets).toEqual([]);
-    });
-
-    it('returns loading state from Drizzle', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
-      vi.mocked(useDrizzleDb).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            orderBy: vi.fn().mockReturnValue({}),
-          }),
-        }),
-      } as unknown as ReturnType<typeof useDrizzleDb>);
-
-      vi.mocked(useDrizzleLiveQuery).mockReturnValue({
-        error: null,
-        loading: true,
-        refresh: vi.fn(),
-        rows: [],
-        rowsMatchQuery: false,
-      });
-
-      const { result } = renderHook(() => useViewFilterPresets());
-
-      expect(result.current.loading).toBe(true);
-    });
-
-    it('returns error state from Drizzle', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
-      const testError = new Error('Query failed');
-
-      vi.mocked(useDrizzleDb).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            orderBy: vi.fn().mockReturnValue({}),
-          }),
-        }),
-      } as unknown as ReturnType<typeof useDrizzleDb>);
-
-      vi.mocked(useDrizzleLiveQuery).mockReturnValue({
-        error: testError,
-        loading: false,
-        refresh: vi.fn(),
-        rows: [],
-        rowsMatchQuery: false,
-      });
-
-      const { result } = renderHook(() => useViewFilterPresets());
-
-      expect(result.current.error).toBe(testError);
-    });
   });
 });

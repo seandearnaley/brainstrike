@@ -242,11 +242,6 @@ export const DESKTOP_IPC_CHANNELS = {
     start: 'provider-auth:start',
     status: 'provider-auth:status',
   },
-  quickOpen: {
-    // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
-    // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
-    open: 'quick-open:open',
-  },
   runtime: {
     listModels: 'runtime:listModels',
     noteReloadIntent: 'app:lifecycle:note-reload-intent',

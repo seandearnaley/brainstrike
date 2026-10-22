@@ -6,11 +6,11 @@
  */
 
 import '@testing-library/jest-dom/vitest';
+import { useModelRegistrySource } from '@brainstrike/app-state/hooks/use-model-registry';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelCatalogProps } from '../model-catalog';
@@ -42,13 +42,10 @@ const DATABASE_NOT_READY_TOAST = {
   variant: 'destructive',
 };
 
-vi.mock('@brainstrike/db/react', () => ({
-  usePGliteDatabase: vi.fn(() => null),
-}));
-
 vi.mock('@brainstrike/app-state/hooks/use-model-registry', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/app-state/hooks/use-model-registry')>()),
   useEnsureModelRegistry: vi.fn(),
+  useModelRegistrySource: vi.fn(() => null),
 }));
 
 vi.mock('../use-model-toggle', async (importOriginal) => ({
@@ -77,7 +74,7 @@ beforeEach(() => {
   installCatalogDomStubs({ width: null });
   __resetModelRegistryStoreForTests();
   catalogProps.current = null;
-  vi.mocked(usePGliteDatabase).mockReturnValue(null);
+  vi.mocked(useModelRegistrySource).mockReturnValue(null);
   toggleMany.mockReset();
   toast.mockReset();
   logError.mockReset();
@@ -126,7 +123,7 @@ describe('ModelSelectionPage', () => {
 
   it('retries the registry fetch against the database', () => {
     const db = { query: vi.fn() };
-    vi.mocked(usePGliteDatabase).mockReturnValue(db as never);
+    vi.mocked(useModelRegistrySource).mockReturnValue(db as never);
     const fetchRegistry = vi.fn().mockResolvedValue(undefined);
     act(() => {
       useModelRegistryStore.setState({ error: 'boom', fetchRegistry });
@@ -277,7 +274,7 @@ describe('ModelCatalogHeaderActions', () => {
 
   it('Refresh fetches the registry against the database', () => {
     const db = { query: vi.fn() };
-    vi.mocked(usePGliteDatabase).mockReturnValue(db as never);
+    vi.mocked(useModelRegistrySource).mockReturnValue(db as never);
     const fetchRegistry = vi.fn().mockResolvedValue(undefined);
     act(() => {
       useModelRegistryStore.setState({ fetchRegistry });

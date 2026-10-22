@@ -46,4 +46,4 @@ Coverage reports describe the measured run; this guide does not promise fixed
 coverage percentages.
 
 For running-app flows, use the [desktop E2E guide](../../e2e/README.md). Choose
-checks appropriate to the change under the [validation guidance](../../../../docs/agents/ci-quality.md).
+checks appropriate to the change under the `pnpm check`.

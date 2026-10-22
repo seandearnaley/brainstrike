@@ -54,16 +54,16 @@ const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
 });
 
 function createRowsDeferred(): {
-  promise: Promise<{ rows: [] }>;
+  promise: Promise<{ models: []; providers: [] }>;
   resolve: () => void;
 } {
-  let resolvePromise: (value: { rows: [] }) => void = () => {};
-  const promise = new Promise<{ rows: [] }>((resolve) => {
+  let resolvePromise: (value: { models: []; providers: [] }) => void = () => {};
+  const promise = new Promise<{ models: []; providers: [] }>((resolve) => {
     resolvePromise = resolve;
   });
   return {
     promise,
-    resolve: () => resolvePromise({ rows: [] }),
+    resolve: () => resolvePromise({ models: [], providers: [] }),
   };
 }
 
@@ -243,104 +243,32 @@ describe('model-registry-store', () => {
   describe('fetchRegistry', () => {
     it('sets isLoading to true while fetching', async () => {
       const mockDb = {
-        query: vi.fn().mockImplementation(() => new Promise(() => {})), // Never resolves
+        read: vi.fn().mockImplementation(() => new Promise(() => {})), // Never resolves
       };
 
       void useModelRegistryStore.getState().fetchRegistry(mockDb as never);
       expect(useModelRegistryStore.getState().isLoading).toBe(true);
     });
 
-    it('fetches providers and models from database', async () => {
-      const mockProviderRows = [
-        { icon: null, id: 'openai', is_enabled: 1, name: 'OpenAI', sort_order: 0 },
-      ];
-      const mockModelRows = [
-        {
-          best_for: JSON.stringify(['chat', 'code']),
-          capabilities: JSON.stringify({ streaming: true, type: 'llm' }),
-          description: 'Advanced LLM',
-          icon: null,
-          id: 'gpt-5.2',
-          is_enabled: 1,
-          name: 'GPT-5.2',
-          parameters: null,
-          provider_id: 'openai',
-          sort_order: 0,
-          tagline: 'Most capable',
-        },
-      ];
-
-      const mockDb = {
-        query: vi
-          .fn()
-          .mockResolvedValueOnce({ rows: mockProviderRows })
-          .mockResolvedValueOnce({ rows: mockModelRows }),
-      };
-
-      await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
-
-      expect(useModelRegistryStore.getState().isLoading).toBe(false);
-      expect(useModelRegistryStore.getState().hasLoaded).toBe(true);
-      expect(useModelRegistryStore.getState().providers).toHaveLength(1);
-      expect(useModelRegistryStore.getState().providers[0]?.name).toBe('OpenAI');
-      expect(useModelRegistryStore.getState().models).toHaveLength(1);
-      expect(useModelRegistryStore.getState().models[0]?.name).toBe('GPT-5.2');
-    });
-
-    it('surfaces a test override fetch error without querying the database', async () => {
+    it('surfaces a test override fetch error without reading the catalog', async () => {
       __setSettingsTestOverridesForTests({
         modelRegistry: { fetchErrorMessage: 'model registry failed in test' },
       });
 
       const mockDb = {
-        query: vi.fn(),
+        read: vi.fn(),
       };
 
       await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
 
-      expect(mockDb.query).not.toHaveBeenCalled();
+      expect(mockDb.read).not.toHaveBeenCalled();
       expect(useModelRegistryStore.getState().error).toBe('model registry failed in test');
       expect(useModelRegistryStore.getState().hasLoaded).toBe(false);
     });
 
-    it('parses JSON fields correctly', async () => {
-      const mockProviderRows = [
-        { icon: null, id: 'test', is_enabled: true, name: 'Test', sort_order: 0 },
-      ];
-      const mockModelRows = [
-        {
-          best_for: ['tag1', 'tag2'], // Already parsed object
-          capabilities: { defaultDimension: 384, type: 'embedding' }, // Already parsed
-          description: 'Test',
-          icon: null,
-          id: 'model-1',
-          is_enabled: true,
-          name: 'Test Model',
-          parameters: { size: '100MB' }, // Already parsed
-          provider_id: 'test',
-          sort_order: 0,
-          tagline: null,
-        },
-      ];
-
-      const mockDb = {
-        query: vi
-          .fn()
-          .mockResolvedValueOnce({ rows: mockProviderRows })
-          .mockResolvedValueOnce({ rows: mockModelRows }),
-      };
-
-      await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
-
-      const model = useModelRegistryStore.getState().models[0];
-      expect(model?.bestFor).toEqual(['tag1', 'tag2']);
-      expect(model?.capabilities.type).toBe('embedding');
-      expect(model?.parameters).toEqual({ size: '100MB' });
-    });
-
     it('handles fetch error and sets error state', async () => {
       const mockDb = {
-        query: vi.fn().mockRejectedValue(new Error('Database connection failed')),
+        read: vi.fn().mockRejectedValue(new Error('Database connection failed')),
       };
 
       await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
@@ -354,30 +282,11 @@ describe('model-registry-store', () => {
         downloadedModels: { 'local-model': true },
       });
 
-      const mockProviderRows = [
-        { icon: null, id: 'local', is_enabled: true, name: 'Local', sort_order: 0 },
-      ];
-      const mockModelRows = [
-        {
-          best_for: null,
-          capabilities: JSON.stringify({ type: 'embedding' }),
-          description: 'Local model',
-          icon: null,
-          id: 'local-model',
-          is_enabled: true,
-          name: 'Local Model',
-          parameters: null,
-          provider_id: 'local',
-          sort_order: 0,
-          tagline: null,
-        },
-      ];
-
       const mockDb = {
-        query: vi
-          .fn()
-          .mockResolvedValueOnce({ rows: mockProviderRows })
-          .mockResolvedValueOnce({ rows: mockModelRows }),
+        read: vi.fn().mockResolvedValue({
+          models: [createMockModel({ id: 'local-model', providerId: 'local' })],
+          providers: [createMockProvider({ id: 'local' })],
+        }),
       };
 
       await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
@@ -388,557 +297,19 @@ describe('model-registry-store', () => {
 
   describe('ensureRegistry', () => {
     it('dedupes concurrent fetches while loading', async () => {
-      let resolveProviders!: (value: { rows: [] }) => void;
-      const providersPromise = new Promise<{ rows: [] }>((resolve) => {
-        resolveProviders = resolve;
-      });
-
+      const snapshot = createRowsDeferred();
       const mockDb = {
-        query: vi.fn().mockReturnValueOnce(providersPromise).mockResolvedValueOnce({ rows: [] }),
+        read: vi.fn().mockReturnValueOnce(snapshot.promise),
       };
 
       const first = useModelRegistryStore.getState().ensureRegistry(mockDb as never);
       const second = useModelRegistryStore.getState().ensureRegistry(mockDb as never);
 
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(mockDb.read).toHaveBeenCalledTimes(1);
       expect(second).toBe(first);
 
-      resolveProviders({ rows: [] });
+      snapshot.resolve();
       await first;
-    });
-  });
-
-  describe('toggleModel', () => {
-    it('optimistically updates model enabled state', async () => {
-      const model = createMockModel({ id: 'model-1', isEnabled: false });
-      useModelRegistryStore.setState({ models: [model] });
-
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
-      };
-
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
-
-      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
-    });
-
-    it('calls database update with correct parameters', async () => {
-      const model = createMockModel({ id: 'model-1', isEnabled: false });
-      useModelRegistryStore.setState({ models: [model] });
-
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
-      };
-
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
-
-      expect(mockDb.query).toHaveBeenCalledWith(
-        'UPDATE models SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
-        [true, 'model-1']
-      );
-    });
-
-    it('waits for durable filesystem sync when the database exposes it', async () => {
-      const model = createMockModel({ id: 'model-1', isEnabled: false });
-      const events: string[] = [];
-      useModelRegistryStore.setState({ models: [model] });
-
-      const mockDb = {
-        query: vi.fn(async () => {
-          events.push('query');
-          return { rows: [] };
-        }),
-        syncToFs: vi.fn(async () => {
-          events.push('sync');
-        }),
-      };
-
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
-
-      expect(events).toEqual(['query', 'sync']);
-      expect(mockDb.syncToFs).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not bypass the database handle boundary to sync a raw handle', async () => {
-      const model = createMockModel({ id: 'model-1', isEnabled: false });
-      useModelRegistryStore.setState({ models: [model] });
-
-      const events: string[] = [];
-      const raw = {
-        marker: 'raw-sync-receiver',
-        syncToFs: vi.fn(async function (this: { readonly marker: string }) {
-          events.push(this.marker);
-        }),
-      };
-      const mockDb = {
-        query: vi.fn(async () => {
-          events.push('query');
-          return { rows: [] };
-        }),
-        raw,
-      };
-
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
-
-      expect(events).toEqual(['query']);
-      expect(raw.syncToFs).not.toHaveBeenCalled();
-    });
-
-    it('keeps the committed toggle state if a registry refresh races the update', async () => {
-      const model = createMockModel({ id: 'model-1', isEnabled: false });
-      useModelRegistryStore.setState({ models: [model] });
-
-      const updateFinished = createRowsDeferred();
-      const mockDb = {
-        query: vi.fn().mockReturnValue(updateFinished.promise),
-      };
-
-      const toggleFinished = useModelRegistryStore
-        .getState()
-        .toggleModel(mockDb as never, 'model-1', true);
-      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
-
-      useModelRegistryStore.setState({ models: [{ ...model, isEnabled: false }] });
-      updateFinished.resolve();
-      await toggleFinished;
-
-      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
-    });
-  });
-
-  describe('initializeProviderModelDefaults', () => {
-    const llmCapabilities = { streaming: true, type: 'llm' } as const;
-    const untouchedRows = [
-      {
-        capabilities: llmCapabilities,
-        created_at: '2026-07-22T12:00:00.000Z',
-        id: 'model-a',
-        is_enabled: false,
-        updated_at: '2026-07-22T12:00:00.000Z',
-      },
-      {
-        capabilities: llmCapabilities,
-        created_at: '2026-07-22T12:00:00.000Z',
-        id: 'model-b',
-        is_enabled: false,
-        updated_at: '2026-07-22T12:00:00.000Z',
-      },
-    ];
-
-    it('durably enables the recommended set for an untouched provider catalog', async () => {
-      useModelRegistryStore.setState({
-        models: [
-          createMockModel({ id: 'model-a', isEnabled: false, providerId: 'openrouter' }),
-          createMockModel({ id: 'model-b', isEnabled: false, providerId: 'openrouter' }),
-        ],
-      });
-      const events: string[] = [];
-      const mockDb = {
-        query: vi
-          .fn()
-          .mockResolvedValueOnce({ rows: untouchedRows })
-          .mockImplementationOnce(async () => {
-            events.push('update');
-            return { rows: [{ id: 'model-a' }, { id: 'model-b' }] };
-          }),
-        syncToFs: vi.fn(async () => {
-          events.push('sync');
-        }),
-      };
-
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-          kind: 'seed',
-          modelIds: ['model-a', 'model-b'],
-        });
-
-      expect(result).toBe('initialized');
-      expect(events).toEqual(['update', 'sync']);
-      expect(mockDb.query).toHaveBeenNthCalledWith(
-        1,
-        expect.stringContaining('FROM models WHERE provider_id = $1'),
-        ['openrouter']
-      );
-      expect(mockDb.query).toHaveBeenNthCalledWith(
-        2,
-        expect.stringContaining('UPDATE models SET is_enabled = true, updated_at = NOW()'),
-        ['openrouter', 'model-a', 'model-b']
-      );
-      expect(useModelRegistryStore.getState().models.map((model) => model.isEnabled)).toEqual([
-        true,
-        true,
-      ]);
-    });
-
-    it('preserves an existing enabled-model choice exactly', async () => {
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({
-          rows: [{ ...untouchedRows[0], is_enabled: 1 }, untouchedRows[1]],
-        }),
-        syncToFs: vi.fn(),
-      };
-
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-          kind: 'seed',
-          modelIds: ['model-a', 'model-b'],
-        });
-
-      expect(result).toBe('preserved');
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-      expect(mockDb.syncToFs).not.toHaveBeenCalled();
-    });
-
-    it('requires every recommended catalog row before an explicit choice can preserve', async () => {
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({
-          rows: [{ ...untouchedRows[0], is_enabled: 1 }],
-        }),
-        syncToFs: vi.fn(),
-      };
-
-      await expect(
-        useModelRegistryStore
-          .getState()
-          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-            kind: 'seed',
-            modelIds: ['model-a', 'model-b'],
-          })
-      ).rejects.toThrow('Recommended openrouter models are missing from the catalog: model-b');
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-      expect(mockDb.syncToFs).not.toHaveBeenCalled();
-    });
-
-    it('fails closed on malformed catalog timestamps even when an enabled choice exists', async () => {
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({
-          rows: [
-            { ...untouchedRows[0], is_enabled: true },
-            { ...untouchedRows[1], updated_at: 'not-a-timestamp' },
-          ],
-        }),
-      };
-
-      await expect(
-        useModelRegistryStore
-          .getState()
-          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-            kind: 'seed',
-            modelIds: ['model-a', 'model-b'],
-          })
-      ).rejects.toThrow('invalid updated_at timestamp');
-    });
-
-    it('preserves an explicit all-disabled choice using the durable update timestamp', async () => {
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({
-          rows: [
-            {
-              ...untouchedRows[0],
-              updated_at: '2026-07-22T12:01:00.000Z',
-            },
-            untouchedRows[1],
-          ],
-        }),
-        syncToFs: vi.fn(),
-      };
-
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-          kind: 'seed',
-          modelIds: ['model-a', 'model-b'],
-        });
-
-      expect(result).toBe('preserved');
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-      expect(mockDb.syncToFs).not.toHaveBeenCalled();
-    });
-
-    it('fails closed when a recommended model is missing from the provider catalog', async () => {
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [untouchedRows[0]] }),
-      };
-
-      await expect(
-        useModelRegistryStore
-          .getState()
-          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-            kind: 'seed',
-            modelIds: ['model-a', 'model-b'],
-          })
-      ).rejects.toThrow('model-b');
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-    });
-
-    it('rejects a failed write without changing the in-memory registry', async () => {
-      useModelRegistryStore.setState({
-        models: [createMockModel({ id: 'model-a', isEnabled: false, providerId: 'openrouter' })],
-      });
-      const mockDb = {
-        query: vi
-          .fn()
-          .mockResolvedValueOnce({ rows: [untouchedRows[0]] })
-          .mockRejectedValueOnce(new Error('disk write failed')),
-      };
-
-      await expect(
-        useModelRegistryStore
-          .getState()
-          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-            kind: 'seed',
-            modelIds: ['model-a'],
-          })
-      ).rejects.toThrow('disk write failed');
-      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(false);
-    });
-
-    it('enables an untouched row the catalog shipped disabled (BST-1794)', async () => {
-      // The bug, stated: an anthropic profile holding its migration-057 rows
-      // enabled and `claude-opus-5` shipped false. The provider-wide predicate
-      // saw one enabled row and preserved everything, so the new model was
-      // unreachable forever.
-      useModelRegistryStore.setState({
-        models: [
-          createMockModel({ id: 'claude-sonnet-5', isEnabled: true, providerId: 'anthropic' }),
-          createMockModel({ id: 'claude-opus-5', isEnabled: false, providerId: 'anthropic' }),
-        ],
-      });
-      const mockDb = {
-        query: vi
-          .fn()
-          .mockResolvedValueOnce({
-            rows: [
-              {
-                capabilities: llmCapabilities,
-                created_at: '2026-07-22T12:00:00.000Z',
-                id: 'claude-sonnet-5',
-                is_enabled: true,
-                updated_at: '2026-07-22T12:00:00.000Z',
-              },
-              {
-                capabilities: llmCapabilities,
-                created_at: '2026-09-04T12:00:00.000Z',
-                id: 'claude-opus-5',
-                is_enabled: false,
-                updated_at: '2026-09-04T12:00:00.000Z',
-              },
-            ],
-          })
-          .mockResolvedValueOnce({ rows: [{ id: 'claude-opus-5' }] }),
-        syncToFs: vi.fn(async () => undefined),
-      };
-
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'anthropic', { kind: 'all' });
-
-      expect(result).toBe('initialized');
-      expect(mockDb.query).toHaveBeenNthCalledWith(
-        2,
-        expect.stringContaining('UPDATE models SET is_enabled = true, updated_at = NOW()'),
-        ['anthropic', 'claude-opus-5']
-      );
-      expect(
-        useModelRegistryStore.getState().models.find((model) => model.id === 'claude-opus-5')
-          ?.isEnabled
-      ).toBe(true);
-    });
-
-    it('leaves a row the user deliberately disabled switched off', async () => {
-      useModelRegistryStore.setState({
-        models: [createMockModel({ id: 'gpt-5.4', isEnabled: false, providerId: 'openai' })],
-      });
-      const mockDb = {
-        query: vi.fn().mockResolvedValueOnce({
-          rows: [
-            {
-              capabilities: llmCapabilities,
-              created_at: '2026-07-22T12:00:00.000Z',
-              id: 'gpt-5.4',
-              is_enabled: false,
-              // A later updated_at is the durable record of a user toggle;
-              // catalog upserts never write this column.
-              updated_at: '2026-08-01T09:30:00.000Z',
-            },
-          ],
-        }),
-        syncToFs: vi.fn(async () => undefined),
-      };
-
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' });
-
-      expect(result).toBe('preserved');
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-      expect(mockDb.syncToFs).not.toHaveBeenCalled();
-    });
-
-    it('never touches embedding rows under an availability policy', async () => {
-      useModelRegistryStore.setState({
-        models: [
-          createMockModel({ id: 'text-embedding-3-large', isEnabled: false, providerId: 'openai' }),
-        ],
-      });
-      const mockDb = {
-        query: vi.fn().mockResolvedValueOnce({
-          rows: [
-            {
-              capabilities: { defaultDimension: 3072, type: 'embedding' },
-              created_at: '2026-07-22T12:00:00.000Z',
-              id: 'text-embedding-3-large',
-              is_enabled: false,
-              updated_at: '2026-07-22T12:00:00.000Z',
-            },
-          ],
-        }),
-        syncToFs: vi.fn(async () => undefined),
-      };
-
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' });
-
-      expect(result).toBe('preserved');
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-    });
-
-    const capabilitiesRow = (capabilities: unknown) => ({
-      capabilities,
-      created_at: '2026-07-22T12:00:00.000Z',
-      id: 'model-a',
-      is_enabled: false,
-      updated_at: '2026-07-22T12:00:00.000Z',
-    });
-
-    it('skips a null-capabilities row under an availability policy without enabling it or throwing', async () => {
-      const mockDb = { query: vi.fn().mockResolvedValueOnce({ rows: [capabilitiesRow(null)] }) };
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' });
-      expect(result).toBe('preserved');
-    });
-
-    it('throws naming the row when a malformed capabilities string fails to parse', async () => {
-      const mockDb = {
-        query: vi.fn().mockResolvedValueOnce({ rows: [capabilitiesRow('{not-json')] }),
-      };
-      const store = useModelRegistryStore.getState();
-      await expect(
-        store.initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' })
-      ).rejects.toThrow('Model registry row model-a has unparseable capabilities.');
-    });
-
-    it('throws for an empty seed set against a provider with an enabled row', async () => {
-      const rows = [{ ...untouchedRows[0], is_enabled: 1 }];
-      const mockDb = { query: vi.fn().mockResolvedValueOnce({ rows }) };
-      const store = useModelRegistryStore.getState();
-      const policy = { kind: 'seed' as const, modelIds: [] };
-      await expect(
-        store.initializeProviderModelDefaults(mockDb as never, 'openrouter', policy)
-      ).rejects.toThrow('No recommended model defaults were provided for openrouter.');
-    });
-
-    it('preserves a curated profile under a seed policy when every seed id exists', async () => {
-      // The other half of the split: a user who picked 3 of 58 OpenRouter
-      // routes must not silently acquire the recommended set.
-      useModelRegistryStore.setState({
-        models: [createMockModel({ id: 'model-a', isEnabled: true, providerId: 'openrouter' })],
-      });
-      const mockDb = {
-        query: vi.fn().mockResolvedValueOnce({
-          rows: [
-            {
-              capabilities: llmCapabilities,
-              created_at: '2026-07-22T12:00:00.000Z',
-              id: 'model-a',
-              is_enabled: true,
-              updated_at: '2026-07-22T12:00:00.000Z',
-            },
-          ],
-        }),
-        syncToFs: vi.fn(async () => undefined),
-      };
-
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-          kind: 'seed',
-          modelIds: ['model-a'],
-        });
-
-      expect(result).toBe('preserved');
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-    }); // Missing-seed-id-while-curated: model-registry-store-seed-policy.test.ts
-  });
-
-  describe('toggleProvider', () => {
-    it('optimistically updates provider enabled state', async () => {
-      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
-      useModelRegistryStore.setState({ providers: [provider] });
-
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
-      };
-
-      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
-
-      expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
-    });
-
-    it('calls database update with correct parameters', async () => {
-      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
-      useModelRegistryStore.setState({ providers: [provider] });
-
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
-      };
-
-      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
-
-      expect(mockDb.query).toHaveBeenCalledWith(
-        'UPDATE providers SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
-        [true, 'provider-1']
-      );
-    });
-
-    it('waits for durable filesystem sync when a provider is toggled', async () => {
-      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
-      useModelRegistryStore.setState({ providers: [provider] });
-
-      const syncToFs = vi.fn().mockResolvedValue(undefined);
-      const mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
-        syncToFs,
-      };
-
-      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
-
-      expect(syncToFs).toHaveBeenCalledTimes(1);
-    });
-
-    it('keeps the committed toggle state if a registry refresh races the update', async () => {
-      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
-      useModelRegistryStore.setState({ providers: [provider] });
-
-      const updateFinished = createRowsDeferred();
-      const mockDb = {
-        query: vi.fn().mockReturnValue(updateFinished.promise),
-      };
-
-      const toggleFinished = useModelRegistryStore
-        .getState()
-        .toggleProvider(mockDb as never, 'provider-1', true);
-      expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
-
-      useModelRegistryStore.setState({ providers: [{ ...provider, isEnabled: false }] });
-      updateFinished.resolve();
-      await toggleFinished;
-
-      expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
     });
   });
 

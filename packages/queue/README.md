@@ -52,4 +52,4 @@ that work stopped or vectors committed.
 `pnpm type-check` and `pnpm test` from this package. Local consumers declare
 `"@brainstrike/queue": "workspace:*"`.
 **CI is disabled due to cost; validation must run locally.** See
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

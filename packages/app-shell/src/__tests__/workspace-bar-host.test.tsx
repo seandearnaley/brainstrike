@@ -30,7 +30,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
 // the wrapper passes (store values, the db handle, ids).
 const ARGS: UseWorkspaceBarArgs = {
   assistantThreadRepository: null,
-  database: null,
   memoryResourceId: 'workspace-a',
   rootDescriptors: undefined,
   selectedMemoryThreadId: undefined,

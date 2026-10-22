@@ -1,4 +1,6 @@
 import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   type AssistantMemoryThread,
   type AssistantThreadCatalogRepository,
@@ -32,7 +34,7 @@ import {
   resolveThreadRowStatusState,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
-import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
+import type { FixedProviderModels } from './assistant-ui-panel-wrapper-runtime';
 import { usePublishOnScreenThreadId } from './hooks/use-on-screen-thread';
 import { useMarkOnScreenThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { ThreadIdentityMark } from './thread-identity-mark';
@@ -98,9 +100,20 @@ function getNewThreadAction(retryCatalog: boolean): { label: string; text: strin
 }
 
 export interface AssistantThreadTabsWorkspaceProps {
-  readonly fixedProviderModels?: AssistantUiPanelWrapperProps['fixedProviderModels'];
-  readonly providerKeySources?: AssistantUiPanelWrapperProps['providerKeySources'];
-  readonly providerReadErrors?: AssistantUiPanelWrapperProps['providerReadErrors'];
+  readonly fixedProviderModels?: FixedProviderModels;
+  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+  readonly providerReadErrors?: Partial<Record<SupportedProvider, string>>;
+}
+
+/** What one mounted thread's panel renderer is given. */
+export interface AssistantThreadPanelProps {
+  fixedProviderModels?: FixedProviderModels;
+  isVisible?: boolean;
+  memoryResourceId?: string;
+  memoryThreadId?: string;
+  onRunningChange?: (threadId: string, running: boolean) => void;
+  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+  providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
 
 export interface ThreadTabStatusProjection {
@@ -110,11 +123,9 @@ export interface ThreadTabStatusProjection {
 
 export interface AssistantThreadTabsCoreProps extends AssistantThreadTabsWorkspaceProps {
   readonly activeThreads: ThreadTabStatusProjection;
-  readonly databaseError: Error | null;
-  readonly databaseStartupLoading: boolean;
   readonly loadingLabel: string;
-  readonly renderThread: (props: AssistantUiPanelWrapperProps) => ReactNode;
-  readonly repository: AssistantThreadCatalogRepository | null;
+  readonly renderThread: (props: AssistantThreadPanelProps) => ReactNode;
+  readonly repository: AssistantThreadCatalogRepository;
   readonly threadsAwaitingApproval: ThreadTabStatusProjection;
 }
 
@@ -124,8 +135,6 @@ export function AssistantThreadTabsCore({
   providerReadErrors,
   repository,
   loadingLabel,
-  databaseStartupLoading,
-  databaseError,
   activeThreads,
   threadsAwaitingApproval,
   renderThread,
@@ -165,11 +174,11 @@ export function AssistantThreadTabsCore({
   const newThreadAction = getNewThreadAction(retryCatalog);
   const newThreadDisabled = loadState.status === 'loading';
   // The thread whose transcript this component renders: the active tab, unless
-  // a database or load-error card below replaces the panels. (The loading card
+  // a load-error card below replaces the panels. (The loading card
   // replaces them only with NO open tab, when there is no active thread either;
   // a list still loading with tabs open renders its transcripts. The store keeps
   // the active thread among the open tabs, so its panel is the one not `hidden`.)
-  const transcriptThreadId = repository && loadState.status !== 'error' ? activeThreadId : null;
+  const transcriptThreadId = loadState.status === 'error' ? null : activeThreadId;
 
   // Host and web adapters supply their owner's status projections. This surface
   // alone publishes the visible transcript and advances its viewed watermark.
@@ -184,7 +193,7 @@ export function AssistantThreadTabsCore({
   // Host threads commit titles (a rename or an auto-title) in the host log,
   // which no history query sees.
   useEffect(() => {
-    if (!(repository && host?.subscribeTitleChanges)) {
+    if (!host?.subscribeTitleChanges) {
       return;
     }
     return host.subscribeTitleChanges(() => {
@@ -245,16 +254,13 @@ export function AssistantThreadTabsCore({
   );
 
   const createNewThread = useCallback(async (): Promise<void> => {
-    if (retryCatalog && repository) {
+    if (retryCatalog) {
       await ensureResourceThreads(repository, resourceId);
       return;
     }
     if (host) {
       await createThread({ createThread: (id) => host.createThread(id) }, resourceId);
       return;
-    }
-    if (!repository) {
-      throw new Error('Assistant memory requires an initialized PGlite database.');
     }
     await createThread(repository, resourceId);
   }, [createThread, ensureResourceThreads, host, repository, resourceId, retryCatalog]);
@@ -351,37 +357,13 @@ export function AssistantThreadTabsCore({
   }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, resourceId, threadById]);
 
   useEffect(() => {
-    if (!repository || hasFactoryResetPreparationStarted()) {
+    if (hasFactoryResetPreparationStarted()) {
       return;
     }
     ensureResourceThreads(repository, resourceId).catch(() => {
       // The store records the explicit error state; the assistant remains unavailable.
     });
   }, [ensureResourceThreads, repository, resourceId]);
-
-  if (!repository && databaseStartupLoading) {
-    return <AssistantPanelLoadingState label={loadingLabel} />;
-  }
-
-  if (!repository && databaseError) {
-    return (
-      <ThreadWorkspaceState
-        description={databaseError.message}
-        title="Memory database failed"
-        variant="error"
-      />
-    );
-  }
-
-  if (!repository) {
-    return (
-      <ThreadWorkspaceState
-        description="Assistant memory requires an initialized PGlite database."
-        title="Memory database unavailable"
-        variant="error"
-      />
-    );
-  }
 
   if (loadState.status === 'loading' && openThreadIds.length === 0) {
     return <AssistantPanelLoadingState label={loadingLabel} />;

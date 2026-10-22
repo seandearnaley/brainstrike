@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WorkspaceRootRegistry } from '@brainstrike/assistant-service/node-workspace-services';
-import { RootLock, RootLockedError } from '@brainstrike/state-store';
+import { RootLock } from '@brainstrike/state-store';
 import { app, utilityProcess } from 'electron';
 import { createDesktopWorkspaceRootCatalog } from '../../agent-host-platform/workspace-root-client';
 import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
@@ -103,19 +103,6 @@ async function main(): Promise<void> {
     start: attachment.record.start,
   };
   event('attached', identity);
-  /** Every platform: another opener is refused because this kernel still holds the Root. */
-  const assertKernelHoldsRoot = async (message: string): Promise<void> => {
-    const refusal: unknown = await RootLock.acquire(root).then(
-      (lock) => lock.release(),
-      (error: unknown) => error
-    );
-    assert.ok(refusal instanceof RootLockedError, message);
-    assert.deepEqual(
-      { holder: refusal.holder, pid: refusal.owner.pid, start: refusal.owner.start },
-      { holder: 'owner', pid: identity.pid, start: identity.start },
-      message
-    );
-  };
   for (const [path, id] of [
     [workspace, rootId],
     [secondWorkspace, secondRootId],
@@ -259,7 +246,7 @@ async function main(): Promise<void> {
     assert.equal(operationSettled, false, 'an admitted response must remain pending until its ACK');
     assert.equal(shutdownSettled, false);
     assert.equal(childExit, undefined);
-    await assertKernelHoldsRoot('a held response must keep its kernel holding the Root');
+    assert.equal(RootLock.isFlockHeld(root), true);
     event('still-pending-before-release');
     await writeFile(join(root, 'gate-released'), 'release after close preparation');
   }
@@ -278,7 +265,11 @@ async function main(): Promise<void> {
   if (kernel === 'owned') {
     assert.equal(childExit, 0);
   } else {
-    await assertKernelHoldsRoot('desktop close must not stop the existing owner');
+    assert.equal(
+      RootLock.isFlockHeld(root),
+      true,
+      'desktop close must not stop the existing owner'
+    );
   }
   if (method === 'workspaceRoots' && mode !== 'rejected' && mode !== 'stuck') {
     assert.equal(registeredAck, true);

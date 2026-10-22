@@ -74,7 +74,7 @@ export default defineConfig({
   base: './', // Use relative paths for Electron
   build: {
     assetsInlineLimit: 0,
-    // Accept the measured renderer/main, context-preview, bootstrap, PGlite,
+    // Accept the measured renderer/main, context-preview, bootstrap,
     // and Transformers chunks while retaining a useful regression ceiling.
     // The 2.3 MB o200k table is fetched as an asset only on accurate-token use.
     chunkSizeWarningLimit: 1300,
@@ -117,18 +117,13 @@ export default defineConfig({
   cacheDir: path.resolve(__dirname, '.vite'),
   define: {
     'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),
-    // Force PGlite to resolve browser implementation in renderer
+    // Retained from the PGlite removal; not proven unneeded by other renderer dependencies.
     'process.versions': 'undefined',
   },
   optimizeDeps: {
     entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
     exclude: [
       ...getHeavyRuntimeOptimizeDepsExclude(),
-      '@electric-sql/pglite',
-      // Split pgvector/pg_textsearch packages ship their WASM/tar via import.meta.url;
-      // prebundling into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
-      '@electric-sql/pglite-pgvector',
-      '@electric-sql/pglite-pg_textsearch',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/assistant-ui',
@@ -274,13 +269,6 @@ export default defineConfig({
       // (DEFAULT_SRC_ALIAS_EXCLUSIONS) — this app's renderer bundle only ever
       // needs these browser-safe subpaths, so no root override is added here.
       ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
-      // Force PGlite to use browser FS implementation in renderer to avoid node:fs imports
-      {
-        find: /@electric-sql\/pglite\/dist\/fs\/nodefs\.js$/,
-        replacement: '@electric-sql/pglite/dist/fs/opfs-ahp.js',
-      },
-      // Fallback for relative import inside pglite dist
-      { find: './fs/nodefs.js', replacement: './fs/opfs-ahp.js' },
       // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
       // the hand-maintained map this file used to carry — every entry it
       // listed besides the exceptions above (including the chunk-init-TDZ

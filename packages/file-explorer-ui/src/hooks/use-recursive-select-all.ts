@@ -1,4 +1,3 @@
-import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
@@ -22,7 +21,6 @@ import {
   useOptionalFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
-import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
 import { querySelectableFiles } from '../utils/recursive-selection-query';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import {
@@ -68,8 +66,7 @@ function computeSelectAllScanCap(
 }
 
 /** Commit a full select-all result as a top-level query-mode selection. */
-async function commitSelectAllQuerySelection(args: {
-  db: ReturnType<typeof useOptionalPGliteDatabase>;
+function commitSelectAllQuerySelection(args: {
   excludeFilters: string[];
   filePaths: string[];
   folderId: string;
@@ -80,9 +77,8 @@ async function commitSelectAllQuerySelection(args: {
     materializedPaths?: Set<string>
   ) => void;
   useRegex: boolean;
-}): Promise<void> {
-  const { db, excludeFilters, filePaths, folderId, includeFilters, setQuerySelection, useRegex } =
-    args;
+}): void {
+  const { excludeFilters, filePaths, folderId, includeFilters, setQuerySelection, useRegex } = args;
   const manifestFingerprint = buildQuerySelectionFingerprint({
     excludeFilters,
     folderId,
@@ -91,11 +87,10 @@ async function commitSelectAllQuerySelection(args: {
     rootPath: null,
     useRegex,
   });
-  const snapshotId = await createQuerySelectionSnapshot(db, filePaths);
   const manifest = buildQuerySelectionManifest({
     filePaths,
     fingerprint: manifestFingerprint,
-    snapshotId,
+    snapshotId: null,
   });
   setQuerySelection(
     buildQuerySelectionDescriptor({
@@ -107,7 +102,7 @@ async function commitSelectAllQuerySelection(args: {
       includeFilters,
       kind: 'recursive-select-all',
       manifestFingerprint,
-      manifestSnapshotId: snapshotId,
+      manifestSnapshotId: null,
       rootPath: null,
       totalSelectedCount: filePaths.length,
       useRegex,
@@ -127,7 +122,6 @@ async function commitSelectAllResult(args: {
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked | undefined;
   currentFolderId: string | null;
-  db: ReturnType<typeof useOptionalPGliteDatabase>;
   excludeFilters: string[];
   folderId: string;
   getCurrentTree: () => IFileNode[];
@@ -180,8 +174,7 @@ async function commitSelectAllResult(args: {
       : undefined;
 
   if (querySelectionSetter) {
-    await commitSelectAllQuerySelection({
-      db: args.db,
+    commitSelectAllQuerySelection({
       excludeFilters,
       filePaths: result.filePaths,
       folderId,
@@ -368,7 +361,6 @@ export function useRecursiveSelectAll(
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
-  const db = useOptionalPGliteDatabase();
   const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
@@ -485,7 +477,6 @@ export function useRecursiveSelectAll(
           addMultipleSelectedFiles,
           addMultipleSelectedFilesChunked,
           currentFolderId,
-          db,
           excludeFilters,
           folderId,
           getCurrentTree,
@@ -528,7 +519,6 @@ export function useRecursiveSelectAll(
       storageAdapter,
       store,
       useRegex,
-      db,
     ]
   );
 
