@@ -48,3 +48,14 @@ Contract markers this ADR replaces (line numbers at `43daec7fb`):
   `:731` (decoupled windows), `:318` (error finish), `:137` (tool-guard cancellation).
 - `docs/agents/agent-self-query.md:145` (no cross-field `.refine()`).
 - `docs/agents/assistant-providers.md:1957` (union branches tolerate extras).
+
+## Amendment (2026-10-22): the watchdog never judges a running tool
+
+Rule 2's running-tool clause now holds by construction. The AI SDK's
+`onToolExecutionStart`/`onToolExecutionEnd` bracket each tool execution, and the
+watchdog has no window while any runs, as the SDK's own `chunkMs` never runs
+during tool execution. The part-inferred `tool-executing` phase and its derived
+backstop are removed: each tool is bounded by its own guard (rule 4), and a
+delegated child by its own run. An awaited child that waited on a person, or
+worked longer than the old 635 s backstop, used to fail its parent. Stored rows
+keep the `tool-executing` phase value decodable.

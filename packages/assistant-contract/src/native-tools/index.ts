@@ -44,7 +44,6 @@ import { webExtract } from './definitions/web-extract.js';
 import { webSearch } from './definitions/web-search.js';
 import { writeWorkspaceFile } from './definitions/write-workspace-file.js';
 import {
-  deriveMaxNativeToolExecutionBudgetMs,
   deriveNativeToolExecutionBudgets,
   requireNativeToolExecutionBudgetFactory,
 } from './execution-budgets.js';
@@ -97,9 +96,6 @@ export type SkillNativeTool = Extract<NativeTool, { readonly kind: 'skill' }>;
 export const NATIVE_TOOL_REGISTRIES = deriveNativeToolRegistries(NATIVE_TOOLS);
 
 export const NATIVE_TOOL_EXECUTION_BUDGETS = deriveNativeToolExecutionBudgets(NATIVE_TOOLS);
-export const MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS = deriveMaxNativeToolExecutionBudgetMs(
-  NATIVE_TOOL_EXECUTION_BUDGETS
-);
 /** Lookup-or-throw for one tool's declared execution budget (BST-1777). */
 export const requireNativeToolExecutionBudget = requireNativeToolExecutionBudgetFactory(
   NATIVE_TOOL_EXECUTION_BUDGETS

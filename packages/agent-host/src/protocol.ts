@@ -808,6 +808,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
           Schema.Struct({
             lastPartType: Schema.optional(Id),
             partsSeen: Seq,
+            // 'tool-executing' is written by no current build; stored rows keep it.
             phase: Schema.Literals(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
           })
         ),
