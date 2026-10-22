@@ -10,16 +10,25 @@ import { electronExecutablePath } from './helpers/electron-executable';
 
 const desktop = resolve(import.meta.dirname, '../..');
 
-/** View → Reload on the app's visible window, the way the user picks it. */
+/**
+ * View → Reload on the app's visible window, the way the user picks it, once Main has loaded
+ * its first document. `#root > *` already matches index.html's static startup shell, and a
+ * reload while Main's startup still awaits that first load aborts it (ERR_ABORTED).
+ */
 async function reloadFromMenu(app: ElectronApplication, page: Page): Promise<void> {
   const id = await (await app.browserWindow(page)).evaluate((window) => window.id);
-  await app.evaluate(({ BrowserWindow, Menu }, windowId) => {
+  await app.evaluate(async ({ BrowserWindow, Menu }, windowId) => {
     const target = BrowserWindow.fromId(windowId);
     const item = Menu.getApplicationMenu()
       ?.items.find(({ label }) => label === 'View')
       ?.submenu?.items.find(({ label }) => label === 'Reload');
     if (!(target && item)) {
       throw new Error('The app Reload menu target is unavailable');
+    }
+    if (target.webContents.isLoading()) {
+      await new Promise<void>((resolve) => {
+        target.webContents.once('did-stop-loading', () => resolve());
+      });
     }
     item.click(undefined, target, target.webContents);
   }, id);

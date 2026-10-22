@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { attachAgentHost } from '@brainstrike/agent-host';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { createNodeHostSpawner, launchHost } from '@brainstrike/host-lease';
-import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { build } from 'esbuild';
 import { beforeAll, expect, test } from 'vitest';
 import { electronExecutablePath } from '../helpers/electron-executable';
@@ -100,7 +100,15 @@ test.each([
       }
       if (owner) {
         expect(processStartTime(owner.record.pid)).toBe(owner.record.start);
-        expect(RootLock.isFlockHeld(root)).toBe(true);
+        const refusal = await RootLock.acquire(root).then(
+          (lock) => lock.release(),
+          (error: unknown) => error
+        );
+        expect(refusal).toBeInstanceOf(RootLockedError);
+        expect(refusal).toMatchObject({
+          holder: 'owner',
+          owner: { pid: owner.record.pid, start: owner.record.start },
+        });
         const extra = await attachAgentHost(owner.record);
         try {
           expect(await extra.request('thread/list', {})).toEqual({ threads: [] });
@@ -135,7 +143,8 @@ test.each([
         );
       }
     }
-    expect(RootLock.isFlockHeld(root)).toBe(false);
+    // Reopening proves the Root free on every platform; on POSIX it also refuses a Root
+    // whose flock a surviving process still holds.
     const reopened = await StateStore.open(root);
     try {
       const { roots } = await reopened.workspaceRoots({ operation: 'list' });
