@@ -63,7 +63,6 @@ vi.mock('../../roots/root-identity-context', () => ({
 import { type UseWorktreeMapInput, useWorktreeMap } from '../use-worktree-map';
 
 const INPUT: UseWorktreeMapInput = {
-  database: null,
   resourceId: 'brainstrike:workspace',
   runningThreadIds: new Set<string>(),
 };

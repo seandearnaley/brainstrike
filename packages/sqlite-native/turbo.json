@@ -15,11 +15,6 @@
       // root.
       "cache": false,
       "passThroughEnv": ["CI", "COVERAGE"]
-    },
-    "test:coverage": {
-      // Runs the IDENTICAL suite (`pnpm run test --coverage`), so it needs the
-      // same `cache: false`; see `test` above.
-      "cache": false
     }
   }
 }

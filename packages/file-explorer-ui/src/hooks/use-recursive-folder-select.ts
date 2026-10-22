@@ -1,4 +1,3 @@
-import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
@@ -16,7 +15,6 @@ import {
   useOptionalFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
-import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
 import { filterSelectionScanNodesByQuickFilter } from '../utils/quick-filter-tree';
 import {
   querySelectableFiles,
@@ -211,7 +209,6 @@ export function useRecursiveFolderSelect(
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
-  const db = useOptionalPGliteDatabase();
   const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
@@ -387,11 +384,10 @@ export function useRecursiveFolderSelect(
             rootPath: node.path,
             useRegex,
           });
-          const snapshotId = await createQuerySelectionSnapshot(db, result.filePaths);
           const manifest = buildQuerySelectionManifest({
             filePaths: result.filePaths,
             fingerprint: manifestFingerprint,
-            snapshotId,
+            snapshotId: null,
           });
           setQuerySelection?.(
             buildQuerySelectionDescriptor({
@@ -403,7 +399,7 @@ export function useRecursiveFolderSelect(
               includeFilters,
               kind: 'recursive-folder',
               manifestFingerprint,
-              manifestSnapshotId: snapshotId,
+              manifestSnapshotId: null,
               rootPath: node.path,
               totalSelectedCount: result.filePaths.length,
               useRegex,
@@ -452,7 +448,6 @@ export function useRecursiveFolderSelect(
       storageAdapter,
       store,
       useRegex,
-      db,
     ]
   );
 

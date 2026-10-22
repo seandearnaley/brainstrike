@@ -6,9 +6,7 @@ const originalError = console.error;
 const expectedErrorMessagePatterns = [
   'Token cache worker warmup failed after',
   'TokenCacheProvider: failed to create worker pool',
-  'Selection snapshot insert did not return an id',
 ];
-const expectedWarnMessagePatterns = ['usePGliteDatabase must be used within a DbProvider'];
 const expectedInfoMessagePatterns = [
   'loadRoot running - will reinitialize worker',
   'loadRoot completed - handle map built',
@@ -28,7 +26,6 @@ function shouldSuppressStreamChunk(chunk: unknown): boolean {
 
   return (
     expectedErrorMessagePatterns.some((pattern) => renderedChunk.includes(pattern)) ||
-    expectedWarnMessagePatterns.some((pattern) => renderedChunk.includes(pattern)) ||
     expectedInfoMessagePatterns.some((pattern) => renderedChunk.includes(pattern))
   );
 }
@@ -71,10 +68,7 @@ beforeEach(() => {
 console.warn = (...args: Parameters<typeof console.warn>) => {
   const [message] = args;
   const renderedMessage = String(message ?? '');
-  if (
-    renderedMessage.includes('[token-utils]') ||
-    expectedWarnMessagePatterns.some((pattern) => renderedMessage.includes(pattern))
-  ) {
+  if (renderedMessage.includes('[token-utils]')) {
     return;
   }
 

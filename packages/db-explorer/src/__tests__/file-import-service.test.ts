@@ -19,6 +19,7 @@ const {
   mockIsTextExtension,
   mockIsTextContent,
   mockLogger,
+  useMockRepository,
 } = vi.hoisted(() => ({
   mockBulkImport: vi.fn(),
   mockDecodeFileSelection: vi.fn(),
@@ -35,32 +36,25 @@ const {
     warn: vi.fn(),
   },
   mockReadFile: vi.fn(),
+  useMockRepository: { current: true },
 }));
 
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useClearAllData: () => null,
-  useDbProviderError: () => null,
-  useFactoryReset: () => null,
-  useFileChunkRepository: () => null,
-  useFileRecordRepository: () => ({
-    bulkImport: mockBulkImport,
-  }),
-  usePGliteDatabase: () => null,
-  usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useClearAllData: () => null,
-  useDbProviderError: () => null,
-  useFactoryReset: () => null,
-  useFileChunkRepository: () => null,
-  useFileRecordRepository: () => ({
-    bulkImport: mockBulkImport,
-  }),
-  usePGliteDatabase: () => null,
-  usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
-}));
+// The coordinator tests below drive `bulkImport` directly; the desktop block at the
+// end exercises the real native import repository.
+vi.mock('../file-import/native-source-import', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../file-import/native-source-import')>();
+  return {
+    ...actual,
+    createNativeImportRepository: (
+      ...args: Parameters<typeof actual.createNativeImportRepository>
+    ) =>
+      useMockRepository.current
+        ? { bulkImport: mockBulkImport }
+        : actual.createNativeImportRepository(...args),
+    getSourceFilesCapability: () =>
+      useMockRepository.current ? ({} as SourceFilesCapability) : actual.getSourceFilesCapability(),
+  };
+});
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
@@ -459,7 +453,13 @@ describe('useFileImportService', () => {
 });
 
 describe('canonical desktop source imports', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    useMockRepository.current = false;
+  });
+  afterEach(() => {
+    useMockRepository.current = true;
+    vi.unstubAllGlobals();
+  });
   const file = {
     chunksCount: null,
     chunksProcessed: false,

@@ -236,9 +236,6 @@ declare global {
      * never crosses IPC. Absent on web — consumers capability-check it.
      */
     providerAuth?: import('@brainstrike/assistant-contract/provider-auth').ProviderAuthBridge;
-    quickOpen?: {
-      onOpen: (callback: () => void) => () => void;
-    };
     /**
      * Secure secrets bridge (BST-1348). The shape is defined ONCE in
      * `@brainstrike/assistant-contract/secrets-bridge` — the preload

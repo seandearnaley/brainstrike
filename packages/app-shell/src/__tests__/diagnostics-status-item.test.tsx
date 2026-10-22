@@ -3,20 +3,12 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { usePGliteDatabaseMock, usePGliteLiveQueryMock } = vi.hoisted(() => ({
-  usePGliteDatabaseMock: vi.fn(),
-  usePGliteLiveQueryMock: vi.fn(),
+const { useUnseenDiagnosticsCountMock } = vi.hoisted(() => ({
+  useUnseenDiagnosticsCountMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteDatabase: usePGliteDatabaseMock,
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteDatabase: usePGliteDatabaseMock,
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
+vi.mock('../diagnostics/use-unseen-diagnostics-count', () => ({
+  useUnseenDiagnosticsCount: useUnseenDiagnosticsCountMock,
 }));
 
 import {
@@ -29,26 +21,20 @@ import {
 } from '../diagnostics/diagnostics-seen-store';
 import { DiagnosticsStatusItem } from '../status-items/diagnostics-status-item';
 
-function mockLiveQueryResult(
+function mockUnseenCounts(
   rows: Array<{ errorCount: number; warningCount: number }>,
   error: Error | null = null
 ) {
-  usePGliteLiveQueryMock.mockReturnValue({
+  useUnseenDiagnosticsCountMock.mockReturnValue({
     error,
-    loading: false,
-    refresh: vi.fn(),
-    rows,
-    // A delivered answer to the current watermark, as the live query reports it.
-    rowsMatchQuery: error === null,
+    errorCount: rows[0]?.errorCount ?? 0,
+    warningCount: rows[0]?.warningCount ?? 0,
   });
 }
 
 describe('DiagnosticsStatusItem', () => {
   beforeEach(() => {
-    usePGliteDatabaseMock.mockReset();
-    usePGliteLiveQueryMock.mockReset();
-    usePGliteDatabaseMock.mockReturnValue({});
-    mockLiveQueryResult([{ errorCount: 0, warningCount: 0 }]);
+    mockUnseenCounts([{ errorCount: 0, warningCount: 0 }]);
     resetDiagnosticsSeenStore();
     usePanelLayoutStore.setState({ activeTab: 'explorer' });
     window.location.hash = '';
@@ -62,7 +48,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('renders singular "error" at count 1', () => {
-    mockLiveQueryResult([{ errorCount: 1, warningCount: 0 }]);
+    mockUnseenCounts([{ errorCount: 1, warningCount: 0 }]);
 
     render(<DiagnosticsStatusItem />);
 
@@ -74,7 +60,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('renders plural "errors" at count 2', () => {
-    mockLiveQueryResult([{ errorCount: 2, warningCount: 0 }]);
+    mockUnseenCounts([{ errorCount: 2, warningCount: 0 }]);
 
     render(<DiagnosticsStatusItem />);
 
@@ -86,7 +72,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('labels warning-only rows as warnings rather than errors', () => {
-    mockLiveQueryResult([{ errorCount: 0, warningCount: 2 }]);
+    mockUnseenCounts([{ errorCount: 0, warningCount: 2 }]);
 
     render(<DiagnosticsStatusItem />);
 
@@ -99,7 +85,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('uses the singular warning label at count 1', () => {
-    mockLiveQueryResult([{ errorCount: 0, warningCount: 1 }]);
+    mockUnseenCounts([{ errorCount: 0, warningCount: 1 }]);
 
     render(<DiagnosticsStatusItem />);
 
@@ -108,7 +94,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('reports errors and warnings separately when both are unseen', () => {
-    mockLiveQueryResult([{ errorCount: 2, warningCount: 3 }]);
+    mockUnseenCounts([{ errorCount: 2, warningCount: 3 }]);
 
     render(<DiagnosticsStatusItem />);
 
@@ -120,7 +106,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('clicking advances the seen watermark, opens settings, and routes to the logging tab', async () => {
-    mockLiveQueryResult([{ errorCount: 3, warningCount: 0 }]);
+    mockUnseenCounts([{ errorCount: 3, warningCount: 0 }]);
     // Pin the pre-click watermark to a known PAST value rather than reading
     // whatever `beforeEach` seeded. `resetDiagnosticsSeenStore()` seeds to
     // `Date.now()` and the click lands microseconds later, so asserting
@@ -139,8 +125,8 @@ describe('DiagnosticsStatusItem', () => {
     expect(window.location.hash).toBe('#settings/logging');
   });
 
-  it('surfaces a query error honestly instead of silently showing 0', () => {
-    mockLiveQueryResult([], new Error('live query subscribe failed'));
+  it('surfaces a read error honestly instead of silently showing 0', () => {
+    mockUnseenCounts([], new Error('live query subscribe failed'));
 
     render(<DiagnosticsStatusItem />);
 
@@ -157,11 +143,11 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('uses the semantic warning tone for both the counted and error states', () => {
-    mockLiveQueryResult([{ errorCount: 1, warningCount: 0 }]);
+    mockUnseenCounts([{ errorCount: 1, warningCount: 0 }]);
     const { rerender } = render(<DiagnosticsStatusItem />);
     expect(screen.getByTestId('diagnostics-status-item')).toHaveClass('text-warning');
 
-    mockLiveQueryResult([], new Error('boom'));
+    mockUnseenCounts([], new Error('boom'));
     rerender(<DiagnosticsStatusItem />);
     expect(screen.getByTestId('diagnostics-status-item')).toHaveClass('text-warning');
   });
@@ -169,11 +155,6 @@ describe('DiagnosticsStatusItem', () => {
 
 describe('DiagnosticsStatusItem sink health', () => {
   beforeEach(() => {
-    // A sibling describe does not inherit the block above's beforeEach, so
-    // the db/live-query mocks must be re-established here.
-    usePGliteDatabaseMock.mockReset();
-    usePGliteLiveQueryMock.mockReset();
-    usePGliteDatabaseMock.mockReturnValue({});
     resetDiagnosticsSeenStore();
     resetDiagnosticSinkHealthStore();
   });
@@ -186,7 +167,7 @@ describe('DiagnosticsStatusItem sink health', () => {
   // it. The Settings banner alone is not enough: the user has no reason to
   // open Settings when the status bar says all is well.
   it('surfaces a disabled sink even though the unseen count is 0', () => {
-    mockLiveQueryResult([{ errorCount: 0, warningCount: 0 }]);
+    mockUnseenCounts([{ errorCount: 0, warningCount: 0 }]);
     useDiagnosticSinkHealthStore.getState().markDisabled('disk is full');
 
     render(<DiagnosticsStatusItem />);
@@ -201,7 +182,7 @@ describe('DiagnosticsStatusItem sink health', () => {
   });
 
   it('prefers the disabled-sink label over a stale non-zero count', () => {
-    mockLiveQueryResult([{ errorCount: 4, warningCount: 0 }]);
+    mockUnseenCounts([{ errorCount: 4, warningCount: 0 }]);
     useDiagnosticSinkHealthStore.getState().markDisabled('disk is full');
 
     render(<DiagnosticsStatusItem />);

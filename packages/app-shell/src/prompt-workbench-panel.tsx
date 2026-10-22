@@ -3,11 +3,11 @@ import type {
   PromptItem,
   PromptItemFilter,
   PromptItemKind,
+  PromptItemRepositoryPort,
   PromptItemSimilarityResult,
   PromptItemUsageAction,
   UpdatePromptItemInput,
-} from '@brainstrike/db';
-import type { PromptItemRepositoryPort } from '@brainstrike/types/prompt-item';
+} from '@brainstrike/types/prompt-item';
 import {
   Button,
   cn,

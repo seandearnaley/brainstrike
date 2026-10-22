@@ -1,17 +1,12 @@
-import type { QueueAdapter } from '@brainstrike/queue';
 import { Button, SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS } from '@brainstrike/ui';
 import { FileText } from 'lucide-react';
 import type { ComponentType, ReactElement } from 'react';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
-import { useLazyComponentWithEmbeddingQueue } from './use-lazy-component-with-embedding-queue';
+import { useLazyComponent } from './use-lazy-component';
 
 type ExplorerImportActionModule = typeof import('@brainstrike/db-explorer/explorer-import-action');
 
-interface LoadedExplorerImportActionProps {
-  readonly embeddingQueue?: QueueAdapter | null;
-}
-
-let explorerImportActionComponent: ComponentType<LoadedExplorerImportActionProps> | null = null;
+let explorerImportActionComponent: ComponentType | null = null;
 
 /**
  * The import flow drags in the whole db-explorer/vector-management surface, so
@@ -22,22 +17,18 @@ const explorerImportActionLoader = createRetryableLazyModuleLoader<ExplorerImpor
   () => import('@brainstrike/db-explorer/explorer-import-action')
 );
 
-function loadExplorerImportAction(): Promise<ComponentType<LoadedExplorerImportActionProps>> {
+function loadExplorerImportAction(): Promise<ComponentType> {
   return explorerImportActionLoader.load().then((module) => {
     explorerImportActionComponent = module.ExplorerImportAction;
     return module.ExplorerImportAction;
   });
 }
 
-interface ExplorerImportActionLazyProps {
-  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
-}
-
 /**
  * Stands in for the real action while it loads, or after it failed to.
  *
  * With `onRetry` the button becomes live: a load failure keeps its reason
- * visible in the tooltip but stops being terminal, so a transient queue-init
+ * visible in the tooltip but stops being terminal, so a transient load
  * rejection no longer disables importing for the rest of the session.
  */
 function ImportActionPlaceholder({
@@ -77,16 +68,12 @@ function ImportActionPlaceholder({
  * Named `…Lazy` to stay distinguishable from the db-explorer component it
  * loads, which is the real `ExplorerImportAction`.
  */
-export function ExplorerImportActionLazy({
-  loadEmbeddingQueue = null,
-}: ExplorerImportActionLazyProps): ReactElement {
-  const { component, embeddingQueue, loadError, ready, retry } =
-    useLazyComponentWithEmbeddingQueue<LoadedExplorerImportActionProps>({
-      initialComponent: explorerImportActionComponent,
-      label: 'explorer import action',
-      load: loadExplorerImportAction,
-      loadEmbeddingQueue,
-    });
+export function ExplorerImportActionLazy(): ReactElement {
+  const { component, loadError, ready, retry } = useLazyComponent({
+    initialComponent: explorerImportActionComponent,
+    label: 'explorer import action',
+    load: loadExplorerImportAction,
+  });
 
   if (loadError) {
     return (
@@ -102,7 +89,7 @@ export function ExplorerImportActionLazy({
   }
 
   const ResolvedAction = component;
-  return <ResolvedAction embeddingQueue={embeddingQueue} />;
+  return <ResolvedAction />;
 }
 
 ExplorerImportActionLazy.displayName = 'ExplorerImportActionLazy';

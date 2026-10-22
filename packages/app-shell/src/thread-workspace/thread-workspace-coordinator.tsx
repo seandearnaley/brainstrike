@@ -1,9 +1,7 @@
 import {
-  createThreadWorkspaceRepository,
   resolveAssistantMemoryResourceId,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useEditorViewStateStore } from '@brainstrike/file-explorer-ui/editor-view-state-store';
 import { useFileTabPaneStore } from '@brainstrike/file-explorer-ui/file-tab-pane-store';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -19,18 +17,12 @@ const EMPTY_THREAD_IDS: readonly string[] = [];
 
 /**
  * Mounts the thread⇄workspace coordinator (BST-1268). Must render inside the
- * FileExplorerProvider (app-shell's AppLayout provides it). The host owns desktop
- * snapshots; web uses its database provider. Renders nothing.
+ * FileExplorerProvider (app-shell's AppLayout provides it). The host owns the
+ * snapshots. Renders nothing.
  */
 export function ThreadWorkspaceCoordinator(): null {
   const host = useAssistantThreadHost();
-  const db = usePGliteDatabase({ enabled: !host });
-  const repository = useMemo(() => {
-    if (host) {
-      return host.workspaceRepository();
-    }
-    return db ? createThreadWorkspaceRepository(db) : null;
-  }, [db, host]);
+  const repository = useMemo(() => (host ? host.workspaceRepository() : null), [host]);
   const resourceId = resolveAssistantMemoryResourceId();
   const activeThreadId = useAssistantThreadStore(
     (state) => state.activeThreadIdByResourceId[resourceId] ?? null

@@ -6,7 +6,7 @@ import {
 } from '../desktop-platform-diagnostics';
 
 describe('desktop platform diagnostics', () => {
-  it('collects one typed snapshot across database, scheduler, hosts, logging, and reset state', async () => {
+  it('collects one typed snapshot across database, hosts, logging, and reset state', async () => {
     const databaseDiagnostics = {
       hasDatabaseHandle: true,
       initializationAttemptCount: 2,
@@ -31,71 +31,6 @@ describe('desktop platform diagnostics', () => {
         signal: { message: 'invalid page in block 3', sqlstate: 'XX001' as const },
         since: '2026-05-20T18:01:00.000Z',
       },
-    };
-    const priorityStats = {
-      completed: 0,
-      lastCompletedLabel: null,
-      lastStartedLabel: null,
-      longestWaitMs: 0,
-      queued: 0,
-      serviceP50Ms: 0,
-      serviceP95Ms: 0,
-      started: 0,
-      totalServiceMs: 0,
-      totalWaitMs: 0,
-      waitP50Ms: 0,
-      waitP95Ms: 0,
-    };
-    const schedulerSnapshot = {
-      backgroundWaiting: false,
-      backgroundWaitingSince: null,
-      backgroundYieldCount: 0,
-      currentBackgroundWaitMs: 0,
-      elapsedSnapshotAt: 1,
-      foregroundQuietMs: 250,
-      lastBackgroundYieldAt: null,
-      lastCompletedAt: null,
-      lastForegroundAt: null,
-      lastForegroundElapsedAt: null,
-      lastNormalAt: null,
-      lastNormalElapsedAt: null,
-      lastStartedAt: null,
-      priorityStats: {
-        background: priorityStats,
-        foreground: priorityStats,
-        normal: priorityStats,
-      },
-      queued: { background: 0, foreground: 0, normal: 0 },
-      runningLabel: null,
-      runningPriority: null,
-      snapshotAt: 1,
-    };
-    const dimensionIndexMaintenance = {
-      maintenance: [
-        {
-          attempts: 1,
-          completedAt: null,
-          dimension: 384,
-          lastDurationMs: null,
-          lastError: null,
-          lastForegroundProbeMaxMs: null,
-          lastForegroundProbeP95Ms: null,
-          lastInvalidIndexName: null,
-          nextRunAt: '2026-05-20T18:03:00.000Z',
-          reason: 'embedding-backfill:set-1',
-          requestedAt: '2026-05-20T18:02:30.000Z',
-          startedAt: null,
-          state: 'pending' as const,
-          strategy: 'regular' as const,
-        },
-      ],
-      suspensions: [
-        {
-          dimension: 384,
-          reason: 'nonblocking-background-indexing',
-          suspendedAt: '2026-05-20T18:02:00.000Z',
-        },
-      ],
     };
     const crashRecovery = {
       lastRendererCrashAt: '2026-05-20T18:02:00.000Z',
@@ -178,13 +113,9 @@ describe('desktop platform diagnostics', () => {
       crashRecovery: { getSnapshot: vi.fn(() => crashRecovery) },
       database: { getDiagnostics: vi.fn(async () => databaseDiagnostics) },
       databaseIntegrity: { getSnapshot: vi.fn(() => databaseIntegrity) },
-      databaseScheduler: { getSnapshot: vi.fn(() => schedulerSnapshot) },
       embeddingHost: {
         getPlatformStatus: vi.fn(() => embeddingHostStatus),
         getTelemetrySnapshot: vi.fn(() => embeddingTelemetry),
-      },
-      indexing: {
-        getDimensionIndexMaintenanceSnapshot: vi.fn(() => dimensionIndexMaintenance),
       },
       logging: { getState: vi.fn(() => loggingState) },
       processCounters: { getSnapshot: vi.fn(() => processCounters) },
@@ -207,15 +138,8 @@ describe('desktop platform diagnostics', () => {
       crashRecovery,
       database: databaseDiagnostics,
       databaseIntegrity,
-      databaseScheduler: schedulerSnapshot,
       embeddingHost: embeddingHostStatus,
       errors: {},
-      indexing: {
-        databaseWork: {
-          scheduler: schedulerSnapshot,
-        },
-        dimensionIndexMaintenance,
-      },
       logging: loggingState,
       migration: {
         attemptCount: 2,
@@ -239,14 +163,9 @@ describe('desktop platform diagnostics', () => {
       ...providers,
       database: { getDiagnostics: () => currentOwner },
       databaseIntegrity: null,
-      databaseScheduler: null,
-      indexing: null,
     });
     expect(native.database).toEqual(currentOwner);
     expect(native.databaseIntegrity).toBeNull();
-    expect(native.databaseScheduler).toBeNull();
-    expect(native.indexing.dimensionIndexMaintenance).toBeNull();
-    expect(native.indexing.legacyDatabaseMaintenance).toBe('not-applicable');
     expect(snapshot.errors).toEqual({});
     expect(Date.parse(snapshot.collectedAt)).not.toBeNaN();
   });
@@ -262,22 +181,12 @@ describe('desktop platform diagnostics', () => {
       databaseIntegrity: {
         getSnapshot: vi.fn(() => ({ revision: 0, state: { kind: 'healthy' as const } })),
       },
-      databaseScheduler: {
-        getSnapshot: vi.fn(() => {
-          throw new Error('scheduler unavailable');
-        }),
-      },
       embeddingHost: {
         getPlatformStatus: vi.fn(() => {
           throw new Error('embedding unavailable');
         }),
         getTelemetrySnapshot: vi.fn(() => {
           throw new Error('embedding telemetry unavailable');
-        }),
-      },
-      indexing: {
-        getDimensionIndexMaintenanceSnapshot: vi.fn(() => {
-          throw new Error('dimension maintenance unavailable');
         }),
       },
       logging: {
@@ -307,8 +216,6 @@ describe('desktop platform diagnostics', () => {
 
     expect(snapshot.errors).toMatchObject({
       crashRecovery: 'crash unavailable',
-      databaseScheduler: 'scheduler unavailable',
-      dimensionIndexMaintenance: 'dimension maintenance unavailable',
       embeddingHost: 'embedding unavailable',
       embeddingTelemetry: 'embedding telemetry unavailable',
       logging: 'logging unavailable',
@@ -317,12 +224,7 @@ describe('desktop platform diagnostics', () => {
       telemetry: 'telemetry unavailable',
     });
     expect(snapshot.telemetry.processCounters).toEqual({ installedAt: null, samples: [] });
-    expect(snapshot.databaseScheduler).toBeNull();
     expect(snapshot.databaseIntegrity).toEqual({ revision: 0, state: { kind: 'healthy' } });
-    expect(snapshot.indexing.dimensionIndexMaintenance).toEqual({
-      maintenance: [],
-      suspensions: [],
-    });
     expect(snapshot.reset.userDataPath).toBe('<redacted>');
     // No stop is reported as none, never as absent.
     expect(snapshot.migration.initStop).toBeNull();

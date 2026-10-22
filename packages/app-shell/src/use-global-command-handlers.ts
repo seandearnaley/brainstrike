@@ -1,29 +1,24 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   type AssistantThreadCatalogRepository,
-  createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import type { GlobalCommandHandlers } from '@brainstrike/context-actions/commands';
-import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { useTheme } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
 import {
   createHostAssistantThreadRepository,
   useAssistantThreadHost,
 } from './assistant-thread-host-context';
-import { useQuickOpenStore } from './stores/quick-open-store';
 import { useConnectFolder } from './workspace-connect/use-connect-folder';
 
 /**
  * Resolves the targetless global command handlers (new thread, folder picker,
- * quick open, settings, theme) from app state the layout root already owns.
- * Each is OPTIONAL: a handler we cannot wire (e.g. the assistant memory DB is
- * not ready) is simply absent, which keeps its command HIDDEN — never a faked
- * no-op (the no-silent-fallbacks contract). `openQuickOpen` IS supplied here
- * (PR-6.3): it opens the ⌘P quick-open store, un-gating the
- * `palette.quickOpen` global command.
+ * settings, theme) from app state the layout root already owns.
+ * Each is OPTIONAL: a handler we cannot wire (e.g. no agent host is attached)
+ * is simply absent, which keeps its command HIDDEN — never a faked
+ * no-op (the no-silent-fallbacks contract).
  *
  * Shared by the ⌘K command palette host AND the composer's "/" slash menu so
  * both project the SAME global commands from one source of truth.
@@ -36,27 +31,21 @@ import { useConnectFolder } from './workspace-connect/use-connect-folder';
  * NOT enforced by this hook's own signature. A future THIRD consumer mounted
  * above that provider would crash on render — check this before adding one.
  */
-export function useGlobalCommandHandlers(providedDb?: DbHandle | null): GlobalCommandHandlers {
+export function useGlobalCommandHandlers(): GlobalCommandHandlers {
   const { openPicker } = useConnectFolder();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const { theme, setTheme } = useTheme();
   const createThread = useAssistantThreadStore((state) => state.createThread);
-  const openQuickOpen = useQuickOpenStore((state) => state.open);
 
-  // A new thread is created by the host's existing thread owner when the app
-  // has one; with no host the history repository is unchanged.
+  // A new thread is created by the host's thread owner.
   const host = useAssistantThreadHost();
-  const contextDb = usePGliteDatabase({ enabled: !host && providedDb === undefined });
-  const db = providedDb === undefined ? contextDb : providedDb;
-  const repository = useMemo<AssistantThreadCatalogRepository | null>(() => {
-    if (host) {
-      return createHostAssistantThreadRepository(host);
-    }
-    return db ? createPgliteAssistantThreadRepository(db) : null;
-  }, [db, host]);
+  const repository = useMemo<AssistantThreadCatalogRepository | null>(
+    () => (host ? createHostAssistantThreadRepository(host) : null),
+    [host]
+  );
 
   // Bound only when the repository exists, so the closure captures a non-null
-  // repository (no in-body null guard needed). When `db`/`repository` is null
+  // repository (no in-body null guard needed). When there is no host
   // this is null and the handler is omitted below.
   const newThread = useMemo<(() => Promise<void>) | null>(() => {
     if (!repository) {
@@ -81,23 +70,18 @@ export function useGlobalCommandHandlers(providedDb?: DbHandle | null): GlobalCo
 
   return useMemo<GlobalCommandHandlers>(
     () => ({
-      // When the assistant memory DB / repository is not ready, newThread is
-      // null and is OMITTED here. createGlobalCommands' isAvailable
-      // (`newThread !== undefined`) then HIDES `thread.new` — it is never a
-      // faked no-op (the no-silent-fallbacks contract). Once the DB is ready a
-      // re-render supplies the handler and the command appears.
+      // When there is no host repository, newThread is null and is OMITTED
+      // here. createGlobalCommands' isAvailable (`newThread !== undefined`)
+      // then HIDES `thread.new` — it is never a faked no-op (the
+      // no-silent-fallbacks contract).
       ...(newThread ? { newThread } : {}),
       // `openPicker` is itself gated on the FSA capability probe inside
       // useConnectFolder (BST-1393 review finding) — omitted, not a faked
       // no-op, on a browser without File System Access.
       ...(openPicker ? { openFolder: openPicker } : {}),
-      // ⌘P quick-open is wired here in PR-6.3: opening the store flips the
-      // QuickOpenHost's palette open. This un-gates the previously hidden
-      // `palette.quickOpen` global command (it now has a real handler).
-      openQuickOpen,
       openSettings,
       toggleTheme,
     }),
-    [newThread, openPicker, openQuickOpen, openSettings, toggleTheme]
+    [newThread, openPicker, openSettings, toggleTheme]
   );
 }

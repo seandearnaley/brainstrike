@@ -149,13 +149,13 @@ export default defineConfig({
       },
       // Browser-safe agent subpath entries first (exact specifiers), then the
       // agent ROOT as a plain prefix so `@brainstrike/agent` and its remaining
-      // node-only subpaths (`/mcp-client`, `/pglite-mastra-memory`, …) resolve
+      // node-only subpaths (`/mcp-client`, …) resolve
       // to SOURCE. The shared registry deliberately EXCLUDES agent (its root
       // pulls Mastra/Node-only deps that cannot load in browser-only test
       // lanes), but this app's assistant-server tests exercise real agent code
       // and previously consumed its built dist — a guarantee that vanished
       // when B4 dropped `test.dependsOn: ["^build"]`. Aliasing the root to src
-      // (exactly what apps/web has always done) keeps those lanes green
+      // keeps those lanes green
       // without re-adding a build edge.
       ...Object.entries(
         createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent'))
@@ -221,24 +221,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../../packages/file-explorer-ui/src/shell'),
       },
       {
-        find: '@brainstrike/file-import/browser-queue-port',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/file-import/src/browser-queue-port.ts'
-        ),
-      },
-      {
         find: '@brainstrike/file-import/chunking-worker-context',
         replacement: path.resolve(
           import.meta.dirname,
           '../../packages/file-import/src/chunking-worker-context.tsx'
-        ),
-      },
-      {
-        find: '@brainstrike/file-import/enhanced-import',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/file-import/src/enhanced-import.ts'
         ),
       },
       {
@@ -344,11 +330,11 @@ export default defineConfig({
     // a call's own options still win.
     expect: { poll: { timeout: getExpectPollTimeout() } },
     globals: true,
-    // Desktop integration lanes build real PGlite instances inside beforeEach
+    // Desktop integration lanes do real database setup inside beforeEach
     // hooks; vitest's 10s default hook timeout flakes on loaded CI runners
     // (reindex-on-edit.integration.test.ts). 'database' = 20s, doubled in CI.
     hookTimeout: getAdjustedTimeout('database'),
-    // Desktop tests spin up mocked Electron, PGlite, MCP, and renderer-host
+    // Desktop tests spin up mocked Electron, MCP, and renderer-host
     // surfaces with process-wide module state. Keep this package serialized so
     // those globals cannot bleed across files under load.
     maxWorkers: 1,

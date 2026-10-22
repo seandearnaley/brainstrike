@@ -8,7 +8,6 @@ import type {
   AssistantMemoryThread,
   AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
-  AssistantThreadRepository,
   AssistantThreadRunStatus,
   CrossRootUsageRow,
   RunLedgerRow,
@@ -307,73 +306,5 @@ export function createHostAssistantThreadRepository(
       await assertOwned(threadId);
       await host.updateThreadBinding(threadId, metadata);
     },
-  };
-}
-
-/** Desktop lists conversations from its sole runtime owner; web keeps its repository. */
-export function withAssistantThreadHost<Repository extends AssistantThreadRepository>(
-  repository: Repository,
-  host: AssistantThreadHostCapability | undefined
-): Repository {
-  if (!host) {
-    return repository;
-  }
-  const deleteThread = async (threadId: string): Promise<void> => {
-    const deleted = await host.deleteThread(threadId);
-    if (!deleted) {
-      await repository.deleteThread(threadId);
-      return;
-    }
-    closeDeletedChildTabs(deleted);
-  };
-  const deleteHistoryThreads = repository.deleteThreads?.bind(repository);
-  // A host identity has no history row: a history write would update nothing
-  // and report success, so a host-owned id never falls through to it.
-  const updateThreadMetadata = async (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ): Promise<void> => {
-    if (await host.ownsThread(threadId)) {
-      await host.updateThreadBinding(threadId, metadata);
-      return;
-    }
-    await repository.updateThreadMetadata(threadId, metadata);
-  };
-  // A history UPDATE would match no host row and report success, so an owned
-  // title commits through the host; a refusal rejects before history.
-  const renameThread = async (threadId: string, title: string): Promise<void> => {
-    if (await host.ownsThread(threadId)) {
-      await host.renameThread(threadId, title);
-      return;
-    }
-    await repository.renameThread(threadId, title);
-  };
-  // The bulk path stays with history: it already refuses, before any write,
-  // any id without a history row (assertAllBulkThreadsFound).
-  return {
-    ...repository,
-    createThread: (resourceId) => host.createThread(resourceId),
-    deleteThread,
-    renameThread,
-    updateThreadMetadata,
-    ...(deleteHistoryThreads
-      ? {
-          deleteThreads: async (threadIds: readonly string[]): Promise<void> => {
-            const history: string[] = [];
-            for (const threadId of threadIds) {
-              const deleted = await host.deleteThread(threadId);
-              if (deleted) {
-                closeDeletedChildTabs(deleted);
-              } else {
-                history.push(threadId);
-              }
-            }
-            if (history.length > 0) {
-              await deleteHistoryThreads(history);
-            }
-          },
-        }
-      : {}),
-    listThreads: (resourceId) => host.listThreads(resourceId),
   };
 }

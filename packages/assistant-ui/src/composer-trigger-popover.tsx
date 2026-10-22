@@ -1,7 +1,17 @@
 import { ComposerPrimitive, type Unstable_SlashCommandAction } from '@assistant-ui/react';
 import { SlashIcon } from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
-import type { TriggerAdapter } from './file-mentions';
+import type { ComponentProps, ComponentType, ReactNode } from 'react';
+
+/**
+ * The adapter type the library's trigger popover accepts. Derived from the
+ * component's own props so we don't add a direct dependency on
+ * `@assistant-ui/core` (where `Unstable_TriggerAdapter` lives) — the react
+ * package only re-exports the components, not that type. `NonNullable` strips
+ * the `| undefined` from the optional prop.
+ */
+export type TriggerAdapter = NonNullable<
+  ComponentProps<typeof ComposerPrimitive.Unstable_TriggerPopover>['adapter']
+>;
 
 /**
  * Presentational popover content for the composer's "/" slash menu. It renders

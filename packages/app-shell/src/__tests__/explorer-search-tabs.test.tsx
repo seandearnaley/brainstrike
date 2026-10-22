@@ -30,6 +30,7 @@ vi.mock('../use-workspace-search-controller', () => ({
     resolveAdapterRootId: () => null,
     runSemanticSearch: vi.fn(),
     runTextSearch: vi.fn(),
+    semanticAvailability: { available: true, reason: null },
     workspaceDbRootIds: [],
   }),
 }));

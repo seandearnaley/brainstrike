@@ -69,7 +69,6 @@ export default [
   {
     files: [
       'apps/desktop/src/**/*.{js,jsx,ts,tsx}',
-      'apps/web/src/**/*.{js,jsx,ts,tsx}',
       'packages/app-shell/src/**/*.{js,jsx,ts,tsx}',
       'packages/assistant-ui/src/**/*.{js,jsx,ts,tsx}',
       'packages/db/src/**/*.{js,jsx,ts,tsx}',

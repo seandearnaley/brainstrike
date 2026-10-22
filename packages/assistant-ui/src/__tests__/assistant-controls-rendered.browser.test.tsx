@@ -1,5 +1,5 @@
 // @boundaries-ignore Browser-only fixture uses the consuming app's real theme to verify rendered geometry and colors; no runtime dependency.
-import '../../../../apps/web/src/app/globals.css';
+import '../../../../apps/desktop/src/renderer/styles.css';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, type Mock, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';

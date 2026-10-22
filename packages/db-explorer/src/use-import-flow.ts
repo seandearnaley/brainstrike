@@ -1,6 +1,4 @@
-import type { ChunkingStrategy, IFileChunkRepository } from '@brainstrike/db';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui/shell';
-import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
 import { getActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -8,23 +6,12 @@ import { useEnhancedFileImportService } from './enhanced-file-import-service';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 export interface UseImportFlowOptions {
-  embeddingQueue?: QueueAdapter | null;
-  importSettings: {
-    enableChunking: boolean;
-    chunkingStrategy: ChunkingStrategy;
-    chunkingStrategyExplicit: boolean;
-    chunkSize: number;
-    chunkOverlap: number;
-    tokenTrueSizing: boolean;
-    chunkTokenLimit: number;
-  };
   onImportComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   resolveActiveCollectionId?: () => string | null;
   toast: ReturnType<typeof useToast>['toast'];
 }
 
 export interface UseImportFlowResult {
-  chunkRepository: IFileChunkRepository | null;
   handleCancelImport: () => void;
   handleImportClick: () => void;
   isCancelling: boolean;
@@ -36,10 +23,8 @@ export interface UseImportFlowResult {
 }
 
 export function useImportFlow({
-  importSettings,
   toast,
   onImportComplete,
-  embeddingQueue,
   resolveActiveCollectionId,
 }: UseImportFlowOptions): UseImportFlowResult {
   const [showImportProgress, setShowImportProgress] = useState(false);
@@ -55,29 +40,20 @@ export function useImportFlow({
     [resolveActiveCollectionId]
   );
 
-  const { isImporting, progress, importFiles, chunkRepository, cancelImport } =
-    useEnhancedFileImportService({
-      chunkingStrategy: importSettings.chunkingStrategy,
-      chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
-      chunkOverlap: importSettings.chunkOverlap,
-      chunkSize: importSettings.chunkSize,
-      chunkTokenLimit: importSettings.chunkTokenLimit,
-      embeddingQueue: embeddingQueue ?? null,
-      enableChunking: importSettings.enableChunking,
-      onComplete: async (results) => {
-        await onImportCompleteRef.current?.(results);
-      },
-      onError: (error) => {
-        toast({
-          description: error.message,
-          title: 'Import Failed',
-          variant: 'destructive',
-        });
-      },
-      onProgress: () => setShowImportProgress(true),
-      resolveTargetEmbeddingSetId: resolveCollectionId,
-      tokenTrueSizing: importSettings.tokenTrueSizing,
-    });
+  const { isImporting, progress, importFiles, cancelImport } = useEnhancedFileImportService({
+    onComplete: async (results) => {
+      await onImportCompleteRef.current?.(results);
+    },
+    onError: (error) => {
+      toast({
+        description: error.message,
+        title: 'Import Failed',
+        variant: 'destructive',
+      });
+    },
+    onProgress: () => setShowImportProgress(true),
+    resolveTargetEmbeddingSetId: resolveCollectionId,
+  });
 
   const showDestructiveToast = useCallback(
     (title: string, description: string) => {
@@ -157,7 +133,6 @@ export function useImportFlow({
   const memoizedProgress = useMemo(() => progress as EnhancedImportProgress | null, [progress]);
 
   return {
-    chunkRepository: chunkRepository ?? null,
     handleCancelImport,
     handleImportClick,
     isCancelling,

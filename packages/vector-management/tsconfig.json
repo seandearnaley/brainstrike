@@ -44,9 +44,6 @@
     },
     {
       "path": "../utils"
-    },
-    {
-      "path": "../worker-runtime"
     }
   ]
 }

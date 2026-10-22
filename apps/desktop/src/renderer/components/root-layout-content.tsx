@@ -88,7 +88,7 @@ interface RendererMemoryPerformance extends Performance {
  * The token worker must be ready eagerly so background indexing starts immediately.
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
-  return <TokenCacheProvider db={null}>{children}</TokenCacheProvider>;
+  return <TokenCacheProvider>{children}</TokenCacheProvider>;
 }
 
 /** Stable identity: the provider value must not change between renders. */
@@ -161,7 +161,6 @@ export default function RootLayoutContent() {
     // on desktop — no bridge gate.
     canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
     createLocalSearchEmbedder: createDesktopLocalSearchEmbedder,
-    databaseTabChunkingMode: 'host-proxy',
     deleteRootData: (rootId) => {
       const bridge = window.electronAPI;
       if (!(bridge && 'fileSystem' in bridge)) {

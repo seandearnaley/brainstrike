@@ -1,6 +1,5 @@
 import type { ReactElement } from 'react';
-import { lazy, Suspense, useMemo } from 'react';
-import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
+import { useMemo } from 'react';
 import {
   type AssistantThreadHostCapability,
   createHostAssistantThreadRepository,
@@ -14,22 +13,14 @@ import {
 
 export type { AssistantThreadTabsWorkspaceProps } from './assistant-thread-tabs-core';
 
-const WebThreadTabs = lazy(() =>
-  import('./assistant-thread-tabs-web').then((module) => ({ default: module.WebThreadTabs }))
-);
-
 export function AssistantThreadTabsWorkspace(
   props: AssistantThreadTabsWorkspaceProps
 ): ReactElement {
   const host = useAssistantThreadHost();
-  if (host) {
-    return <HostThreadTabs {...props} host={host} />;
+  if (!host) {
+    return <div role="alert">Assistant thread host unavailable</div>;
   }
-  return (
-    <Suspense fallback={<AssistantPanelLoadingState label="Loading PGlite-backed threads." />}>
-      <WebThreadTabs {...props} />
-    </Suspense>
-  );
+  return <HostThreadTabs {...props} host={host} />;
 }
 
 function HostThreadTabs({
@@ -58,8 +49,6 @@ function HostThreadTabs({
     <AssistantThreadTabsCore
       {...props}
       activeThreads={activeThreads}
-      databaseError={null}
-      databaseStartupLoading={false}
       loadingLabel="Loading conversations."
       renderThread={(panel) => {
         const threadId = panel.memoryThreadId;

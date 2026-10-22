@@ -15,7 +15,6 @@ import {
   RewindProvider,
   ToolApprovalGrantProvider,
 } from '@brainstrike/assistant-ui';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
   RootDataDeletionProvider,
@@ -35,7 +34,6 @@ import type {
   IndexRetryCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
-import type { QueueAdapter } from '@brainstrike/queue';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
@@ -43,7 +41,6 @@ import {
   type PanelLayoutState,
 } from '@brainstrike/ui';
 import {
-  EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
   type LocalSearchEmbedderFactory,
   SearchEmbedderProvider,
@@ -77,14 +74,12 @@ import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { DelegatedWorkspaceTabsProvider } from './delegated-workspace-apps';
-import { deleteRootData as deleteOwnedRootData } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
   rendererLongTaskTelemetry,
 } from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
-import { QuickOpenHost } from './quick-open-host';
 import type { StateHealthCapability } from './state-health/state-health-capability';
 import { TabChordHost } from './tab-chords/tab-chord-host';
 import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
@@ -109,7 +104,7 @@ function FileTreeWrapper({
   nativeIndexSearch,
 }: {
   children: ReactNode;
-  nativeIndexSearch?: IndexSearchCapability | null;
+  nativeIndexSearch: IndexSearchCapability | null;
 }): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
@@ -124,7 +119,7 @@ function FileTreeWrapper({
       rootDirectoryHandle={rootDirectoryHandle}
       {...(rootId !== undefined && { rootId })}
     >
-      <WorkspaceCollectionSyncProvider nativeIndexSearch={nativeIndexSearch ?? null}>
+      <WorkspaceCollectionSyncProvider nativeIndexSearch={nativeIndexSearch}>
         {children}
       </WorkspaceCollectionSyncProvider>
     </FileTreeProvider>
@@ -155,26 +150,18 @@ export interface RootLayoutContentProps {
    */
   readonly changesPageContent?: ReactNode;
   readonly createLocalSearchEmbedder?: LocalSearchEmbedderFactory;
-  readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
-  readonly deleteRootData?: (rootId: string) => Promise<void>;
+  readonly deleteRootData: (rootId: string) => Promise<void>;
   /**
    * Active flags from an authoritative app-owned feature-flag registry.
    * Omit when the app has no such registry; diagnostics surfaces that absence.
    */
   readonly diagnosticFeatureFlags?: readonly string[];
   /**
-   * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
-   *
-   * This loader is the single source of truth for app-wide database tooling:
-   * RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel.
-   */
-  /**
    * Optional Git surface (desktop-only). Supplied by the desktop wrapper when
    * the `window.git` bridge is present; web never constructs it (capability
    * gating, not an isElectron check). When absent, no Git nav item is rendered.
    */
   readonly gitPageContent?: ReactNode;
-  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   /**
    * Optional Logs surface (BST-1791): the log viewer, with Settings keeping the
    * logging configuration. Each host supplies its own log sources; when absent,
@@ -192,7 +179,6 @@ export interface RootLayoutContentProps {
    * gating, not UA sniffing). When absent, no Notes nav item is rendered.
    */
   readonly notesPageContent?: ReactNode;
-  readonly preloadDatabaseTabOnMount?: boolean;
   readonly settingsPageContent: ReactNode;
   /** The canonical state store's health and recovery (BST-1880); desktop supplies it. */
   readonly stateHealth?: StateHealthCapability | null;
@@ -472,20 +458,14 @@ function useDebouncedPanelLayoutChange(options: {
  * whole page. The file tree's `openFileInTab` reaches the outer workspace tabs
  * through the outer layout's `IdeFileEditorContext`, which this subtree sits in.
  */
-function FilesAppSurface({
-  loadEmbeddingQueue,
-}: {
-  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
-}): ReactElement {
-  return <ExplorerSearchTabs loadEmbeddingQueue={loadEmbeddingQueue} />;
+function FilesAppSurface(): ReactElement {
+  return <ExplorerSearchTabs />;
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
   canvasPanelContent,
   changesPageContent,
-  loadEmbeddingQueue,
   logsPageContent,
-  preloadDatabaseTabOnMount,
   terminalPageContent,
   threadContextPageContent,
   worktreeMapPageContent,
@@ -494,14 +474,12 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 }: {
   readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
-  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly logsPageContent?: ReactNode;
-  readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
   readonly threadContextPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
-  readonly nativeIndexSearch?: IndexSearchCapability | null;
+  readonly nativeIndexSearch: IndexSearchCapability | null;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
   // resolution). Detected by the `window.platform` bridge (capability presence,
@@ -519,14 +497,13 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       buildWorkspaceApps({
         ...(canvasPanelContent ? { canvasPanelContent } : {}),
         ...(changesPageContent ? { changesPageContent } : {}),
-        filesContent: <FilesAppSurface loadEmbeddingQueue={loadEmbeddingQueue} />,
+        filesContent: <FilesAppSurface />,
         ...(logsPageContent ? { logsPageContent } : {}),
         ...(terminalPageContent ? { terminalPageContent } : {}),
         ...(threadContextPageContent ? { threadContextPageContent } : {}),
         ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
       }),
     [
-      loadEmbeddingQueue,
       changesPageContent,
       canvasPanelContent,
       logsPageContent,
@@ -542,7 +519,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           the Files app) because the tab strip lives in the panel HEADER and file
           bodies render at the workspace level — both need the file-explorer
           context from a common ancestor. */}
-      <FileTreeWrapper nativeIndexSearch={nativeIndexSearch ?? null}>
+      <FileTreeWrapper nativeIndexSearch={nativeIndexSearch}>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
           {/* One read of the host's provider status for the root panel and the
               child conversations its workspace tabs render. */}
@@ -563,8 +540,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                   assistantContent={<AssistantChatPanel />}
                   sidebarContent={
                     <AgentSidebarPanel
-                      databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                      preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                      databaseContent={<DatabasePanel />}
                       promptsContent={(isActive) => (
                         <Suspense
                           fallback={
@@ -577,21 +553,17 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                             </div>
                           }
                         >
-                          <ConnectedPromptManagerLazy
-                            loadEmbeddingQueue={loadEmbeddingQueue}
-                            suggestionsEnabled={visible && isActive}
-                          />
+                          <ConnectedPromptManagerLazy suggestionsEnabled={visible && isActive} />
                         </Suspense>
                       )}
-                      threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                      threadsContent={<ThreadsPanel />}
                     />
                   }
                   workspaceContent={
                     <>
-                      {/* ⌘P quick-open + the open-file registration both mount INSIDE
-                      the outer IdeLayout so they reach its IdeFileEditorContext;
-                      the nested explorer layout inherits the same seam. */}
-                      <QuickOpenHost />
+                      {/* The open-file registration mounts INSIDE the outer IdeLayout so
+                      it reaches its IdeFileEditorContext; the nested explorer layout
+                      inherits the same seam. */}
                       <WorkspaceOpenFileBridge />
                       <WorkspaceBody />
                     </>
@@ -616,7 +588,7 @@ export function RootLayoutContent({
   nativeIndexRetry,
   nativeIndexSearch,
   stateHealth,
-  deleteRootData: platformDeleteRootData,
+  deleteRootData,
   browserPageContent,
   canvasPanelContent,
   changesPageContent,
@@ -628,18 +600,9 @@ export function RootLayoutContent({
   threadContextPageContent,
   worktreeMapPageContent,
   navigationItems,
-  loadEmbeddingQueue = null,
   createLocalSearchEmbedder,
   diagnosticFeatureFlags,
-  databaseTabChunkingMode = 'local',
-  preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
-  const db = usePGliteDatabase({ enabled: !platformDeleteRootData });
-  const deleteRootData = useCallback(
-    (rootIdToDelete: string): Promise<void> =>
-      deleteOwnedRootData(db, rootIdToDelete, platformDeleteRootData),
-    [db, platformDeleteRootData]
-  );
   const shellTab = usePanelLayoutStore((state) => state.activeTab);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
@@ -743,83 +706,79 @@ export function RootLayoutContent({
                 {/* Tab chords (BST-1842): the same structural gating as the palette. */}
                 <TabChordHost />
                 <WorkspaceConnectHost />
-                <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-                  <EmbeddingRuntimeProvider databaseEnabled={!nativeIndexSearch}>
-                    {/* One shared embedder cache for every semantic-search surface. The
+                <ChunkingWorkerProvider autoStart={false} mode="host-proxy">
+                  {/* One shared embedder cache for every semantic-search surface. The
                 machinery is lazy (models load on first embed), so this
                 always-mounted provider is free until the first query. It
                 encloses BOTH the collection browser (sidebar DatabasePanel) and
                 the workspace-search panel (ExplorerSearchTabs) below. */}
-                    <SearchEmbedderProvider createLocalEmbedder={createLocalSearchEmbedder}>
-                      <IndexingActivityCoordinator nativeIndexSearch={nativeIndexSearch ?? null} />
-                      <div
-                        aria-hidden={shellTab !== 'explorer'}
-                        className={
-                          shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'
-                        }
-                        data-testid="explorer-route"
+                  <SearchEmbedderProvider createLocalEmbedder={createLocalSearchEmbedder}>
+                    <IndexingActivityCoordinator />
+                    <div
+                      aria-hidden={shellTab !== 'explorer'}
+                      className={
+                        shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'
+                      }
+                      data-testid="explorer-route"
+                    >
+                      <PanelLayoutProvider
+                        controlledState={panelState}
+                        onChange={handlePanelLayoutChange}
                       >
-                        <PanelLayoutProvider
-                          controlledState={panelState}
-                          onChange={handlePanelLayoutChange}
-                        >
-                          <ExplorerAppSurface
-                            canvasPanelContent={canvasPanelContent}
-                            changesPageContent={changesPageContent}
-                            loadEmbeddingQueue={loadEmbeddingQueue}
-                            logsPageContent={logsPageContent}
-                            nativeIndexSearch={nativeIndexSearch ?? null}
-                            preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                            terminalPageContent={terminalPageContent}
-                            threadContextPageContent={threadContextPageContent}
-                            visible={shellTab === 'explorer'}
-                            worktreeMapPageContent={worktreeMapPageContent}
-                          />
-                        </PanelLayoutProvider>
-                      </div>
-                      {/* MCP elicitation consent is app-wide (BST-1584): desktop main
+                        <ExplorerAppSurface
+                          canvasPanelContent={canvasPanelContent}
+                          changesPageContent={changesPageContent}
+                          logsPageContent={logsPageContent}
+                          nativeIndexSearch={nativeIndexSearch ?? null}
+                          terminalPageContent={terminalPageContent}
+                          threadContextPageContent={threadContextPageContent}
+                          visible={shellTab === 'explorer'}
+                          worktreeMapPageContent={worktreeMapPageContent}
+                        />
+                      </PanelLayoutProvider>
+                    </div>
+                    {/* MCP elicitation consent is app-wide (BST-1584): desktop main
                     pushes server input requests here regardless of route, and the
                     host renders nothing when the preload bridge is absent. */}
-                      <McpElicitationHost />
-                      {/* Composer MCP prompt selection is app-wide (BST-1592): the
+                    <McpElicitationHost />
+                    {/* Composer MCP prompt selection is app-wide (BST-1592): the
                     "/" menu's execute hands the selection here from wherever the
                     composer is mounted, and the host renders nothing when the
                     preload bridge is absent. */}
-                      <McpPromptComposerHost />
-                      {/* Each keeps its content mounted-but-hidden once first opened — see
+                    <McpPromptComposerHost />
+                    {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
-                      <KeepMountedRoute
-                        content={gitPageContent}
-                        mountedTabs={mountedTabs}
-                        shellTab={shellTab}
-                        tab="git"
-                      />
-                      <KeepMountedRoute
-                        content={notesPageContent}
-                        mountedTabs={mountedTabs}
-                        shellTab={shellTab}
-                        tab="notes"
-                      />
-                      {/* Embedded browser pane (BST-1174). The native
+                    <KeepMountedRoute
+                      content={gitPageContent}
+                      mountedTabs={mountedTabs}
+                      shellTab={shellTab}
+                      tab="git"
+                    />
+                    <KeepMountedRoute
+                      content={notesPageContent}
+                      mountedTabs={mountedTabs}
+                      shellTab={shellTab}
+                      tab="notes"
+                    />
+                    {/* Embedded browser pane (BST-1174). The native
                     WebContentsView follows this route's show/hide via the
                     surface's own occlusion reporting — see BrowserPaneContent. */}
-                      <KeepMountedRoute
-                        content={browserPageContent}
-                        mountedTabs={mountedTabs}
-                        shellTab={shellTab}
-                        tab="browser"
-                      />
-                      {/* Settings is a full shell tab (BST-1668): same keep-mounted
+                    <KeepMountedRoute
+                      content={browserPageContent}
+                      mountedTabs={mountedTabs}
+                      shellTab={shellTab}
+                      tab="browser"
+                    />
+                    {/* Settings is a full shell tab (BST-1668): same keep-mounted
                     contract as the routes above, so in-progress edits survive
                     a trip to another tab. */}
-                      <KeepMountedRoute
-                        content={settingsPageContent}
-                        mountedTabs={mountedTabs}
-                        shellTab={shellTab}
-                        tab="settings"
-                      />
-                    </SearchEmbedderProvider>
-                  </EmbeddingRuntimeProvider>
+                    <KeepMountedRoute
+                      content={settingsPageContent}
+                      mountedTabs={mountedTabs}
+                      shellTab={shellTab}
+                      tab="settings"
+                    />
+                  </SearchEmbedderProvider>
                 </ChunkingWorkerProvider>
                 {/* Conversation Rewind confirm modal. Mounted only when the
                 changes capability is present (`rewindValue`), so web never

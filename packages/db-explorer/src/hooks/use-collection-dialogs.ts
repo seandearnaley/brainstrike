@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { CollectionPickerCollection } from '../components';
+import type { CollectionPickerCollection } from '../components/search-collection-selector';
 
 /**
  * Hook to manage the collection dialog states (create, rename, delete).

@@ -164,25 +164,6 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Prompts content')).toBeVisible();
   });
 
-  it('preloads the database chunk when requested', async () => {
-    render(
-      <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
-        preloadDatabaseTabOnMount
-        promptsContent={<div>Prompts content</div>}
-        threadsContent={<div>Threads content</div>}
-      />
-    );
-
-    await waitFor(() => {
-      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
-    });
-    // Preloading also mounts the panel ahead of activation, hidden.
-    expect(screen.getByText('Database content')).toBeInTheDocument();
-    expect(screen.getByText('Database content')).not.toBeVisible();
-    expect(screen.getByTestId('database-tab-content')).toHaveAttribute('hidden');
-  });
-
   it('prefetches the database chunk on pointer and keyboard intent', async () => {
     render(
       <AgentSidebarPanel

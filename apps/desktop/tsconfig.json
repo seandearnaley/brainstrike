@@ -60,23 +60,14 @@
       "vite/client"
     ],
     "paths": {
-      "@brainstrike/assistant-service/http": [
-        "../../packages/assistant-service/src/http.ts"
-      ],
       "@brainstrike/assistant-service/memory-model-targets": [
         "../../packages/assistant-service/src/memory-model-targets.ts"
       ],
       "@brainstrike/assistant-service/ports": [
         "../../packages/assistant-service/src/ports.ts"
       ],
-      "@brainstrike/assistant-service/request": [
-        "../../packages/assistant-service/src/request.ts"
-      ],
       "@brainstrike/assistant-service/secret-errors": [
         "../../packages/assistant-service/src/secret-errors.ts"
-      ],
-      "@brainstrike/assistant-service/types": [
-        "../../packages/assistant-service/src/types.ts"
       ],
       "@brainstrike/agent": [
         "../../packages/agent/dist/index.d.ts"
@@ -144,14 +135,8 @@
       "@brainstrike/file-import": [
         "../../packages/file-import/src"
       ],
-      "@brainstrike/file-import/browser-queue-port": [
-        "../../packages/file-import/src/browser-queue-port.ts"
-      ],
       "@brainstrike/file-import/chunking-worker-context": [
         "../../packages/file-import/src/chunking-worker-context.tsx"
-      ],
-      "@brainstrike/file-import/enhanced-import": [
-        "../../packages/file-import/src/enhanced-import.ts"
       ],
       "@brainstrike/app-shell": [
         "../../packages/app-shell/src"
@@ -161,9 +146,6 @@
       ],
       "@brainstrike/assistant-data/cost-tracking": [
         "../../packages/assistant-data/src/cost-tracking/index.ts"
-      ],
-      "@brainstrike/assistant-data/assistant-thread-run-reaper": [
-        "../../packages/assistant-data/src/assistant-thread-run-reaper.ts"
       ],
       "@brainstrike/assistant-data/assistant-memory-repository": [
         "../../packages/assistant-data/src/assistant-memory-repository.ts"

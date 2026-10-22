@@ -10,18 +10,6 @@
         "$TURBO_ROOT$/packages/config/*/package.json",
         "$TURBO_ROOT$/apps/*/package.json"
       ]
-    },
-    "test:coverage": {
-      "cache": false,
-      "dependsOn": ["$TURBO_EXTENDS$", "build"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/test-utils/workspace-src-aliases.mjs",
-        "$TURBO_ROOT$/package.json",
-        "$TURBO_ROOT$/packages/*/package.json",
-        "$TURBO_ROOT$/packages/config/*/package.json",
-        "$TURBO_ROOT$/apps/*/package.json"
-      ]
     }
   }
 }

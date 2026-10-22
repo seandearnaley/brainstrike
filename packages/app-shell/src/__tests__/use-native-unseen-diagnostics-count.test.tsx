@@ -3,22 +3,6 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics-count';
 
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => args.join(':'),
-  usePGliteDatabase: ({ enabled }: { enabled?: boolean } = {}) => {
-    if (enabled !== false) {
-      throw new Error('Native diagnostics attempted PGlite');
-    }
-    return null;
-  },
-  usePGliteLiveQuery: ({ enabled }: { enabled?: boolean }) => {
-    if (enabled) {
-      throw new Error('Native diagnostics attempted SQL');
-    }
-    return { error: null, loading: false, rows: [] };
-  },
-}));
-
 afterEach(() => {
   Reflect.deleteProperty(window, 'desktopDiagnostics');
   Reflect.deleteProperty(window, 'logging');

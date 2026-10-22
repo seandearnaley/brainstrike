@@ -47,22 +47,10 @@
   ],
   "references": [
     {
-      "path": "../effect-kit"
-    },
-    {
       "path": "../types"
     },
     {
-      "path": "../queue"
-    },
-    {
       "path": "../indexing-contract"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../tokenization"
     },
     {
       "path": "../utils"

@@ -1,5 +1,4 @@
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
-import type { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import {
   CollectionPicker,
@@ -18,7 +17,6 @@ export const IMPORT_IN_FLIGHT_BLOCK_REASON =
 
 interface ExplorerCollectionPickerProps {
   readonly activeCollectionId: string | null;
-  readonly db: ReturnType<typeof usePGliteDatabase>;
   /**
    * The collection an import is CURRENTLY writing into, if any. Renaming it is
    * merely confusing; deleting it orphans every chunk the run writes after the
@@ -37,7 +35,7 @@ interface ExplorerCollectionPickerProps {
  * Collection picker for the explorer's import popover.
  *
  * Unlike `SearchCollectionSelector` this does NOT mount `useCollections`: the
- * Database panel already owns that live query, and a second instance
+ * Database panel already owns that reader, and a second instance
  * ping-pongs the shared `cachedCollections` store (each applies its own
  * pending mutations, so they never agree) until React aborts the render loop.
  * The store cache is the shared source of truth; this popover reads it and
@@ -46,7 +44,6 @@ interface ExplorerCollectionPickerProps {
  */
 export function ExplorerCollectionPicker({
   activeCollectionId,
-  db,
   onCollectionChange,
   onCreateCollection,
   mutationBlockedCollectionId = null,
@@ -62,13 +59,13 @@ export function ExplorerCollectionPicker({
   // One-shot seed. Only when nothing is cached — a populated cache is already
   // being kept current by whichever surface owns the live query.
   useEffect(() => {
-    if (cachedCollections.length > 0 || !db) {
+    if (cachedCollections.length > 0) {
       return;
     }
 
     let cancelled = false;
     setIsSeeding(true);
-    fetchCollectionsSnapshot(db)
+    fetchCollectionsSnapshot()
       .then((collections) => {
         if (cancelled) {
           return;
@@ -105,7 +102,7 @@ export function ExplorerCollectionPicker({
     return () => {
       cancelled = true;
     };
-  }, [cachedCollections.length, db, setCachedCollections, toast]);
+  }, [cachedCollections.length, setCachedCollections, toast]);
 
   // Same rule as SearchCollectionSelector: workspace-index sets are never a
   // manual import target and must not appear as one.
@@ -193,7 +190,7 @@ export function ExplorerCollectionPicker({
       <CollectionPicker
         collections={visibleCollections}
         headerLabel="Target Collection"
-        loading={isSeeding || !db}
+        loading={isSeeding}
         maxHeight="16rem"
         onCreate={onCreateCollection}
         onDelete={handleDelete}

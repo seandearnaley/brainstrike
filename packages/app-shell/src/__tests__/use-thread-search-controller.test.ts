@@ -7,7 +7,6 @@ import type { HostThreadSearchVectors } from '../host-thread-search-vectors';
 import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
 import {
   THREAD_SEARCH_DEBOUNCE_MS,
-  type ThreadSearchControllerRepository,
   useThreadSearchController,
 } from '../use-thread-search-controller';
 
@@ -27,14 +26,6 @@ const PROFILE = {
   modelKey: 'local::test-model',
 };
 
-const COVERAGE = {
-  embeddableMessages: 0,
-  embeddedMessages: 0,
-  erroredMessages: 0,
-  indexedMessages: 0,
-  totalMessages: 0,
-};
-
 const FTS_MATCH = {
   headline: '<mark>hnsw</mark>',
   messageCreatedAt: new Date('2026-07-19T00:00:00Z'),
@@ -43,23 +34,6 @@ const FTS_MATCH = {
   role: 'assistant',
   threadId: 'thread-1',
 };
-
-function createRepository(
-  overrides: Partial<ThreadSearchControllerRepository> = {}
-): ThreadSearchControllerRepository {
-  return {
-    fullTextSearch: vi.fn(async () => [FTS_MATCH]),
-    getCoverage: vi.fn(async () => COVERAGE),
-    getEmbeddingProfile: vi.fn(async () => PROFILE),
-    listNeedingEmbedding: vi.fn(async () => []),
-    markEmbeddingError: vi.fn(async () => true),
-    searchSimilar: vi.fn(async () => []),
-    searchThreadTitles: vi.fn(async () => []),
-    storeEmbedding: vi.fn(async () => true),
-    sync: vi.fn(async () => ({ deletedOrphans: 0, inserted: 0, refreshed: 0 })),
-    ...overrides,
-  };
-}
 
 /** The search embedder's identity on a WASM runtime: a 3-dimension model loads quantized. */
 const VECTOR_PROFILE = {
@@ -85,6 +59,10 @@ function createEmbedder(query: number[] | Error = [0.1, 0.2, 0.3]) {
   };
 }
 
+function hostArms(): ThreadSearchExtraArms {
+  return { messages: [FTS_MATCH], similarMessages: [], titles: [] };
+}
+
 async function flushAsync(): Promise<void> {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(THREAD_SEARCH_DEBOUNCE_MS + 10);
@@ -102,42 +80,33 @@ describe('useThreadSearchController', () => {
   });
 
   function renderController(
-    repository: ThreadSearchControllerRepository | null,
-    embedder = createEmbedder(),
-    loadEmbeddingQueue: (() => Promise<never>) | null = null,
-    searchHost?: (
+    searchHost: (
       query: string,
       semantic?: AssistantThreadSearchSemantic
-    ) => Promise<ThreadSearchExtraArms>,
+    ) => Promise<ThreadSearchExtraArms> = vi.fn(async () => hostArms()),
+    embedder = createEmbedder(),
     hostSearchVectors?: HostThreadSearchVectors
   ) {
     return renderHook(() =>
       useThreadSearchController({
         embedder,
         hostSearchVectors,
-        loadEmbeddingQueue,
         localModelConfigMap: new Map() as never,
-        repository,
+        readEmbeddingProfile: async () => PROFILE,
         resourceId: 'workspace-memory',
-        ...(searchHost ? { searchHost } : {}),
+        searchHost,
       })
     );
   }
 
-  it('searches the host with its unchanged profile without a history database or queue', async () => {
-    const searchHost = vi.fn(async () => ({
-      messages: [FTS_MATCH],
-      similarMessages: [],
-      titles: [],
-    }));
+  it('searches the host with its unchanged profile', async () => {
+    const searchHost = vi.fn(async () => hostArms());
     const readEmbeddingProfile = vi.fn(async () => PROFILE);
     renderHook(() =>
       useThreadSearchController({
         embedder: createEmbedder(),
-        loadEmbeddingQueue: null,
         localModelConfigMap: new Map() as never,
         readEmbeddingProfile,
-        repository: null,
         resourceId: 'workspace-memory',
         searchHost,
       })
@@ -155,20 +124,18 @@ describe('useThreadSearchController', () => {
     expect(useThreadSearchStore.getState().results?.[0]?.threadId).toBe('thread-1');
   });
 
-  it('debounces the query and resolves hybrid results', async () => {
-    const repository = createRepository();
+  it('debounces the query before searching the host', async () => {
+    const searchHost = vi.fn(async () => hostArms());
     const embedder = createEmbedder();
-    const loadQueue = vi.fn(async () => ({}) as never);
-    renderController(repository, embedder, loadQueue);
+    renderController(searchHost, embedder);
 
     act(() => {
       useThreadSearchStore.getState().setQuery('hnsw');
     });
-    expect(repository.fullTextSearch).not.toHaveBeenCalled();
+    expect(searchHost).not.toHaveBeenCalled();
 
     await flushAsync();
 
-    expect(repository.sync).toHaveBeenCalledTimes(1);
     expect(embedder.embedQueryWithRecovery).toHaveBeenCalledTimes(1);
     const state = useThreadSearchStore.getState();
     expect(state.status).toBe('results');
@@ -176,49 +143,9 @@ describe('useThreadSearchController', () => {
     expect(state.semantic).toEqual({ kind: 'used' });
   });
 
-  it('reuses a fresh sync across quick successive searches (TTL)', async () => {
-    const repository = createRepository();
-    renderController(repository);
-
-    act(() => {
-      useThreadSearchStore.getState().setQuery('hnsw');
-    });
-    await flushAsync();
-    act(() => {
-      useThreadSearchStore.getState().setQuery('hnsw tuning');
-    });
-    await flushAsync();
-
-    expect(repository.fullTextSearch).toHaveBeenCalledTimes(2);
-    expect(repository.sync).toHaveBeenCalledTimes(1);
-  });
-
-  it('runs lexical-only with a visible reason when no embedding queue exists', async () => {
-    const repository = createRepository();
-    renderController(repository, createEmbedder(), null);
-
-    act(() => {
-      useThreadSearchStore.getState().setQuery('hnsw');
-    });
-    await flushAsync();
-
-    const state = useThreadSearchStore.getState();
-    expect(state.status).toBe('results');
-    expect(repository.searchSimilar).not.toHaveBeenCalled();
-    expect(state.semantic.kind).toBe('unavailable');
-    if (state.semantic.kind === 'unavailable') {
-      expect(state.semantic.reason).toMatch(/embedding queue/i);
-    }
-  });
-
   it('records a visible unavailable reason when query embedding fails', async () => {
-    const repository = createRepository();
-    const embedder = createEmbedder(new Error('embedder offline'));
-    renderController(
-      repository,
-      embedder,
-      vi.fn(async () => ({}) as never)
-    );
+    const searchHost = vi.fn(async () => hostArms());
+    renderController(searchHost, createEmbedder(new Error('embedder offline')));
 
     act(() => {
       useThreadSearchStore.getState().setQuery('hnsw');
@@ -227,17 +154,13 @@ describe('useThreadSearchController', () => {
 
     const state = useThreadSearchStore.getState();
     expect(state.status).toBe('results');
+    expect(searchHost).toHaveBeenCalledWith('hnsw', undefined);
     expect(state.semantic).toEqual({ kind: 'unavailable', reason: 'embedder offline' });
   });
 
   it('caches an embedding failure so later searches resolve immediately lexical-only', async () => {
-    const repository = createRepository();
     const embedder = createEmbedder(new Error('embedder offline'));
-    renderController(
-      repository,
-      embedder,
-      vi.fn(async () => ({}) as never)
-    );
+    renderController(undefined, embedder);
 
     act(() => {
       useThreadSearchStore.getState().setQuery('hnsw');
@@ -272,12 +195,7 @@ describe('useThreadSearchController', () => {
         ),
       ensureEmbedderReady: vi.fn(async () => ({ runtime: 'wasm' as const }) as never),
     };
-    const repository = createRepository();
-    renderController(
-      repository,
-      embedder,
-      vi.fn(async () => ({}) as never)
-    );
+    renderController(undefined, embedder);
 
     // Query A: its embedding attempt hangs.
     act(() => {
@@ -308,8 +226,7 @@ describe('useThreadSearchController', () => {
   });
 
   it('clears results when the query shrinks below the minimum length', async () => {
-    const repository = createRepository();
-    renderController(repository);
+    renderController();
 
     act(() => {
       useThreadSearchStore.getState().setQuery('hnsw');
@@ -328,37 +245,17 @@ describe('useThreadSearchController', () => {
     expect(state.query).toBe('h');
   });
 
-  it('fails the search visibly when the repository throws', async () => {
-    const repository = createRepository({
-      fullTextSearch: vi.fn(async () => {
-        throw new Error('index unavailable');
-      }),
-    });
-    renderController(repository);
-
-    act(() => {
-      useThreadSearchStore.getState().setQuery('hnsw');
-    });
-    await flushAsync();
-
-    const state = useThreadSearchStore.getState();
-    expect(state.status).toBe('error');
-    expect(state.error).toBe('index unavailable');
-  });
-
   it('drops results from a superseded run (generation guard end-to-end)', async () => {
-    let releaseFirst: ((value: (typeof FTS_MATCH)[]) => void) | null = null;
-    const repository = createRepository({
-      fullTextSearch: vi
-        .fn(async () => [FTS_MATCH])
-        .mockImplementationOnce(
-          () =>
-            new Promise<(typeof FTS_MATCH)[]>((resolve) => {
-              releaseFirst = resolve;
-            })
-        ),
-    });
-    renderController(repository);
+    let releaseFirst: ((value: ThreadSearchExtraArms) => void) | null = null;
+    const searchHost = vi
+      .fn(async () => hostArms())
+      .mockImplementationOnce(
+        () =>
+          new Promise<ThreadSearchExtraArms>((resolve) => {
+            releaseFirst = resolve;
+          })
+      );
+    renderController(searchHost);
 
     act(() => {
       useThreadSearchStore.getState().setQuery('first query');
@@ -375,14 +272,17 @@ describe('useThreadSearchController', () => {
 
     // The first (stale) run resolves late; its results must not clobber.
     await act(async () => {
-      releaseFirst?.([{ ...FTS_MATCH, threadId: 'stale-thread' }]);
+      releaseFirst?.({
+        messages: [{ ...FTS_MATCH, threadId: 'stale-thread' }],
+        similarMessages: [],
+        titles: [],
+      });
       await vi.advanceTimersByTimeAsync(10);
     });
     expect(useThreadSearchStore.getState().results).toBe(resolvedResults);
   });
 
-  it('searches only the host catalog when its capability exists', async () => {
-    const repository = createRepository();
+  it('searches the host catalog', async () => {
     const searchHost = vi.fn(async () => ({
       messages: [
         {
@@ -395,12 +295,7 @@ describe('useThreadSearchController', () => {
       ],
       titles: [],
     }));
-    renderController(
-      repository,
-      createEmbedder(),
-      vi.fn(async () => ({}) as never),
-      searchHost
-    );
+    renderController(searchHost);
 
     act(() => {
       useThreadSearchStore.getState().setQuery('hnsw');
@@ -408,10 +303,6 @@ describe('useThreadSearchController', () => {
     await flushAsync();
 
     // The host's arms take the same query vector, under the embedder's identity.
-    expect(repository.sync).not.toHaveBeenCalled();
-    expect(repository.fullTextSearch).not.toHaveBeenCalled();
-    expect(repository.searchThreadTitles).not.toHaveBeenCalled();
-    expect(repository.getCoverage).not.toHaveBeenCalled();
     expect(searchHost).toHaveBeenCalledWith('hnsw', {
       profile: VECTOR_PROFILE,
       threshold: 0.35,
@@ -423,8 +314,7 @@ describe('useThreadSearchController', () => {
   });
 
   it('fails the search visibly when the host search fails', async () => {
-    const repository = createRepository();
-    renderController(repository, createEmbedder(), null, async () => {
+    renderController(async () => {
       throw new Error('The agent host is unavailable.');
     });
 
@@ -439,39 +329,7 @@ describe('useThreadSearchController', () => {
     });
   });
 
-  it('drains the embedding backlog and records coverage', async () => {
-    const pendingCoverage = {
-      embeddableMessages: 2,
-      embeddedMessages: 0,
-      erroredMessages: 0,
-      indexedMessages: 2,
-      totalMessages: 2,
-    };
-    const repository = createRepository({
-      getCoverage: vi.fn(async () => pendingCoverage),
-      listNeedingEmbedding: vi.fn(async () => [
-        { contentHash: 'hash-1', contentText: 'text', messageId: 'msg-1' },
-      ]),
-    });
-    const embedder = createEmbedder();
-    renderController(
-      repository,
-      embedder,
-      vi.fn(async () => ({}) as never)
-    );
-
-    act(() => {
-      useThreadSearchStore.getState().setQuery('hnsw');
-    });
-    await flushAsync();
-
-    expect(repository.listNeedingEmbedding).toHaveBeenCalled();
-    expect(embedder.embedDocumentWithRecovery).toHaveBeenCalledWith(expect.anything(), 'text');
-    expect(useThreadSearchStore.getState().coverage).toEqual(pendingCoverage);
-  });
-
-  it('drains only the host backlog for desktop conversations', async () => {
-    const repository = createRepository();
+  it('drains the host backlog for desktop conversations', async () => {
     const pending = vi
       .fn<HostThreadSearchVectors['pending']>()
       .mockResolvedValueOnce([
@@ -489,19 +347,11 @@ describe('useThreadSearchController', () => {
       .fn<HostThreadSearchVectors['coverage']>()
       .mockResolvedValueOnce({ embedded: 0, errored: 0, rows: 2 })
       .mockResolvedValue({ embedded: 2, errored: 0, rows: 2 });
-    const embedder = createEmbedder();
-    renderHook(() =>
-      useThreadSearchController({
-        embedder,
-        hostSearchVectors: { coverage, pending, put },
-        loadEmbeddingQueue: null,
-        localModelConfigMap: new Map() as never,
-        readEmbeddingProfile: async () => PROFILE,
-        repository: null,
-        resourceId: 'workspace-memory',
-        searchHost: async () => ({ messages: [], titles: [] }),
-      })
-    );
+    renderController(async () => ({ messages: [], titles: [] }), createEmbedder(), {
+      coverage,
+      pending,
+      put,
+    });
 
     act(() => {
       useThreadSearchStore.getState().setQuery('hnsw');
@@ -516,7 +366,6 @@ describe('useThreadSearchController', () => {
     ]);
     // The second pass found an empty backlog and stopped.
     expect(pending).toHaveBeenCalledTimes(2);
-    expect(repository.getCoverage).not.toHaveBeenCalled();
     // Only the current owner's rows contribute to progress.
     expect(coverage).toHaveBeenCalledWith(VECTOR_PROFILE);
     expect(useThreadSearchStore.getState().coverage).toEqual({

@@ -15,13 +15,10 @@ import { ProvidersSettings } from '../providers-settings';
 
 const { toggleModelMock } = vi.hoisted(() => ({ toggleModelMock: vi.fn() }));
 
-vi.mock('@brainstrike/db/react', () => ({
-  usePGliteDatabase: () => ({ query: vi.fn() }),
-}));
-
 vi.mock('@brainstrike/app-state/hooks/use-model-registry', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/app-state/hooks/use-model-registry')>()),
   useEnsureModelRegistry: () => undefined,
+  useModelRegistrySource: () => ({ query: vi.fn() }),
 }));
 
 vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({

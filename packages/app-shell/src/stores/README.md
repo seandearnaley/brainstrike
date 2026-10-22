@@ -4,7 +4,6 @@ These local Zustand stores hold transient UI intent and observation:
 
 - `command-palette-store.ts`: open state and the target/tab scope captured when
   the palette opens.
-- `quick-open-store.ts`: file-finder open/close state.
 - `on-screen-thread-store.ts`: the transcript actually visible in this window.
 - `terminal-target-store.ts`: the checkout requested by another surface.
 - `worktree-checkout-intent-store.ts`: a one-shot request consumed by the existing

@@ -12,10 +12,6 @@ by `@brainstrike/embedding-worker/vite`, emitting the actual module/binary asset
 for both dev and production serving. Missing or ambiguous assets refuse rather
 than selecting an arbitrary version or CDN.
 
-`findPGliteWasm(baseDir)` is a separate resolver for remaining PGlite consumers;
-it returns a path or `null`. Its presence does not imply desktop runs PGlite.
-Handle absence at the owning build boundary.
-
 `fullReloadOnCompilerHotspots()` invalidates affected modules **and their importer
 graph** before suppressing normal HMR and sending a full reload. Preserve that
 ordering: a reload with stale transformed imports can split React/context identity.
@@ -32,4 +28,4 @@ Build IDs and other exports are defined in [`index.ts`](src/index.ts) and
 Use the package's existing scripts, including integration checks for emitted
 build boundaries when relevant. Local consumers use `workspace:*`.
 Select checks with
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

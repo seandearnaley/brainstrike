@@ -7,10 +7,6 @@
       // inspects its own emitted `dist` files. `$TURBO_EXTENDS$` preserves the
       // inherited source-hash cascade while appending the required own build.
       "dependsOn": ["$TURBO_EXTENDS$", "build"]
-    },
-    "test:coverage": {
-      // Coverage runs the same built-artifact contract and needs the same edge.
-      "dependsOn": ["$TURBO_EXTENDS$", "build"]
     }
   }
 }

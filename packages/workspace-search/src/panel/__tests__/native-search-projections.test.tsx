@@ -5,20 +5,12 @@ import type {
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NativeWorkspaceSearchContext } from '../../core/native-workspace-search-context';
 import { SearchCollectionPicker } from '../search-collection-picker';
 import { SearchCoverageBanner } from '../search-coverage-banner';
-import { useSemanticAvailability } from '../use-semantic-availability';
 
-const { liveQuery } = vi.hoisted(() => ({
-  liveQuery: vi.fn(() => ({ loading: false, rows: [] })),
-}));
-vi.mock('@brainstrike/db/react', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
-  usePGliteLiveQuery: liveQuery,
-}));
 const entry: CollectionCatalogEntry = {
   counts: { chunks: 4, files: 2, unprocessedFiles: 0 },
   createdAt: '2026-10-13T12:00:00.000Z',
@@ -71,14 +63,13 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'collectionCatalog');
   vi.clearAllMocks();
 });
-describe('native Search projections without a database provider', () => {
+describe('native Search projections', () => {
   it('selects a real catalog collection while its vector count is unavailable', async () => {
     const snapshot = vi.fn(async () => ({ ok: true, value: [entry] }));
     Object.defineProperty(window, 'collectionCatalog', { configurable: true, value: { snapshot } });
     render(<SearchCollectionPicker />);
     expect(await screen.findByRole('combobox', { name: 'Search collection' })).toBeVisible();
     expect(snapshot).toHaveBeenCalledOnce();
-    expect(liveQuery).not.toHaveBeenCalled();
   });
   it('does not let an old catalog response overwrite a committed update', async () => {
     let resolveOld: (value: { ok: true; value: CollectionCatalogEntry[] }) => void = () => {};
@@ -121,7 +112,6 @@ describe('native Search projections without a database provider', () => {
     });
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Indexing'));
     expect(coverageBatch).toHaveBeenCalledOnce();
-    expect(liveQuery).not.toHaveBeenCalled();
     const completed = observation(true);
     coverageBatch.mockResolvedValue(completed);
     rerender(
@@ -180,7 +170,6 @@ describe('native Search projections without a database provider', () => {
     );
     await waitFor(() => expect(coverageBatch).toHaveBeenCalledOnce());
     expect(screen.getByRole('status')).toBeVisible();
-    expect(liveQuery).not.toHaveBeenCalled();
   });
   it('surfaces a catalog read failure instead of treating it as an empty catalog', async () => {
     const snapshot = vi.fn(async () => ({
@@ -191,13 +180,5 @@ describe('native Search projections without a database provider', () => {
     render(<SearchCollectionPicker />);
     expect(await screen.findByRole('alert')).toBeVisible();
     expect(screen.queryByTestId('workspace-search-single-collection')).not.toBeInTheDocument();
-    expect(liveQuery).not.toHaveBeenCalled();
-  });
-  it('disables SQL observation when native semantic availability is supplied', () => {
-    const native = { available: false, reason: 'Vector profile required.' };
-    expect(renderHook(() => useSemanticAvailability('imported', native)).result.current).toBe(
-      native
-    );
-    expect(liveQuery).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
   });
 });

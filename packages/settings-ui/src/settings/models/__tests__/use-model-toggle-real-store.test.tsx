@@ -9,10 +9,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.fn();
 const { diagnosticError } = vi.hoisted(() => ({ diagnosticError: vi.fn() }));
-let db: unknown = { query: vi.fn() };
+let db: unknown = null;
 
 vi.mock('@brainstrike/ui', () => ({ useToast: () => ({ toast }) }));
-vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => db }));
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/app-state/hooks/use-model-registry')>();
+  return {
+    ...actual,
+    useModelRegistrySource: () => {
+      const capability = actual.useModelRegistrySource();
+      return db ?? capability;
+    },
+  };
+});
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
@@ -59,7 +69,7 @@ describe('useModelToggle against the real model-registry-store', () => {
         },
       ],
     });
-    db = { query: vi.fn().mockRejectedValue(new Error('disk full')) };
+    db = { setModels: vi.fn().mockRejectedValue(new Error('disk full')) };
   });
 
   afterEach(() => {
