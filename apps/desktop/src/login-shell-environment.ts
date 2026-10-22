@@ -16,17 +16,16 @@ import { randomUUID } from 'node:crypto';
 import { userInfo } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import type { EnvBootstrapLoginShell } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { isDesktopEnvFileLoadingDisabled } from './desktop-env';
 
+/** The reported outcome, plus the printed environment Main applies but never reports. */
 export type LoginShellEnvironment =
-  | {
+  | (Extract<EnvBootstrapLoginShell, { status: 'resolved' }> & {
       readonly durationMs: number;
       readonly env: NodeJS.ProcessEnv;
-      readonly shell: string;
-      readonly status: 'resolved';
-    }
-  | { readonly reason: 'launched-from-shell' | 'test-mode' | 'windows'; readonly status: 'skipped' }
-  | { readonly message: string; readonly shell: string; readonly status: 'failed' };
+    })
+  | Exclude<EnvBootstrapLoginShell, { status: 'resolved' }>;
 
 export interface ResolveLoginShellEnvironmentOptions {
   readonly argv: readonly string[];

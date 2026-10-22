@@ -1565,6 +1565,7 @@ if (singleInstanceLockAcquired) {
               appRoot: app.getAppPath(),
               env: process.env,
               isPackaged: app.isPackaged,
+              loginShell,
               result: desktopEnvLoadResult,
               userDataPath: app.getPath('userData'),
             }),

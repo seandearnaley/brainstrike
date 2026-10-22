@@ -116,6 +116,7 @@ describe('registerSecretsIpcHandlers', () => {
       deprecatedVariablesInFiles: [],
       failures: [],
       loadedFiles: [],
+      loginShell: { reason: 'test-mode', status: 'skipped' },
       nonCredentialVariablesPresent: [],
       skipped: true,
     };
@@ -617,6 +618,7 @@ describe('registerSecretsIpcHandlers', () => {
       deprecatedVariablesInFiles: ['OPENAI_API_KEY'],
       failures: [],
       loadedFiles: [{ file: 'dev', path: '/app/root/.env' }],
+      loginShell: { reason: 'test-mode', status: 'skipped' },
       nonCredentialVariablesPresent: ['AWS_REGION'],
       skipped: false,
     };
