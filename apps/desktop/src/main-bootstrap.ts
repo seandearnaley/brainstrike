@@ -4,9 +4,10 @@
 import '@brainstrike/secure-fs-native/default-owner';
 import { app, dialog } from 'electron';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
-import { initializeDesktopEnvironment } from './desktop-env';
+import { applyDesktopLoginShellEnvironment, initializeDesktopEnvironment } from './desktop-env';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import { installLifecycleDelaySeam } from './lifecycle-delay-seam';
+import { resolveLoginShellEnvironment } from './login-shell-environment';
 
 function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown()): void {
   const message = error instanceof Error ? error.message : String(error);
@@ -44,6 +45,13 @@ if (process.argv.includes('--version')) {
     installLifecycleDelaySeam();
     const runtime = getDesktopBootstrapRuntime();
     if (runtime.singleInstanceLockAcquired) {
+      // Started now so the shell runs while Electron starts; the first fork waits for it.
+      const loginShellEnvironment = resolveLoginShellEnvironment({
+        argv: process.argv,
+        env: process.env,
+        execPath: process.execPath,
+        platform: process.platform,
+      });
       const earlyQuit = (event: Electron.Event): void => {
         event.preventDefault();
         if (isDesktopShuttingDown()) {
@@ -59,6 +67,11 @@ if (process.argv.includes('--version')) {
       void app
         .whenReady()
         .then(async () => {
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          // A child takes Main's environment when it spawns, so apply it before the first fork.
+          applyDesktopLoginShellEnvironment(await loginShellEnvironment);
           if (isDesktopShuttingDown()) {
             return;
           }

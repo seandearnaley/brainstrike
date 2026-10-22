@@ -69,6 +69,7 @@ import {
   resolveDesktopDatabaseLocation,
   resolveDesktopDatabaseProfileDirectory,
 } from './desktop-database-location';
+import { getDesktopLoginShellEnvironment } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
 import { createDesktopHookTrust } from './desktop-hook-trust';
@@ -1507,6 +1508,21 @@ if (singleInstanceLockAcquired) {
 
       for (const failure of desktopEnvLoadResult.failures) {
         logger.error('Desktop environment file rejected', failure);
+      }
+      // Never the printed environment itself: it holds the user's secrets.
+      const loginShell = getDesktopLoginShellEnvironment();
+      if (loginShell.status === 'failed') {
+        logger.error('Login shell environment unavailable; children keep the launch environment', {
+          message: loginShell.message,
+          shell: loginShell.shell,
+        });
+      } else if (loginShell.status === 'resolved') {
+        logger.info('Login shell environment applied', {
+          durationMs: loginShell.durationMs,
+          shell: loginShell.shell,
+        });
+      } else {
+        logger.info('Login shell environment skipped', { reason: loginShell.reason });
       }
 
       // BST-1361: deprecated env names are detected ONCE per launch from this
