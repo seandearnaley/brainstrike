@@ -442,8 +442,8 @@ mapping lives only in the A2A adapter.
 
 ## What changes first
 
-0. **Prerequisite:** land the watchdog fix (PR #4142,
-   `claude/thread-crash-debug-fd9a22`).
+0. **Prerequisite, done:** the watchdog fix, PR #4142, merged to main on 2026-10-22 as
+   `62d6ee36e`.
 1. **Owner decisions:** taken on 2026-10-22 (below).
 2. **Questions go up, by removal** (decision 1). Drop `askUser` and `submitPlan` from
    child admission, as `manageTaskList` already is (`narrowHostChildTools`). A child
@@ -601,4 +601,4 @@ the idle wake, start initiations, and per-session task lists.
 - `packages/app-shell/src/host-child-sidebar-cell.tsx`;
 - [the subagent contract](../agents/assistant-subagents.md).
 
-The watchdog fix that this ADR assumes is PR #4142 (`claude/thread-crash-debug-fd9a22`).
+The watchdog fix that this ADR assumes is PR #4142, merged as `62d6ee36e`.
