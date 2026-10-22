@@ -10,6 +10,7 @@ import {
   listProviders,
   providerDeprecatedEnvKeys,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import type { LoginShellEnvironment } from './login-shell-environment';
 
 export {
   CREDENTIAL_ENV_FILE_VARIABLE_NAMES,
@@ -133,6 +134,7 @@ const DEPRECATED_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>(
   listProviders().flatMap((definition) => [...providerDeprecatedEnvKeys(definition.id)])
 );
 let bootstrapResult: DesktopEnvLoadResult | undefined;
+let loginShellEnvironment: LoginShellEnvironment | undefined;
 
 export function isDesktopEnvFileLoadingDisabled(
   argv: readonly string[],
@@ -222,6 +224,34 @@ export function getDesktopEnvironmentBootstrapResult(): DesktopEnvLoadResult {
     return emptyResult(true);
   }
   throw new Error('Desktop main runtime started before environment bootstrap.');
+}
+
+/**
+ * Applies the login shell's environment over `env`, its values winning as they
+ * do in a terminal launch, and records the outcome for Main to report. Called
+ * once, before Main forks any child, so every child inherits it.
+ */
+export function applyDesktopLoginShellEnvironment(
+  result: LoginShellEnvironment,
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  if (loginShellEnvironment) {
+    throw new Error('The login shell environment was applied more than once.');
+  }
+  if (result.status === 'resolved') {
+    Object.assign(env, result.env);
+  }
+  loginShellEnvironment = result;
+}
+
+export function getDesktopLoginShellEnvironment(): LoginShellEnvironment {
+  if (loginShellEnvironment) {
+    return loginShellEnvironment;
+  }
+  if (isDesktopEnvFileLoadingDisabled(process.argv, process.env)) {
+    return { reason: 'test-mode', status: 'skipped' };
+  }
+  throw new Error('Desktop main runtime started before the login shell environment was applied.');
 }
 
 function emptyResult(skipped: boolean): DesktopEnvLoadResult {

@@ -28,6 +28,14 @@ const initializeDesktopEnvironment = vi.hoisted(() =>
     bootstrapEvents.push('environment');
   })
 );
+const applyDesktopLoginShellEnvironment = vi.hoisted(() =>
+  vi.fn(() => {
+    bootstrapEvents.push('login-shell');
+  })
+);
+const resolveLoginShellEnvironment = vi.hoisted(() =>
+  vi.fn(async () => ({ reason: 'launched-from-shell', status: 'skipped' }) as const)
+);
 
 vi.mock('electron', () => ({
   app: {
@@ -54,11 +62,17 @@ vi.mock('../../desktop-shutdown-state', () => ({
   },
 }));
 
-vi.mock('../../desktop-env', () => ({ initializeDesktopEnvironment }));
+vi.mock('../../desktop-env', () => ({
+  applyDesktopLoginShellEnvironment,
+  initializeDesktopEnvironment,
+}));
+
+vi.mock('../../login-shell-environment', () => ({ resolveLoginShellEnvironment }));
 
 beforeEach(() => {
   vi.resetModules();
   bootstrapEvents.length = 0;
+  resolveLoginShellEnvironment.mockClear();
   state.quitting = false;
   runtime.singleInstanceLockAcquired = true;
   state.handlers.clear();
@@ -90,7 +104,7 @@ it('initializes desktop environment files before evaluating the main runtime gra
   appReady.current.resolve();
   await import('../../main-bootstrap');
   await vi.waitFor(() => {
-    expect(bootstrapEvents).toEqual(['environment', 'profile', 'fork', 'main']);
+    expect(bootstrapEvents).toEqual(['environment', 'login-shell', 'profile', 'fork', 'main']);
   });
 });
 
@@ -102,9 +116,9 @@ it('waits for the fork milestone before evaluating Main while host readiness is 
   appReady.current.resolve();
   await import('../../main-bootstrap');
   await vi.waitFor(() => expect(runtime.waitForProfileLaunch).toHaveBeenCalledOnce());
-  expect(bootstrapEvents).toEqual(['environment']);
+  expect(bootstrapEvents).toEqual(['environment', 'login-shell']);
   forked.resolve();
-  await vi.waitFor(() => expect(bootstrapEvents).toEqual(['environment', 'main']));
+  await vi.waitFor(() => expect(bootstrapEvents).toEqual(['environment', 'login-shell', 'main']));
   ready.resolve();
 });
 
@@ -154,7 +168,7 @@ it('hands a refused early host start to Main reporting while preserving the shel
   await import('../../main-bootstrap');
   await vi.waitFor(() => expect(state.reportHostFailure).toHaveBeenCalledWith(failure));
   expect(runtime.profile.acquire).toHaveBeenCalledOnce();
-  expect(bootstrapEvents).toEqual(['environment', 'main']);
+  expect(bootstrapEvents).toEqual(['environment', 'login-shell', 'main']);
   expect(state.exit).not.toHaveBeenCalled();
 });
 
@@ -193,6 +207,7 @@ it('quits a rejected second launch without importing Main or starting a host', a
   await new Promise<void>((resolve) => setImmediate(resolve));
   expect(state.quit).toHaveBeenCalledOnce();
   expect(runtime.profile.acquire).not.toHaveBeenCalled();
+  expect(resolveLoginShellEnvironment).not.toHaveBeenCalled();
   expect(bootstrapEvents).toEqual(['environment']);
 });
 
