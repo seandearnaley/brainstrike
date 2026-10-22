@@ -220,8 +220,11 @@ export interface AssistantThreadHostCapability {
    * says so; a host without delegation omits it.
    */
   subscribeChildren?(listener: (threadId: string) => void): () => void;
-  /** Called when a host thread's committed title changes; a host without live titles omits it. */
-  subscribeTitleChanges?(listener: () => void): () => void;
+  /**
+   * Called when a host thread's committed catalog entry changes: its title, or
+   * the workspace the host moved it to. A host without live entries omits it.
+   */
+  subscribeEntryChanges?(listener: () => void): () => void;
   /**
    * Commits an owned thread's workspace binding keys through the host. Any key
    * the host does not own rejects before a request, never reaching history.

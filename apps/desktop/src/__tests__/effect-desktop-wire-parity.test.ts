@@ -151,22 +151,6 @@ const subjects: readonly [
     ],
   ],
   [
-    'worktree create result',
-    tools.WorktreeCreateResultSchema,
-    oldTools.WorktreeCreateResultSchema,
-    'ignore',
-    [
-      {
-        ok: true,
-        value: {
-          setup: { reason: null, status: 'done' },
-          worktree: { branch: null, id: 'w', path: '/w' },
-        },
-      },
-      { error: 'failure', ok: false },
-    ],
-  ],
-  [
     'worktree archive result',
     tools.WorktreeArchiveResultSchema,
     oldTools.WorktreeArchiveResultSchema,

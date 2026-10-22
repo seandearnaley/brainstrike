@@ -21,8 +21,17 @@ import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('WorkspaceConnectBridge');
 
-/** Which OS gesture produced the request. Presentation + logging only. */
-export type WorkspaceOpenOrigin = 'argv' | 'drop' | 'menu-recent' | 'open-file' | 'second-instance';
+/**
+ * Which OS gesture produced the request, or `agent-worktree`: a worktree Main
+ * opened for an agent that moved its thread there. Presentation + logging only.
+ */
+export type WorkspaceOpenOrigin =
+  | 'agent-worktree'
+  | 'argv'
+  | 'drop'
+  | 'menu-recent'
+  | 'open-file'
+  | 'second-instance';
 
 // Compile-time exact-set proof, mirroring WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHOD_SET
 // below: `satisfies Record<WorkspaceOpenOrigin, true>` fails the build if a union member
@@ -31,6 +40,7 @@ export type WorkspaceOpenOrigin = 'argv' | 'drop' | 'menu-recent' | 'open-file' 
 // likeliest "looks unused" cleanup target) — can no longer compile clean while silently
 // making isWorkspaceOpenPathRequest stop accepting that gesture.
 const WORKSPACE_OPEN_ORIGIN_SET = {
+  'agent-worktree': true,
   argv: true,
   drop: true,
   'menu-recent': true,

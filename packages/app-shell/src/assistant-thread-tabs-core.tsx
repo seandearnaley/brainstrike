@@ -190,15 +190,15 @@ export function AssistantThreadTabsCore({
     unseenBaselineAt,
   });
   useMarkOnScreenThreadViewed({ onScreenThreadId, threads });
-  // Host threads commit titles (a rename or an auto-title) in the host log,
-  // which no history query sees.
+  // Host threads commit titles (a rename or an auto-title) and workspace moves
+  // (a worktree the agent entered) in the host log, which no history query sees.
   useEffect(() => {
-    if (!host?.subscribeTitleChanges) {
+    if (!host?.subscribeEntryChanges) {
       return;
     }
-    return host.subscribeTitleChanges(() => {
+    return host.subscribeEntryChanges(() => {
       refreshResourceThreads(repository, resourceId).catch((error: unknown) => {
-        logger.warn('Failed to refresh assistant threads after a host title change', {
+        logger.warn('Failed to refresh assistant threads after a host thread entry change', {
           error,
           resourceId,
         });

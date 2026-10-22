@@ -233,20 +233,24 @@ describe('runListWorktrees', () => {
 
 describe('runManageWorktree', () => {
   it('creates through the capability, defaulting baseRef to HEAD and name to the branch leaf', async () => {
+    const root = { displayName: 'fox', path: '/managed/fox', rootId: 'wt-root' };
     const caps = capability({
       create: vi.fn().mockResolvedValue({
         ok: true,
         value: {
+          root,
           setup: { reason: null, status: 'none' },
           worktree: { branch: 'bs/fox', id: 'wt-9', path: '/managed/fox' },
         },
       }),
     });
+    const enter = vi.fn().mockResolvedValue(undefined);
 
     const result = await runManageWorktree(
       { action: 'create', branch: 'bs/fox' },
       RUNTIME,
-      caps as never
+      caps as never,
+      enter
     );
 
     expect(caps.create).toHaveBeenCalledTimes(1);
@@ -257,14 +261,31 @@ describe('runManageWorktree', () => {
       rootId: 'root-1',
     });
     expect(caps.archive).not.toHaveBeenCalled();
+    // The conversation moves into the worktree Main opened, off the folder it came from.
+    expect(enter).toHaveBeenCalledExactlyOnceWith({
+      branch: 'bs/fox',
+      localRootId: 'root-1',
+      root,
+      worktreeId: 'wt-9',
+    });
     expect(result).toEqual({
       action: 'create',
       branch: 'bs/fox',
+      entered: true,
       path: '/managed/fox',
       setupReason: null,
       setupStatus: 'none',
       worktreeId: 'wt-9',
     });
+  });
+
+  it('refuses create for a delegated subagent before any worktree exists', async () => {
+    const caps = capability({ create: vi.fn() });
+
+    await expect(
+      runManageWorktree({ action: 'create', branch: 'bs/fox' }, RUNTIME, caps as never)
+    ).rejects.toThrow(/Only the conversation that delegated this task can create a worktree/);
+    expect(caps.create).not.toHaveBeenCalled();
   });
 
   it('archives through the capability and reports the snapshot ref', async () => {

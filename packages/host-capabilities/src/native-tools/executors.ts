@@ -71,6 +71,8 @@ export interface NativeToolPorts {
   readonly artifactReader: ScopedToolOutputArtifactReader | undefined;
   /** Absent without an active thread; the tool then reports `no_active_thread`. */
   readonly canvas: CanvasStore | undefined;
+  /** Core's binding of a root run's thread to a worktree its call created; absent for a child. */
+  readonly enterWorktree?: HostToolContext['enterWorktree'];
   readonly fileMutations: FileMutationPorts;
   /** Core's commit of the worktrees this call's shell command made (`worktree.created`). */
   readonly shellWorktrees?: HostToolContext['shellWorktrees'];
