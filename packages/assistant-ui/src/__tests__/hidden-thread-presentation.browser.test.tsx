@@ -57,12 +57,10 @@ function Panel({
         <ChatThreadUI
           capabilityNotice={undefined}
           disabledReason={undefined}
-          fileMentions={[]}
           hasGroupedProviders={false}
           isComposerDisabled={false}
           isVisible={visible}
           onEnableModel={undefined}
-          onFileMentionQueryChange={undefined}
           onModelChange={undefined}
           onRunFinished={onRunFinished}
           onRunningChange={onRunningChange}

@@ -4,12 +4,7 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
-import type {
-  NativeWorkspaceSearchDependencies,
-  SemanticSearchRequest,
-  TextSearchRequest,
-  WorkspaceSearchResults,
-} from '@brainstrike/workspace-search/core';
+import type { NativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import {
   NativeWorkspaceSearchExecutor,
   NativeWorkspaceSearchProvider,
@@ -21,7 +16,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import {
   createNativeWorkspaceSearchRunners,
-  createWorkspaceSearchRunners,
   useWorkspaceSearchController,
 } from '../use-workspace-search-controller';
 
@@ -35,40 +29,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     useIdeFileEditor: () => ({ openFileInTab: openFileInTabMock, registerOpenFileInTab: vi.fn() }),
   };
 });
-
-function makeTextResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSearchResults {
-  return {
-    files: [
-      {
-        children: [
-          {
-            after: [],
-            before: [],
-            chunkEndLine: 5,
-            chunkId: 'chunk-1',
-            chunkStartLine: 1,
-            kind: 'match',
-            line: 3,
-            lineText: 'const x = 1;',
-            provenance: 'index',
-          },
-        ],
-        dbRootId: 'D1',
-        path: 'src/a.ts',
-        rootDisplayName: 'Root One',
-      },
-    ],
-    mode: 'text',
-    notices: {
-      candidatesTruncated: false,
-      scanLimited: false,
-      skippedMissingLineMetadata: 0,
-      truncated: false,
-    },
-    totalMatches: 1,
-    ...overrides,
-  };
-}
 
 describe('native Search boundary presentation', () => {
   it('retains the recorded GPU-loss remedy without exposing the private cause', async () => {
@@ -99,299 +59,6 @@ describe('native Search boundary presentation', () => {
       'WebGPU device was lost. Choose the model again to retry. Reference: 8cb3b33a-70a7-4753-b72b-cbea1c0b5250'
     );
     expect(useWorkspaceSearchStore.getState().error).not.toContain('private vendor');
-  });
-});
-
-describe('createWorkspaceSearchRunners', () => {
-  beforeEach(() => {
-    useWorkspaceSearchStore.getState().reset();
-    useWorkspaceSearchStore.getState().setQuery('hello');
-  });
-
-  it('runTextSearch resolves the set id, forwards the scope, and populates the store', async () => {
-    const searchText = vi.fn(
-      async (req: TextSearchRequest): Promise<WorkspaceSearchResults | null> => {
-        expect(req.query).toBe('hello');
-        expect(req.embeddingSetId).toBe('set-42');
-        expect(req.rootIds).toEqual(['D1', 'D2']);
-        return makeTextResults();
-      }
-    );
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText },
-      resolveEffectiveEmbeddingSetId: async () => 'set-42',
-      workspaceDbRootIds: ['D1', 'D2'],
-    });
-
-    runners.runTextSearch();
-    expect(useWorkspaceSearchStore.getState().status).toBe('searching');
-
-    await waitFor(() => {
-      expect(useWorkspaceSearchStore.getState().status).toBe('results');
-    });
-    expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(1);
-    expect(searchText).toHaveBeenCalledTimes(1);
-  });
-
-  it('runTextSearch passes the store default textResultLimit (200) as maxResults', async () => {
-    let capturedReq: TextSearchRequest | undefined;
-    const searchText = vi.fn(async (req: TextSearchRequest): Promise<WorkspaceSearchResults> => {
-      capturedReq = req;
-      return makeTextResults();
-    });
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText },
-      resolveEffectiveEmbeddingSetId: async () => 'set-42',
-      workspaceDbRootIds: ['D1'],
-    });
-
-    runners.runTextSearch();
-    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
-    expect(capturedReq?.maxResults).toBe(200);
-  });
-
-  it('runTextSearch passes the CURRENT (bumped) textResultLimit as maxResults', async () => {
-    useWorkspaceSearchStore.getState().increaseTextResultLimit();
-    let capturedReq: TextSearchRequest | undefined;
-    const searchText = vi.fn(async (req: TextSearchRequest): Promise<WorkspaceSearchResults> => {
-      capturedReq = req;
-      return makeTextResults();
-    });
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText },
-      resolveEffectiveEmbeddingSetId: async () => 'set-42',
-      workspaceDbRootIds: ['D1'],
-    });
-
-    runners.runTextSearch();
-    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
-    expect(capturedReq?.maxResults).toBe(400);
-  });
-
-  // Show-more generation safety: a mode switch immediately after a Show-more
-  // click (increaseTextResultLimit + rerun) must still drop late results —
-  // the bump itself never touches generation, so the rerun's own
-  // beginSearch() is what the mode switch races against.
-  it('a mode switch right after a Show-more bump+rerun drops the late text result (stale generation)', async () => {
-    let resolveText: (r: WorkspaceSearchResults) => void = () => {};
-    const searchText = vi.fn(
-      () =>
-        new Promise<WorkspaceSearchResults>((resolve) => {
-          resolveText = resolve;
-        })
-    );
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-
-    // Simulate the panel's Show-more handler: bump, then rerun.
-    useWorkspaceSearchStore.getState().increaseTextResultLimit();
-    runners.runTextSearch();
-    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
-
-    // A mode change right after the click invalidates the in-flight run.
-    useWorkspaceSearchStore.getState().setMode('semantic');
-    resolveText(makeTextResults());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
-    expect(useWorkspaceSearchStore.getState().results).toBeNull();
-  });
-
-  it('runSemanticSearch forwards the scope and populates the store', async () => {
-    const searchSemantic = vi.fn(
-      async (req: SemanticSearchRequest): Promise<WorkspaceSearchResults | null> => {
-        expect(req.rootIds).toEqual(['D9']);
-        return makeTextResults({ mode: 'semantic' });
-      }
-    );
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic, searchText: vi.fn() },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: ['D9'],
-    });
-
-    runners.runSemanticSearch();
-    await waitFor(() => {
-      expect(useWorkspaceSearchStore.getState().status).toBe('results');
-    });
-    expect(searchSemantic).toHaveBeenCalledTimes(1);
-  });
-
-  it('routes executor errors to failSearch with the message', async () => {
-    const runners = createWorkspaceSearchRunners({
-      executor: {
-        searchSemantic: vi.fn(),
-        searchText: async () => {
-          throw new Error('grep exploded');
-        },
-      },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-
-    runners.runTextSearch();
-    await waitFor(() => {
-      expect(useWorkspaceSearchStore.getState().status).toBe('error');
-    });
-    expect(useWorkspaceSearchStore.getState().error).toBe('grep exploded');
-  });
-
-  it('routes a set-resolution error to failSearch', async () => {
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText: vi.fn() },
-      resolveEffectiveEmbeddingSetId: async () => {
-        throw new Error('no workspace index');
-      },
-      workspaceDbRootIds: [],
-    });
-
-    runners.runTextSearch();
-    await waitFor(() => {
-      expect(useWorkspaceSearchStore.getState().status).toBe('error');
-    });
-    expect(useWorkspaceSearchStore.getState().error).toBe('no workspace index');
-  });
-
-  it('treats a superseded (null) result as a no-op', async () => {
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText: async () => null },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-
-    runners.runTextSearch();
-    // Give the async work a chance to (not) write results.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useWorkspaceSearchStore.getState().status).toBe('searching');
-    expect(useWorkspaceSearchStore.getState().results).toBeNull();
-  });
-
-  it('drops results that resolve AFTER a mode change (stale generation)', async () => {
-    let resolveText: (r: WorkspaceSearchResults) => void = () => {};
-    const searchText = vi.fn(
-      () =>
-        new Promise<WorkspaceSearchResults>((resolve) => {
-          resolveText = resolve;
-        })
-    );
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-
-    runners.runTextSearch();
-    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
-
-    // A mode change invalidates the in-flight run (advances the store generation).
-    useWorkspaceSearchStore.getState().setMode('semantic');
-    resolveText(makeTextResults());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
-    expect(useWorkspaceSearchStore.getState().results).toBeNull();
-  });
-
-  it('an older run rejection cannot clobber a newer run that already resolved', async () => {
-    let rejectOld: (e: Error) => void = () => {};
-    const oldRun = createWorkspaceSearchRunners({
-      executor: {
-        searchSemantic: vi.fn(),
-        searchText: () =>
-          new Promise<WorkspaceSearchResults>((_, reject) => {
-            rejectOld = reject;
-          }),
-      },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-
-    oldRun.runTextSearch();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // A newer run supersedes it and resolves.
-    const newRun = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText: async () => makeTextResults() },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-    newRun.runTextSearch();
-    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
-
-    // The old run rejects late — it must NOT flip status to 'error'.
-    rejectOld(new Error('stale grep died'));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(useWorkspaceSearchStore.getState().status).toBe('results');
-    expect(useWorkspaceSearchStore.getState().error).toBeNull();
-    expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(1);
-  });
-
-  // F3 pin: no abandonment path may strand status at 'searching' with no live run,
-  // and the LATEST run always wins regardless of completion order.
-  it('rapid re-dispatch: the second run wins; a late first resolve cannot clobber it', async () => {
-    let resolveFirst: (r: WorkspaceSearchResults) => void = () => {};
-    const searchText = vi
-      .fn()
-      .mockImplementationOnce(
-        () =>
-          new Promise<WorkspaceSearchResults>((resolve) => {
-            resolveFirst = resolve;
-          })
-      )
-      .mockImplementationOnce(async () => makeTextResults({ totalMatches: 2 }));
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-
-    runners.runTextSearch(); // first run, left in-flight
-    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
-    runners.runTextSearch(); // second run supersedes and resolves
-    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
-    expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(2);
-
-    // The first run resolves late with the stale generation → dropped.
-    resolveFirst(makeTextResults({ totalMatches: 99 }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useWorkspaceSearchStore.getState().status).toBe('results');
-    expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(2);
-  });
-
-  it('a toggle mid-flight with no new run lands on idle (never a stuck "searching")', async () => {
-    let resolveText: (r: WorkspaceSearchResults) => void = () => {};
-    const searchText = vi.fn(
-      () =>
-        new Promise<WorkspaceSearchResults>((resolve) => {
-          resolveText = resolve;
-        })
-    );
-    const runners = createWorkspaceSearchRunners({
-      executor: { searchSemantic: vi.fn(), searchText },
-      resolveEffectiveEmbeddingSetId: async () => 'set-1',
-      workspaceDbRootIds: [],
-    });
-
-    runners.runTextSearch();
-    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
-    expect(useWorkspaceSearchStore.getState().status).toBe('searching');
-
-    // A toggle abandons the in-flight run (advances the generation) with NO new run.
-    act(() => {
-      useWorkspaceSearchStore.getState().toggleCase();
-    });
-    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
-
-    // The abandoned run resolving late must not resurrect 'searching'/'results'.
-    resolveText(makeTextResults());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
-    expect(useWorkspaceSearchStore.getState().results).toBeNull();
   });
 });
 
@@ -467,7 +134,7 @@ describe('useWorkspaceSearchController', () => {
     expect(openFileInTabMock).toHaveBeenCalledWith('root-a|@|src/a.ts', undefined);
   });
 
-  it('fails the search honestly when the database is not ready (no executor)', async () => {
+  it('fails the search honestly when no native index is attached (no executor)', async () => {
     const { result } = renderHook(() => useWorkspaceSearchController(), {
       wrapper: withRootIdentity(new Map()),
     });
@@ -476,7 +143,7 @@ describe('useWorkspaceSearchController', () => {
     await waitFor(() => {
       expect(useWorkspaceSearchStore.getState().status).toBe('error');
     });
-    expect(useWorkspaceSearchStore.getState().error).toContain('database is not ready');
+    expect(useWorkspaceSearchStore.getState().error).toContain('native index is not attached');
   });
   it('keeps an installed but unavailable native provider visible instead of using legacy text search', async () => {
     const embedQuery = vi.fn();

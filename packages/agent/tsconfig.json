@@ -62,9 +62,6 @@
       "path": "../assistant-contract"
     },
     {
-      "path": "../db"
-    },
-    {
       "path": "../tokenization"
     },
     {

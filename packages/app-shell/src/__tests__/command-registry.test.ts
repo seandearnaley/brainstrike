@@ -89,24 +89,6 @@ describe('createAppCommandRegistry', () => {
     expect(idsFor(registry, ctx)).toContain('file.reveal-in-os');
   });
 
-  it('keeps palette.quickOpen hidden until a handler is supplied (no fake no-op)', () => {
-    const parts = webParts();
-    const registry = createAppCommandRegistry({
-      handlers: { newThread: () => {} },
-      parts,
-      target: null,
-    });
-    const ctx = buildAppCommandContext({ parts, target: null });
-    expect(idsFor(registry, ctx)).not.toContain('palette.quickOpen');
-
-    const wired = createAppCommandRegistry({
-      handlers: { newThread: () => {}, openQuickOpen: () => {} },
-      parts,
-      target: null,
-    });
-    expect(idsFor(wired, ctx)).toContain('palette.quickOpen');
-  });
-
   it('rebuilds with the captured open target as the command context (snapshot semantics)', () => {
     const parts = desktopParts();
 

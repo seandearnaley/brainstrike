@@ -6,7 +6,9 @@ const toggleModel = vi.fn<(db: unknown, modelId: string, enabled: boolean) => Pr
 let db: unknown = { query: vi.fn() };
 
 vi.mock('@brainstrike/ui', () => ({ useToast: () => ({ toast }) }));
-vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => db }));
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
+  useModelRegistrySource: () => db,
+}));
 const setModelsEnabled =
   vi.fn<
     (db: unknown, ids: readonly string[], enabled: boolean) => Promise<ReadonlyMap<string, boolean>>

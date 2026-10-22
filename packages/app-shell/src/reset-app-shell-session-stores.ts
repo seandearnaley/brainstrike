@@ -3,7 +3,6 @@ import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-he
 import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
 import { useCommandPaletteStore } from './stores/command-palette-store';
 import { useOnScreenThreadStore } from './stores/on-screen-thread-store';
-import { useQuickOpenStore } from './stores/quick-open-store';
 import { useWorktreeCheckoutIntentStore } from './stores/worktree-checkout-intent-store';
 import { resetThreadSearchStore } from './thread-search-store';
 
@@ -24,7 +23,6 @@ export const APP_SHELL_SESSION_STORE_RESETTERS: readonly (() => void)[] = [
   () => useBrowserTabsStore.getState().reset(),
   () => useCommandPaletteStore.getState().close(),
   () => useOnScreenThreadStore.getState().reset(),
-  () => useQuickOpenStore.getState().close(),
   () => useWorktreeCheckoutIntentStore.getState().reset(),
   () => useThreadFolderScopeStore.getState().reset(),
   resetThreadSearchStore,

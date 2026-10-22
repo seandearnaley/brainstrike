@@ -1,24 +1,19 @@
 {
   "name": "@brainstrike/file-system",
-  "description": "Platform-aware file system adapters for web and desktop",
+  "description": "Platform-aware file system adapters for desktop",
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@parcel/watcher": "catalog:",
-    "idb": "catalog:"
+    "@parcel/watcher": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/core": "catalog:",
-    "@stryker-mutator/typescript-checker": "catalog:",
-    "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "electron": "catalog:",
-    "fake-indexeddb": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
@@ -96,10 +91,7 @@
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput",
-    "mutation": "stryker run",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:packaged": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- pnpm --filter @brainstrike/desktop exec electron ../../packages/file-system/test/parcel-packaged-smoke.cjs",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",

@@ -1,6 +1,5 @@
-import type { DbHandle } from '@brainstrike/db/react';
 import { renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: {
@@ -30,28 +29,30 @@ const ROOT_ROWS: readonly RootsRow[] = [
   { displayName: 'Project B', id: 'root-b', path: null },
 ];
 
-const query = vi.fn();
+const readRoots = vi.fn();
 
-// A STABLE handle: the hook keys its effect on the handle identity, so a
-// fresh object per render would re-query forever.
-const DATABASE = { query } as unknown as DbHandle;
+function installCatalog(): void {
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
+}
 
 beforeEach(() => {
-  query.mockReset();
+  readRoots.mockReset();
   loggerMock.error.mockClear();
   loggerMock.warn.mockClear();
-  query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
-    if (!sql.includes('FROM roots')) {
-      throw new Error(`Unexpected query: ${sql}`);
-    }
-    const ids = params[0] as readonly string[];
-    return { rows: ROOT_ROWS.filter((row) => ids.includes(row.id)) };
-  });
+  readRoots.mockImplementation(async () =>
+    ROOT_ROWS.map((row) => ({ ...row, status: 'live' as const }))
+  );
+  installCatalog();
 });
 
+afterEach(() => Reflect.deleteProperty(window, 'threadGroups'));
+
 describe('useThreadFolderRows', () => {
-  it('resolves display rows for the requested root ids in ONE batched query', async () => {
-    const { result } = renderHook(() => useThreadFolderRows(DATABASE, ['root-b', 'root-a']));
+  it('resolves display rows for the requested root ids in ONE catalog read', async () => {
+    const { result } = renderHook(() => useThreadFolderRows(['root-b', 'root-a']));
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -66,58 +67,57 @@ describe('useThreadFolderRows', () => {
       path: null,
       rootId: 'root-b',
     });
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0]?.[0]).toContain('FROM roots WHERE id = ANY($1::text[])');
+    expect(readRoots).toHaveBeenCalledTimes(1);
   });
 
   it('re-queries only when the distinct id SET changes, not on reordering or repeats', async () => {
     const { rerender, result } = renderHook(
-      (rootIds: readonly string[]) => useThreadFolderRows(DATABASE, rootIds),
+      (rootIds: readonly string[]) => useThreadFolderRows(rootIds),
       { initialProps: ['root-a', 'root-b'] as readonly string[] }
     );
     await waitFor(() => {
       expect(result.current.rowsByRootId.size).toBe(2);
     });
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(readRoots).toHaveBeenCalledTimes(1);
 
     // Same set, different order and a duplicate: no new round trip.
     rerender(['root-b', 'root-a', 'root-a']);
     await waitFor(() => {
       expect(result.current.rowsByRootId.size).toBe(2);
     });
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(readRoots).toHaveBeenCalledTimes(1);
 
     rerender(['root-a']);
     await waitFor(() => {
       expect(result.current.rowsByRootId.size).toBe(1);
     });
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls[1]?.[1]).toEqual([['root-a']]);
+    expect(readRoots).toHaveBeenCalledTimes(2);
   });
 
-  it('does not query and reports resolved emptiness for an empty id list', async () => {
-    const { result } = renderHook(() => useThreadFolderRows(DATABASE, []));
+  it('does not read the catalog and reports resolved emptiness for an empty id list', async () => {
+    const { result } = renderHook(() => useThreadFolderRows([]));
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
     expect(result.current.rowsByRootId.size).toBe(0);
-    expect(query).not.toHaveBeenCalled();
+    expect(readRoots).not.toHaveBeenCalled();
   });
 
-  it('stays loading with no rows while there is no database handle', () => {
-    const { result } = renderHook(() => useThreadFolderRows(null, ['root-a']));
+  it('stays loading with no rows while there is no catalog capability', () => {
+    Reflect.deleteProperty(window, 'threadGroups');
+    const { result } = renderHook(() => useThreadFolderRows(['root-a']));
 
     expect(result.current.loading).toBe(true);
     expect(result.current.rowsByRootId.size).toBe(0);
-    expect(query).not.toHaveBeenCalled();
+    expect(readRoots).not.toHaveBeenCalled();
   });
 
   // The pure section builder deliberately does not log an unresolved root id
   // (it stays DB-free); this hook is where that gap becomes observable.
   it('warns ONCE per unresolved root id and invents no display row for it', async () => {
     const { rerender, result } = renderHook(
-      (rootIds: readonly string[]) => useThreadFolderRows(DATABASE, rootIds),
+      (rootIds: readonly string[]) => useThreadFolderRows(rootIds),
       { initialProps: ['root-a', 'root-missing'] as readonly string[] }
     );
 
@@ -138,9 +138,9 @@ describe('useThreadFolderRows', () => {
   // The failure must be REPORTABLE, not just logged: an empty map with
   // `loading: false` and no error renders every thread under "No folder",
   // which is the silent degrade this projection's sibling already refuses.
-  it('surfaces the query failure as an error instead of an empty resolved map', async () => {
-    query.mockRejectedValue(new Error('boom'));
-    const { result } = renderHook(() => useThreadFolderRows(DATABASE, ['root-a']));
+  it('surfaces the read failure as an error instead of an empty resolved map', async () => {
+    readRoots.mockRejectedValue(new Error('boom'));
+    const { result } = renderHook(() => useThreadFolderRows(['root-a']));
 
     await waitFor(() => {
       expect(loggerMock.error).toHaveBeenCalled();
@@ -149,13 +149,12 @@ describe('useThreadFolderRows', () => {
       expect(result.current.loading).toBe(false);
     });
     expect(result.current.error).toBeInstanceOf(Error);
-    expect(result.current.error?.message).toBe('boom');
     expect(result.current.rowsByRootId.size).toBe(0);
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(readRoots).toHaveBeenCalledTimes(1);
   });
 
   it('reports no error on a resolved id set', async () => {
-    const { result } = renderHook(() => useThreadFolderRows(DATABASE, ['root-a']));
+    const { result } = renderHook(() => useThreadFolderRows(['root-a']));
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -166,9 +165,9 @@ describe('useThreadFolderRows', () => {
   // A failure belongs to the id set it failed FOR. A later set that resolves
   // must not inherit it (and must not be blocked by it).
   it('clears the error when a different id set resolves', async () => {
-    query.mockRejectedValueOnce(new Error('boom'));
+    readRoots.mockRejectedValueOnce(new Error('boom'));
     const { rerender, result } = renderHook(
-      (rootIds: readonly string[]) => useThreadFolderRows(DATABASE, rootIds),
+      (rootIds: readonly string[]) => useThreadFolderRows(rootIds),
       { initialProps: ['root-a'] as readonly string[] }
     );
     await waitFor(() => {
@@ -187,7 +186,7 @@ describe('useThreadFolderRows', () => {
   // under another (the panel would show the wrong folder names).
   it('never renders a previous id set’s rows under a new id set', async () => {
     const { rerender, result } = renderHook(
-      (rootIds: readonly string[]) => useThreadFolderRows(DATABASE, rootIds),
+      (rootIds: readonly string[]) => useThreadFolderRows(rootIds),
       { initialProps: ['root-a'] as readonly string[] }
     );
     await waitFor(() => {
@@ -195,11 +194,11 @@ describe('useThreadFolderRows', () => {
     });
 
     let release: (() => void) | undefined;
-    query.mockImplementation(
+    readRoots.mockImplementation(
       () =>
         new Promise((resolve) => {
           release = () => {
-            resolve({ rows: [ROOT_ROWS[1]] });
+            resolve([{ ...ROOT_ROWS[1], status: 'live' }]);
           };
         })
     );

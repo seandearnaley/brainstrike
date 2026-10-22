@@ -5,7 +5,6 @@ import {
   ExplorerContextExportAction,
   FileExplorerPanel,
 } from '@brainstrike/file-explorer-ui/shell';
-import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
 import { ExplorerThreadStatusProvider } from './context-map/explorer-thread-status-provider';
@@ -48,9 +47,7 @@ function WorkspaceSearchTabContent(): ReactElement {
         resolveAdapterRootId={controller.resolveAdapterRootId}
         runSemanticSearch={controller.runSemanticSearch}
         runTextSearch={controller.runTextSearch}
-        {...(controller.semanticAvailability === undefined
-          ? {}
-          : { semanticAvailability: controller.semanticAvailability })}
+        semanticAvailability={controller.semanticAvailability}
         workspaceDbRootIds={controller.workspaceDbRootIds}
       />
     </Suspense>
@@ -66,17 +63,7 @@ function WorkspaceSearchTabContent(): ReactElement {
  * roving never downloads Search. The value lives in a zustand store, whose
  * updates always render synchronously, so the switch uses no transition.
  */
-interface ExplorerSearchTabsProps {
-  /**
-   * Lazy loader for the app-owned embedding queue, forwarded to the explorer's
-   * collection-import action (the queue the produced chunks are embedded on).
-   */
-  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
-}
-
-export function ExplorerSearchTabs({
-  loadEmbeddingQueue = null,
-}: ExplorerSearchTabsProps = {}): ReactElement {
+export function ExplorerSearchTabs(): ReactElement {
   const activeTab = useContextExplorerLayoutStore((state) => state.explorerActiveTab);
   const setExplorerActiveTab = useContextExplorerLayoutStore((state) => state.setExplorerActiveTab);
 
@@ -92,16 +79,16 @@ export function ExplorerSearchTabs({
   // FileExplorerPanelInner is memoized; a fresh element identity here would
   // re-render the whole tree panel on every tab switch.
   // "Attach to thread" needs the desktop assistant host to read the mentions
-  // it writes (the same capability gate as the composer's "@" picker).
+  // it writes.
   const selectionActions = useMemo(
     () => (
       <>
         {hasDurableAssistantUsageCapability() ? <ExplorerAttachAction /> : null}
         <ExplorerContextExportAction />
-        <ExplorerImportActionLazy loadEmbeddingQueue={loadEmbeddingQueue} />
+        <ExplorerImportActionLazy />
       </>
     ),
-    [loadEmbeddingQueue]
+    []
   );
   const rootActions = useWorkspaceRootActions();
   const explorer = (

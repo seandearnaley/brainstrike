@@ -2,39 +2,9 @@
 import { describe, expect, it } from 'vitest';
 
 // Import types to verify they compile correctly
-import type {
-  ChunkSearchResult,
-  EnhancedImportProgress,
-  EnhancedImportResult,
-  ExportHandlers,
-  ImportSettings,
-  SearchFunctionality,
-} from '../index';
+import type { EnhancedImportProgress, EnhancedImportResult, ImportSettings } from '../index';
 
 describe('types module', () => {
-  it('ChunkSearchResult type can be used correctly', () => {
-    const result: ChunkSearchResult = {
-      chunk: {
-        chunkIndex: 0,
-        content: 'test content',
-        contentHash: 'hash123',
-        fileRecordId: 'file-1',
-        id: '1',
-        tokenCount: 10,
-      } as ChunkSearchResult['chunk'],
-      fileRecord: {
-        createdAt: '2024-01-01',
-        id: 'file-1',
-        name: 'test.txt',
-        path: '/path/test.txt',
-        size: 100,
-        updatedAt: '2024-01-01',
-      } as ChunkSearchResult['fileRecord'],
-      similarity: 0.9,
-    };
-    expect(result.similarity).toBe(0.9);
-  });
-
   it('EnhancedImportResult type can be used correctly', () => {
     const result: EnhancedImportResult = {
       chunksCreated: 5,
@@ -112,31 +82,5 @@ describe('types module', () => {
     };
     expect(settings.enableChunking).toBe(true);
     expect(settings.chunkingStrategy).toBe('auto');
-  });
-
-  it('ExportHandlers type has all required methods', () => {
-    const handlers: ExportHandlers = {
-      handleExportAll: async () => {},
-      handleExportChunks: async () => {},
-      handleExportEmbeddings: async () => {},
-      handleExportFiles: async () => {},
-    };
-    expect(typeof handlers.handleExportFiles).toBe('function');
-    expect(typeof handlers.handleExportAll).toBe('function');
-  });
-
-  it('SearchFunctionality type has all required properties', () => {
-    const search: SearchFunctionality = {
-      handleSearch: async () => {},
-      hasSearched: false,
-      searching: false,
-      searchQuery: 'test query',
-      searchResults: [],
-      searchThreshold: 0.5,
-      setSearchQuery: () => {},
-      setSearchThreshold: () => {},
-    };
-    expect(search.searchQuery).toBe('test query');
-    expect(search.searching).toBe(false);
   });
 });

@@ -1,6 +1,5 @@
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import type { DbHandle } from '@brainstrike/db/react';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadRootBinding } from '../hooks/use-assistant-thread-root-binding';
@@ -28,8 +27,6 @@ describe('useAssistantThreadRootBinding', () => {
   });
 
   it('does not rebind a restored thread before its persisted metadata loads', async () => {
-    const query = vi.fn(async () => ({ rows: [{ id: 'current-main-root' }] }));
-    const database = { query } as unknown as DbHandle;
     const updateThreadMetadata = vi.fn(async () => {});
     const repository = { updateThreadMetadata } as unknown as AssistantThreadRepository;
     const { result } = renderHook(() =>
@@ -39,7 +36,6 @@ describe('useAssistantThreadRootBinding', () => {
           displayName: 'Current Main',
           path: '/workspace/current-main',
         },
-        database,
         memoryResourceId: RESOURCE_ID,
         selectedMemoryThreadId: THREAD_ID,
       })
@@ -58,7 +54,6 @@ describe('useAssistantThreadRootBinding', () => {
       'Cannot persist the assistant thread root before the selected thread metadata is loaded.'
     );
     expect(result.current.operatingRoot).toBeUndefined();
-    expect(query).not.toHaveBeenCalled();
     expect(updateThreadMetadata).not.toHaveBeenCalled();
   });
 
@@ -84,7 +79,6 @@ describe('useAssistantThreadRootBinding', () => {
           updateThreadMetadata: vi.fn(async () => {}),
         } as unknown as AssistantThreadRepository,
         currentMainRoot: { displayName: 'Only', path: '/ws/only' },
-        database: { query: vi.fn() } as unknown as DbHandle,
         memoryResourceId: RESOURCE_ID,
         selectedMemoryThreadId: THREAD_ID,
       })

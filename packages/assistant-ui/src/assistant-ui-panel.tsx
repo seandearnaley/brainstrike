@@ -72,7 +72,6 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
 import { AssistantRunContextProviders } from './assistant-decision-recovery-provider';
-import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
   type CumulativeUsageDisplay,
@@ -84,7 +83,6 @@ import {
   type PrepareRequestBodyContext,
   useBrainstrikeDataStreamRuntime,
 } from './data-stream-runtime';
-import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
@@ -224,17 +222,6 @@ export interface AssistantUiPanelProps
   disabledReason?: string;
   /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
   effectiveInputBudget?: number | undefined;
-  /**
-   * Workspace files projected into the composer's "@" mention menu. Like
-   * `slashCommands`, the panel is presentational: app-shell loads matches from
-   * the file index for the active mention query (reported via
-   * `onFileMentionQueryChange`) and feeds the resolved candidates here.
-   * Selecting one inserts a `:file[…]{name=…}` directive the server resolves to
-   * the file's content. The "@" feature is mounted only when
-   * `onFileMentionQueryChange` is provided (capability/seam gating lives in the
-   * app — web omits it).
-   */
-  fileMentions?: readonly FileMention[];
   historyAdapter?: AssistantUiThreadHistoryAdapter;
   /**
    * Re-hydration counter. `historyAdapter.load()` runs ONCE per runtime mount,
@@ -263,11 +250,6 @@ export interface AssistantUiPanelProps
    * mode unchanged.
    */
   onExitPlanMode?: () => void;
-  /**
-   * Reports the active "@" mention query so the app can load matching files into
-   * `fileMentions`. Presence of this callback gates the "@" feature on.
-   */
-  onFileMentionQueryChange?: (query: string) => void;
   onModelChange?: (compositeKey: string) => void;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -367,10 +349,6 @@ export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-con
 // adapter/icon-map derivations downstream (react-doctor: empty default prop).
 const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 
-// Stable empty default for the optional fileMentions prop (same memoization
-// rationale as EMPTY_SLASH_COMMANDS — a literal `[]` would churn the adapter).
-const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
-
 // Shared props for inner chat components
 interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStreamCallbacks {
   /** Composer image-attachment availability (attach button, paste, previews). */
@@ -389,11 +367,9 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   disabled: boolean;
   disabledReason: string | undefined;
   effectiveInputBudget?: number | undefined;
-  fileMentions: readonly FileMention[];
   isVisible: boolean;
   omSegment?: OmMeterState | undefined;
   onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
-  onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -499,8 +475,6 @@ const DataStreamRuntimeChat = ({
   prepareRequestData,
   modelName,
   slashCommands,
-  fileMentions,
-  onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
@@ -592,7 +566,6 @@ const DataStreamRuntimeChat = ({
             cumulativeUsage={cumulativeUsage}
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
-            fileMentions={fileMentions}
             hasGroupedProviders={hasGroupedProviders}
             isComposerDisabled={isComposerDisabled || recoveryBlocked}
             isReattaching={recoveryBlocked}
@@ -601,7 +574,6 @@ const DataStreamRuntimeChat = ({
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
             onComposerTextChange={onComposerTextChange}
             onEnableModel={onEnableModel}
-            onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
             onRunEditActivity={onRunEditActivity}
@@ -675,8 +647,6 @@ export const ChatThreadUI = ({
   disabledReason,
   capabilityNotice,
   slashCommands,
-  fileMentions,
-  onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
@@ -725,8 +695,6 @@ export const ChatThreadUI = ({
   disabledReason: string | undefined;
   capabilityNotice: string | undefined;
   slashCommands: readonly SlashCommand[];
-  fileMentions: readonly FileMention[];
-  onFileMentionQueryChange: ((query: string) => void) | undefined;
   onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
   onComposerTextChange?: ((text: string) => void) | undefined;
   threadKey?: string | undefined;
@@ -752,23 +720,6 @@ export const ChatThreadUI = ({
   const { adapter: slashAdapter, action: slashAction } =
     useSlashCommandAdapter(slashAdapterOptions);
   const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
-
-  // "@" file-mention menu: mounted only when app-shell wires the query seam
-  // (web omits it — capability/seam gating lives in the app, not here). The
-  // adapter is synchronous; app-shell loads matches for the reported query and
-  // feeds them back as `fileMentions`, which rebuilds the adapter.
-  const hasFileMentions = Boolean(onFileMentionQueryChange);
-  const fileMentionAdapter = useMemo(
-    () =>
-      onFileMentionQueryChange
-        ? buildFileMentionAdapter(fileMentions, onFileMentionQueryChange)
-        : null,
-    [fileMentions, onFileMentionQueryChange]
-  );
-  const fileMentionById = useMemo(
-    () => new Map(fileMentions.map((file) => [file.id, file])),
-    [fileMentions]
-  );
 
   return (
     <ActiveThreadKeyContext.Provider value={threadKey}>
@@ -877,11 +828,10 @@ export const ChatThreadUI = ({
                   >
                     {/* The composer input row, optionally wrapped in a shared
               `Unstable_TriggerPopoverRoot` (see `ComposerInputWithTriggers`).
-              Each popover declares its own trigger char ("/" vs "@") and both
-              read the same composer text via that shared root, coexisting as
-              siblings. A feature is mounted ONLY when its seam is present —
-              an unmounted popover means the trigger char does nothing special
-              (never an empty menu). Send / Cancel are unchanged. */}
+              The slash popover declares its own trigger char ("/") and reads the
+              composer text via that shared root. It is mounted ONLY when its
+              seam is present — an unmounted popover means the trigger char does
+              nothing special (never an empty menu). Send / Cancel are unchanged. */}
                     {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
               its preview + Remove button after a switch to a text-only model. */}
                     {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
@@ -903,16 +853,6 @@ export const ChatThreadUI = ({
                                 action={slashAction}
                                 adapter={slashAdapter}
                                 iconMap={slashIconMap}
-                              />
-                            ),
-                          }
-                        : {})}
-                      {...(hasFileMentions && fileMentionAdapter
-                        ? {
-                            mentionPopover: (
-                              <ComposerMentionPopover
-                                adapter={fileMentionAdapter}
-                                fileById={fileMentionById}
                               />
                             ),
                           }
@@ -987,8 +927,6 @@ export const AssistantUiPanel = ({
   workspaceBar,
   planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
-  fileMentions = EMPTY_FILE_MENTIONS,
-  onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
@@ -1044,7 +982,6 @@ export const AssistantUiPanel = ({
           disabled={disabled}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
-          fileMentions={fileMentions}
           historyAdapter={historyAdapter}
           isVisible={isVisible}
           // `historyGeneration` and `stopGeneration` are in the key because
@@ -1061,7 +998,6 @@ export const AssistantUiPanel = ({
           onContextBreakdown={onContextBreakdown}
           onDelegatedConversation={onDelegatedConversation}
           onEnableModel={onEnableModel}
-          onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onRunEditActivity={onRunEditActivity}

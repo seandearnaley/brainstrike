@@ -19,8 +19,7 @@ import { CommittedWorkspaceControls } from '../renderer/committed-workspace-cont
 
 type HostProps = ComponentProps<typeof WorkspaceBarHost>;
 
-const { hosted, history } = vi.hoisted(() => ({
-  history: { updateThreadMetadata: vi.fn(async () => undefined) },
+const { hosted } = vi.hoisted(() => ({
   hosted: { props: undefined as HostProps | undefined },
 }));
 vi.mock('@brainstrike/app-shell', () => ({
@@ -28,15 +27,6 @@ vi.mock('@brainstrike/app-shell', () => ({
     hosted.props = props;
     return <div data-testid="workspace-bar" />;
   },
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  usePGliteDatabase: () => {
-    throw new Error('Desktop workspace controls must not open PGlite');
-  },
-}));
-vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/assistant-data')>()),
-  createPgliteAssistantThreadRepository: () => history,
 }));
 
 const HOST_THREAD = 'host-thread-0001';
@@ -100,7 +90,6 @@ test('binds the bar to the committed host thread through the host-routed reposit
   const host = hostCapability();
   mount(host);
   expect(hosted.props).toMatchObject({
-    database: null,
     memoryResourceId: WORKSPACE_MEMORY_RESOURCE_ID,
     selectedMemoryThreadId: HOST_THREAD,
   });
@@ -108,11 +97,10 @@ test('binds the bar to the committed host thread through the host-routed reposit
   // folder and worktree actions are live on the committed path.
   expect(hosted.props).not.toHaveProperty('threadFoldersUnavailableReason');
   // A folder/checkout write for this host thread commits through the host's
-  // binding owner and never reaches the history repository (no row there).
+  // binding owner.
   const patch = { secondaryRootIds: ['root-other'] };
   await hostedRepository().updateThreadMetadata(HOST_THREAD, patch);
   expect(host.updateThreadBinding).toHaveBeenCalledExactlyOnceWith(HOST_THREAD, patch);
-  expect(history.updateThreadMetadata).not.toHaveBeenCalled();
 });
 
 test('names the MAIN folder for an unbound thread; explorer focus never names it', () => {

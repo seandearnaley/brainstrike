@@ -1,10 +1,9 @@
 import {
-  createPgliteAssistantThreadRepository,
+  type AssistantMemoryThread,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
-import type { DbHandle } from '@brainstrike/db/react';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, render } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -13,6 +12,8 @@ import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
+  type AssistantThreadHostRun,
+  createHostAssistantThreadRepository,
 } from '../assistant-thread-host-context';
 import {
   AssistantThreadTabsWorkspace,
@@ -20,31 +21,22 @@ import {
 } from '../assistant-thread-tabs-workspace';
 
 /**
- * Shared harness for the thread-tab workspace suites: a mocked PGlite whose
- * `mastra_threads` rows are `threadRows`, live run-state projections fed from
- * `dbMocks`, and the REAL thread mark counted per thread id in `markRenders`.
- * Import this module FIRST (side-effect import) so its mocks register before
- * the workspace loads.
+ * Shared harness for the thread-tab workspace suites: a fake agent host whose
+ * conversations are `threadRows`, whose run state is fed from `dbMocks`, and
+ * the REAL thread mark counted per thread id in `markRenders`. Import this
+ * module FIRST (side-effect import) so its mocks register before the
+ * workspace loads.
  */
 const harness = vi.hoisted(() => ({
   assistantWrapperProps: [] as Array<{
     isVisible?: boolean;
-    memoryResourceId?: string;
     memoryThreadId?: string;
     onRunningChange?: (threadId: string, running: boolean) => void;
-    providerKeySources?: unknown;
+    providerReadErrors?: unknown;
   }>,
   dbMocks: {
-    activeRunError: null as Error | null,
     activeRunRows: [] as Record<string, unknown>[],
-    awaitingApprovalError: null as Error | null,
     awaitingApprovalRows: [] as Record<string, unknown>[],
-    database: undefined as unknown,
-    initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
-    initializing: false,
-    providerError: null as Error | null,
-    /** The run-completion projection: one aggregate row over the resource's terminal runs. */
-    runCompletionRows: [{ lastCompletedAt: null, terminalCount: 0 }] as Record<string, unknown>[],
   },
   fileExplorerMocks: {
     rootDirectoryHandle: {
@@ -54,14 +46,8 @@ const harness = vi.hoisted(() => ({
   },
   /** ThreadIdentityMark renders per thread id: which tabs' marks re-rendered. */
   markRenders: new Map<string, number>(),
-  mockDb: {
-    exec: vi.fn(() => Promise.resolve()),
-    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
-      () => Promise.resolve({ rows: [] })
-    ),
-  },
   threadRows: [] as Record<string, unknown>[],
-  /** Thread ids whose mocked assistant wrapper throws during render. */
+  /** Thread ids whose fake host panel throws during render. */
   wrapperCrashThreadIds: new Set<string>(),
   /** `mount:<threadId>` / `unmount:<threadId>`, in order: a panel that keeps its run owns one mount. */
   wrapperLifecycle: [] as string[],
@@ -72,55 +58,10 @@ export const {
   dbMocks,
   fileExplorerMocks,
   markRenders,
-  mockDb,
   threadRows,
   wrapperCrashThreadIds,
   wrapperLifecycle,
 } = harness;
-
-vi.mock('@brainstrike/db', () => ({
-  useDbInitializationStatus: () => harness.dbMocks.initializationStatus,
-  useDbInitializing: () => harness.dbMocks.initializing,
-  useDbProviderError: () => harness.dbMocks.providerError,
-  usePGliteDatabase: () =>
-    harness.dbMocks.database === undefined ? harness.mockDb : harness.dbMocks.database,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...parts: readonly unknown[]) => JSON.stringify(parts),
-  useDbInitializationStatus: () => harness.dbMocks.initializationStatus,
-  useDbInitializing: () => harness.dbMocks.initializing,
-  useDbProviderError: () => harness.dbMocks.providerError,
-  usePGliteDatabase: () =>
-    harness.dbMocks.database === undefined ? harness.mockDb : harness.dbMocks.database,
-  // Routed BY cacheKey: the two run-state projections return `{ threadId }` rows.
-  usePGliteLiveQuery: (options: { readonly cacheKey: string; readonly enabled: boolean }) => {
-    if (options.cacheKey.startsWith('["threads-awaiting-approval"')) {
-      return {
-        error: harness.dbMocks.awaitingApprovalError,
-        loading: false,
-        refresh: vi.fn(),
-        rows: options.enabled ? harness.dbMocks.awaitingApprovalRows : [],
-      };
-    }
-    if (options.cacheKey.startsWith('["active-assistant-thread-ids"')) {
-      return {
-        error: harness.dbMocks.activeRunError,
-        loading: false,
-        refresh: vi.fn(),
-        rows: options.enabled ? harness.dbMocks.activeRunRows : [],
-      };
-    }
-    if (options.cacheKey.startsWith('["assistant-thread-run-completions"')) {
-      return {
-        error: null,
-        loading: false,
-        refresh: vi.fn(),
-        rows: options.enabled ? harness.dbMocks.runCompletionRows : [],
-      };
-    }
-    throw new Error(`Unrouted thread tab live query: ${options.cacheKey}`);
-  },
-}));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof harness.fileExplorerMocks) => T): T =>
@@ -136,35 +77,6 @@ scrollerOverflow.textContent =
   '[data-slot="tab-strip"] [data-group="scroll"] { overflow-x: auto; }';
 document.head.append(scrollerOverflow);
 
-vi.mock('../assistant-ui-panel-wrapper', () => ({
-  AssistantUiPanelWrapper: (props: {
-    isVisible?: boolean;
-    memoryResourceId?: string;
-    memoryThreadId?: string;
-    onRunningChange?: (threadId: string, running: boolean) => void;
-    providerKeySources?: unknown;
-  }) => {
-    harness.assistantWrapperProps.push(props);
-    if (props.memoryThreadId && harness.wrapperCrashThreadIds.has(props.memoryThreadId)) {
-      throw new Error(`Assistant panel for ${props.memoryThreadId} exploded`);
-    }
-    // The real wrapper owns the run through `useLocalRuntime`, whose unmount
-    // cleanup aborts it; the mock records the mount/unmount that would trigger that.
-    const threadId = props.memoryThreadId;
-    useEffect(() => {
-      harness.wrapperLifecycle.push(`mount:${threadId}`);
-      return () => {
-        harness.wrapperLifecycle.push(`unmount:${threadId}`);
-      };
-    }, [threadId]);
-    return (
-      <div data-is-visible={props.isVisible} data-testid="assistant-thread-wrapper">
-        {props.memoryThreadId}
-      </div>
-    );
-  },
-}));
-
 // The REAL mark, counted per thread id: a render here means its tab rendered a
 // new mark element.
 vi.mock('../thread-identity-mark', async (importOriginal) => {
@@ -177,10 +89,164 @@ vi.mock('../thread-identity-mark', async (importOriginal) => {
   };
 });
 
+/**
+ * What the host's panel renderer mounts for a thread. The real host renders the
+ * conversation; here it records its props and lifecycle, and can be made to
+ * crash, as the old wrapper stand-in did.
+ */
+function HostPanel(props: {
+  isVisible: boolean;
+  onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
+  providerReadErrors: unknown;
+  threadId: string;
+}) {
+  harness.assistantWrapperProps.push({
+    isVisible: props.isVisible,
+    memoryThreadId: props.threadId,
+    ...(props.onRunningChange ? { onRunningChange: props.onRunningChange } : {}),
+    providerReadErrors: props.providerReadErrors,
+  });
+  if (harness.wrapperCrashThreadIds.has(props.threadId)) {
+    throw new Error(`Assistant panel for ${props.threadId} exploded`);
+  }
+  // The real panel owns the run through its runtime, whose unmount cleanup
+  // aborts it; the stand-in records the mount/unmount that would trigger that.
+  const { threadId } = props;
+  useEffect(() => {
+    harness.wrapperLifecycle.push(`mount:${threadId}`);
+    return () => {
+      harness.wrapperLifecycle.push(`unmount:${threadId}`);
+    };
+  }, [threadId]);
+  return (
+    <div data-is-visible={props.isVisible} data-testid="assistant-thread-wrapper">
+      {props.threadId}
+    </div>
+  );
+}
+
+function toThread(row: Record<string, unknown>): AssistantMemoryThread {
+  const threadId = String(row['id']);
+  const status = row['latestRunStatus'];
+  return {
+    createdAt: row['createdAt'] as Date,
+    id: threadId,
+    ...(row['metadata']
+      ? { metadata: row['metadata'] as NonNullable<AssistantMemoryThread['metadata']> }
+      : {}),
+    ...(status
+      ? {
+          latestRun: {
+            completedAt: (row['latestRunCompletedAt'] as Date | null) ?? null,
+            createdAt: row['latestRunCreatedAt'] as Date,
+            error: (row['latestRunError'] as string | null) ?? null,
+            id: String(row['latestRunId']),
+            model: String(row['latestRunModel']),
+            provider: String(row['latestRunProvider']),
+            resourceId: String(row['latestRunResourceId']),
+            runtimeKind: row['latestRunRuntimeKind'] as 'hosted',
+            startedAt: row['latestRunStartedAt'] as Date,
+            status: status as 'completed',
+            threadId,
+            turnMessageId: null,
+            updatedAt: row['latestRunUpdatedAt'] as Date,
+          },
+        }
+      : {}),
+    resourceId: String(row['resourceId']),
+    title: String(row['title']),
+    updatedAt: row['updatedAt'] as Date,
+  };
+}
+
+/** The host's run state: running and needs-you threads from `dbMocks`, read at each snapshot. */
+function createFakeHostRuns(): NonNullable<AssistantThreadHostCapability['runs']> {
+  let last = new Map<string, AssistantThreadHostRun>();
+  const signature = (runs: ReadonlyMap<string, AssistantThreadHostRun>): string =>
+    JSON.stringify([...runs]);
+  return {
+    getSnapshot: () => {
+      const next = new Map<string, AssistantThreadHostRun>();
+      for (const row of harness.dbMocks.activeRunRows) {
+        next.set(String(row['threadId']), {
+          completedAt: null,
+          needsInput: false,
+          status: 'running',
+        });
+      }
+      for (const row of harness.dbMocks.awaitingApprovalRows) {
+        next.set(String(row['threadId']), {
+          completedAt: null,
+          needsInput: true,
+          status: 'running',
+        });
+      }
+      if (signature(next) !== signature(last)) {
+        last = next;
+      }
+      return last;
+    },
+    subscribe: () => () => undefined,
+  };
+}
+
+/** The conversation owner for these suites: `threadRows` are its committed conversations. */
+function createFakeHost(): AssistantThreadHostCapability {
+  return {
+    createThread: vi.fn(async (resourceId: string) => {
+      const row = {
+        createdAt: new Date('2026-04-22T12:00:00Z'),
+        id: `thread-new-${harness.threadRows.length}`,
+        resourceId,
+        title: 'New Thread',
+        updatedAt: new Date('2026-04-22T12:00:00Z'),
+      };
+      harness.threadRows.unshift(row);
+      return toThread(row);
+    }),
+    deleteThread: vi.fn(async (threadId: string) => {
+      const index = harness.threadRows.findIndex((row) => row['id'] === threadId);
+      if (index >= 0) {
+        harness.threadRows.splice(index, 1);
+      }
+      return [threadId];
+    }),
+    listThreads: vi.fn(async () => harness.threadRows.map(toThread)),
+    ownsThread: vi.fn(async () => true),
+    renameThread: vi.fn(async (threadId: string, title: string) => {
+      const row = harness.threadRows.find((candidate) => candidate['id'] === threadId);
+      if (row) {
+        row['title'] = title;
+      }
+    }),
+    renderThread: (threadId, isVisible, onRunningChange, providerReadErrors) => (
+      <HostPanel
+        isVisible={isVisible}
+        onRunningChange={onRunningChange}
+        providerReadErrors={providerReadErrors}
+        threadId={threadId}
+      />
+    ),
+    runs: createFakeHostRuns(),
+    updateThreadBinding: vi.fn(async (threadId: string, metadata: Record<string, unknown>) => {
+      const row = harness.threadRows.find((candidate) => candidate['id'] === threadId);
+      if (row) {
+        row['metadata'] = { ...(row['metadata'] as object | undefined), ...metadata };
+      }
+    }),
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
+  };
+}
+
+let renderedHost: AssistantThreadHostCapability | undefined;
+
 export function renderWorkspace(
   props: AssistantThreadTabsWorkspaceProps = {},
-  host?: AssistantThreadHostCapability
+  host: AssistantThreadHostCapability = createFakeHost()
 ): ReturnType<typeof createTestActionRegistry> & { readonly rerender: () => void } {
+  renderedHost = host;
   const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
   const element = () => (
     <ActionRegistryProvider registry={actionRegistry.registry}>
@@ -203,8 +269,8 @@ export function openThreadTabs(...threadIds: readonly string[]): void {
 
 /**
  * Drive a panel's own run state the way its mounted runtime reports it
- * (`thread.isRunning` through the wrapper's `onRunningChange` seam). The
- * durable run rows in `dbMocks` are a separate signal.
+ * (`thread.isRunning` through the panel's `onRunningChange` seam). The host's
+ * run rows in `dbMocks` are a separate signal.
  */
 export function setPanelRunning(threadId: string, running: boolean): void {
   const props = assistantWrapperProps.findLast((entry) => entry.memoryThreadId === threadId);
@@ -247,8 +313,8 @@ export function latestRunColumns(
 }
 
 /**
- * Points the joined list query at a run that finished at `completedAt`, without
- * telling the store yet: the row a thread-list refresh will read next.
+ * Points the host's conversation list at a run that finished at `completedAt`,
+ * without telling the store yet: the row a thread-list refresh will read next.
  */
 export function stageFinishedRun(
   threadId: string,
@@ -264,18 +330,21 @@ export function stageFinishedRun(
 
 /**
  * The store re-reads the thread list exactly as it does when a run's final turn
- * lands. (The repository is cached per database handle, so this is the very
- * repository the workspace built.) Call it inside `act`.
+ * lands, through the host the workspace is mounted on. Call it inside `act`.
  */
 export async function refreshThreadList(): Promise<void> {
-  await useAssistantThreadStore.getState().refreshResourceThreads(
-    // The mock answers the repository's queries with untyped rows, as PGlite does.
-    createPgliteAssistantThreadRepository(mockDb as unknown as DbHandle),
-    WORKSPACE_MEMORY_RESOURCE_ID
-  );
+  if (!renderedHost) {
+    throw new Error('Render the workspace before refreshing its thread list.');
+  }
+  await useAssistantThreadStore
+    .getState()
+    .refreshResourceThreads(
+      createHostAssistantThreadRepository(renderedHost),
+      WORKSPACE_MEMORY_RESOURCE_ID
+    );
 }
 
-/** A run finished: the list query returns it and the store re-reads the list. */
+/** A run finished: the list returns it and the store re-reads the list. */
 export async function finishRun(
   threadId: string,
   completedAt: Date,
@@ -297,19 +366,13 @@ export function addThreadRow(id: string, title: string, extra: Record<string, un
 }
 
 beforeEach(() => {
+  renderedHost = undefined;
   fileExplorerMocks.rootDirectoryHandle = {
     name: 'workspace-a',
     path: '/tmp/workspace-a',
   };
-  dbMocks.database = undefined;
-  dbMocks.initializing = false;
-  dbMocks.initializationStatus = 'ready';
-  dbMocks.providerError = null;
-  dbMocks.activeRunError = null;
   dbMocks.activeRunRows = [];
-  dbMocks.awaitingApprovalError = null;
   dbMocks.awaitingApprovalRows = [];
-  dbMocks.runCompletionRows = [{ lastCompletedAt: null, terminalCount: 0 }];
   markRenders.clear();
   wrapperCrashThreadIds.clear();
   wrapperLifecycle.splice(0, wrapperLifecycle.length);
@@ -344,22 +407,5 @@ beforeEach(() => {
     threadsByResourceId: {},
     unavailableSavedThreadByResourceId: {},
     unseenBaselineAt: 0,
-  });
-  mockDb.exec.mockClear();
-  mockDb.query.mockClear();
-  mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
-    if (sql.includes('INSERT INTO mastra_threads')) {
-      threadRows.unshift({
-        createdAt: params?.[4],
-        id: String(params?.[0]),
-        resourceId: String(params?.[1]),
-        title: String(params?.[2]),
-        updatedAt: params?.[5],
-      });
-    }
-    if (sql.includes('FROM mastra_threads')) {
-      return { rows: [...threadRows] };
-    }
-    return { rows: [] };
   });
 });

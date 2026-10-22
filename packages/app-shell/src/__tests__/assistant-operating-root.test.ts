@@ -1,38 +1,33 @@
-import type { DbHandle } from '@brainstrike/db/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { resolveAssistantOperatingRootBinding } from '../assistant-operating-root';
 
+function installRoots(rows: readonly { id: string; path: string; status: string }[]): void {
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: rows }) },
+  });
+}
+
+afterEach(() => Reflect.deleteProperty(window, 'threadGroups'));
+
 describe('resolveAssistantOperatingRootBinding', () => {
-  it('binds the mounted adapter root to the durable live DB root id for its path', async () => {
-    const database = {
-      query: vi.fn(async () => ({ rows: [{ id: 'db-root-a' }] })),
-    } as unknown as DbHandle;
+  it('binds the mounted adapter root to the durable live root id for its path', async () => {
+    installRoots([{ id: 'db-root-a', path: '/workspace-a', status: 'live' }]);
 
     await expect(
-      resolveAssistantOperatingRootBinding(database, {
-        displayName: 'ProjectA',
-        path: '/workspace-a',
-      })
+      resolveAssistantOperatingRootBinding({ displayName: 'ProjectA', path: '/workspace-a' })
     ).resolves.toEqual({
       displayName: 'ProjectA',
       path: '/workspace-a',
       rootId: 'db-root-a',
     });
-    expect(database.query).toHaveBeenCalledWith(expect.stringContaining("status = 'live'"), [
-      '/workspace-a',
-    ]);
   });
 
-  it('fails visibly when the mounted root has no live durable DB identity', async () => {
-    const database = {
-      query: vi.fn(async () => ({ rows: [] })),
-    } as unknown as DbHandle;
+  it('fails visibly when the mounted root has no live durable identity', async () => {
+    installRoots([]);
 
     await expect(
-      resolveAssistantOperatingRootBinding(database, {
-        displayName: 'ProjectA',
-        path: '/workspace-a',
-      })
+      resolveAssistantOperatingRootBinding({ displayName: 'ProjectA', path: '/workspace-a' })
     ).rejects.toThrow('ProjectA');
   });
 });

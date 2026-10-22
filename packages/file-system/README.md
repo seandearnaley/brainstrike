@@ -6,11 +6,8 @@ are defined in [`@brainstrike/types`](../types/src/file-system.ts).
 
 ## Choose the capability
 
-The browser-safe root exports `WebFileSystemAdapter` and explicit mock/factory
-helpers. `createFileSystemAdapter(platform)` takes an explicit platform, supports
-web and refuses Electron through that entry; it never selects a mock by default.
-Browser access starts through the adapter's directory/root picker and retained
-permission/handle path, not an `initialize()` method.
+The browser-safe root exports an explicit mock factory helper; it never selects
+a mock by default.
 
 Node owners import native adapters from `@brainstrike/file-system/electron` and
 path validation from `/path-validation`. Renderers consume injected authorized
@@ -48,4 +45,4 @@ and data-retention semantics.
 boundary. See [workspace](../../docs/agents/workspace-context.md) and
 [indexing](../../docs/agents/indexer.md) contracts.
 Follow
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.

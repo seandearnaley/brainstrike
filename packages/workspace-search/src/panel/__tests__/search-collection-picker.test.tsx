@@ -1,35 +1,40 @@
+import type { CollectionCatalogEntry } from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
-import type { CollectionStatsRow } from '../collection-stats-query';
 import { SearchCollectionPicker } from '../search-collection-picker';
 
-const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
-  usePGliteLiveQueryMock: vi.fn((): { rows: CollectionStatsRow[] } => ({ rows: [] })),
-}));
-
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-
-const managedRow: CollectionStatsRow = {
-  chunkCount: 4,
-  embeddedChunkCount: 4,
-  fileCount: 2,
+const managedEntry: CollectionCatalogEntry = {
+  counts: { chunks: 4, files: 2, unprocessedFiles: 0 },
+  createdAt: '2026-10-13T12:00:00.000Z',
+  dimensions: 384,
+  distance: 'cosine',
   id: 'workspace-index',
+  modelId: 'model',
+  modelKey: 'local::model',
   name: 'Workspace Index',
-  pendingChunkCount: 0,
   systemRole: 'workspace-index',
+  vectors: { count: 4, kind: 'available' },
 };
+
+function serveCatalog(entries: readonly CollectionCatalogEntry[]): void {
+  Object.defineProperty(window, 'collectionCatalog', {
+    configurable: true,
+    value: { snapshot: async () => ({ ok: true, value: entries }) },
+  });
+}
 
 describe('SearchCollectionPicker readiness', () => {
   beforeEach(() => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [] });
     useWorkspaceSearchStore.getState().reset();
   });
 
-  it('does not mark pending rows ready even when identical text exists elsewhere', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'collectionCatalog');
+  });
+
+  it('does not mark pending rows ready even when identical text exists elsewhere', async () => {
+    serveCatalog([]);
     render(
       <>
         <h2>Workspace Index</h2>
@@ -37,13 +42,13 @@ describe('SearchCollectionPicker readiness', () => {
       </>
     );
 
-    expect(screen.getAllByText('Workspace Index')).toHaveLength(2);
+    expect(await screen.findAllByText('Workspace Index')).toHaveLength(2);
     expect(screen.queryByTestId('workspace-search-single-collection')).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('marks only the resolved quiet label when other text has the same name', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [managedRow] });
+  it('marks only the resolved quiet label when other text has the same name', async () => {
+    serveCatalog([managedEntry]);
     render(
       <>
         <h2>Workspace Index</h2>
@@ -51,21 +56,22 @@ describe('SearchCollectionPicker readiness', () => {
       </>
     );
 
-    expect(screen.getAllByText('Workspace Index')).toHaveLength(2);
-    expect(screen.getByTestId('workspace-search-single-collection')).toHaveTextContent(
+    expect(await screen.findByTestId('workspace-search-single-collection')).toHaveTextContent(
       'Workspace Index'
     );
+    expect(screen.getAllByText('Workspace Index')).toHaveLength(2);
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
   it('lets the user explicitly select a sole imported collection', async () => {
-    const imported = { ...managedRow, id: 'imported', name: 'Imported set', systemRole: null };
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [imported] });
+    const { systemRole: _systemRole, ...managed } = managedEntry;
+    const imported: CollectionCatalogEntry = { ...managed, id: 'imported', name: 'Imported set' };
+    serveCatalog([imported]);
     const onCollectionChange = vi.fn();
     render(<SearchCollectionPicker onCollectionChange={onCollectionChange} />);
 
+    const picker = await screen.findByRole('combobox', { name: 'Search collection' });
     expect(useWorkspaceSearchStore.getState().collectionId).toBeNull();
-    const picker = screen.getByRole('combobox', { name: 'Search collection' });
     expect(picker).toBeVisible();
     fireEvent.keyDown(picker, { key: 'ArrowDown' });
     const option = await screen.findByRole('option', { name: 'Imported set' });
@@ -73,31 +79,5 @@ describe('SearchCollectionPicker readiness', () => {
 
     expect(useWorkspaceSearchStore.getState().collectionId).toBe(imported.id);
     expect(onCollectionChange).toHaveBeenCalledWith(imported.id);
-  });
-
-  it('replaces the ready quiet label with the named picker when more rows arrive', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [managedRow] });
-    const { rerender } = render(<SearchCollectionPicker />);
-    expect(screen.getByTestId('workspace-search-single-collection')).toBeInTheDocument();
-
-    usePGliteLiveQueryMock.mockReturnValue({
-      rows: [managedRow, { ...managedRow, id: 'imported', name: 'Imported set', systemRole: null }],
-    });
-    rerender(<SearchCollectionPicker />);
-
-    expect(screen.queryByTestId('workspace-search-single-collection')).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Search collection' })).toBeVisible();
-  });
-
-  it('removes the readiness marker if the live rows become empty again', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [managedRow] });
-    const { rerender } = render(<SearchCollectionPicker />);
-    expect(screen.getByTestId('workspace-search-single-collection')).toBeInTheDocument();
-
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [] });
-    rerender(<SearchCollectionPicker />);
-
-    expect(screen.getByText('Workspace Index')).toBeInTheDocument();
-    expect(screen.queryByTestId('workspace-search-single-collection')).not.toBeInTheDocument();
   });
 });

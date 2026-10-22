@@ -1,35 +1,22 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HmrContext, Plugin, Rolldown } from 'vite';
-import { createBuildLogger } from './build-logger.js';
 import { isCompilerHotspot } from './compiler-hotspots.js';
 
-// @ts-expect-error: process.env has index signature
-const isDev = process.env.NODE_ENV === 'development';
-const logger = createBuildLogger('PGliteLocator');
-
 const CSP_QUALIFIED_EVAL_MODULES = [
-  // Python grammar path requalified under the production CSP by
-  // apps/web/e2e/production-csp.test.ts (BST-2033). Keep version and module exact.
+  // Python grammar path requalified under the production CSP (BST-2033).
+  // Keep version and module exact.
   /\/node_modules\/\.pnpm\/web-tree-sitter@0\.27\.1\/node_modules\/web-tree-sitter\/web-tree-sitter\.js$/,
-  // COUPLED to the `@electric-sql/pglite` catalog pin in pnpm-workspace.yaml.
-  // That catalog has since moved on (BST-1063 to 0.5.4, BST-1283 to 0.5.5),
-  // so this 0.5.3 entry matches NOTHING and PGlite EVAL warnings resurface in
-  // every build — that is the fail-visible behaviour this filter intends: the
-  // post-0.5.3 eval sites have not been exercised under the production CSP,
-  // and this entry must not be bumped without redoing the BST-573/594 review
-  // (fresh chunk filename included).
-  /\/node_modules\/\.pnpm\/@electric-sql\+pglite@0\.5\.3\/node_modules\/@electric-sql\/pglite\/dist\/(?:index|chunk-HXUXMFL7)\.js$/,
 ] as const;
 
 /**
  * Suppress only dependency eval warnings whose runtime paths have been
  * exercised under the production CSP without `unsafe-eval` (BST-573/594).
  *
- * Package versions and emitted PGlite filenames stay pinned in the patterns
- * so dependency upgrades or newly introduced eval sites become visible again
- * and require fresh review. Every other Rolldown log is forwarded unchanged.
+ * Package versions stay pinned in the patterns so dependency upgrades or newly
+ * introduced eval sites become visible again and require fresh review. Every
+ * other Rolldown log is forwarded unchanged.
  */
 export function createCspQualifiedEvalWarningFilter(): NonNullable<Rolldown.InputOptions['onLog']> {
   return (level, log, defaultHandler) => {
@@ -260,7 +247,6 @@ export function getLazySurfaceOptimizeDepsEntries(
     path.resolve(appShellDir, 'database-panel.tsx'),
     path.resolve(appShellDir, 'assistant-chat-panel.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper-lazy.tsx'),
-    path.resolve(appShellDir, 'assistant-ui-panel-wrapper.tsx'),
     path.resolve(appShellDir, 'database-tab.tsx'),
     path.resolve(assistantUiDir, 'assistant-ui-panel.tsx'),
     path.resolve(assistantUiDir, 'markdown-text.tsx'),
@@ -321,13 +307,12 @@ const VENDORED_TREE_SITTER_GRAMMARS = ['python'] as const;
 /**
  * Build the static-copy target list for tree-sitter grammars.
  *
- * Both apps/web and apps/desktop call this from their vite configs so the
- * same grammar `.wasm` files ship to `dist/assets/grammars/<lang>.wasm`.
- * Centralizing here means future grammar additions don't require touching
- * each app's vite config — just extend `VENDORED_TREE_SITTER_GRAMMARS`.
+ * The desktop vite config calls this so the grammar `.wasm` files ship to
+ * `dist/assets/grammars/<lang>.wasm`. Future grammar additions just extend
+ * `VENDORED_TREE_SITTER_GRAMMARS`.
  *
  * @param baseDir - the calling app's directory (`__dirname` from the
- *                  vite config). Path resolution mirrors `findPGliteWasm`:
+ *                  vite config). Path resolution is
  *                  `<baseDir>/../../packages/chunking-worker/grammars/<lang>.wasm`.
  * @returns Array of `{ src, dest, rename }` targets; pass directly into
  *          `viteStaticCopy({ targets: [...] })`.
@@ -344,45 +329,6 @@ export function getTreeSitterGrammarCopyTargets(baseDir: string): TreeSitterGram
 
 function toVitePath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
-}
-
-export function findPGliteWasm(baseDir: string): string | null {
-  const possiblePaths = [
-    path.resolve(baseDir, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
-    path.resolve(baseDir, 'node_modules/@electric-sql/pglite/dist/pglite.wasm'),
-  ];
-
-  try {
-    const pnpmDir = path.resolve(baseDir, '../../node_modules/.pnpm');
-    if (existsSync(pnpmDir)) {
-      const entries = readdirSync(pnpmDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith('@electric-sql+pglite@')) {
-          const wasmPath = path.join(
-            pnpmDir,
-            entry.name,
-            'node_modules/@electric-sql/pglite/dist/pglite.wasm'
-          );
-          possiblePaths.push(wasmPath);
-        }
-      }
-    }
-  } catch {
-    // ignore errors when scanning pnpm directory
-  }
-
-  for (const wasmPath of possiblePaths) {
-    if (existsSync(wasmPath)) {
-      const vitePath = toVitePath(wasmPath);
-      if (isDev) {
-        logger.debug('Found PGLite WASM', { wasmPath: vitePath });
-      }
-      return vitePath;
-    }
-  }
-
-  logger.warn('PGLite WASM file not found in any expected location');
-  return null;
 }
 
 export function fullReloadOnCompilerHotspots(): Plugin {

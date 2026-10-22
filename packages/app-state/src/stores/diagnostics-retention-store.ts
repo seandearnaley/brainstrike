@@ -19,17 +19,8 @@
  * corrupt persisted blob (e.g. from a future/rolled-back app version) must
  * not brick the settings UI on load.
  *
- * Defaults mirror `DIAGNOSTIC_RETENTION_MAX_AGE_MS` (30 days) and
- * `DIAGNOSTIC_RETENTION_MAX_ROWS` (20_000) exported from
- * `packages/db/src/repositories/diagnostic-events-repository.ts`, so behavior
- * is unchanged until a user edits a preference. Hardcoded here rather than
- * imported: `@brainstrike/db`'s package entrypoint is a heavy barrel
- * (PGlite/wasm bindings, migrations, etc.) and this store — like every
- * sibling preference store in this package — must stay light and importable
- * without a database. The link to the repository constants is enforced on
- * the test side instead (see diagnostics-retention-store.test.ts, which
- * imports the real constants and asserts equality) so a future change to
- * either side fails loudly rather than silently drifting.
+ * Defaults are 30 days and 20_000 rows, so behavior is unchanged until a user
+ * edits a preference.
  *
  * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
  * blanket `localStorage.clear()` (see `factory-reset-helpers.ts`), and the
@@ -63,10 +54,6 @@ export type DiagnosticsRetentionStore = DiagnosticsRetentionData & DiagnosticsRe
 const STORE_NAME = 'diagnostics-retention.v1' as const;
 const STORE_VERSION = 1 as const;
 
-// See the module doc above for why these are hardcoded instead of imported
-// from @brainstrike/db: they MUST track DIAGNOSTIC_RETENTION_MAX_AGE_MS
-// (30 * 24 * 60 * 60 * 1000 ms = 30 days) and DIAGNOSTIC_RETENTION_MAX_ROWS
-// (20_000) in packages/db/src/repositories/diagnostic-events-repository.ts.
 const DEFAULT_MAX_AGE_DAYS = 30;
 const DEFAULT_MAX_ROWS = 20_000;
 

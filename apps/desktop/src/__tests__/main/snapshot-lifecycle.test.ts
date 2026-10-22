@@ -3,13 +3,9 @@ import type { SnapshotService } from '../../assistant-server/snapshot-service';
 import { startSnapshotStartupMaintenance } from '../../main/snapshot-lifecycle';
 
 const mocks = vi.hoisted(() => ({
-  createRepository: vi.fn(),
   gc: vi.fn(),
 }));
 
-vi.mock('../../assistant-server/snapshot-repository', () => ({
-  createSnapshotRepository: mocks.createRepository,
-}));
 vi.mock('../../assistant-server/snapshot-startup-gc', () => ({
   runSnapshotStartupGc: mocks.gc,
 }));
@@ -33,7 +29,6 @@ function setup() {
     }),
   };
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
-  mocks.createRepository.mockReturnValue({});
   mocks.gc.mockImplementation(async () => {
     events.push('gc');
     return {
@@ -76,7 +71,6 @@ describe('snapshot startup lifecycle', () => {
       signal: expect.any(AbortSignal),
       snapshotService: service,
     });
-    expect(mocks.createRepository).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith(
       'Workspace snapshot startup GC completed',
       expect.objectContaining({ failures: 0 })

@@ -1,4 +1,3 @@
-import type { usePGliteDatabase } from '@brainstrike/db/react';
 import {
   CollectionPicker,
   type CollectionPickerCollection,
@@ -14,11 +13,6 @@ interface SearchCollectionSelectorProps {
    * Currently active collection ID
    */
   activeCollectionId: string | null;
-  /**
-   * The database instance for querying collections
-   */
-  db: ReturnType<typeof usePGliteDatabase>;
-
   /**
    * Callback when collection selection changes
    */
@@ -52,7 +46,6 @@ interface SearchCollectionSelectorProps {
  * For the compact dropdown version, see EmbeddingSetSelector in vector-management.
  */
 export function SearchCollectionSelector({
-  db,
   activeCollectionId,
   onCollectionChange,
   onCreateCollection,
@@ -63,7 +56,7 @@ export function SearchCollectionSelector({
   const lastToastErrorRef = useRef<string | null>(null);
 
   // Use shared hook for collection data
-  const { collections, loading, error, sourceReady } = useCollections(db);
+  const { collections, loading, error, sourceReady } = useCollections();
   const visibleCollections = useMemo(
     () => collections.filter((collection) => collection.systemRole !== 'workspace-index'),
     [collections]

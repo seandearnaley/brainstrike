@@ -1,20 +1,14 @@
 import {
   ClearPersistentUiStateIncompleteError,
-  type ClearPersistentUiStateOptions,
   type ClearPersistentUiStateResult,
   clearPersistentUiStateWithResult,
   prepareFactoryReset,
 } from '@brainstrike/app-state/factory-reset';
-import { useFactoryReset } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
-import { Button, Label, useToast } from '@brainstrike/ui';
-import { useCallback, useMemo, useState } from 'react';
+import { Button, Label } from '@brainstrike/ui';
+import { useCallback, useState } from 'react';
 
 const logger = createLogger('FactoryResetPanel');
-
-export interface FactoryResetPanelProps {
-  doFactoryReset?: (() => Promise<void>) | null;
-}
 
 type DesktopResetBridge = () => Promise<{ message?: string; success: boolean }>;
 interface DesktopResetCapability {
@@ -60,12 +54,6 @@ function assertPersistentUiStateResetComplete(result: ClearPersistentUiStateResu
   throw new ClearPersistentUiStateIncompleteError(result);
 }
 
-async function clearPersistentUiStateOrThrow(
-  options: ClearPersistentUiStateOptions
-): Promise<void> {
-  assertPersistentUiStateResetComplete(await clearPersistentUiStateWithResult(options));
-}
-
 async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): Promise<void> {
   const rendererStorageResetResult = await clearPersistentUiStateWithResult({
     skipIndexedDb: false,
@@ -77,25 +65,18 @@ async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): P
   assertPersistentUiStateResetComplete(rendererStorageResetResult);
 }
 
-export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelProps) {
-  const { toast } = useToast();
-  const providerFactoryReset = useFactoryReset({ enabled: !getDesktopResetCapability() });
+export function FactoryResetPanel() {
   const [running, setRunning] = useState(false);
-  const resetFn = useMemo(
-    () => doFactoryReset ?? providerFactoryReset,
-    [doFactoryReset, providerFactoryReset]
-  );
   const desktopResetAvailable = getDesktopResetBridge() !== null;
   const unavailableReason = getDesktopResetCapability()?.unavailableReason;
-  const resetAvailable =
-    !unavailableReason && (desktopResetAvailable || typeof resetFn === 'function');
+  const resetAvailable = !unavailableReason && desktopResetAvailable;
 
   const handleClick = useCallback(async () => {
     if (getDesktopResetCapability()?.unavailableReason) {
       return;
     }
     const desktopResetBridge = getDesktopResetBridge();
-    if (!(desktopResetBridge || typeof resetFn === 'function')) {
+    if (!desktopResetBridge) {
       return;
     }
 
@@ -107,43 +88,22 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       return;
     }
 
-    let rendererResetStarted = false;
     try {
       setRunning(true);
-      if (desktopResetBridge) {
-        // Preparation retires renderer writers. Even a failed preparation must
-        // reload this renderer; deletion begins only after every writer settles.
-        rendererResetStarted = true;
-        await prepareFactoryReset();
-        // Clear CacheStorage while the live renderer still owns its backing store.
-        await runDesktopFactoryReset(desktopResetBridge);
-      } else {
-        // Direct web/PGlite reset must close/delete the active DB before IndexedDB cleanup.
-        if (typeof resetFn !== 'function') {
-          throw new Error('Factory reset is unavailable.');
-        }
-        await resetFn();
-        rendererResetStarted = true;
-        await clearPersistentUiStateOrThrow({ skipIndexedDb: true });
-      }
+      // Preparation retires renderer writers. Even a failed preparation must
+      // reload this renderer; deletion begins only after every writer settles.
+      await prepareFactoryReset();
+      // Clear CacheStorage while the live renderer still owns its backing store.
+      await runDesktopFactoryReset(desktopResetBridge);
       // Ensure a full reload so the renderer boots cleanly.
       await requestFactoryResetReload('factory-reset');
     } catch (err) {
-      if (rendererResetStarted) {
-        logger.error('Factory reset failed after renderer reset preparation began', {
-          error: err,
-        });
-        await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
-        return;
-      }
-      toast({
-        description: String(err),
-        title: 'Factory Reset Failed',
-        variant: 'destructive',
+      logger.error('Factory reset failed after renderer reset preparation began', {
+        error: err,
       });
-      setRunning(false);
+      await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
     }
-  }, [resetFn, toast]);
+  }, []);
 
   return (
     <div className="space-y-1 rounded-md border bg-destructive/5 p-3">

@@ -3,7 +3,7 @@
 Use this contract when changing the protocol lab, official conformance client,
 runner or evidence validation. The lab verifies protocol behavior; it does not
 establish packaged desktop UX or live-provider acceptance. Local validation and
-CI authorization belong to [validation guidance](ci-quality.md).
+CI authorization belong to `pnpm check`.
 
 ## Verification boundaries
 

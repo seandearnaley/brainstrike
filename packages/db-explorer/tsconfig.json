@@ -17,9 +17,6 @@
       "@brainstrike/file-explorer-ui/*": [
         "../file-explorer-ui/dist/*.d.ts"
       ],
-      "@brainstrike/pipeline": [
-        "../pipeline/dist/index.d.ts"
-      ],
       "@brainstrike/utils/*": [
         "../utils/dist/*.d.ts"
       ]
@@ -54,9 +51,6 @@
       "path": "../db"
     },
     {
-      "path": "../embeddings"
-    },
-    {
       "path": "../file-explorer"
     },
     {
@@ -64,9 +58,6 @@
     },
     {
       "path": "../file-explorer-ui"
-    },
-    {
-      "path": "../file-import"
     },
     {
       "path": "../file-system"
@@ -78,13 +69,7 @@
       "path": "../platform-utils"
     },
     {
-      "path": "../pipeline"
-    },
-    {
       "path": "../text-splitter"
-    },
-    {
-      "path": "../tokenization"
     },
     {
       "path": "../vector-management"

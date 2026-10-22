@@ -224,7 +224,6 @@ export async function showDatabaseDemoPanel(
     });
     const errorPanel = activePage.locator('[data-testid="db-init-error"]');
     const terminalState = readyControl.or(errorPanel).filter({ visible: true });
-    const loadingDatabaseCard = activePage.getByText(/Loading PGlite database/i);
     const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
 
     try {
@@ -232,7 +231,6 @@ export async function showDatabaseDemoPanel(
 
       const hasReadyControl = await readyControl.isVisible();
       const hasErrorPanel = await errorPanel.isVisible();
-      const hasLoadingCard = await loadingDatabaseCard.isVisible().catch(() => false);
       const hasLoadingFallback = await loadingTabFallback.isVisible().catch(() => false);
 
       if (hasReadyControl && !hasErrorPanel) {
@@ -247,7 +245,7 @@ export async function showDatabaseDemoPanel(
       }
 
       throw new Error(
-        `Expected exactly one visible terminal database state (ready control: ${hasReadyControl}; error: ${hasErrorPanel}; loading database: ${hasLoadingCard}; loading tab: ${hasLoadingFallback}).`
+        `Expected exactly one visible terminal database state (ready control: ${hasReadyControl}; error: ${hasErrorPanel}; loading tab: ${hasLoadingFallback}).`
       );
     } catch (waitError) {
       if (activePage.isClosed() && attempt < 1) {
@@ -288,7 +286,6 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   const statusConnected = activePage.locator('[data-testid="status-bar-db-connected"]');
   const statusDisconnected = activePage.locator('[data-testid="status-bar-db-disconnected"]');
   const statusLoading = activePage.locator('[data-testid="status-bar-db-loading"]');
-  const loadingIndicator = activePage.getByText(/Loading PGlite database/i);
 
   if (await errorPanel.isVisible()) {
     verboseLog('⚠️ Database is in error state - skipping database readiness checks');
@@ -313,7 +310,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
       .textContent()
       .catch(() => 'Could not get body text');
     throw new Error(
-      `Database readiness signals not found (connected status, Refresh control, or database error; loading status: ${await statusLoading.isVisible()}; disconnected status: ${await statusDisconnected.isVisible()}; loading panel: ${await loadingIndicator.isVisible()}). Body snippet: ${bodyText?.slice(0, 300)}`,
+      `Database readiness signals not found (connected status, Refresh control, or database error; loading status: ${await statusLoading.isVisible()}; disconnected status: ${await statusDisconnected.isVisible()}). Body snippet: ${bodyText?.slice(0, 300)}`,
       { cause: error }
     );
   }
@@ -336,7 +333,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
         .textContent()
         .catch(() => 'Could not get body text');
       throw new Error(
-        `Mounted database panel stayed non-interactive (Refresh control or database error not found; loading panel: ${await loadingIndicator.isVisible()}). Body snippet: ${bodyText?.slice(0, 300)}`,
+        `Mounted database panel stayed non-interactive (Refresh control or database error not found). Body snippet: ${bodyText?.slice(0, 300)}`,
         { cause: error }
       );
     }
@@ -365,7 +362,6 @@ export async function resolveRefreshButton(
 
   const resolveButton = () => activePage.locator('button:has-text("Refresh")').first();
   const errorPanel = activePage.locator('[data-testid="db-init-error"]');
-  const loadingIndicator = activePage.getByText(/Loading PGlite database/i);
   const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
 
   const waitForButton = async (): Promise<Locator> => {
@@ -384,14 +380,6 @@ export async function resolveRefreshButton(
     try {
       if (await loadingTabFallback.isVisible({ timeout: 1000 })) {
         await loadingTabFallback.waitFor({ state: 'hidden', timeout: timeoutMs });
-      }
-    } catch {
-      // ignore and proceed to the loading indicator
-    }
-
-    try {
-      if (await loadingIndicator.isVisible({ timeout: 1000 })) {
-        await loadingIndicator.waitFor({ state: 'hidden', timeout: timeoutMs });
       }
     } catch {
       // ignore and proceed

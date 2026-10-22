@@ -12,7 +12,6 @@ import {
 } from '@brainstrike/ui';
 import { AccountMenu } from './account-menu';
 import { AppReloadStrip } from './app-reload/app-reload-strip';
-import { DatabaseIntegrityNotice } from './database-integrity/database-integrity-notice';
 import { useModelMigrationNotices } from './hooks/use-model-migration-notices';
 import { StateStoreDamageNotice } from './state-health/state-store-damage-notice';
 import { DatabaseStatusItem } from './status-items/database-status-item';
@@ -49,12 +48,9 @@ export function AppLayout({
               BELOW FileExplorerProvider — the instance reads the store. */}
           <FileSystemProvider>
             <div className="flex h-screen flex-col">
-              {/* Persistent app-reload strip (failed lazy chunk, reload pending). It sits
+              {/* Persistent app-reload strip (failed lazy chunk). It sits
                   in the column, so the content below shrinks by its height. */}
               <AppReloadStrip />
-              {/* Persistent database integrity notice (containment paused background work).
-                  Renders nothing without the desktop integrity capability. */}
-              <DatabaseIntegrityNotice />
               {/* A damaged canonical state store, opened read-only (BST-1880).
                   Renders nothing without the desktop state-health capability. */}
               <StateStoreDamageNotice capability={stateHealth ?? null} />

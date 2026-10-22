@@ -16,12 +16,8 @@ export type {
 export {
   buildGrepPattern,
   escapeRegExpLiteral,
-  type ResolvedFileInfo,
-  type SemanticSearchRequest,
   type TextSearchRequest,
   useWorkspaceSearchStore,
-  WorkspaceSearchExecutor,
-  type WorkspaceSearchExecutorDeps,
   type WorkspaceSearchStatus,
 } from './core';
 export {

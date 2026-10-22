@@ -51,7 +51,6 @@ export * from './types';
 export { useAssistantRunNotifications } from './use-assistant-run-notifications';
 export { useAssistantSlashCommands } from './use-assistant-slash-commands';
 export { useComposerDraftChannel } from './use-composer-draft-channel';
-export { useFileMentions } from './use-file-mentions';
 export * from './verify-provider-credential';
 export { WorkspaceBarHost, type WorkspaceBarHostProps } from './workspace-bar/workspace-bar-host';
 export * from './workspace-connect/workspace-connect-host';

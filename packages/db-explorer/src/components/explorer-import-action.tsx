@@ -1,8 +1,7 @@
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
-import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
-import { useEmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db/react';
+import type { EmbeddingSet } from '@brainstrike/db';
+import { useEmbeddingSetsRepository } from '@brainstrike/db/react';
 import { useSelectionActionBarPin } from '@brainstrike/file-explorer-ui/shell';
-import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
   Popover,
@@ -13,18 +12,11 @@ import {
 } from '@brainstrike/ui';
 import { fetchCollectionsSnapshot } from '@brainstrike/vector-management';
 import { FileText } from 'lucide-react';
-import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
-import { getSourceFilesCapability } from '../file-import/native-source-import';
+import { type ReactElement, useCallback, useRef, useState } from 'react';
 import { useCollectionCacheSync } from '../hooks/use-collection-cache-sync';
 import { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import { createImportCompletionHandler } from '../hooks/use-import-completion';
-import { useImportFlowSettings } from '../hooks/use-import-flow-settings';
-import { useImportSettings } from '../hooks/use-import-settings';
 import { useIsManagedCollection } from '../hooks/use-is-managed-collection';
-import {
-  clearImportActivitySnapshot,
-  publishImportActivitySnapshot,
-} from '../import-activity-snapshot';
 import type { EnhancedImportResult } from '../types';
 import { useImportFlow } from '../use-import-flow';
 import { collectionCacheSnapshotFromEmbeddingSet } from '../utils/collection-cache-snapshot';
@@ -34,15 +26,6 @@ import { ExplorerCollectionPicker } from './explorer-collection-picker';
 import { ImportProgressBar } from './import-progress-bar';
 
 const MANAGED_COLLECTION_BLOCK_REASON = 'Background indexing manages imports for this collection';
-
-export interface ExplorerImportActionProps {
-  /**
-   * The app-owned embedding queue. Imports still succeed without it, but the
-   * chunks they produce are never handed to the embedding producer, so callers
-   * must supply the same queue the rest of the app uses.
-   */
-  readonly embeddingQueue?: QueueAdapter | null;
-}
 
 function resolveImportBlockReason({
   activeCollectionId,
@@ -78,12 +61,8 @@ function resolveImportBlockReason({
  * host and the import machinery all mount behind the popover, so nothing here
  * subscribes to collection data while the bar is closed.
  */
-export function ExplorerImportAction({
-  embeddingQueue = null,
-}: ExplorerImportActionProps): ReactElement {
+export function ExplorerImportAction(): ReactElement {
   const { toast } = useToast();
-  const sourceFiles = getSourceFilesCapability();
-  const dbContext = usePGliteDatabase({ enabled: !sourceFiles });
   const embeddingSetsRepository = useEmbeddingSetsRepository();
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -97,8 +76,6 @@ export function ExplorerImportAction({
   // This surface hosts the create/rename/delete dialogs, and it outlives the
   // popover they dismiss — so it is where the shared cache stays honest.
   useCollectionCacheSync();
-  const importSettings = useImportSettings();
-  const importFlowSettings = useImportFlowSettings(importSettings);
   const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
   /**
@@ -128,31 +105,20 @@ export function ExplorerImportAction({
               'Import completion stats refresh requires the collection the run targeted.'
             );
           }
-          if (!sourceFiles) {
-            if (!dbContext) {
-              throw new Error('Import completion stats refresh requires an initialized database.');
-            }
-            await refreshCollectionIndexingStats(dbContext, [importedCollectionId], {
-              label: 'explorer import completion stats refresh',
-              priority: 'foreground',
-            });
-          }
 
           // Native Main has joined its collection ingestion; read its authoritative
-          // projection. Web refreshes its SQL rollup above. Both replace the same
-          // picker cache, even when the Library tab has never mounted.
-          setCachedCollections(await fetchCollectionsSnapshot(dbContext));
+          // projection and replace the picker cache, even when the Library tab has
+          // never mounted.
+          setCachedCollections(await fetchCollectionsSnapshot());
         },
         toast,
       });
       await handler(results);
     },
-    [dbContext, setCachedCollections, sourceFiles, toast]
+    [setCachedCollections, toast]
   );
 
   const importFlow = useImportFlow({
-    embeddingQueue,
-    importSettings: importFlowSettings,
     onImportComplete: handleImportComplete,
     resolveActiveCollectionId,
     toast,
@@ -221,17 +187,6 @@ export function ExplorerImportAction({
     importFlow.isImporting || awaitingImportAcknowledgement || collectionDialogOpen
   );
 
-  // This is the only surface that runs imports, so it is also the only one that
-  // can report their progress. The Database panel's observability hook reads
-  // what we publish here instead of owning a duplicate import service.
-  useEffect(() => {
-    publishImportActivitySnapshot({
-      progress: importFlow.progress,
-      selectedFileCount: importFlow.selectedFileCount,
-    });
-    return clearImportActivitySnapshot;
-  }, [importFlow.progress, importFlow.selectedFileCount]);
-
   const confirmLabel = `Import ${importFlow.selectedFileCount.toLocaleString()} ${
     importFlow.selectedFileCount === 1 ? 'file' : 'files'
   }`;
@@ -287,7 +242,6 @@ export function ExplorerImportAction({
           <div className="flex flex-col gap-3">
             <ExplorerCollectionPicker
               activeCollectionId={activeCollectionId}
-              db={dbContext}
               mutationBlockedCollectionId={inFlightImportCollectionId}
               onCollectionChange={handleCollectionChange}
               onCreateCollection={collectionDialogs.handleCreateCollection}
@@ -327,7 +281,6 @@ export function ExplorerImportAction({
         createDialog={
           collectionDialogs.createCollectionOpen ? (
             <CreateCollectionDialog
-              db={dbContext}
               onClose={collectionDialogs.closeCreateDialog}
               onCreated={handleCollectionCreated}
               repository={embeddingSetsRepository}

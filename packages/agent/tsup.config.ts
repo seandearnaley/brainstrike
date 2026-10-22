@@ -6,7 +6,6 @@ const agentGuardDeadlineExternal = /^@brainstrike\/agent\/tool-guard-deadline$/;
 const modelContextProtocolV2External =
   /^@modelcontextprotocol\/(?:client|core|node|server|server-legacy)(?:\/.*)?$/;
 
-const hostedWebEntries = ['src/hosted-web.ts', 'src/request-boundary.ts'];
 const broadEntries = [
   'src/index.ts',
   'src/client.ts',
@@ -71,24 +70,5 @@ export default defineConfig((_options) => [
     entry: { 'tool-guard-deadline': 'src/tool-guard-deadline.ts' },
     external: [assistantContractExternal, ...sharedExternal],
     format: ['cjs'],
-  },
-  {
-    ...sharedConfig,
-    entry: hostedWebEntries,
-    external: [...sharedExternal, 'pino', /^tiktoken(?:\/.*)?$/],
-    // Bundle workspace dependencies at the existing hosted boundary without
-    // ESM-only workspace require exceptions. Hosted functions select the ESM
-    // output and use native imports for external Mastra/provider runtimes.
-    // Pino and tiktoken own Node/WASM loaders and remain declared externals.
-    noExternal: [
-      assistantContractExternal,
-      '@brainstrike/local-runtime',
-      '@brainstrike/logging',
-      '@brainstrike/tokenization',
-      /^@brainstrike\/utils(?:\/.*)?$/,
-      '@brainstrike/mcp-app-host',
-      '@brainstrike/mcp-tasks-extension',
-      '@brainstrike/types',
-    ],
   },
 ]);

@@ -1,5 +1,5 @@
 // @boundaries-ignore Browser fixture compiles the consuming app's actual Tailwind/theme pipeline.
-import '../../../../apps/web/src/app/globals.css';
+import '../../../../apps/desktop/src/renderer/styles.css';
 import {
   type ChatModelAdapter,
   type ThreadMessageLike,

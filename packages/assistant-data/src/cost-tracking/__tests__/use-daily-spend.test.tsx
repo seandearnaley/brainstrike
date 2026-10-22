@@ -1,22 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { usePGliteDatabaseMock, usePGliteLiveQueryMock } = vi.hoisted(() => ({
-  usePGliteDatabaseMock: vi.fn(),
-  usePGliteLiveQueryMock: vi.fn(),
-}));
-
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteDatabase: usePGliteDatabaseMock,
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  usePGliteDatabase: usePGliteDatabaseMock,
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
-}));
-
 import { useDailySpend } from '../use-daily-spend';
 
 type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
@@ -26,8 +10,7 @@ function setDesktopAgentHost(bridge: AgentHostBridge): void {
 }
 
 describe('useDailySpend', () => {
-  it('prices only committed host calls without a PGlite database', () => {
-    usePGliteDatabaseMock.mockReturnValue(null);
+  it('prices only committed host calls', () => {
     const { result } = renderHook(() =>
       useDailySpend([
         {
@@ -43,19 +26,10 @@ describe('useDailySpend', () => {
     );
     expect(result.current.available).toBe(true);
     expect(result.current.spend?.totalUsd).toBeGreaterThan(0);
-    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
   });
 
   beforeEach(() => {
-    usePGliteDatabaseMock.mockReset();
-    usePGliteLiveQueryMock.mockReset();
     setDesktopAgentHost({ connect: async () => undefined });
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: [],
-    });
   });
 
   afterEach(() => {
@@ -63,12 +37,11 @@ describe('useDailySpend', () => {
     vi.restoreAllMocks();
   });
 
-  it('is unavailable on web and issues no database query', () => {
+  it('is unavailable without the desktop agent host', () => {
     setDesktopAgentHost(undefined);
     const { result } = renderHook(() => useDailySpend());
     expect(result.current.available).toBe(false);
     expect(result.current.spend).toBeNull();
-    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
   });
 
   it('ages committed calls out of the rolling window on refresh', async () => {

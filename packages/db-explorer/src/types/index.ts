@@ -1,12 +1,6 @@
 import type { ChunkingSettingsRepair } from '@brainstrike/app-state/stores/import-settings-store';
-import type { FileChunk, FileRecord, ImportProgress } from '@brainstrike/db';
+import type { ImportProgress } from '@brainstrike/db';
 import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
-
-export interface ChunkSearchResult {
-  chunk: FileChunk;
-  fileRecord: FileRecord;
-  similarity: number;
-}
 
 export interface EnhancedImportResult {
   chunkingStrategy?: ChunkingStrategy;
@@ -49,25 +43,10 @@ export interface EnhancedImportProgress extends ImportProgress {
   };
 }
 
-export interface ImportProgressDisplayProps {
-  onClose: () => void;
-  progress: EnhancedImportProgress;
-}
-
 export interface SettingsPanelProps {
   className?: string;
   importSettings: ImportSettings;
   onFactoryReset?: (() => Promise<void>) | undefined;
-}
-
-export interface ExportButtonsProps {
-  counts: {
-    chunks: number;
-    embeddings: number;
-    records: number;
-  };
-  countsStatus?: 'pending' | 'ready';
-  exportHandlers: ExportHandlers;
 }
 
 export interface ImportSettings {
@@ -89,22 +68,4 @@ export interface ImportSettings {
   setEnableChunking: (value: boolean) => void;
   setTokenTrueSizing: (value: boolean) => void;
   tokenTrueSizing: boolean;
-}
-
-export interface ExportHandlers {
-  handleExportAll: () => Promise<void>;
-  handleExportChunks: () => Promise<void>;
-  handleExportEmbeddings: () => Promise<void>;
-  handleExportFiles: () => Promise<void>;
-}
-
-export interface SearchFunctionality {
-  handleSearch: () => Promise<void>;
-  hasSearched: boolean;
-  searching: boolean;
-  searchQuery: string;
-  searchResults: ChunkSearchResult[];
-  searchThreshold: number;
-  setSearchQuery: (query: string) => void;
-  setSearchThreshold: (threshold: number) => void;
 }

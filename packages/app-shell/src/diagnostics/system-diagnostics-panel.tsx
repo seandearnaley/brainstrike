@@ -8,7 +8,6 @@ import {
  *
  * Unified diagnostics view that aggregates:
  * - Database connection status
- * - Queue health metrics (durable + ephemeral)
  * - Worker health status
  *
  * Provides a centralized location for monitoring system health
@@ -19,7 +18,6 @@ import {
   databaseStatusSelectors,
   useDatabaseStatusStore,
 } from '@brainstrike/app-state/stores/database-status-store';
-import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
 import {
   assertEmbeddingTelemetrySnapshot,
   createEmptyEmbeddingTelemetrySnapshot,
@@ -31,9 +29,7 @@ import { type IndexerTelemetrySnapshot, useIndexerTelemetry } from '@brainstrike
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { Activity, CheckCircle2, Database, RefreshCw, Server, Timer, XCircle } from 'lucide-react';
 import {
-  lazy,
   type ReactElement,
-  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -50,10 +46,6 @@ const REFRESH_ANIMATION_DURATION_MS = 500;
 const EMPTY_EMBEDDING_TELEMETRY = createEmptyEmbeddingTelemetrySnapshot();
 const EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE =
   'Embedding telemetry provider failed. See internal diagnostics for details.';
-const LazyQueueDiagnosticsPanel = lazy(async () => {
-  const module = await import('@brainstrike/vector-management');
-  return { default: module.QueueDiagnosticsPanel };
-});
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading' | 'neutral';
 const STATUS_BADGE_VARIANTS: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
@@ -374,90 +366,6 @@ function WorkerStatusSection({
         </div>
         <div className="pt-1 text-[10px] text-muted-foreground">
           {modeDescriptions[persistenceMode]}
-        </div>
-      </div>
-    </DiagnosticCard>
-  );
-}
-
-const DATABASE_QUERY_FEATURE_LABELS = {
-  'file-tree': 'File tree',
-  'live-query': 'Live queries',
-  'queue-stats': 'Queue stats',
-  'token-estimation': 'Token estimation',
-} as const;
-
-function DatabaseQueryTelemetrySection({
-  snapshot,
-}: {
-  readonly snapshot: DatabaseQueryTelemetrySnapshot;
-}): ReactElement {
-  const failures = Object.values(snapshot.features).reduce(
-    (total, feature) => total + feature.failureCount,
-    0
-  );
-  const totalQueries = Object.values(snapshot.features).reduce(
-    (total, feature) => total + feature.queryCount,
-    0
-  );
-  const cacheHitLabel =
-    snapshot.tokenEstimation.cacheHitRate === null
-      ? 'No lookups'
-      : `${Math.round(snapshot.tokenEstimation.cacheHitRate * 100)}% cache hit`;
-
-  return (
-    <DiagnosticCard
-      description="Rolling one-minute coarse query histograms"
-      icon={<Database className="h-4 w-4 text-primary" />}
-      status={snapshot.availability === 'failed' ? 'error' : failures > 0 ? 'warning' : 'success'}
-      statusLabel={formatCount(totalQueries, 'query', 'queries')}
-      title="Database Queries"
-    >
-      <div className="space-y-2 text-xs">
-        {Object.entries(DATABASE_QUERY_FEATURE_LABELS).map(([feature, label]) => {
-          const metrics = snapshot.features[feature as keyof typeof snapshot.features];
-          return (
-            <div className="space-y-0.5" key={feature}>
-              <span className="text-muted-foreground">{label}</span>
-              <div
-                className="font-mono text-[10px]"
-                data-testid={`database-query-${feature}-metrics`}
-              >
-                {metrics.queryCount} queries · {metrics.failureCount} failed · p50{' '}
-                {Math.round(metrics.durationP50Ms)} ms · p95 {Math.round(metrics.durationP95Ms)} ms
-                · max {Math.round(metrics.maxDurationMs)} ms
-                {' · '}
-                {metrics.droppedSampleCount} dropped
-              </div>
-            </div>
-          );
-        })}
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Token cache</span>
-          <span className="font-medium">{cacheHitLabel}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Live subscriptions</span>
-          <span className="font-medium">
-            {formatCount(snapshot.activeLiveSubscriptions, 'active', 'active')}
-          </span>
-        </div>
-        {snapshot.droppedSampleCount > 0 ? (
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span>Retention overflow</span>
-            <span>{formatCount(snapshot.droppedSampleCount, 'sample', 'samples')} dropped</span>
-          </div>
-        ) : null}
-        {snapshot.availability === 'failed' ? (
-          <div className="text-destructive" role="alert">
-            Query telemetry unavailable: {snapshot.unavailableReason}
-          </div>
-        ) : null}
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Live updates</span>
-          <span className="font-mono text-[10px]" data-testid="database-live-update-metrics">
-            {formatCount(snapshot.liveUpdateCount, 'update', 'updates')}
-          </span>
         </div>
       </div>
     </DiagnosticCard>
@@ -890,8 +798,6 @@ function RendererLongTaskStatusSection({
 export interface SystemDiagnosticsPanelProps {
   /** Token cache persistence mode (from TokenCacheContext) */
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
-  /** Show refresh button for queue metrics */
-  readonly showQueueRefresh?: boolean | undefined;
   /** Token cache operational status (from TokenCacheContext) */
   readonly tokenCacheOperational?: boolean | undefined;
   /** Token cache persistence status (from TokenCacheContext) */
@@ -901,14 +807,13 @@ export interface SystemDiagnosticsPanelProps {
 /**
  * Unified system diagnostics panel.
  *
- * Displays database status, queue health, and worker status
- * in a single consolidated view for easy monitoring.
+ * Displays database status and worker status in a single consolidated
+ * view for easy monitoring.
  */
 export function SystemDiagnosticsPanel({
   tokenCacheOperational,
   tokenCachePersisted,
   persistenceMode,
-  showQueueRefresh = true,
 }: SystemDiagnosticsPanelProps): ReactElement {
   const [desktopSnapshot, setDesktopSnapshot] = useState<DesktopPlatformDiagnosticsSnapshot | null>(
     null
@@ -930,11 +835,6 @@ export function SystemDiagnosticsPanel({
     desktopEmbeddingTelemetry === null
       ? (desktopSnapshot?.errors?.embeddingTelemetry ?? null)
       : null;
-  const databaseQuerySnapshot = useSyncExternalStore(
-    databaseQueryTelemetry.subscribe,
-    databaseQueryTelemetry.getSnapshot,
-    databaseQueryTelemetry.getSnapshot
-  );
   const { snapshot: tokenIndexerTelemetry } = useIndexerTelemetry();
   const tokenIndexerDiagnostics: TokenIndexerDiagnosticsSnapshot = {
     averageLatencyMs: tokenIndexerTelemetry.averageLatencyMs,
@@ -1084,7 +984,6 @@ export function SystemDiagnosticsPanel({
           tokenCacheOperational={tokenCacheOperational}
           tokenCachePersisted={tokenCachePersisted}
         />
-        <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
         <TokenIndexerTelemetrySection snapshot={tokenIndexerDiagnostics} />
         <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
@@ -1103,13 +1002,6 @@ export function SystemDiagnosticsPanel({
             <div className="text-destructive text-xs">{desktopDiagnosticsError}</div>
           </DiagnosticCard>
         )}
-      </div>
-
-      {/* Queue diagnostics - full width */}
-      <div key={refreshKey}>
-        <Suspense fallback={null}>
-          <LazyQueueDiagnosticsPanel showRefresh={showQueueRefresh} />
-        </Suspense>
       </div>
     </div>
   );

@@ -20,13 +20,11 @@ import {
 import {
   activeThreadId,
   addThreadRow,
-  assistantWrapperProps,
-  dbMocks,
   fileExplorerMocks,
-  mockDb,
   openThreadIds,
   openThreadTabs,
   renderWorkspace,
+  threadRows,
   wrapperCrashThreadIds,
 } from './assistant-thread-tabs-workspace-test-support';
 
@@ -144,21 +142,6 @@ describe('AssistantThreadTabsWorkspace', () => {
     );
   });
 
-  it('forwards validated provider key sources to every thread wrapper', async () => {
-    const providerKeySources = [
-      { envVar: 'OPENAI_API_KEY', provider: 'openai' as const, source: 'env' as const },
-    ];
-    renderWorkspace({ providerKeySources });
-
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
-
-    expect(assistantWrapperProps).toContainEqual(
-      expect.objectContaining({
-        providerKeySources,
-      })
-    );
-  });
-
   it("hands the status's credential read errors to a host-rendered thread", async () => {
     const renderThread = vi.fn<AssistantThreadHostCapability['renderThread']>((threadId) => (
       <div data-testid="host-thread">{threadId}</div>
@@ -198,9 +181,6 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('creates durable threads as focused tabs', async () => {
     const user = userEvent.setup();
-    const uuidSpy = vi
-      .spyOn(crypto, 'randomUUID')
-      .mockReturnValue('00000000-0000-4000-8000-00000000000e');
     renderWorkspace();
 
     await waitFor(() => {
@@ -209,19 +189,13 @@ describe('AssistantThreadTabsWorkspace', () => {
     await user.click(screen.getByRole('button', { name: 'New assistant thread' }));
 
     await waitFor(() => {
-      expect(
-        screen.getByTestId('assistant-thread-panel-thread-00000000-0000-4000-8000-00000000000e')
-      ).toBeVisible();
+      expect(screen.getByTestId('assistant-thread-panel-thread-new-2')).toBeVisible();
     });
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO mastra_threads'),
-      expect.arrayContaining([
-        'thread-00000000-0000-4000-8000-00000000000e',
-        WORKSPACE_MEMORY_RESOURCE_ID,
-        'New Thread',
-      ])
-    );
-    uuidSpy.mockRestore();
+    expect(threadRows[0]).toMatchObject({
+      id: 'thread-new-2',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'New Thread',
+    });
   });
 
   it('renders the shared strip with New as trailing chrome outside the tablist', async () => {
@@ -514,81 +488,6 @@ describe('AssistantThreadTabsWorkspace', () => {
     );
   });
 
-  it('shows loading instead of unavailable while the database is initializing', () => {
-    dbMocks.database = null;
-    dbMocks.initializing = true;
-    dbMocks.initializationStatus = 'initializing';
-
-    renderWorkspace();
-
-    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
-    expect(screen.getByRole('status')).toHaveAccessibleName('Loading PGlite-backed threads.');
-    expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
-    expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
-  });
-
-  it('shows loading instead of unavailable before lazy database initialization starts', () => {
-    dbMocks.database = null;
-    dbMocks.initializing = false;
-    dbMocks.initializationStatus = 'idle';
-
-    renderWorkspace();
-
-    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
-    expect(screen.getByRole('status')).toHaveAccessibleName('Loading PGlite-backed threads.');
-    expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
-    expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
-  });
-
-  it('keeps loading while lazy database initialization has not completed', () => {
-    vi.useFakeTimers();
-    try {
-      dbMocks.database = null;
-      dbMocks.initializing = false;
-      dbMocks.initializationStatus = 'idle';
-
-      renderWorkspace();
-
-      act(() => {
-        vi.advanceTimersByTime(500);
-      });
-
-      expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
-      expect(screen.getByRole('status')).toHaveAccessibleName('Loading PGlite-backed threads.');
-      expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('shows unavailable when the database stays missing after startup settles', async () => {
-    dbMocks.database = null;
-    dbMocks.initializing = false;
-    dbMocks.initializationStatus = 'ready';
-
-    renderWorkspace();
-
-    await waitFor(() => {
-      expect(screen.getByText('Memory database unavailable')).toBeInTheDocument();
-    });
-    expect(screen.getByTestId('assistant-thread-workspace-state')).toHaveAttribute(
-      'data-variant',
-      'error'
-    );
-    expect(screen.queryByText('Loading PGlite-backed threads.')).not.toBeInTheDocument();
-  });
-
-  it('shows the database provider error after initialization fails', () => {
-    dbMocks.database = null;
-    dbMocks.providerError = new Error('PGlite startup failed.');
-
-    renderWorkspace();
-
-    expect(screen.getByText('Memory database failed')).toBeInTheDocument();
-    expect(screen.getByText('PGlite startup failed.')).toBeInTheDocument();
-    expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
-  });
-
   it('lists every open thread in the All-tabs menu and closes them all from it', async () => {
     const user = userEvent.setup();
     renderWorkspace();
@@ -707,10 +606,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(
       useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
     ).toEqual(['thread-a', 'thread-b']);
-    expect(mockDb.query).not.toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM mastra_threads'),
-      expect.anything()
-    );
+    expect(threadRows.map((row) => row['id'])).toEqual(['thread-a', 'thread-b']);
     await waitFor(() => expect(inactiveTab).toHaveFocus());
   });
 
@@ -820,9 +716,6 @@ describe('AssistantThreadTabsWorkspace', () => {
   });
 
   it('offers New Thread and Close All from the empty strip background', async () => {
-    const uuidSpy = vi
-      .spyOn(crypto, 'randomUUID')
-      .mockReturnValue('00000000-0000-4000-8000-00000000000f');
     renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
 
@@ -836,11 +729,8 @@ describe('AssistantThreadTabsWorkspace', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'New Thread' }));
 
     await waitFor(() => {
-      expect(
-        screen.getByTestId('assistant-thread-panel-thread-00000000-0000-4000-8000-00000000000f')
-      ).toBeVisible();
+      expect(screen.getByTestId('assistant-thread-panel-thread-new-2')).toBeVisible();
     });
-    uuidSpy.mockRestore();
 
     fireEvent.contextMenu(screen.getByTestId('assistant-thread-tab-strip'));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));
@@ -868,10 +758,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     openThreadTabs('thread-b');
     await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
 
-    expect(mockDb.query).not.toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM mastra_threads'),
-      expect.anything()
-    );
+    expect(threadRows.map((row) => row['id'])).toEqual(['thread-a', 'thread-b']);
     expect(
       useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
     ).toEqual(['thread-a', 'thread-b']);

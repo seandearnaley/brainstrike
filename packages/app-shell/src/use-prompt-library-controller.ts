@@ -1,7 +1,9 @@
-import type { PromptItem, PromptItemSimilarityResult } from '@brainstrike/db';
 import type { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
-import type { QueueAdapter } from '@brainstrike/queue';
-import type { PromptItemRepositoryPort } from '@brainstrike/types/prompt-item';
+import type {
+  PromptItem,
+  PromptItemRepositoryPort,
+  PromptItemSimilarityResult,
+} from '@brainstrike/types/prompt-item';
 import type {
   EmbeddingSetModelInfo,
   UseSearchEmbedderResult,
@@ -30,10 +32,8 @@ interface PromptIndexingPassResult {
 
 interface UsePromptLibraryControllerOptions {
   readonly embedder: UseSearchEmbedderResult;
-  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
-  readonly nativeEmbeddingHost?: boolean;
-  readonly repository: PromptItemRepositoryPort | null;
+  readonly repository: PromptItemRepositoryPort;
   readonly suggestionsEnabled: boolean;
 }
 
@@ -110,8 +110,6 @@ async function reloadPromptItemsAfterIndexing(
 
 export function usePromptLibraryController({
   embedder,
-  nativeEmbeddingHost = false,
-  loadEmbeddingQueue,
   localModelConfigMap,
   repository,
   suggestionsEnabled,
@@ -123,36 +121,18 @@ export function usePromptLibraryController({
   const promptRecallAbortControllerRef = usePromptRecallAbortController(suggestionsEnabled);
 
   const resolveModelInfo = useCallback(async (): Promise<EmbeddingSetModelInfo> => {
-    if (!repository) {
-      throw new Error('Cannot resolve prompt embeddings before the database is ready.');
-    }
     const profile = await repository.getEmbeddingProfile();
     return resolvePromptEmbeddingModelInfo(profile, localModelConfigMap);
   }, [localModelConfigMap, repository]);
 
-  const ensureEmbeddingQueueReady = useCallback(async (): Promise<void> => {
-    // The host embedder owns on-demand inference; only web has a background queue.
-    if (nativeEmbeddingHost) {
-      return;
-    }
-    if (!loadEmbeddingQueue) {
-      throw new Error('Prompt embeddings require an application embedding queue.');
-    }
-    await loadEmbeddingQueue();
-  }, [loadEmbeddingQueue, nativeEmbeddingHost]);
-
   const performPendingItemIndexing = useCallback(async () => {
-    if (!repository) {
-      throw new Error('Cannot index prompts before the database is ready.');
-    }
-    await ensureEmbeddingQueueReady();
     const modelInfo = await resolveModelInfo();
     const outcomes = await embedPendingPromptItems({ embedder, modelInfo, repository });
     const failures = outcomes.filter((outcome) => outcome.status === 'error');
     if (failures.length > 0) {
       throw new Error(failures.map((outcome) => outcome.error).join('\n'));
     }
-  }, [embedder, ensureEmbeddingQueueReady, repository, resolveModelInfo]);
+  }, [embedder, repository, resolveModelInfo]);
 
   const runIndexingPass = useCallback((): Promise<PromptIndexingPassResult> => {
     const requestId = latestIndexingRequestIdRef.current + 1;
@@ -174,9 +154,6 @@ export function usePromptLibraryController({
   }, [performPendingItemIndexing]);
 
   useEffect(() => {
-    if (!repository) {
-      return;
-    }
     let current = true;
     const initialize = (): void => {
       void loadInitialPromptItems(repository)
@@ -234,15 +211,10 @@ export function usePromptLibraryController({
 
   const handleRequestSuggestions = useCallback(
     async (context: string) => {
-      if (!repository) {
-        throw new Error('Cannot recall prompts before the database is ready.');
-      }
       const signal = promptRecallAbortControllerRef.current?.signal;
       if (!(suggestionsEnabled && signal)) {
         throw promptRecallAbortError();
       }
-      throwIfPromptRecallAborted(signal);
-      await ensureEmbeddingQueueReady();
       throwIfPromptRecallAborted(signal);
       const modelInfo = await resolveModelInfo();
       throwIfPromptRecallAborted(signal);
@@ -255,14 +227,7 @@ export function usePromptLibraryController({
         signal,
       });
     },
-    [
-      embedder,
-      ensureEmbeddingQueueReady,
-      promptRecallAbortControllerRef,
-      repository,
-      resolveModelInfo,
-      suggestionsEnabled,
-    ]
+    [embedder, promptRecallAbortControllerRef, repository, resolveModelInfo, suggestionsEnabled]
   );
 
   return {

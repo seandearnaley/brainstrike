@@ -134,7 +134,6 @@
     "perf:streaming": "node streaming-perf.mjs",
     "test": "vitest run --project unit --project compiled",
     "test:browser": "vitest run --project browser",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },

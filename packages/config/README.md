@@ -27,6 +27,6 @@ named CI does not authorize hosted workflows.
 Use the declared package scripts when changing configuration; there is no package
 `build` script to invent. Prefer executable configuration as the source of truth
 for versions, worker counts and budgets. For policy and check selection, use
-[validation guidance](../../docs/agents/ci-quality.md).
+`pnpm check`.
 Local consumers
 declare this internal package with `workspace:*`.

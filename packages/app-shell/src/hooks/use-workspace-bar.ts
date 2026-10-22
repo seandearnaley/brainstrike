@@ -13,7 +13,6 @@ import type {
   WorkspaceBarReveal,
   WorkspaceBarRoot,
 } from '@brainstrike/assistant-ui';
-import type { DbHandle } from '@brainstrike/db/react';
 import { revealLabel } from '@brainstrike/file-explorer-ui/context-actions';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
@@ -67,7 +66,6 @@ const logger = createLogger('WorkspaceBar');
 export interface UseWorkspaceBarArgs {
   readonly assistantThreadRepository: AssistantThreadCatalogRepository | null;
   readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
-  readonly database: DbHandle | null;
   readonly memoryResourceId: string;
   readonly rootDescriptors: Readonly<Record<string, WorkspaceBarRootDescriptor>> | undefined;
   readonly selectedMemoryThreadId: string | undefined;
@@ -344,7 +342,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const {
     assistantThreadRepository,
     currentMainRoot,
-    database,
     memoryResourceId,
     rootDescriptors,
     selectedMemoryThreadId,
@@ -378,7 +375,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     useAssistantThreadRootBinding({
       assistantThreadRepository,
       ...(currentMainRoot ? { currentMainRoot } : {}),
-      database,
       memoryResourceId,
       selectedMemoryThreadId,
     });
@@ -423,13 +419,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     // No clearing branch: the state is PATH-tagged and the read below ignores a
     // row resolved for any other path, so a bail-out needs no synchronous
     // setState (react-hooks/set-state-in-effect).
-    if (bindingRootId || !((database || rootCatalog) && mainRootPath && mainRootDisplayName)) {
+    if (bindingRootId || !(rootCatalog && mainRootPath && mainRootDisplayName)) {
       return;
     }
     let cancelled = false;
     // Never rejects — every failure is carried in the returned outcome.
     void resolveRootIdAfterReconciliation(
-      database,
       { displayName: mainRootDisplayName, path: mainRootPath },
       () => cancelled
     ).then((lookup) => {
@@ -458,10 +453,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     return () => {
       cancelled = true;
     };
-  }, [bindingRootId, database, rootCatalog, invalidationNonce, mainRootDisplayName, mainRootPath]);
+  }, [bindingRootId, rootCatalog, invalidationNonce, mainRootDisplayName, mainRootPath]);
   const { foldersPending, primaryRootId } = primaryRootState({
     bindingRootId,
-    canResolveMainRoot: Boolean((database || rootCatalog) && mainRootPath && mainRootDisplayName),
+    canResolveMainRoot: Boolean(rootCatalog && mainRootPath && mainRootDisplayName),
     mainRootPath,
     mainRootRow,
     metadataPending: selectedThreadMetadataPending,
@@ -474,7 +469,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     [rootDescriptors]
   );
   const threadRoots = useThreadRoots({
-    database,
     mountedKey: [...mountedPaths].sort().join('\n'),
     primaryRootId,
     secondaryRootIds,
@@ -747,17 +741,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const resolveRootIdForPath = useCallback(
     async (path: string, displayName: string): Promise<string> => {
-      if (!(database || rootCatalog)) {
+      if (!rootCatalog) {
         throw new Error('Cannot resolve a worktree root before the workspace database is ready.');
       }
       const startedForThreadId = selectedMemoryThreadId;
       const isCancelled = () =>
         unmountedRef.current || activeThreadIdRef.current !== startedForThreadId;
-      const lookup = await resolveRootIdAfterReconciliation(
-        database,
-        { displayName, path },
-        isCancelled
-      );
+      const lookup = await resolveRootIdAfterReconciliation({ displayName, path }, isCancelled);
       if (lookup.kind === 'cancelled' || isCancelled()) {
         throw new Error(
           'Worktree root resolution was cancelled because the active thread changed.'
@@ -768,12 +758,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       }
       return lookup.rootId;
     },
-    [database, rootCatalog, selectedMemoryThreadId]
+    [rootCatalog, selectedMemoryThreadId]
   );
 
   const recordAddedAsSecondary = useCallback(
     async (handle: { readonly name: string; readonly path: string }) => {
-      if (!(database || rootCatalog)) {
+      if (!rootCatalog) {
         throw new Error('Cannot record a thread folder before the workspace database is ready.');
       }
       // Compare the CAPTURED thread against the live one: a switch away is what
@@ -782,7 +772,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       const isCancelled = () =>
         unmountedRef.current || activeThreadIdRef.current !== startedForThreadId;
       const lookup = await resolveRootIdAfterReconciliation(
-        database,
         { displayName: handle.name, path: handle.path },
         isCancelled
       );
@@ -825,7 +814,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         };
       });
     },
-    [database, rootCatalog, enqueueThreadFoldersWrite, selectedMemoryThreadId]
+    [rootCatalog, enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
   useThreadFolderScope({
     bindingRootId,

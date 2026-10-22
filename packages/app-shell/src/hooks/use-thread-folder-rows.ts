@@ -18,23 +18,13 @@
  * the section keeps the name it resolved. Nothing is invented either way.
  */
 import type { ThreadFolderRow } from '@brainstrike/assistant-data';
-import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 const logger = createLogger('ThreadFolderRows');
 
-const ROOT_DISPLAY_ROWS_SQL =
-  'SELECT id, display_name AS "displayName", path FROM roots WHERE id = ANY($1::text[])';
-
 const NO_FOLDER_ROWS: ReadonlyMap<string, ThreadFolderRow> = new Map();
-
-interface RootRow {
-  readonly displayName: string;
-  readonly id: string;
-  readonly path: string | null;
-}
 
 export interface ThreadFolderRowsState {
   /**
@@ -100,10 +90,7 @@ function warnUnresolvedRootIds(
  * Display rows for the workspace folders `rootIds` names, keyed by
  * `roots.id`. Ids with no row are simply absent from the map.
  */
-export function useThreadFolderRows(
-  database: DbHandle | null,
-  rootIds: readonly string[]
-): ThreadFolderRowsState {
+export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRowsState {
   const catalog = getThreadGroupsCapability();
   // Value-keyed on the sorted, deduped id list: a thread-list refresh carrying
   // an EQUAL set (or the same set in another order) must not re-query. JSON,
@@ -128,19 +115,14 @@ export function useThreadFolderRows(
   const warnedRootIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!(database || catalog) || distinctRootIds.length === 0) {
+    if (!catalog || distinctRootIds.length === 0) {
       return;
     }
     let cancelled = false;
     const warnedRootIds = warnedRootIdsRef.current;
-    (catalog
-      ? catalog
-          .readRoots()
-          .then((rows) => ({ rows: rows.filter((row) => distinctRootIds.includes(row.id)) }))
-      : database
-        ? database.query<RootRow>(ROOT_DISPLAY_ROWS_SQL, [distinctRootIds])
-        : Promise.reject(new Error('Thread root catalog unavailable'))
-    )
+    catalog
+      .readRoots()
+      .then((rows) => ({ rows: rows.filter((row) => distinctRootIds.includes(row.id)) }))
       .then((result) => {
         if (cancelled) {
           return;
@@ -173,7 +155,7 @@ export function useThreadFolderRows(
     return () => {
       cancelled = true;
     };
-  }, [catalog, database, distinctRootIds, rootIdsKey]);
+  }, [catalog, distinctRootIds, rootIdsKey]);
 
   const isEmptyRequest = distinctRootIds.length === 0;
   const currentResolution = resolved?.key === rootIdsKey ? resolved : null;

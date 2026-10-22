@@ -7,16 +7,6 @@
         "$TURBO_EXTENDS$",
         "../test-utils/fixtures/canonical-provided-chunks.json"
       ]
-    },
-    "test:coverage": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_EXTENDS$",
-        "../test-utils/fixtures/canonical-provided-chunks.json"
-      ]
-    },
-    "test:integration": {
-      "dependsOn": ["@brainstrike/chunking-worker#build"]
     }
   }
 }

@@ -37,10 +37,6 @@
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"
     },
-    "./assistant-thread-run-reaper": {
-      "types": "./dist/assistant-thread-run-reaper.d.ts",
-      "import": "./dist/assistant-thread-run-reaper.js"
-    },
     "./assistant-memory-repository": {
       "types": "./dist/assistant-memory-repository.d.ts",
       "import": "./dist/assistant-memory-repository.js"
@@ -67,8 +63,6 @@
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },

@@ -8,9 +8,7 @@ five open PRs. The owner's current request defines the outcome and scope.
 Use code, tests and tool configuration for implementation details. Architectural
 decisions live in `docs/adr/`; newer owner decisions supersede older ones.
 Subsystem documents explain contracts and pitfalls: consult the relevant section
-when needed, rather than reading a document stack before every change. Historical
-plans and receipts do not create new acceptance requirements. Package `AGENTS.md`
-files contain only additional local constraints.
+when needed. Package `AGENTS.md` files contain only additional local constraints.
 
 ## Constraints worth keeping
 
@@ -32,41 +30,21 @@ files contain only additional local constraints.
   work follows `docs/agents/effect-boundary.md`; infer versions and build commands
   from the installed packages and scripts.
 
-## Repeated failures mean the design is wrong
+## Prefer removal
 
-Before fixing a failure, run `pnpm defect-density -- <paths>` on the product paths
-it exercises. An area with three or more fix commits or nightly-alert issues in 14
-days is hot: stop patching it. Write a one-page root-cause note covering all of
-those failures, then change the design, preferring removal. Removing a mechanism
-inside an existing owner is not an ownership change and needs no extra approval.
-
-Without a root-cause note, a fix may not add or lengthen a timer, deadline, retry,
-poll, close phase, join, fallback or test-only gate. Review-bot findings never
-become tickets or PRs on their own.
+When an area keeps failing, change the design and prefer removing the mechanism
+over patching it. Do not answer a failure with a new timer, retry, guard script,
+contract test or rule. Tests assert behaviour a user would notice or a durable-data
+invariant, not internal call order or the text of other files.
 
 ## Validation and delivery
 
-Choose checks for the changed behavior and its risk. Reproduce a bug before fixing
-it on a machine of the failing platform, and reproduce timing failures by
-injecting delays. Hosted CI is the final proof, not the debugging loop. Add a
-regression test when it protects meaningful behavior. Demonstrate user-facing
-changes through the actual app flow. Documentation edits do not need an
-application regression campaign. Follow
-[validation guidance](docs/agents/ci-quality.md).
-
-Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
-nightly on main and files failures to Linear (`nightly-alert`). Main lands only
-through Mergify's merge queue: enqueue with
-`gh pr comment <number> --body '@mergifyio queue'`, and the PR is squashed onto
-main only when `Merge Queue Gate` passes on its batch. Do not enable
-workflows, dispatch hosted checks, request automated reviews, sign or publish
-without the owner's authorization. Report actual checks, failures and omitted coverage; never
-describe a partial run as a full pass. Use normal hooks and preserve failing tests;
-tests that pin a removed mechanism are deleted with it.
-
-Update documentation when a durable decision or user-facing contract changes,
-not as a routine PR requirement. Keep rules short; put operational detail in its
-own source and historical evidence in `docs/archive/`.
+`pnpm check` must pass before a change is queued. Hosted CI runs nightly on main;
+main lands only through Mergify's merge queue: enqueue with
+`gh pr comment <number> --body '@mergifyio queue'`. Do not enable workflows,
+dispatch hosted checks, request automated reviews, sign or publish without the
+owner's authorization. Report actual checks and failures; never describe a
+partial run as a full pass.
 
 ## Find specialist context when needed
 

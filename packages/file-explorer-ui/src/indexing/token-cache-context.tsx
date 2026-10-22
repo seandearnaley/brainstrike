@@ -1,15 +1,15 @@
 /**
  * TokenCacheContext
  *
- * React context provider for the persistent token cache.
- * Manages initialization of TokenCacheStore, FileHasher, and worker pool.
+ * React context provider for the in-memory token cache.
+ * Manages initialization of the cache store, FileHasher, and worker pool.
  *
  * Usage:
  * ```tsx
  * import { TokenCacheProvider, useTokenCacheContext } from './token-cache-context';
  *
  * // In your app root:
- * <TokenCacheProvider db={pgliteInstance}>
+ * <TokenCacheProvider>
  *   <App />
  * </TokenCacheProvider>
  *
@@ -22,11 +22,9 @@ import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/app-state/stores/token-preferences-store';
-import { databaseQueryTelemetry } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import type {
   TokenCacheEntry,
-  TokenCacheLookupTelemetryRecord,
   TokenCountingMode,
   TokenCountRequest,
   TokenCountResult,
@@ -35,7 +33,6 @@ import type {
 import {
   createTokenCacheWorkerPool,
   FileHasher,
-  TokenCacheStore,
   useTokenCache,
 } from '@brainstrike/token-cache/cache-runtime';
 import {
@@ -52,21 +49,6 @@ import {
 import { resolveTokenCacheWorkerUrlHref } from './resolve-token-cache-worker-url';
 
 const logger = createLogger('TokenCacheContext');
-const tokenCacheDatabaseQueryTelemetry = {
-  recordLookup(record: TokenCacheLookupTelemetryRecord): void {
-    databaseQueryTelemetry.recordQuery({
-      ...record,
-      feature: 'token-estimation',
-    });
-  },
-};
-
-/**
- * PGlite database type (subset of @electric-sql/pglite)
- */
-interface PGliteDB {
-  query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[]; affectedRows?: number }>;
-}
 
 /**
  * Worker pool type
@@ -125,78 +107,6 @@ const terminalWorkerInitErrorsByUrl = new Map<string, Error>();
 
 export function __resetTokenCacheWorkerInitErrorsForTests(): void {
   terminalWorkerInitErrorsByUrl.clear();
-}
-
-/**
- * Storage v5 re-keyed folder identity from filesystem paths to RootId UUIDs.
- * Token cache rows written before the re-key are keyed by paths and therefore
- * unreachable dead weight. This is a greenfield app (no back-compat), so we
- * wipe once per profile instead of migrating.
- */
-export const TOKEN_CACHE_REKEY_V5_MARKER = 'token-cache-rekey-v5-done';
-
-let rekeyWipePromise: Promise<void> | null = null;
-
-export function __resetTokenCacheRekeyWipeForTests(): void {
-  rekeyWipePromise = null;
-}
-
-async function performTokenCacheRekeyWipe(store: {
-  clearAll: () => Promise<number>;
-}): Promise<void> {
-  if (typeof localStorage === 'undefined') {
-    // Without storage we cannot gate the wipe; skip rather than re-wiping
-    // fresh v5 data on every boot.
-    logger.debug('Token cache re-key wipe skipped: localStorage unavailable');
-    return;
-  }
-
-  let marker: string | null;
-  try {
-    marker = localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER);
-  } catch (error) {
-    logger.warn('Token cache re-key wipe skipped: marker unreadable', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return;
-  }
-  if (marker !== null) {
-    return;
-  }
-
-  try {
-    const removed = await store.clearAll();
-    logger.info('Token cache wiped for RootId re-key (storage v5)', { removed });
-  } catch (error) {
-    // Do NOT set the marker — the wipe retries on the next boot.
-    logger.warn('Token cache re-key wipe failed; will retry next boot', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    rekeyWipePromise = null;
-    return;
-  }
-
-  try {
-    localStorage.setItem(TOKEN_CACHE_REKEY_V5_MARKER, 'true');
-  } catch (error) {
-    logger.warn('Token cache re-key marker write failed; wipe may repeat next boot', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-/**
- * One-time (per profile) token cache wipe for the v5 RootId re-key.
- * Concurrent calls (e.g. StrictMode double-effects) coalesce onto a single
- * in-flight clear; the localStorage marker gates across boots.
- */
-export function runTokenCacheRekeyWipeOnce(store: {
-  clearAll: () => Promise<number>;
-}): Promise<void> {
-  if (!rekeyWipePromise) {
-    rekeyWipePromise = performTokenCacheRekeyWipe(store);
-  }
-  return rekeyWipePromise;
 }
 
 function getResolvedTokenCacheWorkerUrl(workerUrl: string | undefined): string {
@@ -335,7 +245,7 @@ class InMemoryTokenCacheStore {
   }
 }
 
-type TokenCacheStoreLike = TokenCacheStore | InMemoryTokenCacheStore;
+type TokenCacheStoreLike = InMemoryTokenCacheStore;
 
 /**
  * Persistence mode for the token cache
@@ -389,8 +299,6 @@ const TokenCacheContext = createContext<TokenCacheContextValue | null>(null);
 interface TokenCacheProviderProps {
   /** Children to render */
   children: ReactNode;
-  /** PGlite database instance (or compatible interface) */
-  db: PGliteDB | null;
   /** Delay worker startup until the first token-counting request */
   lazyWorkerInit?: boolean;
   /** Callback when token count is resolved */
@@ -437,7 +345,6 @@ function workerReducer(state: WorkerState, action: WorkerAction): WorkerState {
  * Provider component that initializes token cache infrastructure.
  */
 export function TokenCacheProvider({
-  db,
   lazyWorkerInit = false,
   workerUrl,
   onTokenResolved,
@@ -447,10 +354,6 @@ export function TokenCacheProvider({
   const [hasher] = useState(() => new FileHasher());
   const [noopWorkerPool] = useState(createNoopWorkerPool);
   const [hasherReady, setHasherReady] = useState(false);
-  const persistentStoreRef = useRef<{
-    query: PGliteDB['query'];
-    store: TokenCacheStore;
-  } | null>(null);
   const [workerState, dispatchWorker] = useReducer(workerReducer, {
     initError: null,
     pool: noopWorkerPool,
@@ -471,46 +374,8 @@ export function TokenCacheProvider({
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const countingMode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
 
-  // Derive store directly from db - avoids setState-in-effect cascade.
-  // When db is null (startup/teardown), keep writes in-memory; once db is available, use persistent store.
-  const storeState = useMemo<{ store: TokenCacheStoreLike; hasPersistentStore: boolean }>(() => {
-    if (!db) {
-      return { hasPersistentStore: false, store: inMemoryStore };
-    }
-
-    const cachedPersistentStore = persistentStoreRef.current;
-    if (cachedPersistentStore?.query === db.query) {
-      return {
-        hasPersistentStore: true,
-        store: cachedPersistentStore.store,
-      };
-    }
-
-    const persistentStore = new TokenCacheStore(
-      db as unknown as ConstructorParameters<typeof TokenCacheStore>[0],
-      { telemetry: tokenCacheDatabaseQueryTelemetry }
-    );
-    persistentStoreRef.current = {
-      query: db.query,
-      store: persistentStore,
-    };
-    return {
-      hasPersistentStore: true,
-      store: persistentStore,
-    };
-  }, [db, inMemoryStore]);
-  const store = storeState.store;
-  const hasPersistentStore = storeState.hasPersistentStore;
-
-  // One-time hygiene wipe for the storage v5 RootId re-key. Only the
-  // persistent store matters — in-memory stores are born empty, and wiping
-  // one must not consume the once-per-profile marker.
-  useEffect(() => {
-    if (!hasPersistentStore) {
-      return;
-    }
-    void runTokenCacheRekeyWipeOnce(store);
-  }, [hasPersistentStore, store]);
+  // Counts live in the in-memory store; there is no persistent tier.
+  const store: TokenCacheStoreLike = inMemoryStore;
 
   // Initialize hasher once
   useEffect(() => {
@@ -674,27 +539,19 @@ export function TokenCacheProvider({
   const tokenCache = useTokenCache({
     countingMode,
     hasher,
-    store: store as TokenCacheStore,
+    store,
     workerPool: workerPoolProxy,
     ...(onTokenResolved ? { onTokenResolved } : {}),
   });
 
-  // Two-tier readiness semantics (BST-150):
-  // - isOperational: Worker + hasher ready (can count tokens, even without DB)
-  // - isPersisted: Operational + DB available (full persistence)
+  // isOperational: Worker + hasher ready (can count tokens).
   // A lazily configured provider is still non-operational until the worker has actually warmed.
   const isOperational = hasherReady && workerReady;
-  const isPersisted = isOperational && Boolean(db) && hasPersistentStore;
-
-  // Backwards compatibility: isReady = isPersisted
+  // There is no persistent tier, so counts are never persisted.
+  const isPersisted = false;
   const isReady = isPersisted;
 
-  // Compute persistence mode
-  const persistenceMode: TokenCachePersistenceMode = isPersisted
-    ? 'persistent'
-    : isOperational
-      ? 'memory'
-      : 'disabled';
+  const persistenceMode: TokenCachePersistenceMode = isOperational ? 'memory' : 'disabled';
 
   const countTextTokens = useMemo(
     () => async (text: string) => {
