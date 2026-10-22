@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -92,7 +92,9 @@ const lifecycleLayouts = [
 ];
 
 function lint(t, side) {
-  const token = randomUUID();
+  // Every layout path carries the token and all of them go on one command line,
+  // which Windows caps at 32,767 characters: keep the token short.
+  const token = randomBytes(4).toString('hex');
   const declaration = path.join(
     root,
     `packages/effect-kit/src/agent-quality-lint-declaration-${token}.ts`
@@ -276,7 +278,8 @@ function lint(t, side) {
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, `${entry[side]}\n`);
   }
-  const result = spawnSync(process.execPath, [biome, 'lint', ...files, '--reporter=json'], {
+  const relativeFiles = cases.map((entry) => entry.path);
+  const result = spawnSync(process.execPath, [biome, 'lint', ...relativeFiles, '--reporter=json'], {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 2 * 1024 * 1024,
