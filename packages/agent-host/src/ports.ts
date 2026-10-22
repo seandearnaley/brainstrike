@@ -141,11 +141,25 @@ export interface HostShellWorktree {
   readonly path: string;
   readonly worktreeId: string;
 }
+/** A worktree a root run's call created, already open as a folder (ADR-0028 step 3). */
+export interface HostEnteredWorktree {
+  readonly branch: string | null;
+  /** The folder the worktree was created from: the person's own checkout. */
+  readonly localRootId: string;
+  readonly root: { readonly displayName: string; readonly path: string; readonly rootId: string };
+  readonly worktreeId: string;
+}
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */
   readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
   /** Present for every Core-dispatched execution; file tools must refuse without it. */
   readonly edits?: HostWorkspaceEditTracker | undefined;
+  /**
+   * ADR-0028 step 3, a root run's calls only: bind the thread to the worktree
+   * this call created. The run ends after this step, and the host starts the
+   * thread's next run in the worktree. A child never moves its parent.
+   */
+  readonly enterWorktree?: ((worktree: HostEnteredWorktree) => Promise<void>) | undefined;
   readonly mcp?: HostMcpExecution | undefined;
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;

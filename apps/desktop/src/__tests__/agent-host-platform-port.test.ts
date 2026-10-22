@@ -442,6 +442,7 @@ it('serves the worktree calls under the calling run’s identity', async () => {
   const created = {
     ok: true as const,
     value: {
+      root: { displayName: 'fox', path: '/managed/fox', rootId: 'wt-root' },
       setup: { reason: null, status: 'none' },
       worktree: { branch: 'bs/fox', id: 'wt-9', path: '/managed/fox' },
     },

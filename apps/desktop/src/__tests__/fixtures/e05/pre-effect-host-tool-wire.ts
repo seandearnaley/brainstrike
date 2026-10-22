@@ -60,13 +60,6 @@ export const WorktreeListResultSchema = gitResult(
   )
 );
 
-export const WorktreeCreateResultSchema = gitResult(
-  z.object({
-    setup: z.object({ reason: z.string().nullable(), status: z.string() }),
-    worktree: z.object({ branch: z.string().nullable(), id: z.string(), path: z.string() }),
-  })
-);
-
 export const WorktreeArchiveResultSchema = gitResult(
   z.object({ snapshotRef: z.string(), worktree: z.object({ id: z.string() }) })
 );

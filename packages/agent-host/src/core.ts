@@ -92,6 +92,7 @@ import { HostThreadSelections } from './thread-selection-state.js';
 import { HostToolRecords } from './tool-records.js';
 import { revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
+import { hostWorktreeEntry } from './worktree-binding.js';
 
 export type { HostEventStore } from './thread-catalog.js';
 
@@ -690,6 +691,7 @@ export class HostCore {
           this.childRunPort(run, action)
         ),
       dispatch: (run, action, input) => this.dispatch(run, action, input),
+      enterWorktree: (run, action) => hostWorktreeEntry(this, this.children, run, action),
       finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail),
       fold: (row) => this.fold(row),
       foldRows: this.foldRows,

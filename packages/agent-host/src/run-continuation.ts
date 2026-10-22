@@ -297,10 +297,26 @@ export function approvedHostPlanRunParams(
     threadId: run.threadId,
   };
 }
+/** ADR-0028 step 3: the `run/start` that carries a run's task on in the worktree it entered. */
+export function enteredWorktreeRunParams(
+  run: Run,
+  worktree: NonNullable<Run['enteredWorktree']>
+): HostParams<'run/start'> {
+  const branch = worktree.branch ? ` on branch ${worktree.branch}` : '';
+  return {
+    commandId: randomUUID(),
+    ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
+    modelId: run.modelId,
+    parentMessageId: run.id,
+    prompt: `Continue the task in the worktree at ${worktree.path}${branch}. It is now this conversation's workspace.`,
+    threadId: run.threadId,
+  };
+}
 /**
  * The thread's next run, started by the host: an approved plan carried out,
- * or a child's human input (BST-1932). A next run that cannot start is
- * committed as failed, with its cause, so it never ends silently.
+ * a child's human input (BST-1932), or work moved into a worktree. A next
+ * run that cannot start is committed as failed, with its cause, so it never
+ * ends silently.
  */
 export async function startHostNextRun(
   runs: Iterable<Run>,

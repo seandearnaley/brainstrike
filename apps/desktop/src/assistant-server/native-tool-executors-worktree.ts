@@ -24,8 +24,10 @@ export function worktreeToolExecutors<Context extends NativeToolBuildContext>(
         NATIVE_TOOL_ID.listWorktrees
       ],
     [NATIVE_TOOL_ID.manageWorktree]: (context) =>
-      buildWorktreeMastraTools(context.runtimeData, capability(context))[
-        NATIVE_TOOL_ID.manageWorktree
-      ],
+      buildWorktreeMastraTools(
+        context.runtimeData,
+        capability(context),
+        context.ports.enterWorktree
+      )[NATIVE_TOOL_ID.manageWorktree],
   };
 }

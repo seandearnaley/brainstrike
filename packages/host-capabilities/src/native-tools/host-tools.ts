@@ -125,6 +125,7 @@ function executionPorts(
   return {
     artifactReader: context.artifacts,
     canvas: hostCanvasStore(state),
+    ...(context.enterWorktree ? { enterWorktree: context.enterWorktree } : {}),
     fileMutations: { ...(diagnostics ? { diagnostics } : {}), edits: () => edits },
     ...(context.shellWorktrees ? { shellWorktrees: context.shellWorktrees } : {}),
     taskList: hostTaskListStore(state),
