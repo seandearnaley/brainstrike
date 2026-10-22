@@ -11,7 +11,6 @@
  */
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrike/assistant-data';
-import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,8 +37,6 @@ const logger = createLogger('WorktreeMap');
 const EMPTY_THREADS: readonly AssistantMemoryThread[] = [];
 
 export interface UseWorktreeMapInput {
-  /** `null` until the PGlite handle resolves; the PR-cache query stays disabled. */
-  readonly database: DbHandle | null;
   readonly resourceId: string;
   readonly runningThreadIds: ReadonlySet<string>;
 }

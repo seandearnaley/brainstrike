@@ -293,7 +293,6 @@ export function NativeWorkspaceIndexProvider({
   const { rootDirectoryHandles } = useFileSystem();
   const { dbRootIdByAdapterRootId, syncMountedRoots } = useRootsReconciliation({
     adapter: fileSystemAdapter,
-    db: null,
   });
   useEffect(() => {
     let disposed = false;

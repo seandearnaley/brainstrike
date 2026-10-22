@@ -1,8 +1,4 @@
-import {
-  openLogsTab,
-  useDiagnosticSinkHealthStore,
-  useDiagnosticsPurge,
-} from '@brainstrike/app-shell/diagnostics';
+import { openLogsTab, useDiagnosticSinkHealthStore } from '@brainstrike/app-shell/diagnostics';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import {
   describeBoundaryError,
@@ -65,7 +61,6 @@ export function DesktopLoggingSettings() {
   const { toast } = useToast();
 
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
-  const onPurgeNow = useDiagnosticsPurge();
   const sinkHealthReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
 
   const mapPayload = useCallback(
@@ -239,7 +234,6 @@ export function DesktopLoggingSettings() {
       onSelectLogDestination={selectDestination}
       runtime="electron-renderer"
       sinkHealthReason={sinkHealthReason}
-      {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
     />
   );
 }

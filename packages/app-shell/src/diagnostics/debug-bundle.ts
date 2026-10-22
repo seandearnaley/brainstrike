@@ -1,8 +1,4 @@
-import {
-  AssistantRunErrorRepository,
-  type DiagnosticEventsDatabase,
-  DiagnosticEventsRepository,
-} from '@brainstrike/db';
+import type { DiagnosticEventsQueryFilter } from '@brainstrike/db';
 import { redactSensitiveLogValue } from '@brainstrike/logging';
 import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
 import { getDiagnosticSessionId } from './diagnostic-sink-session';
@@ -11,14 +7,11 @@ import { scrubLikelySecretValues } from './secret-scrub';
 /**
  * Thread debug-bundle collector + formatter (design §5.2, "Flight Recorder").
  *
- * `collectThreadDebugBundleData` joins the run/event/usage tables owned by
- * `assistant-memory-repository.ts`, the Mastra transcript, and correlated
- * `brainstrike_diagnostic_events` rows into one `ThreadDebugBundleData`
- * object. `formatThreadDebugBundle` is a PURE function (no I/O, no
- * `Date.now()` — the timestamp travels in via `data.environment.generatedAt`)
- * that renders that object into a bounded, redacted Markdown document
- * optimized for pasting into an LLM. `buildThreadDebugBundle` is the
- * collect-then-format convenience wrapper Task 9's Copy button calls.
+ * `formatThreadDebugBundle` is a PURE function (no I/O, no `Date.now()` — the
+ * timestamp travels in via `data.environment.generatedAt`) that renders a
+ * `ThreadDebugBundleData` into a bounded, redacted Markdown document optimized
+ * for pasting into an LLM. `collectCorrelatedDiagnostics` joins the retained
+ * diagnostic events a bundle source correlates to its run.
  */
 
 export const DEBUG_BUNDLE_FORMAT_VERSION = 2;
@@ -30,13 +23,14 @@ const DIAGNOSTIC_EVENTS_CAP = 100;
 const TOOL_RESULT_PREVIEW_CHARS = 200;
 const PROTECTED_WINDOW_RADIUS = 2;
 
-/** Structurally identical to `DiagnosticEventsDatabase` — re-exported under
- * the collector's own name per the brief's consumed-interface contract. */
-export type DebugBundleDatabase = DiagnosticEventsDatabase;
-export type DebugBundleDiagnosticsReader = Pick<
-  DiagnosticEventsRepository,
-  'queryEvents' | 'countByFingerprint'
->;
+/** The read-only diagnostic-event surface a bundle source correlates against. */
+export interface DebugBundleDiagnosticsReader {
+  countByFingerprint(
+    fingerprint: string,
+    sinceMs: number
+  ): Promise<NonNullable<ThreadDebugBundleData['priorFailures']>>;
+  queryEvents(filter: DiagnosticEventsQueryFilter): Promise<DiagnosticEvent[]>;
+}
 
 export interface ThreadDebugBundleData {
   readonly diagnosticEvents: readonly DiagnosticEvent[]; // run/thread-correlated ±5min
@@ -98,11 +92,6 @@ export interface ThreadDebugBundleData {
   }[];
 }
 
-export interface CollectThreadDebugBundleInput {
-  readonly runId?: string;
-  readonly threadId: string;
-}
-
 export interface FormatThreadDebugBundleOptions {
   readonly maxBytes?: number;
 }
@@ -111,96 +100,8 @@ type BundleMessage = ThreadDebugBundleData['messages'][number];
 type BundleRunEvent = ThreadDebugBundleData['runEvents'][number];
 
 // ---------------------------------------------------------------------------
-// Collector
+// Diagnostics correlation
 // ---------------------------------------------------------------------------
-
-// Row interfaces mirror the brief's verbatim SQL column names (snake_case,
-// unaliased) — each field is immediately mapped to a camelCase
-// ThreadDebugBundleData property below, so the snake_case never escapes this
-// module.
-interface RunRow {
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_thread_runs column name.
-  completed_at: string | Date | null;
-  error: string | null;
-  id: string;
-  model: string;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_thread_runs column name.
-  model_settings: unknown;
-  provider: string;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_thread_runs column name.
-  provider_options: unknown;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_thread_runs column name.
-  runtime_kind: string | null;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_thread_runs column name.
-  started_at: string | Date | null;
-  status: string;
-}
-
-interface RunEventRow {
-  detail: string | null;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_run_events column name.
-  duration_ms: number | null;
-  kind: string;
-  label: string | null;
-  metadata: unknown;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_run_events column name.
-  occurred_at: string | Date;
-  sequence: number;
-  status: string | null;
-}
-
-interface RunUsageRow {
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_run_usage column name.
-  billed_cost_usd: string | null;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_run_usage column name.
-  input_tokens: number;
-  model: string;
-  // biome-ignore lint/style/useNamingConvention: brainstrike_assistant_run_usage column name.
-  output_tokens: number;
-  provider: string;
-}
-
-interface MessageRow {
-  content: unknown;
-  createdAt: string | Date;
-  id: string;
-  role: string;
-}
-
-function mapMessageRow(value: unknown): MessageRow {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError('Debug bundle message row must be an object.');
-  }
-  return value as MessageRow;
-}
-
-function mapRunEventRow(value: unknown): RunEventRow {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError('Debug bundle run event row must be an object.');
-  }
-  return value as RunEventRow;
-}
-
-function mapRunRow(value: unknown): RunRow {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError('Debug bundle run row must be an object.');
-  }
-  return value as RunRow;
-}
-
-function mapRunUsageRow(value: unknown): RunUsageRow {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError('Debug bundle run usage row must be an object.');
-  }
-  return value as RunUsageRow;
-}
-
-function toIsoOrNull(value: string | Date | null | undefined): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
 
 function readAppVersion(): string {
   const env = (import.meta as { env?: Record<string, unknown> }).env;
@@ -224,139 +125,6 @@ function dedupeById(events: readonly DiagnosticEvent[]): DiagnosticEvent[] {
     deduped.push(event);
   }
   return deduped;
-}
-
-function mapRun(value: unknown): ThreadDebugBundleData['run'] {
-  if (value === undefined) {
-    return null;
-  }
-  const row = mapRunRow(value);
-  return {
-    completedAt: toIsoOrNull(row.completed_at),
-    error: row.error,
-    id: row.id,
-    model: row.model,
-    modelSettings: row.model_settings,
-    provider: row.provider,
-    providerOptions: row.provider_options,
-    runtimeKind: row.runtime_kind,
-    startedAt: toIsoOrNull(row.started_at),
-    status: row.status,
-  };
-}
-
-/** Joins run/event/usage/transcript/diagnostic data for one thread (and
- * optionally one run) into the bundle shape the formatter renders. When
- * `runId` is omitted the SQL itself picks the thread's latest failed run,
- * falling back to the latest run of any status (`ORDER BY (status = 'failed')
- * DESC, created_at DESC LIMIT 1`) — this function trusts that ordering and
- * never re-sorts rows in JS. */
-export async function collectThreadDebugBundleData(
-  db: DebugBundleDatabase,
-  input: CollectThreadDebugBundleInput
-): Promise<ThreadDebugBundleData> {
-  const { threadId } = input;
-  const runId = input.runId ?? null;
-
-  const runResult = await db.query(
-    `SELECT id, provider, model, model_settings, provider_options, runtime_kind,
-            status, error, started_at, completed_at
-     FROM brainstrike_assistant_thread_runs
-     WHERE thread_id = $1 AND ($2::text IS NULL OR id = $2)
-     ORDER BY (status = 'failed') DESC, created_at DESC
-     LIMIT 1`,
-    [threadId, runId]
-  );
-  const run = mapRun(runResult.rows[0]);
-
-  const runErrorRepository = new AssistantRunErrorRepository(db);
-  const [eventsResult, usageResult, runErrorRecord] = run
-    ? await Promise.all([
-        db.query(
-          `SELECT sequence, kind, status, label, detail, duration_ms, metadata, occurred_at
-           FROM brainstrike_assistant_run_events WHERE run_id = $1 ORDER BY sequence ASC LIMIT 500`,
-          [run.id]
-        ),
-        db.query(
-          `SELECT provider, model, input_tokens, output_tokens, billed_cost_usd
-           FROM brainstrike_assistant_run_usage WHERE run_id = $1 ORDER BY created_at ASC`,
-          [run.id]
-        ),
-        runErrorRepository.getByRunId(run.id),
-      ])
-    : [{ rows: [] }, { rows: [] }, null];
-
-  const runEvents: BundleRunEvent[] = eventsResult.rows.map((value) => {
-    const row = mapRunEventRow(value);
-    return {
-      detail: row.detail,
-      durationMs: row.duration_ms,
-      kind: row.kind,
-      label: row.label,
-      metadata: row.metadata,
-      occurredAt: toIsoOrNull(row.occurred_at) as string,
-      sequence: row.sequence,
-      status: row.status,
-    };
-  });
-
-  const usage: ThreadDebugBundleData['usage'] = usageResult.rows.map((value) => {
-    const row = mapRunUsageRow(value);
-    return {
-      billedCostUsd: row.billed_cost_usd,
-      inputTokens: row.input_tokens,
-      model: row.model,
-      outputTokens: row.output_tokens,
-      provider: row.provider,
-    };
-  });
-  const runError: ThreadDebugBundleData['runError'] = runErrorRecord
-    ? {
-        causeChain: runErrorRecord.causeChain,
-        code: runErrorRecord.code,
-        httpStatus: runErrorRecord.httpStatus,
-        message: runErrorRecord.message,
-        occurredAt: runErrorRecord.occurredAt.toISOString(),
-        providerRequestId: runErrorRecord.providerRequestId,
-        responseHeaders: runErrorRecord.responseHeaders,
-      }
-    : null;
-
-  const transcriptResult = await db.query(
-    `SELECT id, role, content, "createdAt" FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" DESC LIMIT 40`,
-    [threadId]
-  );
-  // Query returns newest-first (bounded window); the transcript section
-  // reads oldest-first, and stage-1 elision removes the oldest turns first.
-  const messages: BundleMessage[] = [...transcriptResult.rows].reverse().map((value) => {
-    const row = mapMessageRow(value);
-    return {
-      content: row.content,
-      createdAt: toIsoOrNull(row.createdAt) as string,
-      id: row.id,
-      role: row.role,
-    };
-  });
-
-  const { diagnosticEvents, priorFailures } = await collectCorrelatedDiagnostics(
-    new DiagnosticEventsRepository(db),
-    {
-      run,
-      threadId,
-    }
-  );
-
-  return {
-    diagnosticEvents,
-    environment: readDebugBundleEnvironment(),
-    messages,
-    priorFailures,
-    run,
-    runError,
-    runEvents,
-    threadId,
-    usage,
-  };
 }
 
 /**
@@ -957,15 +725,4 @@ export function formatThreadDebugBundle(
     return scrubbed.text;
   }
   return `${scrubbed.text}\n\n_Secret scan: ${scrubbed.redactedCount} value(s) redacted (${scrubbed.kinds.join(', ')})._`;
-}
-
-/** Collect then format in one call — the convenience wrapper Task 9's Copy
- * button calls. */
-export async function buildThreadDebugBundle(
-  db: DebugBundleDatabase,
-  input: CollectThreadDebugBundleInput,
-  options?: FormatThreadDebugBundleOptions
-): Promise<string> {
-  const data = await collectThreadDebugBundleData(db, input);
-  return formatThreadDebugBundle(data, options);
 }

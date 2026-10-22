@@ -4,7 +4,6 @@ import type { EnhancedImportResult } from '../types';
 import { useImportFlow } from '../use-import-flow';
 
 const importServiceReturn = {
-  chunkRepository: { findAll: vi.fn() },
   importFiles: vi.fn().mockResolvedValue(undefined),
   isImporting: false,
   progress: null,
@@ -13,8 +12,6 @@ const importServiceReturn = {
 let latestOptions: {
   onComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   onProgress?: () => void;
-  tokenTrueSizing?: boolean;
-  chunkTokenLimit?: number;
   resolveTargetEmbeddingSetId?: () => string | null;
 };
 let selectionPaths = new Set<string>();
@@ -41,20 +38,9 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useSelectionManager: () => ({ selectedFilePaths: selectionPaths }),
 }));
 
-const baseSettings = {
-  chunkingStrategy: 'sentence' as const,
-  chunkingStrategyExplicit: false,
-  chunkOverlap: 0,
-  chunkSize: 512,
-  chunkTokenLimit: 4096,
-  enableChunking: true,
-  tokenTrueSizing: true,
-};
-
 beforeEach(() => {
   selectionPaths = new Set();
   importServiceReturn.importFiles.mockClear();
-  importServiceReturn.chunkRepository = { findAll: vi.fn() };
   importServiceReturn.progress = null;
   latestOptions = {};
   mockExplorer.fileTree = [];
@@ -67,7 +53,6 @@ describe('useImportFlow', () => {
 
     const { result } = renderHook(() =>
       useImportFlow({
-        importSettings: baseSettings,
         resolveActiveCollectionId: () => 'set-1',
         toast,
       })
@@ -88,7 +73,6 @@ describe('useImportFlow', () => {
 
     const { result } = renderHook(() =>
       useImportFlow({
-        importSettings: baseSettings,
         resolveActiveCollectionId: () => 'set-1',
         toast,
       })
@@ -115,7 +99,6 @@ describe('useImportFlow', () => {
 
     const { result } = renderHook(() =>
       useImportFlow({
-        importSettings: baseSettings,
         resolveActiveCollectionId: () => 'set-1',
         toast,
       })
@@ -140,7 +123,6 @@ describe('useImportFlow', () => {
 
     const { result } = renderHook(() =>
       useImportFlow({
-        importSettings: baseSettings,
         onImportComplete,
         resolveActiveCollectionId: () => 'set-1',
         toast,
@@ -173,7 +155,6 @@ describe('useImportFlow', () => {
     const { rerender } = renderHook(
       ({ onImportComplete }: { onImportComplete?: (results: EnhancedImportResult[]) => void }) =>
         useImportFlow({
-          importSettings: baseSettings,
           resolveActiveCollectionId: () => 'set-1',
           toast,
           ...(onImportComplete ? { onImportComplete } : {}),
@@ -195,28 +176,13 @@ describe('useImportFlow', () => {
     expect(secondComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('forwards tokenTrueSizing preference to the enhanced import service', () => {
-    const toast = vi.fn();
-    renderHook(() =>
-      useImportFlow({
-        importSettings: { ...baseSettings, chunkTokenLimit: 8192, tokenTrueSizing: false },
-        resolveActiveCollectionId: () => 'set-1',
-        toast,
-      })
-    );
-
-    expect(latestOptions).toEqual(
-      expect.objectContaining({ chunkTokenLimit: 8192, tokenTrueSizing: false })
-    );
-  });
-
   it('prevents imports when no collection is selected', async () => {
     const toast = vi.fn();
     selectionPaths = new Set(['/file.txt']);
     const resolver = vi.fn(() => null);
 
     const { result } = renderHook(() =>
-      useImportFlow({ importSettings: baseSettings, resolveActiveCollectionId: resolver, toast })
+      useImportFlow({ resolveActiveCollectionId: resolver, toast })
     );
 
     await act(async () => {

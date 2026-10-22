@@ -12,9 +12,6 @@
   "devDependencies": {
     "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/core": "catalog:",
-    "@stryker-mutator/typescript-checker": "catalog:",
-    "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "tsup": "catalog:",
@@ -71,9 +68,7 @@
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc --build && tsup",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --watch",
-    "mutation": "stryker run",
     "test": "vitest run",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "types": "dist/index.d.ts"

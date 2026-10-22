@@ -23,7 +23,6 @@
     "clean": "node ../../scripts/rimraf.mjs build",
     "install": "node scripts/install.cjs",
     "test": "node test/ensure-addon.cjs && node --test test/*.test.cjs",
-    "test:coverage": "pnpm test",
     "type-check": "node --check index.cjs"
   },
   "types": "./index.d.ts"

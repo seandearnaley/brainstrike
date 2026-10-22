@@ -4,11 +4,9 @@ import { AdaptersProvider, INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file
 import {
   DEFAULT_MAX_FILE_SIZE,
   type FileSystemAdapter,
-  type HandleCache,
   MockFileSystemAdapter,
   resetFileSizeConfig,
   setFileSizeConfig,
-  WebFileSystemAdapter,
 } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
@@ -94,65 +92,6 @@ describe('useSharedFileContentLoading - caching', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it('reads a canonical web descriptor without replacing its capability or I/O identity', async () => {
-    const rawHandle = {
-      getFile: vi.fn(async () => new File(['canonical contents'], 'file.txt')),
-      kind: 'file',
-      name: 'file.txt',
-    };
-    const fileNode: IFileNode = {
-      depth: 0,
-      handle: {
-        _internal: rawHandle,
-        kind: 'file',
-        name: 'file.txt',
-        path: 'workspace/file.txt',
-        platform: 'web',
-        rootId: 'durable-root',
-      },
-      name: 'file.txt',
-      path: '/file.txt',
-      rootFolderId: 'root1',
-      selectionState: 'unchecked',
-      type: 'file',
-    };
-    const adapter = new WebFileSystemAdapter();
-    const readSpy = vi.spyOn(adapter, 'readFile');
-    const compositeKey = encodeFileSelection('root1', '/file.txt');
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    vi.mocked(createFileContentWorker).mockReturnValue(async (requests) => {
-      const results: Record<string, FileContentReadResult> = {};
-      for (const request of requests) {
-        if (!request.handle) {
-          throw new Error('Expected a browser handle read');
-        }
-        results[request.compositeKey] = {
-          content: await adapter.readFile(request.handle),
-          status: 'accessible',
-        };
-      }
-      return results;
-    });
-    const { result } = renderHook(() => useTestHook([fileNode]), {
-      wrapper: createWrapper(adapter),
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(600);
-      await result.current.handleFileContentLoading([compositeKey], 'background');
-    });
-
-    expect(readSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        _internal: rawHandle,
-        path: 'workspace/file.txt',
-        platform: 'web',
-        rootId: 'durable-root',
-      })
-    );
-    expect(result.current.store.getState().fileContents[compositeKey]).toBe('canonical contents');
   });
 
   it('reuses cached nodes on subsequent loads', async () => {
@@ -737,67 +676,6 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
       'permission required: /missing-locked.txt'
     );
     expect(result.current.fileContents[compositeKey]).not.toContain('File not found');
-  });
-
-  it('uses a cached web handle instead of treating readFileByPath as absolute-path authority', async () => {
-    vi.useFakeTimers();
-    const rootId = '11111111-0000-4000-8000-000000000011';
-    const path = '/cached-web.txt';
-    const compositeKey = encodeFileSelection(rootId, path);
-    const cachedHandle = {
-      kind: 'file',
-      name: 'cached-web.txt',
-      queryPermission: vi.fn(async () => 'granted' satisfies PermissionState),
-    } as unknown as FileSystemFileHandle;
-    const getFileHandle = vi.fn(async () => cachedHandle);
-    const handleCache = {
-      getFileHandle,
-      pruneOldHandles: vi.fn(async () => undefined),
-    } as unknown as HandleCache;
-    const adapter = new WebFileSystemAdapter({ handleCache });
-    const readFileByPath = vi.spyOn(adapter, 'readFileByPath');
-    const otherNode = createFileNode({ path: '/other.txt', rootFolderId: rootId });
-
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    const mockWorker = vi.fn().mockImplementation(async (requests: FileReadRequest[]) => ({
-      [compositeKey]: requests[0]?.handle
-        ? { content: 'cached web content', status: 'accessible' as const }
-        : { message: 'missing cached handle', status: 'inaccessible' as const },
-    }));
-    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
-
-    const wrapper = createWrapper(adapter);
-    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
-    act(() => {
-      result.current.store.getState().setActiveRoots([
-        {
-          displayName: 'Project',
-          path: 'Project',
-          rootId,
-        },
-      ]);
-    });
-
-    await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
-      await vi.advanceTimersByTimeAsync(100);
-      await loadPromise;
-    });
-
-    expect(getFileHandle).toHaveBeenCalledExactlyOnceWith(rootId, path);
-    expect(cachedHandle.queryPermission).toHaveBeenCalledExactlyOnceWith({ mode: 'read' });
-    expect(mockWorker).toHaveBeenCalledWith(
-      [
-        expect.objectContaining({
-          compositeKey,
-          handle: expect.objectContaining({ _internal: cachedHandle, platform: 'web' }),
-          path,
-        }),
-      ],
-      expect.any(Function)
-    );
-    expect(readFileByPath).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBe('cached web content');
   });
 
   it('rejects directory nodes before queueing worker reads', async () => {

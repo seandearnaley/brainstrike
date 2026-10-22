@@ -25,10 +25,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import type { ThreadSearchRepository } from '@brainstrike/db';
-import type { DbHandle } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
-import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
   type CheckboxState,
@@ -58,7 +55,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type AssistantThreadHostCapability,
   createHostAssistantThreadRepository,
@@ -1388,8 +1385,6 @@ function resolveSortPresentation(groupBy: ThreadsPanelGroupBy): ThreadPanelSortP
 function ThreadsPanelContent({
   activeThreadIds,
   branchLookup,
-  databaseError,
-  databaseStartupLoading,
   failedUnseenThreadIds,
   folderGrouping,
   forgePrLookup,
@@ -1407,7 +1402,6 @@ function ThreadsPanelContent({
   onRenameThread,
   onSelectThread,
   onUpdateThreadAppearance,
-  repository,
   selectedThreadId,
   selection,
   threadFiltersActive,
@@ -1417,8 +1411,6 @@ function ThreadsPanelContent({
 }: {
   readonly activeThreadIds: ReadonlySet<string>;
   readonly branchLookup: ThreadBranchLookup;
-  readonly databaseError: Error | null;
-  readonly databaseStartupLoading: boolean;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   readonly folderGrouping: ThreadPanelFolderGroupingState | null;
   readonly forgePrLookup: ForgePrCacheLookup;
@@ -1442,7 +1434,6 @@ function ThreadsPanelContent({
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
-  readonly repository: AssistantThreadCatalogRepository | null;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
   readonly threadFiltersActive: boolean;
@@ -1451,11 +1442,8 @@ function ThreadsPanelContent({
   readonly view: ThreadListView;
 }): ReactElement {
   const contentState = resolveThreadPanelContentState({
-    databaseError,
-    databaseStartupLoading,
     folderGrouping,
     loadState,
-    repositoryReady: Boolean(repository),
     threadFiltersActive,
     threads,
     view,
@@ -1496,15 +1484,6 @@ function ThreadsPanelContent({
       view={view}
     />
   );
-}
-
-export interface ThreadsPanelProps {
-  /**
-   * Application embedding queue for the search feature's semantic arm (same
-   * seam as ConnectedPromptManager). Absent = semantic search is visibly
-   * unavailable; lexical search still works.
-   */
-  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
 }
 
 /**
@@ -1650,29 +1629,21 @@ function ThreadsPanelToolbar({
 
 export interface ThreadsPanelSources {
   readonly activeThreads: { readonly error: Error | null; readonly threadIds: ReadonlySet<string> };
-  readonly database: DbHandle | null;
-  readonly databaseError: Error | null;
-  readonly databaseStartupLoading: boolean;
   readonly groupsRepository: AssistantThreadGroupsRepository | null;
-  readonly repository: AssistantThreadCatalogRepository | null;
-  readonly threadSearchRepository: ThreadSearchRepository | null;
+  readonly host: AssistantThreadHostCapability;
+  readonly repository: AssistantThreadCatalogRepository;
   readonly threadsAwaitingApproval: {
     readonly error: Error | null;
     readonly threadIds: ReadonlySet<string>;
   };
 }
 export function ThreadsPanelCore({
-  loadEmbeddingQueue = null,
-  database,
+  host,
   repository,
   groupsRepository,
-  threadSearchRepository,
-  databaseError,
-  databaseStartupLoading,
   activeThreads,
   threadsAwaitingApproval,
-}: ThreadsPanelProps & ThreadsPanelSources): ReactElement {
-  const host = useAssistantThreadHost();
+}: ThreadsPanelSources): ReactElement {
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
@@ -1776,7 +1747,7 @@ export function ThreadsPanelCore({
     }
     return [...rootIds];
   }, [folderGrouping, threads]);
-  const folderRows = useThreadFolderRows(database, threadRootIds);
+  const folderRows = useThreadFolderRows(threadRootIds);
   const {
     available: branchLookupAvailable,
     byRootId,
@@ -1904,20 +1875,17 @@ export function ThreadsPanelCore({
     ? { error: folderRows.error, loading: folderRows.loading }
     : null;
   const contentState = resolveThreadPanelContentState({
-    databaseError,
-    databaseStartupLoading,
     folderGrouping: folderGroupingState,
     loadState,
-    repositoryReady: Boolean(repository),
     threadFiltersActive,
     threads: filteredThreads,
     view,
   });
 
-  // Thread hybrid search: repository + controller (debounce, sync, embedding
-  // backlog) + honest semantic availability. See use-thread-search-controller.
+  // Thread hybrid search: controller (debounce, embedding backlog) + honest
+  // semantic availability. See use-thread-search-controller.
   const embedder = useSharedSearchEmbedder();
-  useEnsureModelRegistry({ db: database });
+  useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
   const localModelConfigMap = useMemo(
     () => buildLocalEmbeddingModelConfigMap(registryModels),
@@ -1925,20 +1893,14 @@ export function ThreadsPanelCore({
   );
   const { retrySearch } = useThreadSearchController({
     embedder,
-    hostSearchVectors: host?.searchVectors,
-    loadEmbeddingQueue,
+    hostSearchVectors: host.searchVectors,
     localModelConfigMap,
-    readEmbeddingProfile: host ? readDesktopThreadSearchProfile : undefined,
-    repository: threadSearchRepository,
+    readEmbeddingProfile: readDesktopThreadSearchProfile,
     resourceId,
-    searchHost: host?.searchThreads?.bind(host),
+    searchHost: host.searchThreads?.bind(host),
   });
-  const searchResultTitles = useThreadSearchTitles(threadSearchRepository, resourceId, host);
-  const selectSearchResult = useThreadSearchResultNavigation(
-    threadSearchRepository,
-    resourceId,
-    host
-  );
+  const searchResultTitles = useThreadSearchTitles(resourceId, host);
+  const selectSearchResult = useThreadSearchResultNavigation(resourceId, host);
   const searchActive = useThreadSearchStore((state) => state.status !== 'idle');
   // The count and the select-visible toggle describe the treegrid. Withdraw
   // them whenever something else stands in for it — a state card, or search
@@ -1967,54 +1929,31 @@ export function ThreadsPanelCore({
     selectThread(resourceId, threadId);
   };
   const handleRenameThread = async (threadId: string, title: string): Promise<void> => {
-    if (!(repository && resourceId)) {
-      return;
-    }
     await renameThread(repository, resourceId, threadId, title);
   };
   const handleDeleteThread = async (threadId: string): Promise<void> => {
-    if (!(repository && resourceId)) {
-      return;
-    }
     await deleteThread(repository, resourceId, threadId);
     // The placement row is inert once the thread is gone; clear it so the
     // placements table does not accumulate orphans.
     if (groupsRepository && placementsByThreadId[threadId]) {
       await removeThreadPlacement(groupsRepository, threadId);
     }
-    // Native repositories atomically clear the entire delegated subtree.
-    // Also clear requested IDs for adapters without that native cascade.
-    if (threadSearchRepository) {
-      await threadSearchRepository.deleteThreads([threadId]);
-    }
   };
   const handleUpdateThreadAppearance = async (
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ): Promise<void> => {
-    if (!(repository && resourceId)) {
-      return;
-    }
     await updateThreadAppearance(repository, resourceId, threadId, patch);
   };
   const handleBulkColor = async (
     threadIds: readonly string[],
     color: AssistantThreadColorId
   ): Promise<void> => {
-    if (!repository) {
-      throw new Error('Assistant memory database unavailable.');
-    }
     await updateThreadsMetadata(repository, resourceId, threadIds, { color });
   };
   const handleBulkDelete = async (threadIds: readonly string[]): Promise<void> => {
-    if (!repository) {
-      throw new Error('Assistant memory database unavailable.');
-    }
     await deleteThreads(repository, resourceId, threadIds);
     pruneDeletedThreadPlacements(threadIds);
-    if (threadSearchRepository) {
-      await threadSearchRepository.deleteThreads(threadIds);
-    }
   };
   const handleBulkMove = async (
     threadIds: readonly string[],
@@ -2130,7 +2069,7 @@ export function ThreadsPanelCore({
   useThreadsPanelDropMonitor(handlePanelDrop);
 
   useEffect(() => {
-    if (!(repository && resourceId) || hasFactoryResetPreparationStarted()) {
+    if (hasFactoryResetPreparationStarted()) {
       return;
     }
     ensureResourceThreads(repository, resourceId).catch(() => {
@@ -2158,18 +2097,11 @@ export function ThreadsPanelCore({
         groupBy={groupBy}
         hasPrFilterAvailable={hasPrFilterAvailable}
         newGroupDisabled={!groupsRepository}
-        newThreadDisabled={!(repository && resourceId) || loadState?.status === 'loading'}
-        newThreadTitle={
-          repository
-            ? 'Create a new Mastra memory thread for this workspace.'
-            : 'The assistant memory database is still initializing.'
-        }
+        newThreadDisabled={loadState?.status === 'loading'}
+        newThreadTitle="Create a new Mastra memory thread for this workspace."
         onClearThreadFilters={clearThreadFilters}
         onCreateGroup={handleCreateGroup}
         onCreateThread={() => {
-          if (!(repository && resourceId)) {
-            return;
-          }
           createThread(repository, resourceId).catch(() => {
             // The store records the explicit error state; no fallback thread source is used.
           });
@@ -2228,8 +2160,6 @@ export function ThreadsPanelCore({
         <ThreadsPanelContent
           activeThreadIds={activeThreads.threadIds}
           branchLookup={branchLookup}
-          databaseError={databaseError}
-          databaseStartupLoading={databaseStartupLoading}
           failedUnseenThreadIds={unseenThreadIds.failedUnseen}
           folderGrouping={folderGroupingState}
           forgePrLookup={forgePrLookup}
@@ -2284,7 +2214,6 @@ export function ThreadsPanelCore({
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           onUpdateThreadAppearance={handleUpdateThreadAppearance}
-          repository={repository}
           selectedThreadId={selectedThreadId}
           selection={selection}
           threadFiltersActive={threadFiltersActive}
@@ -2297,23 +2226,18 @@ export function ThreadsPanelCore({
   );
 }
 
-const WebThreadsPanel = lazy(() =>
-  import('./threads-panel-web').then((module) => ({ default: module.WebThreadsPanel }))
-);
-export function ThreadsPanel(props: ThreadsPanelProps = {}): ReactElement {
+export function ThreadsPanel(): ReactElement {
   const host = useAssistantThreadHost();
-  return host ? (
-    <HostThreadsPanel {...props} host={host} />
-  ) : (
-    <Suspense fallback={<div role="status">Loading conversations.</div>}>
-      <WebThreadsPanel {...props} />
-    </Suspense>
-  );
+  if (!host) {
+    return <div role="alert">Assistant thread host unavailable</div>;
+  }
+  return <HostThreadsPanel host={host} />;
 }
 function HostThreadsPanel({
   host,
-  ...props
-}: ThreadsPanelProps & { readonly host: AssistantThreadHostCapability }): ReactElement {
+}: {
+  readonly host: AssistantThreadHostCapability;
+}): ReactElement {
   const repository = useMemo(() => createHostAssistantThreadRepository(host), [host]);
   const capability = getThreadGroupsCapability();
   const groupsRepository = useMemo(
@@ -2340,14 +2264,10 @@ function HostThreadsPanel({
   }
   return (
     <ThreadsPanelCore
-      {...props}
       activeThreads={activeThreads}
-      database={null}
-      databaseError={null}
-      databaseStartupLoading={false}
       groupsRepository={groupsRepository}
+      host={host}
       repository={repository}
-      threadSearchRepository={null}
       threadsAwaitingApproval={threadsAwaitingApproval}
     />
   );

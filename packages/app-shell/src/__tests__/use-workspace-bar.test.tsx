@@ -10,7 +10,6 @@ import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { WorkspaceBarBranchMenu } from '@brainstrike/assistant-ui';
 import type { ActionOutcome } from '@brainstrike/context-actions';
-import type { DbHandle } from '@brainstrike/db/react';
 import { revealLabel } from '@brainstrike/file-explorer-ui/context-actions';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -130,13 +129,6 @@ const THREAD_ID = 'thread-1';
 // rootIds above (`adapter-*`) and from the descriptor id below: the two id
 // spaces share only the path, and everything downstream of this hook
 // (window.git.status, secondaryRootIds) speaks the DB space.
-const ROOT_ID_BY_PATH: Readonly<Record<string, string>> = {
-  '/managed/brainstrike/bright-fox': 'r-worktree-db',
-  '/ws/alpha': 'r-alpha-db',
-  '/ws/brainstrike': 'r-main-db',
-  '/ws/docs': 'r-docs',
-  '/ws/site': 'r-site',
-};
 const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: string }>> = {
   'r-alpha-db': { displayName: 'alpha', path: '/ws/alpha' },
   'r-docs': { displayName: 'docs', path: '/ws/docs' },
@@ -150,39 +142,22 @@ const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: strin
 // How many times the live-root probe for a path must MISS before the row
 // appears — models roots reconciliation writing the row after the add resolves.
 const liveRootMisses = new Map<string, number>();
-// Read by the shared `query` mock below; `openLiveRootGate` (the only setter)
+// Read by the shared `readRoots` mock below; `openLiveRootGate` (the only setter)
 // moved to use-workspace-bar-add-folder.test.tsx with its one caller — no
 // test left in this file ever opens the gate, so it stays permanently null.
 let liveRootGate: { promise: Promise<void>; release: () => void } | null = null;
 
-const isSecondaryLookup = (sql: unknown) => typeof sql === 'string' && sql.includes('= ANY');
-
-const query = vi.fn(async (sql: string, params?: unknown[]) => {
-  if (sql.includes('FROM roots') && sql.includes('= ANY')) {
-    const ids = (params?.[0] ?? []) as readonly string[];
-    return {
-      rows: ids.flatMap((id) => {
-        const row = ROOT_ROW_BY_ID[id];
-        return row ? [{ displayName: row.displayName, id, path: row.path, status: 'live' }] : [];
-      }),
-    };
+// The recorded roots as Main's catalog returns them: every row at once, a root
+// the test marks as missing is simply absent.
+const readRoots = vi.fn(async () => {
+  if (liveRootGate) {
+    await liveRootGate.promise;
   }
-  if (sql.includes('FROM roots')) {
-    if (liveRootGate) {
-      await liveRootGate.promise;
-    }
-    // PATH-specific on purpose: an "add folder" test must not pass by
-    // resolving some other root's row.
-    const path = params?.[0] as string;
-    const misses = liveRootMisses.get(path) ?? 0;
-    if (misses > 0) {
-      liveRootMisses.set(path, misses - 1);
-      return { rows: [] };
-    }
-    const id = ROOT_ID_BY_PATH[path];
-    return { rows: id ? [{ id }] : [] };
-  }
-  return { rows: [] };
+  return Object.entries(ROOT_ROW_BY_ID).flatMap(([id, row]) =>
+    (liveRootMisses.get(row.path) ?? 0) > 0
+      ? []
+      : [{ displayName: row.displayName, id, path: row.path, status: 'live' }]
+  );
 });
 // The store action forwards to `repository.updateThreadMetadata(threadId,
 // metadata)`, so this spy sees the REPOSITORY signature — which is exactly the
@@ -195,7 +170,6 @@ const realUpdateThreadMetadata = useAssistantThreadStore.getState().updateThread
 // Hoisted on purpose: the wrapper passes store/context references, which are
 // stable across renders. Fresh literals per render would only exercise a
 // caller-side identity bug, not this hook.
-const database = { query } as unknown as DbHandle;
 const assistantThreadRepository = {
   updateThreadMetadata,
 } as unknown as AssistantThreadRepository;
@@ -294,7 +268,6 @@ async function setup(
       useWorkspaceBar({
         assistantThreadRepository,
         currentMainRoot,
-        database,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors: props.rootDescriptors ?? rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
@@ -342,7 +315,11 @@ beforeEach(() => {
   loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
   loggerMock.warn.mockClear();
-  query.mockClear();
+  readRoots.mockClear();
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
   updateThreadMetadata.mockClear();
   fs.addRootDirectory.mockReset();
   fs.addRootDirectory.mockImplementation(async () => {
@@ -379,6 +356,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.deleteProperty(window, 'threadGroups');
   Reflect.deleteProperty(window, 'platform');
   Reflect.deleteProperty(window, 'worktrees');
   vi.useRealTimers();
@@ -728,16 +706,16 @@ describe('useWorkspaceBar', () => {
     });
   });
 
-  it('does not re-query the roots table when a thread refresh yields the same secondary ids', async () => {
+  it('does not re-read the roots when a thread refresh yields the same secondary ids', async () => {
     const { result } = await setup({ secondaryRootIds: ['r-docs'] });
     await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(1));
-    const before = query.mock.calls.filter((call) => isSecondaryLookup(call[0])).length;
+    const before = readRoots.mock.calls.length;
     // A fresh thread object carrying an EQUAL id list — identity churn only.
     await act(async () => {
       seedThread({ secondaryRootIds: ['r-docs'] });
     });
     await act(async () => {});
-    expect(query.mock.calls.filter((call) => isSecondaryLookup(call[0])).length).toBe(before);
+    expect(readRoots.mock.calls.length).toBe(before);
   });
 
   it('Make primary re-binds the thread (not global MAIN) and demotes the old primary to a secondary', async () => {

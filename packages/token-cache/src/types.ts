@@ -169,3 +169,12 @@ export interface TokenWorkerResponseError {
   requestId: string;
   type: 'error';
 }
+
+/** The cache operations the token hooks use; the explorer supplies an in-memory store. */
+export interface TokenCacheStoreLike {
+  get(folderId: string, filePath: string): Promise<TokenCacheEntry | null>;
+  getAllForFolder(folderId: string): Promise<TokenCacheEntry[]>;
+  getBatch(folderId: string, filePaths: string[]): Promise<Map<string, TokenCacheEntry>>;
+  getTotalTokens(folderId: string, filePaths: string[]): Promise<number>;
+  set(entry: TokenCacheEntry): Promise<void>;
+}

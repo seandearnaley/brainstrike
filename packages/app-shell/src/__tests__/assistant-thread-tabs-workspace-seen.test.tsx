@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import {
   activeThreadId,
-  dbMocks,
   finishRun,
   openThreadTabs,
   refreshThreadList,
@@ -132,21 +131,6 @@ describe('AssistantThreadTabsWorkspace seen state', () => {
 
     expect(screen.getByRole('tab', { name: `${ACTIVE_TITLE}, finished` })).toBeInTheDocument();
     expect(watermark('thread-a')).toBeUndefined();
-  });
-
-  it('publishes nothing while the database gate replaces the transcript, even in a focused window', () => {
-    focusWindow();
-    useAssistantThreadStore.setState({
-      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-a' },
-      openThreadIdsByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: ['thread-a'] },
-    });
-    dbMocks.database = null;
-    dbMocks.providerError = new Error('PGlite startup failed.');
-
-    renderWorkspace();
-
-    expect(screen.getByText('Memory database failed')).toBeInTheDocument();
-    expect(onScreenThreadId()).toBeNull();
   });
 
   // The loading card replaces the panels only with NO open tab (and then there

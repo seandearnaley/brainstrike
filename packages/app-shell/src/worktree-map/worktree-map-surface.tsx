@@ -1,7 +1,7 @@
 /**
  * The Worktree Map screen (spec §10, [D11]). Zero props, like `ChangesSurface`:
  * the desktop wrapper renders `<WorktreeMapSurface />` and this component
- * resolves the database, the resource, the running-thread set and the thread
+ * resolves the resource, the running-thread set and the thread
  * actions from context. Every mutation it can trigger goes through a seam that
  * already exists — the checkout-intent store, the thread store, the durable
  * indexing setter, the platform bridge — so the Map owns only ephemeral collection-view state.
@@ -9,12 +9,10 @@
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
   type AssistantThreadCatalogRepository,
-  createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { WorktreeArchiveConfirmationDialog } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import type { ReactElement } from 'react';
@@ -22,12 +20,12 @@ import { useMemo, useRef, useState } from 'react';
 import {
   createHostAssistantThreadRepository,
   useAssistantThreadHost,
+  useAssistantThreadHostRuns,
 } from '../assistant-thread-host-context';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
-import { useActiveAssistantThreadIds } from '../use-active-assistant-thread-ids';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import { useWorktreeMap } from './use-worktree-map';
 import { useWorktreeMapCardActions } from './use-worktree-map-card-actions';
@@ -48,9 +46,7 @@ export function WorktreeMapSurface(): ReactElement {
   const [page, setPage] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const host = useAssistantThreadHost();
-  const database = usePGliteDatabase({ enabled: !host });
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
-  const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
   );
@@ -62,16 +58,10 @@ export function WorktreeMapSurface(): ReactElement {
   );
   const publishIntent = useWorktreeCheckoutIntentStore((state) => state.publish);
   // Committed mode creates the thread through the host's existing thread
-  // owner, exactly as the threads panel does; with no host the history
-  // repository is returned unchanged.
+  // owner, exactly as the threads panel does.
   const repository = useMemo<AssistantThreadCatalogRepository | null>(
-    () =>
-      host
-        ? createHostAssistantThreadRepository(host)
-        : database
-          ? createPgliteAssistantThreadRepository(database)
-          : null,
-    [database, host]
+    () => (host ? createHostAssistantThreadRepository(host) : null),
+    [host]
   );
   const platform = useMemo(() => resolvePlatformBridge(), []);
   // The capability IS the gate — resolved once, not per render, exactly like
@@ -81,13 +71,15 @@ export function WorktreeMapSurface(): ReactElement {
   const worktrees = useMemo(() => resolveWorktreesBridge(), []);
   // Desktop-only, `undefined` on web (`use-workspace-bar.ts:918` is the precedent).
   const addRootDirectoryByPath = useFileSystem().addRootDirectoryByPath;
-  const { threadIds: runningThreadIds } = useActiveAssistantThreadIds({
-    database,
-    resourceId,
-    schemaReady: Object.hasOwn(threadsByResourceId, resourceId),
-  });
+  const hostRuns = useAssistantThreadHostRuns();
+  const runningThreadIds = useMemo(
+    () =>
+      new Set(
+        [...hostRuns].filter(([, run]) => run.status === 'running').map(([threadId]) => threadId)
+      ),
+    [hostRuns]
+  );
   const { error, loading, refresh, repositories, statusByPath } = useWorktreeMap({
-    database,
     resourceId,
     runningThreadIds,
   });

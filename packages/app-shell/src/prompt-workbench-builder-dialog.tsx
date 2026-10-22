@@ -1,4 +1,4 @@
-import type { PromptItem } from '@brainstrike/db';
+import type { PromptItem } from '@brainstrike/types/prompt-item';
 import {
   Badge,
   Button,

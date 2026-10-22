@@ -1,4 +1,4 @@
-import { buildPromptItemEmbeddingText, type PromptItem } from '@brainstrike/db';
+import { buildPromptItemEmbeddingText, type PromptItem } from '@brainstrike/types/prompt-item';
 import { describe, expect, it, vi } from 'vitest';
 import {
   embedPendingPromptItems,

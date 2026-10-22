@@ -5,9 +5,6 @@ import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPrepareFactoryReset = vi.fn<() => Promise<void>>(async () => {});
-const mockToast = vi.fn();
-const mockUseToast = vi.fn(() => ({ toast: mockToast }));
-const mockUseFactoryReset = vi.fn(() => null);
 const mockClearPersistentUiState = vi.fn<() => Promise<ClearPersistentUiStateResult>>(() =>
   Promise.resolve({
     failures: [],
@@ -25,15 +22,6 @@ const mockClearPersistentUiStateIncompleteError = class extends Error {
 };
 
 // Mock dependencies
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useFactoryReset: mockUseFactoryReset,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useFactoryReset: mockUseFactoryReset,
-}));
-
 vi.mock('@brainstrike/ui', () => ({
   Button: ({ children, onClick, disabled, ...props }: React.ComponentProps<'button'>) => (
     <button disabled={disabled} onClick={onClick} {...props}>
@@ -43,7 +31,6 @@ vi.mock('@brainstrike/ui', () => ({
   Label: ({ children, className }: { children: React.ReactNode; className?: string }) => (
     <div className={className}>{children}</div>
   ),
-  useToast: mockUseToast,
 }));
 
 vi.mock('@brainstrike/app-state/factory-reset', () => ({
@@ -58,6 +45,14 @@ const { FactoryResetPanel } = await import('../settings/system/factory-reset-pan
 // Mock window.location.reload at the module level
 const mockReload = vi.fn();
 const originalLocation = window.location;
+
+function installDesktopReset(resetLocal: () => Promise<{ message?: string; success: boolean }>) {
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: { factoryReset: { resetLocal } },
+    writable: true,
+  });
+}
 
 describe('FactoryResetPanel', () => {
   let mockConfirm: Mock<(message?: string) => boolean>;
@@ -90,7 +85,6 @@ describe('FactoryResetPanel', () => {
 
     // Reset default mocks
     mockPrepareFactoryReset.mockResolvedValue(undefined);
-    mockUseFactoryReset.mockReturnValue(null);
     mockClearPersistentUiState.mockResolvedValue({
       failures: [],
       success: true,
@@ -102,9 +96,8 @@ describe('FactoryResetPanel', () => {
     mockConfirm.mockReturnValue(true);
   });
 
-  it('disables an explicitly unavailable desktop reset without using the database reset', () => {
+  it('disables an explicitly unavailable desktop reset', () => {
     const resetLocal = vi.fn(async () => ({ success: true }));
-    const resetDatabase = vi.fn(async () => {});
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
       value: {
@@ -115,7 +108,7 @@ describe('FactoryResetPanel', () => {
       },
       writable: true,
     });
-    render(<FactoryResetPanel doFactoryReset={resetDatabase} />);
+    render(<FactoryResetPanel />);
     expect(
       screen.getByText('Factory reset is unavailable on Windows in this version.')
     ).toBeVisible();
@@ -125,7 +118,6 @@ describe('FactoryResetPanel', () => {
     expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
     expect(mockClearPersistentUiState).not.toHaveBeenCalled();
     expect(resetLocal).not.toHaveBeenCalled();
-    expect(resetDatabase).not.toHaveBeenCalled();
   });
 
   it('joins renderer preparation before clearing stores or calling desktop reset', async () => {
@@ -138,7 +130,6 @@ describe('FactoryResetPanel', () => {
       writable: true,
     });
     render(<FactoryResetPanel />);
-    expect(mockUseFactoryReset).toHaveBeenCalledWith({ enabled: false });
     fireEvent.click(screen.getByTestId('factory-reset-button'));
     expect(mockClearPersistentUiState).not.toHaveBeenCalled();
     expect(resetLocal).not.toHaveBeenCalled();
@@ -176,9 +167,7 @@ describe('FactoryResetPanel', () => {
       expect(screen.getByText('Factory Reset Brainstrike')).toBeInTheDocument();
     });
 
-    it('shows warning when no reset function is available', () => {
-      mockUseFactoryReset.mockReturnValue(null);
-
+    it('shows warning when no desktop reset bridge is available', () => {
       render(<FactoryResetPanel />);
 
       expect(
@@ -189,22 +178,10 @@ describe('FactoryResetPanel', () => {
       expect(screen.getByTestId('factory-reset-button')).toBeDisabled();
     });
 
-    it('hides warning when provider reset is available', () => {
-      const mockProviderReset = vi.fn();
-      mockUseFactoryReset.mockReturnValue(mockProviderReset as never);
+    it('hides warning when the desktop reset bridge is available', () => {
+      installDesktopReset(vi.fn(async () => ({ success: true })));
 
       render(<FactoryResetPanel />);
-
-      expect(
-        screen.queryByText(
-          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./
-        )
-      ).not.toBeInTheDocument();
-    });
-
-    it('hides warning when doFactoryReset prop is provided', () => {
-      const mockDoFactoryReset = vi.fn();
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
 
       expect(
         screen.queryByText(
@@ -217,10 +194,10 @@ describe('FactoryResetPanel', () => {
   describe('user interactions', () => {
     it('shows confirmation dialog when button is clicked', () => {
       mockConfirm.mockReturnValue(false);
-      render(<FactoryResetPanel doFactoryReset={vi.fn().mockResolvedValue(undefined)} />);
+      installDesktopReset(vi.fn(async () => ({ success: true })));
+      render(<FactoryResetPanel />);
 
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       expect(mockConfirm).toHaveBeenCalledWith(
         'Factory Reset will irreversibly delete local files, chunks, embeddings, queues, stored folders, API keys, tool settings, model/runtime caches, and UI state from this device. Diagnostic logs may be preserved. Continue?'
@@ -229,46 +206,27 @@ describe('FactoryResetPanel', () => {
 
     it('does not proceed when user cancels confirmation', async () => {
       mockConfirm.mockReturnValue(false);
-      const mockDoFactoryReset = vi.fn();
+      const resetLocal = vi.fn(async () => ({ success: true }));
+      installDesktopReset(resetLocal);
 
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
+      render(<FactoryResetPanel />);
 
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       await waitFor(() => {
-        expect(mockDoFactoryReset).not.toHaveBeenCalled();
+        expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
+        expect(resetLocal).not.toHaveBeenCalled();
         expect(mockReload).not.toHaveBeenCalled();
       });
     });
   });
 
-  describe('reset flow with doFactoryReset prop', () => {
-    it('uses doFactoryReset prop when provided', async () => {
-      const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
-
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
-
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
-
-      await waitFor(() => {
-        expect(mockDoFactoryReset).toHaveBeenCalled();
-        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
-        expect(mockReload).toHaveBeenCalled();
-      });
-    });
-
+  describe('desktop reset flow', () => {
     it('disables button while reset is running', async () => {
-      let resolveReset: (() => void) | undefined;
-      const mockDoFactoryReset = vi.fn().mockImplementation(
-        () =>
-          new Promise<void>((resolve) => {
-            resolveReset = resolve;
-          })
-      );
+      const reset = Promise.withResolvers<{ success: boolean }>();
+      installDesktopReset(vi.fn(() => reset.promise));
 
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
+      render(<FactoryResetPanel />);
 
       const button = screen.getByTestId('factory-reset-button') as HTMLButtonElement;
       expect(button.disabled).toBe(false);
@@ -278,42 +236,17 @@ describe('FactoryResetPanel', () => {
       await waitFor(() => {
         expect(button.disabled).toBe(true);
       });
-      if (!resolveReset) {
-        throw new Error('Expected factory reset promise resolver to be captured');
-      }
-      resolveReset();
+      reset.resolve({ success: true });
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
       });
     });
 
-    it('clears UI state after reset completes', async () => {
-      const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
-
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
-
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
-
-      await waitFor(() => {
-        expect(mockDoFactoryReset).toHaveBeenCalled();
-      });
-
-      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
-    });
-
     it('clears renderer storage before the desktop reset bridge purges userData', async () => {
       const resetLocal = vi.fn().mockResolvedValue({ success: true });
-      Object.defineProperty(window, 'electronAPI', {
-        configurable: true,
-        value: {
-          factoryReset: { resetLocal },
-        },
-        writable: true,
-      });
-      mockUseFactoryReset.mockReturnValue(null);
+      installDesktopReset(resetLocal);
 
-      render(<FactoryResetPanel doFactoryReset={null} />);
+      render(<FactoryResetPanel />);
 
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
@@ -330,20 +263,14 @@ describe('FactoryResetPanel', () => {
     });
 
     it('reloads after a desktop reset bridge failure once renderer storage has already cleared', async () => {
-      const resetLocal = vi.fn().mockResolvedValue({
-        message: 'desktop reset failed',
-        success: false,
-      });
-      Object.defineProperty(window, 'electronAPI', {
-        configurable: true,
-        value: {
-          factoryReset: { resetLocal },
-        },
-        writable: true,
-      });
-      mockUseFactoryReset.mockReturnValue(null);
+      installDesktopReset(
+        vi.fn().mockResolvedValue({
+          message: 'desktop reset failed',
+          success: false,
+        })
+      );
 
-      render(<FactoryResetPanel doFactoryReset={null} />);
+      render(<FactoryResetPanel />);
 
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
@@ -352,7 +279,6 @@ describe('FactoryResetPanel', () => {
       });
 
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-      expect(mockToast).not.toHaveBeenCalled();
     });
 
     it('attempts the desktop reset bridge before failing incomplete renderer storage cleanup', async () => {
@@ -369,21 +295,14 @@ describe('FactoryResetPanel', () => {
         ],
         success: false,
       });
-      Object.defineProperty(window, 'electronAPI', {
-        configurable: true,
-        value: {
-          factoryReset: { resetLocal },
-        },
-        writable: true,
-      });
+      installDesktopReset(resetLocal);
       Object.defineProperty(window, 'desktopLifecycle', {
         configurable: true,
         value: { noteReloadIntent },
         writable: true,
       });
-      mockUseFactoryReset.mockReturnValue(null);
 
-      render(<FactoryResetPanel doFactoryReset={null} />);
+      render(<FactoryResetPanel />);
 
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
@@ -400,16 +319,14 @@ describe('FactoryResetPanel', () => {
       }
       expect(clearOrder).toBeLessThan(resetOrder);
       expect(noteReloadIntent).toHaveBeenCalledWith('factory-reset-failed-after-renderer-clear');
-      expect(mockToast).not.toHaveBeenCalled();
     });
 
     it('reloads the page after successful reset', async () => {
-      const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
+      installDesktopReset(vi.fn().mockResolvedValue({ success: true }));
 
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
+      render(<FactoryResetPanel />);
 
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
@@ -417,142 +334,42 @@ describe('FactoryResetPanel', () => {
     });
 
     it('swallows reload errors and continues', async () => {
-      const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
+      installDesktopReset(vi.fn().mockResolvedValue({ success: true }));
       mockReload.mockImplementation(() => {
         throw new Error('Reload failed');
       });
 
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
+      render(<FactoryResetPanel />);
 
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
       });
-
-      // Should not show toast error for reload failures
-      expect(mockToast).not.toHaveBeenCalled();
     });
-  });
 
-  describe('reset flow with provider reset', () => {
-    it('uses provider reset when doFactoryReset prop is null', async () => {
-      const mockProviderReset = vi.fn().mockResolvedValue(undefined);
-      mockUseFactoryReset.mockReturnValue(mockProviderReset as never);
+    it('reloads when clearing renderer storage fails after reset work starts', async () => {
+      installDesktopReset(vi.fn().mockResolvedValue({ success: true }));
+      mockClearPersistentUiState.mockRejectedValue(new Error('Failed to clear UI state'));
 
-      render(<FactoryResetPanel doFactoryReset={null} />);
+      render(<FactoryResetPanel />);
 
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       await waitFor(() => {
-        expect(mockProviderReset).toHaveBeenCalled();
-        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
         expect(mockReload).toHaveBeenCalled();
       });
     });
-
-    it('prefers doFactoryReset prop over provider reset', async () => {
-      const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
-      const mockProviderReset = vi.fn().mockResolvedValue(undefined);
-      mockUseFactoryReset.mockReturnValue(mockProviderReset as never);
-
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
-
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
-
-      await waitFor(() => {
-        expect(mockDoFactoryReset).toHaveBeenCalled();
-        expect(mockProviderReset).not.toHaveBeenCalled();
-      });
-    });
   });
 
-  describe('reset flow without any reset function', () => {
-    it('does not offer a UI-only fallback when no reset function is available', async () => {
-      mockUseFactoryReset.mockReturnValue(null);
+  describe('reset flow without a desktop reset bridge', () => {
+    it('does not offer a UI-only fallback', () => {
+      render(<FactoryResetPanel />);
 
-      render(<FactoryResetPanel doFactoryReset={null} />);
-
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockClearPersistentUiState).not.toHaveBeenCalled();
-      expect(mockReload).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('error handling', () => {
-    it('shows error toast when reset fails', async () => {
-      const mockError = new Error('Reset failed');
-      const mockDoFactoryReset = vi.fn().mockRejectedValue(mockError);
-
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
-
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
-
-      await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
-          description: 'Error: Reset failed',
-          title: 'Factory Reset Failed',
-          variant: 'destructive',
-        });
-      });
-    });
-
-    it('re-enables button after reset fails', async () => {
-      const mockError = new Error('Reset failed');
-      const mockDoFactoryReset = vi.fn().mockRejectedValue(mockError);
-
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
-
-      const button = screen.getByTestId('factory-reset-button') as HTMLButtonElement;
-      fireEvent.click(button);
-
-      // Button should be disabled during reset
-      await waitFor(() => {
-        expect(button.disabled).toBe(true);
-      });
-
-      // Button should be re-enabled after error
-      await waitFor(() => {
-        expect(button.disabled).toBe(false);
-      });
-    });
-
-    it('reloads without toast when clearPersistentUiState fails after reset work starts', async () => {
-      const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
-      const mockError = new Error('Failed to clear UI state');
-      mockClearPersistentUiState.mockRejectedValue(mockError);
-
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
-
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
-
-      await waitFor(() => {
-        expect(mockReload).toHaveBeenCalled();
-      });
-      expect(mockToast).not.toHaveBeenCalled();
-    });
-
-    it('does not reload page when reset fails', async () => {
-      const mockError = new Error('Reset failed');
-      const mockDoFactoryReset = vi.fn().mockRejectedValue(mockError);
-
-      render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
-
-      const button = screen.getByTestId('factory-reset-button');
-      fireEvent.click(button);
-
-      await waitFor(() => {
-        expect(mockToast).toHaveBeenCalled();
-      });
-
       expect(mockReload).not.toHaveBeenCalled();
     });
   });

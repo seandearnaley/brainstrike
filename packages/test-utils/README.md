@@ -42,5 +42,5 @@ in [`src`](src/) and the declared setup/reporter files.
 
 Use the package's existing scripts for changes to these helpers. Validation
 selection and failure/quarantine policy live in
-[one validation guide](../../docs/agents/ci-quality.md), rather than another
+`pnpm check`, rather than another
 package-specific test campaign.

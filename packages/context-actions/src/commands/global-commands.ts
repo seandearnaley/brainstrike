@@ -18,11 +18,6 @@ export interface GlobalCommandHandlers {
    * web too (the FSA picker), so this command is never desktop-gated.
    */
   readonly openFolder?: () => void | Promise<void>;
-  /**
-   * Open the ⌘P quick-open palette. Wired in PR-6.3; until the app supplies
-   * this handler the command stays hidden (capability-gated out, not faked).
-   */
-  readonly openQuickOpen?: () => void | Promise<void>;
   /** Navigate to the Settings surface. */
   readonly openSettings?: () => void | Promise<void>;
   /** Toggle the light/dark theme. */
@@ -57,7 +52,7 @@ async function runHandler(
  * never offers an action the app cannot perform.
  */
 export function createGlobalCommands(handlers: GlobalCommandHandlers): readonly RunCommand[] {
-  const { newThread, openFolder, openQuickOpen, openSettings, toggleTheme } = handlers;
+  const { newThread, openFolder, openSettings, toggleTheme } = handlers;
 
   return [
     {
@@ -83,15 +78,6 @@ export function createGlobalCommands(handlers: GlobalCommandHandlers): readonly 
       keywords: ['dark', 'light', 'appearance'],
       label: 'Toggle Theme',
       run: () => runHandler('Toggle Theme', toggleTheme ?? noop),
-    },
-    {
-      group: 'navigate',
-      id: 'palette.quickOpen',
-      // Hidden until PR-6.3 supplies the handler — not a fake no-op item.
-      isAvailable: () => openQuickOpen !== undefined,
-      keywords: ['file', 'goto', 'jump'],
-      label: 'Quick Open…',
-      run: () => runHandler('Quick Open', openQuickOpen ?? noop),
     },
     {
       group: 'navigate',

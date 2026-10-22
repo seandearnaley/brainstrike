@@ -6,11 +6,10 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
-import type { ThreadSearchRepository } from '@brainstrike/db';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
   type AssistantThreadHostCapability,
@@ -65,40 +64,29 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 const {
-  dbMocks,
   fileExplorerMocks,
+  fixture,
   gitMocks,
   groupRows,
-  mockDb,
+  hostMocks,
   placementRows,
   rootRows,
+  runMocks,
   threadRows,
 } = vi.hoisted(() => ({
-  dbMocks: {
-    activeRunError: null as Error | null,
-    activeRunQueryEnabled: [] as boolean[],
-    activeRunRows: [] as Record<string, unknown>[],
-    activeRunSweepError: null as Error | null,
-    awaitingApprovalError: null as Error | null,
-    awaitingApprovalRows: [] as Record<string, unknown>[],
-    database: undefined as unknown,
-    deleteFailureThreadId: null as string | null,
-    forbidDatabase: false,
-    forgePrError: null as Error | null,
-    forgePrRows: [] as Record<string, unknown>[],
-    getNavigationTitles: vi.fn<ThreadSearchRepository['getNavigationTitles']>(),
-    initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
-    initializing: false,
-    metadataFailureMessage: 'Metadata update failed in PGlite.',
-    metadataFailureThreadId: null as string | null,
-    providerError: null as Error | null,
-    rootsQueryError: null as Error | null,
-  },
   fileExplorerMocks: {
     rootDirectoryHandle: {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     } as { name: string; path: string } | null,
+  },
+  // Failure and snapshot injection for the fake host and its forge cache.
+  fixture: {
+    deleteFailureThreadId: null as string | null,
+    forgePrError: null as Error | null,
+    forgePrRows: [] as Record<string, unknown>[],
+    metadataFailureMessage: 'Metadata update failed.',
+    metadataFailureThreadId: null as string | null,
   },
   gitMocks: {
     available: true,
@@ -112,14 +100,29 @@ const {
     }[],
   },
   groupRows: [] as Record<string, unknown>[],
-  mockDb: {
-    exec: vi.fn(() => Promise.resolve()),
-    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
-      () => Promise.resolve({ rows: [] })
-    ),
+  // The default fake host's operations; their implementations are installed per test.
+  hostMocks: {
+    createThread: vi.fn<AssistantThreadHostCapability['createThread']>(),
+    deleteThread: vi.fn<AssistantThreadHostCapability['deleteThread']>(),
+    listThreads: vi.fn<AssistantThreadHostCapability['listThreads']>(),
+    ownsThread: vi.fn<AssistantThreadHostCapability['ownsThread']>(),
+    renameThread: vi.fn<AssistantThreadHostCapability['renameThread']>(),
+    updateThreadBinding: vi.fn<AssistantThreadHostCapability['updateThreadBinding']>(),
   },
   placementRows: [] as Record<string, unknown>[],
   rootRows: [] as Record<string, unknown>[],
+  // The host's committed runs, as its run-state snapshot reports them.
+  runMocks: {
+    listeners: new Set<() => void>(),
+    runs: new Map<
+      string,
+      {
+        completedAt: Date | null;
+        needsInput: boolean;
+        status: 'running';
+      }
+    >(),
+  },
   threadRows: [] as Record<string, unknown>[],
 }));
 
@@ -134,9 +137,156 @@ function parseMetadataObject(value: unknown): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+/** The runs the fixture threads last ran, as the host lists them on each thread. */
+const LATEST_RUN_ROWS = [
+  {
+    completedAt: new Date('2026-04-22T11:00:10Z'),
+    createdAt: new Date('2026-04-22T11:00:00Z'),
+    error: null,
+    id: 'run-1',
+    model: 'gpt-5.2-chat-latest',
+    modelSettings: { maxOutputTokens: 512 },
+    provider: 'openai',
+    providerOptions: { openai: { reasoningEffort: 'high' } },
+    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    runtimeKind: 'hosted',
+    startedAt: new Date('2026-04-22T11:00:00Z'),
+    status: 'completed',
+    threadId: 'thread-b',
+    turnMessageId: null,
+    updatedAt: new Date('2026-04-22T11:00:10Z'),
+  },
+  {
+    completedAt: new Date('2026-04-22T09:00:10Z'),
+    createdAt: new Date('2026-04-22T09:00:00Z'),
+    error: null,
+    id: 'run-openrouter-1',
+    model: 'openai/gpt-5.6-terra',
+    provider: 'openrouter',
+    providerOptions: { openrouter: { reasoning: { effort: 'low', summary: 'auto' } } },
+    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    runtimeKind: 'hosted',
+    startedAt: new Date('2026-04-22T09:00:00Z'),
+    status: 'completed',
+    threadId: 'thread-a',
+    turnMessageId: null,
+    updatedAt: new Date('2026-04-22T09:00:10Z'),
+  },
+] as const;
+
+/** A fixture row as the host lists it: parsed metadata and the thread's latest run. */
+function toThread(row: Record<string, unknown>): AssistantMemoryThread {
+  const metadata = parseMetadataObject(row['metadata']);
+  const latestRun = LATEST_RUN_ROWS.find((run) => run.threadId === row['id']);
+  return {
+    createdAt: row['createdAt'] as Date,
+    id: String(row['id']),
+    ...(latestRun
+      ? { latestRun: latestRun as unknown as NonNullable<AssistantMemoryThread['latestRun']> }
+      : {}),
+    ...(Object.keys(metadata).length > 0
+      ? { metadata: metadata as NonNullable<AssistantMemoryThread['metadata']> }
+      : {}),
+    resourceId: String(row['resourceId']),
+    title: String(row['title']),
+    updatedAt: row['updatedAt'] as Date,
+  };
+}
+
+/** Replaces the host's run-state snapshot and notifies its subscribers. */
+function setHostRuns(running: readonly string[], needsInput: readonly string[] = []): void {
+  runMocks.runs = new Map(
+    running.map((threadId) => [
+      threadId,
+      { completedAt: null, needsInput: needsInput.includes(threadId), status: 'running' as const },
+    ])
+  );
+  for (const listener of runMocks.listeners) {
+    listener();
+  }
+}
+
+/** The groups capability Main exposes, over the fixture's group and placement rows. */
+async function handleThreadGroupsRequest(input: {
+  readonly operation: string;
+  readonly [key: string]: unknown;
+}): Promise<{ groups: Record<string, unknown>[]; placements: Record<string, unknown>[] }> {
+  const groupById = (groupId: unknown) => groupRows.find((row) => row['id'] === groupId);
+  switch (input.operation) {
+    case 'create':
+      groupRows.push({ ...(input['group'] as Record<string, unknown>) });
+      break;
+    case 'delete': {
+      const index = groupRows.findIndex((row) => row['id'] === input['groupId']);
+      if (index >= 0) {
+        groupRows.splice(index, 1);
+      }
+      for (const placement of placementRows) {
+        if (placement['groupId'] === input['groupId']) {
+          placement['groupId'] = null;
+        }
+      }
+      break;
+    }
+    case 'rename': {
+      const group = groupById(input['groupId']);
+      if (group) {
+        group['name'] = input['name'];
+      }
+      break;
+    }
+    case 'color': {
+      const group = groupById(input['groupId']);
+      if (group) {
+        group['color'] = input['color'] ?? null;
+      }
+      break;
+    }
+    case 'icon': {
+      const group = groupById(input['groupId']);
+      if (group) {
+        group['icon'] = input['icon'] ?? null;
+      }
+      break;
+    }
+    case 'ranks':
+      for (const entry of input['entries'] as readonly { groupId: string; rank: string }[]) {
+        const group = groupById(entry.groupId);
+        if (group) {
+          group['rank'] = entry.rank;
+        }
+      }
+      break;
+    case 'placements':
+      for (const placement of input['placements'] as readonly Record<string, unknown>[]) {
+        const index = placementRows.findIndex((row) => row['threadId'] === placement['threadId']);
+        if (index >= 0) {
+          placementRows[index] = { ...placement };
+        } else {
+          placementRows.push({ ...placement });
+        }
+      }
+      break;
+    case 'clear': {
+      const threadIds = input['threadIds'] as readonly string[];
+      for (let index = placementRows.length - 1; index >= 0; index -= 1) {
+        if (threadIds.includes(String(placementRows[index]?.['threadId']))) {
+          placementRows.splice(index, 1);
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  return {
+    groups: groupRows.map((row) => ({ ...row })),
+    placements: placementRows.map((row) => ({ ...row })),
+  };
+}
+
 vi.mock('@brainstrike/db', () => ({
-  // Search returns no matches; the real controller still resolves the title
-  // batch and clears index rows when threads are deleted.
+  // Search returns no matches; the real controller still drives the host search.
   createThreadSearchService: () => ({
     searchThreads: () =>
       Promise.resolve({
@@ -150,179 +300,7 @@ vi.mock('@brainstrike/db', () => ({
         results: [],
       }),
   }),
-  ThreadSearchRepository: class {
-    readonly getNavigationTitles = dbMocks.getNavigationTitles;
-    deleteThreads(): Promise<void> {
-      return Promise.resolve();
-    }
-    fullTextSearch(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    getCoverage(): Promise<Record<string, number>> {
-      return Promise.resolve({
-        embeddableMessages: 0,
-        embeddedMessages: 0,
-        erroredMessages: 0,
-        indexedMessages: 0,
-        totalMessages: 0,
-      });
-    }
-    getEmbeddingProfile(): Promise<Record<string, unknown>> {
-      return Promise.resolve({
-        dimensions: 384,
-        distance: 'cosine',
-        id: 'default',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      });
-    }
-    listNeedingEmbedding(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    markEmbeddingError(): Promise<boolean> {
-      return Promise.resolve(true);
-    }
-    searchSimilar(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    searchThreadTitles(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    storeEmbedding(): Promise<boolean> {
-      return Promise.resolve(true);
-    }
-    sync(): Promise<Record<string, number>> {
-      return Promise.resolve({ deletedOrphans: 0, inserted: 0, refreshed: 0 });
-    }
-  },
-  useDbInitializationStatus: () => dbMocks.initializationStatus,
-  useDbInitializing: () => {
-    if (dbMocks.forbidDatabase) {
-      throw new Error('No desktop PG provider');
-    }
-    return dbMocks.initializing;
-  },
-  useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: (options?: { enabled?: boolean }) => {
-    if (options?.enabled === false) {
-      return null;
-    }
-    if (dbMocks.forbidDatabase) {
-      throw new Error('No desktop PG provider');
-    }
-    return dbMocks.database === undefined ? mockDb : dbMocks.database;
-  },
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  // Search returns no matches; the real controller still resolves the title
-  // batch and clears index rows when threads are deleted.
-  createThreadSearchService: () => ({
-    searchThreads: () =>
-      Promise.resolve({
-        metadata: {
-          ftsResultCount: 0,
-          semanticArmUsed: false,
-          titleResultCount: 0,
-          totalMs: 0,
-          vectorResultCount: 0,
-        },
-        results: [],
-      }),
-  }),
-  makeLiveQueryKey: (...parts: readonly unknown[]) => JSON.stringify(parts),
-  ThreadSearchRepository: class {
-    readonly getNavigationTitles = dbMocks.getNavigationTitles;
-    deleteThreads(): Promise<void> {
-      return Promise.resolve();
-    }
-    fullTextSearch(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    getCoverage(): Promise<Record<string, number>> {
-      return Promise.resolve({
-        embeddableMessages: 0,
-        embeddedMessages: 0,
-        erroredMessages: 0,
-        indexedMessages: 0,
-        totalMessages: 0,
-      });
-    }
-    getEmbeddingProfile(): Promise<Record<string, unknown>> {
-      return Promise.resolve({
-        dimensions: 384,
-        distance: 'cosine',
-        id: 'default',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      });
-    }
-    listNeedingEmbedding(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    markEmbeddingError(): Promise<boolean> {
-      return Promise.resolve(true);
-    }
-    searchSimilar(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    searchThreadTitles(): Promise<never[]> {
-      return Promise.resolve([]);
-    }
-    storeEmbedding(): Promise<boolean> {
-      return Promise.resolve(true);
-    }
-    sync(): Promise<Record<string, number>> {
-      return Promise.resolve({ deletedOrphans: 0, inserted: 0, refreshed: 0 });
-    }
-  },
-  useDbInitializationStatus: () => dbMocks.initializationStatus,
-  useDbInitializing: () => {
-    if (dbMocks.forbidDatabase) {
-      throw new Error('No desktop PG provider');
-    }
-    return dbMocks.initializing;
-  },
-  useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: (options?: { enabled?: boolean }) => {
-    if (options?.enabled === false) {
-      return null;
-    }
-    if (dbMocks.forbidDatabase) {
-      throw new Error('No desktop PG provider');
-    }
-    return dbMocks.database === undefined ? mockDb : dbMocks.database;
-  },
-  // Routed BY cacheKey, never by call order: the panel runs distinct live
-  // projections, including two with identical row shapes ({ threadId}), so an
-  // order-based double would happily feed the running spinners approval rows.
-  usePGliteLiveQuery: (options: { readonly cacheKey: string; readonly enabled: boolean }) => {
-    if (options.cacheKey.startsWith('["threads-awaiting-approval"')) {
-      return {
-        error: dbMocks.awaitingApprovalError,
-        loading: false,
-        refresh: vi.fn(),
-        rows: options.enabled ? dbMocks.awaitingApprovalRows : [],
-      };
-    }
-    if (options.cacheKey.startsWith('["forge-pr-cache"')) {
-      return {
-        error: dbMocks.forgePrError,
-        loading: false,
-        refresh: vi.fn(),
-        rows: options.enabled ? dbMocks.forgePrRows : [],
-      };
-    }
-    if (!options.cacheKey.startsWith('["active-assistant-thread-ids"')) {
-      throw new Error(`Unrouted thread panel live query: ${options.cacheKey}`);
-    }
-    dbMocks.activeRunQueryEnabled.push(options.enabled);
-    return {
-      error: dbMocks.activeRunError,
-      loading: false,
-      refresh: vi.fn(),
-      rows: options.enabled ? dbMocks.activeRunRows : [],
-    };
-  },
+  THREAD_SEARCH_VECTOR_THRESHOLD: 0.35,
 }));
 
 // The branch chips' inventory: `deferInitialLoad` keeps `inventory` null, the
@@ -389,8 +367,34 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
 }));
 
+/** The attached agent host: every operation runs over the fixture's in-memory rows. */
+function createDefaultHost(): AssistantThreadHostCapability {
+  return {
+    createThread: hostMocks.createThread,
+    deleteThread: hostMocks.deleteThread,
+    listThreads: hostMocks.listThreads,
+    ownsThread: hostMocks.ownsThread,
+    renameThread: hostMocks.renameThread,
+    renderThread: () => null,
+    runs: {
+      getSnapshot: () => runMocks.runs,
+      subscribe: (listener) => {
+        runMocks.listeners.add(listener);
+        return () => {
+          runMocks.listeners.delete(listener);
+        };
+      },
+    },
+    searchThreads: async () => ({ messages: [], titles: [] }),
+    updateThreadBinding: hostMocks.updateThreadBinding,
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
+  };
+}
+
 function renderThreadsPanel(
-  host?: AssistantThreadHostCapability
+  host: AssistantThreadHostCapability = createDefaultHost()
 ): ReturnType<typeof createTestActionRegistry> & { rerender(): void } {
   const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
   const view = () => (
@@ -419,16 +423,27 @@ afterEach(async () => {
 });
 
 beforeEach(() => {
-  dbMocks.forbidDatabase = false;
-  Object.defineProperty(window, 'threadGroups', { configurable: true, value: undefined });
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: {
+      readRoots: async () => ({
+        ok: true,
+        value: rootRows.map((row) => ({ ...row, status: 'live' })),
+      }),
+      request: async (input: Parameters<typeof handleThreadGroupsRequest>[0]) => ({
+        ok: true,
+        value: await handleThreadGroupsRequest(input),
+      }),
+    },
+  });
   Object.defineProperty(window, 'forge', {
     configurable: true,
     value: {
       cacheSnapshot: async () => {
-        if (dbMocks.forgePrError) {
-          throw dbMocks.forgePrError;
+        if (fixture.forgePrError) {
+          throw fixture.forgePrError;
         }
-        return { ok: true, value: dbMocks.forgePrRows };
+        return { ok: true, value: fixture.forgePrRows };
       },
       identity: vi.fn(),
       onPrUpdated: () => () => {},
@@ -444,28 +459,18 @@ beforeEach(() => {
     name: 'workspace-a',
     path: '/tmp/workspace-a',
   };
-  dbMocks.database = { exec: mockDb.exec, query: mockDb.query };
-  dbMocks.getNavigationTitles.mockReset().mockResolvedValue([]);
-  dbMocks.activeRunQueryEnabled = [];
-  dbMocks.activeRunError = null;
-  dbMocks.activeRunRows = [];
-  dbMocks.activeRunSweepError = null;
-  dbMocks.awaitingApprovalError = null;
-  dbMocks.awaitingApprovalRows = [];
-  dbMocks.forgePrError = null;
-  dbMocks.forgePrRows = [];
-  dbMocks.rootsQueryError = null;
+  fixture.deleteFailureThreadId = null;
+  fixture.forgePrError = null;
+  fixture.forgePrRows = [];
+  fixture.metadataFailureMessage = 'Metadata update failed.';
+  fixture.metadataFailureThreadId = null;
   gitMocks.available = true;
   gitMocks.deferredLoads = [];
   gitMocks.worktrees = [];
   rootRows.splice(0, rootRows.length);
+  runMocks.listeners.clear();
+  runMocks.runs = new Map();
   resetToastStore();
-  dbMocks.deleteFailureThreadId = null;
-  dbMocks.initializing = false;
-  dbMocks.initializationStatus = 'ready';
-  dbMocks.metadataFailureMessage = 'Metadata update failed in PGlite.';
-  dbMocks.metadataFailureThreadId = null;
-  dbMocks.providerError = null;
   groupRows.splice(0, groupRows.length);
   placementRows.splice(0, placementRows.length);
   useAssistantThreadGroupsStore.getState().reset();
@@ -508,251 +513,57 @@ beforeEach(() => {
       updatedAt: new Date('2026-04-22T09:00:00Z'),
     }
   );
-  mockDb.exec.mockClear();
-  mockDb.query.mockClear();
-  const latestRunRows = [
-    {
-      completedAt: new Date('2026-04-22T11:00:10Z'),
-      createdAt: new Date('2026-04-22T11:00:00Z'),
-      error: null,
-      id: 'run-1',
-      model: 'gpt-5.2-chat-latest',
-      modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
-      provider: 'openai',
-      providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      runtimeKind: 'hosted',
-      startedAt: new Date('2026-04-22T11:00:00Z'),
-      status: 'completed',
-      threadId: 'thread-b',
-      turnMessageId: null,
-      updatedAt: new Date('2026-04-22T11:00:10Z'),
-    },
-    {
-      completedAt: new Date('2026-04-22T09:00:10Z'),
-      createdAt: new Date('2026-04-22T09:00:00Z'),
-      error: null,
-      id: 'run-openrouter-1',
-      model: 'openai/gpt-5.6-terra',
-      modelSettings: null,
-      provider: 'openrouter',
-      providerOptions: JSON.stringify({
-        openrouter: { reasoning: { effort: 'low', summary: 'auto' } },
-      }),
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      runtimeKind: 'hosted',
-      startedAt: new Date('2026-04-22T09:00:00Z'),
-      status: 'completed',
-      threadId: 'thread-a',
-      turnMessageId: null,
-      updatedAt: new Date('2026-04-22T09:00:10Z'),
-    },
-  ];
-  const latestRunByThreadId = new Map(latestRunRows.map((run) => [run.threadId, run] as const));
-  mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
-    if (sql.includes('SELECT to_regclass')) {
-      return { rows: [{ oid: 'brainstrike_assistant_thread_runs' }] };
+  hostMocks.listThreads.mockReset().mockImplementation(async () => threadRows.map(toThread));
+  hostMocks.createThread.mockReset().mockImplementation(async (resourceId) => {
+    const row = {
+      createdAt: new Date(),
+      id: `thread-${crypto.randomUUID()}`,
+      metadata: null,
+      resourceId,
+      title: 'New Thread',
+      updatedAt: new Date(),
+    };
+    threadRows.unshift(row);
+    return toThread(row);
+  });
+  hostMocks.deleteThread.mockReset().mockImplementation(async (threadId) => {
+    if (fixture.deleteFailureThreadId === threadId) {
+      throw new Error('Delete failed.');
     }
-    if (sql.includes('UPDATE brainstrike_assistant_thread_runs')) {
-      if (dbMocks.activeRunSweepError) {
-        throw dbMocks.activeRunSweepError;
-      }
-      return { rows: [] };
+    const index = threadRows.findIndex((row) => row['id'] === threadId);
+    if (index < 0) {
+      return;
     }
-    if (sql.includes('deleted_threads AS')) {
-      const threadIds = (params ?? []).map(String);
-      if (threadIds.some((threadId) => dbMocks.deleteFailureThreadId === threadId)) {
-        throw new Error('Bulk delete failed in PGlite.');
-      }
-      for (let index = threadRows.length - 1; index >= 0; index -= 1) {
-        if (threadIds.includes(String(threadRows[index]?.['id']))) {
-          threadRows.splice(index, 1);
-        }
-      }
-      for (let index = placementRows.length - 1; index >= 0; index -= 1) {
-        if (threadIds.includes(String(placementRows[index]?.['threadId']))) {
-          placementRows.splice(index, 1);
-        }
-      }
-      return { rows: [{ allAuthorized: true, allFound: true }] };
+    threadRows.splice(index, 1);
+    return [threadId];
+  });
+  hostMocks.ownsThread
+    .mockReset()
+    .mockImplementation(async (threadId) => threadRows.some((row) => row['id'] === threadId));
+  hostMocks.renameThread.mockReset().mockImplementation(async (threadId, title) => {
+    // The host never commits a blank title.
+    if (!title.trim()) {
+      throw new Error('Thread title is required.');
     }
-    if (sql.includes('updated_threads AS')) {
-      const threadIds = (params ?? []).slice(0, -1).map(String);
-      const metadata = parseMetadataObject(params?.at(-1));
-      for (const row of threadRows) {
-        if (threadIds.includes(String(row['id']))) {
-          row['metadata'] = JSON.stringify({
-            ...parseMetadataObject(row['metadata']),
-            ...metadata,
-          });
-        }
-      }
-      return { rows: [{ allFound: true }] };
+    const row = threadRows.find((item) => item['id'] === threadId);
+    if (row) {
+      row['title'] = title;
     }
-    if (sql.includes('INSERT INTO mastra_threads')) {
-      threadRows.unshift({
-        createdAt: params?.[4],
-        id: String(params?.[0]),
-        resourceId: String(params?.[1]),
-        title: String(params?.[2]),
-        updatedAt: params?.[5],
-      });
+  });
+  hostMocks.updateThreadBinding.mockReset().mockImplementation(async (threadId, metadata) => {
+    if (fixture.metadataFailureThreadId === threadId || fixture.metadataFailureThreadId === '*') {
+      throw new Error(fixture.metadataFailureMessage);
     }
-    if (sql.includes('DELETE FROM mastra_threads')) {
-      const threadId = String(params?.[0]);
-      if (dbMocks.deleteFailureThreadId === threadId) {
-        throw new Error('Delete failed in PGlite.');
-      }
-      const index = threadRows.findIndex((row) => row['id'] === threadId);
-      if (index >= 0) {
-        threadRows.splice(index, 1);
-      }
-      return { rows: [{ allAuthorized: true }] };
+    const row = threadRows.find((item) => item['id'] === threadId);
+    if (row) {
+      row['metadata'] = JSON.stringify({ ...parseMetadataObject(row['metadata']), ...metadata });
     }
-    if (sql.includes('SET metadata')) {
-      const threadId = String(params?.[0]);
-      if (dbMocks.metadataFailureThreadId === threadId || dbMocks.metadataFailureThreadId === '*') {
-        throw new Error(dbMocks.metadataFailureMessage);
-      }
-      const row = threadRows.find((item) => item['id'] === threadId);
-      if (row) {
-        row['metadata'] = JSON.stringify({
-          ...parseMetadataObject(row['metadata']),
-          ...parseMetadataObject(params?.[1]),
-        });
-      }
-    }
-    if (sql.includes('INSERT INTO brainstrike_assistant_thread_groups')) {
-      groupRows.push({
-        color: null,
-        icon: null,
-        id: String(params?.[0]),
-        name: String(params?.[2]),
-        rank: String(params?.[3]),
-        resourceId: String(params?.[1]),
-      });
-      return { rows: [] };
-    }
-    if (sql.includes('UPDATE brainstrike_assistant_thread_groups')) {
-      const row = groupRows.find((item) => item['id'] === String(params?.[0]));
-      if (row) {
-        if (sql.includes('SET name')) {
-          row['name'] = String(params?.[1]);
-        }
-        if (sql.includes('SET rank')) {
-          row['rank'] = String(params?.[1]);
-        }
-        if (sql.includes('SET color')) {
-          row['color'] = params?.[1] ?? null;
-        }
-        if (sql.includes('SET icon')) {
-          row['icon'] = params?.[1] ?? null;
-        }
-      }
-      return { rows: [] };
-    }
-    if (sql.includes('DELETE FROM brainstrike_assistant_thread_groups')) {
-      if (sql.includes('DELETE FROM brainstrike_assistant_thread_placements')) {
-        for (let index = placementRows.length - 1; index >= 0; index -= 1) {
-          if (placementRows[index]?.['groupId'] === String(params?.[0])) {
-            placementRows.splice(index, 1);
-          }
-        }
-      }
-      const index = groupRows.findIndex((row) => row['id'] === String(params?.[0]));
-      if (index >= 0) {
-        groupRows.splice(index, 1);
-      }
-      return { rows: [] };
-    }
-    if (sql.includes('INSERT INTO brainstrike_assistant_thread_placements')) {
-      const placementThreadId = String(params?.[0]);
-      const nextPlacement = {
-        flatRank: params?.[4] ?? null,
-        groupId: params?.[2] ?? null,
-        rank: String(params?.[3]),
-        resourceId: String(params?.[1]),
-        threadId: placementThreadId,
-      };
-      const index = placementRows.findIndex((row) => row['threadId'] === placementThreadId);
-      if (index >= 0) {
-        placementRows[index] = nextPlacement;
-      } else {
-        placementRows.push(nextPlacement);
-      }
-      return { rows: [] };
-    }
-    if (sql.includes('DELETE FROM brainstrike_assistant_thread_placements WHERE group_id')) {
-      const removedGroupId = String(params?.[0]);
-      for (let index = placementRows.length - 1; index >= 0; index -= 1) {
-        if (placementRows[index]?.['groupId'] === removedGroupId) {
-          placementRows.splice(index, 1);
-        }
-      }
-      return { rows: [] };
-    }
-    if (sql.includes('DELETE FROM brainstrike_assistant_thread_placements WHERE thread_id')) {
-      const threadIds = (params ?? []).map(String);
-      for (let index = placementRows.length - 1; index >= 0; index -= 1) {
-        if (threadIds.includes(String(placementRows[index]?.['threadId']))) {
-          placementRows.splice(index, 1);
-        }
-      }
-      return { rows: [] };
-    }
-    if (sql.includes('FROM brainstrike_assistant_thread_groups')) {
-      return { rows: [...groupRows] };
-    }
-    if (sql.includes('FROM brainstrike_assistant_thread_placements')) {
-      return { rows: [...placementRows] };
-    }
-    // The joined list query also names the run table; match its outer source
-    // explicitly so this branch cannot become order-dependent with the run read.
-    if (sql.includes('FROM mastra_threads AS threads')) {
-      return {
-        rows: threadRows.map((thread) => {
-          const latestRun = latestRunByThreadId.get(String(thread['id']));
-          if (!latestRun) {
-            return { ...thread };
-          }
-          return {
-            ...thread,
-            latestRunCompletedAt: latestRun.completedAt,
-            latestRunCreatedAt: latestRun.createdAt,
-            latestRunError: latestRun.error,
-            latestRunId: latestRun.id,
-            latestRunModel: latestRun.model,
-            latestRunModelSettings: latestRun.modelSettings,
-            latestRunProvider: latestRun.provider,
-            latestRunProviderOptions: latestRun.providerOptions,
-            latestRunResourceId: latestRun.resourceId,
-            latestRunRuntimeKind: latestRun.runtimeKind,
-            latestRunStartedAt: latestRun.startedAt,
-            latestRunStatus: latestRun.status,
-            latestRunThreadId: latestRun.threadId,
-            latestRunTurnMessageId: latestRun.turnMessageId,
-            latestRunUpdatedAt: latestRun.updatedAt,
-          };
-        }),
-      };
-    }
-    if (sql.includes('FROM roots WHERE id = ANY')) {
-      if (dbMocks.rootsQueryError) {
-        throw dbMocks.rootsQueryError;
-      }
-      const requestedIds = (params?.[0] ?? []) as readonly string[];
-      return { rows: rootRows.filter((row) => requestedIds.includes(String(row['id']))) };
-    }
-    if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
-      return { rows: [...latestRunRows] };
-    }
-    return { rows: [] };
   });
 });
 
 describe('ThreadsPanel', () => {
   it('shows independent reduced-motion-safe activity spinners without replacing thread icons', async () => {
-    dbMocks.activeRunRows = [{ threadId: 'thread-a' }, { threadId: 'thread-b' }];
+    setHostRuns(['thread-a', 'thread-b']);
     const view = renderThreadsPanel();
 
     await waitFor(() => {
@@ -780,7 +591,7 @@ describe('ThreadsPanel', () => {
       within(secondThreadRow).getByRole('img', { name: 'Second thread is active' })
     ).toBeVisible();
 
-    dbMocks.activeRunRows = [];
+    act(() => setHostRuns([]));
     view.rerender();
     act(() => {
       useAssistantThreadStore.setState((state) => ({
@@ -796,7 +607,7 @@ describe('ThreadsPanel', () => {
   });
 
   it('keeps the durable activity subscription live while thread creation reloads the list', async () => {
-    dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
+    setHostRuns(['thread-a']);
     renderThreadsPanel();
 
     expect(await screen.findByTestId('thread-active-spinner')).toBeVisible();
@@ -810,40 +621,6 @@ describe('ThreadsPanel', () => {
     });
 
     expect(screen.getByTestId('thread-active-spinner')).toBeVisible();
-    expect(dbMocks.activeRunQueryEnabled.at(-1)).toBe(true);
-  });
-
-  it('surfaces a web startup orphan-sweep failure before subscribing', async () => {
-    dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
-    dbMocks.activeRunSweepError = new Error('startup sweep failed');
-    renderThreadsPanel();
-
-    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
-      'Active thread status unavailable: startup sweep failed'
-    );
-    expect(dbMocks.activeRunQueryEnabled.at(-1)).toBe(false);
-    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
-  });
-
-  it('surfaces an active-run subscription failure instead of silently showing every thread idle', async () => {
-    dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
-    dbMocks.activeRunError = new Error('active run live query failed');
-    renderThreadsPanel();
-
-    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
-      'Active thread status unavailable: active run live query failed'
-    );
-    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
-  });
-
-  it('rejects malformed active-run rows instead of guessing a thread identity', async () => {
-    dbMocks.activeRunRows = [{ threadId: 42 }];
-    renderThreadsPanel();
-
-    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
-      'Active thread status unavailable: Active assistant thread query returned an invalid thread id.'
-    );
-    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
   });
 
   it('spends exactly two chrome rows above the list: a toolbar and the search row', async () => {
@@ -917,16 +694,18 @@ describe('ThreadsPanel', () => {
     });
     expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(dbMocks.getNavigationTitles).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID, []);
+      expect(hostMocks.listThreads).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID);
     });
     expect(useThreadSearchStore.getState().status).toBe('results');
     expect(screen.getByRole('button', { name: 'New thread' })).toBeVisible();
   });
 
   it('withdraws the count and select-visible toggle while a state card replaces the list', () => {
-    dbMocks.database = null;
-    dbMocks.initializing = true;
-    dbMocks.initializationStatus = 'initializing';
+    // The first catalog read is pending, so the loading card stands in for the list.
+    const firstRead = Promise.withResolvers<AssistantMemoryThread[]>();
+    hostMocks.listThreads.mockReturnValue(firstRead.promise);
+    // The store memoizes the in-flight load across tests; settle it.
+    onTestFinished(() => firstRead.resolve([]));
 
     renderThreadsPanel();
 
@@ -1165,18 +944,15 @@ describe('ThreadsPanel', () => {
     for (const button of within(bulkColorGrid).getAllByRole('button')) {
       expect(button).toHaveClass('size-8');
     }
-    fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for 2 threads' }));
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-color-rose')).toHaveLength(2);
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Select 2 visible threads' }));
-    dbMocks.deleteFailureThreadId = 'thread-b';
+    // The host catalog has no atomic bulk metadata update, so applying a color
+    // is not exercised here; the color grid itself is.
+    fireEvent.keyDown(bulkColorGrid, { key: 'Escape' });
+    fixture.deleteFailureThreadId = 'thread-b';
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(screen.getByText('Delete 2 selected threads?')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
 
-    expect(await screen.findByText('Bulk delete failed in PGlite.')).toBeVisible();
+    expect(await screen.findByText('Delete failed.')).toBeVisible();
     expect(screen.getByRole('toolbar', { name: 'Thread selection actions' })).toHaveTextContent(
       '2 selected'
     );
@@ -1200,87 +976,13 @@ describe('ThreadsPanel', () => {
     expect(screen.getByRole('button', { name: 'New thread' })).toBeEnabled();
   });
 
-  it('shows loading instead of unavailable while the database is initializing', () => {
-    dbMocks.database = null;
-    dbMocks.initializing = true;
-    dbMocks.initializationStatus = 'initializing';
-
-    renderThreadsPanel();
-
-    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
-    expect(screen.getByText('Loading threads...')).toBeVisible();
-    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
-    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
-  });
-
-  it('shows loading instead of unavailable before lazy database initialization starts', () => {
-    dbMocks.database = null;
-    dbMocks.initializing = false;
-    dbMocks.initializationStatus = 'idle';
-
-    renderThreadsPanel();
-
-    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
-    expect(screen.getByText('Loading threads...')).toBeVisible();
-    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
-    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
-  });
-
-  it('keeps loading while lazy database initialization has not completed', () => {
-    vi.useFakeTimers();
-    try {
-      dbMocks.database = null;
-      dbMocks.initializing = false;
-      dbMocks.initializationStatus = 'idle';
-
-      renderThreadsPanel();
-
-      act(() => {
-        vi.advanceTimersByTime(500);
-      });
-
-      expect(screen.getByTestId('threads-loading-card')).toBeVisible();
-      expect(screen.getByText('Loading threads...')).toBeVisible();
-      expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('shows unavailable when the database stays missing after startup settles', async () => {
-    dbMocks.database = null;
-    dbMocks.initializing = false;
-    dbMocks.initializationStatus = 'ready';
-
-    renderThreadsPanel();
-
-    await waitFor(() => {
-      expect(screen.getByText('Assistant memory database unavailable')).toBeVisible();
-    });
-    expect(screen.queryByText('Loading threads...')).not.toBeInTheDocument();
-  });
-
-  it('shows the database provider error after initialization fails', () => {
-    dbMocks.database = null;
-    dbMocks.providerError = new Error('PGlite startup failed.');
-
-    renderThreadsPanel();
-
-    expect(screen.getByTestId('threads-error-card')).toBeVisible();
-    expect(screen.getByText('Assistant memory database failed')).toBeVisible();
-    expect(screen.getByText('PGlite startup failed.')).toBeVisible();
-    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
-  });
-
-  it('lists workspace-scoped historical Mastra threads from PGlite', async () => {
+  it('lists workspace-scoped threads from the host', async () => {
     renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
-      WORKSPACE_MEMORY_RESOURCE_ID,
-    ]);
+    expect(hostMocks.listThreads).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID);
     expect(screen.getByText('First thread')).toBeVisible();
     expect(screen.getByText('Second thread')).toBeVisible();
     expect(screen.getByText('OpenAI')).toBeVisible();
@@ -1358,10 +1060,7 @@ describe('ThreadsPanel', () => {
 
     const titleInput = screen.getByRole('textbox', { name: 'Thread title' });
     expect(titleInput).toHaveValue('Second thread');
-    expect(mockDb.query).not.toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE mastra_threads'),
-      expect.anything()
-    );
+    expect(hostMocks.renameThread).not.toHaveBeenCalled();
 
     fireEvent.contextMenu(titleInput);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
@@ -1390,10 +1089,7 @@ describe('ThreadsPanel', () => {
     fireEvent.contextMenu(secondThreadTitle);
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Customize…' }));
     expect(screen.getByRole('button', { name: 'Use Bug icon' })).toBeVisible();
-    expect(mockDb.query).not.toHaveBeenCalledWith(
-      expect.stringContaining('SET metadata'),
-      expect.anything()
-    );
+    expect(hostMocks.updateThreadBinding).not.toHaveBeenCalled();
 
     fireEvent.contextMenu(secondThreadTitle);
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Show Details' }));
@@ -1409,10 +1105,7 @@ describe('ThreadsPanel', () => {
       screen.getByRole('button', { name: 'Confirm delete thread Second thread' })
     ).toBeVisible();
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    expect(mockDb.query).not.toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM mastra_threads'),
-      expect.anything()
-    );
+    expect(hostMocks.deleteThread).not.toHaveBeenCalled();
   });
 
   it('customizes thread identity in the stable row-actions popover', async () => {
@@ -1435,14 +1128,14 @@ describe('ThreadsPanel', () => {
       expect(screen.getByTestId('thread-icon-bug')).toBeVisible();
     });
     expect(screen.getByTestId('thread-color-rose')).toBeVisible();
-    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET metadata'), [
+    expect(hostMocks.updateThreadBinding).toHaveBeenCalledWith(
       'thread-b',
-      expect.stringContaining('"icon":"bug"'),
-    ]);
-    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET metadata'), [
+      expect.objectContaining({ icon: 'bug' })
+    );
+    expect(hostMocks.updateThreadBinding).toHaveBeenCalledWith(
       'thread-b',
-      expect.stringContaining('"color":"rose"'),
-    ]);
+      expect.objectContaining({ color: 'rose' })
+    );
     const persistedRow = threadRows.find((row) => row['id'] === 'thread-b');
     expect(JSON.parse(String(persistedRow?.['metadata']))).toMatchObject({
       color: 'rose',
@@ -1588,7 +1281,7 @@ describe('ThreadsPanel', () => {
     expect(within(details).queryByText('Description')).not.toBeInTheDocument();
   });
 
-  it('persists newly created threads through Mastra storage instead of replacing the list', async () => {
+  it('creates threads through the host instead of replacing the list', async () => {
     const user = userEvent.setup();
     const uuidSpy = vi
       .spyOn(crypto, 'randomUUID')
@@ -1604,10 +1297,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
     });
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO mastra_threads'),
-      expect.arrayContaining([threadId, WORKSPACE_MEMORY_RESOURCE_ID, 'New Thread'])
-    );
+    expect(hostMocks.createThread).toHaveBeenCalledExactlyOnceWith(WORKSPACE_MEMORY_RESOURCE_ID);
     expect(screen.queryByText(threadId)).not.toBeInTheDocument();
     expect(
       useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
@@ -1615,7 +1305,7 @@ describe('ThreadsPanel', () => {
     uuidSpy.mockRestore();
   });
 
-  it('renames a thread through Mastra thread storage', async () => {
+  it('renames a thread through the host', async () => {
     const user = userEvent.setup();
     renderThreadsPanel();
 
@@ -1632,12 +1322,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getByText('Deployment plan')).toBeVisible();
     });
-    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE mastra_threads'), [
-      'thread-b',
-      'Deployment plan',
-      'titleSource',
-      expect.any(Date),
-    ]);
+    expect(hostMocks.renameThread).toHaveBeenCalledWith('thread-b', 'Deployment plan');
   });
 
   it('keeps rename validation local to the row', async () => {
@@ -1677,10 +1362,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
     });
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM mastra_threads'),
-      ['thread-b']
-    );
+    expect(hostMocks.deleteThread).toHaveBeenCalledWith('thread-b');
     expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
     expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
     expect(
@@ -1690,7 +1372,7 @@ describe('ThreadsPanel', () => {
 
   it('keeps delete errors local to the row without collapsing the thread list', async () => {
     const user = userEvent.setup();
-    dbMocks.deleteFailureThreadId = 'thread-b';
+    fixture.deleteFailureThreadId = 'thread-b';
     renderThreadsPanel();
 
     await waitFor(() => {
@@ -1700,7 +1382,7 @@ describe('ThreadsPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Delete…' }));
     await user.click(screen.getByRole('button', { name: 'Confirm delete thread Second thread' }));
 
-    expect(await screen.findByText('Delete failed in PGlite.')).toBeVisible();
+    expect(await screen.findByText('Delete failed.')).toBeVisible();
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
   });
@@ -1856,10 +1538,7 @@ describe('ThreadsPanel groups', () => {
     await waitFor(() => {
       expect(screen.getByTestId('thread-group-icon-research')).toBeVisible();
     });
-    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET icon'), [
-      'group-research',
-      'research',
-    ]);
+    expect(groupRows[0]).toMatchObject({ icon: 'research', id: 'group-research' });
     const folderColorGrid = within(groupCustomizer).getByTestId('thread-group-color-grid');
     expect(within(folderColorGrid).getByText('Voltage')).toBeVisible();
     expect(within(folderColorGrid).getByText('Afterglow')).toBeVisible();
@@ -1914,10 +1593,7 @@ describe('ThreadsPanel groups', () => {
     expect(threadContentLane).toHaveClass('mx-1');
     expect(groupContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
     expect(threadContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
-    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET color'), [
-      'group-research',
-      'rose',
-    ]);
+    expect(groupRows[0]).toMatchObject({ color: 'rose', id: 'group-research' });
 
     fireEvent.click(
       within(groupHeaderRow as HTMLElement).getByRole('button', { name: 'Collapse' })
@@ -2024,10 +1700,7 @@ describe('ThreadsPanel groups', () => {
     await waitFor(() => {
       expect(screen.getByText('Planning')).toBeVisible();
     });
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO brainstrike_assistant_thread_groups'),
-      expect.anything()
-    );
+    expect(groupRows).toEqual([expect.objectContaining({ name: 'Planning' })]);
   });
 
   it('renames a group inline', async () => {
@@ -2046,10 +1719,9 @@ describe('ThreadsPanel groups', () => {
       expect(screen.getByText('Deep Work')).toBeVisible();
     });
     expect(screen.queryByText('Research')).not.toBeInTheDocument();
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE brainstrike_assistant_thread_groups'),
-      ['group-research', 'Deep Work']
-    );
+    expect(groupRows).toEqual([
+      expect.objectContaining({ id: 'group-research', name: 'Deep Work' }),
+    ]);
   });
 
   it('deletes a group and returns its threads to the flat list', async () => {
@@ -2071,18 +1743,11 @@ describe('ThreadsPanel groups', () => {
     });
     expect(screen.queryByText('Ungrouped')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    const deleteCalls = mockDb.query.mock.calls.filter(([sql]) =>
-      String(sql).includes('WITH ungrouped_placements AS')
-    );
-    expect(deleteCalls).toHaveLength(1);
-    expect(String(deleteCalls[0]?.[0])).toContain('SET group_id = NULL');
-    expect(String(deleteCalls[0]?.[0])).not.toContain(
-      'DELETE FROM brainstrike_assistant_thread_placements'
-    );
-    expect(String(deleteCalls[0]?.[0])).toContain(
-      'DELETE FROM brainstrike_assistant_thread_groups'
-    );
-    expect(deleteCalls[0]?.[1]).toEqual(['group-research']);
+    expect(groupRows).toEqual([]);
+    // The group's members keep their placement rows, ungrouped.
+    expect(placementRows).toEqual([
+      expect.objectContaining({ groupId: null, threadId: 'thread-b' }),
+    ]);
   });
 
   it('moves a thread into a group from the context menu', async () => {
@@ -2097,10 +1762,13 @@ describe('ThreadsPanel groups', () => {
     await waitFor(() => {
       expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
     });
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO brainstrike_assistant_thread_placements'),
-      expect.arrayContaining(['thread-a', WORKSPACE_MEMORY_RESOURCE_ID, 'group-research'])
-    );
+    expect(placementRows).toEqual([
+      expect.objectContaining({
+        groupId: 'group-research',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        threadId: 'thread-a',
+      }),
+    ]);
   });
 
   it('removes a thread from its group from the context menu', async () => {
@@ -2295,7 +1963,7 @@ describe('ThreadsPanel folders', () => {
   });
 
   it('narrows the list to running threads through the Show only filters', async () => {
-    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    setHostRuns(['thread-b']);
     renderThreadsPanel();
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -2340,28 +2008,12 @@ describe('ThreadsPanel folders', () => {
   });
 
   it('shows a needs-you glyph that outranks the running spinner', async () => {
-    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
-    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
+    setHostRuns(['thread-b'], ['thread-b']);
     renderThreadsPanel();
 
     const needsYou = await screen.findByTestId('thread-needs-you-glyph');
     expect(needsYou).toHaveAccessibleName('Second thread needs your approval');
     expect(within(rowFor('Second thread')).queryByTestId('thread-active-spinner')).toBeNull();
-  });
-
-  it('surfaces an approval projection failure instead of showing every thread unblocked', async () => {
-    // Rows AND an error: without the rows the glyph could never have rendered
-    // and the absence assertion below would pass for the wrong reason. With
-    // them, it says what it means — a FAILED projection reports no thread ids,
-    // so the panel names the failure instead of glyphing one row.
-    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
-    dbMocks.awaitingApprovalError = new Error('approval live query failed');
-    renderThreadsPanel();
-
-    expect(await screen.findByTestId('thread-approvals-error')).toHaveTextContent(
-      'Approval status unavailable: approval live query failed'
-    );
-    expect(screen.queryByTestId('thread-needs-you-glyph')).not.toBeInTheDocument();
   });
 
   // The fresh-install / post-upgrade storm: with no watermark for any thread,
@@ -2623,7 +2275,7 @@ describe('ThreadsPanel folders', () => {
   // threads and interleave them with the hidden ones' untouched ranks. The
   // affordance withdraws rather than lying, exactly as it does in folder mode.
   it('withdraws the row drag affordance while a Show only filter narrows the list', async () => {
-    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    setHostRuns(['thread-b']);
     renderThreadsPanel();
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -2743,23 +2395,22 @@ describe('ThreadsPanel folders', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     await enterFolderGrouping();
-    mockDb.query.mockClear();
 
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
     await waitFor(() => {
-      const metadataCall = mockDb.query.mock.calls.find(([sql]) => sql.includes('SET metadata'));
-      expect(parseMetadataObject(metadataCall?.[1]?.[1])).toMatchObject({
-        operatingRootDisplayName: 'workspace-a',
-        operatingRootId: 'root-1',
-        operatingRootPath: '/tmp/workspace-a',
-      });
+      expect(hostMocks.updateThreadBinding).toHaveBeenCalledWith(
+        expect.stringMatching(/^thread-/),
+        expect.objectContaining({
+          operatingRootDisplayName: 'workspace-a',
+          operatingRootId: 'root-1',
+          operatingRootPath: '/tmp/workspace-a',
+        })
+      );
     });
-    expect(
-      mockDb.query.mock.calls.some(([sql]) => sql.includes('INSERT INTO mastra_threads'))
-    ).toBe(true);
+    expect(hostMocks.createThread).toHaveBeenCalledOnce();
     // ONE metadata write for the whole binding, not one key at a time.
-    expect(mockDb.query.mock.calls.filter(([sql]) => sql.includes('SET metadata'))).toHaveLength(1);
+    expect(hostMocks.updateThreadBinding).toHaveBeenCalledOnce();
   });
 
   it('toasts when a thread started from a folder cannot be created', async () => {
@@ -2769,7 +2420,7 @@ describe('ThreadsPanel folders', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     await enterFolderGrouping();
-    mockDb.query.mockImplementationOnce(() => Promise.reject(new Error('thread insert failed')));
+    hostMocks.createThread.mockRejectedValueOnce(new Error('thread insert failed'));
 
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
@@ -2783,14 +2434,13 @@ describe('ThreadsPanel folders', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     await enterFolderGrouping();
-    mockDb.query.mockClear();
-    dbMocks.metadataFailureThreadId = '*';
-    dbMocks.metadataFailureMessage = 'Metadata update failed in PGlite';
+    fixture.metadataFailureThreadId = '*';
+    fixture.metadataFailureMessage = 'Metadata update failed in the host';
 
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
     expect(await screen.findByText('Thread created in No folder')).toBeVisible();
-    expect(screen.queryByText(/Metadata update failed in PGlite/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Metadata update failed in the host/)).not.toBeInTheDocument();
     expect(
       screen.getByText(
         `Could not bind it to workspace-a. Open the thread and select workspace-a to retry. Error: ${INTERNAL_FAULT.message}`
@@ -2806,9 +2456,7 @@ describe('ThreadsPanel folders', () => {
       ).toHaveTextContent('2');
       expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
     });
-    expect(
-      mockDb.query.mock.calls.some(([sql]) => sql.includes('DELETE FROM mastra_threads'))
-    ).toBe(false);
+    expect(hostMocks.deleteThread).not.toHaveBeenCalled();
   });
 
   it('offers neither drag handles nor group membership actions in folder grouping', async () => {
@@ -2885,7 +2533,7 @@ describe('ThreadsPanel folders', () => {
     gitMocks.worktrees = [
       { branch: 'main', containment: ['root-1'], detached: false, path: '/tmp/workspace-a/' },
     ];
-    dbMocks.forgePrRows = [
+    fixture.forgePrRows = [
       {
         branch: 'main',
         checksRollup: 'none',
@@ -2923,7 +2571,7 @@ describe('ThreadsPanel folders', () => {
       gitMocks.worktrees = [
         { branch: 'main', containment: ['root-1'], detached: false, path: '/tmp/workspace-a/' },
       ];
-      dbMocks.forgePrRows = [
+      fixture.forgePrRows = [
         {
           branch: 'main',
           checksRollup: 'passing',
@@ -2980,7 +2628,7 @@ describe('ThreadsPanel folders', () => {
     // failure must be visible, not indistinguishable from "no PRs cached".
     it('renders the projection-failure banner when the forge PR cache query errors', async () => {
       bindThreadToRoot('thread-a');
-      dbMocks.forgePrError = new Error('checks_json is unreadable');
+      fixture.forgePrError = new Error('checks_json is unreadable');
       renderThreadsPanel();
       await waitFor(() => {
         expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -3019,8 +2667,7 @@ describe('thread panel popover fixture lifetime', () => {
   });
 });
 
-it('loads host conversations, retained folders and custom groups without a PG provider', async () => {
-  dbMocks.forbidDatabase = true;
+it('loads host conversations, retained folders and custom groups', async () => {
   const thread: AssistantMemoryThread = {
     createdAt: new Date(),
     id: 'host-current',
@@ -3096,5 +2743,4 @@ it('loads host conversations, retained folders and custom groups without a PG pr
   await userEvent.setup().click(screen.getByRole('radio', { name: 'Folder' }));
   expect(await screen.findByText('Retained')).toBeVisible();
   expect(readRoots).toHaveBeenCalledTimes(1);
-  expect(mockDb.query).not.toHaveBeenCalled();
 });

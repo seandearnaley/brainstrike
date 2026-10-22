@@ -452,8 +452,6 @@ function createLaunchOptions(
   const ciArgs = getCILaunchArgs();
   const shouldDisableGpuForE2e =
     process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
-  const shouldSerializePGliteInit =
-    process.env['CI'] === 'true' && process.env['GITHUB_ACTIONS'] === 'true';
   const entry = desktopEntryLaunchOptions(target, mainPath, launchMode);
   const baseArgs = [
     ...entry.args,
@@ -541,15 +539,6 @@ function createLaunchOptions(
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_IS_E2E_TEST: 'true',
-      ...(shouldSerializePGliteInit
-        ? {
-            // Linux GitHub Actions runs multiple isolated Electron apps in one
-            // shard. Serialize the PGlite open/extension-registration phase so
-            // workers stay parallel without racing the shared WASM bootstrap.
-            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-            BRAINSTRIKE_SERIALIZE_PGLITE_INIT: '1',
-          }
-        : {}),
       ...(disableExternalLocalRuntimeProbes
         ? {
             // Regression E2E should not contact developer-local Ollama/LM Studio

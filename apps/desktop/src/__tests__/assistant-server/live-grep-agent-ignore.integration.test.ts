@@ -8,7 +8,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
-import { createGrepLineMatcher } from '@brainstrike/db';
+import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runLiveGrep } from '../../assistant-server/live-grep';
 import {

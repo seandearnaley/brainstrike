@@ -12,12 +12,6 @@ import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-tel
 import { RootLayoutContent } from '../root-layout-content';
 import { RootsContext } from '../use-delegated-conversation-root';
 
-vi.mock('@brainstrike/db/react', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
-  useDbProviderError: () => null,
-  usePGliteDatabase: () => null,
-}));
-
 interface CapturedWorkspaceApp {
   readonly id: string;
   readonly label: string;
@@ -148,7 +142,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 vi.mock('@brainstrike/vector-management', () => ({
-  EmbeddingRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
   SearchEmbedderProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -171,14 +164,8 @@ vi.mock('../command-palette-host', () => ({
   CommandPaletteHost: () => <div data-testid="command-palette-host" />,
 }));
 
-// The quick-open host pulls in the file-explorer store, DB live query, and the
-// file-open seam; mock it the same way as the command palette host.
-vi.mock('../quick-open-host', () => ({
-  QuickOpenHost: () => <div data-testid="quick-open-host" />,
-}));
-
 // The workspace-connect host pulls in the file-system context and the desktop
-// bridge; mock it the same way as the command palette and quick-open hosts.
+// bridge; mock it the same way as the command palette host.
 vi.mock('../workspace-connect/workspace-connect-host', () => ({
   WorkspaceConnectHost: () => <div data-testid="workspace-connect-host" />,
 }));
@@ -216,19 +203,12 @@ vi.mock('../agent-sidebar-panel', () => ({
 }));
 
 vi.mock('../connected-prompt-manager-lazy', () => ({
-  ConnectedPromptManagerLazy: ({
-    loadEmbeddingQueue,
-    suggestionsEnabled,
-  }: {
-    loadEmbeddingQueue: (() => Promise<unknown>) | null;
-    suggestionsEnabled?: boolean;
-  }) => {
+  ConnectedPromptManagerLazy: ({ suggestionsEnabled }: { suggestionsEnabled?: boolean }) => {
     if (mockHandlers.promptManagerSuspended) {
       throw mockHandlers.promptManagerSuspense;
     }
     return (
       <div
-        data-has-embedding-queue={loadEmbeddingQueue ? 'true' : 'false'}
         data-suggestions-enabled={suggestionsEnabled ? 'true' : 'false'}
         data-testid="connected-prompt-manager"
       />
@@ -252,9 +232,6 @@ vi.mock('@brainstrike/app-state/hooks/use-database-status-sync', () => ({
 vi.mock('../hooks/use-model-migration-notices', () => ({ useModelMigrationNotices: () => {} }));
 vi.mock('../account-menu', () => ({ AccountMenu: () => null }));
 vi.mock('../app-reload/app-reload-strip', () => ({ AppReloadStrip: () => null }));
-vi.mock('../database-integrity/database-integrity-notice', () => ({
-  DatabaseIntegrityNotice: () => null,
-}));
 vi.mock('../status-items/database-status-item', () => ({ DatabaseStatusItem: () => null }));
 vi.mock('../status-items/diagnostics-status-item', () => ({ DiagnosticsStatusItem: () => null }));
 vi.mock('../status-items/indexing-status-item', () => ({ IndexingStatusItem: () => null }));

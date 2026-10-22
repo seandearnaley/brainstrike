@@ -9,7 +9,6 @@ export function ConnectedSystemDiagnosticsPanel(): ReactElement {
   return (
     <SystemDiagnosticsPanel
       persistenceMode={tokenCache?.persistenceMode}
-      showQueueRefresh
       tokenCacheOperational={tokenCache?.isOperational}
       tokenCachePersisted={tokenCache?.isPersisted}
     />

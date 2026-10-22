@@ -20,7 +20,6 @@ import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { WorkspaceBarBranchMenu } from '@brainstrike/assistant-ui';
 import type { ActionOutcome } from '@brainstrike/context-actions';
-import type { DbHandle } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
@@ -136,12 +135,6 @@ const OTHER_THREAD_ID = 'thread-2';
 // rootIds above (`adapter-*`) and from the descriptor id below: the two id
 // spaces share only the path, and everything downstream of this hook
 // (window.git.status, secondaryRootIds) speaks the DB space.
-const ROOT_ID_BY_PATH: Readonly<Record<string, string>> = {
-  '/ws/alpha': 'r-alpha-db',
-  '/ws/brainstrike': 'r-main-db',
-  '/ws/docs': 'r-docs',
-  '/ws/site': 'r-site',
-};
 const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: string }>> = {
   'r-alpha-db': { displayName: 'alpha', path: '/ws/alpha' },
   'r-docs': { displayName: 'docs', path: '/ws/docs' },
@@ -157,38 +150,23 @@ const liveRootMisses = new Map<string, number>();
 let liveRootGate: { promise: Promise<void>; release: () => void } | null = null;
 let secondaryRootsError: Error | null = null;
 let secondaryRootsGate: { promise: Promise<void>; release: () => void } | null = null;
-const query = vi.fn(async (sql: string, params?: unknown[]) => {
-  if (sql.includes('FROM roots') && sql.includes('= ANY')) {
-    if (secondaryRootsGate) {
-      await secondaryRootsGate.promise;
-    }
-    if (secondaryRootsError) {
-      throw secondaryRootsError;
-    }
-    const ids = (params?.[0] ?? []) as readonly string[];
-    return {
-      rows: ids.flatMap((id) => {
-        const row = ROOT_ROW_BY_ID[id];
-        return row ? [{ displayName: row.displayName, id, path: row.path, status: 'live' }] : [];
-      }),
-    };
+// The recorded roots as Main's catalog returns them: every row at once, a root
+// the test marks as missing is simply absent.
+const readRoots = vi.fn(async () => {
+  if (secondaryRootsGate) {
+    await secondaryRootsGate.promise;
   }
-  if (sql.includes('FROM roots')) {
-    if (liveRootGate) {
-      await liveRootGate.promise;
-    }
-    // PATH-specific on purpose: an "add folder" test must not pass by
-    // resolving some other root's row.
-    const path = params?.[0] as string;
-    const misses = liveRootMisses.get(path) ?? 0;
-    if (misses > 0) {
-      liveRootMisses.set(path, misses - 1);
-      return { rows: [] };
-    }
-    const id = ROOT_ID_BY_PATH[path];
-    return { rows: id ? [{ id }] : [] };
+  if (secondaryRootsError) {
+    throw secondaryRootsError;
   }
-  return { rows: [] };
+  if (liveRootGate) {
+    await liveRootGate.promise;
+  }
+  return Object.entries(ROOT_ROW_BY_ID).flatMap(([id, row]) =>
+    (liveRootMisses.get(row.path) ?? 0) > 0
+      ? []
+      : [{ displayName: row.displayName, id, path: row.path, status: 'live' }]
+  );
 });
 // The store action forwards to `repository.updateThreadMetadata(threadId,
 // metadata)`, so this spy sees the REPOSITORY signature — which is exactly the
@@ -201,7 +179,6 @@ const realUpdateThreadMetadata = useAssistantThreadStore.getState().updateThread
 // Hoisted on purpose: the wrapper passes store/context references, which are
 // stable across renders. Fresh literals per render would only exercise a
 // caller-side identity bug, not this hook.
-const database = { query } as unknown as DbHandle;
 const assistantThreadRepository = {
   updateThreadMetadata,
 } as unknown as AssistantThreadRepository;
@@ -280,7 +257,6 @@ async function setup(metadata: Record<string, unknown> = {}) {
       useWorkspaceBar({
         assistantThreadRepository,
         currentMainRoot,
-        database,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
@@ -318,7 +294,11 @@ beforeEach(() => {
   loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
   loggerMock.warn.mockClear();
-  query.mockClear();
+  readRoots.mockClear();
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
   updateThreadMetadata.mockClear();
   fs.addRootDirectory.mockClear();
   fs.addRootDirectoryByPath.mockClear();
@@ -326,6 +306,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.deleteProperty(window, 'threadGroups');
   Reflect.deleteProperty(window, 'platform');
   vi.useRealTimers();
 });
@@ -584,7 +565,6 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
       useWorkspaceBar({
         assistantThreadRepository,
         currentMainRoot,
-        database,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors,
         selectedMemoryThreadId: THREAD_ID,
@@ -640,7 +620,6 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
         useWorkspaceBar({
           assistantThreadRepository,
           currentMainRoot,
-          database,
           memoryResourceId: RESOURCE_ID,
           rootDescriptors,
           selectedMemoryThreadId: props.selectedMemoryThreadId,

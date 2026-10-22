@@ -1,16 +1,11 @@
-import type { QueueAdapter } from '@brainstrike/queue';
 import { Button } from '@brainstrike/ui';
 import type { ComponentType, ReactElement } from 'react';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
-import { useLazyComponentWithEmbeddingQueue } from './use-lazy-component-with-embedding-queue';
+import { useLazyComponent } from './use-lazy-component';
 
 type DatabaseTabChunkModule = typeof import('./database-tab-chunk');
 
-interface LoadedDatabaseTabProps {
-  readonly embeddingQueue?: QueueAdapter | null;
-}
-
-let databaseTabChunkComponent: ComponentType<LoadedDatabaseTabProps> | null = null;
+let databaseTabChunkComponent: ComponentType | null = null;
 const databaseTabModuleLoader = createRetryableLazyModuleLoader<DatabaseTabChunkModule>(
   () => import('./database-tab-chunk')
 );
@@ -22,7 +17,7 @@ function loadDatabaseTabModule(): Promise<DatabaseTabChunkModule> {
   });
 }
 
-function loadDatabaseTabComponent(): Promise<ComponentType<LoadedDatabaseTabProps>> {
+function loadDatabaseTabComponent(): Promise<ComponentType> {
   return loadDatabaseTabModule().then((module) => module.DatabaseTab);
 }
 
@@ -30,25 +25,16 @@ export function preloadDatabaseTab(): Promise<void> {
   return loadDatabaseTabModule().then(() => undefined);
 }
 
-interface DatabaseTabProps {
-  // Callers must pass a referentially stable loader (useCallback at the app root).
-  // This component treats the first resolved queue for a given loader as canonical
-  // and does not silently swap queue instances during unrelated parent re-renders.
-  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
-}
-
-export function DatabaseTab({ loadEmbeddingQueue = null }: DatabaseTabProps): ReactElement {
+export function DatabaseTab(): ReactElement {
   const {
     component: resolvedComponent,
-    embeddingQueue,
     loadError,
     ready,
     retry,
-  } = useLazyComponentWithEmbeddingQueue<LoadedDatabaseTabProps>({
+  } = useLazyComponent({
     initialComponent: databaseTabChunkComponent,
     label: 'database tab',
     load: loadDatabaseTabComponent,
-    loadEmbeddingQueue,
   });
 
   let content: ReactElement;
@@ -68,7 +54,7 @@ export function DatabaseTab({ loadEmbeddingQueue = null }: DatabaseTabProps): Re
     );
   } else if (ready && resolvedComponent) {
     const ResolvedComponent = resolvedComponent;
-    content = <ResolvedComponent embeddingQueue={embeddingQueue} />;
+    content = <ResolvedComponent />;
   } else {
     content = <DatabaseTabLoadingState />;
   }

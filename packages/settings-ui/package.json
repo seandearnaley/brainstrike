@@ -32,10 +32,6 @@
   },
   "exports": {
     "./styles.css": "./styles.css",
-    "./components/db-schema-verifier": {
-      "types": "./dist/components/db-schema-verifier.d.ts",
-      "import": "./dist/components/db-schema-verifier.js"
-    },
     "./components/global-download-indicator": {
       "types": "./dist/components/global-download-indicator.d.ts",
       "import": "./dist/components/global-download-indicator.js"
@@ -132,8 +128,6 @@
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   }

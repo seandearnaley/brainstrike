@@ -3,11 +3,11 @@ export {
   resolveBackgroundIndexerWorkerUrl,
   resolveTokenCacheWorkerUrl,
 } from './resolve-worker-url';
-export { TokenCacheStore } from './token-cache-store';
 export type {
   FileMetadata,
   TokenCacheEntry,
   TokenCacheLookupTelemetryRecord,
+  TokenCacheStoreLike,
   TokenCacheStoreTelemetry,
   TokenCountError,
   TokenCountingMode,

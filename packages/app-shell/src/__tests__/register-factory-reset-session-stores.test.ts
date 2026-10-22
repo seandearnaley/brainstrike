@@ -27,7 +27,6 @@ import {
 } from '../roots/root-registration-events';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
-import { useQuickOpenStore } from '../stores/quick-open-store';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
@@ -100,7 +99,6 @@ describe('register-factory-reset-session-stores', () => {
     });
     useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
     useCommandPaletteStore.getState().open({ tabScope: 'assistant-threads' });
-    useQuickOpenStore.getState().open();
     useOnScreenThreadStore.getState().setOnScreenThreadId('thread-1');
     useWorktreeCheckoutIntentStore.getState().publish({
       branch: 'codex/reset-me',
@@ -154,7 +152,6 @@ describe('register-factory-reset-session-stores', () => {
       openTarget: null,
       tabScope: null,
     });
-    expect(useQuickOpenStore.getState().isOpen).toBe(false);
     expect(useOnScreenThreadStore.getState().onScreenThreadId).toBeNull();
     expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
     expect(useThreadFolderScopeStore.getState()).toMatchObject({ pendingAdd: null, scope: null });
@@ -168,7 +165,6 @@ describe('register-factory-reset-session-stores', () => {
         throw new Error('command palette reset failed');
       },
     });
-    useQuickOpenStore.getState().open();
     useWorktreeCheckoutIntentStore.getState().publish({
       branch: 'codex/reset-after-failure',
       path: '/wt',
@@ -179,7 +175,6 @@ describe('register-factory-reset-session-stores', () => {
     try {
       const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
       expect(result.success).toBe(true);
-      expect(useQuickOpenStore.getState().isOpen).toBe(false);
       expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
     } finally {
       useCommandPaletteStore.setState({ close: originalClose });

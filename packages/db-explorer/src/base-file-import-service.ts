@@ -1,5 +1,4 @@
 import type { FileImportResult, ImportProgress } from '@brainstrike/db';
-import { useFileRecordRepository } from '@brainstrike/db/react';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { fileNodeToFileHandle } from '@brainstrike/file-system/file-node-handles';
@@ -12,11 +11,7 @@ import {
   runFileImport,
 } from './file-import/file-import-coordinator';
 import { FileImportError, isFileImportError } from './file-import/file-import-errors';
-import type {
-  FileImportContext,
-  FileImportDependencies,
-  FileSystemPort,
-} from './file-import/file-import-types';
+import type { FileImportContext, FileSystemPort } from './file-import/file-import-types';
 import {
   createNativeImportRepository,
   getSourceFilesCapability,
@@ -110,26 +105,6 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
   };
 }
 
-function createDependencies(
-  repository: ReturnType<typeof useFileRecordRepository>,
-  adapter: FileSystemAdapter | null
-): FileImportDependencies {
-  const boundBulkImport = repository?.bulkImport
-    ? repository.bulkImport.bind(repository)
-    : undefined;
-
-  const repositoryPort: FileImportDependencies['repository'] = repository
-    ? boundBulkImport
-      ? { bulkImport: boundBulkImport }
-      : {}
-    : null;
-
-  return {
-    fileSystem: createFileSystemPort(adapter),
-    repository: repositoryPort,
-  };
-}
-
 function ensureError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
@@ -159,19 +134,17 @@ export function useFileImportService(
   const [progress, setProgress] = useState<ImportProgress | null>(null);
 
   const sourceFiles = getSourceFilesCapability();
-  const repository = useFileRecordRepository({ enabled: !sourceFiles });
   const { fileSystemAdapter } = useAdapters();
 
-  const dependencies = useMemo(
-    () =>
-      sourceFiles
-        ? {
-            fileSystem: createFileSystemPort(fileSystemAdapter ?? null),
-            repository: createNativeImportRepository(sourceFiles),
-          }
-        : createDependencies(repository, fileSystemAdapter ?? null),
-    [repository, fileSystemAdapter, sourceFiles]
-  );
+  const dependencies = useMemo(() => {
+    if (!sourceFiles) {
+      throw new Error('The source files capability is unavailable.');
+    }
+    return {
+      fileSystem: createFileSystemPort(fileSystemAdapter ?? null),
+      repository: createNativeImportRepository(sourceFiles),
+    };
+  }, [fileSystemAdapter, sourceFiles]);
 
   const importFiles = useCallback(
     async (

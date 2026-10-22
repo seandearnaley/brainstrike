@@ -14,7 +14,6 @@ import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';
 import { BrowserPaneContent } from '../browser-pane/browser-pane-content';
 import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
-import { useQuickOpenStore } from '../stores/quick-open-store';
 import {
   getTabChordStrip,
   resolveTabChordScope,
@@ -48,7 +47,6 @@ beforeEach(() => {
   tabsListener = null;
   useBrowserTabsStore.getState().reset();
   useCommandPaletteStore.setState({ isOpen: false });
-  useQuickOpenStore.setState({ isOpen: false });
   usePanelLayoutStore.getState().setActiveTab('browser');
   (window as Window & { browser?: BrowserBridge }).browser = bridge;
   // happy-dom gives a zero-size layout; force a non-zero rect so the visible
@@ -193,15 +191,6 @@ describe('BrowserPaneContent', () => {
     bridge.setOccluded.mockClear();
 
     useCommandPaletteStore.setState({ isOpen: true });
-    await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
-  });
-
-  it('occludes the native view when Quick Open opens (separate store from the palette)', async () => {
-    renderPane();
-    await waitFor(() => expect(bridge.setBounds).toHaveBeenCalled());
-    bridge.setOccluded.mockClear();
-
-    act(() => useQuickOpenStore.setState({ isOpen: true }));
     await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
   });
 

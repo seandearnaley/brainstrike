@@ -146,3 +146,6 @@ export interface ThreadSearchCoverage {
   /** All mastra messages for the resource (indexed or not). */
   totalMessages: number;
 }
+
+/** The vector arm's minimum cosine similarity, for every owner's thread search. */
+export const THREAD_SEARCH_VECTOR_THRESHOLD = 0.35;

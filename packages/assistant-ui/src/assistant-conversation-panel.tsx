@@ -75,7 +75,6 @@ export function AssistantConversationPanel({
   openRouterModelMetadataLookup,
   onProviderSettingsValidationChange,
   providerGroups = EMPTY,
-  fileMentions = EMPTY,
   pickerModels = EMPTY,
   slashCommands = EMPTY,
   isComposerDisabled = false,
@@ -110,11 +109,9 @@ export function AssistantConversationPanel({
                         <ChatThreadUI
                           capabilityNotice={undefined}
                           disabledReason={undefined}
-                          fileMentions={fileMentions}
                           hasGroupedProviders={providerGroups.length > 0}
                           isComposerDisabled={isComposerDisabled}
                           onEnableModel={undefined}
-                          onFileMentionQueryChange={undefined}
                           onModelChange={undefined}
                           pickerModels={pickerModels}
                           providerGroups={providerGroups}

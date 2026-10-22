@@ -2,13 +2,12 @@ import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/app-state/hoo
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { EmbeddingSet } from '@brainstrike/db';
-import type { useEmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db/react';
+import type { useEmbeddingSetsRepository } from '@brainstrike/db/react';
 import { CreateEmbeddingSetDialog } from '@brainstrike/vector-management';
 import type { ReactElement } from 'react';
 import { useAvailableModels, useAvailableProviders } from '../hooks/use-available-models';
 
 export interface CreateCollectionDialogProps {
-  readonly db: ReturnType<typeof usePGliteDatabase>;
   readonly onClose: () => void;
   readonly onCreated: (newSetId: string, newSet: EmbeddingSet) => void;
   readonly repository: ReturnType<typeof useEmbeddingSetsRepository>;
@@ -20,7 +19,6 @@ export interface CreateCollectionDialogProps {
  * registry and verifies runtime embedding dimensions on mount.
  */
 export function CreateCollectionDialog({
-  db,
   onClose,
   onCreated,
   repository,
@@ -28,7 +26,7 @@ export function CreateCollectionDialog({
   const models = useModelRegistryStore((state) => state.models);
   const providers = useModelRegistryStore((state) => state.providers);
   const isRegistryLoading = useModelRegistryStore((state) => state.isLoading);
-  useEnsureModelRegistry({ db });
+  useEnsureModelRegistry();
   const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
     useLocalRuntimeEmbeddingModelCatalog({
       maxVerificationModels: 8,

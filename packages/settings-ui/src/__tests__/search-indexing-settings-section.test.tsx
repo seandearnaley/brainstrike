@@ -43,12 +43,8 @@ vi.mock('../../../ui/src/theme-provider', () => ({
   useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
 }));
 
-vi.mock('@brainstrike/db', () => ({
-  useEmbeddingSetsRepository: () => mockRepository,
-}));
 vi.mock('@brainstrike/db/react', () => ({
   useEmbeddingSetsRepository: () => mockRepository,
-  usePGliteDatabase: () => null,
 }));
 
 // The granite catalog row migration 149 writes, as the model registry store loads it.

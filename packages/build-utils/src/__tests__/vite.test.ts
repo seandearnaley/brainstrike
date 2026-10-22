@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const {
   createCspQualifiedEvalWarningFilter,
-  findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
@@ -34,8 +33,6 @@ function toVitePath(filePath: string): string {
 describe('createCspQualifiedEvalWarningFilter', () => {
   it.each([
     '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/web-tree-sitter.js',
-    '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/index.js',
-    '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/chunk-HXUXMFL7.js',
   ])('suppresses the CSP-qualified EVAL warning from %s', (id) => {
     const defaultHandler = vi.fn();
 
@@ -93,48 +90,12 @@ describe('createCspQualifiedEvalWarningFilter', () => {
       id: '../../node_modules/.pnpm/other-runtime@1.0.0/node_modules/other-runtime/index.js',
       message: 'An unexpected direct eval',
     },
-    {
-      code: 'EVAL',
-      // Since BST-1063 this is the SHIPPED state, not a hypothetical: the
-      // catalog pins the current PGlite (0.5.5 since BST-1283) while the
-      // allowlist stays at 0.5.3, so PGlite EVAL warnings forward (visibly)
-      // in every build. Do not "fix" the noise by adding the current version
-      // to the allowlist without redoing the BST-573/594 CSP review.
-      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.5/node_modules/@electric-sql/pglite/dist/index.js',
-      message: 'A direct eval after an unreviewed dependency upgrade',
-    },
-    {
-      code: 'EVAL',
-      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/chunk-NEWBUILD.js',
-      message: 'A direct eval from an unreviewed PGlite module',
-    },
   ])('forwards non-qualified warnings unchanged', (log) => {
     const defaultHandler = vi.fn();
 
     createCspQualifiedEvalWarningFilter()('warn', log, defaultHandler);
 
     expect(defaultHandler).toHaveBeenCalledExactlyOnceWith('warn', log);
-  });
-});
-
-describe('findPGliteWasm', () => {
-  it('returns path when wasm exists', () => {
-    const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-'));
-    const appDir = path.join(tmp, 'app');
-    const wasmDir = path.join(appDir, 'node_modules/@electric-sql/pglite/dist');
-    mkdirSync(wasmDir, { recursive: true });
-    const wasmFile = path.join(wasmDir, 'pglite.wasm');
-    writeFileSync(wasmFile, '');
-
-    expect(findPGliteWasm(appDir)).toBe(toVitePath(wasmFile));
-  });
-
-  it('returns null when wasm is missing', () => {
-    const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-'));
-    const appDir = path.join(tmp, 'app');
-    mkdirSync(appDir, { recursive: true });
-
-    expect(findPGliteWasm(appDir)).toBeNull();
   });
 });
 
@@ -233,7 +194,6 @@ describe('assistant vite helpers', () => {
       expect.stringContaining('/packages/app-shell/src/database-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-chat-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
-      expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
       expect.stringContaining('/packages/assistant-ui/src/assistant-ui-panel.tsx'),
       expect.stringContaining('/packages/assistant-ui/src/markdown-text.tsx'),
@@ -415,7 +375,6 @@ describe('getTreeSitterGrammarCopyTargets', () => {
     const pythonTarget = targets.find((t) => t.src.endsWith('python.wasm'));
     expect(pythonTarget).toBeDefined();
     // Expected resolution: <baseDir>/../../packages/chunking-worker/grammars/python.wasm
-    // (mirrors the findPGliteWasm baseDir convention)
     expect(pythonTarget?.src).toBe(
       toVitePath(
         path.resolve('/tmp/brainstrike-app', '../../packages/chunking-worker/grammars/python.wasm')
