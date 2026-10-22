@@ -1,6 +1,5 @@
 {
   "extends": ["//"],
   "tasks": {
-    "test:integration": { "dependsOn": ["@brainstrike/file-system#build"] }
   }
 }

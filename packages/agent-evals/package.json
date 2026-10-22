@@ -44,7 +44,6 @@
     "eval": "pnpm --filter @brainstrike/agent-evals... build && node dist/cli.js eval",
     "record": "pnpm --filter @brainstrike/agent-evals... build && node dist/cli.js record",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   }
 }

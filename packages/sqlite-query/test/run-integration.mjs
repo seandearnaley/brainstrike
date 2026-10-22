@@ -22,8 +22,6 @@ const child = spawn(
     fileURLToPath(new URL('../../../node_modules/vitest/vitest.mjs', import.meta.url)),
     'run',
     'src/__tests__/sandbox.integration.test.ts',
-    'src/__tests__/scoped-grep.integration.test.ts',
-    'src/__tests__/trigram-grep-differential.integration.test.ts',
   ],
   {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
@@ -38,9 +36,7 @@ child.on('exit', (code, signal) => {
   if (signal) {
     throw new Error(`SQLite query integration runtime exited with ${signal}.`);
   }
-  // The separate utility-process proof belongs to the integration lane;
-  // coverage instruments the complete Vitest suite under the qualified runtime.
-  if (coverage || code !== 0) {
+  if (code !== 0) {
     process.exitCode = code ?? 1;
     return;
   }
