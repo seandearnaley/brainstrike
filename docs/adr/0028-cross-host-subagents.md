@@ -1,18 +1,19 @@
 # ADR-0028: Subagents, sessions and agent messaging work as Claude Code does, across hosts
 
-- **Status:** Proposed (draft for owner review; revised 2026-10-22 to the owner's
-  direction)
+- **Status:** Proposed. The owner decided every open question on 2026-10-22 (see
+  Owner decisions) and may mark it Accepted.
 - **Date:** 2026-10-22
-- **Ticket:** none yet
+- **Ticket:** none
 - **Builds on:** [ADR-0009](0009-host-run-loop-invariants.md) with its 2026-10-22
   amendment, [ADR-0010](0010-approvals-and-delegation.md),
   [ADR-0011](0011-run-log-and-state-store.md),
   [ADR-0012](0012-ai-sdk-loop-mastra-memory-library.md),
   [ADR-0017](0017-cli-first-agent-host.md),
   [ADR-0024](0024-effect-adoption-service-and-rpc-boundaries.md)
-- **Needs owner discussion before any implementation:** it changes who may ask a person
-  a question, adds agent-to-agent messaging and peer sessions, and adds a network-facing
-  server to the host (AGENTS.md: ownership and engine changes).
+- **Scope of the owner's decisions:** who may ask a person a question,
+  agent-to-agent messaging, peer sessions, worktree binding, and a network-facing
+  server (AGENTS.md: ownership and engine changes). A security review still comes
+  before any network listener ships.
 
 ## Context
 
@@ -72,6 +73,15 @@ A child is an ordinary host run in its own child thread, on its parent's host
 
   Since ADR-0009's 2026-10-22 amendment (PR #4142), the parent's watchdog never judges
   a running delegation.
+- **Worktrees.** `worktree.created` records a worktree that a shell command made and
+  the desktop's worktree ledger adopted. Nothing binds the thread or its children to
+  that worktree.
+  - In the crashed thread behind ADR-0009's amendment, the root created a worktree
+    (debug pack seq 625).
+  - It found no way to open the worktree as a workspace root (seq 674), and archived
+    it (seq 772).
+  - It then ran `git switch` in the person's own primary checkout (seq 901).
+  - Both worker children then edited that checkout.
 - **What is missing:**
   - The parent's *model* cannot message a child, continue a finished one, or hear from
     a working one.
@@ -205,21 +215,22 @@ standards sit underneath, at the boundaries.
 | --- | --- | --- | --- |
 | Background subagent; completion notification; only the conclusion enters context | Root delegation is background by default; B10/B14 wake delivery of the whole-turn ledger; `toModelOutput` passes only the text | Exists | None |
 | Fresh subagent | Children start from the brief and persona only | Exists | None |
-| Forked subagent | — | Missing | A `fork` delegation option that starts the child from the parent's committed messages (later) |
-| Continue a finished subagent by name with `SendMessage` | BST-2178 follow-ups, but only a person can type them | Partial | A `message` tool for the model (step 3) |
-| Message a working agent; it reads it at its next tool round | `run/input` ends the child's run after its current step and starts the next run with the input | Exists for people | The same path, opened to agents (step 3) |
+| Forked subagent | — | Missing | A `fork` delegation option that starts the child from the parent's committed messages. Later; no early step depends on it (decision 6) |
+| Continue a finished subagent by name with `SendMessage` | BST-2178 follow-ups, but only a person can type them | Partial | A `message` tool for the model (step 4) |
+| Message a working agent; it reads it at its next tool round | `run/input` ends the child's run after its current step and starts the next run with the input | Exists for people | The same path, opened to agents (step 4) |
 | Subagent permission prompts surface in the main session, named by the subagent | `interaction.requested` in the child's log; tree approvals named by call sign; `needs-input` in the sidebar | Exists | None in-process. Cross-host: relay (below) |
-| Subagents cannot ask the user; questions go to the parent | Children with `askUser` ask the person directly | Differs | Remove `askUser` and `submitPlan` from child admission (step 2) |
-| Note per ended turn; wake when idle; a note is not proof | Delivery entries; the wake; ledger text that says starting work never proves completion | Exists for subagents | The same path for sessions (step 5) |
-| The child ledger / "linked sessions" | `describeHostChildLedger`; `thread/children`, with a call sign, colour and status | Exists for children | Generalised by the directory (step 4) |
+| Subagents cannot ask the user; questions go to the parent | Children with `askUser` ask the person directly | Differs | Remove `askUser` and `submitPlan` from child admission (decision 1, step 2) |
+| Note per ended turn; wake when idle; a note is not proof | Delivery entries; the wake; ledger text that says starting work never proves completion | Exists for subagents | The same path for sessions (step 6) |
+| The child ledger / "linked sessions" | `describeHostChildLedger`; `thread/children`, with a call sign, colour and status | Exists for children | Generalised by the directory (step 5) |
 | Parent never times a child; approvals never time out; the child's own limits | `maxChildRuntimeMs` per leg (optional), step budget, the child's own watchdog, ADR-0009 amendment | Exists | None. Remote children keep their host's limits |
 | Nesting depth limit | `maxDepth`; only workers delegate | Exists | None |
-| Worktree isolation for a writer | Children share the parent's workspace binding; worktrees exist for threads (`worktree.created`, thread binding) | Partial | Optional worktree per delegation; a session gets its own by default (step 5) |
-| Sessions: `user_asked`, `offer`, `own_initiative` proposal cards | — | Missing | `session/start` plus a proposal interaction (step 5) |
-| `ListAgents`, with busy/idle state | `thread/list`, `thread/children`, derived `hostChildStatus` | Partial | `agents/list` across the tree and peers (step 4) |
-| `SendMessage` by name; reply to `from` | — | Missing | `agents/message` and the `message` tool (steps 3–4) |
-| `notify_when_idle` | `thread/children/changed`, which is a re-read hint | Partial | One-shot `agents/notify` (step 4) |
-| Inbound controls: accept, hold, refuse | — | Missing | A host-level inbound setting (step 6) |
+| Worktree isolation for a writer | Children share the parent's workspace binding; a created worktree binds nothing | Partial | A created worktree binds its thread or delegation. A worker gets its own worktree whenever another writer is live in the tree; a session always gets one (decision 7, steps 3 and 6) |
+| Sessions: `user_asked`, `offer`, `own_initiative` proposal cards | — | Missing | `session/start`, only on the person's request or from a proposal the person starts (decision 2, step 6) |
+| Named subagents message each other | — | Missing | Sibling messages through the directory, after parent↔child messaging (decision 3, step 5) |
+| `ListAgents`, with busy/idle state | `thread/list`, `thread/children`, derived `hostChildStatus` | Partial | `agents/list` across the tree and peers (step 5) |
+| `SendMessage` by name; reply to `from` | — | Missing | `agents/message` and the `message` tool (steps 4–5) |
+| `notify_when_idle` | `thread/children/changed`, which is a re-read hint | Partial | One-shot `agents/notify` (step 5) |
+| Inbound controls: accept, hold, refuse | — | Missing | A host-level inbound setting (step 7) |
 | A message is data; it cannot approve; no laundering | Only a client's `interaction/respond` answers an interaction; deliveries are marked automated | Exists structurally | Stated as rules below |
 | Workflows only on the user's opt-in | — | Not adopted | Out of scope |
 | Per-session task list | `manageTaskList` belongs to the root; children do not get it | Differs | A session is a root, so it has its own list. Subagents stay without one |
@@ -242,11 +253,19 @@ standards sit underneath, at the boundaries.
    - its delegation call or session start;
    - the reference to the remote agent;
    - the notes it delivered to its own model.
-5. **Writers do not share files.** A child that edits in parallel with another writer
-   gets its own worktree. Otherwise the work is partitioned so that no two writers edit
-   the same files.
+5. **Writers do not share files.**
+   - A session always gets its own worktree.
+   - A worker subagent gets one whenever another writer is live in the same tree.
+   - Creating a worktree binds the thread or delegation that made it, so that its
+     later tool calls run there.
+   - An agent never switches the branch of the person's own checkout.
 6. **Status is derived.** Idle, working, waiting on a person and offline are computed
    from runs, or from the remote task's state. They are never stored.
+7. **A person starts every session.** An agent starts a peer session only when the
+   person asks, or as a proposal the person starts. It never starts one on its own.
+8. **Siblings message through the directory.** A child may message its siblings by
+   name once parent↔child messaging has landed. Such a message is data under rule 2:
+   it carries no permission across any boundary.
 
 ### Cross-host addressing
 
@@ -299,6 +318,12 @@ for the agents it started.
     that crosses to another person or host by default.
   - A held message waits for the receiving person's approval.
   - A message never carries a grant.
+- **The A2A listener** (decision 5):
+  - **Defaults.** It is off on desktop and on for the cloud host. The CLI serves it only
+    when it is explicitly started to.
+  - **Authentication.** A bearer token for loopback CLI-to-CLI. OAuth 2.1 client
+    credentials for the cloud.
+  - **Security review.** No listener ships before one.
 
 ### Wire protocols at the boundaries
 
@@ -364,7 +389,9 @@ mapping lives only in the A2A adapter.
     approval survives that host's restart.
   - When the starter's host restarts, a foreground remote delegation is interrupted and
     its bound task is cancelled.
-  - What happens to background ones is open question 4.
+  - A background remote child is re-attached from its `child.task.bound` row, with
+    `SubscribeToTask` or `GetTask`, and its result is delivered as usual (decision 4).
+    Only the starter restarted; the remote host kept working.
 
 ## Who owns each fact
 
@@ -411,37 +438,48 @@ mapping lives only in the A2A adapter.
      - New methods and a new tool.
      - Peer sessions are a new concept.
      - Cross-host messaging needs a network listener.
+   - Chosen by the owner on 2026-10-22, along with the decisions below.
 
 ## What changes first
 
 0. **Prerequisite:** land the watchdog fix (PR #4142,
    `claude/thread-crash-debug-fd9a22`).
-1. **Owner decisions** on the open questions. No code until then.
-2. **Questions go up, by removal.** Drop `askUser` and `submitPlan` from child admission,
-   as `manageTaskList` already is (`narrowHostChildTools`). A child that needs a
-   decision ends its run with the question in its report, and the parent decides or
-   asks the person. Update the worker persona's instructions to match.
-3. **The `message` tool.** It addresses the parent's children by call sign.
+1. **Owner decisions:** taken on 2026-10-22 (below).
+2. **Questions go up, by removal** (decision 1). Drop `askUser` and `submitPlan` from
+   child admission, as `manageTaskList` already is (`narrowHostChildTools`). A child
+   that needs a decision ends its run with the question in its report, and the parent
+   decides or asks the person. Update the worker persona's instructions to match.
+3. **A created worktree binds its thread** (decision 7).
+   - When a run creates a worktree, the worktree becomes the binding of that run's
+     thread, or of the delegation that made it, so later tool calls run there.
+   - An agent never switches the person's own checkout.
+   - A worker delegated while another writer is live in the tree gets its own
+     worktree.
+4. **The `message` tool.** It addresses the parent's children by call sign.
    - To an idle child, the message starts a follow-up run.
    - To a working child, it is `run/input`.
 
    Both paths exist today for people (BST-2178), and the result returns through the
    existing delivery. The message is committed as agent-authored.
-4. **The directory on one host:** `agents/list`, `agents/message` and a one-shot
-   `agents/notify`, derived from runs and `thread/children`. The desktop sidebar reads
-   it.
-5. **Sessions on one host:**
-   - `session/start`, which creates a root thread with its own worktree, linked to its
-     starter;
-   - `user_asked` and `offer` starts, and an `own_initiative` proposal as an interaction
-     the person starts;
-   - notes and the wake reuse the delivery path.
-6. **Inbound controls and the host ID**, before anything leaves the host.
-7. **Across hosts, through A2A:**
-   - first serve A2A from the CLI host, proven with the A2A TCK;
-   - then delegate and message outbound, proven CLI host to CLI host on loopback;
-   - then relay approvals.
-8. **The cloud host** (its own ADR).
+5. **The directory on one host:**
+   - `agents/list`, `agents/message` and a one-shot `agents/notify`, derived from runs
+     and `thread/children`. The desktop sidebar reads it.
+   - Sibling messages by name come after step 4 (decision 3).
+6. **Sessions on one host** (decision 2):
+   - `session/start` creates a root thread, always in its own worktree, linked to its
+     starter.
+   - It starts only when the person asks, or from an `own_initiative` proposal that the
+     person starts.
+   - Notes and the wake reuse the delivery path.
+7. **Inbound controls and the host ID**, before anything leaves the host.
+8. **Across hosts, through A2A** (decisions 4 and 5):
+   - A security review of the listener comes first.
+   - Then serve A2A from an explicitly started CLI host with a loopback bearer token,
+     proven with the A2A TCK.
+   - Then delegate and message outbound, proven CLI host to CLI host on loopback.
+   - Then relay approvals, and re-attach background children after a starter restart.
+9. **The cloud host**, with OAuth 2.1 client credentials (its own ADR).
+10. **`fork` context** (decision 6). Nothing earlier depends on it.
 
 ## Consequences
 
@@ -454,8 +492,14 @@ mapping lives only in the A2A adapter.
   - the inbound setting.
 - **Children can no longer ask the person.** A worker that needs a decision stops and
   reports, so delegated work may take an extra round through the parent.
-- **Security.** A network listener and a new client origin need a security review. The
-  desktop keeps the listener off by default.
+- **Worktrees.**
+  - A worktree a run creates changes that thread's binding. Its Changes review and
+    tool roots follow the worktree.
+  - Parallel workers can each hold a worktree, which costs disk space and a merge back
+    into the parent's branch.
+- **Security.** A network listener and a new client origin need a security review
+  before they ship. The desktop keeps the listener off, the cloud host has it on, and
+  the CLI serves it only when explicitly started to.
 - **Remote agents.** A remote agent cannot edit the starter's working tree. It runs its
   own host's model, and its usage stays on that host's ledger.
 - **Unchanged:**
@@ -464,25 +508,31 @@ mapping lives only in the A2A adapter.
   - MCP;
   - the client protocol's transport (ADR-0024).
 
-## Open questions for the owner
+## Owner decisions (2026-10-22)
 
-1. **Questions.** Should children lose `askUser` and `submitPlan`, so that their
-   questions route through the parent as in Claude Code? Recommended: yes. It is a
-   removal.
-2. **Peer sessions.** Should an agent be able to start one (`session/start`) on its own
-   initiative, only as a proposal the person starts? Or only when the person asks?
-   Recommended: proposals plus person-asked starts, as in Claude Code.
-3. **Messaging between siblings.** Should children of one parent message each other by
-   name, as named Claude Code subagents can? Or only their parent?
+The owner adopted the recommended answer to every open question.
+
+1. **Questions go up.** Children lose `askUser` and `submitPlan`, and their questions
+   route through the coordinating parent, as in Claude Code. This is a removal.
+2. **Peer sessions.** An agent starts one only as a proposal that the person starts, or
+   when the person asks. It never starts one on its own.
+3. **Sibling messaging.** Yes, through the agent directory, after parent↔child
+   messaging lands. A message is data: it cannot approve anything or carry a permission
+   across a boundary.
 4. **A background remote child across a starter restart.** Re-attach and deliver its
-   result, or cancel it as an in-process child is interrupted?
-5. **The listener and its authentication.** Is A2A on by default for CLI and cloud and
-   off for desktop? Which authentication: a bearer token, OAuth 2.1 client credentials,
-   or mTLS?
-6. **Fork context.** Should the delegation tool offer `fork`, which gives the child the
-   parent's committed messages?
-7. **Worktrees.** Does a worker that edits in parallel always get its own worktree? Or
-   only when another writer is live in the same tree?
+   result. Only the starter restarted; the remote host kept working.
+5. **The listener and its authentication.**
+   - Defaults: off on desktop, on for the cloud host, and on for the CLI only when it
+     is explicitly served.
+   - Authentication: a bearer token for loopback CLI-to-CLI, and OAuth 2.1 client
+     credentials for the cloud.
+   - A security review comes before any network listener ships.
+6. **Fork context.** Offer `fork`, but later. No early step depends on it.
+7. **Worktrees.** A session always gets its own worktree. A worker subagent gets one
+   whenever another writer is live in the same tree. Creating a worktree binds the
+   thread or delegation that made it, so an agent never switches the person's own
+   checkout. The evidence is the crashed thread under Context, which switched the
+   person's primary checkout (debug pack seq 625, 674, 772, 901).
 
 ## Sources
 
