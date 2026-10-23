@@ -16,7 +16,7 @@ import {
 } from '@brainstrike/canonical-ingestion';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import type { CollectionPort, CollectionRecord } from '@brainstrike/state-store';
-import { DateTime, Effect, Schema, Semaphore } from 'effect';
+import { DateTime, Effect, Fiber, Schema, Semaphore } from 'effect';
 import { traceNativeIndexWorkflow } from './native-index-effect-diagnostics';
 
 /** A change the config cannot hold; nothing was saved. */
@@ -86,7 +86,8 @@ export function assertRegisteredEmbeddingModel(model: IndexModel): void {
 
 /**
  * Main's owner of the profile's search index config: the one caller of `host/index-config`.
- * One permit serializes changes, so each one merges into the config the previous one saved.
+ * One permit serializes changes, so each one merges into the config the previous one saved and
+ * starts its apply after the previous one's.
  */
 export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDependencies) {
   const permit = Semaphore.makeUnsafe(1);
@@ -121,11 +122,16 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
     return collections.find((row) => row.systemRole === 'workspace-index') ?? null;
   });
 
-  const update = Effect.fn('IndexConfig.update')(function* (
+  /**
+   * Saves a change and starts its apply under the permit, so applies join the native owner's
+   * FIFO in save order. The permit is not held while the apply runs: a factory reset holds that
+   * FIFO and publishes the saved config under the permit.
+   */
+  const save = Effect.fn('IndexConfig.save')(function* (
     patch: unknown
   ): Effect.fn.Return<
-    IndexConfig,
-    IndexConfigApplyFailed | IndexConfigRefused | IndexConfigStoreFailed
+    { readonly applying: Fiber.Fiber<void, IndexConfigApplyFailed>; readonly next: IndexConfig },
+    IndexConfigRefused | IndexConfigStoreFailed
   > {
     const change = yield* decodePatch(patch).pipe(Effect.mapError(refused));
     const previous = yield* read();
@@ -149,18 +155,26 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
       dependencies.catalog.indexConfig({ config: next, operation: 'write' })
     );
     dependencies.publish(next);
-    if (next.mode === 'semantic' && model !== null && space !== null && !sameModel(space, model)) {
-      yield* apply("The previous model's vectors could not be removed.", () =>
-        dependencies.replaceVectorSpace(space.id)
-      );
-    } else if (sameIndexChunking(previous.chunking, next.chunking)) {
-      yield* apply('The search index could not apply the new settings.', dependencies.reconfigure);
-    } else {
-      yield* apply(
-        'The search index could not rebuild with the new chunking.',
-        dependencies.rebuild
-      );
-    }
+    const applying = yield* (
+      next.mode === 'semantic' && model !== null && space !== null && !sameModel(space, model)
+        ? apply("The previous model's vectors could not be removed.", () =>
+            dependencies.replaceVectorSpace(space.id)
+          )
+        : sameIndexChunking(previous.chunking, next.chunking)
+          ? apply('The search index could not apply the new settings.', dependencies.reconfigure)
+          : apply('The search index could not rebuild with the new chunking.', dependencies.rebuild)
+    ).pipe(Effect.forkChild({ startImmediately: true }));
+    return { applying, next };
+  });
+
+  const update = Effect.fn('IndexConfig.update')(function* (
+    patch: unknown
+  ): Effect.fn.Return<
+    IndexConfig,
+    IndexConfigApplyFailed | IndexConfigRefused | IndexConfigStoreFailed
+  > {
+    const { applying, next } = yield* permit.withPermits(1)(save(patch));
+    yield* Fiber.join(applying);
     return next;
   });
 
@@ -231,8 +245,6 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
     read: (): Promise<IndexConfig> =>
       runAtPromiseBoundary(traceNativeIndexWorkflow(read(), 'index-config.read')),
     update: (patch: unknown): Promise<IndexConfig> =>
-      runAtPromiseBoundary(
-        traceNativeIndexWorkflow(permit.withPermits(1)(update(patch)), 'index-config.update')
-      ),
+      runAtPromiseBoundary(traceNativeIndexWorkflow(update(patch), 'index-config.update')),
   };
 }
