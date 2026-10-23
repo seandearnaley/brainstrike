@@ -1,3 +1,4 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   embeddingProfileHash,
   type IndexerPort,
@@ -23,7 +24,11 @@ import type {
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
-import { NativeAuthorityTransitionError, NativeIndexRefusalError } from './errors.js';
+import {
+  NATIVE_SEARCH_NO_FOLDERS,
+  NativeAuthorityTransitionError,
+  NativeIndexRefusalError,
+} from './errors.js';
 import { grepSnapshot } from './index-search.js';
 import type { NativeScopeReadiness } from './read-contracts.js';
 
@@ -165,7 +170,7 @@ function requestedScopes(
     return [{ embeddingSetId: request.collectionId, kind: 'collection' }];
   }
   if (request.rootIds.length === 0) {
-    throw new Error('Native workspace search requires connected roots.');
+    throw new BoundaryFailureError(NATIVE_SEARCH_NO_FOLDERS);
   }
   return request.rootIds.map((rootId) => ({ kind: 'workspace', rootId }));
 }

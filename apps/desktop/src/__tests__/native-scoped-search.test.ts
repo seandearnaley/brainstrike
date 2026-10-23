@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { embeddingProfileHash, vectorProfileHash } from '@brainstrike/indexer';
 import { indexerEmbeddingProfileValues } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
@@ -7,6 +8,7 @@ import { expect, it, vi } from 'vitest';
 import { createBenchmarkProgress } from '../../qualification/m2-native/benchmark-progress';
 import { nativeBuildComplete } from '../../qualification/m2-native/native-benchmark';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
   binding,
@@ -365,6 +367,30 @@ it('projects actual rootless collection scope through text, grep and coverage wi
       text: 'marker',
     })
   ).rejects.toThrow('not authorized');
+});
+
+it('refuses a workspace search with no folder in words the person acts on, logging nothing', async () => {
+  const f = fixture();
+  const log = vi.fn();
+  for (const read of [
+    () => f.capability.search({ limit: 10, mode: 'bm25', rootIds: [], text: 'marker' }),
+    () =>
+      f.capability.grep({
+        caseSensitive: false,
+        isRegex: false,
+        limit: 10,
+        pattern: 'marker',
+        rootIds: [],
+      }),
+  ]) {
+    const error = await read().catch((caught: unknown) => caught);
+    const failure = nativeIndexBoundaryFailure(error, log);
+    expect(failure).toMatchObject({ code: 'native-search.no-folders', kind: 'refusal' });
+    expect(describeBoundaryFailure(failure)).toBe(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
+  }
+  expect(log).not.toHaveBeenCalled();
 });
 
 it('uses the full saved scoped vector profile while the independent legacy engine is TEXT', async () => {
