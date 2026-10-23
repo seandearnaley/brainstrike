@@ -630,7 +630,7 @@ describe('Explorer search with an open folder the index leaves out', () => {
     act(() => result.current.runTextSearch());
     await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
     expect(useWorkspaceSearchStore.getState().error).toBe(
-      '"wt2" is not in the search index, so there is nothing to search. Turn on indexing for it in Settings › Search & Indexing › Worktree map.'
+      '"wt2" is not indexed, so there is nothing to search. Worktrees can be turned on in Settings, Search & Indexing.'
     );
     expect(capability.search).not.toHaveBeenCalled();
     expect(capability.grep).not.toHaveBeenCalled();
@@ -649,7 +649,7 @@ describe('Explorer search with an open folder the index leaves out', () => {
       expect(result.current.semanticAvailability).toEqual({
         available: false,
         reason:
-          '"wt2" is not in the search index, so there is nothing to search. Turn on indexing for it in Settings › Search & Indexing › Worktree map.',
+          '"wt2" is not indexed, so there is nothing to search. Worktrees can be turned on in Settings, Search & Indexing.',
       })
     );
     expect(capability.coverageBatch).not.toHaveBeenCalled();

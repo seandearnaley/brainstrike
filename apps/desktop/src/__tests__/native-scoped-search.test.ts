@@ -410,10 +410,15 @@ it.each([
     () => f.capability.coverage({ rootIds }),
   ]) {
     const error = await read().catch((caught: unknown) => caught);
-    expect(nativeIndexBoundaryFailure(error, log)).toMatchObject({
+    const failure = nativeIndexBoundaryFailure(error, log);
+    expect(failure).toMatchObject({
+      category: 'configuration',
       code: 'native-search.folder-not-indexed',
       kind: 'refusal',
     });
+    expect(describeBoundaryFailure(failure)).toBe(
+      'A folder in this search is not indexed or is no longer open. Search again, and turn a worktree on in Settings, Search & Indexing to include it.'
+    );
   }
   expect(log).not.toHaveBeenCalled();
 });

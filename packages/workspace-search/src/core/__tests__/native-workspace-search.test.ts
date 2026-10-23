@@ -398,9 +398,12 @@ describe('native search consumer boundary', () => {
         : executor.searchSemantic(scoped)
       ).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(BoundaryFailureError);
-      expect(error).toMatchObject({ code: 'native-search.folder-not-indexed' });
+      expect(error).toMatchObject({
+        code: 'native-search.folder-not-indexed',
+        failure: { category: 'configuration' },
+      });
       expect(describeBoundaryError(error)).toBe(
-        '"wt2" is not in the search index, so there is nothing to search. Turn on indexing for it in Settings › Search & Indexing › Worktree map.'
+        '"wt2" is not indexed, so there is nothing to search. Worktrees can be turned on in Settings, Search & Indexing.'
       );
       expect(bridge.search).not.toHaveBeenCalled();
       expect(bridge.grep).not.toHaveBeenCalled();

@@ -383,7 +383,7 @@ describe('SearchResultsTree', () => {
     seedResults(makeResults([fileResult()], { unindexedFolders: ['wt2', 'wt3'] }));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
     expect(screen.getByRole('status')).toHaveTextContent(
-      '"wt2", "wt3" are not in the search index, so they were not searched. Turn on indexing for them in Settings › Search & Indexing › Worktree map.'
+      '"wt2", "wt3" are not indexed, so they were not searched. Worktrees can be turned on in Settings, Search & Indexing.'
     );
   });
 
@@ -392,7 +392,7 @@ describe('SearchResultsTree', () => {
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
     expect(screen.getByText('No matches found')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(
-      '"wt2" is not in the search index, so it was not searched. Turn on indexing for it in Settings › Search & Indexing › Worktree map.'
+      '"wt2" is not indexed, so it was not searched. Worktrees can be turned on in Settings, Search & Indexing.'
     );
   });
 

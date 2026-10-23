@@ -561,24 +561,28 @@ function projectNativeResults(
   };
 }
 
-const WORKTREE_MAP = 'Settings › Search & Indexing › Worktree map';
+/**
+ * Where a worktree is turned on. The renderer cannot tell a worktree from an
+ * ordinary folder, so it names the setting without claiming which folder is which.
+ */
+const WORKTREES_SETTING = 'Worktrees can be turned on in Settings, Search & Indexing.';
 function namedFolders(names: readonly string[]): { list: string; one: boolean } {
   return { list: names.map((name) => `"${name}"`).join(', '), one: names.length === 1 };
 }
-/** Open folders a search left out because the index does not cover them, and how to include them. */
+/** Open folders a search left out because the index does not serve them. */
 export function unindexedFoldersNote(names: readonly string[]): string {
   const { list, one } = namedFolders(names);
-  return `${list} ${one ? 'is' : 'are'} not in the search index, so ${one ? 'it was' : 'they were'} not searched. Turn on indexing for ${one ? 'it' : 'them'} in ${WORKTREE_MAP}.`;
+  return `${list} ${one ? 'is' : 'are'} not indexed, so ${one ? 'it was' : 'they were'} not searched. ${WORKTREES_SETTING}`;
 }
-/** No open folder is in the index: nothing to search, named, rather than an empty result. */
+/** No open folder is indexed: nothing to search, named, rather than an empty result. */
 export function noIndexedFolderRefusal(names: readonly string[]): BoundaryFailureError {
   const { list, one } = namedFolders(names);
   return new BoundaryFailureError(
     refusal({
       category: 'configuration',
       code: NATIVE_SEARCH_FOLDER_NOT_INDEXED,
-      message: `${list} ${one ? 'is' : 'are'} not in the search index, so there is nothing to search.`,
-      remedy: `Turn on indexing for ${one ? 'it' : 'them'} in ${WORKTREE_MAP}.`,
+      message: `${list} ${one ? 'is' : 'are'} not indexed, so there is nothing to search.`,
+      remedy: WORKTREES_SETTING,
     })
   );
 }

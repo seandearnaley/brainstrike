@@ -32,11 +32,13 @@ export const NATIVE_SEARCH_NO_FOLDERS = refusal({
   message: NO_WORKSPACE_FOLDER_MESSAGE,
 });
 
-/** A search naming a folder the index leaves out (a worktree not opted in), or one folder twice. */
+/**
+ * A search naming a folder the index does not serve: a worktree not opted in,
+ * a folder removed or disconnected since, or one folder named twice.
+ */
 export const NATIVE_SEARCH_FOLDER_NOT_INDEXED = refusal({
-  category: 'input',
+  category: 'configuration',
   code: FOLDER_NOT_INDEXED_CODE,
-  message: 'This search names a folder the search index does not cover, or names a folder twice.',
-  remedy:
-    'A worktree is indexed once it is turned on in Settings › Search & Indexing › Worktree map.',
+  message: 'A folder in this search is not indexed or is no longer open.',
+  remedy: 'Search again, and turn a worktree on in Settings, Search & Indexing to include it.',
 });
