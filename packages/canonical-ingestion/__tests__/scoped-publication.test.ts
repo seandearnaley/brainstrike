@@ -619,6 +619,17 @@ describe('main canonical publication ownership', () => {
     });
   });
 
+  it.each([
+    ['another store', { storeId: 'other-store' }],
+    ['a request never issued', { requestId: 'never-issued' }],
+    ['another generation', { generation: 7 }],
+  ])('refuses an abort of a ticket from %s after a finish', async (_name, foreign) => {
+    const { publication } = fixture();
+    const ended = await publication.beginScan({ requestId: 'ended', scope });
+    await publication.finishScan({ ...completion, ticket: ended });
+    await expect(publication.abortScan({ ...ended, ...foreign })).rejects.toThrow('stale');
+  });
+
   it('keeps readiness false when cancellation arrives during physical manifest verification', async () => {
     const { port, publication } = fixture();
     const held = Promise.withResolvers<Awaited<ReturnType<typeof port.verifyScopedManifest>>>();

@@ -56,6 +56,8 @@ interface ScanState {
   mutationRevision: number;
   readonly pending: Set<Promise<unknown>>;
   publication: NativeAcknowledgedPublication | undefined;
+  /** The ticket this scope's last finish released. */
+  released: CanonicalScanTicket | undefined;
   scanComplete: boolean;
   sourceProof:
     | { readonly files: readonly ScopedManifestFile[]; readonly storeId: string }
@@ -147,6 +149,7 @@ export function createNativeCanonicalPublication(
       mutationRevision: 0,
       pending: new Set(),
       publication: undefined,
+      released: undefined,
       scanComplete: false,
       sourceProof: undefined,
       ticket: undefined,
@@ -160,14 +163,13 @@ export function createNativeCanonicalPublication(
     }
     return state;
   };
-  /** Whether the ticket still names its scope's scan: a finish releases it. */
-  const owns = (state: ScanState, ticket: CanonicalScanTicket): boolean =>
-    state.ticket?.storeId === ticket.storeId &&
-    state.ticket.requestId === ticket.requestId &&
-    state.ticket.generation === ticket.generation;
+  const sameTicket = (held: CanonicalScanTicket | undefined, ticket: CanonicalScanTicket) =>
+    held?.storeId === ticket.storeId &&
+    held.requestId === ticket.requestId &&
+    held.generation === ticket.generation;
   const stateForTicket = (ticket: CanonicalScanTicket): ScanState => {
     const state = stateFor(ticket.scope);
-    if (!owns(state, ticket)) {
+    if (!sameTicket(state.ticket, ticket)) {
       throw new Error('Canonical publication ticket is stale or belongs to another store.');
     }
     return state;
@@ -270,12 +272,12 @@ export function createNativeCanonicalPublication(
   };
   return {
     abortScan: async (ticket) => {
-      const state = stateFor(ticket.scope);
-      // Its finish already released the ticket, so nothing of that scan is left to stop: a
-      // retirement that cancels a scan its finish just ended settles as that cancellation (BST-1955).
-      if (!owns(state, ticket)) {
+      // This scope's finish released exactly this ticket: its scan ended, so a retirement that
+      // cancels it late has nothing to stop (BST-1955). Every other unheld ticket stays stale.
+      if (sameTicket(stateFor(ticket.scope).released, ticket)) {
         return;
       }
+      const state = stateForTicket(ticket);
       state.aborted = true;
       state.scanComplete = false;
       await Promise.allSettled([...state.pending]);
@@ -389,6 +391,7 @@ export function createNativeCanonicalPublication(
           return receipt(result.complete ? 'complete' : 'manifest-mismatch');
         })
         .finally(() => {
+          state.released = state.ticket;
           state.ticket = undefined;
           state.finishing = undefined;
         });
