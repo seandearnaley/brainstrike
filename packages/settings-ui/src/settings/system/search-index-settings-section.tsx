@@ -8,6 +8,7 @@ import {
   type IndexConfigPatch,
   type IndexModel,
   sameIndexChunking,
+  sameIndexModel,
 } from '@brainstrike/assistant-contract/index-config';
 import type { LocalExecutionCapability } from '@brainstrike/indexing-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -29,7 +30,6 @@ import {
 import {
   BACKGROUND_INDEXING_POLICY_OPTIONS,
   type BackgroundIndexingPolicyPreset,
-  DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE,
   getBackgroundIndexingPolicyOption,
 } from '@brainstrike/utils';
 import { startTransition, useActionState, useState } from 'react';
@@ -72,10 +72,10 @@ interface Bounds {
   readonly maximum: number;
   readonly minimum: number;
 }
-interface Change {
-  readonly patch: IndexConfigPatch;
-  /** True when this change applies the staged choices. */
-  readonly staged: boolean;
+/** A refused Apply and the staged choices it refused. */
+interface Refusal {
+  readonly message: string;
+  readonly staged: Staged;
 }
 
 const inRange = (value: number, bounds: Bounds) =>
@@ -156,16 +156,29 @@ function SearchIndexForm({
   readonly update: ((patch: IndexConfigPatch) => Promise<IndexConfig>) | null;
 }) {
   const [staged, setStaged] = useState<Staged>({});
-  const [error, dispatch, applying] = useActionState(
-    async (_previous: string | null, change: Change): Promise<string | null> => {
+  const [refusal, apply, applying] = useActionState(
+    async (_previous: Refusal | null, choices: Staged): Promise<Refusal | null> => {
+      if (!update) {
+        return { message: UNAVAILABLE, staged: choices };
+      }
+      try {
+        await update(choices);
+        setStaged({});
+        return null;
+      } catch (cause) {
+        return { message: describeBoundaryError(cause), staged: choices };
+      }
+    },
+    null
+  );
+  /** Mode, file policy and pause apply at once, apart from the staged choices. */
+  const [changeError, dispatchChange, changing] = useActionState(
+    async (_previous: string | null, patch: IndexConfigPatch): Promise<string | null> => {
       if (!update) {
         return UNAVAILABLE;
       }
       try {
-        await update(change.patch);
-        if (change.staged) {
-          setStaged({});
-        }
+        await update(patch);
         return null;
       } catch (cause) {
         return describeBoundaryError(cause);
@@ -173,8 +186,10 @@ function SearchIndexForm({
     },
     null
   );
-  const change = (patch: IndexConfigPatch): void =>
-    startTransition(() => dispatch({ patch, staged: false }));
+  const change = (patch: IndexConfigPatch): void => startTransition(() => dispatchChange(patch));
+  // A refusal describes the choices it refused; editing or discarding them retires it.
+  const applyError = refusal?.staged === staged ? refusal.message : null;
+  const busy = applying || changing;
 
   const mode = staged.mode ?? config.mode;
   const model = staged.model === undefined ? config.model : staged.model;
@@ -183,13 +198,25 @@ function SearchIndexForm({
   const pending = pendingLines(staged);
 
   const chooseMode = (next: IndexConfig['mode']): void => {
+    if (next === mode) {
+      return;
+    }
     if (next === 'semantic' && config.model === null) {
       setStaged((current) => ({ ...current, mode: 'semantic' }));
       return;
     }
-    setStaged(({ mode: _dropped, ...rest }) => rest);
-    change({ mode: next });
+    if (next !== 'semantic') {
+      // Only semantic search uses a model; staged chunking re-indexes in every mode.
+      setStaged(({ mode: _mode, model: _model, ...rest }) => rest);
+    }
+    if (next !== config.mode) {
+      change({ mode: next });
+    }
   };
+  const stageModel = (next: IndexModel): void =>
+    setStaged(({ model: _dropped, ...rest }) =>
+      config.model !== null && sameIndexModel(next, config.model) ? rest : { ...rest, model: next }
+    );
   const stageChunking = (next: IndexChunking): void =>
     setStaged(({ chunking: _dropped, ...rest }) =>
       sameIndexChunking(next, config.chunking) ? rest : { ...rest, chunking: next }
@@ -202,30 +229,30 @@ function SearchIndexForm({
         onTogglePause={update ? () => change({ paused: !config.paused }) : null}
         paused={config.paused}
       />
-      <SearchModeCard applying={applying} mode={mode} onChoose={chooseMode} />
+      <SearchModeCard applying={busy} mode={mode} onChoose={chooseMode} />
       {mode === 'semantic' ? (
         <SearchIndexModelCard
-          disabled={applying}
+          disabled={busy}
           localExecution={localExecution}
           model={model}
-          onChange={(next) => setStaged((current) => ({ ...current, model: next }))}
+          onChange={stageModel}
         />
       ) : null}
       <FoldersCard onPolicy={(policy) => change({ policy })} policy={config.policy} />
       <ChunkingCard custom={custom} onStage={stageChunking} />
       {nativeIndex ? <MaintenanceCard nativeIndex={nativeIndex} /> : null}
-      {error && pending.length === 0 ? (
+      {changeError ? (
         <p className="text-destructive text-sm" role="alert">
-          {error}
+          {changeError}
         </p>
       ) : null}
       {pending.length > 0 ? (
         <PendingChanges
           applying={applying}
           blocker={applyBlocker(mode, model, custom)}
-          error={error}
+          error={applyError}
           lines={pending}
-          onApply={() => startTransition(() => dispatch({ patch: staged, staged: true }))}
+          onApply={() => startTransition(() => apply(staged))}
           onDiscard={() => setStaged({})}
         />
       ) : null}
@@ -308,8 +335,8 @@ function FoldersCard({
           {getBackgroundIndexingPolicyOption(policy).description}
         </p>
         <p className="text-muted-foreground text-sm">
-          .gitignore, .llmignore and credential files are always skipped. Files over{' '}
-          {DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE / 1024} KB are skipped.
+          .gitignore, .llmignore and credential files are always skipped. Files over 500 KB are
+          skipped.
         </p>
       </CardContent>
     </Card>
@@ -410,10 +437,14 @@ function TokenField({
   readonly onChange: (value: number) => void;
   readonly value: number;
 }) {
+  const valid = inRange(value, bounds);
+  const errorId = `${id}-error`;
   return (
     <div className="space-y-1">
       <Label htmlFor={id}>{label}</Label>
       <Input
+        aria-describedby={valid ? undefined : errorId}
+        aria-invalid={valid ? undefined : true}
         id={id}
         max={bounds.maximum}
         min={bounds.minimum}
@@ -421,8 +452,8 @@ function TokenField({
         type="number"
         value={Number.isFinite(value) ? value : ''}
       />
-      {inRange(value, bounds) ? null : (
-        <p className="text-destructive text-sm">
+      {valid ? null : (
+        <p className="text-destructive text-sm" id={errorId}>
           Between {bounds.minimum} and {bounds.maximum} tokens.
         </p>
       )}

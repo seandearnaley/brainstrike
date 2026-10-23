@@ -6,7 +6,7 @@ import {
   DEFAULT_INDEX_CONFIG,
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeDbModel, makeDbProvider } from '../settings/models/__tests__/catalog-test-harness';
 import { SearchIndexSettingsSection } from '../settings/system/search-index-settings-section';
@@ -98,6 +98,37 @@ describe('Search & Indexing', () => {
     show(DEFAULT_INDEX_CONFIG);
     expect(screen.getByRole('button', { name: /^Text/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText('Embedding model')).not.toBeInTheDocument();
+    expect(screen.getByText(/Files over 500 KB are skipped\./)).toBeInTheDocument();
+  });
+
+  it('shows no mode while the settings are still loading', () => {
+    useIndexConfigStore.setState({ state: { kind: 'loading' }, update });
+    render(<SearchIndexSettingsSection />);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading search index settings');
+    expect(screen.queryByRole('button', { name: /^Off/ })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { pressed: true })).toHaveLength(0);
+  });
+
+  it('changes nothing when the saved mode is chosen again', async () => {
+    show(DEFAULT_INDEX_CONFIG);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Text/ }));
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('asks for a model before semantic search can be applied, and takes it back on Text', async () => {
+    show(DEFAULT_INDEX_CONFIG);
+    fireEvent.click(screen.getByRole('button', { name: /^Semantic/ }));
+    expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
+      'Choose an embedding model first.'
+    );
+    expect(screen.getByRole('button', { name: 'Apply and re-index' })).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Text/ }));
+    });
+    expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('turns the index off at once', async () => {
@@ -144,11 +175,53 @@ describe('Search & Indexing', () => {
     expect(screen.getByRole('status', { name: 'Pending changes' })).toBeInTheDocument();
   });
 
+  it('forgets a refused Apply once the user edits or discards what it refused', async () => {
+    const refusal = refusalError(
+      'input',
+      'index-config.refused',
+      "The previous model's vectors could not be removed."
+    );
+    update.mockRejectedValueOnce(refusal).mockRejectedValueOnce(refusal);
+    show(SEMANTIC);
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
+    });
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Chunk size (tokens)'), { target: { value: '768' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
+    });
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not show a refused pause as a failed Apply', async () => {
+    update.mockRejectedValueOnce(
+      refusalError('input', 'index-config.refused', 'The saved search settings are damaged.')
+    );
+    show(SEMANTIC);
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Pause indexing' }));
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The saved search settings are damaged.'
+    );
+    expect(
+      within(screen.getByRole('status', { name: 'Pending changes' })).queryByRole('alert')
+    ).not.toBeInTheDocument();
+  });
+
   it('cannot apply a chunk size outside the limits', () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     fireEvent.change(screen.getByLabelText('Chunk size (tokens)'), { target: { value: '4096' } });
-    expect(screen.getByText('Between 128 and 2048 tokens.')).toBeInTheDocument();
+    const size = screen.getByLabelText('Chunk size (tokens)');
+    expect(size).toHaveAttribute('aria-invalid', 'true');
+    expect(size).toHaveAccessibleDescription('Between 128 and 2048 tokens.');
     expect(screen.getByRole('button', { name: 'Apply and re-index' })).toBeDisabled();
   });
 
@@ -191,6 +264,32 @@ describe('Search & Indexing', () => {
         modelKey: `local::${GRANITE_ID}`,
       },
     });
+  });
+
+  it('stages no model change when the saved model is chosen again', async () => {
+    show(SEMANTIC);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
+    expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
+      'Model changes.'
+    );
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/ }));
+    expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
+  });
+
+  it('drops a model staged under Semantic when search switches to Text', async () => {
+    show(SEMANTIC);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Text/ }));
+    });
+    expect(update).toHaveBeenCalledExactlyOnceWith({ mode: 'text' });
+    const pending = screen.getByRole('status', { name: 'Pending changes' });
+    expect(pending).toHaveTextContent('Chunking changes.');
+    expect(pending).not.toHaveTextContent('Model changes.');
   });
 
   it('cannot choose a model without verified dimensions', async () => {

@@ -3224,9 +3224,6 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
@@ -3258,6 +3255,9 @@ importers:
         specifier: ^19.3.1
         version: 19.3.1
     devDependencies:
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

@@ -89,6 +89,7 @@ export const decodeIndexLocalExecution = makeThrowingDecoder(IndexLocalExecution
 });
 
 export const sameIndexChunking = Schema.toEquivalence(IndexChunkingSchema);
+export const sameIndexModel = Schema.toEquivalence(IndexModelSchema);
 
 /** `provider::modelId` → `modelId`. */
 export function indexModelId(model: Pick<IndexModel, 'modelKey'>): string {

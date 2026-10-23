@@ -6,6 +6,7 @@ import {
   indexModelId,
   indexModelLocalSelection,
   sameIndexChunking,
+  sameIndexModel,
 } from '../index-config.js';
 
 const semantic = {
@@ -123,5 +124,12 @@ describe('index config', () => {
     expect(
       sameIndexChunking({ _tag: 'Auto' }, { _tag: 'Custom', maxTokens: 512, overlap: 64 })
     ).toBe(false);
+  });
+
+  it('compares models by value, including how a local model runs', () => {
+    expect(
+      sameIndexModel(semantic.model, { ...semantic.model, local: { ...semantic.model.local } })
+    ).toBe(true);
+    expect(sameIndexModel(semantic.model, { ...semantic.model, local: null })).toBe(false);
   });
 });

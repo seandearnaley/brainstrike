@@ -276,8 +276,9 @@ export function SearchIndexModelCard({
       });
       setPlanError(null);
       onChange({ ...model, local });
-    } catch {
-      setPlanError(`The search index can't run this model on ${plan.label}.`);
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      setPlanError(`The search index can't run this model on ${plan.label}. ${reason}`);
     }
   };
   const selectedName =
