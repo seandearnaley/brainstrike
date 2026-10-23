@@ -3755,12 +3755,6 @@ importers:
       '@brainstrike/app-state':
         specifier: workspace:*
         version: link:../app-state
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
@@ -3770,19 +3764,13 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
-      '@brainstrike/queue':
-        specifier: workspace:*
-        version: link:../queue
-      '@brainstrike/ui':
-        specifier: workspace:*
-        version: link:../ui
-      '@brainstrike/utils':
-        specifier: workspace:*
-        version: link:../utils
       react:
         specifier: ^19.3.1
         version: 19.3.1
     devDependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -3903,9 +3891,6 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
       '@brainstrike/file-explorer':
         specifier: workspace:*
         version: link:../file-explorer
@@ -3924,9 +3909,6 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
-      '@brainstrike/vector-management':
-        specifier: workspace:*
-        version: link:../vector-management
       lucide-react:
         specifier: 'catalog:'
         version: 1.58.0(@types/react@19.3.0)(react@19.3.1)

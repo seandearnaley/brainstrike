@@ -71,21 +71,6 @@ export function isContextActionSystemModule(id: string): boolean {
 }
 
 /**
- * Pin the zero-dependency browser-events contract into its own chunk. It is
- * imported by five workspace packages, and letting rolldown fold it into a
- * reachability-based shared chunk created a circular chunk-init
- * ("L is not a function" at boot, blank startup shell) between the
- * preferences-store chunk and its store-factory helpers — the same class the
- * context-action-system group guards against (BST-580).
- */
-export function isBrowserEventsModule(id: string): boolean {
-  if (id.includes('node_modules')) {
-    return false;
-  }
-  return /[\\/]utils[\\/](?:src|dist)[\\/]browser-events/.test(id);
-}
-
-/**
  * Pin zustand itself into one vendor chunk. Rolldown's reachability splitting
  * can absorb zustand's module graph into whichever store chunk it meets
  * first; a sibling store chunk then imports `createWithEqualityFn` across a

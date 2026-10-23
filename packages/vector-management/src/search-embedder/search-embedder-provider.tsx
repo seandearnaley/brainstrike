@@ -3,9 +3,9 @@
  *
  * Owns a SINGLE `useSearchEmbedder()` result and shares it via React context so
  * every semantic-search surface in one window reuses ONE embedder cache. Without
- * this, each consumer hook instance (db-explorer's semantic search executor,
- * app-shell's workspace-search controller, …) owned its own cached
- * `SearchEmbedder`, doubling local model memory whenever two surfaces were live.
+ * this, each consumer hook instance (app-shell's workspace-search, thread-search
+ * and prompt-library controllers, …) owned its own cached `SearchEmbedder`,
+ * doubling local model memory whenever two surfaces were live.
  *
  * The embedder machinery is lazy inside `useSearchEmbedder` (models load on the
  * first embed, not on mount), so an always-mounted provider costs nothing until

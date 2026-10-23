@@ -13,7 +13,6 @@ import {
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   getWorkspaceSourceOptimizeDepsInclude,
-  isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
@@ -97,9 +96,6 @@ export default defineConfig({
                 // katex, codemirror, …) stay OFF the startup critical path.
                 if (isZustandModule(moduleId)) {
                   return 'zustand';
-                }
-                if (isBrowserEventsModule(moduleId)) {
-                  return 'browser-events';
                 }
                 if (isSanitizedPersistMergeModule(moduleId)) {
                   return 'sanitized-persist-merge';
@@ -205,10 +201,6 @@ export default defineConfig({
       {
         find: '@brainstrike/file-explorer-ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/vector-management/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/vector-management/styles.css'),
       },
       {
         find: '@brainstrike/ui/styles.css',

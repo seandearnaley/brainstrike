@@ -306,7 +306,6 @@ function pool(hits: IndexerSearchHit[]): IndexerSearchResult {
 }
 const request = {
   caseSensitive: false,
-  collectionId: null,
   isRegex: false,
   query: 'needle',
   rootIds: ['root-a'],
@@ -388,19 +387,6 @@ describe('native search consumer boundary', () => {
     expect(bridge.search).not.toHaveBeenCalled();
     expect(bridge.grep).not.toHaveBeenCalled();
   });
-  it('does not remap an explicit collection selection', async () => {
-    const bridge = capability();
-    await expect(
-      new NativeWorkspaceSearchExecutor({
-        capability: bridge,
-        embedQuery: vi.fn(),
-        profile,
-      }).searchText({ ...request, collectionId: 'user-selected' })
-    ).rejects.toThrow(/collection.*not currently authorized/i);
-    expect(bridge.status).toHaveBeenCalledOnce();
-    expect(bridge.search).not.toHaveBeenCalled();
-  });
-
   it.each(['cancel', 'supersede'] as const)(
     'requests exact semantic inference cancellation on %s and joins settlement',
     async (action) => {
@@ -513,7 +499,6 @@ it('rejects an unauthorized candidate even when a pattern filter would discard i
   await expect(
     executor.searchText({
       caseSensitive: true,
-      collectionId: null,
       isRegex: false,
       query: 'needle',
       rootIds: ['root-a'],
@@ -596,48 +581,6 @@ it('surfaces the selected renderer plan refusal without blocking text or substit
       rootIds: ['root-a'],
     })
   ).toEqual({ available: false, reason });
-});
-
-it('searches the actual retained collection without manufacturing a workspace root or invoking inference in TEXT', async () => {
-  const bridge = capability();
-  bridge.status.mockResolvedValue({
-    ...ready(),
-    authorizedCollectionIds: ['selected'],
-    authorizedRootIds: [],
-    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
-    rootReadiness: [],
-  });
-  const retained = {
-    ...hit('retained-chunk'),
-    content: 'needle retained source',
-    embeddingSetId: 'selected',
-    fileId: 'retained-file',
-    relativePath: null,
-    rootId: null,
-    sourcePath: null,
-  };
-  bridge.search.mockResolvedValue(pool([retained]));
-  bridge.grep.mockResolvedValue(pool([retained]));
-  const embedQuery = vi.fn();
-  const result = await new NativeWorkspaceSearchExecutor({
-    capability: bridge,
-    embedQuery,
-    profile,
-  }).searchText({ ...request, collectionId: 'selected', rootIds: [] });
-  expect(result?.files).toMatchObject([
-    { dbRootId: null, fileRecordId: 'retained-file', path: 'retained-file' },
-  ]);
-  expect(bridge.search).toHaveBeenCalledWith({
-    collectionId: 'selected',
-    limit: 100,
-    mode: 'bm25',
-    rootIds: [],
-    text: 'needle',
-  });
-  expect(bridge.grep).toHaveBeenCalledWith(
-    expect.objectContaining({ collectionId: 'selected', rootIds: [] })
-  );
-  expect(embedQuery).not.toHaveBeenCalled();
 });
 
 it('admits rootless indexed vectors and marks an incomplete collection receipt explicitly', async () => {

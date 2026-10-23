@@ -25,9 +25,6 @@
   ],
   "references": [
     {
-      "path": "../db"
-    },
-    {
       "path": "../embeddings"
     },
     {
@@ -37,13 +34,7 @@
       "path": "../app-state"
     },
     {
-      "path": "../ui"
-    },
-    {
       "path": "../logging"
-    },
-    {
-      "path": "../utils"
     }
   ]
 }

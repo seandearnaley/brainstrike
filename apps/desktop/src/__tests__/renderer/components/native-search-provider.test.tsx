@@ -726,7 +726,7 @@ describe('native provider and search controller observation refresh', () => {
     }
   });
 
-  it.each(['capability', 'root binding', 'collection'] as const)(
+  it.each(['capability', 'root binding'] as const)(
     'drops held availability on an actual %s replacement',
     async (change) => {
       vi.useFakeTimers();
@@ -741,9 +741,6 @@ describe('native provider and search controller observation refresh', () => {
           if (change === 'root binding') {
             mounted.replaceRootBinding();
             mounted.rerender();
-          }
-          if (change === 'collection') {
-            useWorkspaceSearchStore.getState().setCollectionId('collection-b');
           }
         });
         await act(async () => {

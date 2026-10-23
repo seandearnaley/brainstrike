@@ -213,58 +213,48 @@ describe('native source publication handoff', () => {
     }
   );
 
-  it.each(['root', 'collection'] as const)(
-    'waits for the selected %s source, not unrelated completion',
-    async (scope) => {
-      vi.useFakeTimers();
-      const mounted = mountController();
-      const incomplete = {
+  it('waits for the selected root source, not unrelated completion', async () => {
+    vi.useFakeTimers();
+    const mounted = mountController();
+    const incomplete = {
+      ...ready,
+      collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: false }],
+      rootReadiness: [{ rootId: 'root-a', scanComplete: false }],
+    };
+    try {
+      await vi.waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      mounted.refresh(incomplete);
+      mounted.response.sourceComplete = false;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      act(() => {
+        const store = useWorkspaceSearchStore.getState();
+        store.setQuery('notarize');
+        mounted.result.current.controller.runTextSearch();
+      });
+      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      mounted.refresh({
+        ...incomplete,
+        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      expect(mounted.capability.grep).toHaveBeenCalledOnce();
+      mounted.refresh({
         ...ready,
-        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: false }],
-        rootReadiness: [{ rootId: 'root-a', scanComplete: false }],
-      };
-      try {
-        await vi.waitFor(() =>
-          expect(mounted.result.current.dependencies?.profile).toEqual(profile)
-        );
-        mounted.refresh(incomplete);
-        mounted.response.sourceComplete = false;
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
-        act(() => {
-          const store = useWorkspaceSearchStore.getState();
-          if (scope === 'collection') {
-            store.setCollectionId('collection-a');
-          }
-          store.setQuery('notarize');
-          mounted.result.current.controller.runTextSearch();
-        });
-        await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
-        mounted.refresh({
-          ...incomplete,
-          ...(scope === 'root'
-            ? { collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }] }
-            : { rootReadiness: [{ rootId: 'root-a', scanComplete: true }] }),
-        });
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(4000);
-        });
-        expect(mounted.capability.grep).toHaveBeenCalledOnce();
-        mounted.refresh({
-          ...ready,
-          collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
-        });
-        mounted.response.sourceComplete = true;
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
-        await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
-      } finally {
-        mounted.unmount();
-      }
+        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+      });
+      mounted.response.sourceComplete = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
+    } finally {
+      mounted.unmount();
     }
-  );
+  });
 
   it('does not rerun bounded results whose source is complete', async () => {
     vi.useFakeTimers();

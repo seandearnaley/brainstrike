@@ -15,7 +15,6 @@ const {
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   getWorkspaceSourceOptimizeDepsInclude,
-  isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
@@ -224,17 +223,6 @@ describe('assistant vite helpers', () => {
       false
     );
     expect(isContextActionSystemModule('/workspace/packages/ui/src/button.tsx')).toBe(false);
-  });
-
-  test('classifies browser-events modules without matching dependency copies', () => {
-    expect(isBrowserEventsModule('/workspace/packages/utils/src/browser-events.ts')).toBe(true);
-    expect(
-      isBrowserEventsModule(String.raw`C:\workspace\packages\utils\dist\browser-events.js`)
-    ).toBe(true);
-    expect(isBrowserEventsModule('/workspace/node_modules/utils/src/browser-events.js')).toBe(
-      false
-    );
-    expect(isBrowserEventsModule('/workspace/packages/logging/src/logger.ts')).toBe(false);
   });
 
   test('classifies only the installed zustand package as its vendor chunk', () => {

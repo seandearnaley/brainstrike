@@ -110,10 +110,6 @@
       "types": "./dist/stores/explorer-sort-state-store.d.ts",
       "import": "./dist/stores/explorer-sort-state-store.js"
     },
-    "./stores/import-settings-store": {
-      "types": "./dist/stores/import-settings-store.d.ts",
-      "import": "./dist/stores/import-settings-store.js"
-    },
     "./stores/index-config-store": {
       "types": "./dist/stores/index-config-store.d.ts",
       "import": "./dist/stores/index-config-store.js"
@@ -173,10 +169,6 @@
     "./stores/vector-preferences-store": {
       "types": "./dist/stores/vector-preferences-store.d.ts",
       "import": "./dist/stores/vector-preferences-store.js"
-    },
-    "./stores/vector-status-ui-store": {
-      "types": "./dist/stores/vector-status-ui-store.d.ts",
-      "import": "./dist/stores/vector-status-ui-store.js"
     },
     "./stores/workspace-collection-sync-status-helpers": {
       "types": "./dist/stores/workspace-collection-sync-status-helpers.d.ts",

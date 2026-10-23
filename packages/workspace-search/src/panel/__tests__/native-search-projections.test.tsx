@@ -1,37 +1,19 @@
-import type { CollectionCatalogEntry } from '@brainstrike/assistant-contract';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   IndexerCoverageBatch,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
-import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NativeWorkspaceSearchContext } from '../../core/native-workspace-search-context';
-import { SearchCollectionPicker } from '../search-collection-picker';
 import { SearchCoverageBanner } from '../search-coverage-banner';
 
-const entry: CollectionCatalogEntry = {
-  counts: { chunks: 4, files: 2, unprocessedFiles: 0 },
-  createdAt: '2026-10-13T12:00:00.000Z',
-  dimensions: 384,
-  distance: 'cosine',
-  id: 'imported',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-  name: 'Imported documents',
-  vectors: { kind: 'unavailable', reason: 'No configured vector profile.' },
-};
 function observation(scanComplete: boolean): IndexerCoverageBatch {
   const embedding = { indexMode: 'text-only' as const };
   return {
     coverage: [
       {
-        collections: [
-          { chunks: 4, embeddingSetId: 'imported', indexedFiles: 2, missingVectors: 0, vectors: 0 },
-        ],
         embedding,
-        roots: [],
+        roots: [{ chunks: 4, indexedFiles: 2, missingVectors: 0, rootId: 'root-a', vectors: 0 }],
         storeId: 'store-a',
         totals: { chunks: 4, indexedFiles: 2, missingVectors: 0, vectors: 0 },
         vectorCoverageComplete: false,
@@ -39,9 +21,7 @@ function observation(scanComplete: boolean): IndexerCoverageBatch {
     ],
     kind: 'current',
     status: {
-      authorizedCollectionIds: ['imported'],
       authorizedRootIds: ['root-a'],
-      collectionReadiness: [{ embeddingSetId: 'imported', scanComplete }],
       embedding,
       kind: 'ready',
       rootReadiness: [{ rootId: 'root-a', scanComplete }],
@@ -60,36 +40,9 @@ function bridge(coverageBatch: IndexSearchCapability['coverageBatch']): IndexSea
   };
 }
 afterEach(() => {
-  Reflect.deleteProperty(window, 'collectionCatalog');
   vi.clearAllMocks();
 });
 describe('native Search projections', () => {
-  it('selects a real catalog collection while its vector count is unavailable', async () => {
-    const snapshot = vi.fn(async () => ({ ok: true, value: [entry] }));
-    Object.defineProperty(window, 'collectionCatalog', { configurable: true, value: { snapshot } });
-    render(<SearchCollectionPicker />);
-    expect(await screen.findByRole('combobox', { name: 'Search collection' })).toBeVisible();
-    expect(snapshot).toHaveBeenCalledOnce();
-  });
-  it('does not let an old catalog response overwrite a committed update', async () => {
-    let resolveOld: (value: { ok: true; value: CollectionCatalogEntry[] }) => void = () => {};
-    const old = new Promise<{ ok: true; value: CollectionCatalogEntry[] }>((resolve) => {
-      resolveOld = resolve;
-    });
-    const snapshot = vi
-      .fn()
-      .mockReturnValueOnce(old)
-      .mockResolvedValue({ ok: true, value: [entry] });
-    Object.defineProperty(window, 'collectionCatalog', { configurable: true, value: { snapshot } });
-    render(<SearchCollectionPicker />);
-    act(() => dispatchEmbeddingSetUpdated({ id: entry.id, reason: 'updated' }));
-    expect(await screen.findByRole('combobox')).toBeVisible();
-    await act(async () => {
-      resolveOld({ ok: true, value: [] });
-      await old;
-    });
-    expect(screen.getByRole('combobox')).toBeVisible();
-  });
   it('keeps incomplete native publication visible despite all current chunks being present', async () => {
     // The banner verifies coverage before it reports it. The first read is held
     // open so both states are observed instead of raced (BST-2220).
@@ -101,11 +54,12 @@ describe('native Search projections', () => {
     const dependency = { capability: bridge(coverageBatch), embedQuery: vi.fn(), profile: null };
     const { rerender } = render(
       <NativeWorkspaceSearchContext value={dependency}>
-        <SearchCoverageBanner collectionId="imported" rootIds={['root-a']} />
+        <SearchCoverageBanner rootIds={['root-a']} />
       </NativeWorkspaceSearchContext>
     );
     expect(await screen.findByRole('status')).toHaveTextContent('Verifying index coverage…');
     await waitFor(() => expect(coverageBatch).toHaveBeenCalledOnce());
+    expect(coverageBatch).toHaveBeenCalledWith([{ rootIds: ['root-a'] }]);
     await act(async () => {
       firstRead.resolve(observation(false));
       await firstRead.promise;
@@ -121,7 +75,7 @@ describe('native Search projections', () => {
           ...(completed.kind === 'current' ? { status: completed.status } : {}),
         }}
       >
-        <SearchCoverageBanner collectionId="imported" rootIds={['root-a']} />
+        <SearchCoverageBanner rootIds={['root-a']} />
       </NativeWorkspaceSearchContext>
     );
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
@@ -138,7 +92,7 @@ describe('native Search projections', () => {
     const dependency = { capability: bridge(coverageBatch), embedQuery: vi.fn(), profile: null };
     const { rerender } = render(
       <NativeWorkspaceSearchContext value={dependency}>
-        <SearchCoverageBanner collectionId="imported" rootIds={['root-a']} />
+        <SearchCoverageBanner rootIds={['root-a']} />
       </NativeWorkspaceSearchContext>
     );
     const current = observation(true);
@@ -147,7 +101,7 @@ describe('native Search projections', () => {
     }
     rerender(
       <NativeWorkspaceSearchContext value={{ ...dependency, status: current.status }}>
-        <SearchCoverageBanner collectionId="imported" rootIds={['root-a']} />
+        <SearchCoverageBanner rootIds={['root-a']} />
       </NativeWorkspaceSearchContext>
     );
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
@@ -165,20 +119,10 @@ describe('native Search projections', () => {
       <NativeWorkspaceSearchContext
         value={{ capability: bridge(coverageBatch), embedQuery: vi.fn(), profile: null }}
       >
-        <SearchCoverageBanner collectionId="imported" rootIds={['root-a']} />
+        <SearchCoverageBanner rootIds={['root-a']} />
       </NativeWorkspaceSearchContext>
     );
     await waitFor(() => expect(coverageBatch).toHaveBeenCalledOnce());
     expect(screen.getByRole('status')).toBeVisible();
-  });
-  it('surfaces a catalog read failure instead of treating it as an empty catalog', async () => {
-    const snapshot = vi.fn(async () => ({
-      error: INTERNAL_FAULT,
-      ok: false,
-    }));
-    Object.defineProperty(window, 'collectionCatalog', { configurable: true, value: { snapshot } });
-    render(<SearchCollectionPicker />);
-    expect(await screen.findByRole('alert')).toBeVisible();
-    expect(screen.queryByTestId('workspace-search-single-collection')).not.toBeInTheDocument();
   });
 });

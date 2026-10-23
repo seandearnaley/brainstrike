@@ -35,8 +35,6 @@ interface WorkspaceSearchState {
    * screen nor resurrect them when it resolves. No-op-safe to call when idle.
    */
   clearResults: () => void;
-  /** embedding_sets.id; null = resolve the workspace-index set at query time. */
-  collectionId: string | null;
   consumeNativeSearch: (command: NativePendingSearch) => boolean;
   error: string | null;
   expandedIds: Set<string>;
@@ -44,7 +42,7 @@ interface WorkspaceSearchState {
    * rejection must not clobber a newer run's results). */
   failSearch: (message: string, generation: number) => void;
   /**
-   * Monotonic run token. `beginSearch` and every option/collection/mode change
+   * Monotonic run token. `beginSearch` and every option/mode change
    * (which invalidate in-flight work) increment it; `resolveResults`/`failSearch`
    * are gated on it so stale async completions are dropped. Never decreases.
    */
@@ -66,13 +64,12 @@ interface WorkspaceSearchState {
   resolveResults: (r: WorkspaceSearchResults, generation: number) => void;
   results: WorkspaceSearchResults | null;
   retainNativeSearch: (command: NativePendingSearch) => void;
-  setCollectionId: (id: string | null) => void;
   setMode: (m: WorkspaceSearchMode) => void;
   setQuery: (q: string) => void;
   status: WorkspaceSearchStatus;
   /** Show-more paging cap for text-mode results (default 200, +200 per click).
    * Reset to the default by any change that starts a fresh search (mode,
-   * collection, toggles, query, `clearResults`, `reset`) — a new search should
+   * toggles, query, `clearResults`, `reset`) — a new search should
    * never inherit a deep limit from a previous one. */
   textResultLimit: number;
   toggleCase: () => void;
@@ -112,7 +109,6 @@ const TEXT_RESULT_LIMIT_INCREMENT = 200;
 
 const initialState = {
   caseSensitive: false,
-  collectionId: null,
   error: null,
   expandedIds: new Set<string>(),
   generation: 0,
@@ -133,7 +129,6 @@ const initialState = {
   | 'toggleCase'
   | 'toggleRegex'
   | 'toggleWholeWord'
-  | 'setCollectionId'
   | 'toggleExpanded'
   | 'beginSearch'
   | 'resolveResults'
@@ -200,15 +195,6 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
         ? { nativePendingSearch: command }
         : {}
     ),
-  setCollectionId: (id) =>
-    set((state) => ({
-      collectionId: id,
-      generation: state.generation + 1,
-      nativePendingSearch: null,
-      results: null,
-      status: 'idle',
-      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
-    })),
   setMode: (m) =>
     set((state) => ({
       generation: state.generation + 1,

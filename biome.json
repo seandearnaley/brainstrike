@@ -551,8 +551,6 @@
         "packages/assistant-ui/src/data-stream-runtime.ts",
         "packages/ui/src/layout/ide-layout.tsx",
         "packages/ui/src/tree-table/tree-table.tsx",
-        "packages/vector-management/src/__tests__/use-vector-queue-state.test.ts",
-        "packages/vector-management/src/__tests__/vector-queue-service.test.ts",
         "scripts/__tests__/check-ci-parity.test.mjs"
       ],
       "linter": {

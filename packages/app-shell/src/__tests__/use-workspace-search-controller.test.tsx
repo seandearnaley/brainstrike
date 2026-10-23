@@ -172,9 +172,8 @@ describe('useWorkspaceSearchController', () => {
     expect(useWorkspaceSearchStore.getState().mode).toBe('text');
   });
 
-  it('preserves explicit semantic mode and collection when native capability is lost', async () => {
+  it('preserves explicit semantic mode when native capability is lost', async () => {
     useWorkspaceSearchStore.getState().setMode('semantic');
-    useWorkspaceSearchStore.getState().setCollectionId('explicit-collection');
     function Wrapper({ children }: { children: ReactNode }) {
       return (
         <SearchEmbedderProvider>
@@ -196,7 +195,6 @@ describe('useWorkspaceSearchController', () => {
       'Native workspace search is unavailable.'
     );
     expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
-    expect(useWorkspaceSearchStore.getState().collectionId).toBe('explicit-collection');
   });
   it('composes text-only native search over canonical roots without a PGlite handle or model', async () => {
     const embedding = { indexMode: 'text-only' as const };

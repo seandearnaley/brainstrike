@@ -29,6 +29,7 @@ export interface NativeSemanticAvailability {
 }
 export interface NativeSearchScope {
   capability: IndexSearchCapability | null;
+  /** Main's assistant retrieval scopes its default query to the saved collection. */
   collectionId?: string | null;
   profile: IndexerEmbeddingProfile | null;
   profileUnavailableReason?: string;
@@ -156,7 +157,12 @@ export async function getNativeSemanticAvailability(
   if (reason !== null) {
     return unavailable(reason);
   }
-  return admittedCoverage(coverage, completeScopeReceipts(status, rootIds, collectionId));
+  return admittedCoverage(
+    coverage,
+    collectionId === null
+      ? completeScopeReceipts(status, rootIds)
+      : completeCollectionReceipt(status, collectionId)
+  );
 }
 
 function admittedCoverage(
@@ -278,7 +284,6 @@ export function fuseNativeSearchPools(
 
 export interface NativeWorkspaceSearchRequest {
   caseSensitive: boolean;
-  collectionId: string | null;
   isRegex: boolean;
   query: string;
   rootIds: readonly string[];
@@ -334,7 +339,6 @@ export class NativeWorkspaceSearchExecutor {
     }
     const scope = {
       capability,
-      collectionId: request.collectionId,
       profile,
       rootIds: request.rootIds,
     };
@@ -401,22 +405,18 @@ export class NativeWorkspaceSearchExecutor {
     if (status.kind !== 'ready') {
       throw indexerStatusFailure(status);
     }
-    assertNativeStatusScope(status, request.rootIds, request.collectionId);
+    assertNativeStatusScope(status, request.rootIds);
     const vector =
       mode === 'semantic' ? await this.prepareVector(request, capability, profile, seq) : undefined;
     if (vector === null || seq !== this.requestSeq) {
       return null;
     }
     const { pattern, isRegex } = buildGrepPattern(request);
-    const queryScope = {
-      rootIds: request.rootIds,
-      ...(request.collectionId === null ? {} : { collectionId: request.collectionId }),
-    };
     const sourceRequests = [
       capability.search({
         limit: NATIVE_SEARCH_CANDIDATE_LIMIT,
         mode: 'bm25',
-        ...queryScope,
+        rootIds: request.rootIds,
         text: request.query,
       }),
       capability.grep({
@@ -424,7 +424,7 @@ export class NativeWorkspaceSearchExecutor {
         isRegex,
         limit: NATIVE_SEARCH_CANDIDATE_LIMIT,
         pattern,
-        ...queryScope,
+        rootIds: request.rootIds,
       }),
     ];
     if (vector) {
@@ -433,7 +433,6 @@ export class NativeWorkspaceSearchExecutor {
           limit: NATIVE_SEARCH_CANDIDATE_LIMIT,
           mode: 'vector',
           profile: requireConfiguredVectorProfile(profile),
-          ...(request.collectionId === null ? {} : { collectionId: request.collectionId }),
           rootIds: request.rootIds,
           vector,
         })
@@ -446,11 +445,7 @@ export class NativeWorkspaceSearchExecutor {
     if (!(bm25 && grep) || (mode === 'semantic' && !vectorPool)) {
       throw new Error('Native search did not return every requested candidate pool.');
     }
-    assertCandidateScopes(
-      [bm25, grep, ...(vectorPool ? [vectorPool] : [])],
-      request.rootIds,
-      request.collectionId
-    );
+    assertCandidateScopes([bm25, grep, ...(vectorPool ? [vectorPool] : [])], request.rootIds);
     const matcher = createGrepLineMatcher(pattern, isRegex, request.caseSensitive);
     const constrained = request.isRegex || request.caseSensitive || request.wholeWord;
     const fused = fuseNativeSearchPools(
@@ -494,7 +489,7 @@ function projectNativeResults(
   const groups = new Map<string, WorkspaceSearchFileResult>();
   const maxScore = fused.hits[0]?.rrfScore ?? 1;
   for (const { hit, rrfScore } of fused.hits) {
-    assertCanonicalHit(hit, request.rootIds, request.collectionId);
+    assertCanonicalHit(hit, request.rootIds);
     const children: WorkspaceSearchChild[] =
       mode === 'text' && (constrained || grepIds.has(hit.chunkId))
         ? nativeLineMatches(hit, matcher)
@@ -546,27 +541,20 @@ function projectNativeResults(
 
 function assertNativeStatusScope(
   status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): void {
-  if (collectionId !== null && !status.authorizedCollectionIds?.includes(collectionId)) {
-    throw new Error('Native collection search is not currently authorized.');
-  }
   if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
     throw new Error('Native search scope contains an unauthorized workspace root.');
   }
 }
 function assertCanonicalHit(
   hit: IndexerSearchHit,
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): asserts hit is IndexerSearchHit & { tokenCount: number } {
   if (
-    !(
-      (collectionId === null
-        ? hit.rootId !== null && rootIds.includes(hit.rootId)
-        : hit.embeddingSetId === collectionId) && Number.isSafeInteger(hit.tokenCount)
-    ) ||
+    hit.rootId === null ||
+    !rootIds.includes(hit.rootId) ||
+    !Number.isSafeInteger(hit.tokenCount) ||
     hit.tokenCount === null ||
     hit.tokenCount <= 0 ||
     !Number.isSafeInteger(hit.startLine) ||
@@ -580,12 +568,11 @@ function assertCanonicalHit(
 
 function assertCandidateScopes(
   pools: readonly IndexerSearchResult[],
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): void {
   for (const pool of pools) {
     for (const hit of pool.hits) {
-      assertCanonicalHit(hit, rootIds, collectionId);
+      assertCanonicalHit(hit, rootIds);
     }
   }
 }
@@ -637,19 +624,21 @@ function nativeLineMatches(
 
 export function completeScopeReceipts(
   status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): boolean {
-  if (collectionId !== null) {
-    const receipts = status.collectionReadiness?.filter(
-      (receipt) => receipt.embeddingSetId === collectionId
-    );
-    return receipts?.length === 1 && receipts[0]?.scanComplete === true;
-  }
   return rootIds.every((rootId) => {
     const receipts = status.rootReadiness.filter((receipt) => receipt.rootId === rootId);
     return receipts.length === 1 && receipts[0]?.scanComplete === true;
   });
+}
+function completeCollectionReceipt(
+  status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
+  collectionId: string
+): boolean {
+  const receipts = status.collectionReadiness?.filter(
+    (receipt) => receipt.embeddingSetId === collectionId
+  );
+  return receipts?.length === 1 && receipts[0]?.scanComplete === true;
 }
 function coverageRefusal(
   coverage: IndexerCoverage,
@@ -698,7 +687,7 @@ function emptyScopeResult(
   request: NativeWorkspaceSearchRequest,
   mode: WorkspaceSearchMode
 ): WorkspaceSearchResults | null {
-  if (request.rootIds.length !== 0 || request.collectionId !== null) {
+  if (request.rootIds.length !== 0) {
     return null;
   }
   if (mode === 'text') {

@@ -62,9 +62,9 @@ export function createNativeWorkspaceSearchRunners(
 } {
   const run = (mode: WorkspaceSearchMode, after?: IndexerSourceObservation): void => {
     const store = useWorkspaceSearchStore.getState();
-    const { query, collectionId, caseSensitive, isRegex, wholeWord } = store;
+    const { query, caseSensitive, isRegex, wholeWord } = store;
     const generation = store.beginSearch();
-    const request = { caseSensitive, collectionId, isRegex, query, rootIds, wholeWord };
+    const request = { caseSensitive, isRegex, query, rootIds, wholeWord };
     void (mode === 'text' ? executor.searchText(request) : executor.searchSemantic(request))
       .then((results) => {
         if (results !== null) {
@@ -103,14 +103,13 @@ function pendingNativeOutcome(
   pending: NativePendingSearch,
   lifecycle: NativeIndexLifecycleObservation | null | undefined,
   status: IndexerStatus | undefined,
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): { readonly completion: IndexerSourceObservation | null; readonly error: string | null } | null {
   if (lifecycle?.kind === 'preparing') {
     return null;
   }
   const completion = pending.source
-    ? nativeSourceCompletion(pending.source, status, rootIds, collectionId)
+    ? nativeSourceCompletion(pending.source, status, rootIds)
     : null;
   if (
     pending.source
@@ -141,7 +140,6 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   const nativeDependencies = useNativeWorkspaceSearchDependencies();
   const pendingSearch = useWorkspaceSearchStore((state) => state.nativePendingSearch);
   const lifecycle = nativeDependencies?.lifecycle;
-  const selectedCollectionId = useWorkspaceSearchStore((state) => state.collectionId);
   const [availabilityResult, setAvailabilityResult] = useState<{
     readonly scope: Parameters<typeof getNativeSemanticAvailability>[0];
     readonly value: NativeSemanticAvailability;
@@ -224,17 +222,9 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
             ...(nativeProfileReason === undefined
               ? {}
               : { profileUnavailableReason: nativeProfileReason }),
-            collectionId: selectedCollectionId,
             rootIds: workspaceDbRootIds,
           },
-    [
-      nativeCapability,
-      nativeProfile,
-      nativeEmbedQuery,
-      nativeProfileReason,
-      selectedCollectionId,
-      workspaceDbRootIds,
-    ]
+    [nativeCapability, nativeProfile, nativeEmbedQuery, nativeProfileReason, workspaceDbRootIds]
   );
   const semanticAvailability: NativeSemanticAvailability =
     availabilityResult?.scope === availabilityScope
@@ -344,8 +334,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       pendingSearch,
       lifecycle,
       nativeDependencies?.status,
-      workspaceDbRootIds,
-      selectedCollectionId
+      workspaceDbRootIds
     );
     if (!(outcome && store.consumeNativeSearch(pendingSearch))) {
       return;
@@ -359,14 +348,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     } else {
       runners.runSemanticSearch(outcome.completion ?? undefined);
     }
-  }, [
-    lifecycle,
-    nativeDependencies?.status,
-    pendingSearch,
-    runners,
-    selectedCollectionId,
-    workspaceDbRootIds,
-  ]);
+  }, [lifecycle, nativeDependencies?.status, pendingSearch, runners, workspaceDbRootIds]);
 
   const resolveAdapterRootId = useCallback(
     (dbRootId: string): string | null => rootIdentity?.resolveAdapterRootId(dbRootId) ?? null,
