@@ -494,6 +494,11 @@ describe('actual utility canonical runtime attachment', () => {
       const attachment = await parent.attachWorkspace(dependencies);
       expect((await completed).scanComplete).toBe(true);
       expect(published).toHaveLength(1);
+      // The real child chunks with the actual OXC parser and keeps its symbols.
+      expect(published[0]?.providedChunks.length).toBeGreaterThan(0);
+      expect(published[0]?.syntax?.symbols.some((symbol) => symbol.name === 'canonical')).toBe(
+        true
+      );
       expect(errors).not.toHaveBeenCalled();
       const original = dependencies.source.lease;
       const replacementRetire = vi.fn(async () => {});
