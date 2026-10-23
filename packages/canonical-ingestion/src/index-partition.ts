@@ -208,8 +208,7 @@ export async function retireUnownedRows(
     ScopedIndexerPort,
     'removeScopedFile' | 'replaceFileBindings' | 'verifyScopedManifest'
   >,
-  requested: PartitionAuthority,
-  selected?: ReadonlySet<string>
+  requested: PartitionAuthority
 ): Promise<void> {
   if (requested.scopes.length === 0) {
     return;
@@ -242,10 +241,7 @@ export async function retireUnownedRows(
         : null;
     const stored = await port.verifyScopedManifest({ files: [], scope });
     for (const row of stored.unexpected) {
-      if (
-        (!selected || selected.has(row.fileId)) &&
-        !(owned.has(row.fileId) || unowned.has(row.fileId))
-      ) {
+      if (!(owned.has(row.fileId) || unowned.has(row.fileId))) {
         unowned.set(row.fileId, unownedBinding(row, scope, profile));
       }
     }
