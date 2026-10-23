@@ -55,12 +55,7 @@ import { createNativeIndexProfileAdmission } from './native-index-profile-admiss
 import { createNativeIndexFailures } from './native-index-reopen';
 import { createNativeIndexRetry } from './native-index-retry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
-import {
-  NATIVE_INDEX_SETTINGS_KEY,
-  type NativeIndexSettings,
-  prepareSavedNativeIndexPause,
-  readNativeIndexSettings,
-} from './native-index-settings';
+import { type NativeIndexSettings, prepareSavedNativeIndexPause } from './native-index-settings';
 import {
   type NativeIndexSources,
   settleNativeIndexSources,
@@ -356,7 +351,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       parser: { parser: 'oxc' as const },
       request: {
         batchSize: 64,
-        chunkingOptions: { strategy: 'auto' as const },
+        chunkingOptions:
+          settings.chunking._tag === 'Custom'
+            ? {
+                maxTokens: settings.chunking.maxTokens,
+                overlap: settings.chunking.overlap,
+                strategy: 'auto' as const,
+              }
+            : { strategy: 'auto' as const },
         maxFileBytes: getFileSizeConfig().maxFileSize,
       },
     };
@@ -599,8 +601,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       await scan;
     }
   };
-  const readSettings = async (): Promise<NativeIndexSettings> =>
-    readNativeIndexSettings(await dependencies.storage.getItem(NATIVE_INDEX_SETTINGS_KEY));
+  const readSettings = (): Promise<NativeIndexSettings> => dependencies.settings();
   const captureSettings = (): Promise<NativeIndexSettings> => {
     const settings = readSettings();
     // Observe immediately while owner construction/admission is pending; preserve the rejection.
@@ -841,7 +842,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await (await lifecycle).configure(() => settings, roots);
     await graph?.sources?.startup;
   };
-  const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.storage, lifecycle);
+  const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.settings, lifecycle);
   const assertReadAdmission = async (): Promise<void> => {
     const state = await (await lifecycle).state();
     if (nativeIndexReadiness(state).kind !== 'ready') {

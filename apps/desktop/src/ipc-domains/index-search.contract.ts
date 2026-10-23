@@ -1,4 +1,8 @@
 import type {
+  IndexConfig,
+  IndexConfigCapability,
+} from '@brainstrike/assistant-contract/index-config';
+import type {
   IndexChunkBoundsCapability,
   IndexerCoverageRequest,
   IndexerFileChunksRequest,
@@ -196,8 +200,16 @@ export const indexSearchContract = {
     parseArgs: parseGrep,
     roles: ['visible-ui'],
   }),
+  onConfigChanged: pushEvent<IndexConfig>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.configChanged,
+  }),
   onLifecycleChanged: pushEvent<NativeIndexLifecycleObservation>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged,
+  }),
+  readConfig: channel<[], IndexConfig>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.readConfig,
+    parseArgs: parseNoArgs,
+    roles: ['visible-ui'],
   }),
   rebuild: channel<[], Result<'rebuild'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.rebuild,
@@ -227,12 +239,22 @@ export const indexSearchContract = {
     parseArgs: parseNoArgs,
     roles: ['visible-ui'],
   }),
+  // Main decodes the change with IndexConfigPatchSchema; a preload contract stays Effect-free.
+  updateConfig: channel<[unknown], IndexConfig>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.updateConfig,
+    parseArgs: (raw): [unknown] => {
+      assertArgCount(raw, 1, 'search index settings change');
+      return [raw[0]];
+    },
+    roles: ['visible-ui'],
+  }),
 } satisfies Contract;
 /** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type IndexSearchBridgeDerivation = AssertTrue<
   BridgeMatches<
     typeof indexSearchContract,
-    IndexSearchCapability &
+    IndexConfigCapability &
+      IndexSearchCapability &
       IndexChunkBoundsCapability &
       IndexRootRegistrationCapability &
       IndexRetryCapability &

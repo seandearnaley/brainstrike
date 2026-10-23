@@ -1,4 +1,8 @@
-import { type IndexConfig, IndexConfigSchema } from '@brainstrike/assistant-contract/index-config';
+import {
+  decodeIndexConfig,
+  type IndexConfig,
+  IndexConfigSchema,
+} from '@brainstrike/assistant-contract/index-config';
 import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
@@ -33,12 +37,7 @@ async function execute(
     return { config: request.config };
   }
   const saved = await store.getSetting(INDEX_CONFIG_SETTING);
-  return {
-    config:
-      saved === undefined
-        ? null
-        : Schema.decodeUnknownSync(IndexConfigSchema, PARSE)(JSON.parse(saved)),
-  };
+  return { config: saved === undefined ? null : decodeIndexConfig(JSON.parse(saved)) };
 }
 
 /** Decoded on arrival and served by the one acquired writer, never a second store. */

@@ -102,5 +102,7 @@ export interface NativeIndexActivationDependencies {
   readonly profile: DesktopProfileRuntime<HostAttachment>;
   /** Waits before each automatic re-open of a transient startup failure; defaults apply. */
   readonly reopenDelaysMs?: readonly number[];
+  /** Main's search index config, as the native index runs it. */
+  readonly settings: () => Promise<NativeIndexSettings>;
   readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;
 }

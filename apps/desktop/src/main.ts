@@ -124,6 +124,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
+import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
@@ -187,7 +188,6 @@ import {
   reportAgentHostStartupFailure as reportHostStartupFailure,
   reportNativeIndexActivationError as reportNativeIndexFailure,
 } from './native-index-activation-error';
-import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
   createNativeStartupFailureReporter,
   observeNativeReaderStartup,
@@ -826,14 +826,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     if (key === VECTOR_PREFERENCES_STORAGE_KEY) {
       // Recall's unpinned device follows the preference; the worker keeps its own until restart.
       embeddingHostManager.resolveDevice();
-      return;
     }
-    if (key !== NATIVE_INDEX_SETTINGS_KEY) {
-      return;
-    }
-    activateSavedNativeIndexSettings().catch((error: unknown) =>
-      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
-    );
   },
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
@@ -875,7 +868,27 @@ const nativeIndexActivation = createNativeIndexActivation({
   onReceipt: (receipt) =>
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
   profile: desktopBootstrap.profile,
+  settings: () => indexConfig.nativeSettings(),
   storage,
+});
+const indexConfig = createDesktopIndexConfig({
+  assertModel: assertRegisteredEmbeddingModel,
+  catalog: workspaceRootCatalog,
+  publish: (config) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.configChanged, config);
+      }
+    }
+  },
+  rebuild: () => nativeIndexSearch.rebuild(),
+  reconfigure: () => activateSavedNativeIndexSettings(),
+  replaceVectorSpace: (id) =>
+    nativeRootDataDeletion.transition(async () => {
+      await nativeIndexActivation.cleanupCollection(id);
+      await workspaceRootCatalog.collections({ id, operation: 'delete' });
+      await nativeIndexActivation.resume();
+    }),
 });
 const nativeLifecycleObserver = new AbortController();
 void nativeIndexActivation
@@ -1003,7 +1016,8 @@ ipcDisposers.add(
     {
       retryIndexing: () =>
         nativeRootDataDeletion.transition(() => nativeIndexActivation.retryIndexing()),
-    }
+    },
+    indexConfig
   )
 );
 ipcDisposers.add('main', () => {
