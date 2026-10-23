@@ -205,7 +205,7 @@ describe('actual utility canonical runtime attachment', () => {
             canonicalPath: '/captured/root',
             generation: 'generation',
             listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
-            readFile: async () => ({ status: 'missing' }),
+            readFile: async () => ({ status: 'not-found' as const }),
             retire: async () => {},
             rootId: 'root',
             signal: new AbortController().signal,
