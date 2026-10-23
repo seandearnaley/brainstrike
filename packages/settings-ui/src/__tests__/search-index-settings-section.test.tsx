@@ -203,6 +203,49 @@ describe('Search & Indexing', () => {
     );
   });
 
+  it('cannot change chunking while search is off, and says why', () => {
+    show({
+      ...DEFAULT_INDEX_CONFIG,
+      chunking: { _tag: 'Custom', maxTokens: 768, overlap: 64 },
+      mode: 'off',
+    });
+    expect(screen.getByRole('button', { name: 'Automatic' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Custom' })).toBeDisabled();
+    expect(screen.getByLabelText('Chunk size (tokens)')).toBeDisabled();
+    expect(screen.getByLabelText('Overlap (tokens)')).toBeDisabled();
+    expect(screen.getByText('Turn search on before changing chunking.')).toBeInTheDocument();
+  });
+
+  it('cannot apply chunking staged before search was turned off', async () => {
+    const finish = holdUpdate({ ...DEFAULT_INDEX_CONFIG, mode: 'off' });
+    show(DEFAULT_INDEX_CONFIG);
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Off/ }));
+    });
+    await act(async () => finish());
+    expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
+      'Turn search on before changing chunking.'
+    );
+    expect(screen.getByRole('button', { name: 'Apply and re-index' })).toBeDisabled();
+  });
+
+  it('turns semantic search on from Off with new chunking in one Apply', async () => {
+    show({ ...DEFAULT_INDEX_CONFIG, mode: 'off' });
+    fireEvent.click(screen.getByRole('button', { name: /^Semantic/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
+    });
+    expect(update).toHaveBeenCalledExactlyOnceWith({
+      chunking: { _tag: 'Custom', maxTokens: 512, overlap: 64 },
+      mode: 'semantic',
+      model: SEMANTIC.model,
+    });
+  });
+
   it('freezes the staged chunking while Apply is in flight', async () => {
     const saved: IndexConfig = {
       ...SEMANTIC,

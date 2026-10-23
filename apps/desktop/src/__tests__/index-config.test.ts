@@ -86,6 +86,28 @@ describe('Main search index config', () => {
     expect(dependencies.reconfigure).not.toHaveBeenCalled();
   });
 
+  it('refuses a chunking change while search is off and saves nothing', async () => {
+    const off = { ...DEFAULT_INDEX_CONFIG, mode: 'off' } as const;
+    const { dependencies, owner, saved } = harness(off);
+    await expect(
+      owner.update({ chunking: { _tag: 'Custom', maxTokens: 768, overlap: 64 } })
+    ).rejects.toMatchObject({
+      _tag: 'IndexConfigRefused',
+      message: 'Turn search on before changing chunking.',
+    });
+    expect(saved()).toEqual(off);
+    expect(dependencies.publish).not.toHaveBeenCalled();
+    expect(dependencies.rebuild).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds when search turns on with new chunking in one change', async () => {
+    const chunking = { _tag: 'Custom', maxTokens: 768, overlap: 64 } as const;
+    const { dependencies, owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, mode: 'off' });
+    await owner.update({ chunking, mode: 'text' });
+    expect(saved()).toMatchObject({ chunking, mode: 'text' });
+    expect(dependencies.rebuild).toHaveBeenCalledOnce();
+  });
+
   it('replaces the old vector space when the model changes', async () => {
     const { dependencies, owner } = harness(
       { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model: MODEL },

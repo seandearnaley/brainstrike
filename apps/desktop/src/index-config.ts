@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { IndexConfigPort } from '@brainstrike/agent-host/catalog';
 import {
   DEFAULT_INDEX_CONFIG,
+  INDEX_CHUNKING_OFF_MESSAGE,
   type IndexConfig,
   IndexConfigPatchSchema,
   IndexConfigSchema,
@@ -140,6 +141,10 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
       ...change,
       worktrees: { ...previous.worktrees, ...change.worktrees },
     }).pipe(Effect.mapError(refused));
+    const rechunk = !sameIndexChunking(previous.chunking, next.chunking);
+    if (rechunk && next.mode === 'off') {
+      return yield* new IndexConfigRefused({ message: INDEX_CHUNKING_OFF_MESSAGE });
+    }
     const model = next.model;
     if (model !== null) {
       yield* Effect.try({
@@ -160,9 +165,9 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
         ? apply("The previous model's vectors could not be removed.", () =>
             dependencies.replaceVectorSpace(space.id)
           )
-        : sameIndexChunking(previous.chunking, next.chunking)
-          ? apply('The search index could not apply the new settings.', dependencies.reconfigure)
-          : apply('The search index could not rebuild with the new chunking.', dependencies.rebuild)
+        : rechunk
+          ? apply('The search index could not rebuild with the new chunking.', dependencies.rebuild)
+          : apply('The search index could not apply the new settings.', dependencies.reconfigure)
     ).pipe(Effect.forkChild({ startImmediately: true }));
     return { applying, next };
   });

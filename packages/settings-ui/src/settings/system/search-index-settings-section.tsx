@@ -3,6 +3,7 @@ import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-
 import {
   CHUNK_OVERLAP_TOKENS,
   CHUNK_SIZE_TOKENS,
+  INDEX_CHUNKING_OFF_MESSAGE,
   type IndexChunking,
   type IndexConfig,
   type IndexConfigPatch,
@@ -105,10 +106,14 @@ function keepsSavedModel(next: IndexModel, saved: IndexModel | null): boolean {
 
 /** Why the staged choices cannot be applied yet; null when they can. */
 function applyBlocker(
+  staged: Staged,
   mode: IndexConfig['mode'],
   model: IndexModel | null,
   custom: CustomChunking | null
 ): string | null {
+  if (staged.chunking && mode === 'off') {
+    return INDEX_CHUNKING_OFF_MESSAGE;
+  }
   if (mode === 'semantic' && model === null) {
     return 'Choose an embedding model first.';
   }
@@ -252,7 +257,12 @@ function SearchIndexForm({
         />
       ) : null}
       <FoldersCard onPolicy={(policy) => change({ policy })} policy={config.policy} />
-      <ChunkingCard custom={custom} disabled={applying} onStage={stageChunking} />
+      <ChunkingCard
+        custom={custom}
+        disabled={applying || mode === 'off'}
+        offReason={mode === 'off' ? INDEX_CHUNKING_OFF_MESSAGE : null}
+        onStage={stageChunking}
+      />
       {nativeIndex ? <MaintenanceCard nativeIndex={nativeIndex} /> : null}
       {changeError ? (
         <p className="text-destructive text-sm" role="alert">
@@ -262,7 +272,7 @@ function SearchIndexForm({
       {pending.length > 0 ? (
         <PendingChanges
           applying={applying}
-          blocker={applyBlocker(mode, model, custom)}
+          blocker={applyBlocker(staged, mode, model, custom)}
           error={applyError}
           lines={pending}
           onApply={() => startTransition(() => apply(staged))}
@@ -359,10 +369,12 @@ function FoldersCard({
 function ChunkingCard({
   custom,
   disabled,
+  offReason,
   onStage,
 }: {
   readonly custom: CustomChunking | null;
   readonly disabled: boolean;
+  readonly offReason: string | null;
   readonly onStage: (chunking: IndexChunking) => void;
 }) {
   return (
@@ -372,6 +384,7 @@ function ChunkingCard({
         <CardDescription>Changing it re-indexes every file.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {offReason ? <p className="text-muted-foreground text-sm">{offReason}</p> : null}
         <fieldset aria-label="Chunking" className="flex min-w-0 gap-2">
           <Button
             aria-pressed={custom === null}
