@@ -118,14 +118,9 @@ function hasForestQuickFilterSelectAllOverride(
   return isForestMode && forestActions !== null;
 }
 
-/**
- * The bar is up whenever there is a selection OR an injected action has pinned
- * it (a running import). Both cases need the padding, so the visibility rule
- * lives here rather than at the call site.
- */
-function explorerScrollRootClassName(selectedCount: number, barPinned: boolean): string {
-  const barVisible = selectedCount > 0 || barPinned;
-  return cn('h-full overflow-y-auto', barVisible && SELECTION_BAR_SCROLL_PADDING);
+/** The selection bar is up whenever there is a selection, and then needs the padding. */
+function explorerScrollRootClassName(selectedCount: number): string {
+  return cn('h-full overflow-y-auto', selectedCount > 0 && SELECTION_BAR_SCROLL_PADDING);
 }
 
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
@@ -242,9 +237,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
-  // Held here rather than inside the bar so the scroll owner's bottom padding
-  // can track the bar's REAL visibility. A pin transition is a plain re-render.
-  const [selectionBarPinned, setSelectionBarPinned] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const previousRootFolderIdRef = useRef<string | null>(null);
   const restorationLimitNoticeKeyRef = useRef<string | null>(null);
@@ -1119,7 +1111,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
                 matching bottom padding so the last rows stay reachable; the bar
                 itself never enters normal flow, so rows never shift. */}
             <div
-              className={explorerScrollRootClassName(selectedCount, selectionBarPinned)}
+              className={explorerScrollRootClassName(selectedCount)}
               data-testid="explorer-scroll-root"
               ref={explorerScrollRootRef}
             >
@@ -1156,8 +1148,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
                 indicators above: it floats, so it never shifts tree rows. */}
             <FileExplorerSelectionActions
               onClear={handleClearSelection}
-              onPinnedChange={setSelectionBarPinned}
-              pinned={selectionBarPinned}
               selectedCount={selectedCount}
               trailingContent={selectionActions}
             />

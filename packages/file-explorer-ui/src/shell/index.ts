@@ -13,7 +13,6 @@ export * from './file-tab-body';
 export * from './root-data-deletion-context';
 export * from './use-file-explorer-context';
 export * from './use-file-system-context';
-export { useSelectionActionBarPin } from './use-selection-action-bar-pin';
 export * from './use-selection-manager-context';
 export { refreshReachesFile } from './use-workspace-open-file-refresh';
 export * from './use-workspace-tabs';

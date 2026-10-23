@@ -164,20 +164,6 @@ describe('SelectionActionBar', () => {
     expect(onClear).toHaveBeenCalledTimes(2);
   });
 
-  it('omits the clear control when the consumer reports nothing to clear', () => {
-    render(
-      <SelectionActionBar
-        actions={[]}
-        clearButtonAriaLabel="Clear file selection"
-        onClear={vi.fn()}
-        showClearButton={false}
-        summary="No files selected"
-      />
-    );
-
-    expect(screen.queryByRole('button', { name: 'Clear file selection' })).not.toBeInTheDocument();
-  });
-
   it('renders composed trailing content alongside declarative actions', () => {
     render(
       <SelectionActionBar
