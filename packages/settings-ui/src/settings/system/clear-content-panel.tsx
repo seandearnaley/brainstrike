@@ -54,7 +54,8 @@ export function ClearContentPanel({ clearContent, prepare, retireContent }: Clea
       return cause instanceof Error ? cause.message : String(cause);
     }
   }, null);
-  // The window's stores are retired: the dialog stays until the user reloads.
+  // Once a clear starts the window's stores are retiring: the dialog cannot be
+  // dismissed while it runs, and a failure stays on screen until the user reloads.
   const failed = error !== null;
   return (
     <div className="space-y-2 rounded-md border border-destructive/40 p-4">
@@ -65,7 +66,7 @@ export function ClearContentPanel({ clearContent, prepare, retireContent }: Clea
       <Button onClick={() => setOpen(true)} type="button" variant="outline">
         Clear content…
       </Button>
-      <Dialog onOpenChange={(next) => setOpen(next || failed)} open={open}>
+      <Dialog onOpenChange={(next) => setOpen(next || failed || clearing)} open={open || failed}>
         <DialogContent hideCloseButton={failed}>
           <DialogHeader>
             <DialogTitle>Clear content</DialogTitle>

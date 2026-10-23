@@ -91,6 +91,30 @@ describe('Clear content', () => {
       expect(order).toEqual(['intent:content-clear-failed-after-preparation', 'reload']);
     });
 
+    it('shows a late failure even if the dialog was dismissed while clearing', async () => {
+      const pending = Promise.withResolvers<{ deletedChunks: number; deletedFiles: number }>();
+      render(
+        <ClearContentPanel
+          clearContent={() => pending.promise}
+          prepare={async () => {}}
+          retireContent={() => {}}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Clear content…' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Clear content' }));
+      });
+      expect(screen.getByRole('button', { name: 'Clearing…' })).toBeDisabled();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      await act(async () => {
+        pending.reject(new Error('Content clearing did not return its completion receipt.'));
+        await pending.promise.catch(() => {});
+      });
+      expect(await screen.findByRole('alert')).toHaveTextContent('completion receipt');
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+    });
+
     it('treats a failed preparation the same way', async () => {
       await failClear({ prepare: new Error('Factory reset renderer preparation failed') });
       expect(await screen.findByRole('alert')).toHaveTextContent('preparation failed');
