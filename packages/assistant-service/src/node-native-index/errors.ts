@@ -21,10 +21,13 @@ export class NativeAuthorityTransitionError extends NativeIndexRefusalError {
 
 export const NATIVE_COVERAGE_OBSERVATION_INVALIDATED = 'native-coverage-observation-invalidated';
 
-/** A workspace search with no folder to search, in the words the workspace tools already use. */
+/** What a workspace search or tool says when no folder is open. */
+export const NO_WORKSPACE_FOLDER_MESSAGE =
+  'No folder is open in the workspace. Add a folder in the left file tree first.';
+
+/** A workspace search with no folder to search, in the words the workspace tools use. */
 export const NATIVE_SEARCH_NO_FOLDERS = refusal({
   category: 'input',
   code: 'native-search.no-folders',
-  message: 'No folder is open in the workspace.',
-  remedy: 'Add a folder in the left file tree first.',
+  message: NO_WORKSPACE_FOLDER_MESSAGE,
 });

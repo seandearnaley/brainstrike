@@ -71,6 +71,9 @@ export type NativeIndexRefusalCause =
       readonly message: string;
     };
 
+/** What search says under the saved Off choice, wherever it is refused: Main or the renderer. */
+export const NATIVE_INDEX_OFF_MESSAGE = 'Search is off. Turn it on in Settings, Search & Indexing.';
+
 /** Only the lifecycle/resource owner can refuse admission with this typed cause. */
 export class NativeIndexRefusalError extends Error {
   readonly code: `native-index-${NativeIndexRefusalCause['kind']}`;

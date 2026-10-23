@@ -7,6 +7,7 @@ import {
   refusal,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import {
+  NATIVE_INDEX_OFF_MESSAGE,
   type NativeIndexRefusalCause,
   NativeIndexRefusalError,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -72,12 +73,7 @@ const descriptions: Readonly<
     message: 'The embedding model stopped responding while indexing.',
     remedy: 'Retry indexing from the Workspace Index status. It restarts the embedding model.',
   },
-  // The renderer's own sentence for a saved Off choice (`native-search-provider.tsx`).
-  off: {
-    category: 'configuration',
-    message: 'Search is off.',
-    remedy: 'Turn it on in Settings, Search & Indexing.',
-  },
+  off: { category: 'configuration', message: NATIVE_INDEX_OFF_MESSAGE },
   'rebuild-required': {
     category: 'availability',
     message: 'The search index needs a rebuild.',

@@ -167,8 +167,7 @@ describe('Search & Indexing', () => {
         refusalError(
           'configuration',
           'native-index-off',
-          'Search is off.',
-          'Turn it on in Settings, Search & Indexing.'
+          'Search is off. Turn it on in Settings, Search & Indexing.'
         )
       );
     useIndexConfigStore.setState({

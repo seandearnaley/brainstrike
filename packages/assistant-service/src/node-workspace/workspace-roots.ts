@@ -3,6 +3,7 @@ import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import { NO_WORKSPACE_FOLDER_MESSAGE } from '../node-native-index/errors.js';
 import type { StoredWorkspaceRoot } from './workspace-root-types.js';
 
 const logger = createLogger('AssistantWorkspaceRoots');
@@ -198,9 +199,7 @@ export function resolveWorkspaceRoot(
   const trimmed = normalizeExplicitRootQualifier(qualifier);
   const boundRootId = getValidatedBoundRootId(runtimeData, trimmed !== undefined);
   if (roots.length === 0) {
-    throw new ToolInputError(
-      'No folder is open in the workspace. Add a folder in the left file tree first.'
-    );
+    throw new ToolInputError(NO_WORKSPACE_FOLDER_MESSAGE);
   }
 
   if (trimmed) {

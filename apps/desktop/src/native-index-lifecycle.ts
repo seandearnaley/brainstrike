@@ -1,6 +1,7 @@
-import type {
-  NativeIndexLifecycleObservation,
-  NativeIndexRefusalCause,
+import {
+  NATIVE_INDEX_OFF_MESSAGE,
+  type NativeIndexLifecycleObservation,
+  type NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { findEmbeddingHostUnresponsive } from './embedding-host-unresponsive';
 import {
@@ -186,9 +187,6 @@ const liveSettings = (state: NativeIndexState): NativeIndexSettings | null => {
 
 const sameConfiguration = (left: NativeIndexSettings, right: NativeIndexSettings): boolean =>
   nativeIndexConfigurationIdentity(left) === nativeIndexConfigurationIdentity(right);
-
-/** A read under the saved Off choice: the renderer's own sentence (`native-search-provider.tsx`). */
-const NATIVE_INDEX_OFF_MESSAGE = 'Search is off. Turn it on in Settings, Search & Indexing.';
 
 function open(
   state: NativeIndexState,

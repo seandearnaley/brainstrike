@@ -13,12 +13,13 @@ import {
   type IndexModel,
   indexModelLocalSelection,
 } from '@brainstrike/assistant-contract/index-config';
-import type {
-  IndexerEmbeddingProfile,
-  IndexerStatus,
-  IndexLifecycleCapability,
-  IndexSearchCapability,
-  NativeIndexLifecycleObservation,
+import {
+  type IndexerEmbeddingProfile,
+  type IndexerStatus,
+  type IndexLifecycleCapability,
+  type IndexSearchCapability,
+  NATIVE_INDEX_OFF_MESSAGE,
+  type NativeIndexLifecycleObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import {
   type NativeWorkspaceSearchDependencies,
@@ -105,15 +106,13 @@ function nextSearchStatus(prior: NativeSearchStatus, status: IndexerStatus): Nat
     status: unchangedStatus(prior.status, status),
   };
 }
-/** Why search is unavailable under a saved Off choice, and the setting that changes it. */
-const SEARCH_OFF_REASON = 'Search is off. Turn it on in Settings, Search & Indexing.';
 
 async function readMatchingStatus(
   capability: IndexSearchCapability,
   saved: SavedSearch | null
 ): Promise<IndexerStatus> {
   if (saved?.mode === 'off') {
-    return { kind: 'unavailable', reason: SEARCH_OFF_REASON };
+    return { kind: 'unavailable', reason: NATIVE_INDEX_OFF_MESSAGE };
   }
   const next = await capability.status();
   if (next.kind === 'ready' && !matchesSavedChoices(next, saved)) {
