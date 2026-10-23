@@ -49,16 +49,9 @@ function assertLeaseRequest(session: Session, frame: Request): void {
 function assertCatalogRequest(session: Session, frame: Request): void {
   const { config } = session;
   switch (frame.op) {
-    case 'read-retained': {
-      const input = decode(canonicalOperations['read-retained'].input)(frame.payload);
-      if (config.scope.kind !== 'collection' || input.maxFileBytes > config.request.maxFileBytes) {
-        throw new Error('Retained read exceeds collection authority or byte bound.');
-      }
-      break;
-    }
     case 'prepare-sources': {
       const input = decode(canonicalOperations['prepare-sources'].input)(frame.payload);
-      if (input.scope.kind !== 'workspace' || input.files.length > config.request.batchSize) {
+      if (input.files.length > config.request.batchSize) {
         throw new Error('Discovered batch has no captured workspace authority.');
       }
       break;

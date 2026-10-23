@@ -48,7 +48,6 @@ function executionIdentity(status: IndexerStatus): string {
     return JSON.stringify(status);
   }
   const {
-    collectionReadiness: _collections,
     rootReadiness: _roots,
     publicationProgress: _progress,
     sourceObservation,

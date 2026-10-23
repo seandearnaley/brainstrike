@@ -13,7 +13,6 @@ import type {
   CanonicalScanRequest,
   CanonicalSourceFile,
   CanonicalSourceScope,
-  CanonicalSourceStat,
 } from './ports.js';
 
 export interface CanonicalSourceSubscription {
@@ -58,19 +57,11 @@ export interface CanonicalSourceInventoryPort {
     scope: CanonicalSourceScope,
     context: CanonicalOperationContext
   ): Promise<readonly CanonicalSourceFile[]>;
-  readRetained(
-    file: CanonicalSourceFile,
-    maxFileBytes: number,
-    context: CanonicalOperationContext
-  ): Promise<{
-    readonly content: string;
-    readonly stat: CanonicalSourceStat;
-  }>;
 }
 
 export interface CanonicalWorkspaceSourceDependencies {
   readonly indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   readonly inventory: CanonicalSourceInventoryPort;
-  readonly lease?: CanonicalWorkspaceLease;
+  readonly lease: CanonicalWorkspaceLease;
   readonly resolveScanScope?: (request: CanonicalScanRequest) => WorkspaceScanScope;
 }

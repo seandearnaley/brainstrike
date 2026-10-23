@@ -41,7 +41,7 @@ export async function discoverCanonicalWorkspace(
   context: CanonicalOperationContext
 ): Promise<WorkspaceSourceDiscovery> {
   const { lease } = dependencies;
-  if (!lease || request.scope.kind !== 'workspace' || request.scope.rootId !== lease.rootId) {
+  if (request.scope.rootId !== lease.rootId) {
     throw new Error('Workspace source requires the exact authorized mounted lease.');
   }
   const rootHandle: DirectoryHandle = {

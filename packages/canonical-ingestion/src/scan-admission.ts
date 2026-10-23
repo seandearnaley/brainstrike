@@ -1,22 +1,11 @@
-import type { NativeCanonicalCatalogRecord } from './canonical-catalog.js';
 import type {
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalVectorPublicationPort,
 } from './ports.js';
 
-/** Promise ownership on the existing source lifetime, before collection inventory loading. */
+/** Promise ownership of each workspace scan on the existing source lifetime. */
 export function createNativeScanAdmission(assertSource: () => void, signal: AbortSignal) {
-  let collection:
-    | {
-        failure?: { readonly error: unknown };
-        readonly ready: ReturnType<typeof Promise.withResolvers<void>>;
-        readonly requestId: string;
-        readonly settled: Promise<void>;
-      }
-    | undefined;
-  let inventory: readonly NativeCanonicalCatalogRecord[] | undefined;
-  const pendingBindings = new Set<Promise<void>>();
   const workspaces = new Map<
     string,
     { readonly rootId: string; readonly completion: ReturnType<typeof Promise.withResolvers<void>> }
@@ -46,59 +35,18 @@ export function createNativeScanAdmission(assertSource: () => void, signal: Abor
       }
     }
   };
-  const waitForCollection = async (context?: CanonicalOperationContext): Promise<void> => {
-    assertSource();
-    context?.signal.throwIfAborted();
-    while (collection && collection.requestId !== context?.requestId) {
-      // Previously admitted workspace work must finish before collection loading starts.
-      if (context && workspaces.has(context.requestId)) {
-        break;
-      }
-      await wait(collection.settled, context);
-    }
-  };
-  const replaceBindings = async <T>(work: () => Promise<T>): Promise<T> => {
-    const completion = Promise.withResolvers<void>();
-    completion.promise.catch(() => undefined);
-    pendingBindings.add(completion.promise);
-    try {
-      const result = await work();
-      completion.resolve();
-      pendingBindings.delete(completion.promise);
-      return result;
-    } catch (error) {
-      completion.reject(error);
-      throw error;
-    }
-  };
   return {
-    acquireBindings: async <T>(
+    acquireBindings: <T>(
       context: CanonicalOperationContext,
       work: () => Promise<T>
     ): Promise<T> => {
-      while (
-        collection &&
-        collection.requestId !== context.requestId &&
-        !workspaces.has(context.requestId)
-      ) {
-        await waitForCollection(context);
-      }
       assertSource();
       context.signal.throwIfAborted();
-      if (collection?.failure) {
-        throw collection.failure.error;
-      }
-      return replaceBindings(work);
+      return work();
     },
-    acquireRead: async <T>(work: () => Promise<T>): Promise<T> => {
-      while (collection && !inventory) {
-        await wait(collection.ready.promise);
-      }
+    acquireRead: <T>(work: () => Promise<T>): Promise<T> => {
       assertSource();
-      if (collection?.failure) {
-        throw collection.failure.error;
-      }
-      return replaceBindings(work);
+      return work();
     },
     completeWorkspace: (receipt: CanonicalScanReceipt): void => {
       const requestId = receipt.ticket.requestId;
@@ -113,21 +61,16 @@ export function createNativeScanAdmission(assertSource: () => void, signal: Abor
     failWorkspace: (rootId: string, error: unknown): void => {
       for (const workspace of workspaces.values()) {
         if (workspace.rootId === rootId) {
-          // Failed joins remain owned; later collection admission preserves the original failure.
+          // Failed joins remain owned until the original sources physically retire.
           workspace.completion.reject(error);
         }
       }
     },
-    getInventory: () => inventory,
     getWorkspaceCompletions: (): readonly Promise<void>[] =>
       [...workspaces.values()].map((workspace) => workspace.completion.promise),
     joinPublication: wait,
     releaseInvalidatedWorkspace: (receipt: CanonicalScanReceipt): void => {
-      if (
-        receipt.scanComplete ||
-        receipt.reason !== 'manifest-mismatch' ||
-        receipt.ticket.scope.kind !== 'workspace'
-      ) {
+      if (receipt.scanComplete || receipt.reason !== 'manifest-mismatch') {
         throw new Error('Workspace recovery requires its settled invalidated source receipt.');
       }
       const workspace = workspaces.get(receipt.ticket.requestId);
@@ -137,57 +80,12 @@ export function createNativeScanAdmission(assertSource: () => void, signal: Abor
       workspace.completion.resolve();
       workspaces.delete(receipt.ticket.requestId);
     },
-    retainInventory: (records: readonly NativeCanonicalCatalogRecord[]): void => {
-      if (!collection) {
-        throw new Error('Collection inventory has no admitted source owner.');
-      }
-      inventory = records;
-      collection.ready.resolve();
-    },
-    runCollection: async (requestId: string, work: () => Promise<void>): Promise<void> => {
-      assertSource();
-      if (collection) {
-        throw new Error('Collection admission is already owned.');
-      }
-      const completion = Promise.withResolvers<void>();
-      completion.promise.catch(() => undefined);
-      const ready = Promise.withResolvers<void>();
-      ready.promise.catch(() => undefined);
-      collection = { ready, requestId, settled: completion.promise };
-      try {
-        await wait(
-          Promise.all([
-            ...pendingBindings,
-            ...[...workspaces.values()].map((workspace) => workspace.completion.promise),
-          ]).then(() => {})
-        );
-        await work();
-        inventory = undefined;
-        collection = undefined;
-        completion.resolve();
-      } catch (error) {
-        // Preserve failed admission and its snapshot until the original sources physically retire.
-        if (collection) {
-          collection.failure = { error };
-        }
-        ready.reject(error);
-        completion.reject(error);
-        throw error;
-      }
-    },
-    waitForCollection,
     workspacePublication: (
       publication: CanonicalVectorPublicationPort
     ): CanonicalVectorPublicationPort => ({
       ...publication,
       beginScan: async (request) => {
-        while (collection) {
-          await waitForCollection();
-        }
         assertSource();
-        if (request.scope.kind !== 'workspace') {
-          throw new Error('Workspace admission requires its actual mounted scope.');
-        }
         const rootId = request.scope.rootId;
         if ([...workspaces.values()].some((workspace) => workspace.rootId === rootId)) {
           throw new Error('Workspace publication admission remains owned.');

@@ -32,8 +32,6 @@ export interface NativeSemanticAvailability {
 }
 export interface NativeSearchScope {
   capability: IndexSearchCapability | null;
-  /** Main's assistant retrieval scopes its default query to the saved collection. */
-  collectionId?: string | null;
   profile: IndexerEmbeddingProfile | null;
   profileUnavailableReason?: string;
   rootIds: readonly string[];
@@ -102,7 +100,6 @@ export async function getNativeSemanticAvailability(
   scope: NativeSearchScope
 ): Promise<NativeSemanticAvailability> {
   const { capability, profile, rootIds } = scope;
-  const collectionId = scope.collectionId ?? null;
   if (!capability) {
     return unavailable('Native vector search is unavailable.');
   }
@@ -112,18 +109,13 @@ export async function getNativeSemanticAvailability(
         'Vector search requires a complete configured embedding profile.'
     );
   }
-  if (rootIds.length === 0 && collectionId === null) {
+  if (rootIds.length === 0) {
     return unavailable(NO_WORKSPACE_FOLDER_MESSAGE);
   }
   if (new Set(rootIds).size !== rootIds.length) {
     return unavailable('Vector search was asked for the same workspace folder twice.');
   }
-  const observation = await capability.coverageBatch([
-    {
-      rootIds,
-      ...(collectionId === null ? {} : { collectionId }),
-    },
-  ]);
+  const observation = await capability.coverageBatch([{ rootIds }]);
   if (observation.kind === 'invalidated') {
     return unavailable('Native vector availability is being verified.');
   }
@@ -142,29 +134,14 @@ export async function getNativeSemanticAvailability(
   if (!matchesConfiguredProfile(status.embedding, profile, profileHash)) {
     return unavailable('Vector search profile does not match the native index.');
   }
-  if (collectionId !== null && !status.authorizedCollectionIds?.includes(collectionId)) {
-    return unavailable('Native collection scope is not currently authorized.');
-  }
   if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
     return unavailable('Vector search scope contains an unauthorized workspace root.');
   }
-  const reason = coverageRefusal(
-    coverage,
-    status.storeId,
-    profile,
-    profileHash,
-    rootIds,
-    collectionId
-  );
+  const reason = coverageRefusal(coverage, status.storeId, profile, profileHash, rootIds);
   if (reason !== null) {
     return unavailable(reason);
   }
-  return admittedCoverage(
-    coverage,
-    collectionId === null
-      ? completeScopeReceipts(status, rootIds)
-      : completeCollectionReceipt(status, collectionId)
-  );
+  return admittedCoverage(coverage, completeScopeReceipts(status, rootIds));
 }
 
 function admittedCoverage(
@@ -670,22 +647,12 @@ export function completeScopeReceipts(
     return receipts.length === 1 && receipts[0]?.scanComplete === true;
   });
 }
-function completeCollectionReceipt(
-  status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
-  collectionId: string
-): boolean {
-  const receipts = status.collectionReadiness?.filter(
-    (receipt) => receipt.embeddingSetId === collectionId
-  );
-  return receipts?.length === 1 && receipts[0]?.scanComplete === true;
-}
 function coverageRefusal(
   coverage: IndexerCoverage,
   storeId: string,
   profile: IndexerEmbeddingProfile,
   profileHash: string,
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): string | null {
   if (
     coverage.storeId !== storeId ||
@@ -693,33 +660,16 @@ function coverageRefusal(
   ) {
     return 'Vector coverage profile does not match the configured profile.';
   }
-  const expectedScopeCount =
-    collectionId === null
-      ? coverage.roots.length === rootIds.length
-      : coverage.collections?.length === 1;
   if (
-    !expectedScopeCount ||
+    coverage.roots.length !== rootIds.length ||
     coverage.totals.vectors === 0 ||
     (coverage.vectorCoverageComplete && coverage.totals.missingVectors !== 0)
   ) {
     return 'Vector coverage is incomplete for the requested workspace roots.';
   }
-  const complete =
-    collectionId === null
-      ? validCoverageCounts(coverage, rootIds)
-      : validCollectionCounts(coverage, collectionId);
-  return complete ? null : 'Native vector coverage totals are inconsistent or incomplete.';
-}
-function validCollectionCounts(coverage: IndexerCoverage, collectionId: string): boolean {
-  const collection = coverage.collections?.find((row) => row.embeddingSetId === collectionId);
-  return (
-    !!collection &&
-    validCounts(collection) &&
-    validCounts(coverage.totals) &&
-    Object.entries(coverage.totals).every(
-      ([key, value]) => collection[key as keyof IndexerCoverageCounts] === value
-    )
-  );
+  return validCoverageCounts(coverage, rootIds)
+    ? null
+    : 'Native vector coverage totals are inconsistent or incomplete.';
 }
 
 /** No folder means nothing to search: say so rather than answer with no matches. */

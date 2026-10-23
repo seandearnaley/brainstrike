@@ -8,11 +8,13 @@ import type {
   VectorProfile,
 } from '@brainstrike/indexer/browser';
 
-export type CanonicalSourceScope =
-  | { readonly kind: 'workspace'; readonly rootId: string }
-  | { readonly kind: 'collection'; readonly embeddingSetId: string };
+/** A scan's source: one workspace folder. */
+export interface CanonicalSourceScope {
+  readonly kind: 'workspace';
+  readonly rootId: string;
+}
 
-/** Actual PG catalog binding. A rootless collection never acquires a synthetic root/path. */
+/** Actual PG catalog binding. */
 export interface CanonicalFileIdentity {
   readonly embeddingSetId: string | null;
   readonly fileId: string;
@@ -117,7 +119,7 @@ export interface CanonicalCatalogPort<Profile = unknown> {
         readonly content: string;
         readonly contentHash: string;
       })[];
-      readonly scope: Extract<CanonicalSourceScope, { readonly kind: 'workspace' }>;
+      readonly scope: CanonicalSourceScope;
     },
     context: CanonicalOperationContext
   ): Promise<readonly CanonicalManifestFile[]>;

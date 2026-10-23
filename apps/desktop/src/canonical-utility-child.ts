@@ -21,25 +21,21 @@ import {
   configSchema,
   decode,
   healthSchema,
-  identifier,
   watchBatchSchema,
   watchSignalSchema,
 } from './canonical-utility-protocol';
 
 interface Runtime {
-  cancel(requestId?: string): Promise<void>;
+  cancel(): Promise<void>;
   close(): Promise<void>;
-  scan?(request: object): Promise<unknown>;
-  start?(): Promise<void>;
-  trigger?(): void;
+  start(): Promise<void>;
+  trigger(): void;
 }
 interface Session {
   acquisition?: Promise<null>;
   readonly config: CanonicalUtilityConfig;
   readonly leaseController: AbortController;
-  retired?: boolean;
   runtime?: Runtime;
-  scan?: { requestId: string; work: Promise<unknown>; joining: boolean } | undefined;
   watch?: Parameters<CanonicalWorkspaceLease['subscribe']> | undefined;
 }
 /** Desktop attachment lives beside the engine; @brainstrike/indexer has no product dependency. */
@@ -135,64 +131,18 @@ export class CanonicalUtilityChild {
     if (!session?.runtime) {
       throw new Error('Canonical control has no acquired runtime.');
     }
-    if (frame.op !== 'join-scan') {
-      session.leaseController.signal.throwIfAborted();
-    }
+    session.leaseController.signal.throwIfAborted();
     switch (frame.op) {
       case 'trigger':
         decode(Schema.Null)(frame.payload);
-        if (!session.runtime.trigger) {
-          throw new Error('Rootless collection has no workspace watch trigger.');
-        }
         session.runtime.trigger();
         return null;
       case 'cancel':
         decode(Schema.Null)(frame.payload);
-        if (session.config.scope.kind === 'collection' && !session.scan) {
-          return null;
-        }
-        await session.runtime.cancel(session.scan?.requestId);
+        await session.runtime.cancel();
         return null;
-      case 'start-scan':
-        return this.startScan(session, frame.payload);
-      case 'join-scan':
-        return this.joinScan(frame.owner, session, frame.payload);
       default:
         throw new Error(`Unknown canonical utility control ${frame.op}.`);
-    }
-  }
-  private startScan(session: Session, payload: unknown): null {
-    const input = decode(Schema.Struct({ requestId: identifier }))(payload);
-    const scan = session.runtime?.scan?.bind(session.runtime);
-    if (session.config.scope.kind !== 'collection' || !scan || session.scan) {
-      throw new Error('Canonical rootless scan is unavailable or already owned.');
-    }
-    const work = Promise.resolve().then(() =>
-      scan({
-        ...session.config.request,
-        requestId: input.requestId,
-        scope: session.config.scope,
-      })
-    );
-    session.scan = { joining: false, requestId: input.requestId, work };
-    // Retain the original terminal, including a failure that precedes join admission.
-    void work.catch(() => {});
-    return null;
-  }
-  private async joinScan(owner: string, session: Session, payload: unknown): Promise<unknown> {
-    const input = decode(Schema.Struct({ requestId: identifier }))(payload);
-    const scan = session.scan;
-    if (!scan || scan.requestId !== input.requestId || scan.joining) {
-      throw new Error('Canonical scan join has no matching retained owner.');
-    }
-    scan.joining = true;
-    try {
-      return await scan.work;
-    } finally {
-      session.scan = undefined;
-      if (session.retired) {
-        this.sessions.delete(owner);
-      }
     }
   }
   private async attach(frame: Extract<CanonicalFrame, { kind: 'call' }>): Promise<null> {
@@ -200,11 +150,7 @@ export class CanonicalUtilityChild {
       throw new Error('Canonical utility attachment is closed or repeated.');
     }
     const config = decode(configSchema)(frame.payload);
-    if (
-      config.scope.kind === 'workspace'
-        ? !config.lease || config.scope.rootId !== config.lease.rootId
-        : config.lease !== null
-    ) {
+    if (config.scope.rootId !== config.lease.rootId) {
       throw new Error('Canonical utility scope and mounted lease disagree.');
     }
     const session: Session = { config, leaseController: new AbortController() };
@@ -219,58 +165,45 @@ export class CanonicalUtilityChild {
     const { catalog, inference, inventory, publication } = this.ports(owner);
     const mode =
       config.mode === 'VECTOR' ? { inference, mode: 'VECTOR' as const } : { mode: 'TEXT' as const };
-    if (config.scope.kind === 'workspace') {
-      const lease = this.lease(owner, session);
-      const dependencies: CanonicalWorkspaceRuntimeDependencies = {
-        ...mode,
-        catalog,
-        chunker: publicRuntime.createNodeChunker(config.parser),
-        managedCollectionId: config.managedCollectionId,
-        onError: (operation, error) =>
-          this.send({
-            channel: CANONICAL_CHANNEL,
-            event: 'error',
-            kind: 'event',
-            owner,
-            value: { error: canonicalFault(error), operation },
-          }),
-        onReceipt: (receipt, sourceInvalidated) =>
-          this.send({
-            channel: CANONICAL_CHANNEL,
-            event: sourceInvalidated ? 'source-invalidated' : 'receipt',
-            kind: 'event',
-            owner,
-            value: receipt,
-          }),
-        // Main observes the same watch health directly through its captured lease.
-        onWatchHealth: () => {},
-        publication,
-        request: {
-          ...config.request,
-          chunkingOptions: {
-            ...config.request.chunkingOptions,
-            separators: config.request.chunkingOptions.separators
-              ? [...config.request.chunkingOptions.separators]
-              : undefined,
-          },
-        },
-        source: { indexingPolicyPreset: config.indexingPolicyPreset, inventory, lease },
-      };
-      const runtime = new publicRuntime.CanonicalWorkspaceIngestionRuntime(dependencies);
-      session.runtime = runtime;
-      await runtime.start();
-    } else {
-      session.runtime = new publicRuntime.CanonicalIngestionHost({
-        ...mode,
-        catalog,
-        chunker: publicRuntime.createNodeChunker(config.parser),
-        publication,
-        source: new publicRuntime.CanonicalWorkspaceSource({
-          indexingPolicyPreset: config.indexingPolicyPreset,
-          inventory,
+    const lease = this.lease(owner, session);
+    const dependencies: CanonicalWorkspaceRuntimeDependencies = {
+      ...mode,
+      catalog,
+      chunker: publicRuntime.createNodeChunker(config.parser),
+      managedCollectionId: config.managedCollectionId,
+      onError: (operation, error) =>
+        this.send({
+          channel: CANONICAL_CHANNEL,
+          event: 'error',
+          kind: 'event',
+          owner,
+          value: { error: canonicalFault(error), operation },
         }),
-      });
-    }
+      onReceipt: (receipt, sourceInvalidated) =>
+        this.send({
+          channel: CANONICAL_CHANNEL,
+          event: sourceInvalidated ? 'source-invalidated' : 'receipt',
+          kind: 'event',
+          owner,
+          value: receipt,
+        }),
+      // Main observes the same watch health directly through its captured lease.
+      onWatchHealth: () => {},
+      publication,
+      request: {
+        ...config.request,
+        chunkingOptions: {
+          ...config.request.chunkingOptions,
+          separators: config.request.chunkingOptions.separators
+            ? [...config.request.chunkingOptions.separators]
+            : undefined,
+        },
+      },
+      source: { indexingPolicyPreset: config.indexingPolicyPreset, inventory, lease },
+    };
+    const runtime = new publicRuntime.CanonicalWorkspaceIngestionRuntime(dependencies);
+    session.runtime = runtime;
+    await runtime.start();
     if (session.leaseController.signal.aborted) {
       await session.runtime.close();
       session.leaseController.signal.throwIfAborted();
@@ -284,13 +217,7 @@ export class CanonicalUtilityChild {
     // still joins it and retains any actually acquired runtime for cleanup retry.
     await session.acquisition?.catch(() => {});
     await session.runtime?.close();
-    // Close also owns a scan whose admission ACK has not reached main yet.
-    // Main retains the original late-admission join to report independent failure.
-    await session.scan?.work.catch(() => {});
-    session.retired = true;
-    if (!session.scan) {
-      this.sessions.delete(owner);
-    }
+    this.sessions.delete(owner);
   }
   private async call<K extends CanonicalOperation>(
     owner: string,
@@ -333,8 +260,6 @@ export class CanonicalUtilityChild {
     };
     const inventory: CanonicalSourceInventoryPort = {
       loadFiles: (scope, context) => this.call(owner, 'load-files', scope, context),
-      readRetained: (file, maxFileBytes, context) =>
-        this.call(owner, 'read-retained', { file, maxFileBytes }, context),
     };
     const publication: CanonicalVectorPublicationPort = {
       abortScan: async (ticket) => {
@@ -369,9 +294,6 @@ export class CanonicalUtilityChild {
   }
   private lease(owner: string, session: Session): CanonicalWorkspaceLease {
     const { lease } = session.config;
-    if (!lease) {
-      throw new Error('Canonical workspace requires an actual captured lease.');
-    }
     return {
       ...lease,
       listDir: (relativePath, maxEntries, context) =>
