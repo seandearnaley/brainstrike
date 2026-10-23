@@ -319,7 +319,7 @@ describe('buildWorktreeMap', () => {
           rootIdIsExactMount: false,
         }),
       ],
-      indexedRootIds: null,
+      indexedRootIds: [],
       indexingOptInByRootId: { 'root-a': true, 'root-b': false, 'root-d': true },
       prCache: new Map(),
       runningThreadIds: new Set(),
@@ -356,6 +356,22 @@ describe('buildWorktreeMap', () => {
       'included',
       'excluded',
     ]);
+  });
+
+  it('makes no claim for a checkout without an opt-in while the index status is not ready', () => {
+    const model = buildWorktreeMap({
+      entries: [
+        entry({ id: 'a', managed: true, path: '/a', primary: false, rootId: 'root-a' }),
+        entry({ id: 'b', managed: true, path: '/b', primary: false, rootId: 'root-b' }),
+      ],
+      indexedRootIds: null,
+      indexingOptInByRootId: { 'root-b': true },
+      prCache: new Map(),
+      runningThreadIds: new Set(),
+      threads: [],
+    });
+
+    expect(model[0]?.cards.map((card) => card.indexing)).toEqual(['unknown', 'included']);
   });
 
   it('makes no indexing claim for a mounted checkout before Main’s config is read', () => {

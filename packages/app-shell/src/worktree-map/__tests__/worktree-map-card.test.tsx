@@ -33,7 +33,7 @@ const MOUNTED_WORKTREE: WorktreeListEntry = {
 /** The card for a mounted worktree, given Main's worktree choices (null until read). */
 function renderCard(
   indexingOptInByRootId: Readonly<Record<string, boolean>> | null,
-  indexedRootIds: readonly string[] | null = null
+  indexedRootIds: readonly string[] | null = []
 ) {
   const card = buildWorktreeMap({
     entries: [MOUNTED_WORKTREE],

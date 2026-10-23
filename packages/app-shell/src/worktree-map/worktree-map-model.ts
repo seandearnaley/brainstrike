@@ -34,7 +34,8 @@ export interface WorktreeMapCardModel {
    * `not-a-root` means the worktree is not mounted as a workspace root, so
    * there is no indexing preference to report. It is NOT "excluded": inventing
    * an answer for an unmounted path would be a silent fallback. `unknown`
-   * means Main's search index config has not been read yet, so no claim is made.
+   * means Main's search index config, or the index's status for a checkout
+   * with no opt-in, has not been read yet, so no claim is made.
    * `open-folder` means the index serves the root without a worktree opt-in:
    * it is open as an ordinary folder, always indexed, and this map's choice
    * does not control it.
@@ -106,7 +107,12 @@ function indexingFor(
   if (optInByRootId[entry.rootId] === true) {
     return 'included';
   }
-  return indexedRootIds?.includes(entry.rootId) ? 'open-folder' : 'excluded';
+  // Without the index's status, an ordinary open folder cannot be told from
+  // a worktree that is not opted in: make no claim until it arrives.
+  if (indexedRootIds === null) {
+    return 'unknown';
+  }
+  return indexedRootIds.includes(entry.rootId) ? 'open-folder' : 'excluded';
 }
 
 function threadFor(

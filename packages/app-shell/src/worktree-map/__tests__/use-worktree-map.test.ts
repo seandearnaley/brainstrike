@@ -1,6 +1,9 @@
 import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
-import { NativeWorkspaceSearchProvider } from '@brainstrike/workspace-search/core';
+import {
+  type NativeWorkspaceSearchDependencies,
+  NativeWorkspaceSearchProvider,
+} from '@brainstrike/workspace-search/core';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,6 +61,15 @@ vi.mock('../../roots/root-identity-context', () => ({
 }));
 
 import { type UseWorktreeMapInput, useWorktreeMap } from '../use-worktree-map';
+
+/** An index that is ready and serves `root-1`. */
+const READY_STATUS = {
+  authorizedRootIds: ['root-1'],
+  embedding: { indexMode: 'text-only' as const },
+  kind: 'ready' as const,
+  rootReadiness: [{ rootId: 'root-1', scanComplete: true }],
+  storeId: 'store-a',
+};
 
 const INPUT: UseWorktreeMapInput = {
   resourceId: 'brainstrike:workspace',
@@ -118,7 +130,14 @@ describe('useWorktreeMap', () => {
       ],
     });
     useIndexConfigStore.setState({ state: { kind: 'loading' } });
-    const { result } = renderHook(() => useWorktreeMap(INPUT));
+    const status = { ...READY_STATUS, authorizedRootIds: [] };
+    const { result } = renderHook(() => useWorktreeMap(INPUT), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(NativeWorkspaceSearchProvider, {
+          children,
+          dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
+        }),
+    });
     await waitFor(() => expect(result.current.loading).toBe(false));
     const indexing = () => result.current.repositories[0]?.cards.map((card) => card.indexing);
     expect(indexing()).toEqual(['unknown', 'unknown']);
@@ -134,6 +153,30 @@ describe('useWorktreeMap', () => {
     expect(indexing()).toEqual(['excluded', 'included']);
   });
 
+  it('makes no indexing claim for a checkout without an opt-in until the index status is ready', async () => {
+    listMock.mockResolvedValue({
+      ok: true,
+      value: [entry({ path: '/repo', rootId: 'root-1', rootIdIsExactMount: true })],
+    });
+    let status: NonNullable<NativeWorkspaceSearchDependencies['status']> = {
+      kind: 'unavailable',
+      reason: 'Paused',
+    };
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(NativeWorkspaceSearchProvider, {
+          children,
+          dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
+        }),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const indexing = () => result.current.repositories[0]?.cards.map((card) => card.indexing);
+    expect(indexing()).toEqual(['unknown']);
+    status = READY_STATUS;
+    rerender();
+    expect(indexing()).toEqual(['open-folder']);
+  });
+
   it('shows a checkout the index serves as an ordinary open folder as indexed', async () => {
     listMock.mockResolvedValue({
       ok: true,
@@ -142,13 +185,7 @@ describe('useWorktreeMap', () => {
         entry({ path: '/repo-b', primary: false, rootId: 'root-2', rootIdIsExactMount: true }),
       ],
     });
-    const status = {
-      authorizedRootIds: ['root-1'],
-      embedding: { indexMode: 'text-only' as const },
-      kind: 'ready' as const,
-      rootReadiness: [{ rootId: 'root-1', scanComplete: true }],
-      storeId: 'store-a',
-    };
+    const status = READY_STATUS;
     const { result } = renderHook(() => useWorktreeMap(INPUT), {
       wrapper: ({ children }: { children: ReactNode }) =>
         createElement(NativeWorkspaceSearchProvider, {
