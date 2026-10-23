@@ -95,10 +95,6 @@ function validCoverageCounts(coverage: IndexerCoverage, rootIds: readonly string
   );
 }
 
-function validNativeScope(rootIds: readonly string[], collectionId: string | null): boolean {
-  return (rootIds.length > 0 || collectionId !== null) && new Set(rootIds).size === rootIds.length;
-}
-
 /** Exact-profile native rows are searchable during ingestion; completion remains a separate proof. */
 export async function getNativeSemanticAvailability(
   scope: NativeSearchScope
@@ -114,8 +110,11 @@ export async function getNativeSemanticAvailability(
         'Vector search requires a complete configured embedding profile.'
     );
   }
-  if (!validNativeScope(rootIds, collectionId)) {
-    return unavailable('Vector search requires an explicit nonempty workspace root scope.');
+  if (rootIds.length === 0 && collectionId === null) {
+    return unavailable(NO_WORKSPACE_FOLDER_MESSAGE);
+  }
+  if (new Set(rootIds).size !== rootIds.length) {
+    return unavailable('Vector search was asked for the same workspace folder twice.');
   }
   const observation = await capability.coverageBatch([
     {

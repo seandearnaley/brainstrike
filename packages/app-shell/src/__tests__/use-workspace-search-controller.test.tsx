@@ -3,7 +3,6 @@ import {
   describeBoundaryError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import type { NativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import {
   NativeWorkspaceSearchExecutor,
@@ -70,16 +69,9 @@ describe('useWorkspaceSearchController', () => {
     useWorkspaceSearchStore.getState().reset();
   });
 
-  // The controller reads the shared embedder via `useSharedSearchEmbedder`, which
-  // THROWS without a provider (no silent fallback). Enclose the hook in the real
-  // provider; its embedder machinery is lazy, so no model loads in these tests.
   function withRootIdentity(map: ReadonlyMap<string, string>) {
     return function Wrapper({ children }: { children: ReactNode }) {
-      return (
-        <SearchEmbedderProvider>
-          <RootIdentityProvider dbRootIdByAdapterRootId={map}>{children}</RootIdentityProvider>
-        </SearchEmbedderProvider>
-      );
+      return <RootIdentityProvider dbRootIdByAdapterRootId={map}>{children}</RootIdentityProvider>;
     };
   }
 
@@ -149,15 +141,13 @@ describe('useWorkspaceSearchController', () => {
     const embedQuery = vi.fn();
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider
-            dependencies={{ capability: null, embedQuery, profile: null }}
-          >
-            <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider
+          dependencies={{ capability: null, embedQuery, profile: null }}
+        >
+          <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     useWorkspaceSearchStore.getState().setQuery('needle');
@@ -184,13 +174,11 @@ describe('useWorkspaceSearchController', () => {
     const dependencies = { capability, embedQuery: vi.fn(), profile: null };
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider dependencies={dependencies}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={new Map()}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={new Map()}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     useWorkspaceSearchStore.getState().setQuery('needle');
@@ -207,15 +195,13 @@ describe('useWorkspaceSearchController', () => {
     useWorkspaceSearchStore.getState().setMode('semantic');
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider
-            dependencies={{ capability: null, embedQuery: vi.fn(), profile: null }}
-          >
-            <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider
+          dependencies={{ capability: null, embedQuery: vi.fn(), profile: null }}
+        >
+          <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     const { result } = renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper });
@@ -259,13 +245,11 @@ describe('useWorkspaceSearchController', () => {
     const identities = new Map([['A1', 'D1']]);
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider dependencies={dependencies}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     useWorkspaceSearchStore.getState().setQuery('needle');
@@ -329,13 +313,11 @@ describe('useWorkspaceSearchController', () => {
     const identities = new Map([['A1', 'D1']]);
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider dependencies={dependencies}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     useWorkspaceSearchStore.getState().setQuery('needle');
@@ -425,13 +407,11 @@ describe('useWorkspaceSearchController', () => {
       const identities = new Map([['A1', 'D1']]);
       function Wrapper({ children }: { children: ReactNode }) {
         return (
-          <SearchEmbedderProvider>
-            <NativeWorkspaceSearchProvider dependencies={dependencies}>
-              <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-                {children}
-              </RootIdentityProvider>
-            </NativeWorkspaceSearchProvider>
-          </SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider dependencies={dependencies}>
+            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
         );
       }
       useWorkspaceSearchStore.getState().setQuery('needle');
@@ -538,13 +518,11 @@ it.each([
     const identities = new Map([['A1', 'D1']]);
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider dependencies={dependencies}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     const { result, unmount } = renderHook(() => useWorkspaceSearchController(), {

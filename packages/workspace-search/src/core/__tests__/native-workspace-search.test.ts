@@ -178,11 +178,14 @@ describe('native vector availability', () => {
     expect(bridge.coverageBatch).toHaveBeenCalled();
   });
 
-  it('rejects empty scope rather than widening it', async () => {
+  it('with no folder open, says to add one rather than widening the scope', async () => {
     const bridge = capability();
     expect(
-      (await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: [] })).available
-    ).toBe(false);
+      await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: [] })
+    ).toEqual({
+      available: false,
+      reason: 'No folder is open in the workspace. Add a folder in the left file tree first.',
+    });
     expect(bridge.status).not.toHaveBeenCalled();
   });
 
