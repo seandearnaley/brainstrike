@@ -206,8 +206,8 @@ it('admits no binding ACK, read or publication once its source retires', async (
   const reason = new Error('owned source retirement');
   test.source.abort(reason);
   const work = vi.fn(async () => {});
-  expect(() => test.admission.acquireBindings(test.context('later'), work)).toThrow(reason);
-  expect(() => test.admission.acquireRead(work)).toThrow(reason);
+  await expect(test.admission.acquireBindings(test.context('later'), work)).rejects.toBe(reason);
+  await expect(test.admission.acquireRead(work)).rejects.toBe(reason);
   await expect(test.publication.beginScan({ requestId: 'later', scope: workspace })).rejects.toBe(
     reason
   );

@@ -36,17 +36,17 @@ export function createNativeScanAdmission(assertSource: () => void, signal: Abor
     }
   };
   return {
-    acquireBindings: <T>(
+    acquireBindings: async <T>(
       context: CanonicalOperationContext,
       work: () => Promise<T>
     ): Promise<T> => {
       assertSource();
       context.signal.throwIfAborted();
-      return work();
+      return await work();
     },
-    acquireRead: <T>(work: () => Promise<T>): Promise<T> => {
+    acquireRead: async <T>(work: () => Promise<T>): Promise<T> => {
       assertSource();
-      return work();
+      return await work();
     },
     completeWorkspace: (receipt: CanonicalScanReceipt): void => {
       const requestId = receipt.ticket.requestId;
