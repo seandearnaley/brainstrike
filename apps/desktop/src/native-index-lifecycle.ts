@@ -326,6 +326,16 @@ function rebuild(state: NativeIndexState): NativeIndexTransition {
   };
 }
 
+/** Off opens no index to rebuild; the person's request is refused in the Off words. */
+function rebuildSettings(
+  state: NativeIndexState,
+  settings: NativeIndexSettings
+): NativeIndexTransition {
+  return settings.enabled
+    ? open(state, settings, true)
+    : { ...unchanged(state), refused: { kind: 'off', message: NATIVE_INDEX_OFF_MESSAGE } };
+}
+
 function terminal(
   state: NativeIndexState,
   reason: NativeIndexCloseReason,
@@ -428,7 +438,7 @@ export function reduceNativeIndex(
         ? { actions: [], state: { generation: state.generation, kind: 'idle' } }
         : unchanged(state);
     case 'rebuild-settings':
-      return open(state, event.settings, true);
+      return rebuildSettings(state, event.settings);
     case 'profile-resume':
       return { actions: [], state: { generation: state.generation + 1, kind: 'resuming' } };
     case 'fence':

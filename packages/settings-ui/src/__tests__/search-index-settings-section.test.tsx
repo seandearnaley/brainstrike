@@ -159,6 +159,32 @@ describe('Search & Indexing', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith({ mode: 'off' }));
   });
 
+  it('says search is off when Rebuild index is clicked under Off', async () => {
+    // Main's refusal of a rebuild under Off, as it reaches the renderer.
+    const rebuild = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(
+        refusalError(
+          'configuration',
+          'native-index-off',
+          'Search is off.',
+          'Turn it on in Settings, Search & Indexing.'
+        )
+      );
+    useIndexConfigStore.setState({
+      state: { config: { ...DEFAULT_INDEX_CONFIG, mode: 'off' }, kind: 'ready' },
+      update,
+    });
+    render(<SearchIndexSettingsSection nativeIndex={{ rebuild }} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Rebuild index' }));
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Search is off. Turn it on in Settings, Search & Indexing.'
+    );
+    expect(screen.getByRole('button', { name: 'Rebuild index' })).toBeEnabled();
+  });
+
   it('holds a custom chunk size until Apply, then re-indexes once', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));

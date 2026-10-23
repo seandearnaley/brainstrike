@@ -524,6 +524,23 @@ describe('search turned Off', () => {
     }
   );
 
+  it.each([ready, failed, opening, unconfigured, idle])(
+    'a rebuild under Off from $kind is refused with the Off cause and destroys nothing',
+    (state) => {
+      const off = reduceNativeIndex(state, saved(OFF)).state;
+      for (const current of [state, off]) {
+        expect(reduceNativeIndex(current, { kind: 'rebuild-settings', settings: OFF })).toEqual({
+          actions: [],
+          refused: {
+            kind: 'off',
+            message: 'Search is off. Turn it on in Settings, Search & Indexing.',
+          },
+          state: current,
+        });
+      }
+    }
+  );
+
   it('a later save that turns search on opens it', () => {
     const off = reduceNativeIndex(ready, saved(OFF)).state;
     expect(reduceNativeIndex(off, saved(TEXT))).toEqual({

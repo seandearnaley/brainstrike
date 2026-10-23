@@ -1,4 +1,7 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type {
   NativeIndexAction,
   NativeIndexEvent,
@@ -94,6 +97,25 @@ it('a closed index refuses an event with its typed cause and performs nothing', 
     cause: { kind: 'closed', reason: 'shutdown' },
     event: 'settings-saved',
   });
+  expect(e.execute).not.toHaveBeenCalled();
+});
+
+it('a rebuild under Off is refused with the Off sentence and destroys nothing', async () => {
+  const e = executor();
+  const off = textSettings({ mode: 'off' });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await lifecycle.configure(() => Promise.resolve(off));
+  e.execute.mockClear();
+  const refused = await lifecycle
+    .rebuild(() => Promise.resolve(off))
+    .catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(NativeIndexRefusalError);
+  expect(refused).toMatchObject({ code: 'native-index-off' });
+  const log = vi.fn();
+  expect(describeBoundaryFailure(nativeIndexBoundaryFailure(refused, log))).toBe(
+    'Search is off. Turn it on in Settings, Search & Indexing.'
+  );
+  expect(log).not.toHaveBeenCalled();
   expect(e.execute).not.toHaveBeenCalled();
 });
 
