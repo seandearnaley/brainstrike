@@ -500,7 +500,7 @@ function MaintenanceCard({
     <Card>
       <CardHeader>
         <CardTitle>Maintenance</CardTitle>
-        <CardDescription>Clear Database is in Factory Reset.</CardDescription>
+        <CardDescription>Clear content is in Factory Reset.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         <Button

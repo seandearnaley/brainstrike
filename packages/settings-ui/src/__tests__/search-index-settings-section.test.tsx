@@ -123,6 +123,15 @@ describe('Search & Indexing', () => {
     expect(screen.getByText(/Files over 500 KB are skipped\./)).toBeInTheDocument();
   });
 
+  it('points to Factory Reset by the name its clear control carries', () => {
+    useIndexConfigStore.setState({
+      state: { config: DEFAULT_INDEX_CONFIG, kind: 'ready' },
+      update,
+    });
+    render(<SearchIndexSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    expect(screen.getByText('Clear content is in Factory Reset.')).toBeInTheDocument();
+  });
+
   it('shows no mode while the settings are still loading', () => {
     useIndexConfigStore.setState({ state: { kind: 'loading' }, update });
     render(<SearchIndexSettingsSection />);
