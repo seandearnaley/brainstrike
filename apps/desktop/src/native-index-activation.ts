@@ -254,7 +254,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (!settings.paused) {
       admitSources(current, port).then(failures.started, (error: unknown) => {
         if (current.controller.signal.aborted || current.settings.paused) {
-          // Superseded, its collection scan included: the next generation redoes the work.
+          // Superseded: the next generation redoes the work.
           logger.debug('A retired native ingestion generation ended with an error', {
             error,
             generation: current.generation,

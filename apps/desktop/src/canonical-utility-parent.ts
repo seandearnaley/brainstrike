@@ -457,9 +457,6 @@ export class CanonicalUtilityParent {
   }
 
   private event(session: Session, frame: Extract<CanonicalFrame, { kind: 'event' }>): void {
-    if (!('onReceipt' in session.dependencies)) {
-      throw new Error('Rootless host cannot emit workspace events.');
-    }
     if (session.retirement.signal.aborted) {
       return;
     }
