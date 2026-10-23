@@ -3,8 +3,8 @@
  * fs:watch-event). The watcher factory is an injected fake — chokidar wiring
  * lives in `@brainstrike/file-system/electron` and is covered by
  * `packages/file-system/src/__tests__/electron-watchers.test.ts`. Path
- * validation runs against REAL temp dirs (same posture as the notes-vault IPC
- * tests): containment/realpath behavior is filesystem behavior, never mocked.
+ * validation runs against REAL temp dirs: containment/realpath behavior is
+ * filesystem behavior, never mocked.
  */
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';

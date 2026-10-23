@@ -21,7 +21,6 @@
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
@@ -149,10 +148,6 @@
     "./worktrees/availability": {
       "types": "./dist/worktrees/availability.d.ts",
       "import": "./dist/worktrees/availability.js"
-    },
-    "./notes-page-content": {
-      "types": "./dist/notes-page-content.d.ts",
-      "import": "./dist/notes-page-content.js"
     },
     "./roots/root-registry": {
       "types": "./dist/roots/root-registry.d.ts",

@@ -95,15 +95,14 @@ describe('resolveHostedProviderKey', () => {
 });
 
 describe('resolveHostedProviderCredential (BST-1352)', () => {
-  const storedOauth: ProviderCredential = {
-    access: 'a',
-    expires: 1,
-    refresh: 'r',
-    type: 'oauth',
+  const storedAws: ProviderCredential = {
+    mode: 'profile_chain',
+    region: 'us-east-1',
+    type: 'aws',
   };
 
   it('is env-authoritative: an env hit is an api_key credential and skips the store', async () => {
-    const readCredential = vi.fn().mockResolvedValue(storedOauth);
+    const readCredential = vi.fn().mockResolvedValue(storedAws);
     const result = await resolveHostedProviderCredential({
       envKeyNames: names,
       envSources: [{ B_KEY: 'from-first-source' }, { A_KEY: 'from-second-source' }],
@@ -132,9 +131,9 @@ describe('resolveHostedProviderCredential (BST-1352)', () => {
     const result = await resolveHostedProviderCredential({
       envKeyNames: names,
       envSources: [{}, undefined],
-      readCredential: () => Promise.resolve(storedOauth),
+      readCredential: () => Promise.resolve(storedAws),
     });
-    expect(result).toEqual({ credential: storedOauth, source: 'stored' });
+    expect(result).toEqual({ credential: storedAws, source: 'stored' });
   });
 
   it('treats a null/undefined stored read as not configured', async () => {

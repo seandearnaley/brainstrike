@@ -26,7 +26,6 @@ export type RendererDiagnosticSurface =
   | 'changes'
   | 'explorer'
   | 'git'
-  | 'notes'
   | 'settings'
   | 'terminal';
 

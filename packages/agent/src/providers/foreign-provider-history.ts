@@ -9,9 +9,6 @@ export type ProviderCallProvenance = ReadonlyMap<object, string>;
 
 function providerFamily(provider: string): string {
   const normalized = provider.trim().toLowerCase().split('.')[0] ?? provider;
-  if (normalized === 'openai-codex') {
-    return 'openai';
-  }
   if (normalized === 'amazonbedrock' || normalized === 'amazon-bedrock') {
     return 'bedrock';
   }

@@ -150,16 +150,4 @@ describe('providerAuthInputFromCredential (BST-1350 aws mapping)', () => {
     expect((thrown as UnsupportedCredentialTypeError).provider).toBe('openai');
     expect((thrown as UnsupportedCredentialTypeError).message).not.toContain('stored-bearer');
   });
-
-  it('still rejects oauth credentials typed', () => {
-    expect(() =>
-      providerAuthInputFromCredential('anthropic', {
-        access: 'a',
-        expires: 1,
-        refresh: 'r',
-        source: 'stored',
-        type: 'oauth',
-      })
-    ).toThrow(UnsupportedCredentialTypeError);
-  });
 });

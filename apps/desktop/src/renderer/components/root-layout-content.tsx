@@ -14,7 +14,6 @@ import { McpContentCapabilityProvider } from '@brainstrike/app-shell/mcp-content
 import { McpStatusCapabilityProvider } from '@brainstrike/app-shell/mcp-status-capability';
 import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
-import NotesPageContent from '@brainstrike/app-shell/notes-page-content';
 import {
   type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
@@ -32,12 +31,8 @@ import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-resul
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
-// Capability check from the dependency-light `availability` subpath (NOT
-// `/panel`) so the startup check does not defeat the lazy code-split in
-// `@brainstrike/app-shell/notes-page-content`.
-import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
-import { GitBranch, Globe, NotebookPen } from 'lucide-react';
+import { GitBranch, Globe } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
@@ -66,7 +61,6 @@ import { WorktreeMapPageContent } from './worktree-map-page-content';
 
 const BROWSER_NAVIGATION_ITEM: NavigationItem = { icon: Globe, name: 'Browser', path: '/browser' };
 const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
-const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
@@ -118,9 +112,6 @@ export default function RootLayoutContent() {
   // Capability gate: only surface the Worktrees tab when the desktop
   // `window.worktrees` bridge is present. Resolved once.
   const worktreesAvailable = useMemo(() => isWorktreesBridgeAvailable(), []);
-  // Capability gate: only surface the Notes tab when the File System Access
-  // directory picker exists in this renderer (Electron >= 30). Resolved once.
-  const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);
   // Capability gate: only surface the Browser tab when the desktop
   // `window.browser` bridge is present (no isElectron check). Resolved once.
   const browserAvailable = useMemo(() => isBrowserBridgeAvailable(), []);
@@ -142,9 +133,6 @@ export default function RootLayoutContent() {
   const mcpAppsEnabled = useMcpAppsEnablement(mcpStatusCapability);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...navigationItems];
-    if (notesAvailable) {
-      items.push(NOTES_NAVIGATION_ITEM);
-    }
     if (gitAvailable) {
       items.push(GIT_NAVIGATION_ITEM);
     }
@@ -152,7 +140,7 @@ export default function RootLayoutContent() {
       items.push(BROWSER_NAVIGATION_ITEM);
     }
     return items;
-  }, [gitAvailable, notesAvailable, browserAvailable]);
+  }, [gitAvailable, browserAvailable]);
   // BST-1880: the damaged-store notice's health read and recovery actions.
   const stateHealth = useMemo(() => createDesktopStateHealth(), []);
   const sharedProps: RootLayoutContentProps = {
@@ -181,7 +169,6 @@ export default function RootLayoutContent() {
     ...(browserAvailable ? { browserPageContent: <BrowserPaneContent /> } : {}),
     ...(changesAvailable ? { changesPageContent: <ChangesPageContent /> } : {}),
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
-    ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     ...(worktreesAvailable ? { worktreeMapPageContent: <WorktreeMapPageContent /> } : {}),
   };

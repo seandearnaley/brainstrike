@@ -343,11 +343,10 @@ export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinit
 /**
  * How a provider authenticates. `'none'` marks the keyless local runtimes
  * (their optional bearer token is a transport concern, not an authType).
- * `'oauth_subscription'` is carried by `openai-codex` (BST-1356, ChatGPT
- * subscription sign-in) and `'aws'` by `bedrock` (BST-1350).
+ * `'aws'` is carried by `bedrock` (BST-1350).
  * Keyless-ness DERIVES from `authType === 'none'` — never hand-listed.
  */
-export type ProviderAuthType = 'api_key' | 'oauth_subscription' | 'aws' | 'none';
+export type ProviderAuthType = 'api_key' | 'aws' | 'none';
 
 export interface ProviderDefinition {
   authType: ProviderAuthType;
@@ -402,7 +401,6 @@ export type ProviderId =
   | 'cohere'
   | 'voyage'
   | 'bedrock'
-  | 'openai-codex'
   | 'local'
   | 'ollama'
   | 'lmstudio';

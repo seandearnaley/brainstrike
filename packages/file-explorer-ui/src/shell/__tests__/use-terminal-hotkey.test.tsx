@@ -36,7 +36,7 @@ describe('useTerminalHotkey', () => {
 
     pressModT();
     expect(onOpenApp).toHaveBeenCalledExactlyOnceWith(TERMINAL_APP_ID);
-    // From a non-workspace shell route (Git/Notes/Browser) the workspace
+    // From a non-workspace shell route (Git/Browser) the workspace
     // surface is mounted-but-hidden — the chord must reveal it too.
     expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
   });

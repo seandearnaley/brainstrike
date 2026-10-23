@@ -206,9 +206,6 @@
       "@brainstrike/worker-runtime": [
         "./packages/worker-runtime/src"
       ],
-      "@brainstrike/notes-vault": [
-        "./packages/notes-vault/src"
-      ],
       "@brainstrike/workspace-search": [
         "./packages/workspace-search/src"
       ],

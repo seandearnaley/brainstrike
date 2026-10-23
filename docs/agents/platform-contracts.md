@@ -105,8 +105,7 @@ into a dead JS context and aborts Main (BST-2244). An owner keeps a subscription
 whose unsubscribe failed until a retry succeeds; each terminal dispose retries it
 once and rejects visibly if it fails again (BST-2248).
 The Git inventory service retains its watcher generation through failed stop and
-refuses restart until retirement succeeds. Notes Vault cleanup runs only in its
-awaited graceful step; the synchronous `will-quit` ledger never launches a retry.
+refuses restart until retirement succeeds.
 
 Git runs through `execFile` on every platform (ADR-0027), so there is no per-command
 native Job for quit to join. Windows agent commands keep their wrapper and Job.

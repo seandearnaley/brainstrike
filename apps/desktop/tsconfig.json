@@ -171,9 +171,6 @@
       "@brainstrike/app-shell/worktrees/availability": [
         "../../packages/app-shell/src/worktrees/availability.ts"
       ],
-      "@brainstrike/notes-vault/desktop-contract": [
-        "../../packages/notes-vault/src/desktop/bridge-contract.ts"
-      ],
       "@brainstrike/platform-utils": [
         "../../packages/platform-utils/src"
       ],

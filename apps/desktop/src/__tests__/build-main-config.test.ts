@@ -205,7 +205,6 @@ describe('main-process bundle config', () => {
     expect(Object.keys(aliases)).toEqual([
       '@brainstrike/assistant-data/assistant-memory-repository',
       '@brainstrike/assistant-data/assistant-memory-resource',
-      '@brainstrike/notes-vault/core',
       '@brainstrike/types/catalog-args',
       '@brainstrike/workspace-search/core',
     ]);
@@ -218,11 +217,6 @@ describe('main-process bundle config', () => {
     expect(
       aliases['@brainstrike/assistant-data/assistant-memory-resource']?.endsWith(
         path.join('packages', 'assistant-data', 'src', 'assistant-memory-resource.ts')
-      )
-    ).toBe(true);
-    expect(
-      aliases['@brainstrike/notes-vault/core']?.endsWith(
-        path.join('packages', 'notes-vault', 'src', 'core', 'index.ts')
       )
     ).toBe(true);
     expect(

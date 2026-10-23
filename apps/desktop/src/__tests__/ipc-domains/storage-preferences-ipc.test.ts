@@ -113,7 +113,6 @@ describe('storage preferences IPC domain', () => {
     expect(storage.getAllKeys).toHaveBeenCalled();
     expect(storage.clearExcept).toHaveBeenCalledWith([
       'lastFolderPath',
-      'notesVaultRoots',
       'recentRootsList',
       'recentRootsList.corrupt',
       'rootsList',
@@ -126,7 +125,6 @@ describe('storage preferences IPC domain', () => {
     'rootsList.corrupt',
     'recentRootsList',
     'recentRootsList.corrupt',
-    'notesVaultRoots',
     'lastFolderPath',
   ])('refuses renderer writes and removals for main-owned key %s', async (key) => {
     const setItem = handlers.get('storage:setItem');
@@ -159,7 +157,6 @@ describe('storage preferences IPC domain', () => {
     expect(storage.clear).not.toHaveBeenCalled();
     expect(storage.clearExcept).toHaveBeenCalledWith([
       'lastFolderPath',
-      'notesVaultRoots',
       'recentRootsList',
       'recentRootsList.corrupt',
       'rootsList',

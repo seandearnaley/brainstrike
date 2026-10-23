@@ -14,7 +14,6 @@ export const DESKTOP_DOCUMENT_META: DocumentMetaByRoute = {
   browser: { description: PRODUCT, title: `${PRODUCT} - Browser` },
   explorer: { description: `${PRODUCT} Home Dashboard`, title: `${PRODUCT} - Home` },
   git: { description: PRODUCT, title: `${PRODUCT} - Git` },
-  notes: { description: PRODUCT, title: `${PRODUCT} - Notes` },
   settings: { description: `${PRODUCT} Settings`, title: `${PRODUCT} - Settings` },
   terminal: { description: PRODUCT, title: `${PRODUCT} - Terminal` },
 };

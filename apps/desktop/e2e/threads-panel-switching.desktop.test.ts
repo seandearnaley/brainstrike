@@ -5,11 +5,11 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest, ModelProviderScript } from './utils/model-provider-shim';
 
-const destinations = ['Notes', 'Git', 'Browser', 'Settings', 'Collections', 'Prompts'] as const;
+const destinations = ['Git', 'Browser', 'Settings', 'Collections', 'Prompts'] as const;
 const transitions = [
   ...destinations.map((destination) => ({ destination, via: undefined as string | undefined })),
   ...(['Collections', 'Prompts'] as const).flatMap((destination) =>
-    ['Notes', 'Git', 'Browser', 'Settings'].map((via) => ({ destination, via }))
+    ['Git', 'Browser', 'Settings'].map((via) => ({ destination, via }))
   ),
 ];
 const CHILD_TASK = 'SWITCH_MATRIX_CHILD';

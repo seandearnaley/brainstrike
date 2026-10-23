@@ -226,8 +226,7 @@ export async function createDesktopHostConfiguration(
 ): Promise<DesktopHostConfiguration> {
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
-  // The profile's one credential authority: the single writer, token holder and
-  // OAuth refresher. Sign-in pages open through the requesting desktop client.
+  // The profile's one credential authority: the single writer and token holder.
   const host = await createHostCapabilities({
     env: process.env,
     launch: platformOptions,
@@ -308,7 +307,7 @@ export async function createDesktopHostConfiguration(
       const saved = await readHostPermissionPolicy(startup.store);
       return saved ? hostPermissionGate(saved) : undefined;
     },
-    (provider, origin) => host.auth.resolveProviderAuth(provider, origin)
+    (provider) => host.auth.resolveProviderAuth(provider)
   );
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
@@ -355,9 +354,7 @@ export async function createDesktopHostConfiguration(
       const configuration = desktopRuntimeConfiguration(selected);
       const provider = configuration.provider;
       let closing: Promise<void> | undefined;
-      // Every provider resolves here, in Node, for this admission's client origin:
-      // subscription auth refuses anything but the private desktop client
-      // (signed legal gate, constraint 4), including restart recovery.
+      // Every provider resolves here, in Node.
       const resolveAuth = (selectedProvider: string): Promise<ProviderAuthInput | undefined> => {
         if (closing) {
           throw refusalError(
@@ -367,7 +364,7 @@ export async function createDesktopHostConfiguration(
             'Retry after selecting a model.'
           );
         }
-        return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
+        return host.auth.resolveProviderAuth(selectedProvider);
       };
       const closeSelection = (): Promise<void> =>
         (closing ??= (async () => {
@@ -464,7 +461,7 @@ export async function createDesktopHostConfiguration(
         return readiness;
       }
       const preconditions = await desktopMemoryPreconditions(readiness, (provider) =>
-        host.auth.resolveProviderAuth(provider, admission.origin)
+        host.auth.resolveProviderAuth(provider)
       );
       return preconditions.ready
         ? { ...preconditions, models: desktopMemoryModels(readiness.memory) }
@@ -473,11 +470,11 @@ export async function createDesktopHostConfiguration(
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),
     // BST-2227: Settings' Test embedder, resolved as a run's admission resolves its embedder.
-    resolveMemoryEmbedder: ({ memorySettings, origin, signal }) =>
+    resolveMemoryEmbedder: ({ memorySettings, signal }) =>
       resolveDesktopMemoryEmbedderProbe(
         memorySettings,
         admissionReads.memoryVectors,
-        (provider) => host.auth.resolveProviderAuth(provider, origin),
+        (provider) => host.auth.resolveProviderAuth(provider),
         signal
       ),
     resolveProviderAuth: async () => {

@@ -211,37 +211,10 @@ export const DESKTOP_IPC_CHANNELS = {
     setModels: 'model-catalog:set-models',
     setProvider: 'model-catalog:set-provider',
   },
-  notesVault: {
-    // One-way main→renderer push: a watched vault directory changed. Pushed to
-    // the OWNING renderer's WebContents only — NOT an ipcMain.handle channel,
-    // so it is never registered on the registry (see notes-vault-ipc-handlers.ts).
-    changed: 'notes-vault:changed',
-    createDirectory: 'notes-vault:create-directory',
-    deleteEntry: 'notes-vault:delete-entry',
-    ensureDefaultVault: 'notes-vault:ensure-default-vault',
-    listDirectory: 'notes-vault:list-directory',
-    pickDirectory: 'notes-vault:pick-directory',
-    readFile: 'notes-vault:read-file',
-    registerRoot: 'notes-vault:register-root',
-    rename: 'notes-vault:rename',
-    statEntry: 'notes-vault:stat-entry',
-    unwatch: 'notes-vault:unwatch',
-    watch: 'notes-vault:watch',
-    writeFile: 'notes-vault:write-file',
-  },
   preferences: {
     settingsClearAll: 'settings:clearAll',
   },
   promptLibrary: { request: 'prompt-library:request' },
-  // Provider OAuth engine (BST-1355). Renderer-visible surface is STATUS
-  // ONLY — token material never crosses these channels (legal gate BST-1351
-  // constraint 3; pinned by provider-auth-ipc tests).
-  providerAuth: {
-    cancel: 'provider-auth:cancel',
-    disconnect: 'provider-auth:disconnect',
-    start: 'provider-auth:start',
-    status: 'provider-auth:status',
-  },
   runtime: {
     listModels: 'runtime:listModels',
     noteReloadIntent: 'app:lifecycle:note-reload-intent',

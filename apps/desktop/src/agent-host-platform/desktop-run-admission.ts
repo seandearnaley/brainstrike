@@ -458,10 +458,7 @@ export function createDesktopRunAdmission(
    * BST-754: the host's credential authority, for the admission's own
    * provider reads; an Ollama run refuses without it.
    */
-  resolveProviderAuth?: (
-    provider: string,
-    origin: HostRunIntentRequest['origin']
-  ) => Promise<ProviderAuthInput | undefined>
+  resolveProviderAuth?: (provider: string) => Promise<ProviderAuthInput | undefined>
 ): DesktopRunAdmission {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -500,9 +497,7 @@ export function createDesktopRunAdmission(
       reads,
       configuration,
       request.signal,
-      resolveProviderAuth
-        ? () => resolveProviderAuth(configuration.provider, request.origin)
-        : undefined
+      resolveProviderAuth ? () => resolveProviderAuth(configuration.provider) : undefined
     );
     const catalog = localModel
       ? {

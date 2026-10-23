@@ -107,13 +107,6 @@ describe('typed provider credentials (BST-1348)', () => {
   describe('setCredential / getCredential round-trips', () => {
     const typed: readonly ProviderCredential[] = [
       { key: 'sk-typed', metadata: { org: 'org-1' }, type: 'api_key' },
-      {
-        access: 'at-1',
-        accountId: 'acct-9',
-        expires: 1_755_500_000_000,
-        refresh: 'rt-1',
-        type: 'oauth',
-      },
       { bearerKey: 'bedrock-bearer', mode: 'bearer', region: 'us-east-1', type: 'aws' },
       { mode: 'profile_chain', profile: 'work', region: 'eu-west-1', type: 'aws' },
     ];
@@ -136,7 +129,7 @@ describe('typed provider credentials (BST-1348)', () => {
 
     it('setCredential rejects a malformed credential object instead of storing it', async () => {
       const { credentials, svc } = await desktopSecrets();
-      const invalid = { type: 'oauth' } as unknown as ProviderCredential;
+      const invalid = { type: 'aws' } as unknown as ProviderCredential;
 
       await expect(svc.setCredential('anthropic', invalid)).rejects.toThrow(/malformed|invalid/i);
       await expect(svc.getCredential('anthropic')).resolves.toBeNull();
@@ -147,7 +140,7 @@ describe('typed provider credentials (BST-1348)', () => {
   describe('read-path failures stay typed (never coerced)', () => {
     it.each([
       ['a stored unrecognized type', '{"type":"gcp","key":"x"}'],
-      ['a recognized type with missing fields', '{"type":"oauth"}'],
+      ['a recognized type with missing fields', '{"type":"aws"}'],
     ])('getCredential and getKey throw malformed_credential for %s', async (_case, raw) => {
       const { credentials, svc } = await desktopSecrets();
       await credentials.store().write('openai', raw);
@@ -169,10 +162,9 @@ describe('typed provider credentials (BST-1348)', () => {
     it('throws SecretReadError(credential_type_unsupported), never a stringified credential', async () => {
       const { credentials, svc } = await desktopSecrets();
       await svc.setCredential('anthropic', {
-        access: 'at-1',
-        expires: 1,
-        refresh: 'rt-1',
-        type: 'oauth',
+        mode: 'profile_chain',
+        region: 'us-east-1',
+        type: 'aws',
       });
 
       await expect(svc.getKey('anthropic')).rejects.toBeInstanceOf(SecretReadError);
@@ -235,26 +227,13 @@ describe("Main's view of the host-owned profile store", () => {
     return { host, secrets };
   }
 
-  it('reads host-written keys, refuses every write and never reads subscription tokens', async () => {
+  it('reads host-written keys and refuses every write', async () => {
     const { host, secrets } = await mainSecrets();
-    const signIn: ProviderCredential = {
-      access: 'host-held-access',
-      expires: Date.now() + 3_600_000,
-      refresh: 'host-held-refresh',
-      type: 'oauth',
-    };
     await host.secrets().setCredential('openai', { key: 'sk-host-written', type: 'api_key' });
-    await host.secrets().setCredential('openai-codex', signIn);
     const main = secrets.getSecretsService();
 
     await expect(main.getKey('openai')).resolves.toBe('sk-host-written');
-    await expect(main.listProviders()).resolves.toEqual(
-      expect.arrayContaining(['openai', 'openai-codex'])
-    );
-    await expect(main.getCredential('openai-codex')).rejects.toMatchObject({
-      code: 'credential_type_unsupported',
-      provider: 'openai-codex',
-    });
+    await expect(main.listProviders()).resolves.toEqual(expect.arrayContaining(['openai']));
     for (const write of [
       () => main.saveKey('openai', 'sk-main'),
       () => main.setCredential('openai', { key: 'sk-main', type: 'api_key' }),
@@ -263,7 +242,6 @@ describe("Main's view of the host-owned profile store", () => {
     ]) {
       await expect(write()).rejects.toThrow('the agent host owns every credential write');
     }
-    await expect(host.secrets().getCredential('openai-codex')).resolves.toEqual(signIn);
     await host.close();
   });
 
@@ -284,14 +262,6 @@ describe("Main's view of the host-owned profile store", () => {
       type: 'api_key',
     });
     await expect(settings.getKey('openai')).resolves.toBe('sk-settings');
-    await expect(
-      settings.setCredential('openai-codex', {
-        access: 'renderer-supplied',
-        expires: Date.now() + 3_600_000,
-        refresh: 'renderer-supplied',
-        type: 'oauth',
-      })
-    ).rejects.toThrow('stored only by the host sign-in flow');
     await expect(settings.deleteKey('openai')).resolves.toBe(true);
     await expect(settings.getKey('openai')).resolves.toBeNull();
     await expect(settings.clearAll()).resolves.toBe(true);

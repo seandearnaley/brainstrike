@@ -6,23 +6,16 @@ import type { HostMethod } from '../src/protocol.js';
 import { bindHostProviderMethods } from '../src/provider-connection.js';
 
 type Bound = (params: unknown, signal?: AbortSignal) => unknown;
-function bound(
-  providers: HostProviderService | undefined,
-  origin: 'desktop-ui' | 'public-socket'
-): Map<HostMethod, Bound> {
+function bound(providers: HostProviderService | undefined): Map<HostMethod, Bound> {
   const handlers = new Map<HostMethod, Bound>();
-  bindHostProviderMethods(
-    (method, request) => {
-      handlers.set(method, request as Bound);
-    },
-    providers,
-    origin
-  );
+  bindHostProviderMethods((method, request) => {
+    handlers.set(method, request as Bound);
+  }, providers);
   return handlers;
 }
 
 describe('host provider methods', () => {
-  it("passes the connection's origin to verification and returns the host's answers", async () => {
+  it("passes verification through and returns the host's answers", async () => {
     const snapshot = {
       freshness: 'live' as const,
       result: { checkedAt: '2026-10-08T00:00:00.000Z', status: 'verified' as const },
@@ -32,7 +25,7 @@ describe('host provider methods', () => {
       status: vi.fn(async () => ({ enabled: true, providers: ['local'] })),
       verify: vi.fn(async () => snapshot),
     };
-    const handlers = bound(providers, 'public-socket');
+    const handlers = bound(providers);
 
     await expect(handlers.get('host/status')?.({})).resolves.toEqual({
       enabled: true,
@@ -42,7 +35,7 @@ describe('host provider methods', () => {
     await expect(handlers.get('providers/verify')?.({ provider: 'openai' }, signal)).resolves.toBe(
       snapshot
     );
-    expect(providers.verify).toHaveBeenCalledWith('openai', 'public-socket', signal);
+    expect(providers.verify).toHaveBeenCalledWith('openai', signal);
   });
 
   it("keeps a typed failure's type: a request cancelled as closing answers host.closing", async () => {
@@ -58,7 +51,7 @@ describe('host provider methods', () => {
         throw closing;
       }),
     };
-    const handlers = bound(providers, 'public-socket');
+    const handlers = bound(providers);
     const { signal } = new AbortController();
 
     await expect(handlers.get('providers/verify')?.({ provider: 'openai' }, signal)).rejects.toBe(
@@ -78,7 +71,7 @@ describe('host provider methods', () => {
       status: vi.fn(),
       verify: vi.fn(),
     };
-    const failure = bound(providers, 'desktop-ui').get('providers/openrouter-model')?.({
+    const failure = bound(providers).get('providers/openrouter-model')?.({
       model: 'anthropic/claude-sonnet-4.6',
     });
 
@@ -87,7 +80,7 @@ describe('host provider methods', () => {
   });
 
   it('refuses every provider read on a host that owns no credential store', async () => {
-    await expect(bound(undefined, 'desktop-ui').get('host/status')?.({})).rejects.toThrow(
+    await expect(bound(undefined).get('host/status')?.({})).rejects.toThrow(
       'This host owns no provider services'
     );
   });

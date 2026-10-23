@@ -23,7 +23,7 @@ export function useTerminalHotkey(
         return;
       }
       event.preventDefault();
-      // Reveal the workspace route first: with Git/Notes/Browser active, the
+      // Reveal the workspace route first: with Git/Browser active, the
       // workspace surface stays mounted-but-hidden, so selecting the Terminal
       // tab alone would appear to do nothing (review finding).
       usePanelLayoutStore.getState().setActiveTab('explorer');

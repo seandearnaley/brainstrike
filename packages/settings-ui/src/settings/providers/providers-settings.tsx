@@ -18,7 +18,6 @@ import { ProviderCard } from './provider-card';
 import { buildProviderRuntimeGroups, listRecommendedProviders } from './provider-connection';
 import { ProviderRecommendationPanel } from './provider-recommendation-panel';
 import { useCredentialSources } from './use-credential-sources';
-import { useProviderAuthStates } from './use-provider-auth-states';
 import type { VerifyProvider } from './use-provider-verification-state';
 
 /**
@@ -85,9 +84,6 @@ export function ProvidersSettings({
 
   const { editable, error, sourcesBySlotId, state } =
     useCredentialSources(statusProviderKeySources);
-  // Subscription providers authenticate by sign-in, so their state comes from
-  // the OAuth bridge rather than the credential listing (BST-1356).
-  const authStates = useProviderAuthStates();
 
   const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
   const [highlight, setHighlight] = useState<HighlightTarget | null>(null);
@@ -105,12 +101,11 @@ export function ProvidersSettings({
   const groups = useMemo(
     () =>
       buildProviderRuntimeGroups({
-        authStates,
         definitions: availableDefinitions,
         sourceState: state,
         sourcesBySlotId,
       }),
-    [authStates, availableDefinitions, sourcesBySlotId, state]
+    [availableDefinitions, sourcesBySlotId, state]
   );
 
   const modelsByProvider = useMemo(() => {

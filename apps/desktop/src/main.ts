@@ -133,7 +133,6 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerCollectionCatalogIpc } from './ipc-collection-catalog';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
-import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -149,13 +148,11 @@ import {
   suspendMcpSurfacesForContentClear,
 } from './ipc-mcp';
 import { registerModelCatalogIpc } from './ipc-model-catalog';
-import { registerNotesVaultIpc } from './ipc-notes-vault';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
-import { createShellIpcHandlers } from './ipc-shell-handlers';
 import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerSourceFilesIpc } from './ipc-source-files';
 import { registerTerminalIpc } from './ipc-terminal';
@@ -362,8 +359,8 @@ let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
-// Forge and Notes Vault retire inside their awaited graceful-shutdown steps;
-// the synchronous ledger must never start their physical cleanup again.
+// Forge retires inside its awaited graceful-shutdown step; the synchronous
+// ledger must never start its physical cleanup again.
 const ipcDisposers = createDisposerStack();
 // Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
 // window (rebound on a macOS dock-reopen), so its handle is kept to retire the
@@ -530,9 +527,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await nativeRetirement;
         await agentHostClientIpc.close();
       },
-      // Fences new vault watches and joins every native subscribe and
-      // unsubscribe, the renderer reapers' included (BST-2244).
-      'notes-vault': () => closeNotesVaultIpc(),
       'parser-host': async () => {
         await parserHostManager.stop();
       },
@@ -918,20 +912,11 @@ void nativeIndexActivation
 ipcDisposers.add('native-index-lifecycle', () =>
   nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
 );
-// Main's own desktop-origin client: Settings credential writes, provider sign-in
-// and subscription verification reach the host, their single owner, through it.
-// The host's sign-in pages open through the same validated shell path as the
-// shell IPC domain (allow-listed protocols, never an embedded webview).
-const agentHostShellOpener = createShellIpcHandlers({ shell });
+// Main's own desktop-origin client: Settings credential writes reach the host,
+// their single owner, through it.
 const agentHostMainClient = createAgentHostMainClient(
   nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open,
-  async (url) => {
-    const result = await agentHostShellOpener.openExternal(url);
-    if (!result.ok) {
-      throw new Error(result.error ?? 'shell.openExternal failed');
-    }
-  }
+  agentHostPrivateClients.open
 );
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
@@ -1187,7 +1172,6 @@ ipcDisposers.add(
   registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)
 );
 ipcDisposers.add('terminal', registerTerminalIpc(workspaceRootCatalog));
-const closeNotesVaultIpc = registerNotesVaultIpc(storage);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1543,8 +1527,7 @@ if (singleInstanceLockAcquired) {
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       // Settings reads the profile store directly and writes through the host,
-      // the single credential writer. Its `auth/clear` also drops the sign-in
-      // engine's in-memory rotated-token overlay (BST-1356) and the host's MCP
+      // the single credential writer. Its `auth/clear` also drops the host's MCP
       // OAuth records with their live providers.
       const secretsService = createDesktopSettingsSecrets({
         clear: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,
@@ -1569,24 +1552,6 @@ if (singleInstanceLockAcquired) {
               result: desktopEnvLoadResult,
               userDataPath: app.getPath('userData'),
             }),
-        })
-      );
-      // Provider sign-in (BST-1355/1356) runs in the host's one OAuth engine,
-      // the only refresher; a second engine would replay a rotating refresh
-      // token. Main forwards the visible window's calls over its private client.
-      ipcDisposers.add(
-        'provider-auth',
-        registerProviderAuthIpcHandlers({
-          auth: {
-            cancel: (provider) => agentHostMainClient.request('auth/cancel', { provider }),
-            connect: (provider, method) =>
-              agentHostMainClient.request('auth/connect', {
-                provider,
-                ...(method === undefined ? {} : { method }),
-              }),
-            disconnect: (provider) => agentHostMainClient.request('auth/disconnect', { provider }),
-            status: (provider) => agentHostMainClient.request('auth/status', { provider }),
-          },
         })
       );
       ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getMainMcpHostControl() }));

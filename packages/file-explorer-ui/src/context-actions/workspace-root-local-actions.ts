@@ -8,7 +8,7 @@ import { Star, Unplug } from 'lucide-react';
 
 export interface WorkspaceRootLocalActionDeps {
   /**
-   * STAGED, like the vault's Delete…: this opens the existing
+   * STAGED: this opens the existing
    * `DisconnectRootDialog`; the dialog's confirm performs the removal
    * (ui-conventions: a destructive action never mutates from a menu run).
    *

@@ -30,13 +30,6 @@ describe('hidden renderer preload contract', () => {
     expect(source).not.toContain('secrets:envBootstrap');
   });
 
-  it('cannot expose the provider OAuth bridge (BST-1355: interactive visible-ui only)', () => {
-    const source = readHiddenPreloadSource();
-
-    expect(source).not.toMatch(/exposeInMainWorld\(['"]providerAuth['"]/);
-    expect(source).not.toContain('provider-auth:');
-  });
-
   it('cannot expose the unrestricted key-value storage bridge (BST-1380: scoped vector preferences only)', () => {
     const source = readHiddenPreloadSource();
 

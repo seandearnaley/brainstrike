@@ -44,7 +44,7 @@ export function registerStoragePreferencesIpcHandlers({
   registerDomain(registry, 'storage', storageContract, {
     clear: async () => {
       // Renderer factory-reset cleanup may clear preference slices, but only
-      // desktop main's reset barrier may erase root/vault authority ledgers.
+      // desktop main's reset barrier may erase root authority ledgers.
       await storage.clearExcept(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
     },
     getAllKeys: () => storage.getAllKeys(),

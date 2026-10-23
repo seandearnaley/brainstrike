@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { classifyMemoryFailure } from './adapters/memory-failure.js';
-import type { HostClientOrigin, HostPlatform } from './ports.js';
+import type { HostPlatform } from './ports.js';
 import type { HostParams } from './protocol.js';
 import {
   HOST_MEMORY_EMBEDDER_PROBE_TEXT,
@@ -39,7 +39,6 @@ async function embedProbeText(
 export async function probeHostMemoryEmbedder(
   resolveMemoryEmbedder: HostPlatform['resolveMemoryEmbedder'],
   params: HostParams<'memory/embedder/probe'>,
-  origin: HostClientOrigin,
   signal: AbortSignal
 ): Promise<HostMemoryEmbedderProbeResult> {
   if (!resolveMemoryEmbedder) {
@@ -51,7 +50,6 @@ export async function probeHostMemoryEmbedder(
   }
   const { embedder, identity } = await resolveMemoryEmbedder({
     memorySettings: params.memorySettings,
-    origin,
     signal,
   });
   signal.throwIfAborted();

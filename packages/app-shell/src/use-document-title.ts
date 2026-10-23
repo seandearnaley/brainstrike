@@ -29,7 +29,6 @@ const DOCUMENT_META: DocumentMetaByRoute = {
   browser: { description: APP_DESCRIPTION, title: 'Browser - BrainStrike.ai' },
   explorer: { description: 'BrainStrike.ai Home Dashboard', title: 'BrainStrike.ai - Home' },
   git: { description: APP_DESCRIPTION, title: 'Git - BrainStrike.ai' },
-  notes: { description: APP_DESCRIPTION, title: 'Notes - BrainStrike.ai' },
   settings: {
     description: 'Customize your application settings',
     title: 'Settings - BrainStrike.ai',

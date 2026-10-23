@@ -68,8 +68,7 @@ export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
  * whose response stream never opened, with an `isRetryable` provider error:
  * nothing of that request reached the log, `prepareStep` ran once outside the
  * retry, and no tool executes inside it. Each attempt commits its own
- * `provider.request.prepared` receipt. Subscription quota is typed
- * non-retryable below this boundary by the provider request middleware.
+ * `provider.request.prepared` receipt.
  */
 const HOST_PROVIDER_REQUEST_RETRIES = 2;
 

@@ -56,8 +56,8 @@ function readSenderWindowFocus(sender: WebContents): IpcResult<boolean> {
 /**
  * Registers `window-focus:is-focused`. Event-aware, not a plain `registerDomain`
  * handler: the answer is about the ASKING renderer's window, so it binds to the
- * registry-authenticated `event.sender` (the same audited exception notes-vault
- * watchers use). The `window-focus:changed` push is never registered.
+ * registry-authenticated `event.sender`. The `window-focus:changed` push is
+ * never registered.
  */
 export function registerWindowFocusIpcHandlers(): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
