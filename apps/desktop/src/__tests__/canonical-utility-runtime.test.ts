@@ -165,10 +165,62 @@ describe('actual utility canonical runtime attachment', () => {
     release.resolve();
     const joined = scan.join().catch((error: unknown) => error);
     expect(await joined).toBeInstanceOf(NativeAuthorityTransitionError);
-    expect(await joined).toMatchObject({
-      message: 'Canonical attachment retirement cancelled its scan.',
-    });
+    expect(await joined).toMatchObject({ refusal: { kind: 'transitioning' } });
     await parent.retireAttachments();
+    await parent.close();
+  });
+
+  // A reset, or a newly added folder, retires a folder whose attachment is still being acquired:
+  // the utility's acquisition ends on that retirement, which Main's owners must see typed.
+  it('settles an attach in flight when Main retires it with the typed retirement', async () => {
+    const subscribe = Promise.withResolvers<object>();
+    const notice = Promise.withResolvers<object>();
+    const { parent } = connected((input) => {
+      const frame = decodeCanonicalFrame(input);
+      if (frame.kind === 'cancel') {
+        notice.resolve(structuredClone(input));
+        return true;
+      }
+      if (frame.kind !== 'call' || frame.op !== 'subscribe') {
+        return false;
+      }
+      subscribe.resolve(structuredClone(input));
+      return true;
+    });
+    const base = collection([]);
+    const attaching = parent
+      .attachWorkspace({
+        catalog: { ...base.catalog, loadAuthorizedBatch: async () => [] },
+        managedCollectionId: null,
+        onError: vi.fn(),
+        onReceipt: vi.fn(),
+        onWatchHealth: vi.fn(),
+        parser: base.parser,
+        publication: base.publication,
+        request: base.request,
+        source: {
+          indexingPolicyPreset: 'balanced',
+          inventory: { ...base.source.inventory, loadFiles: async () => [] },
+          lease: {
+            canonicalPath: '/captured/root',
+            generation: 'generation',
+            listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+            readFile: async () => ({ status: 'missing' }),
+            retire: async () => {},
+            rootId: 'root',
+            signal: new AbortController().signal,
+            subscribe: async () => ({ close: async () => {} }),
+          },
+        },
+      })
+      .catch((error: unknown) => error);
+    const held = await subscribe.promise;
+    const retirement = parent.retireAttachments();
+    // The utility's watch request reaches Main after the retirement, then its cancel notice.
+    parent.receive(held);
+    parent.receive(await notice.promise);
+    await retirement;
+    expect(await attaching).toBeInstanceOf(NativeAuthorityTransitionError);
     await parent.close();
   });
 

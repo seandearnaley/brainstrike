@@ -127,29 +127,19 @@ export class CanonicalUtilityParent {
       if (this.closed || this.retiringAttachments || !session) {
         throw new Error('Canonical utility scan admission is closed.');
       }
-      if (session.stopping) {
-        // Fenced or closing: Main revoked this attachment, so no scan starts (BST-2140).
-        throw new NativeAuthorityTransitionError('Canonical attachment scan admission was fenced.');
-      }
-      await this.channel.call(owner, 'start-scan', { requestId }, Schema.Null);
+      // Fenced or closing: Main retired this attachment, so no scan starts (BST-2140).
+      session.retirement.signal.throwIfAborted();
+      await this.request(owner, 'start-scan', { requestId }, Schema.Null);
       let terminal: Promise<typeof receiptSchema.Type> | undefined;
       return {
         join: () => {
-          terminal ??= this.channel
-            .call(owner, 'join-scan', { requestId }, receiptSchema)
-            .catch((error: unknown) => {
-              // A scan the utility reports cancelled after Main retired its attachment ended
-              // on that retirement, as BST-1955's revoked requests do (BST-2140).
-              if (
-                error instanceof CanonicalOperationCancelledError &&
-                this.sessions.get(owner)?.stopping !== false
-              ) {
-                throw new NativeAuthorityTransitionError(
-                  'Canonical attachment retirement cancelled its scan.'
-                );
-              }
-              throw error;
-            });
+          terminal ??= this.request(
+            owner,
+            'join-scan',
+            { requestId },
+            receiptSchema,
+            session.retirement.signal
+          );
           return terminal;
         },
       };
@@ -178,6 +168,7 @@ export class CanonicalUtilityParent {
       }
     }
     const owner = randomUUID();
+    const retirement = new AbortController();
     this.sessions.set(owner, {
       catalog: dependencies.catalog,
       childClosed: false,
@@ -191,25 +182,18 @@ export class CanonicalUtilityParent {
       lease: 'lease' in dependencies.source ? dependencies.source.lease : undefined,
       pending: new Map(),
       publication: dependencies.publication,
-      stopping: false,
+      retirement,
       subscriptionAcquired: false,
       transportErrors: new Set(),
       usedInferenceRequests: new Set(),
       vectorPublication: dependencies.mode === 'VECTOR' ? dependencies.publication : undefined,
     });
     // A failed acquisition retains the owner; close() is the explicit retry path.
-    const acquisition = this.channel.call(owner, 'attach', config, Schema.Null);
+    const acquisition = this.request(owner, 'attach', config, Schema.Null);
     this.acquisitions.set(owner, acquisition);
     await acquisition;
-    if (this.closed || this.retiringAttachments || !this.sessions.has(owner)) {
-      throw new Error('Canonical utility attachment retired during acquisition.');
-    }
-    // A fence during the acquisition revoked it; retirement still closes the retained owner.
-    if (this.sessions.get(owner)?.stopping) {
-      throw new NativeAuthorityTransitionError(
-        'Canonical attachment was fenced during acquisition.'
-      );
-    }
+    // A retirement or fence during the acquisition revoked it; closing still retires the owner.
+    retirement.signal.throwIfAborted();
     return owner;
   }
 
@@ -243,7 +227,7 @@ export class CanonicalUtilityParent {
       throw new Error('Canonical utility request is repeated or exceeds its pending bound.');
     }
     session.lastRequestId = frame.id;
-    if (session.stopping && !isOwnedCleanup(frame)) {
+    if (session.retirement.signal.aborted && !isOwnedCleanup(frame)) {
       this.refuseStoppedRequest(session, frame);
       return;
     }
@@ -334,10 +318,32 @@ export class CanonicalUtilityParent {
     }
   }
   private async control(owner: string, op: string): Promise<void> {
-    await this.channel.call(owner, op, null, Schema.Null);
+    await this.request(owner, op, null, Schema.Null);
+  }
+  /**
+   * Every answer Main gets from the utility for an attachment. Once Main retired that attachment,
+   * an answer the utility gives as cancelled is that retirement's cancellation, so it settles with
+   * Main's typed reason (BST-1955). Any other answer keeps its own value or error.
+   */
+  private async request<S extends Schema.ConstraintDecoder<unknown>>(
+    owner: string,
+    op: string,
+    payload: unknown,
+    schema: S,
+    retirement = this.sessions.get(owner)?.retirement.signal
+  ): Promise<S['Type']> {
+    try {
+      return await this.channel.call(owner, op, payload, schema);
+    } catch (error) {
+      throw retirement?.aborted && error instanceof CanonicalOperationCancelledError
+        ? retirement.reason
+        : error;
+    }
   }
   private stop(session: Session): void {
-    session.stopping = true;
+    session.retirement.abort(
+      new NativeAuthorityTransitionError('Canonical attachment retirement cancelled this request.')
+    );
     for (const pending of session.pending.values()) {
       pending.controller.abort(new DOMException('Canonical attachment retired.', 'AbortError'));
     }
@@ -517,7 +523,7 @@ export class CanonicalUtilityParent {
     if (!('onReceipt' in session.dependencies)) {
       throw new Error('Rootless host cannot emit workspace events.');
     }
-    if (session.stopping) {
+    if (session.retirement.signal.aborted) {
       return;
     }
     switch (frame.event) {
@@ -584,7 +590,7 @@ export class CanonicalUtilityParent {
             : await this.invokePublication(session, frame, authority);
     if (!isOwnedCleanup(frame)) {
       context.signal.throwIfAborted();
-      if (session.stopping) {
+      if (session.retirement.signal.aborted) {
         throw new DOMException('Canonical attachment retired.', 'AbortError');
       }
       authority.lease?.signal.throwIfAborted();
@@ -625,7 +631,7 @@ export class CanonicalUtilityParent {
         decode(Schema.Null)(frame.payload);
         session.subscriptionAcquired = true;
         const event = (event: string, value: unknown): void => {
-          if (!(session.stopping || context.signal.aborted)) {
+          if (!(session.retirement.signal.aborted || context.signal.aborted)) {
             this.sendOwned(session, {
               channel: CANONICAL_CHANNEL,
               event,
