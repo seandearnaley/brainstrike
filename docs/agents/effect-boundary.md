@@ -69,9 +69,6 @@ guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
   `Effect.ensuring` for timer cleanup, and close joins all active waits.
 - Embedding admission reserves partial permits transactionally; abort only
   capacity waits, never committed grants.
-- OXC IPC request Scope owns its correlation entry and timer; first terminal
-  outcome wins, malformed or mismatched replies remain pending, and local
-  cleanup never cancels remote parsing.
 - File-tree bulk operations share one Scope-owned pending entry; detach before
   settlement, preserve synchronous posting and first terminal outcome, and clean
   failed sends before replacement.
@@ -88,8 +85,6 @@ Evidence (archived):
 [mcp-oauth-callback-scope](../archive/agent-contract-history/effect-boundary/mcp-oauth-callback-scope.md),
 [provider-loopback-scope](../archive/agent-contract-history/effect-boundary/provider-loopback-scope.md),
 [embedding-admission-permits](../archive/agent-contract-history/effect-boundary/embedding-admission-permits.md),
-[parser-generation-scope](../archive/agent-contract-history/effect-boundary/parser-generation-scope.md),
-[oxc-request-scopes](../archive/agent-contract-history/effect-boundary/oxc-request-scopes.md),
 [file-tree-operation-scopes](../archive/agent-contract-history/effect-boundary/file-tree-operation-scopes.md),
 [renderer-startup](../archive/agent-contract-history/effect-boundary/renderer-startup.md).
 
