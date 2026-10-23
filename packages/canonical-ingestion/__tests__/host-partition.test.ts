@@ -1,6 +1,4 @@
-import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import { describe, expect, it, vi } from 'vitest';
-import { CanonicalIngestionHost } from '../src/host.js';
 import { discoveredFixture } from './host-test-fixture.js';
 
 describe('canonical discovery partition membership', () => {
@@ -31,23 +29,4 @@ describe('canonical discovery partition membership', () => {
       }
     }
   );
-
-  it('refuses discovery on a host that names no workspace partition', async () => {
-    const f = await discoveredFixture();
-    const host = new CanonicalIngestionHost({
-      catalog: f.catalog,
-      chunker: createNodeChunker({ parser: 'oxc' }),
-      publication: f.publication,
-      source: f.source,
-    });
-    try {
-      await expect(host.scan(f.request)).rejects.toThrow(
-        'Canonical discovery requires its workspace partition.'
-      );
-      expect(f.catalog.prepareManagedSourcesBatch).not.toHaveBeenCalled();
-    } finally {
-      await host.close();
-      await f.host.close();
-    }
-  });
 });

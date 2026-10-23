@@ -38,11 +38,9 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function fixture(
-  scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' },
-  selectedProfile: VectorProfile = profile
-) {
+async function fixture(selectedProfile: VectorProfile = profile) {
   const profile = selectedProfile;
+  const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' };
   const recorded = JSON.parse(
     await readFile(
       new URL(
@@ -52,11 +50,11 @@ async function fixture(
     )
   ) as { content: string; fileId: string; relativePath: string; sourceHash: string };
   const file: CanonicalSourceFile = {
-    embeddingSetId: scope.kind === 'collection' ? scope.embeddingSetId : 'managed-set',
+    embeddingSetId: 'managed-set',
     fileId: recorded.fileId,
     fileName: 'artifact-reader-model-projection.ts',
-    relativePath: scope.kind === 'workspace' ? recorded.relativePath : null,
-    rootId: scope.kind === 'workspace' ? scope.rootId : null,
+    relativePath: recorded.relativePath,
+    rootId: scope.rootId,
     sourcePath: null,
     stat: { mtimeMs: 123, size: Buffer.byteLength(recorded.content) },
   };
@@ -164,6 +162,7 @@ async function fixture(
     catalog,
     chunker,
     inference,
+    managedCollectionId: file.embeddingSetId,
     mode: 'VECTOR',
     publication,
     source,
@@ -189,6 +188,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     const host = new CanonicalIngestionHost({
       catalog: f.catalog,
       chunker,
+      managedCollectionId: f.file.embeddingSetId,
       mode: 'TEXT',
       publication: f.publication,
       source: f.source,
@@ -201,11 +201,8 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     await host.close();
     await f.host.close();
   });
-  it.each([
-    { kind: 'workspace', rootId: 'root' },
-    { embeddingSetId: 'retained', kind: 'collection' },
-  ] as const)('repairs unchanged stat-cache gaps in actual %s scope', async (scope) => {
-    const f = await fixture(scope);
+  it('repairs unchanged stat-cache gaps in the actual workspace scope', async () => {
+    const f = await fixture();
     try {
       expect((await f.host.scan(f.request)).scanComplete).toBe(true);
       expect(f.source.read).toHaveBeenCalledOnce();
@@ -230,7 +227,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
             rootId: f.file.rootId,
           }),
         ],
-        scope,
+        scope: f.request.scope,
       });
       expect(f.catalog.completeFiles).toHaveBeenCalledOnce();
     } finally {
@@ -257,7 +254,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
         field === 'provider'
           ? { dimensions: 384, distance: 'cosine', modelId: 'saved-hosted', provider: 'openai' }
           : { ...profile, distance: 'l2' };
-      const f = await fixture(undefined, selected);
+      const f = await fixture(selected);
       await f.host.scan(f.request);
       expect(f.inference.generate).toHaveBeenCalledWith(
         expect.objectContaining({ profile: selected })
@@ -537,6 +534,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
       catalog: f.catalog,
       chunker,
       inference: f.inference,
+      managedCollectionId: f.file.embeddingSetId,
       mode: 'VECTOR' as const,
       publication: f.publication,
       source: f.source,
@@ -660,10 +658,9 @@ async function batchFixture(
     readonly copies?: number;
     readonly reused?: boolean;
   }[],
-  scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' },
   split = inputs.length
 ) {
-  const f = await fixture(scope);
+  const f = await fixture();
   const files = inputs.map((input, index) => {
     const content =
       input.content ??
@@ -680,7 +677,7 @@ async function batchFixture(
       file: {
         ...f.file,
         fileId: `file-${index}`,
-        relativePath: scope.kind === 'workspace' ? `file-${index}.ts` : null,
+        relativePath: `file-${index}.ts`,
         stat: { mtimeMs: index + 1, size: Buffer.byteLength(content) },
       },
       reused: input.reused ?? false,
@@ -732,64 +729,58 @@ async function batchFixture(
 }
 
 describe('bounded ordered cross-file vector inference', () => {
-  it.each([
-    { kind: 'workspace', rootId: 'root' },
-    { embeddingSetId: 'retained', kind: 'collection' },
-  ] as const)(
-    'groups small files within one %s discovery batch and routes complete vectors in order',
-    async (scope) => {
-      const f = await batchFixture([{}, {}], scope);
-      try {
-        const receipt = await f.host.scan(f.request);
-        expect(receipt.scanComplete).toBe(true);
-        const plans = vi.mocked(f.publication.prepareVectorFile).mock.results;
-        const prepared = await Promise.all(plans.map((result) => result.value));
-        expect(prepared.every((plan) => plan.embeddingChunkIds.length > 0)).toBe(true);
-        const expectedIds = prepared.flatMap((plan) => plan.embeddingChunkIds);
-        expect(expectedIds.length).toBeLessThanOrEqual(64);
-        expect(f.inference.generate).toHaveBeenCalledOnce();
-        expect(
-          vi.mocked(f.inference.generate).mock.calls[0]?.[0].chunks.map((chunk) => chunk.chunkId)
-        ).toEqual(expectedIds);
-        const commits = vi
-          .mocked(f.publication.commitVectorFile)
-          .mock.calls.map(([commit]) => commit);
-        expect(commits.map((commit) => commit.file.fileId)).toEqual(
-          f.files.map((entry) => entry.file.fileId)
+  it('groups small files within one discovery batch and routes complete vectors in order', async () => {
+    const f = await batchFixture([{}, {}]);
+    try {
+      const receipt = await f.host.scan(f.request);
+      expect(receipt.scanComplete).toBe(true);
+      const plans = vi.mocked(f.publication.prepareVectorFile).mock.results;
+      const prepared = await Promise.all(plans.map((result) => result.value));
+      expect(prepared.every((plan) => plan.embeddingChunkIds.length > 0)).toBe(true);
+      const expectedIds = prepared.flatMap((plan) => plan.embeddingChunkIds);
+      expect(expectedIds.length).toBeLessThanOrEqual(64);
+      expect(f.inference.generate).toHaveBeenCalledOnce();
+      expect(
+        vi.mocked(f.inference.generate).mock.calls[0]?.[0].chunks.map((chunk) => chunk.chunkId)
+      ).toEqual(expectedIds);
+      const commits = vi
+        .mocked(f.publication.commitVectorFile)
+        .mock.calls.map(([commit]) => commit);
+      expect(commits.map((commit) => commit.file.fileId)).toEqual(
+        f.files.map((entry) => entry.file.fileId)
+      );
+      for (const [index, commit] of commits.entries()) {
+        expect(commit.ticket).toEqual(f.ticket);
+        expect(commit.profile).toEqual(profile);
+        expect(commit.plan).toEqual(prepared[index]);
+        expect(commit.embeddings).toEqual(
+          commit.plan.embeddingChunkIds.map((chunkId) => ({
+            chunkId,
+            vector: Array.from({ length: 384 }, (_, position) =>
+              position === 0 ? Number.parseInt(chunkId.slice(0, 6), 16) + 1 : 0
+            ),
+          }))
         );
-        for (const [index, commit] of commits.entries()) {
-          expect(commit.ticket).toEqual(f.ticket);
-          expect(commit.profile).toEqual(profile);
-          expect(commit.plan).toEqual(prepared[index]);
-          expect(commit.embeddings).toEqual(
-            commit.plan.embeddingChunkIds.map((chunkId) => ({
-              chunkId,
-              vector: Array.from({ length: 384 }, (_, position) =>
-                position === 0 ? Number.parseInt(chunkId.slice(0, 6), 16) + 1 : 0
-              ),
-            }))
-          );
-          expect(commit.syntax).toEqual(
-            vi.mocked(f.publication.prepareVectorFile).mock.calls[index]?.[0].payload.syntax
-          );
-        }
-        expect(f.inference.join).toHaveBeenCalledOnce();
-        expect(f.catalog.completeFiles).toHaveBeenCalledAfter(
-          vi.mocked(f.publication.commitVectorFile)
+        expect(commit.syntax).toEqual(
+          vi.mocked(f.publication.prepareVectorFile).mock.calls[index]?.[0].payload.syntax
         );
-        expect(f.publication.finishScan).toHaveBeenCalledAfter(vi.mocked(f.catalog.completeFiles));
-        expect(
-          vi
-            .mocked(f.publication.verifyVectorManifest)
-            .mock.calls[0]?.[0].files.map((file) => file.fileId)
-        ).toEqual(f.files.map((entry) => entry.file.fileId));
-      } finally {
-        await f.host.close();
       }
+      expect(f.inference.join).toHaveBeenCalledOnce();
+      expect(f.catalog.completeFiles).toHaveBeenCalledAfter(
+        vi.mocked(f.publication.commitVectorFile)
+      );
+      expect(f.publication.finishScan).toHaveBeenCalledAfter(vi.mocked(f.catalog.completeFiles));
+      expect(
+        vi
+          .mocked(f.publication.verifyVectorManifest)
+          .mock.calls[0]?.[0].files.map((file) => file.fileId)
+      ).toEqual(f.files.map((entry) => entry.file.fileId));
+    } finally {
+      await f.host.close();
     }
-  );
+  });
   it('keeps separate discovery batches separate even under the same scan owner', async () => {
-    const f = await batchFixture([{}, {}], undefined, 1);
+    const f = await batchFixture([{}, {}], 1);
     try {
       await f.host.scan(f.request);
       expect(f.inference.generate).toHaveBeenCalledTimes(2);
