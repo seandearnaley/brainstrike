@@ -33,7 +33,7 @@ const row = (saved: typeof local | typeof hosted): CollectionRecord => ({
   ...saved,
   createdAt: '2026-10-16T00:00:00.000Z',
 });
-const SETUP = 'Choose local model execution in Search & Indexing settings.';
+const SETUP = 'Choose how to run the model under Run it on in Settings, Search & Indexing.';
 
 class HostSetupRequired extends Error {}
 

@@ -142,7 +142,9 @@ describe('saved canonical profile identity', () => {
   it.each([undefined, { ...selection, device: undefined }, { ...selection, dtype: undefined }])(
     'refuses missing or unverified local pins %#',
     (saved) => {
-      expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(/explicit|execution/);
+      expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(
+        /explicit|execution|Run it on/
+      );
     }
   );
 
