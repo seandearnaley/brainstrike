@@ -2,7 +2,10 @@
 import { createHash } from 'node:crypto';
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { embeddingProfileHash, vectorProfileHash } from '@brainstrike/indexer';
-import { indexerEmbeddingProfileValues } from '@brainstrike/indexing-contract/indexer-client';
+import {
+  indexerEmbeddingProfileValues,
+  NativeIndexRefusalError,
+} from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
 import { createBenchmarkProgress } from '../../qualification/m2-native/benchmark-progress';
@@ -390,6 +393,21 @@ it('refuses a workspace search with no folder in words the person acts on, loggi
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }
+  expect(log).not.toHaveBeenCalled();
+});
+
+it('refuses coverage under Off with the typed Off refusal, logging nothing', async () => {
+  const message = 'Search is off. Turn it on in Settings, Search & Indexing.';
+  const off = new NativeIndexRefusalError({ kind: 'off', message }, message);
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: unused,
+    withRead: () => Promise.reject(off),
+  });
+  const error = await capability.coverage({ rootIds: ['root'] }).catch((caught: unknown) => caught);
+  expect(error).toBe(off);
+  const log = vi.fn();
+  expect(describeBoundaryFailure(nativeIndexBoundaryFailure(error, log))).toBe(message);
   expect(log).not.toHaveBeenCalled();
 });
 
