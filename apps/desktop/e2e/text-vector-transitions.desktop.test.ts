@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
 import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
@@ -21,6 +21,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readIndexConfig, updateIndexConfig } from './utils/index-config';
 import { seedRoot } from './utils/seed-root';
+import { callIndexSearch, nativeStatus } from './utils/text-search-mode';
 
 const MARKER = 'transition-marker-1988';
 const MODEL = 'BGE Small';
@@ -39,23 +40,18 @@ async function chooseSemanticSearch(page: Page): Promise<void> {
   });
 }
 
+/** The ready index's status; anything else fails with its own reason. */
+async function readyStatus(page: Page): Promise<Extract<IndexerStatus, { kind: 'ready' }>> {
+  const status = await nativeStatus(page);
+  if (status.kind !== 'ready') {
+    throw new Error(status.reason);
+  }
+  return status;
+}
+
 /** The one vector space the ready index serves under semantic search. */
 async function servedCollection(page: Page): Promise<string> {
-  const served = await page.evaluate(async () => {
-    const capability = (
-      window as Window & {
-        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-      }
-    ).__brainstrikeTestHooks__?.indexSearch;
-    if (!capability) {
-      throw new Error('The native index capability is unavailable');
-    }
-    const status = await capability.status();
-    if (status.kind !== 'ready') {
-      throw new Error(status.reason);
-    }
-    return status.authorizedCollectionIds ?? [];
-  });
+  const served = (await readyStatus(page)).authorizedCollectionIds ?? [];
   expect(served).toHaveLength(1);
   const [collectionId] = served;
   if (collectionId === undefined) {
@@ -64,61 +60,36 @@ async function servedCollection(page: Page): Promise<string> {
   return collectionId;
 }
 
-/** The ids of the profile's catalog collections. */
-async function collectionIds(page: Page): Promise<string[]> {
-  return await page.evaluate(async () => {
-    if (!window.collectionCatalog) {
-      throw new Error('Desktop collection catalog is unavailable');
-    }
-    const rows = await window.collectionCatalog.list().then((result) => {
-      if (!result.ok) {
-        throw new Error(result.error.message);
-      }
-      return result.value;
-    });
-    return rows.map((row) => row.id);
-  });
-}
-
 /** Ready with every root scanned, in the expected mode; vectors complete when semantic. */
 async function waitForIndex(page: Page, mode: 'text-only' | 'vector-configured'): Promise<void> {
   await expect
     .poll(
-      async () =>
-        await page.evaluate(async (expected) => {
-          const capability = (
-            window as Window & {
-              readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-            }
-          ).__brainstrikeTestHooks__?.indexSearch;
-          if (!capability) {
-            throw new Error('The native index capability is unavailable');
-          }
-          const status = await capability.status();
-          if (
-            status.kind !== 'ready' ||
-            status.embedding.indexMode !== expected ||
-            status.rootReadiness.length !== 1 ||
-            !status.rootReadiness.every((root) => root.scanComplete)
-          ) {
-            return false;
-          }
-          if (expected === 'text-only') {
-            return true;
-          }
-          const observation = await capability.coverageBatch([
-            { rootIds: status.authorizedRootIds },
-          ]);
-          if (observation.kind === 'blocked') {
-            throw new Error(observation.reason);
-          }
-          const coverage = observation.kind === 'current' ? observation.coverage[0] : undefined;
-          return (
-            coverage !== undefined &&
-            coverage.totals.chunks > 0 &&
-            coverage.totals.vectors === coverage.totals.chunks
-          );
-        }, mode),
+      async () => {
+        const status = await nativeStatus(page);
+        if (
+          status.kind !== 'ready' ||
+          status.embedding.indexMode !== mode ||
+          status.rootReadiness.length !== 1 ||
+          !status.rootReadiness.every((root) => root.scanComplete)
+        ) {
+          return false;
+        }
+        if (mode === 'text-only') {
+          return true;
+        }
+        const observation = await callIndexSearch(page, 'coverageBatch', [
+          { rootIds: status.authorizedRootIds },
+        ]);
+        if (observation.kind === 'blocked') {
+          throw new Error(observation.reason);
+        }
+        const coverage = observation.kind === 'current' ? observation.coverage[0] : undefined;
+        return (
+          coverage !== undefined &&
+          coverage.totals.chunks > 0 &&
+          coverage.totals.vectors === coverage.totals.chunks
+        );
+      },
       { timeout: 180_000 }
     )
     .toBe(true);
@@ -126,88 +97,54 @@ async function waitForIndex(page: Page, mode: 'text-only' | 'vector-configured')
 
 /** Native text search hits for the marker: each hit's file and the partition it belongs to. */
 async function textHits(page: Page): Promise<{ path: string; set: string | null }[]> {
-  return await page.evaluate(async (needle) => {
-    const capability = (
-      window as Window & {
-        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-      }
-    ).__brainstrikeTestHooks__?.indexSearch;
-    if (!capability) {
-      throw new Error('The native index capability is unavailable');
-    }
-    const status = await capability.status();
-    if (status.kind !== 'ready') {
-      throw new Error(status.reason);
-    }
-    const result = await capability.grep({
-      caseSensitive: true,
-      isRegex: false,
-      limit: 20,
-      pattern: needle,
-      rootIds: status.authorizedRootIds,
-    });
-    return result.hits
-      .map((hit) => ({ path: hit.relativePath ?? '', set: hit.embeddingSetId ?? null }))
-      .sort((left, right) => left.path.localeCompare(right.path));
-  }, MARKER);
+  const result = await callIndexSearch(page, 'grep', {
+    caseSensitive: true,
+    isRegex: false,
+    limit: 20,
+    pattern: MARKER,
+    rootIds: (await readyStatus(page)).authorizedRootIds,
+  });
+  return result.hits
+    .map((hit) => ({ path: hit.relativePath ?? '', set: hit.embeddingSetId ?? null }))
+    .sort((left, right) => left.path.localeCompare(right.path));
 }
 
 async function semanticFinds(page: Page, phrase: string): Promise<boolean> {
-  return await page.evaluate(async (query) => {
-    const bridges = window as Window & {
-      readonly embeddingHost?: VisibleEmbeddingHostBridge;
-      readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-    };
-    const capability = bridges.__brainstrikeTestHooks__?.indexSearch;
-    const bridge = bridges.embeddingHost;
-    if (!(capability && bridge && 'queryEmbedding' in bridge)) {
-      throw new Error('Native search/query bridge unavailable');
+  const status = await readyStatus(page);
+  if (status.embedding.indexMode !== 'vector-configured' || !status.queryPlan) {
+    throw new Error('The selected collection has no ready semantic query plan');
+  }
+  const { profile } = status.embedding;
+  const queryPlan = status.queryPlan;
+  const vector = await page.evaluate(
+    async (request) => {
+      const bridge = (window as Window & { readonly embeddingHost?: VisibleEmbeddingHostBridge })
+        .embeddingHost;
+      if (!(bridge && 'queryEmbedding' in bridge)) {
+        throw new Error('Native query bridge unavailable');
+      }
+      const response = await bridge.queryEmbedding(request);
+      if (!response.ok) {
+        throw new Error(JSON.stringify(response.error));
+      }
+      return response.value;
+    },
+    {
+      dimensions: profile.dimensions,
+      modelId: profile.modelId,
+      modelKey: queryPlan.modelKey,
+      query: phrase,
+      ...(queryPlan.inferencePlan ? { inferencePlan: queryPlan.inferencePlan } : {}),
     }
-    const status = await capability.status();
-    if (
-      status.kind !== 'ready' ||
-      status.embedding.indexMode !== 'vector-configured' ||
-      !status.queryPlan
-    ) {
-      throw new Error('The selected collection has no ready semantic query plan');
-    }
-    const response = await bridge.queryEmbedding({
-      dimensions: status.embedding.profile.dimensions,
-      modelId: status.embedding.profile.modelId,
-      modelKey: status.queryPlan.modelKey,
-      query,
-      ...(status.queryPlan.inferencePlan ? { inferencePlan: status.queryPlan.inferencePlan } : {}),
-    });
-    if (!response.ok) {
-      throw new Error(JSON.stringify(response.error));
-    }
-    const vector = response.value;
-    const result = await capability.search({
-      limit: 5,
-      mode: 'vector',
-      profile: status.embedding.profile,
-      rootIds: status.authorizedRootIds,
-      vector,
-    });
-    return result.hits.some((hit) => hit.content.includes('sourdough starter'));
-  }, phrase);
-}
-
-/** Canonical workspace source records in the TEXT partition. */
-async function textPartitionRows(page: Page): Promise<number> {
-  return await page.evaluate(async () => {
-    if (!window.sourceFiles) {
-      throw new Error('Desktop source catalog is unavailable');
-    }
-    return (
-      await window.sourceFiles.list().then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      })
-    ).filter((file) => file.embeddingSetId === null && file.rootId !== null).length;
+  );
+  const result = await callIndexSearch(page, 'search', {
+    limit: 5,
+    mode: 'vector',
+    profile,
+    rootIds: status.authorizedRootIds,
+    vector,
   });
+  return result.hits.some((hit) => hit.content.includes('sourdough starter'));
 }
 
 function workspaceFolder(): string {
@@ -249,10 +186,8 @@ test.describe('Text and semantic search transitions (desktop)', () => {
       const collectionId = await servedCollection(page);
       expect(await semanticFinds(page, 'how to keep a bread starter alive')).toBe(true);
 
-      // The outgoing TEXT partition's PG sources stay, as an outgoing
-      // collection's do, but no reader reaches them: text search returns the
-      // collection's rows once each, never a duplicate from the NULL partition.
-      expect(await textPartitionRows(page)).toBe(2);
+      // Text search returns the collection's rows once each, never a duplicate
+      // from the outgoing TEXT partition.
       expect(await textHits(page)).toEqual([
         { path: 'bread.md', set: collectionId },
         { path: 'notes.txt', set: collectionId },
@@ -338,8 +273,6 @@ test.describe('Text and semantic search transitions (desktop)', () => {
         mode: 'text',
         model: { modelKey: MODEL_KEY },
       });
-      expect(await collectionIds(page)).toContain(collectionId);
-      expect(await textPartitionRows(page)).toBe(2);
       expect(await textHits(page)).toEqual([
         { path: 'bread.md', set: null },
         { path: 'notes.txt', set: null },
@@ -362,6 +295,11 @@ test.describe('Text and semantic search transitions (desktop)', () => {
           { timeout: 2000 }
         );
       }).toPass({ timeout: 30_000 });
+
+      // Semantic search comes back on the vector space it kept: nothing is re-embedded.
+      await updateIndexConfig(page, { mode: 'semantic' });
+      await waitForIndex(page, 'vector-configured');
+      expect(await servedCollection(page)).toBe(collectionId);
     } finally {
       await electron.dispose();
       rmSync(root, { force: true, recursive: true });

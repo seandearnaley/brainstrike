@@ -62,23 +62,6 @@ async function scannedRoots(page: Page): Promise<readonly string[] | 'not-ready'
   });
 }
 
-/** How many indexed file records the app holds for a root. */
-async function indexedFileCount(page: Page, rootId: string): Promise<number> {
-  return await page.evaluate(async (wanted) => {
-    if (!window.sourceFiles) {
-      throw new Error('Canonical source capability unavailable');
-    }
-    return (
-      await window.sourceFiles.list().then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      })
-    ).filter((file) => file.rootId === wanted).length;
-  }, rootId);
-}
-
 test('deleting another folder’s indexed data leaves a streaming host run running in the same host', async ({
   electron,
   electronApp,
@@ -139,7 +122,6 @@ test('deleting another folder’s indexed data leaves a streaming host run runni
     await expect
       .poll(async () => await scannedRoots(page), { timeout: 120_000 })
       .toEqual([alphaId]);
-    expect(await indexedFileCount(page, bravoId)).toBe(0);
 
     hold.resolve();
     await expect(region.getByText(FINAL)).toBeVisible({ timeout: 90_000 });

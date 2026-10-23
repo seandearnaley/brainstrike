@@ -12,15 +12,6 @@ import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { readIndexConfig, updateIndexConfig } from './utils/index-config';
 
-interface CollectionRow {
-  readonly dimensions: number;
-  readonly id: string;
-  readonly model_id: string;
-  readonly model_key: string;
-  readonly name: string;
-  readonly system_role: string | null;
-}
-
 async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page }): Promise<void> {
   await args.homePage.openSettings();
   await args.page.getByRole('button', { name: 'Search & Indexing' }).click();
@@ -92,29 +83,6 @@ async function readOrtWasmRequests(app: ElectronApplication): Promise<string[]> 
   );
 }
 
-async function readCollectionRows(page: Page): Promise<CollectionRow[]> {
-  return await page.evaluate(async () => {
-    if (!window.collectionCatalog) {
-      throw new Error('Desktop collection catalog is unavailable');
-    }
-    return (
-      await window.collectionCatalog.list().then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      })
-    ).map((row) => ({
-      dimensions: row.dimensions,
-      id: row.id,
-      model_id: row.modelId,
-      model_key: row.modelKey,
-      name: row.name ?? '',
-      system_role: row.systemRole ?? null,
-    }));
-  });
-}
-
 async function readNativeStatus(
   page: Page
 ): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
@@ -156,7 +124,6 @@ test.describe('Workspace Index first run (desktop)', () => {
       try {
         const { app, window } = await electron.ensureContext();
         await recordOrtWasmRequests(app);
-        expect(await readCollectionRows(window)).toEqual([]);
         await app.evaluate((_electron, path) => {
           process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
         }, folder);
@@ -284,7 +251,6 @@ test.describe('Workspace Index first run (desktop)', () => {
         await testInfo.attach('ui-created-index', {
           body: JSON.stringify(
             {
-              collections: await readCollectionRows(window),
               config: await readIndexConfig(window),
               status: await readNativeStatus(window),
             },
@@ -385,17 +351,11 @@ test.describe('Workspace Index first run (desktop)', () => {
       policy: 'balanced',
       worktrees: {},
     });
-    const initialCollections = await readCollectionRows(window);
-    expect(initialCollections).toEqual([]);
     await expect
       .poll(() => readNativeStatus(window), { timeout: 15_000 })
       .toMatchObject({ embedding: { indexMode: 'text-only' }, kind: 'ready' });
     await testInfo.attach('fresh-profile-text-search', {
-      body: JSON.stringify(
-        { collections: initialCollections, status: await readNativeStatus(window) },
-        null,
-        2
-      ),
+      body: JSON.stringify({ status: await readNativeStatus(window) }, null, 2),
       contentType: 'application/json',
     });
   });

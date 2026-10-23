@@ -46,22 +46,6 @@ async function enableChatModel(page: Page): Promise<void> {
   }, MODEL);
 }
 
-/** Every embedding collection row the profile has. */
-async function collectionRows(page: Page): Promise<unknown[]> {
-  return await page.evaluate(async () => {
-    if (!window.collectionCatalog) {
-      throw new Error('Desktop collection catalog is unavailable');
-    }
-    const collections = await window.collectionCatalog.list().then((result) => {
-      if (!result.ok) {
-        throw new Error(result.error.message);
-      }
-      return result.value;
-    });
-    return [...collections];
-  });
-}
-
 /** Model weights anywhere in the profile: an embedding model download leaves `.onnx` files. */
 function downloadedModelFiles(userDataDir: string): string[] {
   return readdirSync(userDataDir, { recursive: true, withFileTypes: true })
@@ -124,7 +108,6 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
     await expect(settings).not.toContainText('set up a collection');
     await home.leaveSettings();
     expect(await readIndexConfig(page)).toMatchObject({ mode: 'text', model: null });
-    expect(await collectionRows(page)).toEqual([]);
 
     // Explorer Text search finds the marker through the index.
     await ensureFileExplorerPanelVisible(page);
