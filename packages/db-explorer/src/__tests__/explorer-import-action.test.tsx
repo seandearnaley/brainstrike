@@ -1,7 +1,3 @@
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { __resetImportSettingsStoreForTests } from '@brainstrike/app-state/stores/import-settings-store';
 import {
   __resetVectorStatusUIStoreForTests,
@@ -211,7 +207,6 @@ afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   mockCollectionsFetchError.current = null;
   __resetVectorStatusUIStoreForTests();
-  __resetBackgroundIndexingPreferencesStoreForTests();
   __resetImportSettingsStoreForTests();
   mockImportFiles.mockClear();
   mockUseSelectionActionBarPin.mockClear();
@@ -260,8 +255,7 @@ describe('ExplorerImportAction', () => {
 
   it('blocks imports into a background-indexed collection', async () => {
     act(() => {
-      useVectorStatusUIStore.getState().setActiveEmbeddingSetId('docs');
-      useBackgroundIndexingPreferencesStore.setState({ managedCollectionId: 'docs' });
+      useVectorStatusUIStore.getState().setActiveEmbeddingSetId('workspace-index');
     });
 
     const picker = await openPicker();

@@ -1,4 +1,8 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  followIndexConfig,
+  selectIndexConfig,
+  useIndexConfigStore,
+} from '@brainstrike/app-state/stores/index-config-store';
 import {
   type IndexingManagedCollectionStatsState,
   useIndexingActivityStore,
@@ -12,6 +16,7 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import type { IndexConfigCapability } from '@brainstrike/assistant-contract/index-config';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type {
@@ -24,10 +29,7 @@ import { type ReactNode, useEffect, useRef } from 'react';
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 
-async function readNativeProgress(
-  capability: IndexSearchCapability,
-  collectionId: string | null
-): Promise<
+async function readNativeProgress(capability: IndexSearchCapability): Promise<
   | Extract<IndexerStatus, { kind: 'unavailable' }>
   | { readonly kind: 'invalidated'; readonly identity: string }
   | {
@@ -42,17 +44,9 @@ async function readNativeProgress(
   if (status.kind === 'unavailable') {
     return status;
   }
-  if (collectionId !== null && !status.authorizedCollectionIds?.includes(collectionId)) {
-    return {
-      kind: 'unavailable',
-      phase: 'preparing',
-      reason: 'Native indexing is activating the selected collection.',
-    };
-  }
-  // Text search with no collection and no folder has nothing to cover: the
-  // index is ready and empty. The native capability refuses an empty scope, so
-  // there is nothing to ask (BST-1988).
-  if (collectionId === null && status.authorizedRootIds.length === 0) {
+  // No folder has nothing to cover: the index is ready and empty. The native
+  // capability refuses an empty scope, so there is nothing to ask (BST-1988).
+  if (status.authorizedRootIds.length === 0) {
     return {
       complete: true,
       coverage: {
@@ -62,17 +56,13 @@ async function readNativeProgress(
         totals: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
         vectorCoverageComplete: true,
       },
-      identity: progressIdentity(status, collectionId),
+      identity: progressIdentity(status),
       kind: 'ready',
       status,
     };
   }
-  const observation = await capability.coverageBatch([
-    {
-      rootIds: status.authorizedRootIds,
-      ...(collectionId === null ? {} : { collectionId }),
-    },
-  ]);
+  // Root-scoped coverage counts the vectors of workspace files indexed under the vector space.
+  const observation = await capability.coverageBatch([{ rootIds: status.authorizedRootIds }]);
   if (observation.kind === 'blocked') {
     return {
       ...(observation.cause ? { cause: observation.cause } : {}),
@@ -82,7 +72,7 @@ async function readNativeProgress(
     };
   }
   if (observation.kind === 'invalidated') {
-    return { identity: progressIdentity(status, collectionId), kind: 'invalidated' };
+    return { identity: progressIdentity(status), kind: 'invalidated' };
   }
   const coverage = observation.coverage[0];
   if (
@@ -93,46 +83,37 @@ async function readNativeProgress(
     throw new Error('Native coverage batch returned inconsistent progress.');
   }
   const current = observation.status;
-  const complete =
-    current.rootReadiness.every((root) => root.scanComplete) &&
-    (collectionId === null ||
-      current.collectionReadiness?.some(
-        (scope) => scope.embeddingSetId === collectionId && scope.scanComplete
-      ) === true);
+  const complete = current.rootReadiness.every((root) => root.scanComplete);
   return {
     complete,
     coverage,
-    identity: progressIdentity(current, collectionId),
+    identity: progressIdentity(current),
     kind: 'ready',
     status: current,
   };
 }
 
-function progressIdentity(
-  status: Extract<IndexerStatus, { kind: 'ready' }>,
-  collectionId: string | null
-): string {
+function progressIdentity(status: Extract<IndexerStatus, { kind: 'ready' }>): string {
   const profile =
     status.embedding.indexMode === 'vector-configured' ? status.embedding.profileHash : null;
   return JSON.stringify([
     status.storeId,
     [...status.authorizedRootIds].sort(),
-    collectionId,
     status.embedding.indexMode,
     profile,
   ]);
 }
 
-function resetNativeProgress(collectionId: string | null): void {
+function resetNativeProgress(): void {
   useIndexingActivityStore
     .getState()
-    .setManagedCollectionStats({ collectionId, error: null, stats: null, status: 'loading' });
+    .setManagedCollectionStats({ collectionId: null, error: null, stats: null, status: 'loading' });
   useWorkspaceCollectionSyncStatusStore.getState().setStatus({
     activeRootPath: null,
     blockedReason: null,
     currentFilePath: null,
     lastError: null,
-    managedCollectionId: collectionId,
+    managedCollectionId: null,
     processedFiles: 0,
     state: 'waiting',
   });
@@ -147,8 +128,7 @@ function publishPreparingProgress(): void {
 }
 
 function publishUnavailableProgress(
-  progress: Extract<IndexerStatus, { kind: 'unavailable' }>,
-  collectionId: string | null
+  progress: Extract<IndexerStatus, { kind: 'unavailable' }>
 ): void {
   if (progress.phase === 'preparing') {
     publishPreparingProgress();
@@ -157,7 +137,7 @@ function publishUnavailableProgress(
   useWorkspaceCollectionSyncStatusStore.getState().setStatus({
     blockedReason: progress.phase === 'blocked' ? syncBlockedReason(progress.cause) : null,
     lastError: progress.reason,
-    managedCollectionId: collectionId,
+    managedCollectionId: null,
     state: progress.phase === 'blocked' ? 'blocked' : 'unconfigured',
   });
 }
@@ -193,13 +173,12 @@ interface RetainedProgress {
 function reconcileProgressIdentity(
   holder: { current: RetainedProgress | null },
   selection: string,
-  observation: string,
-  collectionId: string | null
+  observation: string
 ): void {
   if (holder.current?.observation === observation) {
     return;
   }
-  resetNativeProgress(collectionId);
+  resetNativeProgress();
   holder.current = { observation, selection };
 }
 
@@ -218,7 +197,6 @@ function nativeRootPath(
 function publishNativeProgress(
   coverage: IndexerCoverage,
   complete: boolean,
-  collectionId: string | null,
   mode: 'TEXT' | 'VECTOR',
   activeRootPath: string | null
 ): void {
@@ -227,28 +205,21 @@ function publishNativeProgress(
     backfillRequestId: null,
     blockedReason: null,
     lastError: null,
-    managedCollectionId: collectionId,
+    managedCollectionId: null,
     processedFiles: coverage.totals.indexedFiles,
     queuedFiles: 0,
     queueProgress: null,
     state: complete ? 'idle' : 'scanning',
   };
-  // A collection counts its own scope; the TEXT partition (no collection) is its folders.
-  const counts =
-    collectionId === null
-      ? coverage.totals
-      : coverage.collections?.find((row) => row.embeddingSetId === collectionId);
-  if (!counts) {
-    throw new Error('Native coverage omitted the selected collection.');
-  }
+  const counts = coverage.totals;
   const stats: IndexingManagedCollectionStatsState = {
-    collectionId,
+    collectionId: null,
     error: null,
     stats: {
       chunkCount: counts.chunks,
       dirty: !complete,
       embeddedChunkCount: counts.vectors,
-      embeddingSetId: collectionId,
+      embeddingSetId: null,
       fileCount: counts.indexedFiles,
       lastRefreshedAt: new Date().toISOString(),
       pendingChunkCount: mode === 'TEXT' ? 0 : counts.missingVectors,
@@ -266,27 +237,13 @@ function nativeProgressError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function getNativeSetupMessage(
-  mode: 'TEXT' | 'VECTOR' | null,
-  collectionId: string | null
-): string | null {
-  if (mode === null) {
-    return 'Choose a search mode in Search & Indexing settings.';
-  }
-  // Text search needs no model (BST-1988); only semantic search needs a collection.
-  if (mode === 'VECTOR' && collectionId === null) {
-    return 'Choose an embedding model and set up a collection in Search & Indexing settings.';
-  }
-  return null;
-}
-
 /** Visible UI observes the main-owned producer; closing this view never retires ingestion. */
 export function NativeWorkspaceIndexProvider({
   children,
   capability,
 }: {
   readonly children: ReactNode;
-  readonly capability: IndexSearchCapability;
+  readonly capability: IndexSearchCapability & IndexConfigCapability;
 }) {
   const retained = useRef<RetainedProgress | null>(null);
   const { fileSystemAdapter } = useAdapters();
@@ -311,11 +268,11 @@ export function NativeWorkspaceIndexProvider({
       disposed = true;
     };
   }, [fileSystemAdapter, syncMountedRoots, rootDirectoryHandles]);
-  const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
-  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
-  const mode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
-  const selection = useBackgroundIndexingPreferencesStore((state) => state.nativeLocalSelection);
-  const collectionId = useBackgroundIndexingPreferencesStore((state) => state.managedCollectionId);
+  useEffect(() => followIndexConfig(capability), [capability]);
+  const config = useIndexConfigStore(selectIndexConfig);
+  const configFailure = useIndexConfigStore((store) =>
+    store.state.kind === 'failed' ? store.state.message : null
+  );
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -323,39 +280,48 @@ export function NativeWorkspaceIndexProvider({
     const mountedRoots = rootDirectoryHandles
       .map((root) => [root.rootId ?? null, root.path])
       .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-    const selectionIdentity = JSON.stringify([collectionId, mode, selection, mountedRoots]);
+    const selectionIdentity = JSON.stringify([config?.mode, config?.model, mountedRoots]);
     if (retained.current?.selection !== selectionIdentity) {
-      resetNativeProgress(collectionId);
+      resetNativeProgress();
       retained.current = { observation: null, selection: selectionIdentity };
     }
-    const setupMessage = getNativeSetupMessage(mode, collectionId);
-    if (!enabled || paused || mode === null || setupMessage !== null) {
+    if (config === null) {
+      // Until Main's config is read the index state is unknown, never off; a failed read says why.
       publish({
         blockedReason: null,
-        lastError: enabled && !paused ? setupMessage : null,
-        managedCollectionId: collectionId,
-        state: enabled ? (paused ? 'paused' : 'unconfigured') : 'disabled',
+        lastError: configFailure,
+        managedCollectionId: null,
+        state: configFailure === null ? 'waiting' : 'error',
       });
       return;
     }
+    if (config.mode === 'off' || config.paused) {
+      publish({
+        blockedReason: null,
+        lastError: null,
+        managedCollectionId: null,
+        state: config.mode === 'off' ? 'disabled' : 'paused',
+      });
+      return;
+    }
+    const mode = config.mode === 'semantic' ? 'VECTOR' : 'TEXT';
     const refresh = async (): Promise<void> => {
       try {
-        const progress = await readNativeProgress(capability, collectionId);
+        const progress = await readNativeProgress(capability);
         if (disposed) {
           return;
         }
         if (progress.kind === 'unavailable') {
-          publishUnavailableProgress(progress, collectionId);
+          publishUnavailableProgress(progress);
           return;
         }
-        reconcileProgressIdentity(retained, selectionIdentity, progress.identity, collectionId);
+        reconcileProgressIdentity(retained, selectionIdentity, progress.identity);
         if (progress.kind === 'invalidated') {
           return;
         }
         publishNativeProgress(
           progress.coverage,
           progress.complete,
-          collectionId,
           mode,
           nativeRootPath(progress.status, rootDirectoryHandles, dbRootIdByAdapterRootId)
         );
@@ -382,16 +348,7 @@ export function NativeWorkspaceIndexProvider({
         clearTimeout(timer);
       }
     };
-  }, [
-    capability,
-    collectionId,
-    enabled,
-    mode,
-    paused,
-    selection,
-    rootDirectoryHandles,
-    dbRootIdByAdapterRootId,
-  ]);
+  }, [capability, config, configFailure, rootDirectoryHandles, dbRootIdByAdapterRootId]);
   return (
     <RootIdentityProvider dbRootIdByAdapterRootId={dbRootIdByAdapterRootId}>
       {children}

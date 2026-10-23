@@ -138,7 +138,7 @@ function WorktreeIndexingToggle({
 }: Pick<WorktreeMapCardProps, 'card' | 'onToggleIndexing'>): ReactElement {
   const { entry } = card;
   const indexingEnabled = card.indexing === 'included';
-  return card.indexing === 'not-a-root' ? (
+  return card.indexing === 'not-a-root' || card.indexing === 'unknown' ? (
     <span aria-hidden="true" className="size-8 shrink-0" />
   ) : (
     <Button

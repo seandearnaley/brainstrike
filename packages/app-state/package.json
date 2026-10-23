@@ -86,10 +86,6 @@
       "import": "./dist/stores/assistant-preferences-store-version.js",
       "require": "./dist/stores/assistant-preferences-store-version.js"
     },
-    "./stores/background-indexing-preferences-store": {
-      "types": "./dist/stores/background-indexing-preferences-store.d.ts",
-      "import": "./dist/stores/background-indexing-preferences-store.js"
-    },
     "./stores/context-explorer-layout-store": {
       "types": "./dist/stores/context-explorer-layout-store.d.ts",
       "import": "./dist/stores/context-explorer-layout-store.js"
@@ -117,6 +113,10 @@
     "./stores/import-settings-store": {
       "types": "./dist/stores/import-settings-store.d.ts",
       "import": "./dist/stores/import-settings-store.js"
+    },
+    "./stores/index-config-store": {
+      "types": "./dist/stores/index-config-store.d.ts",
+      "import": "./dist/stores/index-config-store.js"
     },
     "./stores/indexing-activity-store": {
       "types": "./dist/stores/indexing-activity-store.d.ts",

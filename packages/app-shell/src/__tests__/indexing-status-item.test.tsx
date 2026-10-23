@@ -1,7 +1,4 @@
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
@@ -14,11 +11,29 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
-import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  BoundaryFailureError,
+  refusal,
+  refusalError,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  DEFAULT_INDEX_CONFIG,
+  type IndexConfig,
+  type IndexConfigPatch,
+} from '@brainstrike/assistant-contract/index-config';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IndexingStatusItem } from '../status-items/indexing-status-item';
+
+/** Main's saved config as this window heard it, and Main's write path. */
+function savedConfig(
+  config: IndexConfig,
+  update = vi.fn(async (patch: IndexConfigPatch): Promise<IndexConfig> => ({ ...config, ...patch }))
+) {
+  useIndexConfigStore.setState({ state: { config, kind: 'ready' }, update });
+  return update;
+}
 
 function setManagedCollectionStats(managedCollectionStats: IndexingManagedCollectionStatsState) {
   useIndexingActivityStore.getState().setManagedCollectionStats(managedCollectionStats);
@@ -102,7 +117,7 @@ afterEach(async () => {
 describe('IndexingStatusItem', () => {
   beforeEach(() => {
     __resetIndexingActivityStoreForTests();
-    __resetBackgroundIndexingPreferencesStoreForTests();
+    savedConfig(DEFAULT_INDEX_CONFIG);
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     setManagedCollectionStats({
       collectionId: null,
@@ -133,10 +148,6 @@ describe('IndexingStatusItem', () => {
   });
 
   it('presents Text search with no collection as ready, using no embeddings (BST-1988)', async () => {
-    useBackgroundIndexingPreferencesStore.setState({
-      managedCollectionId: null,
-      nativeIndexMode: 'TEXT',
-    });
     // The running app always reports database work, so its activity snapshot is idle.
     useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
     useWorkspaceCollectionSyncStatusStore.getState().setStatus({
@@ -261,14 +272,13 @@ describe('IndexingStatusItem', () => {
     expect(screen.getAllByRole('status')).toHaveLength(1);
 
     act(() => {
-      useBackgroundIndexingPreferencesStore.setState({ paused: true });
+      savedConfig({ ...DEFAULT_INDEX_CONFIG, paused: true });
     });
 
     expect(status).toHaveTextContent('Workspace Index status: Paused');
   });
 
   it('uses contrast-safe semantic tones in light and dark themes', () => {
-    useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: null,
@@ -286,7 +296,7 @@ describe('IndexingStatusItem', () => {
     expect(status).toHaveClass('text-success');
 
     act(() => {
-      useBackgroundIndexingPreferencesStore.setState({ paused: true });
+      savedConfig({ ...DEFAULT_INDEX_CONFIG, paused: true });
     });
 
     expect(status).toHaveTextContent('Workspace IndexPaused');
@@ -294,8 +304,7 @@ describe('IndexingStatusItem', () => {
   });
 
   it('unifies managed counts, sync progress, queue activity, and diagnostics', async () => {
-    useBackgroundIndexingPreferencesStore.getState().setIndexingPolicyPreset('full-root');
-    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    savedConfig({ ...DEFAULT_INDEX_CONFIG, policy: 'full-root' });
     seedReadyManagedStats();
     useWorkspaceCollectionSyncStatusStore.getState().setStatus({
       activeRootPath: '/Users/sean/projects/brainstrike/packages/app-shell/src/status-items',
@@ -419,7 +428,6 @@ describe('IndexingStatusItem', () => {
   });
 
   it('reserves stable metric and activity geometry while managed stats load', async () => {
-    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
     setManagedCollectionStats({
       collectionId: 'collection-a',
       error: null,
@@ -460,7 +468,6 @@ describe('IndexingStatusItem', () => {
   });
 
   it('surfaces a blocked sync error in the reserved activity region', async () => {
-    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
     useWorkspaceCollectionSyncStatusStore.getState().setStatus({
       lastError: 'OpenAI API key not configured.',
       managedCollectionId: 'collection-a',
@@ -606,7 +613,6 @@ describe('IndexingStatusItem', () => {
   ])(
     'shows the missing setup requirement: $label',
     ({ activeRootPath, label, managedCollectionId }) => {
-      useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
       useWorkspaceCollectionSyncStatusStore.getState().setStatus({
         activeRootPath,
         lastError: null,
@@ -632,11 +638,6 @@ describe('IndexingStatusItem', () => {
   );
 
   it('keeps the pause action available while a bound Workspace Index waits for restore', async () => {
-    useBackgroundIndexingPreferencesStore.setState({
-      enabled: true,
-      managedCollectionId: 'collection-a',
-      paused: false,
-    });
     useWorkspaceCollectionSyncStatusStore.getState().setStatus({
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace Index',
@@ -652,7 +653,6 @@ describe('IndexingStatusItem', () => {
   });
 
   it('marks retained dirty statistics as updating without moving the metric layout', async () => {
-    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
     seedReadyManagedStats();
     const readyStats = useIndexingActivityStore.getState().managedCollectionStats.stats;
     setManagedCollectionStats({
@@ -670,8 +670,8 @@ describe('IndexingStatusItem', () => {
     expect(within(popover).getByTestId('managed-stat-files')).toHaveTextContent('24');
   });
 
-  it('clicking the pause action updates the background indexing preferences store', async () => {
-    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+  it('asks Main to pause the workspace index', async () => {
+    const update = savedConfig(DEFAULT_INDEX_CONFIG);
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: null,
@@ -688,9 +688,62 @@ describe('IndexingStatusItem', () => {
     const pauseButton = await screen.findByRole('button', { name: 'Pause workspace index' });
     await userEvent.click(pauseButton);
 
-    await waitFor(() => {
-      expect(useBackgroundIndexingPreferencesStore.getState().paused).toBe(true);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ paused: true }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows Main’s reason when it refuses to pause, and leaves Pause available', async () => {
+    savedConfig(
+      DEFAULT_INDEX_CONFIG,
+      vi.fn(async () => {
+        throw refusalError(
+          'input',
+          'index-config.refused',
+          'The search index is rebuilding; pause it once the rebuild finishes.'
+        );
+      })
+    );
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: null,
+      managedCollectionId: null,
+      managedCollectionName: 'Workspace Index',
+      paused: false,
+      pauseReasons: [],
+      state: 'idle',
     });
+
+    render(<IndexingStatusItem />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Pause workspace index' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The search index is rebuilding; pause it once the rebuild finishes.'
+    );
+    expect(screen.getByRole('button', { name: 'Pause workspace index' })).toBeEnabled();
+  });
+
+  it('offers no Pause and names no policy while Main’s config is loading', async () => {
+    useIndexConfigStore.setState({ state: { kind: 'loading' }, update: vi.fn() });
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({ state: 'waiting' });
+    const capability = {
+      coverage: () => Promise.reject(new Error('unused')),
+      coverageBatch: () => Promise.reject(new Error('unused')),
+      grep: () => Promise.reject(new Error('unused')),
+      rebuild: async () => {},
+      search: () => Promise.reject(new Error('unused')),
+      status: async () => ({ kind: 'unavailable' as const, reason: 'unused' }),
+    };
+
+    render(<IndexingStatusItem nativeIndexSearch={capability} />);
+
+    expect(screen.getByTestId('indexing-status-value')).toHaveTextContent('Preparing');
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    const popover = await screen.findByTestId('indexing-status-popover');
+    expect(within(popover).getByText('Policy: —')).toBeInTheDocument();
+    expect(
+      within(popover).queryByRole('button', { name: /workspace index$/ })
+    ).not.toBeInTheDocument();
   });
 
   describe('popover fixture lifetime', () => {

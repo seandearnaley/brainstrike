@@ -33,9 +33,10 @@ export interface WorktreeMapCardModel {
   /**
    * `not-a-root` means the worktree is not mounted as a workspace root, so
    * there is no indexing preference to report. It is NOT "excluded": inventing
-   * an answer for an unmounted path would be a silent fallback.
+   * an answer for an unmounted path would be a silent fallback. `unknown`
+   * means Main's search index config has not been read yet, so no claim is made.
    */
-  readonly indexing: 'excluded' | 'included' | 'not-a-root';
+  readonly indexing: 'excluded' | 'included' | 'not-a-root' | 'unknown';
   readonly lastActivityLabel: string | null;
   readonly provenanceLabel: string;
   readonly pullRequest: ForgePrCacheEntry | null;
@@ -81,7 +82,7 @@ function branchLabelFor(entry: WorktreeListEntry): string {
 
 function indexingFor(
   entry: WorktreeListEntry,
-  optInByRootId: Readonly<Record<string, true>>
+  optInByRootId: Readonly<Record<string, boolean>> | null
 ): WorktreeMapCardModel['indexing'] {
   // (bot review fix, PR #2664 finding 1) `rootId` alone is NOT "this
   // checkout's own root" — it can be the first root that merely CONTAINS
@@ -94,6 +95,9 @@ function indexingFor(
   // no root at all.
   if (entry.rootId === null || !entry.rootIdIsExactMount) {
     return 'not-a-root';
+  }
+  if (optInByRootId === null) {
+    return 'unknown';
   }
   return optInByRootId[entry.rootId] === true ? 'included' : 'excluded';
 }
@@ -278,7 +282,8 @@ export function buildWorktreeMap(input: {
   readonly entries: readonly WorktreeListEntry[];
   /** Injectable for the unit lane; defaults to {@link formatWorktreeActivity}. */
   readonly formatActivity?: (at: Date) => string;
-  readonly indexingOptInByRootId: Readonly<Record<string, true>>;
+  /** Main's worktree index choices; null until Main's config is read. */
+  readonly indexingOptInByRootId: Readonly<Record<string, boolean>> | null;
   readonly now?: Date;
   readonly prCache: ForgePrCacheLookup;
   readonly runningThreadIds: ReadonlySet<string>;

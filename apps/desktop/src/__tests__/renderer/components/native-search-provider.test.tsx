@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import {
+  DEFAULT_INDEX_CONFIG,
+  type IndexConfig,
+} from '@brainstrike/assistant-contract/index-config';
 import type {
   IndexerCoverage,
   IndexerStatus,
@@ -15,23 +20,6 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const preferences = vi.hoisted(() => ({
-  managedCollectionId: 'collection-a',
-  nativeIndexMode: 'VECTOR',
-  nativeLocalSelection: {
-    device: 'webgpu',
-    dimensions: 384,
-    dtype: 'fp16',
-    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-    revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  },
-}));
-vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', () => ({
-  useBackgroundIndexingPreferencesStore: Object.assign(
-    (selector: (state: typeof preferences) => unknown) => selector(preferences),
-    { getState: () => preferences }
-  ),
-}));
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   useIdeFileEditor: () => ({ openFileInTab: vi.fn(), registerOpenFileInTab: vi.fn() }),
@@ -40,11 +28,27 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 import { NativeSearchProvider } from '../../../renderer/components/native-search-provider';
 import { mountNativeSearchController } from './native-search-controller-fixture';
 
+const MODEL_ID = 'onnx-community/all-MiniLM-L6-v2-ONNX';
+const REVISION = 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f';
+/** Main's saved semantic search: the exact local execution the query plan must match. */
+const SAVED_SEMANTIC: IndexConfig = {
+  ...DEFAULT_INDEX_CONFIG,
+  mode: 'semantic',
+  model: {
+    dimensions: 384,
+    local: { device: 'webgpu', dtype: 'fp16', revision: REVISION },
+    modelKey: `local::${MODEL_ID}`,
+  },
+};
+function savedConfig(config: IndexConfig): void {
+  useIndexConfigStore.setState({ state: { config, kind: 'ready' }, update: vi.fn() });
+}
+
 const profile = {
   dimensions: 384,
   dtype: 'fp16' as const,
-  modelId: preferences.nativeLocalSelection.modelId,
-  revision: preferences.nativeLocalSelection.revision,
+  modelId: MODEL_ID,
+  revision: REVISION,
   tokenCap: 256,
 };
 const queryPlan = {
@@ -52,7 +56,6 @@ const queryPlan = {
   modelKey: 'native:query-fixture',
 };
 const ready = {
-  authorizedCollectionIds: ['collection-a'],
   authorizedRootIds: ['root-a'],
   embedding: {
     indexMode: 'vector-configured' as const,
@@ -68,6 +71,7 @@ const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<BoundaryResult<numb
 const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
 
 beforeEach(() => {
+  savedConfig(SAVED_SEMANTIC);
   queryEmbedding.mockReset();
   cancelQueryEmbedding.mockReset();
   Object.defineProperty(window, 'embeddingHost', {
@@ -322,7 +326,7 @@ describe('native provider and search controller observation refresh', () => {
   });
 
   it('names the setting that turns semantic search on when Text search is saved (BST-1981)', async () => {
-    preferences.nativeIndexMode = 'TEXT';
+    savedConfig(DEFAULT_INDEX_CONFIG);
     const mounted = mountController();
     try {
       // The saved Text choice reaches the index on its next status poll.
@@ -340,7 +344,6 @@ describe('native provider and search controller observation refresh', () => {
       );
     } finally {
       mounted.unmount();
-      preferences.nativeIndexMode = 'VECTOR';
     }
   });
 

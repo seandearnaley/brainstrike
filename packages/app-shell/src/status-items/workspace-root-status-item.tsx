@@ -1,7 +1,4 @@
-import {
-  useFileExplorerStoreSelector,
-  WorktreeIndexingControl,
-} from '@brainstrike/file-explorer-ui/shell';
+import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
@@ -72,7 +69,6 @@ function RootRow({
           {root.pathLabel}
         </div>
       </div>
-      <WorktreeIndexingControl rootId={root.rootId} />
       {!root.isMain && (
         <Button
           className="h-6 shrink-0 px-2 text-[11px]"

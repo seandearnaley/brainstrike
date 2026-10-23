@@ -1,3 +1,5 @@
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
+import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,13 +31,6 @@ vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
   useAssistantThreadStore: (
     selector: (state: { threadsByResourceId: Record<string, readonly unknown[]> }) => unknown
   ) => selector({ threadsByResourceId: { 'brainstrike:workspace': storeThreads } }),
-}));
-
-const indexingOptIn: Record<string, true> = {};
-vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', () => ({
-  useBackgroundIndexingPreferencesStore: (
-    selector: (state: { worktreeRootIndexingOptInById: Record<string, true> }) => unknown
-  ) => selector({ worktreeRootIndexingOptInById: indexingOptIn }),
 }));
 
 let invalidationNonce = 0;
@@ -106,6 +101,35 @@ describe('useWorktreeMap', () => {
     });
     adoptMock.mockReset();
     archiveMock.mockReset();
+    useIndexConfigStore.setState({
+      state: { config: DEFAULT_INDEX_CONFIG, kind: 'ready' },
+      update: vi.fn(),
+    });
+  });
+
+  it('shows each mounted checkout’s index choice from Main’s config, and none before it is read', async () => {
+    listMock.mockResolvedValue({
+      ok: true,
+      value: [
+        entry({ path: '/repo', rootId: 'root-1', rootIdIsExactMount: true }),
+        entry({ path: '/repo-b', primary: false, rootId: 'root-2', rootIdIsExactMount: true }),
+      ],
+    });
+    useIndexConfigStore.setState({ state: { kind: 'loading' } });
+    const { result } = renderHook(() => useWorktreeMap(INPUT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const indexing = () => result.current.repositories[0]?.cards.map((card) => card.indexing);
+    expect(indexing()).toEqual(['unknown', 'unknown']);
+
+    act(() =>
+      useIndexConfigStore.setState({
+        state: {
+          config: { ...DEFAULT_INDEX_CONFIG, worktrees: { 'root-1': false, 'root-2': true } },
+          kind: 'ready',
+        },
+      })
+    );
+    expect(indexing()).toEqual(['excluded', 'included']);
   });
 
   it('loads the list once on mount and projects it into repository lanes', async () => {

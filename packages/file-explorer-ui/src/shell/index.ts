@@ -1,4 +1,3 @@
-export * from '../components/worktree-indexing-control';
 export * from './explorer-context-export-action';
 export * from './explorer-thread-status';
 export * from './file-content-context';

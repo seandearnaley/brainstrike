@@ -9,7 +9,10 @@
  * `changes:invalidated` nonce (`anyInvalidationNonce`) is the only repeat
  * trigger, plus an explicit user refresh. No timer.
  */
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  selectIndexConfig,
+  useIndexConfigStore,
+} from '@brainstrike/app-state/stores/index-config-store';
 import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeListEntry } from '@brainstrike/types';
@@ -162,8 +165,9 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   const threads = useAssistantThreadStore(
     (state) => state.threadsByResourceId[input.resourceId] ?? EMPTY_THREADS
   );
-  const indexingOptInByRootId = useBackgroundIndexingPreferencesStore(
-    (state) => state.worktreeRootIndexingOptInById
+  // null until Main's config is read: the card then makes no indexing claim.
+  const indexingOptInByRootId = useIndexConfigStore(
+    (store) => selectIndexConfig(store)?.worktrees ?? null
   );
 
   const repositories = useMemo(

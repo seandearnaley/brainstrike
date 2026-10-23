@@ -1,8 +1,4 @@
 import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
-import {
   __resetIndexingActivityStoreForTests,
   useIndexingActivityStore,
 } from '@brainstrike/app-state/stores/indexing-activity-store';
@@ -17,14 +13,10 @@ import { IndexingActivityCoordinator } from '../indexing-activity-coordinator';
 describe('IndexingActivityCoordinator', () => {
   beforeEach(() => {
     __resetIndexingActivityStoreForTests();
-    __resetBackgroundIndexingPreferencesStoreForTests();
     __resetWorkspaceCollectionSyncStatusStoreForTests();
   });
 
   it('mirrors background indexing status into the canonical snapshot', async () => {
-    useBackgroundIndexingPreferencesStore.getState().setEnabled(true);
-    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
-    useBackgroundIndexingPreferencesStore.getState().setPaused(true);
     useWorkspaceCollectionSyncStatusStore.getState().setStatus({
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
@@ -46,6 +38,20 @@ describe('IndexingActivityCoordinator', () => {
         },
         phase: 'background-indexing',
         status: 'paused',
+      });
+    });
+  });
+
+  it('reports indexing as off only when the sync status says it is disabled', async () => {
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({ state: 'disabled' });
+
+    render(<IndexingActivityCoordinator />);
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().snapshot.background).toMatchObject({
+        enabled: false,
+        paused: false,
+        state: 'disabled',
       });
     });
   });

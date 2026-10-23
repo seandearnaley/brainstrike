@@ -1,4 +1,7 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  selectIndexConfig,
+  useIndexConfigStore,
+} from '@brainstrike/app-state/stores/index-config-store';
 import type {
   IndexingActivitySnapshot,
   IndexingManagedCollectionStatsState,
@@ -11,6 +14,8 @@ import {
   shouldShowWorkspaceCollectionSyncPauseControl,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import type { IndexConfig } from '@brainstrike/assistant-contract/index-config';
 import type {
   IndexRetryCapability,
   IndexSearchCapability,
@@ -29,7 +34,7 @@ import {
 } from '@brainstrike/ui';
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
-import { useId, useState } from 'react';
+import { startTransition, useActionState, useId, useState } from 'react';
 import { RetryIndexingButton, RetryIndexingFailure } from './retry-indexing-control';
 import { offeredRetryIndexing, useRetryIndexing } from './use-retry-indexing';
 
@@ -495,6 +500,44 @@ function currentIndexActivity(
   };
 }
 
+/** What the status item shows from Main's config; nothing is claimed before it is read. */
+function indexConfigFacts(config: IndexConfig | null, native: boolean) {
+  return {
+    enabled: config !== null && config.mode !== 'off',
+    paused: config?.paused === true,
+    policyLabel: config
+      ? getBackgroundIndexingPolicyOption(config.policy).label
+      : EMPTY_METRIC_VALUE,
+    // Text search reads the native text index and uses no embeddings (BST-1988).
+    textSearch: native && config?.mode === 'text',
+  };
+}
+
+/**
+ * Pause and Resume go through Main, the config's only writer; a refusal or fault comes back as
+ * the sentence to show. Unavailable until this window has read the config and can change it.
+ */
+function usePauseIndexing(config: IndexConfig | null) {
+  const update = useIndexConfigStore((store) => store.update);
+  const [error, togglePause, pending] = useActionState(async () => {
+    if (!(update && config)) {
+      return 'Search index settings are unavailable in this window.';
+    }
+    try {
+      await update({ paused: !config.paused });
+      return null;
+    } catch (cause) {
+      return describeBoundaryError(cause);
+    }
+  }, null);
+  return {
+    available: config !== null && update !== null,
+    error,
+    pending,
+    toggle: () => startTransition(() => togglePause()),
+  };
+}
+
 export function IndexingStatusItem({
   nativeIndexRetry = null,
   nativeIndexSearch,
@@ -508,18 +551,12 @@ export function IndexingStatusItem({
   const popoverTitleId = useId();
   const snapshot = useIndexingActivityStore((state) => state.snapshot);
   const managedStats = useIndexingActivityStore((state) => state.managedCollectionStats);
-  const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
-  const managedCollectionId = useBackgroundIndexingPreferencesStore(
-    (state) => state.managedCollectionId
+  const config = useIndexConfigStore(selectIndexConfig);
+  const pause = usePauseIndexing(config);
+  const { enabled, paused, policyLabel, textSearch } = indexConfigFacts(
+    config,
+    Boolean(nativeIndexSearch)
   );
-  const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
-    (state) => state.indexingPolicyPreset
-  );
-  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
-  const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
-  const nativeIndexMode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
-  // Text search reads the native text index and uses no embeddings (BST-1988).
-  const textSearch = Boolean(nativeIndexSearch) && nativeIndexMode === 'TEXT';
   const syncStatus = useWorkspaceCollectionSyncStatusStore(selectCollectionSyncStatus);
   const displayStatus = getDisplayStatus({
     enabled,
@@ -529,7 +566,6 @@ export function IndexingStatusItem({
     snapshot,
     syncStatus,
   });
-  const selectedPolicy = getBackgroundIndexingPolicyOption(indexingPolicyPreset);
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = currentIndexActivity(syncStatus, Boolean(nativeIndexSearch));
   const stats = getVisibleStats(managedStats);
@@ -539,7 +575,6 @@ export function IndexingStatusItem({
     syncStatus.managedCollectionName ??
     snapshot.background.managedCollectionName ??
     managedStats.collectionId ??
-    managedCollectionId ??
     (textSearch ? 'Text search' : 'Not configured');
   const showPauseControl =
     shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state) ||
@@ -613,9 +648,7 @@ export function IndexingStatusItem({
               {displayStatus.value}
             </Badge>
           </div>
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            Policy: {selectedPolicy.label}
-          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Policy: {policyLabel}</div>
         </div>
 
         <div className="space-y-3 p-4">
@@ -697,6 +730,12 @@ export function IndexingStatusItem({
 
           {retryIndexing ? <RetryIndexingFailure action={retryIndexing} /> : null}
 
+          {pause.error ? (
+            <p className="text-destructive text-sm" role="alert">
+              {pause.error}
+            </p>
+          ) : null}
+
           <div
             className="flex h-11 justify-end gap-2 border-t pt-3"
             data-testid="indexing-action-region"
@@ -714,8 +753,14 @@ export function IndexingStatusItem({
               Open indexing settings
             </Button>
             {retryIndexing ? <RetryIndexingButton action={retryIndexing} /> : null}
-            {showPauseControl ? (
-              <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+            {pause.available && showPauseControl ? (
+              <Button
+                disabled={pause.pending}
+                onClick={pause.toggle}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
                 {paused ? 'Resume workspace index' : 'Pause workspace index'}
               </Button>
             ) : null}

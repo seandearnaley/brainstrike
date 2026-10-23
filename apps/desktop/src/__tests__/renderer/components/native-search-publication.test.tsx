@@ -1,25 +1,13 @@
 // @vitest-environment jsdom
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
+import {
+  DEFAULT_INDEX_CONFIG,
+  type IndexConfig,
+} from '@brainstrike/assistant-contract/index-config';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/core';
 import { act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const preferences = vi.hoisted(() => ({
-  managedCollectionId: 'collection-a',
-  nativeIndexMode: 'VECTOR',
-  nativeLocalSelection: {
-    device: 'webgpu',
-    dimensions: 384,
-    dtype: 'fp16',
-    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-    revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  },
-}));
-vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', () => ({
-  useBackgroundIndexingPreferencesStore: Object.assign(
-    (selector: (state: typeof preferences) => unknown) => selector(preferences),
-    { getState: () => preferences }
-  ),
-}));
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   useIdeFileEditor: () => ({ openFileInTab: vi.fn(), registerOpenFileInTab: vi.fn() }),
@@ -27,11 +15,24 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 
 import { mountNativeSearchController } from './native-search-controller-fixture';
 
+const MODEL_ID = 'onnx-community/all-MiniLM-L6-v2-ONNX';
+const REVISION = 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f';
+/** Main's saved semantic search: the exact local execution the query plan must match. */
+const SAVED_SEMANTIC: IndexConfig = {
+  ...DEFAULT_INDEX_CONFIG,
+  mode: 'semantic',
+  model: {
+    dimensions: 384,
+    local: { device: 'webgpu', dtype: 'fp16', revision: REVISION },
+    modelKey: `local::${MODEL_ID}`,
+  },
+};
+
 const profile = {
   dimensions: 384,
   dtype: 'fp16' as const,
-  modelId: preferences.nativeLocalSelection.modelId,
-  revision: preferences.nativeLocalSelection.revision,
+  modelId: MODEL_ID,
+  revision: REVISION,
   tokenCap: 256,
 };
 const queryPlan = {
@@ -55,6 +56,10 @@ const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<number[]>>();
 const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
 
 beforeEach(() => {
+  useIndexConfigStore.setState({
+    state: { config: SAVED_SEMANTIC, kind: 'ready' },
+    update: vi.fn(),
+  });
   queryEmbedding.mockReset();
   cancelQueryEmbedding.mockReset();
   Object.defineProperty(window, 'embeddingHost', {

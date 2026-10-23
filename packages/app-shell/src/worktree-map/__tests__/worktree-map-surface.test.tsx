@@ -1,3 +1,5 @@
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useMemo } from 'react';
@@ -53,12 +55,7 @@ vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
     }),
 }));
 
-const setIndexingMock = vi.fn();
-vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', () => ({
-  useBackgroundIndexingPreferencesStore: (
-    selector: (state: { setWorktreeRootIndexingEnabled: typeof setIndexingMock }) => unknown
-  ) => selector({ setWorktreeRootIndexingEnabled: setIndexingMock }),
-}));
+const updateIndexConfigMock = vi.fn();
 
 const showItemInFolderMock = vi.fn();
 const openExternalMock = vi.fn();
@@ -181,11 +178,12 @@ describe('WorktreeMapSurface', () => {
       openTerminalAtMock,
       publishMock,
       selectThreadMock,
-      setIndexingMock,
       showItemInFolderMock,
+      updateIndexConfigMock,
     ]) {
       mock.mockReset();
     }
+    useIndexConfigStore.setState({ update: updateIndexConfigMock.mockResolvedValue(undefined) });
     mockSelectedThreadByResourceId = {};
     mockTerminalAvailable = true;
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
@@ -486,7 +484,7 @@ describe('WorktreeMapSurface', () => {
       worktreeId: 'wt-1',
     });
     // Falsifier: the Map must not reach for any other seam to do this.
-    expect(setIndexingMock).not.toHaveBeenCalled();
+    expect(updateIndexConfigMock).not.toHaveBeenCalled();
     expect(showItemInFolderMock).not.toHaveBeenCalled();
   });
 
@@ -707,13 +705,21 @@ describe('WorktreeMapSurface', () => {
     expect(screen.queryByRole('menuitem', { name: /hand off to local/iu })).not.toBeInTheDocument();
   });
 
-  it('toggles indexing through the durable-root setter, never the adapter-keyed one', async () => {
+  it('asks Main to index the worktree under its durable root id and shows a refusal', async () => {
     render(<Surface />);
+    const toggle = screen.getByRole('button', { name: /not indexed/iu });
+    await userEvent.click(toggle);
+    expect(updateIndexConfigMock).toHaveBeenCalledExactlyOnceWith({
+      worktrees: { 'root-1': true },
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /not indexed/iu }));
-
-    expect(setIndexingMock).toHaveBeenCalledTimes(1);
-    expect(setIndexingMock).toHaveBeenCalledWith('root-1', true);
+    const refusal = 'Choose how to run the embedding model on this device first.';
+    updateIndexConfigMock.mockRejectedValueOnce(
+      refusalError('input', 'index-config.refused', refusal)
+    );
+    await userEvent.click(toggle);
+    expect(await screen.findByRole('alert')).toHaveTextContent(refusal);
   });
 
   // These two pin the destructive/rooting seams so the surface cannot ship
@@ -824,7 +830,7 @@ describe('WorktreeMapSurface', () => {
     expect(refreshMock).not.toHaveBeenCalled();
     // Falsifier: adding a root never archives or mutates indexing.
     expect(archiveMock).not.toHaveBeenCalled();
-    expect(setIndexingMock).not.toHaveBeenCalled();
+    expect(updateIndexConfigMock).not.toHaveBeenCalled();
   });
 
   // An unmanaged card offers Adopt as its own ENABLED action (never a

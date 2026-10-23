@@ -309,7 +309,7 @@ describe('buildWorktreeMap', () => {
           rootIdIsExactMount: false,
         }),
       ],
-      indexingOptInByRootId: { 'root-a': true, 'root-d': true },
+      indexingOptInByRootId: { 'root-a': true, 'root-b': false, 'root-d': true },
       prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
@@ -321,6 +321,21 @@ describe('buildWorktreeMap', () => {
       'not-a-root',
       'not-a-root',
     ]);
+  });
+
+  it('makes no indexing claim for a mounted checkout before Main’s config is read', () => {
+    const model = buildWorktreeMap({
+      entries: [
+        entry({ id: 'a', managed: true, path: '/a', primary: false, rootId: 'root-a' }),
+        entry({ id: 'c', managed: true, path: '/c', primary: false, rootId: null }),
+      ],
+      indexingOptInByRootId: null,
+      prCache: new Map(),
+      runningThreadIds: new Set(),
+      threads: [],
+    });
+
+    expect(model[0]?.cards.map((card) => card.indexing)).toEqual(['unknown', 'not-a-root']);
   });
 
   it('carries the disabled reason through untouched', () => {
