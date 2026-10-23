@@ -36,7 +36,13 @@ const BoundaryFailureCode = Schema.Union([
 ]);
 /** The facts of a lost child process; none of them is a path or a message. */
 const ProcessLostFacts = Schema.Struct({
-  child: Schema.Literals(['agent-host', 'db-host', 'index-utility', 'embedding-host']),
+  child: Schema.Literals([
+    'agent-host',
+    'db-host',
+    'index-utility',
+    'index-query',
+    'embedding-host',
+  ]),
   exitCode: Schema.optional(Schema.Int),
   reason: Schema.optional(
     Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(64))
@@ -117,6 +123,7 @@ const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
   'agent-host': 'The agent host',
   'db-host': 'The database host',
   'embedding-host': 'The embedding host',
+  'index-query': 'The index query process',
   'index-utility': 'The index process',
 };
 /** The cause a supervisor reports when its child exits without being asked. */

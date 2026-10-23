@@ -196,12 +196,8 @@ it.each(['startup', 'cleanup'] as const)(
           () => undefined,
           (error: unknown) => error
         );
-        if (scenario === 'cleanup') {
-          expect(result).toBe(failure);
-        } else {
-          expect(result).toBeInstanceOf(NativeIndexRefusalError);
-          expect((result as NativeIndexRefusalError).cause).toBe(failure);
-        }
+        expect(result).toBeInstanceOf(NativeIndexRefusalError);
+        expect((result as NativeIndexRefusalError).cause).toBe(failure);
       }
       expect(mocks.acquire).toHaveBeenCalledOnce();
       await initialStartup;

@@ -14,6 +14,7 @@ import {
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import type { CanonicalRemoteIngestion } from './canonical-utility-parent';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { generateHostedEmbeddings } from './hosted-embeddings';
@@ -867,7 +868,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     assertCurrent(current);
     if (current.watchFailures.size > 0) {
-      throw new Error([...current.watchFailures.values()].join(' '));
+      const message = [...current.watchFailures.values()].join(' ');
+      throw new NativeIndexRefusalError({ kind: 'source-failure', message }, message);
     }
     for (const lease of current.leases.values()) {
       lease.signal.throwIfAborted();

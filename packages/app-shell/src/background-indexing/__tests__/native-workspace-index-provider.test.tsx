@@ -70,7 +70,8 @@ const SOURCE_FAILURE = refusal({
   category: 'availability',
   code: 'native-index-source-failure',
   message: 'The search index could not prepare its sources.',
-  remedy: 'Review Search and indexing in Settings and retry.',
+  remedy:
+    'Rebuild the search index in Settings, Search & Indexing. Chats, folders and settings are kept.',
 });
 
 /** Main's side of the config: one read, then every change it publishes. */

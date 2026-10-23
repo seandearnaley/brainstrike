@@ -386,7 +386,10 @@ it.each(['invalid-settings', 'physical-failure'] as const)(
       });
     } else {
       expect(error).toMatchObject({ errors: [failure] });
-      await expect(f.activation.acquireRead()).rejects.toBe(error);
+      await expect(f.activation.acquireRead()).rejects.toMatchObject({
+        cause: error,
+        refusal: { kind: 'source-failure' },
+      });
     }
   }
 );

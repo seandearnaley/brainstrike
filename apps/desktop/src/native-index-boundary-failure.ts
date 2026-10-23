@@ -4,14 +4,17 @@ import {
   BoundaryFailureError,
   fault,
   isBoundaryRefusal,
+  processLost,
   refusal,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import { IndexerError } from '@brainstrike/indexer';
 import {
   NATIVE_INDEX_OFF_MESSAGE,
   type NativeIndexRefusalCause,
   NativeIndexRefusalError,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
+import { SqliteQueryProcessExitedError } from '@brainstrike/sqlite-query';
 
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
@@ -94,7 +97,8 @@ const descriptions: Readonly<
   'source-failure': {
     category: 'availability',
     message: 'The search index could not prepare its sources.',
-    remedy: 'Review Search and indexing in Settings and retry.',
+    remedy:
+      'Rebuild the search index in Settings, Search & Indexing. Chats, folders and settings are kept.',
   },
   transitioning: {
     category: 'availability',
@@ -141,6 +145,20 @@ function uniformHostedRefusal(error: unknown): BoundaryFailure | undefined {
   return hostedEmbeddingFailure(error);
 }
 
+/**
+ * An index process that exited under the call without Main asking it to: a crash, or a signal to
+ * Main's process group (BST-2192). The supervisor's typed loss crosses; the exit stays its cause.
+ */
+function lostIndexProcess(error: unknown): BoundaryFailureError | undefined {
+  if (error instanceof IndexerError && error.code === 'indexer-exited') {
+    return new BoundaryFailureError(processLost({ child: 'index-utility' }), { cause: error });
+  }
+  if (error instanceof SqliteQueryProcessExitedError) {
+    return new BoundaryFailureError(processLost({ child: 'index-query' }), { cause: error });
+  }
+  return undefined;
+}
+
 /** Preserve proven native outcomes; source and cleanup diagnostics stay in Main. */
 export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): BoundaryFailure {
   const configFailure = indexConfigFailure(error, log);
@@ -165,7 +183,7 @@ export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): Bo
     return refusal({ ...descriptions[error.cause.kind], code: `native-index-${error.cause.kind}` });
   }
   if (!(error instanceof NativeIndexRefusalError)) {
-    return toBoundaryFailure(error, log);
+    return toBoundaryFailure(lostIndexProcess(error) ?? error, log);
   }
   const failure = refusal({ ...descriptions[error.refusal.kind], code: error.code });
   if (error.cause === undefined) {
