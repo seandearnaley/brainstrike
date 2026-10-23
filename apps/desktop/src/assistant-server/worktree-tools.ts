@@ -28,6 +28,18 @@ const logger = createLogger('WorktreeTools');
 
 export const WORKTREE_TOOLS_UNAVAILABLE = 'Worktree management is not available in this session.';
 
+/** ADR-0028 decision 7: a child never moves its parent's workspace. */
+export const WORKTREE_CREATE_ROOT_ONLY =
+  'Only the conversation that delegated this task can create a worktree. Report that the task needs one instead.';
+
+/** Core's binding of the run's thread to a worktree it created; absent for a child. */
+export type EnterWorktree = (worktree: {
+  readonly branch: string | null;
+  readonly localRootId: string;
+  readonly root: { readonly displayName: string; readonly path: string; readonly rootId: string };
+  readonly worktreeId: string;
+}) => Promise<void>;
+
 /** The fields of a git-inventory entry (`WorktreeListEntry`) the tools read. */
 export interface WorktreeToolListEntry {
   readonly branch: string | null;
@@ -46,8 +58,9 @@ export interface WorktreeToolListEntry {
   readonly usable: boolean;
 }
 
-/** The fields of `WorktreeCreateResult` the tools read. */
+/** The fields of `WorktreeCreateResult` the tools read, plus the folder Main opened for it. */
 export interface WorktreeToolCreateResult {
+  readonly root: { readonly displayName: string; readonly path: string; readonly rootId: string };
   readonly setup: { readonly reason: string | null; readonly status: string };
   readonly worktree: { readonly branch: string | null; readonly id: string; readonly path: string };
 }
@@ -107,6 +120,8 @@ export type ManageWorktreeToolResult =
   | {
       readonly action: 'create';
       readonly branch: string | null;
+      /** The conversation now works in this worktree; its next turn continues there. */
+      readonly entered: true;
       readonly path: string;
       readonly setupReason: string | null;
       readonly setupStatus: string;
@@ -195,7 +210,8 @@ function directoryNameFor(branch: string): string {
 export async function runManageWorktree(
   input: ManageWorktreeInput,
   runtimeData: RuntimeData | undefined,
-  capability: WorktreeToolCapability | undefined
+  capability: WorktreeToolCapability | undefined,
+  enterWorktree?: EnterWorktree
 ): Promise<ManageWorktreeToolResult> {
   const resolved = requireCapability(capability);
   if (input.action === 'archive') {
@@ -212,6 +228,9 @@ export async function runManageWorktree(
       worktreeId: archived.value.worktree.id,
     };
   }
+  if (!enterWorktree) {
+    throw new Error(WORKTREE_CREATE_ROOT_ONLY);
+  }
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const created = await resolved.create({
     baseRef: input.baseRef ?? 'HEAD',
@@ -222,9 +241,16 @@ export async function runManageWorktree(
   if (!created.ok) {
     throw new Error(created.error);
   }
+  await enterWorktree({
+    branch: created.value.worktree.branch,
+    localRootId: root.rootId,
+    root: created.value.root,
+    worktreeId: created.value.worktree.id,
+  });
   return {
     action: 'create',
     branch: created.value.worktree.branch,
+    entered: true,
     path: created.value.worktree.path,
     setupReason: created.value.setup.reason,
     setupStatus: created.value.setup.status,
@@ -250,7 +276,8 @@ export type WorktreeMastraTools = Record<
  */
 export function buildWorktreeMastraTools(
   runtimeData: RuntimeData | undefined,
-  capability: WorktreeToolCapability | undefined
+  capability: WorktreeToolCapability | undefined,
+  enterWorktree?: EnterWorktree
 ): WorktreeMastraTools {
   return {
     [NATIVE_TOOL_ID.listWorktrees]: {
@@ -280,7 +307,7 @@ export function buildWorktreeMastraTools(
           parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageWorktree], input)
         );
         try {
-          return await runManageWorktree(resolvedInput, runtimeData, capability);
+          return await runManageWorktree(resolvedInput, runtimeData, capability, enterWorktree);
         } catch (error) {
           logger.error('manageWorktree failed', { action: resolvedInput.action, error });
           throw error;

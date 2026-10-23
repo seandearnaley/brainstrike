@@ -100,8 +100,8 @@ export interface CommittedHostThreadOptions {
    */
   readonly beforeStart?: () => Promise<void>;
   readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
-  /** Told when a newer committed title, colour or icon reaches this view. */
-  readonly onTitleCommitted?: () => void;
+  /** Told when a newer committed title, colour, icon or workspace binding reaches this view. */
+  readonly onEntryCommitted?: () => void;
   /** The model, configuration and plan mode of the next run this view starts. */
   readonly runSettings: () => Pick<
     HostParams<'run/start'>,
@@ -205,14 +205,19 @@ export function createCommittedHostThread(
       throw isRunNotAdmitted(cause) ? new MessageNotSentError(describeBoundaryError(cause)) : cause;
     }
   };
-  let titleSeq = -1;
-  const unsubscribeTitles = source.subscribe(() => {
-    const renamed = source
+  // The thread's catalog entry: its title, colour and icon, and the workspace
+  // it is bound to, which the host moves when the thread enters a worktree.
+  let entrySeq = -1;
+  const unsubscribeEntry = source.subscribe(() => {
+    const changed = source
       .getSnapshot()
-      .rows.findLast((row) => row.event.type === 'thread.updated');
-    if (renamed && renamed.seq > titleSeq) {
-      titleSeq = renamed.seq;
-      options.onTitleCommitted?.();
+      .rows.findLast(
+        (row) =>
+          row.event.type === 'thread.updated' || row.event.type === 'workspace.binding.updated'
+      );
+    if (changed && changed.seq > entrySeq) {
+      entrySeq = changed.seq;
+      options.onEntryCommitted?.();
     }
   });
   let disconnect: (() => Promise<void>) | undefined;
@@ -220,7 +225,7 @@ export function createCommittedHostThread(
     close: () => {
       releaseTelemetry();
       releaseResults();
-      unsubscribeTitles();
+      unsubscribeEntry();
       // The client outlives this view, so the unsubscribe is not joined here;
       // its refusal is reported, never swallowed.
       disconnect?.().catch((error: unknown) => {

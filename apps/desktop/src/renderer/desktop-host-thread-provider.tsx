@@ -139,8 +139,8 @@ interface HostThreadProps {
   readonly client: HostClient;
   readonly label: string;
   readonly ledger: HostThreadLedger;
+  readonly onEntryCommitted: () => void;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
-  readonly onTitleCommitted: () => void;
   readonly providerReadErrors: ProviderReadErrors | undefined;
   /** BST-2004: the connection's automatic attempt, or the user's Reconnect once it failed. */
   readonly reconnect: 'automatic' | (() => void) | undefined;
@@ -158,7 +158,7 @@ function HostThread({
   label,
   ledger,
   onRunningChange,
-  onTitleCommitted,
+  onEntryCommitted,
   providerReadErrors,
   reconnect,
   replacement,
@@ -203,7 +203,7 @@ function HostThread({
       ...(child ? {} : { bindThreadRoot: () => bindRoot.current() }),
       client,
       modelId: '',
-      onTitleCommitted,
+      onEntryCommitted,
       readConfiguration: () => configuration.current(explorer.getState().currentFolderId),
       readModelId: () => modelId.current(),
       readPlanMode: () => planMode.current(),
@@ -212,7 +212,7 @@ function HostThread({
     });
     setConversation(current);
     return () => current.close();
-  }, [child, client, explorer, onTitleCommitted, replacement, threadId]);
+  }, [child, client, explorer, onEntryCommitted, replacement, threadId]);
   // A root thread's "Restore to before this message" goes to its owner (the
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();
@@ -411,7 +411,7 @@ const windowThreadCapability = createWindowThreadCapability(
     connection,
     ledger,
     onRunningChange,
-    onTitleCommitted,
+    onEntryCommitted,
     owned,
     providerReadErrors,
     runs,
@@ -433,8 +433,8 @@ const windowThreadCapability = createWindowThreadCapability(
         // A child's region is named by its call sign, like its workspace tab.
         label={child?.callSign ?? 'Assistant'}
         ledger={ledger}
+        onEntryCommitted={onEntryCommitted}
         onRunningChange={onRunningChange}
-        onTitleCommitted={onTitleCommitted}
         providerReadErrors={providerReadErrors}
         runs={runs}
         threadId={threadId}

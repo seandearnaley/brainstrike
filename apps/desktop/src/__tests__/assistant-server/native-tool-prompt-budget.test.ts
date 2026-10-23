@@ -773,8 +773,9 @@ describe('desktop native tool provider prompt budget', () => {
       // tools became Effect-authored there and the serialized document grew
       // (measured by reverting only this PR's schema files — the two figures
       // still moved). Recorded here because this PR is stacked on that one;
-      // #3666 alone fails this gate.
-      manageWorktreeDefinitionTokens: 282,
+      // #3666 alone fails this gate. 282 → 301: create now says it moves the
+      // conversation into the new worktree (ADR-0028 step 3); no bound moved.
+      manageWorktreeDefinitionTokens: 301,
       // The retained-log description explicitly discloses rotated-out history.
       queryDiagnosticsDefinitionTokens: 365,
       // +1 each for this PR: no authored text changed, and no bound moved. The

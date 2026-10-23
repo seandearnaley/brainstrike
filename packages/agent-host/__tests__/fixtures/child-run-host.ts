@@ -238,6 +238,33 @@ export function recordingAdmission(
   };
 }
 
+/** A crashed process writes nothing more; its successor opens the same store. */
+export function crashableStorePort(
+  store: StateStore,
+  beforeAppend?: (items: readonly AppendItem[]) => Promise<void>
+): { dead: boolean; port: HostEventStore } {
+  const state = { dead: false } as { dead: boolean; port: HostEventStore };
+  state.port = {
+    append: async (items, committed, durability) => {
+      if (state.dead) {
+        throw new Error('process crashed');
+      }
+      await beforeAppend?.(items);
+      return store.append(items, committed, durability);
+    },
+    deleteSetting: (key) => store.deleteSetting(key),
+    getSetting: (key) => store.getSetting(key),
+    health: () => store.health(),
+    holdBlobGc: () => store.holdBlobGc(),
+    read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+    readHydration: () => store.readHydration(),
+    root: store.root,
+    setSetting: (key, value) => store.setSetting(key, value),
+    syncBoundary: (threadId) => store.syncBoundary(threadId),
+  };
+  return state;
+}
+
 /** `cleanup` receives the harness teardown; the caller runs it after the test. */
 export async function setupChildRunHost(
   model: MockLanguageModelV4,
@@ -259,30 +286,11 @@ export async function setupChildRunHost(
       : undefined
   );
   const batches: AppendItem[][] = [];
-  /** A crashed process writes nothing more; its successor opens the same store. */
-  const writer = (): { dead: boolean; port: HostEventStore } => {
-    const state = { dead: false } as { dead: boolean; port: HostEventStore };
-    state.port = {
-      append: async (items, committed, durability) => {
-        if (state.dead) {
-          throw new Error('process crashed');
-        }
-        await fixture.holdAppend?.(items);
-        batches.push([...items]);
-        return store.append(items, committed, durability);
-      },
-      deleteSetting: (key) => store.deleteSetting(key),
-      getSetting: (key) => store.getSetting(key),
-      health: () => store.health(),
-      holdBlobGc: () => store.holdBlobGc(),
-      read: (threadId, fromSeq) => store.read(threadId, fromSeq),
-      readHydration: () => store.readHydration(),
-      root: store.root,
-      setSetting: (key, value) => store.setSetting(key, value),
-      syncBoundary: (threadId) => store.syncBoundary(threadId),
-    };
-    return state;
-  };
+  const writer = () =>
+    crashableStorePort(store, async (items) => {
+      await fixture.holdAppend?.(items);
+      batches.push([...items]);
+    });
   let current = writer();
   const writes: string[] = [];
   const openRun = fixture.memory?.(store) ?? fixture.openRun;

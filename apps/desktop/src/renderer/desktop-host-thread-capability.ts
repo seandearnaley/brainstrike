@@ -75,7 +75,7 @@ export function createWindowThreadCapability(
     /** BST-2004: the frame's host connection, whose current client serves the thread. */
     readonly connection: DesktopHostConnection;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
-    readonly onTitleCommitted: () => void;
+    readonly onEntryCommitted: () => void;
     readonly ledger: HostThreadLedger;
     /** The host's catalog lists this thread. */
     readonly owned: boolean;
@@ -91,9 +91,9 @@ export function createWindowThreadCapability(
   const runs = new HostThreadRuns();
   const ledger = new HostThreadLedger();
   const canvases = new HostThreadCanvases();
-  const titleListeners = new Set<() => void>();
-  const titleCommitted = (): void => {
-    for (const listener of titleListeners) {
+  const entryListeners = new Set<() => void>();
+  const entryCommitted = (): void => {
+    for (const listener of entryListeners) {
       listener();
     }
   };
@@ -257,8 +257,8 @@ export function createWindowThreadCapability(
         child: childViews.get(threadId),
         connection,
         ledger,
+        onEntryCommitted: entryCommitted,
         onRunningChange,
-        onTitleCommitted: titleCommitted,
         owned: threads.has(threadId),
         providerReadErrors,
         runs,
@@ -403,9 +403,9 @@ export function createWindowThreadCapability(
         release?.();
       };
     },
-    subscribeTitleChanges: (listener) => {
-      titleListeners.add(listener);
-      return () => titleListeners.delete(listener);
+    subscribeEntryChanges: (listener) => {
+      entryListeners.add(listener);
+      return () => entryListeners.delete(listener);
     },
     updateThreadBinding: async (threadId, metadata) => {
       const { color, icon, ...binding } = metadata;

@@ -278,6 +278,11 @@ export interface HostRunState {
   readonly effects: Set<Promise<unknown>>;
   /** The tool each committed effect ran, by call: catalog id, else provider name. */
   readonly effectTools: Map<string, string>;
+  /**
+   * ADR-0028 step 3: the worktree a call bound the thread to. The run ends
+   * after that step (`steered`); the thread's next run works there.
+   */
+  enteredWorktree?: { readonly branch: string | null; readonly path: string } | undefined;
   /** Its thread's grants for this host process, shared with the thread's other runs. */
   readonly grants: HostThreadGrants;
   readonly id: string;

@@ -27,6 +27,7 @@ import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
 import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.js';
 import type {
+  HostEnteredWorktree,
   HostPlatform,
   HostPreparedStep,
   HostRunAdmission,
@@ -93,6 +94,11 @@ export interface HostRunExecutionPorts {
    */
   delegate(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   dispatch(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
+  /** ADR-0028 step 3: a root run's call binds its thread to a worktree; none for a child. */
+  enterWorktree(
+    run: Run,
+    action: HostRunAction
+  ): ((worktree: HostEnteredWorktree) => Promise<void>) | undefined;
   finish(
     run: Run,
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
@@ -243,10 +249,12 @@ async function executeRegisteredTool(
   run.started.add(action.toolCallId);
   run.effectTools.set(action.toolCallId, action.toolCatalogId ?? action.toolId);
   run.controller.signal.throwIfAborted();
+  const enterWorktree = ports.enterWorktree(run, action);
   // The public SDK already validated/transformed this exact admitted input.
   // Revalidating a canonical value can transform it a second time.
   return await registered.execute(input, {
     ...(resumeData === undefined ? {} : { resumeData }),
+    ...(enterWorktree ? { enterWorktree } : {}),
     ...ports.records.context(
       run,
       action,
@@ -628,7 +636,13 @@ async function runHostSdkAttempt(
           notes
         ).system;
         const activeTools = await hostStepActiveTools(run, ports.platform);
-        const gated = activeTools ? { activeTools } : {};
+        // An approved call that entered a worktree resumes with a model step:
+        // it may answer, never act, in the run's old workspace (ADR-0028).
+        const gated = run.enteredWorktree
+          ? { activeTools: [], toolChoice: 'none' as const }
+          : activeTools
+            ? { activeTools }
+            : {};
         if (!admission.provider) {
           return {
             messages: memory?.messages ?? prepared,

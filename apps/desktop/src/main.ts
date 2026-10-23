@@ -2198,6 +2198,16 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         embeddingHostManager,
         modelCatalog,
         nativeIndexSearch,
+        // The ledger authorizes a managed worktree's mount; no picker grant is needed.
+        // The window is then asked to show it, as for any folder Main opens.
+        openWorktreeFolder: async (path) => {
+          const root = await applicationIpcDomain.roots.addRootByPath(path);
+          desktopBootstrap.workspaceOpenQueue.enqueue({
+            origin: 'agent-worktree',
+            path: root.handle.path,
+          });
+          return { displayName: root.displayName, path: root.handle.path, rootId: root.rootId };
+        },
         resolveForgeService: () => forgeService ?? null,
         resolveWorktreeService: () => worktreeService,
         retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),

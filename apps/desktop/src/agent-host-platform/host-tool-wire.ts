@@ -72,6 +72,7 @@ export const WorktreeListResultSchema = gitResult(
 
 export const WorktreeCreateResultSchema = gitResult(
   Schema.Struct({
+    root: Schema.Struct({ displayName: Schema.String, path: Schema.String, rootId: Schema.String }),
     setup: Schema.Struct({ reason: Schema.NullOr(Schema.String), status: Schema.String }),
     worktree: Schema.Struct({
       branch: Schema.NullOr(Schema.String),
