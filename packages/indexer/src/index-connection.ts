@@ -4,8 +4,7 @@ import type { CoarseVectorEngine } from './vector-engine.js';
 
 /**
  * What the derived store runs on, opened by its host: on desktop a
- * better-sqlite3 connection with sqlite-vec loaded (`desktop-index-connection.ts`);
- * in the browser writer, the official sqlite-wasm build's (BST-1940).
+ * better-sqlite3 connection with sqlite-vec loaded (`desktop-index-connection.ts`).
  */
 export interface IndexConnection {
   /** The index database's connection. The store owns it and closes it. */
@@ -27,8 +26,8 @@ export interface IndexReaderConnection extends Pick<IndexConnection, 'db' | 'eng
   /**
    * True when the reader owns `db` and closes it if construction fails (the
    * desktop's separate read-only connection). False when it reads on a
-   * connection another owner keeps, such as the browser writer's own: an
-   * EXCLUSIVE database has no second connection.
+   * connection another owner keeps: an EXCLUSIVE database has no second
+   * connection.
    */
   readonly owned: boolean;
 }

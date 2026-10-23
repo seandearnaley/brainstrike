@@ -132,8 +132,9 @@ export function assertEmbeddingHostWebGpuAdapterResponseReport(
 }
 
 /**
- * The exchange's correlation is the shared host request channel every host manager uses:
- * its per-request deadline, reject-all and runtime-scoped ids are the query requests' own.
+ * The exchange's correlation is the host request channel the embedding host manager's query and
+ * document requests use: its per-request deadline, reject-all and runtime-scoped ids are the query
+ * requests' own.
  */
 export function createWebGpuAdapterRequestChannel(
   send: (request: EmbeddingHostWebGpuAdapterRequest) => void,

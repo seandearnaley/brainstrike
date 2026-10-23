@@ -1,12 +1,11 @@
 // @ts-check
 
-// The root domain runs wherever the state DB's schema does: the desktop writer worker and the browser writer.
+// The root domain runs in the desktop writer worker.
 const projection = `id, path, display_name AS displayName, kind, status,
   created_at AS createdAt, last_verified_at AS lastVerifiedAt`;
 
 /**
- * How the writer's host names a root it was granted: desktop main grants absolute OS paths; the browser writer
- * keys a File System Access handle by the root's own id (`@brainstrike/web-state-store`).
+ * How the writer's host names a root it was granted: desktop main grants absolute OS paths.
  * @typedef {{ isGranted(root: { readonly path: string; readonly preferredId: string }): boolean }} RootPaths
  */
 

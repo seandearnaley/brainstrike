@@ -1,8 +1,7 @@
 /**
  * A state producer module's projection: how the derived index decodes and
- * projects committed rows, built from the module's exports (ADR-0011). It is
- * portable; the desktop loads its producer by file URL (`state-projection.ts`)
- * and the browser state writer (BST-1940) passes its producer in.
+ * projects committed rows, built from the module's exports (ADR-0011). The
+ * desktop loads its producer by file URL (`state-projection.ts`).
  */
 import { decodeEvent, type EventSchema } from '@brainstrike/state-store/event-schema';
 import type { MemoryObservationRecord } from '@brainstrike/state-store/state-truth-reader';

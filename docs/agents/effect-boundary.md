@@ -7,8 +7,7 @@ Effect supports typed boundaries and structured resource ownership. Follow
 composition, not a repository-wide rewrite. Keep the qualified family pinned
 through the package catalog; adopt new or unstable APIs deliberately.
 
-Production code imports `effect` and `effect/testing` and nothing else — an
-allowlist, enforced by `scripts/__tests__/effect-boundary-contract.test.mjs`.
+Production code imports `effect` and `effect/testing` and nothing else.
 Stability is a separate axis the specifier cannot show: every Effect 4 API
 carries a `@stability` tag, and an unstable API may break in a MINOR release,
 an experimental one in a PATCH. So "deliberately" means checked, not guessed —
@@ -20,7 +19,8 @@ and reports a stable signature that exposes a less stable type as
 `Stream`) is tagged stable.
 
 Each project names those three rules as `error` in its `diagnosticSeverity`, and
-the contract test asserts it. Enabling the plugin is not enough:
+its type-check script's `effect-tsgo diagnostics --strict` step enforces them.
+Enabling the plugin is not enough:
 `apiStabilityLeak` ships `off`, and `--strict` only promotes diagnostics that
 already run, so a bare plugin entry lets a stable export expose an unstable
 Effect type and still type-check.
@@ -58,9 +58,7 @@ schedule without losing rollback or original failure identity.
 
 ### Named boundary contracts
 
-Each boundary below owns its resources at one Effect seam. The measured evidence
-sits with the archived contract history; the rules themselves are current and
-guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
+Each boundary below owns its resources at one Effect seam.
 
 - Provider auth and assistant provider probes bound fetch and body reading together;
   cancellation aborts fetch and polling sleeps, preserving typed failures,
@@ -78,15 +76,6 @@ guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
   remain defects; settings and cleanup failures stay independently visible.
   The reducer, admission permit, immediate fence and physical-retirement owner
   remain authoritative.
-
-Evidence (archived):
-[provider-auth-lifetimes](../archive/agent-contract-history/effect-boundary/provider-auth-lifetimes.md),
-[provider-probe-lifetimes](../archive/agent-contract-history/effect-boundary/provider-probe-lifetimes.md),
-[mcp-oauth-callback-scope](../archive/agent-contract-history/effect-boundary/mcp-oauth-callback-scope.md),
-[provider-loopback-scope](../archive/agent-contract-history/effect-boundary/provider-loopback-scope.md),
-[embedding-admission-permits](../archive/agent-contract-history/effect-boundary/embedding-admission-permits.md),
-[file-tree-operation-scopes](../archive/agent-contract-history/effect-boundary/file-tree-operation-scopes.md),
-[renderer-startup](../archive/agent-contract-history/effect-boundary/renderer-startup.md).
 
 `withTimeout` composes the existing owned deadline before its Promise edge;
 `runWithTimeout` keeps the Promise/AbortSignal contract. Timing-policy tests
@@ -136,10 +125,7 @@ Type-only brands do not add a runtime producer or identity alias.
 Use typed Schema decoders for authored or already validated inputs, preserving
 the concrete schema's `Encoded` inference. Keep unknown-input decoders for wire
 recordings and deliberately malformed inputs; capabilities still require runtime
-validation without cloning their identity. Desktop fixture enforcement uses the
-exact file cohort in `scripts/effect-typed-producer-cohorts.mjs`, checked against
-the inherited config and executable compiler/diagnostic controls rather than a
-desktop-wide rule.
+validation without cloning their identity.
 
 Decoded fields annotate `message` with old hand-check sentences; predicate-only
 `Schema.is` boundaries preserve existing errors in caller code. Python maps
@@ -147,10 +133,6 @@ issue paths to legacy `PythonManifestInvalidError` messages, and missing targets
 stay unsupported-platform errors. Worker envelope Schema lives behind
 `@brainstrike/worker-runtime/validation`: keep the root import light and
 preserve plain `Error` sentences, array roots and object identity.
-
-Evidence (archived):
-[python-manifest-schema](../archive/agent-contract-history/effect-boundary/python-manifest-schema.md),
-[worker-envelope-schema](../archive/agent-contract-history/effect-boundary/worker-envelope-schema.md).
 
 Use the existing effect-kit helpers and package diagnostics. Do not patch the
 shared TypeScript compiler as part of a library adoption. Versions, import paths
@@ -165,16 +147,12 @@ Run `pnpm --filter <consumer> exec effect-tsgo diagnostics --project
 <its-widest-tsconfig> --strict --format json` for actionable locations, including
 related service/declaration locations. The consumer's type-check script selects
 its widest project; ordinary Vitest callbacks must return a joined Promise.
-The executable checker controls run with
-`pnpm exec node --test scripts/__tests__/effect-diagnostics-execution.test.mjs`.
 
 Effect consumers run compiler checks and `effect-tsgo diagnostics --strict` on
 the widest configured project. Preserve a nonempty checked program and the three
-stability severities; the executable scripts own compiler versions and pass count.
+stability severities.
 
 When considering another service graph or RPC engine, consult
 [the service/RPC decision](../adr/0024-effect-adoption-service-and-rpc-boundaries.md).
-The [2026-10-17 qualification receipt](../archive/effect-4-adoption-2026-10-17.md)
-is historical evidence, not additional acceptance requirements.
 
 Implementation: `packages/effect-kit` and the owning boundary modules.
