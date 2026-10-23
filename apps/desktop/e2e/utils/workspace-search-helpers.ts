@@ -14,14 +14,10 @@
  * 1. **Explicit scope.** Workspace search is scoped to live workspace roots.
  * 2. **Line-attributed chunks.** The semantic executor drops any chunk missing
  *    `start_line`/`end_line` (it cannot build a navigable range) and reports it
- *    as `skippedMissingLineMetadata`. Synthetic chunk fixtures must therefore
- *    write both columns.
+ *    as `skippedMissingLineMetadata`.
  *
- * Observation is DOM-only and deliberately so: the retired harness read a
- * `window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__` bridge mounted by
- * production code, and there is no reason to grow a second one when the panel
- * renders every state we need to assert (searching status, error card, empty
- * state, and level-1 file rows).
+ * Observation is DOM-only: the panel renders every state these helpers assert
+ * (searching status, error card, empty state, and level-1 file rows).
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';

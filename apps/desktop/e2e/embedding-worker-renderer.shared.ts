@@ -65,16 +65,6 @@ export interface MainBufferedLogRecord {
 export const AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR =
   'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically. WASM fallback (WebGPU not available) No WebGPU adapter found - GPU may not support WebGPU or driver update needed WebGPU adapter is unavailable.';
 
-export const ERROR_LOCATOR = '[data-testid="db-init-error"]';
-
-export async function isDatabaseError(page: Page): Promise<boolean> {
-  try {
-    return await page.locator(ERROR_LOCATOR).isVisible({ timeout: 200 });
-  } catch {
-    return false;
-  }
-}
-
 export async function getEmbeddingHostStatus(page: Page): Promise<EmbeddingHostStatus> {
   return await page.evaluate<EmbeddingHostStatus>(async () => {
     const host = (
