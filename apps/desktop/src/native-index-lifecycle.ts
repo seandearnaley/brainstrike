@@ -34,6 +34,8 @@ export type NativeIndexCause =
   | { readonly kind: 'setup-required'; readonly message: string; readonly error?: unknown }
   /** Saved settings cannot be read; the message is the decode error. */
   | { readonly kind: 'settings-invalid'; readonly message: string; readonly error?: unknown }
+  /** The saved choice turned search off: a choice, never a failure, so it carries no error. */
+  | { readonly kind: 'off'; readonly message: string; readonly error?: never }
   /** A generation is opening or replacing the previous one. */
   | { readonly kind: 'transitioning' }
   /** A generation's sources failed: a scan, a watch, or startup. */
@@ -64,7 +66,7 @@ export type NativeIndexState =
     }
   | {
       readonly kind: 'unconfigured';
-      readonly cause: NativeIndexSettingsCause;
+      readonly cause: NativeIndexSettingsCause | Extract<NativeIndexCause, { kind: 'off' }>;
       readonly generation: number;
     }
   | {
@@ -185,12 +187,26 @@ const liveSettings = (state: NativeIndexState): NativeIndexSettings | null => {
 const sameConfiguration = (left: NativeIndexSettings, right: NativeIndexSettings): boolean =>
   nativeIndexConfigurationIdentity(left) === nativeIndexConfigurationIdentity(right);
 
+/** A read under the saved Off choice: the renderer's own sentence (`native-search-provider.tsx`). */
+const NATIVE_INDEX_OFF_MESSAGE = 'Search is off. Turn it on in Settings, Search & Indexing.';
+
 function open(
   state: NativeIndexState,
   settings: NativeIndexSettings,
   destroy = false
 ): NativeIndexTransition {
   const generation = state.generation + 1;
+  if (!settings.enabled) {
+    // Off opens no generation; what was live closes, as an unreadable save closes it.
+    return {
+      actions: state.kind === 'unconfigured' ? [] : [{ kind: 'close' }],
+      state: {
+        cause: { kind: 'off', message: NATIVE_INDEX_OFF_MESSAGE },
+        generation,
+        kind: 'unconfigured',
+      },
+    };
+  }
   return {
     actions: [{ destroy, generation, kind: 'open' }],
     state: isLive(state)

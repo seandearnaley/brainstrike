@@ -43,7 +43,11 @@ import {
   type NativeIndexActivationGraph as Graph,
   loadNativeGraphRecords,
 } from './native-index-graph';
-import { nativeIndexObservation, nativeIndexReadiness } from './native-index-lifecycle';
+import {
+  type NativeIndexState,
+  nativeIndexObservation,
+  nativeIndexReadiness,
+} from './native-index-lifecycle';
 import { nativeIndexStateError as stateError } from './native-index-lifecycle-errors';
 import {
   createNativeIndexLifecycle,
@@ -66,6 +70,13 @@ import {
   installIndexQueryTarget,
   openIndexCoverage,
 } from './sqlite-query-host-manager';
+
+/** Why a closing generation's work ends: its settings failure, or the typed Off choice. */
+function unconfiguredReason(state: Extract<NativeIndexState, { kind: 'unconfigured' }>): unknown {
+  return state.cause.kind === 'off'
+    ? stateError(state)
+    : (state.cause.error ?? new Error(state.cause.message));
+}
 
 /** Desktop main's actual catalog/grant/inference callbacks; the utility owns parsing and scans. */
 export function createNativeIndexActivation(dependencies: Dependencies) {
@@ -191,10 +202,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     });
     return current.retirement;
   };
+  // The lifecycle opens no generation for Off settings (`native-index-lifecycle.ts`, `open`).
   const startOwned = async (settings: NativeIndexSettings, generation: number): Promise<void> => {
-    if (!settings.enabled) {
-      throw new Error('Native indexing is disabled in saved settings.');
-    }
     const current: Graph = {
       controller: new AbortController(),
       generation,
@@ -642,7 +651,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           case 'close': {
             const state = await (await lifecycle).state();
             if (state.kind === 'unconfigured') {
-              graph?.controller.abort(state.cause.error ?? new Error(state.cause.message));
+              graph?.controller.abort(unconfiguredReason(state));
             }
             await closeOwned();
             return;

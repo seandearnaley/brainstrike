@@ -26,6 +26,7 @@ const BoundaryFailureCode = Schema.Union([
     'EMBEDDING_DEVICE_LOST',
     'native-index-transitioning',
     'native-index-closed',
+    'native-index-off',
     'native-index-setup-required',
     'native-index-settings-invalid',
     'native-index-source-failure',

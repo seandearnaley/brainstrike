@@ -32,7 +32,11 @@ import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { observeNativeReaderStartup } from '../native-index-startup-window';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
-import { textCollectionSettings, vectorSettings } from './helpers/native-index-settings';
+import {
+  textCollectionSettings,
+  textSettings,
+  vectorSettings,
+} from './helpers/native-index-settings';
 import {
   createActivation,
   emptyCollection,
@@ -822,17 +826,31 @@ it('joins physical grep disposal before retiring read authority during a genuine
   await disposing.promise;
   f.settings.mockResolvedValue(textCollectionSettings({ mode: 'off', paused: true }));
   const replacing = f.activation.reconfigure().catch((error: unknown) => error);
+  // Turning search off retires the live generation's authority with that typed choice.
   await vi.waitFor(() =>
     expect(() => f.activation.captureAcknowledgedAuthority()).toThrow(
-      'Native source authority changed'
+      expect.objectContaining({ code: 'native-index-off' })
     )
   );
   expect(mocks.close).not.toHaveBeenCalled();
   disposed.resolve();
   expect(await pending).toBeInstanceOf(Error);
-  expect(await replacing).toEqual(new Error('Native indexing is disabled in saved settings.'));
+  // Off is a choice: the replacement closes the writer and opens nothing, without a failure.
+  expect(await replacing).toBeUndefined();
+  await expect(f.activation.acquireRead()).rejects.toMatchObject({ code: 'native-index-off' });
   expect(close).toHaveBeenCalledOnce();
   expect(mocks.close).toHaveBeenCalledOnce();
+  await f.activation.close();
+});
+
+it('opens no writer under a saved Off and answers reads with that choice, reporting no failure', async () => {
+  const f = fixture();
+  f.settings.mockResolvedValue(textSettings({ mode: 'off' }));
+  await expect(f.activation.acquire()).rejects.toMatchObject({ code: 'native-index-off' });
+  await expect(f.activation.acquireRead()).rejects.toMatchObject({ code: 'native-index-off' });
+  await f.activation.reconfigure();
+  expect(mocks.acquire).not.toHaveBeenCalled();
+  expect(f.onError).not.toHaveBeenCalled();
   await f.activation.close();
 });
 

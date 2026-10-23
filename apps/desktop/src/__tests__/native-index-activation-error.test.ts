@@ -225,6 +225,17 @@ it('logs each inner error of a retirement failure by name, message and cause', (
   expect(logger.info).not.toHaveBeenCalled();
 });
 
+it('reports a read refused because search is off at info: a choice, not a failure', () => {
+  const logger = { error: vi.fn(), info: vi.fn() };
+  const error = new NativeIndexRefusalError(
+    { kind: 'off', message: 'Search is off.' },
+    'Search is off.'
+  );
+  reportNativeIndexActivationError('Native index activation unavailable', error, false, logger);
+  expect(logger.error).not.toHaveBeenCalled();
+  expect(logger.info).toHaveBeenCalledWith('Search is off', { reason: error.message });
+});
+
 it('retains explicit setup-required reporting', () => {
   const logger = { error: vi.fn(), info: vi.fn() };
   const error = new NativeIndexSetupRequiredError('Select a native collection.');

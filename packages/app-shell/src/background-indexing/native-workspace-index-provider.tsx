@@ -157,6 +157,7 @@ function syncBlockedReason(
     case 'embedding-host-unresponsive':
       return cause.kind;
     case 'closed':
+    case 'off':
     case 'rebuild-required':
     case 'settings-invalid':
     case 'setup-required':

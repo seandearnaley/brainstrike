@@ -1,7 +1,9 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { IndexerError } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { embeddingHostUnresponsiveError } from '../embedding-host-unresponsive';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import {
   NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE,
   type NativeIndexEvent,
@@ -501,5 +503,49 @@ describe('an embedding host that stopped responding', () => {
       generation: 4,
       kind: 'refused',
     });
+  });
+});
+
+describe('search turned Off', () => {
+  const OFF = textSettings({ mode: 'off' });
+  const idle: NativeIndexState = { generation: 3, kind: 'idle' };
+
+  it.each([ready, failed, opening, unconfigured, idle])(
+    'a save of Off from $kind opens nothing and closes what was live',
+    (state) => {
+      const next = reduceNativeIndex(state, saved(OFF));
+      expect(next.refused).toBeUndefined();
+      expect(next.actions).toEqual(state.kind === 'unconfigured' ? [] : [{ kind: 'close' }]);
+      expect(next.state).toMatchObject({
+        cause: { kind: 'off' },
+        generation: 4,
+        kind: 'unconfigured',
+      });
+    }
+  );
+
+  it('a later save that turns search on opens it', () => {
+    const off = reduceNativeIndex(ready, saved(OFF)).state;
+    expect(reduceNativeIndex(off, saved(TEXT))).toEqual({
+      actions: [openAction(5)],
+      state: { generation: 5, kind: 'opening', settings: TEXT },
+    });
+  });
+
+  it('refuses reads with the typed Off refusal in the provider words, logging nothing', () => {
+    const off = reduceNativeIndex(ready, saved(OFF)).state;
+    expect(nativeIndexReadiness(off)).toMatchObject({ cause: { kind: 'off' }, kind: 'refused' });
+    const error = nativeIndexStateError(off);
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    // The status reason a renderer search shows in its results card is this message.
+    expect(error).toMatchObject({
+      code: 'native-index-off',
+      message: 'Search is off. Turn it on in Settings, Search & Indexing.',
+    });
+    const log = vi.fn();
+    expect(describeBoundaryFailure(nativeIndexBoundaryFailure(error, log))).toBe(
+      'Search is off. Turn it on in Settings, Search & Indexing.'
+    );
+    expect(log).not.toHaveBeenCalled();
   });
 });

@@ -55,12 +55,14 @@ export interface IndexerPublicationProgress {
  * `embedding-host-unresponsive`: the embedding host stopped responding to a document batch, so
  * only the person's Retry indexing (which restarts it) serves again; never retried automatically
  * (BST-2104).
+ * `off`: the saved choice turned search off, so no index is open; turning it on serves again.
  */
 export type NativeIndexRefusalCause =
   | { readonly kind: 'transitioning' }
   | { readonly kind: 'closed'; readonly reason: string }
   | {
       readonly kind:
+        | 'off'
         | 'setup-required'
         | 'settings-invalid'
         | 'source-failure'

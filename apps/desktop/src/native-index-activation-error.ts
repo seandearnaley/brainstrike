@@ -88,6 +88,10 @@ export function reportNativeIndexActivationError(
     logger.info('Workspace index setup required', { reason: error.message });
     return;
   }
+  if (error instanceof NativeIndexRefusalError && error.refusal.kind === 'off') {
+    logger.info('Search is off', { reason: error.message });
+    return;
+  }
   // The logger serializes an AggregateError without its `errors`, so a retirement
   // failure ("Canonical utility attachments did not retire.") would say nothing of
   // which close failed. Each inner error is logged with its name, message and cause.

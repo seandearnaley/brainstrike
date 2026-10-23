@@ -72,6 +72,12 @@ const descriptions: Readonly<
     message: 'The embedding model stopped responding while indexing.',
     remedy: 'Retry indexing from the Workspace Index status. It restarts the embedding model.',
   },
+  // The renderer's own sentence for a saved Off choice (`native-search-provider.tsx`).
+  off: {
+    category: 'configuration',
+    message: 'Search is off.',
+    remedy: 'Turn it on in Settings, Search & Indexing.',
+  },
   'rebuild-required': {
     category: 'availability',
     message: 'The search index needs a rebuild.',
