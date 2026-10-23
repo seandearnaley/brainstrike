@@ -109,7 +109,6 @@ export const DESKTOP_IPC_CHANNELS = {
     deleteRootData: 'fs:deleteRootData',
     exists: 'fs:exists',
     listRecentRoots: 'fs:listRecentRoots',
-    parserHostParse: 'parser-host:parse',
     readDirectory: 'fs:readDirectory',
     readFile: 'fs:readFile',
     readFileByAbsolutePath: 'fs:readFileByAbsolutePath',

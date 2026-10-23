@@ -321,19 +321,6 @@ contextBridge.exposeInMainWorld('desktopLifecycle', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.requestReload, reason),
 });
 
-// Parser host bridge — exposed for the chunking-host renderer so its
-// chunking-worker (Web Worker context) can route parse requests through the
-// preload-bridged IPC channel instead of trying to `import('electron')` from
-// the worker realm (which fails under contextIsolation+sandbox). The worker
-// postMessages a parse request to its parent (the renderer), the renderer
-// calls window.parserHost.parse(request) here, and posts the response back
-// to the worker. See packages/chunking-worker/src/parsers/oxc-ipc-adapter.ts
-// and the bridge handler in packages/file-import/src/chunking-worker-context.tsx.
-contextBridge.exposeInMainWorld('parserHost', {
-  parse: (request: unknown) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
-});
-
 // The MCP config picker and MCP App shell (desktop-only), derived from pure
 // contracts. MCP settings, status, Tasks cards, global server input and
 // content, an App's document included, belong to the agent host.

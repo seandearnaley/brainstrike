@@ -225,7 +225,6 @@ async function main(): Promise<void> {
         'main-catalog': step('main-catalog'),
         'mcp-runtime': step('mcp-runtime'),
         'native-index': step('native-index'),
-        'parser-host': step('parser-host'),
         renderers: step('renderers'),
         'snapshot-maintenance': step('snapshot-maintenance'),
       },

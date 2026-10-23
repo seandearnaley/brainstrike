@@ -83,7 +83,6 @@ test('a 12 s renderer flush and a 4 s host exit still quit with exit 0 after eve
       'renderers',
       'native-index',
       'file-system',
-      'parser-host',
       'embedding-host',
       'database-close',
     ])

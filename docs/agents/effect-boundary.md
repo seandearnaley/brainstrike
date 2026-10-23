@@ -69,9 +69,6 @@ guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
   `Effect.ensuring` for timer cleanup, and close joins all active waits.
 - Embedding admission reserves partial permits transactionally; abort only
   capacity waits, never committed grants.
-- Parser host generation Scope joins actual exit and listener cleanup; failed
-  kills retain ownership and block reuse until retry or exit, and stale
-  callbacks never affect replacements.
 - OXC IPC request Scope owns its correlation entry and timer; first terminal
   outcome wins, malformed or mismatched replies remain pending, and local
   cleanup never cancels remote parsing.
@@ -157,7 +154,6 @@ stay unsupported-platform errors. Worker envelope Schema lives behind
 preserve plain `Error` sentences, array roots and object identity.
 
 Evidence (archived):
-[parser-host-schema](../archive/agent-contract-history/effect-boundary/parser-host-schema.md),
 [python-manifest-schema](../archive/agent-contract-history/effect-boundary/python-manifest-schema.md),
 [worker-envelope-schema](../archive/agent-contract-history/effect-boundary/worker-envelope-schema.md).
 

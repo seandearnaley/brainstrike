@@ -57,7 +57,6 @@ describe('Main process sampler owner composition', () => {
         'main-catalog': () => {},
         'mcp-runtime': () => {},
         'native-index': () => {},
-        'parser-host': () => {},
         renderers: () => {},
         'snapshot-maintenance': () => {},
       };

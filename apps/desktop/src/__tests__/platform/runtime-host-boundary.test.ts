@@ -196,10 +196,7 @@ describe('runtime host boundary', () => {
   });
 
   it('keeps host IPC modules on the typed desktop IPC registry instead of direct ipcMain calls', () => {
-    const hostSources = [
-      readDesktopSource('ipc-embedding-host.ts'),
-      readDesktopSource('ipc-parser-host.ts'),
-    ];
+    const hostSources = [readDesktopSource('ipc-embedding-host.ts')];
 
     for (const source of hostSources) {
       expect(source).toMatch(

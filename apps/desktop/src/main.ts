@@ -146,7 +146,6 @@ import {
   suspendMcpSurfacesForContentClear,
 } from './ipc-mcp';
 import { registerModelCatalogIpc } from './ipc-model-catalog';
-import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
@@ -196,7 +195,6 @@ import {
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeRootRegistration } from './native-root-registration';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
-import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
@@ -522,9 +520,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await nativeRetirement;
         await agentHostClientIpc.close();
       },
-      'parser-host': async () => {
-        await parserHostManager.stop();
-      },
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
@@ -641,7 +636,6 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
   }
 };
 
-const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager({
   lifecycleDelays: lifecycleDelaySeam,
   storage,
@@ -1019,7 +1013,6 @@ ipcDisposers.add('main', () => {
     logger.error('Application IPC domain cleanup failed during will-quit', { error });
   });
 });
-ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
 ipcDisposers.add(
   'embedding-host',
   registerEmbeddingHostIpcHandlers(embeddingHostManager, {

@@ -60,11 +60,6 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
     ]
   ),
   ...classify(
-    'separate-capability',
-    'Parser-host authority is exposed only to the chunking renderer.',
-    [[DESKTOP_IPC_CHANNELS.files.parserHostParse, 'invoke']]
-  ),
-  ...classify(
     'remaining-migration',
     'Renderer-facing domain still uses handwritten registration and preload routing.',
     [

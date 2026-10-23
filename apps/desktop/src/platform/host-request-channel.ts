@@ -8,7 +8,7 @@
  * response payload interpretation, and any host-specific bookkeeping stay in
  * the adapter and reach the channel through the hooks below.
  *
- * Every host manager uses it: chunking, parser, db, llm and embedding. The
+ * Every host manager uses it: db, llm and embedding. The
  * hooks carry their host-specific needs: `onLateResponse` for the DB host's
  * abandoned-request ledger, `onAbort` for the llm host's pre-cancel ledger and
  * cancel-to-host, and `onTimeout`'s `terminate` policy for a transaction whose
@@ -19,8 +19,7 @@
  * a constructor. `@brainstrike/worker-runtime` is main-process safe for the
  * same reason — its entry declares types and two `Set` literals at module
  * scope, touches `Worker`/`MessageEvent` only in type positions, and is
- * already loaded in main by `chunking-host-shared` and
- * `renderer-host-lifecycle`.
+ * already loaded in main by `renderer-host-lifecycle`.
  */
 
 import { createLogger } from '@brainstrike/logging';
