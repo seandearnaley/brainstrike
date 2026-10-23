@@ -233,7 +233,7 @@ describe('canonical workspace source', () => {
       const borrowed = lease({ readFile: vi.fn(() => held) });
       const source = new CanonicalWorkspaceSource({
         indexingPolicyPreset: 'balanced',
-        inventory: { loadFiles: vi.fn(async () => []), readRetained: vi.fn() },
+        inventory: { loadFiles: vi.fn(async () => []) },
         lease: borrowed,
       });
       const iterator = source.discover(request, context);

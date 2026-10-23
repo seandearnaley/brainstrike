@@ -289,7 +289,6 @@ it.each([
     expect(mocks.closeProfile).not.toHaveBeenCalled();
     watchRelease.resolve();
     const outcome = await settled;
-    await startup;
     const reply = replies
       .map(decodeCanonicalFrame)
       .find((frame) => frame.kind === 'result' && frame.id === heldId && frame.owner === heldOwner);
