@@ -11,9 +11,6 @@
       "node"
     ],
     "paths": {
-      "@brainstrike/db-explorer/database-demo-panel": [
-        "../db-explorer/dist/database-demo-panel.d.ts"
-      ],
       "@brainstrike/assistant-contract": [
         "../assistant-contract/dist/index.d.ts"
       ],
@@ -203,9 +200,6 @@
     },
     {
       "path": "../settings-ui"
-    },
-    {
-      "path": "../db-explorer"
     },
     {
       "path": "../vector-management"

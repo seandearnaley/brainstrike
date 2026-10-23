@@ -10,7 +10,6 @@ const {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
@@ -170,12 +169,6 @@ describe('assistant vite helpers', () => {
     // human-in-the-loop tools. Prebundling a package nothing imports only
     // duplicated `@ai-sdk/provider` in the lockfile.
     expect(entries.some((entry) => entry.includes('@assistant-ui/react-data-stream'))).toBe(false);
-  });
-
-  test('returns database lazy-panel optimize-deps package ids', () => {
-    // Exact match, not arrayContaining: reintroducing file-saver here must fail
-    // (platform-contracts.md calls it a regression).
-    expect(getDatabaseOptimizeDepsInclude()).toEqual(['jszip', 'react-resizable-panels']);
   });
 
   test('returns heavy runtime optimize-deps exclusions', () => {

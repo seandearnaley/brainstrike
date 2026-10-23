@@ -195,7 +195,6 @@
     "esbuild": "catalog:",
     "idb": "catalog:",
     "jsdom": "catalog:",
-    "jszip": "catalog:",
     "minimatch": "catalog:",
     "oxc-transform-react": "catalog:",
     "pino": "catalog:",

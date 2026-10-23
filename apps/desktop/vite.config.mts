@@ -8,7 +8,6 @@ import {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
@@ -140,7 +139,6 @@ export default defineConfig({
       '@brainstrike/workers',
       '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
       '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
-      '@brainstrike/db-explorer', // Uses file-import which has worker
       '@brainstrike/token-cache',
       '@brainstrike/token-cache/cache-runtime',
       '@brainstrike/token-cache/background-indexer',
@@ -148,7 +146,6 @@ export default defineConfig({
     include: [
       ...getCoreAppOptimizeDepsInclude(),
       ...getAssistantOptimizeDepsInclude(),
-      ...getDatabaseOptimizeDepsInclude(),
       ...getWorkspaceSourceOptimizeDepsInclude(),
     ],
   },
@@ -206,10 +203,6 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/workspace-search/styles.css'),
       },
       {
-        find: '@brainstrike/db-explorer/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/db-explorer/styles.css'),
-      },
-      {
         find: '@brainstrike/file-explorer-ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
       },
@@ -265,9 +258,8 @@ export default defineConfig({
       // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
       // the hand-maintained map this file used to carry — every entry it
       // listed besides the exceptions above (including the chunk-init-TDZ
-      // motivated commands/context-actions entries and the renamed
-      // db-explorer/embedding-models subpath) is an exact match for what this
-      // registry derives from each package's own `exports` map.
+      // motivated commands/context-actions entries) is an exact match for what
+      // this registry derives from each package's own `exports` map.
       ...workspaceSrcAliases(path.resolve(__dirname, '../../packages')),
     ],
     dedupe: ['react', 'react-dom'],

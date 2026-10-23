@@ -17,6 +17,7 @@ import type { TestMemoryEmbedder } from './settings/models/assistant-memory-embe
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
+import type { ClearContentProps } from './settings/system/clear-content-panel';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
   type HookReviewRoot,
@@ -68,6 +69,7 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
 }
 
 export interface CreateFactoryResetSettingsCategoryOptions {
+  clearContent?: ClearContentProps;
   hasStoredFolders?: boolean;
   inlineFixtureSetting?: {
     available: boolean;
@@ -85,6 +87,7 @@ export function createFactoryResetSettingsCategory(
   return {
     content: (
       <FactoryResetSettingsSection
+        clearContent={options?.clearContent}
         hasStoredFolders={options?.hasStoredFolders}
         inlineFixtureSetting={options?.inlineFixtureSetting}
         isWebPlatform={options?.isWebPlatform}

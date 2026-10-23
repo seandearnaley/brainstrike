@@ -160,8 +160,6 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
   '@shikijs/langs/yaml',
 ] as const;
 
-const DATABASE_OPTIMIZE_DEPS_INCLUDE = ['jszip', 'react-resizable-panels'] as const;
-
 /**
  * Third-party imports of workspace packages the app configs exclude from
  * dependency optimization. Vite's scan does not crawl an excluded package, so
@@ -199,6 +197,7 @@ const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
   '@brainstrike/ui > remark-math',
   '@brainstrike/ui > tailwind-merge',
   '@brainstrike/ui > yaml',
+  '@brainstrike/file-explorer-ui > react-resizable-panels',
   '@brainstrike/utils > @noble/hashes/sha2.js',
   '@brainstrike/utils > ignore',
   '@brainstrike/settings-ui > @tanstack/react-table',
@@ -223,10 +222,6 @@ export function getAssistantOptimizeDepsInclude(): readonly string[] {
 
 export function getCoreAppOptimizeDepsInclude(): readonly string[] {
   return CORE_APP_OPTIMIZE_DEPS_INCLUDE;
-}
-
-export function getDatabaseOptimizeDepsInclude(): readonly string[] {
-  return DATABASE_OPTIMIZE_DEPS_INCLUDE;
 }
 
 export function getWorkspaceSourceOptimizeDepsInclude(): readonly string[] {

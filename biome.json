@@ -288,7 +288,6 @@
         "packages/app-shell/**",
         "packages/app-state/**",
         "packages/settings-ui/**",
-        "packages/db-explorer/**",
         "packages/vector-management/**"
       ],
       "linter": {
@@ -506,10 +505,6 @@
         "packages/app-shell/src/threads-panel.tsx",
         "packages/app-state/src/__tests__/assistant-preferences-store.test.ts",
         "packages/app-state/src/stores/assistant-preferences-store.ts",
-        "packages/db-explorer/src/__tests__/database-demo-panel.test.tsx",
-        "packages/db-explorer/src/__tests__/use-database-demo-data.test.ts",
-        "packages/db-explorer/src/hooks/__tests__/use-semantic-search-executor.test.ts",
-        "packages/db-explorer/src/use-database-demo-data.ts",
         "packages/db/__tests__/file-chunk-repository.test.ts",
         "packages/db/__tests__/managed-cache-batch.test.ts",
         "packages/db/src/database-work-scheduler.ts",

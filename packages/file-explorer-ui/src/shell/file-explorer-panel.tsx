@@ -161,10 +161,9 @@ export interface FileExplorerPanelProps {
   readonly rootActions?: readonly AnyContextAction[] | undefined;
   /**
    * Host-composed controls for the ephemeral selection bar (see
-   * `FileExplorerSelectionActions`). Kept as an injected node so feature
-   * packages that depend on this one — the collection import flow lives in
-   * `@brainstrike/db-explorer` — can contribute actions without this package
-   * depending on them back.
+   * `FileExplorerSelectionActions`). Kept as an injected node so the shell can
+   * contribute actions (attach to thread, context export) without this package
+   * depending on it back.
    */
   readonly selectionActions?: React.ReactNode | undefined;
 }
@@ -244,10 +243,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
   // Held here rather than inside the bar so the scroll owner's bottom padding
-  // can track the bar's REAL visibility. Pin transitions re-render this panel
-  // (twice per import run); that is a plain re-render, not the render loop that
-  // BST-1212 chased — that was two mounted `useCollections` instances fighting
-  // over the shared collections cache, fixed at its source.
+  // can track the bar's REAL visibility. A pin transition is a plain re-render.
   const [selectionBarPinned, setSelectionBarPinned] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const previousRootFolderIdRef = useRef<string | null>(null);
