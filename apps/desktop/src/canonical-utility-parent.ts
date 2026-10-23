@@ -589,10 +589,8 @@ export class CanonicalUtilityParent {
             ? await this.invokeCatalog(session, frame, context, authority)
             : await this.invokePublication(session, frame, authority);
     if (!isOwnedCleanup(frame)) {
+      // stop() aborts every admitted request's signal in the same turn as it retires the session.
       context.signal.throwIfAborted();
-      if (session.retirement.signal.aborted) {
-        throw new DOMException('Canonical attachment retired.', 'AbortError');
-      }
       authority.lease?.signal.throwIfAborted();
     }
     recheckCallbackAuthority(session, frame);

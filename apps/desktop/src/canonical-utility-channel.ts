@@ -105,9 +105,7 @@ export class CanonicalUtilityChannel {
         })
       );
     } else {
-      const error = canonicalError(frame.error);
-      error.name = frame.error.name;
-      pending.reject(error);
+      pending.reject(canonicalError(frame.error));
     }
     return frame;
   }
