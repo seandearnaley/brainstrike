@@ -58,10 +58,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../file-import/src/browser-queue-port.ts'),
       },
       {
-        find: '@brainstrike/file-import/chunking-worker-context',
-        replacement: resolve(import.meta.dirname, '../file-import/src/chunking-worker-context.tsx'),
-      },
-      {
         find: '@brainstrike/file-import/enhanced-import',
         replacement: resolve(import.meta.dirname, '../file-import/src/enhanced-import.ts'),
       },

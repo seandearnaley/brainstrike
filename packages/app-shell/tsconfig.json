@@ -122,12 +122,6 @@
       "@brainstrike/token-cache/*": [
         "../token-cache/dist/*.d.ts"
       ],
-      "@brainstrike/file-import": [
-        "../file-import/dist/index.d.ts"
-      ],
-      "@brainstrike/file-import/chunking-worker-context": [
-        "../file-import/dist/chunking-worker-context.d.ts"
-      ],
       "@brainstrike/queue": [
         "../queue/dist/index.d.ts"
       ],
@@ -203,9 +197,6 @@
     },
     {
       "path": "../storage"
-    },
-    {
-      "path": "../file-import"
     },
     {
       "path": "../indexing-contract"

@@ -112,7 +112,6 @@ describe('desktop graceful shutdown', () => {
       'native-index',
       'mcp-runtime',
       'file-system',
-      'chunking-host',
       'parser-host',
       'embedding-host',
       'git-inventory',
@@ -137,14 +136,13 @@ describe('desktop graceful shutdown', () => {
     await Promise.race([entered.promise, shutdown]);
 
     expect(events).toContain('step:file-system');
-    expect(events).not.toContain('step:chunking-host');
     expect(events).not.toContain('step:embedding-host');
     expect(events).not.toContain('close:database');
 
     retirement.resolve();
     await shutdown;
 
-    expect(events.indexOf('step:chunking-host')).toBeGreaterThan(
+    expect(events.indexOf('step:embedding-host')).toBeGreaterThan(
       events.indexOf('step:file-system')
     );
     expect(events).toContain('close:database');

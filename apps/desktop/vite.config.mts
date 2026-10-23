@@ -141,22 +141,15 @@ export default defineConfig({
       '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
       '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
       '@brainstrike/db-explorer', // Uses file-import which has worker
-      '@brainstrike/file-import', // Resolves the chunking worker URL (chunking-worker-context) - must not be pre-bundled
       '@brainstrike/token-cache',
       '@brainstrike/token-cache/cache-runtime',
       '@brainstrike/token-cache/background-indexer',
-      '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
     include: [
       ...getCoreAppOptimizeDepsInclude(),
       ...getAssistantOptimizeDepsInclude(),
       ...getDatabaseOptimizeDepsInclude(),
       ...getWorkspaceSourceOptimizeDepsInclude(),
-      // Imported by @brainstrike/chunking-worker, excluded above, which src/renderer/main.tsx
-      // imports. The scan never crawls an excluded package, so a cold server met these only
-      // after its crawl, re-optimized and reloaded the renderer mid-launch (BST-2091).
-      '@brainstrike/chunking-worker > @babel/parser',
-      '@brainstrike/chunking-worker > web-tree-sitter',
     ],
   },
   plugins: [

@@ -89,15 +89,6 @@ const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKT
 
 import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
-import type {
-  ChunkingHostChunkBatchRequest,
-  ChunkingHostChunkFileByIdRequest,
-  ChunkingHostChunkFileRequest,
-  ChunkingHostProgressEvent,
-  ChunkingHostRequest,
-  ChunkingHostResponseReport,
-  ChunkingHostStatus,
-} from './chunking-host-shared';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
@@ -125,7 +116,6 @@ import type {
 import type { LoggingSettingsPayload } from './logging-shared';
 import {
   assertDesktopElectronApiKeyParity,
-  type VisibleChunkingHostBridge,
   type VisibleDesktopElectronApi,
   type VisibleEmbeddingHostBridge,
 } from './types/desktop-electron-api';
@@ -676,49 +666,6 @@ const embeddingHost = {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapter),
 } satisfies VisibleEmbeddingHostBridge;
 contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
-
-const chunkingHost = {
-  chunkBatch: (request: ChunkingHostChunkBatchRequest) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkBatch, request),
-  chunkFile: (request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkFile, request),
-  ensureStarted: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.ensureStarted),
-  getStatus: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.getStatus),
-  onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => {
-    const listener = (_event: unknown, progress: ChunkingHostProgressEvent) => callback(progress);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.chunkingHost.progress, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.chunkingHost.progress, listener);
-    };
-  },
-  onRequest: (callback: (request: ChunkingHostRequest) => void) => {
-    const listener = (_event: unknown, request: ChunkingHostRequest) => callback(request);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.chunkingHost.request, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.chunkingHost.request, listener);
-    };
-  },
-  onStatus: (callback: (status: ChunkingHostStatus) => void) => {
-    const listener = (_event: unknown, status: ChunkingHostStatus) => callback(status);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.chunkingHost.status, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.chunkingHost.status, listener);
-    };
-  },
-  reportResponse: (response: ChunkingHostResponseReport): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportResponse, response);
-  },
-  reportStatus: (status: ChunkingHostStatus): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportStatus, status);
-  },
-  reset: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.reset),
-  stop: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.stop),
-} satisfies VisibleChunkingHostBridge;
-contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
 
 // System Clipboard helper (renderer-friendly). Writes go through main over
 // IPC: sandboxed preloads cannot require Electron's clipboard module, so a

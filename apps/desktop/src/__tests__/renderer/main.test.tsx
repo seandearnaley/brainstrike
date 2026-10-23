@@ -64,10 +64,6 @@ vi.mock('../../renderer/components/embedding-host-app', () => ({
   EmbeddingHostApp: () => <div>EmbeddingHostApp</div>,
 }));
 
-vi.mock('../../renderer/components/chunking-host-app', () => ({
-  ChunkingHostApp: () => <div>ChunkingHostApp</div>,
-}));
-
 vi.mock('../../renderer/log-buffer', () => ({}));
 
 // Bootstrap checks registration order; host persistence has its own transport tests.
@@ -243,7 +239,7 @@ describe('renderer main entry', () => {
     );
   }, 30_000);
 
-  it.each(['embedding-host', 'chunking-host'])(
+  it.each(['embedding-host'])(
     'leaves the hidden %s window without chunk recovery, which has no UI to offer a reload',
     async (mode) => {
       vi.stubGlobal('agentHost', undefined);
@@ -266,19 +262,6 @@ describe('renderer main entry', () => {
     expect(isReactElement(renderArg)).toBe(true);
     if (!isReactElement(renderArg)) {
       throw new Error('Expected embedding host render element');
-    }
-    expect(renderArg.type).toBeDefined();
-  });
-
-  it('renders the chunking host app in chunking-host mode', async () => {
-    window.history.replaceState({}, '', '/?mode=chunking-host&runtimeId=chunking-host:test');
-
-    await import('../../renderer/main.tsx');
-
-    const renderArg = mockRender.mock.calls[0]?.[0];
-    expect(isReactElement(renderArg)).toBe(true);
-    if (!isReactElement(renderArg)) {
-      throw new Error('Expected chunking host render element');
     }
     expect(renderArg.type).toBeDefined();
   });

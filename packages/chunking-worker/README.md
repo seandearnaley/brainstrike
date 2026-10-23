@@ -1,7 +1,7 @@
 # Canonical chunking
 
-The browser worker and `@brainstrike/chunking-worker/node` execute the same
-portable algorithm. `createNodeChunker` requires an explicit OXC/Babel choice;
+`@brainstrike/chunking-worker/node` executes the portable canonical algorithm.
+`createNodeChunker` requires an explicit OXC/Babel choice;
 Python always uses the shipped vendored tree-sitter grammar, with no separate
 Python configuration option. It runs in the utility/CLI owner; Electron main is
 refused. It includes no inference runtime or catalog persistence.

@@ -34,23 +34,6 @@ export const DESKTOP_IPC_CHANNELS = {
     inventory: 'changes:inventory',
     resolveView: 'changes:resolveView',
   },
-  // Hidden chunking host (renderer-only inference, docs/agents/local-inference.md).
-  // `request`/`progress`/`status` are one-way main→host pushes; `report*` are
-  // host→main sends. Pinned equal to the @brainstrike/worker-runtime
-  // descriptor in chunking-host-shared.ts by desktop-ipc-channel-contract.test.ts.
-  chunkingHost: {
-    chunkBatch: 'chunking-host:chunk-batch',
-    chunkFile: 'chunking-host:chunk-file',
-    ensureStarted: 'chunking-host:ensure-started',
-    getStatus: 'chunking-host:get-status',
-    progress: 'chunking-host:progress',
-    reportResponse: 'chunking-host:report-response',
-    reportStatus: 'chunking-host:report-status',
-    request: 'chunking-host:request',
-    reset: 'chunking-host:reset',
-    status: 'chunking-host:status',
-    stop: 'chunking-host:stop',
-  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
@@ -91,7 +74,7 @@ export const DESKTOP_IPC_CHANNELS = {
     readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
     readProcessCounters: 'desktop-diagnostics:read-process-counters',
   },
-  // Hidden embedding host; same pinning as chunkingHost (embedding-host-shared.ts).
+  // Hidden embedding host; pinned equal to the worker-runtime descriptor in embedding-host-shared.ts by desktop-ipc-channel-contract.test.ts.
   embeddingHost: {
     cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
     cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',

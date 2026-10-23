@@ -58,7 +58,6 @@ import {
 import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
-import { ChunkingHostManager } from './chunking-host-manager';
 import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createDesktopCollectionCatalog } from './collection-catalog';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -128,7 +127,6 @@ import { createWorkspaceRootResolver } from './git-ipc-handlers';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
-import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerCollectionCatalogIpc } from './ipc-collection-catalog';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
@@ -469,9 +467,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           throw new AggregateError(causes, 'Child process shutdown cleanup failed');
         }
       },
-      'chunking-host': async () => {
-        await chunkingHostManager.dispose();
-      },
       // Stops everything that issues database work. It does NOT close the
       // database: that is `closeDatabase` below, a slice that always runs.
       'database-drain': () => {
@@ -551,11 +546,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           admitDocumentClose(window);
         }
         const closes = await Promise.allSettled([
-          closeDesktopRenderers(
-            windows,
-            (window) =>
-              chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
-          ),
+          closeDesktopRenderers(windows, (window) => embeddingHostManager.isHostWindow(window)),
         ]);
         const rejections = [...preparations, ...closes].flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
@@ -650,7 +641,6 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
   }
 };
 
-const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager({
   lifecycleDelays: lifecycleDelaySeam,
@@ -712,7 +702,6 @@ const handleResetLocal = createDesktopFactoryResetHandler({
       stopForContent: suspendMcpSurfacesForContentClear,
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
-    { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
     // In-memory diagnostics ring: a factory reset must not carry the previous
     // profile's process samples into the next one.
     {
@@ -811,7 +800,6 @@ configureDesktopCommandSessionManager({
   resolver: createWorkspaceRootResolver(workspaceRootCatalog),
 });
 const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
-  chunkingHostManager,
   embeddingHostManager,
   getRootsCatalog: async () => workspaceRootCatalog,
   getUserDataPath: () => app.getPath('userData'),
@@ -1031,7 +1019,6 @@ ipcDisposers.add('main', () => {
     logger.error('Application IPC domain cleanup failed during will-quit', { error });
   });
 });
-ipcDisposers.add('chunking-host', registerChunkingHostIpcHandlers(chunkingHostManager));
 ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
 ipcDisposers.add(
   'embedding-host',
@@ -1296,18 +1283,15 @@ if (singleInstanceLockAcquired) {
 
   completeFactoryResetRendererReplacement = async (signal) => {
     const visibleWindows = BrowserWindow.getAllWindows().filter(
-      (window) =>
-        !(chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window))
+      (window) => !embeddingHostManager.isHostWindow(window)
     );
     await factoryResetRendererReplacement.replace(visibleWindows, signal);
   };
 
   desktopBootstrap.bindSecondInstanceFocus(() => {
     const existingWindow =
-      BrowserWindow.getAllWindows().find(
-        (window) =>
-          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
-      ) ?? null;
+      BrowserWindow.getAllWindows().find((window) => !embeddingHostManager.isHostWindow(window)) ??
+      null;
     if (!existingWindow) {
       return;
     }
@@ -2080,8 +2064,7 @@ if (singleInstanceLockAcquired) {
           return;
         }
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
-          (window) =>
-            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+          (window) => !embeddingHostManager.isHostWindow(window)
         );
         if (!hasVisibleWindow) {
           await createMainWindow();

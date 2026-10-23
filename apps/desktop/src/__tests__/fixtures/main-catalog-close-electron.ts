@@ -216,7 +216,6 @@ async function main(): Promise<void> {
       closeErrorLogSink: () => event('error-log-closed'),
       steps: {
         'child-processes': step('child-processes'),
-        'chunking-host': step('chunking-host'),
         'database-drain': step('database-drain'),
         'embedding-host': step('embedding-host'),
         'factory-reset': step('factory-reset'),

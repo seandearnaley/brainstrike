@@ -220,13 +220,6 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../../packages/file-explorer-ui/src/shell'),
       },
       {
-        find: '@brainstrike/file-import/chunking-worker-context',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/file-import/src/chunking-worker-context.tsx'
-        ),
-      },
-      {
         find: '@brainstrike/platform-utils',
         replacement: path.resolve(import.meta.dirname, '../../packages/platform-utils/src'),
       },

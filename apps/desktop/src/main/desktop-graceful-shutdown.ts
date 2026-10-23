@@ -27,7 +27,6 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'native-index',
   'mcp-runtime',
   'file-system',
-  'chunking-host',
   'parser-host',
   'embedding-host',
   'git-inventory',

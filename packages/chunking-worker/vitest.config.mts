@@ -19,7 +19,7 @@ export default defineConfig({
   test: {
     coverage: {
       enabled: coverageEnabled,
-      exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**', 'src/chunking.worker.ts'],
+      exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**'],
       include: ['src/**/*.ts'],
       provider: 'v8',
     },

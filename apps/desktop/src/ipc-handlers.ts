@@ -8,7 +8,6 @@ import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
 import type ElectronStore from 'electron-store';
-import type { ChunkingHostManager } from './chunking-host-manager';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
@@ -29,7 +28,6 @@ import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 interface RegisterIpcHandlerOptions {
-  readonly chunkingHostManager?: ChunkingHostManager;
   readonly embeddingHostManager?: EmbeddingHostManager;
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   readonly getUserDataPath?: () => string;

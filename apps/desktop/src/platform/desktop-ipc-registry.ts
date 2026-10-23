@@ -18,7 +18,6 @@ export type DesktopIpcDomain =
   | 'agent'
   | 'browser'
   | 'changes'
-  | 'chunking-host'
   | 'clipboard'
   | 'commandSessions'
   | 'contextFiles'

@@ -13,7 +13,6 @@ import {
   callBoundary,
   createBoundaryCapability,
 } from '@brainstrike/assistant-contract/boundary-result';
-import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -47,20 +46,7 @@ import { hostPermissionPolicyPersistence } from './host-permission-policy';
 import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
 import './styles.css';
-import { ChunkingHostApp } from './components/chunking-host-app';
 import { EmbeddingHostApp } from './components/embedding-host-app';
-
-// Local declaration of the parser-routing globals exposed by the chunking
-// worker (see packages/chunking-worker/src/parsers/environment.ts). Declared
-// here as well so apps/desktop's renderer can set them without a runtime
-// dep on @brainstrike/chunking-worker. Both sides agree on the names by
-// convention; if they ever diverge the chunking worker's selectAdapter
-// silently falls back to its 'browser' default.
-declare global {
-  var __BRAINSTRIKE_PARSER_ENV__: 'browser' | 'electron-chunking-host' | undefined;
-  var __BRAINSTRIKE_PARSER_FLAG__: 'auto' | 'babel' | 'oxc' | undefined;
-  var __BRAINSTRIKE_TREE_SITTER_LANGUAGES__: readonly string[] | undefined;
-}
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
@@ -114,46 +100,7 @@ let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
 
 const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
-const rendererRuntimeKind =
-  desktopRendererRole === 'embedding-host' || desktopRendererRole === 'chunking-host'
-    ? desktopRendererRole
-    : null;
-
-// Phase 8 rollout + P1 #994 fix: when this renderer is the chunking host,
-// read the optional URL-param kill switch into globalThis for the
-// chunking-worker provider to propagate to the worker via init message.
-//
-// The parser ENVIRONMENT itself is auto-detected downstream: the
-// chunking-worker-port's buildInitMessage checks for `globalThis.parserHost`
-// (exposed by preload's contextBridge in this renderer) and tells the
-// worker to advertise itself as electron-chunking-host. Setting
-// __BRAINSTRIKE_PARSER_ENV__ on `window` here used to do nothing useful —
-// the worker has its own globalThis realm — so it's removed.
-//
-// Operator kill switch: append `?parserFlag=babel` to the chunking-host
-// renderer URL to force the legacy Babel path. The chunking-host's URL is
-// constructed in chunking-host-manager.ts when launching the BrowserWindow,
-// so this is a one-line change there if the rollout needs to be reverted
-// in the field.
-if (desktopRendererRole === 'chunking-host') {
-  const flagParam = new URLSearchParams(window.location.search).get('parserFlag');
-  if (flagParam === 'babel' || flagParam === 'oxc' || flagParam === 'auto') {
-    globalThis.__BRAINSTRIKE_PARSER_FLAG__ = flagParam;
-  }
-
-  // Tree-sitter rollout (Phase 8 of #998): enable Python by default in the
-  // chunking-host. Operator kill switch: append `?treeSitterLanguages=`
-  // (empty) to disable, or `?treeSitterLanguages=python,rust` to specify
-  // a custom list. The renderer's URL is built in chunking-host-manager.ts
-  // so this is a one-line change there if the rollout needs to be reverted
-  // in the field. The helper centralizes the parse + default logic and is
-  // unit-tested in chunking-worker/src/__tests__/tree-sitter-rollout.test.ts.
-  // The chunking-worker-port's buildInitMessage forwards this to the worker
-  // realm via the existing init message, same pattern as parserEnv/parserFlag.
-  globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ = resolveBootstrapTreeSitterLanguages(
-    window.location.search
-  );
-}
+const rendererRuntimeKind = desktopRendererRole === 'embedding-host' ? desktopRendererRole : null;
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
@@ -498,10 +445,6 @@ function isEmbeddingHostMode(): boolean {
   return new URLSearchParams(window.location.search).get('mode') === 'embedding-host';
 }
 
-function isChunkingHostMode(): boolean {
-  return new URLSearchParams(window.location.search).get('mode') === 'chunking-host';
-}
-
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
@@ -549,8 +492,6 @@ root.render(
   bridgeValidation.ok ? (
     isEmbeddingHostMode() ? (
       <EmbeddingHostApp />
-    ) : isChunkingHostMode() ? (
-      <ChunkingHostApp />
     ) : (
       <StrictMode>
         <App />

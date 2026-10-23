@@ -112,7 +112,7 @@ export const sourceFilesContract = {
       assertArgCount(raw, 2, 'Source read');
       return [ids(raw[0]), integer(raw[1])];
     },
-    roles: ['visible-ui', 'chunking-host'],
+    roles: ['visible-ui'],
   }),
 };
 /** @internal Compile-time assertion that the runtime contract matches its public wire types. */

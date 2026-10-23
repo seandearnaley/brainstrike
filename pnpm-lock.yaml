@@ -1315,9 +1315,6 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui
-      '@brainstrike/file-import':
-        specifier: workspace:*
-        version: link:../file-import
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
@@ -2495,15 +2492,6 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
-      '@brainstrike/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
-      '@brainstrike/worker-runtime':
-        specifier: workspace:*
-        version: link:../worker-runtime
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*

@@ -179,9 +179,6 @@
       "@brainstrike/file-import/browser-queue-port": [
         "./packages/file-import/src/browser-queue-port.ts"
       ],
-      "@brainstrike/file-import/chunking-worker-context": [
-        "./packages/file-import/src/chunking-worker-context.tsx"
-      ],
       "@brainstrike/file-import/enhanced-import": [
         "./packages/file-import/src/enhanced-import.ts"
       ],

@@ -1,6 +1,5 @@
 import Module from 'node:module';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sourceFilesContract } from '../ipc-domains/source-files.contract';
 
 const { exposeInMainWorldMock, invokeMock, onMock, removeListenerMock, sendMock } = vi.hoisted(
   () => ({
@@ -57,7 +56,6 @@ describe('hidden preload runtime capability manifest', () => {
   });
 
   it.each([
-    ['chunking-host', ['chunkingHost', 'sourceFiles', 'logging', 'parserHost']],
     ['embedding-host', ['electronAPI', 'embeddingHost', 'logging', 'modelCatalog', 'power']],
   ] as const)('exposes only the %s capability manifest', async (role, expectedGlobals) => {
     const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
@@ -95,28 +93,7 @@ describe('hidden preload runtime capability manifest', () => {
     expect(invokeMock).toHaveBeenCalledWith('app:power-snapshot');
   });
 
-  it('gives chunking only canonical source reads without SQL or mutation authority', async () => {
-    const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}chunking-host`]);
-    const sources = exposed.get('sourceFiles') as {
-      read: (ids: readonly string[], maxBytes: number) => Promise<unknown>;
-    };
-    expect(Object.keys(sources)).toEqual(['read']);
-    expect(exposed.has('electronAPI')).toBe(false);
-    const ids = ['file-1'];
-    invokeMock.mockResolvedValueOnce({ ok: true, value: [] });
-    await expect(sources.read(ids, 1024)).resolves.toEqual({ ok: true, value: [] });
-    expect(invokeMock).toHaveBeenLastCalledWith(sourceFilesContract.read.channel, ids, 1024);
-  });
   it('keeps each hidden role bridge at its exact runtime key set', async () => {
-    const chunking = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}chunking-host`]);
-    expect(chunking.has('electronAPI')).toBe(false);
-    expect(Object.keys(chunking.get('sourceFiles') as object)).toEqual(['read']);
-    expect(Object.keys(chunking.get('chunkingHost') as object).sort()).toEqual([
-      'onRequest',
-      'reportResponse',
-      'reportStatus',
-    ]);
-
     const embedding = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}embedding-host`]);
     const embeddingApi = embedding.get('electronAPI') as {
       db: object;
@@ -185,19 +162,6 @@ describe('hidden preload runtime capability manifest', () => {
       expect(call).not.toContain('vector-preferences.v1');
     }
   });
-
-  it.each([['chunking-host', 'electronAPI']] as const)(
-    'withholds the vector preferences capability from the %s role',
-    async (role, globalName) => {
-      const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
-      const electronAPI = exposed.get(globalName) as
-        | { storage?: unknown; vectorPreferences?: unknown }
-        | undefined;
-
-      expect(electronAPI?.vectorPreferences).toBeUndefined();
-      expect(electronAPI?.storage).toBeUndefined();
-    }
-  );
 
   it.each([
     ['a missing role', []],

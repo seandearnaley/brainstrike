@@ -198,7 +198,6 @@ describe('runtime host boundary', () => {
   it('keeps host IPC modules on the typed desktop IPC registry instead of direct ipcMain calls', () => {
     const hostSources = [
       readDesktopSource('ipc-embedding-host.ts'),
-      readDesktopSource('ipc-chunking-host.ts'),
       readDesktopSource('ipc-parser-host.ts'),
     ];
 
@@ -213,10 +212,7 @@ describe('runtime host boundary', () => {
 
   it('keeps runtime lifecycle IPC domain ownership explicit', () => {
     const lifecycleSource = readDesktopSource('register-background-runtime-lifecycle-ipc.ts');
-    const hostSources = [
-      readDesktopSource('ipc-embedding-host.ts'),
-      readDesktopSource('ipc-chunking-host.ts'),
-    ];
+    const hostSources = [readDesktopSource('ipc-embedding-host.ts')];
 
     expect(lifecycleSource).not.toMatch(/inferLifecycleDomain/);
     expect(lifecycleSource).not.toMatch(/domain\?:/);

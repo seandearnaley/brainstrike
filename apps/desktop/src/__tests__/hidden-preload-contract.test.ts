@@ -11,7 +11,6 @@ describe('hidden renderer preload contract', () => {
   it('contains explicit capability manifests for every hidden renderer role', () => {
     const source = readHiddenPreloadSource();
 
-    expect(source).toContain("'chunking-host'");
     expect(source).toContain("'embedding-host'");
     expect(source).toContain('brainstrike-hidden-renderer-role');
   });

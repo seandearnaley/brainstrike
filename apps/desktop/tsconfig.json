@@ -135,9 +135,6 @@
       "@brainstrike/file-import": [
         "../../packages/file-import/src"
       ],
-      "@brainstrike/file-import/chunking-worker-context": [
-        "../../packages/file-import/src/chunking-worker-context.tsx"
-      ],
       "@brainstrike/app-shell": [
         "../../packages/app-shell/src"
       ],

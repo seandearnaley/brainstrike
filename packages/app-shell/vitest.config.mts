@@ -173,20 +173,6 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
       },
       {
-        find: '@brainstrike/file-import/chunking-worker-context',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../file-import/src/chunking-worker-context.tsx'
-        ),
-      },
-      {
-        // Regex-EXACT: a string find would also capture subpaths like
-        // file-import/browser-queue-port and rewrite them onto index.ts/<sub>
-        // (nonexistent). Subpaths resolve via the registry's exact entries.
-        find: /^@brainstrike\/file-import$/,
-        replacement: path.resolve(import.meta.dirname, '../file-import/src/index.ts'),
-      },
-      {
         find: /^@brainstrike\/vector-management$/,
         replacement: path.resolve(import.meta.dirname, '../vector-management/src/index.ts'),
       },

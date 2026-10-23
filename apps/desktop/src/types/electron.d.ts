@@ -34,10 +34,8 @@ import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { TransportBridge } from '../platform/ipc-contract';
 import type {
-  ChunkingHostRuntimeBridge,
   DesktopElectronApi,
   EmbeddingHostRuntimeBridge,
-  VisibleChunkingHostBridge,
   VisibleEmbeddingHostBridge,
 } from './desktop-electron-api';
 
@@ -102,7 +100,6 @@ declare global {
     };
     /** Desktop-only Changes bridge, derived from its pure IPC contract. */
     changes?: TransportBridge<typeof changesContract>;
-    chunkingHost?: ChunkingHostRuntimeBridge | VisibleChunkingHostBridge;
     /** Desktop-only clipboard write bridge, derived from its contract (BST-1648). */
     clipboard?: TransportBridge<typeof clipboardContract>;
     collectionCatalog?: TransportBridge<typeof collectionCatalogContract>;

@@ -2,19 +2,6 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
-  CHUNKING_HOST_CHUNK_FILE_CHANNEL,
-  CHUNKING_HOST_ENSURE_STARTED_CHANNEL,
-  CHUNKING_HOST_GET_STATUS_CHANNEL,
-  CHUNKING_HOST_PROGRESS_EVENT,
-  CHUNKING_HOST_REPORT_RESPONSE_CHANNEL,
-  CHUNKING_HOST_REPORT_STATUS_CHANNEL,
-  CHUNKING_HOST_REQUEST_EVENT,
-  CHUNKING_HOST_RESET_CHANNEL,
-  CHUNKING_HOST_STATUS_EVENT,
-  CHUNKING_HOST_STOP_CHANNEL,
-} from '../../chunking-host-shared';
-import {
   EMBEDDING_HOST_COMMAND_EVENT,
   EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CANCEL_EVENT,
   EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CHANNEL,
@@ -119,19 +106,6 @@ describe('desktop IPC channel contract', () => {
     // `*-host-shared.ts` descriptors (derived by @brainstrike/worker-runtime,
     // a bare package a preload cannot require) are what main registers. The
     // two are pinned equal here so neither can drift from the other.
-    expect(DESKTOP_IPC_CHANNELS.chunkingHost).toEqual({
-      chunkBatch: CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
-      chunkFile: CHUNKING_HOST_CHUNK_FILE_CHANNEL,
-      ensureStarted: CHUNKING_HOST_ENSURE_STARTED_CHANNEL,
-      getStatus: CHUNKING_HOST_GET_STATUS_CHANNEL,
-      progress: CHUNKING_HOST_PROGRESS_EVENT,
-      reportResponse: CHUNKING_HOST_REPORT_RESPONSE_CHANNEL,
-      reportStatus: CHUNKING_HOST_REPORT_STATUS_CHANNEL,
-      request: CHUNKING_HOST_REQUEST_EVENT,
-      reset: CHUNKING_HOST_RESET_CHANNEL,
-      status: CHUNKING_HOST_STATUS_EVENT,
-      stop: CHUNKING_HOST_STOP_CHANNEL,
-    });
     expect(DESKTOP_IPC_CHANNELS.embeddingHost).toEqual({
       cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
       cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
