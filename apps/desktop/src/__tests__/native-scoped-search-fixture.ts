@@ -13,7 +13,8 @@ import {
 } from '../native-scoped-search';
 
 export const storeId = 'a'.repeat(64);
-export const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
+export const rootId = 'root-a';
+export const scope = { kind: 'workspace', rootId } as const;
 export const profile = {
   dimensions: 384,
   distance: 'cosine',
@@ -25,10 +26,10 @@ export const profile = {
 } as const;
 export const binding = {
   embeddingSetId: 'selected',
-  fileId: 'retained',
-  relativePath: null,
-  rootId: null,
-  sourcePath: null,
+  fileId: 'notes',
+  relativePath: 'notes.md',
+  rootId,
+  sourcePath: '/workspace/root-a/notes.md',
 };
 export const hit = {
   ...binding,
@@ -36,7 +37,7 @@ export const hit = {
   chunkIndex: 0,
   chunkSize: 384,
   chunkType: 'text' as const,
-  content: 'retained marker',
+  content: 'notes.md marker',
   contentHash: 'c'.repeat(64),
   endLine: 1,
   endOffset: 15,
@@ -57,7 +58,7 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
     profile: selectedProfile,
     queryPlan: undefined,
     readiness: [{ generation: 1, mutationRevision: 0, scanComplete: true, scope }],
-    rootIds: [],
+    rootIds: [rootId],
   };
   const searchScopes = vi.fn<ScopedIndexerPort['searchScopes']>(async () => ({
     candidateCount: 1,
@@ -70,35 +71,26 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
     truncated: false,
   }));
   const coverageBatch = vi.fn<ScopedIndexerPort['coverageBatch']>(async (input) =>
-    (input as readonly ScopedCoverageRequest[]).map(({ scope: requestedScope }) => ({
-      authorityEpoch: 'd'.repeat(64),
-      authorityRevision: 1,
-      counts: {
-        chunks: authority.rootIds.length === 0 ? 1 : requestedScope.kind === 'workspace' ? 2 : 3,
-        indexedFiles: 1,
-        missingVectors:
-          selectedProfile === null
-            ? authority.rootIds.length === 0
-              ? 1
-              : requestedScope.kind === 'workspace'
-                ? 2
-                : 3
-            : 0,
-        vectors:
-          selectedProfile === null
-            ? 0
-            : authority.rootIds.length === 0
-              ? 1
-              : requestedScope.kind === 'workspace'
-                ? 2
-                : 3,
-      },
-      profile: selectedProfile,
-      profileHash: selectedProfile === null ? null : vectorProfileHash(selectedProfile),
-      scope: requestedScope,
-      storeId,
-      vectorCoverageComplete: selectedProfile !== null,
-    }))
+    (input as readonly ScopedCoverageRequest[]).map(({ scope: requestedScope }) => {
+      // The fixture's folder holds one chunk; any other folder holds two.
+      const chunks =
+        requestedScope.kind === 'workspace' && requestedScope.rootId === rootId ? 1 : 2;
+      return {
+        authorityEpoch: 'd'.repeat(64),
+        authorityRevision: 1,
+        counts: {
+          chunks,
+          indexedFiles: 1,
+          missingVectors: selectedProfile === null ? chunks : 0,
+          vectors: selectedProfile === null ? 0 : chunks,
+        },
+        profile: selectedProfile,
+        profileHash: selectedProfile === null ? null : vectorProfileHash(selectedProfile),
+        scope: requestedScope,
+        storeId,
+        vectorCoverageComplete: selectedProfile !== null,
+      };
+    })
   );
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
@@ -172,9 +164,9 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
       rows: [
         [
           hit.chunkId,
-          null,
+          binding.rootId,
           binding.fileId,
-          null,
+          binding.relativePath,
           hit.content,
           hit.contentHash,
           1,
@@ -186,7 +178,7 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
           15,
           3,
           'selected',
-          null,
+          binding.sourcePath,
         ],
       ],
       truncated: false,

@@ -222,10 +222,14 @@ describe('native source publication handoff', () => {
   it('waits for the selected root source, not unrelated completion', async () => {
     vi.useFakeTimers();
     const mounted = mountController();
+    // Another indexed folder, open in the app but not the one searched.
     const incomplete = {
       ...ready,
-      collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: false }],
-      rootReadiness: [{ rootId: 'root-a', scanComplete: false }],
+      authorizedRootIds: ['root-a', 'root-b'],
+      rootReadiness: [
+        { rootId: 'root-a', scanComplete: false },
+        { rootId: 'root-b', scanComplete: false },
+      ],
     };
     try {
       await vi.waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
@@ -242,15 +246,21 @@ describe('native source publication handoff', () => {
       await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
       mounted.refresh({
         ...incomplete,
-        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+        rootReadiness: [
+          { rootId: 'root-a', scanComplete: false },
+          { rootId: 'root-b', scanComplete: true },
+        ],
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4000);
       });
       expect(mounted.capability.grep).toHaveBeenCalledOnce();
       mounted.refresh({
-        ...ready,
-        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+        ...incomplete,
+        rootReadiness: [
+          { rootId: 'root-a', scanComplete: true },
+          { rootId: 'root-b', scanComplete: true },
+        ],
       });
       mounted.response.sourceComplete = true;
       await act(async () => {

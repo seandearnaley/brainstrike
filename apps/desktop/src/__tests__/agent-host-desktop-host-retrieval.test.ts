@@ -3,6 +3,7 @@ import { MessageChannel } from 'node:worker_threads';
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { embeddingProfileHash } from '@brainstrike/indexer';
 import {
@@ -54,7 +55,6 @@ const embedding = {
 const status: IndexerStatus = {
   authorizedCollectionIds: ['selected'],
   authorizedRootIds: ['root-a'],
-  collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
   embedding,
   kind: 'ready',
   queryPlan,
@@ -146,14 +146,13 @@ const twoFolderIndex = {
   } as IndexerStatus,
 };
 function coverage(scope: IndexerCoverageRequest) {
+  const folders = scope.rootIds.length;
   return {
-    ...(scope.collectionId === undefined
-      ? {}
-      : { collections: [{ ...counts, embeddingSetId: scope.collectionId }] }),
     embedding,
     roots: scope.rootIds.map((rootId) => ({ ...counts, rootId })),
     storeId: result.storeId,
-    totals: counts,
+    // Main sums its folders' counts.
+    totals: { chunks: folders, indexedFiles: folders, missingVectors: 0, vectors: folders },
     vectorCoverageComplete: true,
   };
 }
@@ -167,9 +166,7 @@ function mainReads(
 ) {
   const scoped = (request: { readonly rootIds: readonly string[] }): IndexerSearchResult => ({
     ...result,
-    hits: index.hits.filter(
-      (hit) => request.rootIds.length === 0 || request.rootIds.includes(hit.rootId ?? '')
-    ),
+    hits: index.hits.filter((hit) => request.rootIds.includes(hit.rootId ?? '')),
   });
   return vi.fn(async (method: string, input: unknown): Promise<unknown> => {
     const { request, threadId } = (input ?? {}) as {
@@ -190,12 +187,14 @@ function mainReads(
         return scoped(request as IndexerCoverageRequest);
       case 'desktop-read/index/coverage':
         return coverage(request as IndexerCoverageRequest);
-      case 'desktop-read/index/coverage-batch':
-        return {
-          coverage: (request as IndexerCoverageRequest[]).map(coverage),
-          kind: 'current',
-          status: index.status,
-        };
+      case 'desktop-read/index/coverage-batch': {
+        const requests = request as IndexerCoverageRequest[];
+        // Main's index refuses a read naming no folder, as a typed refusal.
+        if (requests.some((scope) => scope.rootIds.length === 0)) {
+          throw refusalError('input', 'native-search.no-folders', NO_WORKSPACE_FOLDER_MESSAGE);
+        }
+        return { coverage: requests.map(coverage), kind: 'current', status: index.status };
+      }
       // Reads that can refuse answer with an outcome (BST-1996).
       case 'desktop-read/retrieval/embedding-set':
         return { ok: true, result: embeddingSetRow };
@@ -374,20 +373,55 @@ test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
   }
 );
 test('the desktop host runs listEmbeddingSpaces in its own process over Main’s catalog read', async () => {
-  const request = mainReads();
+  // The space's stats are its indexed folders' files: A, scanned, and C, still scanning.
+  const request = mainReads({
+    ...twoFolderIndex,
+    status: {
+      ...twoFolderIndex.status,
+      rootReadiness: [
+        { rootId: 'root-a', scanComplete: true },
+        { rootId: 'root-c', scanComplete: false },
+      ],
+    } as IndexerStatus,
+  });
   const output = await tool(hostTools(request), 'brainstrike_listEmbeddingSpaces').execute(
-    {},
+    { includeStats: true },
     execution()
   );
   expect(output).toMatchObject({
     count: 1,
-    spaces: [expect.objectContaining({ id: 'selected' })],
+    spaces: [
+      expect.objectContaining({
+        coverage: {
+          coveragePercent: 100,
+          embeddedChunks: 2,
+          fileCount: 2,
+          missingVectors: 0,
+          scanComplete: false,
+          source: 'native',
+          totalChunks: 2,
+          vectorCoverageComplete: true,
+        },
+        id: 'selected',
+      }),
+    ],
   });
   expect(request).toHaveBeenCalledWith('desktop-read/retrieval/embedding-spaces', {
-    request: { includeStats: false },
+    request: { includeStats: true },
     threadId: 'host-thread',
   });
   expectOnlyReads(request);
+});
+test('listEmbeddingSpaces stats with no folder in the index say to add one', async () => {
+  const request = mainReads({
+    hits: [],
+    status: { ...status, authorizedRootIds: [], rootReadiness: [] } as IndexerStatus,
+  });
+  const output = await tool(hostTools(request), 'brainstrike_listEmbeddingSpaces').execute(
+    { includeStats: true },
+    execution()
+  );
+  expect(output).toEqual(refusal(NATIVE_TOOL_ID.listEmbeddingSpaces, NO_WORKSPACE_FOLDER_MESSAGE));
 });
 const GENERIC_FAILURE = 'The tool did not complete successfully. Try another approach.';
 /** Main's workspace index, answering as the typed reads above do. */
