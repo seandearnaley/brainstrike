@@ -16,6 +16,7 @@ import { createLogger } from '@brainstrike/logging';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
 import { IndexConfigApplyFailed, IndexConfigRefused, IndexConfigStoreFailed } from './index-config';
+import { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 
 const logger = createLogger('NativeIndexBoundary');
 
@@ -155,6 +156,13 @@ export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): Bo
       correlationId,
     });
     return { ...hostedFailure, correlationId };
+  }
+  // An event refused because an owner closed or is replacing the index: the refusal a read gets.
+  if (
+    error instanceof NativeIndexEventRefusedError &&
+    (error.cause.kind === 'closed' || error.cause.kind === 'transitioning')
+  ) {
+    return refusal({ ...descriptions[error.cause.kind], code: `native-index-${error.cause.kind}` });
   }
   if (!(error instanceof NativeIndexRefusalError)) {
     return toBoundaryFailure(error, log);
