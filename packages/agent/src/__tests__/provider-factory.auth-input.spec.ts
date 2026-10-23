@@ -1,15 +1,18 @@
 /**
  * ProviderAuthInput seam (BST-1352): createProvider accepts a discriminated
  * auth union instead of a bare key string. `api_key` is behavior-identical to
- * the old string; `custom_fetch` threads an injected fetch into the AI SDK
- * factories; `aws` is validated (region required) but consumed by no provider
- * yet. Kinds a provider case cannot thread fail with a typed error — never a
+ * the old string; `aws` is validated (region required) and consumed only by
+ * the bedrock case. Kinds a provider case cannot thread fail with a typed error — never a
  * silent downgrade to env/default credentials.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { createProvider } from '../providers/provider-factory';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function sseEvent(event: string, data: Record<string, unknown>): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -77,12 +80,13 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
     });
   });
 
-  describe('custom_fetch kind', () => {
-    it('threads the injected fetch into the anthropic case AND keeps the prompt-caching wrapper', async () => {
+  describe('api_key wire request', () => {
+    it('keeps the anthropic prompt-caching breakpoint on the wire', async () => {
       const { captured, fetch } = makeCapturingFetch(makeAnthropicSseResponse);
+      vi.stubGlobal('fetch', fetch);
       const model = createProvider(
         'anthropic',
-        { apiKey: 'dummy-never-sent', fetch, kind: 'custom_fetch' },
+        { apiKey: 'fixture-key', kind: 'api_key' },
         'claude-sonnet-4-6'
       ) as {
         doStream: (options: unknown) => Promise<unknown>;
@@ -95,71 +99,15 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
       expect(captured).toHaveLength(1);
       const request = captured[0];
       if (!request) {
-        throw new Error('injected fetch was not invoked');
+        throw new Error('fetch was not invoked');
       }
       expect(request.url).toContain('api.anthropic.com');
-      // wrapAnthropicModelWithPromptCaching still intercepts doStream on a
-      // model built with a custom fetch: the tail cache breakpoint is present
-      // in the body the injected fetch received.
+      // wrapAnthropicModelWithPromptCaching intercepts doStream: the tail cache
+      // breakpoint is present in the body sent on the wire.
       const messages = request.body['messages'] as Record<string, unknown>[];
       const lastMessage = messages.at(-1);
       const lastContent = ((lastMessage?.['content'] ?? []) as Record<string, unknown>[]).at(-1);
       expect(lastContent?.['cache_control']).toEqual({ type: 'ephemeral' });
-    });
-
-    it('threads the injected fetch into the openai case', async () => {
-      const { captured, fetch } = makeCapturingFetch(
-        () => new Response('{}', { status: 500 }) // reaching fetch at all is the assertion
-      );
-      const model = createProvider('openai', {
-        apiKey: 'dummy-never-sent',
-        fetch,
-        kind: 'custom_fetch',
-      }) as {
-        doGenerate: (options: unknown) => Promise<unknown>;
-      };
-      await model
-        .doGenerate({ prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }] })
-        .catch(() => {
-          // The 500 fixture makes the SDK throw AFTER the fetch we assert on.
-        });
-      expect(captured.length).toBeGreaterThan(0);
-    });
-
-    it('threads the injected fetch into the google case', async () => {
-      const { captured, fetch } = makeCapturingFetch(() => new Response('{}', { status: 500 }));
-      const model = createProvider('google', {
-        apiKey: 'dummy-never-sent',
-        fetch,
-        kind: 'custom_fetch',
-      }) as {
-        doGenerate: (options: unknown) => Promise<unknown>;
-      };
-      await model
-        .doGenerate({ prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }] })
-        .catch(() => {
-          // Same 500-after-capture contract as the openai case.
-        });
-      expect(captured.length).toBeGreaterThan(0);
-    });
-
-    it('throws a typed error for provider cases with no fetch seam (never drops the fetch)', () => {
-      const auth: ProviderAuthInput = {
-        apiKey: 'dummy',
-        fetch: globalThis.fetch,
-        kind: 'custom_fetch',
-      };
-      for (const provider of ['openrouter', 'ollama', 'lmstudio'] as const) {
-        let thrown: unknown;
-        try {
-          createProvider(provider, auth, 'some-model');
-        } catch (error) {
-          thrown = error;
-        }
-        expect(thrown).toBeInstanceOf(MastraAgentError);
-        expect((thrown as MastraAgentError).code).toBe('mastra_agent_runtime_init_failed');
-        expect((thrown as MastraAgentError).message).toContain('custom_fetch');
-      }
     });
   });
 
