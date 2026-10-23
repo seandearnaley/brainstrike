@@ -580,20 +580,20 @@ const SOURCE_FAILURE = refusal({
   remedy: 'Review Search and indexing in Settings and retry.',
 });
 
+const PREPARING: IndexerStatus = {
+  kind: 'unavailable',
+  phase: 'preparing',
+  reason: 'Native index is transitioning.',
+};
+
 it.each([
-  { failure: CLOSED, from: 'roots', state: 'waiting' },
-  { failure: TRANSITIONING, from: 'roots', state: 'waiting' },
-  { failure: CLOSED, from: 'status', state: 'waiting' },
-  { failure: TRANSITIONING, from: 'status', state: 'waiting' },
-  { failure: SOURCE_FAILURE, from: 'roots', state: 'error' },
-  { failure: SOURCE_FAILURE, from: 'status', state: 'error' },
+  { failure: CLOSED, state: 'waiting' },
+  { failure: TRANSITIONING, state: 'waiting' },
+  { failure: SOURCE_FAILURE, state: 'error' },
 ] as const)(
-  'shows $failure.code from $from as sync state $state',
-  async ({ failure, from, state }) => {
-    const refused = new BoundaryFailureError(failure);
-    if (from === 'roots') {
-      reconciliation.syncMountedRoots.mockRejectedValueOnce(refused);
-    }
+  'shows $failure.code from restoring roots as sync state $state',
+  async ({ failure, state }) => {
+    reconciliation.syncMountedRoots.mockRejectedValueOnce(new BoundaryFailureError(failure));
     const capability = {
       ...savedConfig(DEFAULT_INDEX_CONFIG),
       coverage: vi.fn(),
@@ -601,16 +601,7 @@ it.each([
       grep: vi.fn(),
       rebuild: vi.fn(),
       search: vi.fn(),
-      status: vi.fn(async (): Promise<IndexerStatus> => {
-        if (from === 'status') {
-          throw refused;
-        }
-        return {
-          kind: 'unavailable',
-          phase: 'preparing',
-          reason: 'Native index is transitioning.',
-        };
-      }),
+      status: vi.fn(async () => PREPARING),
     };
     const mounted = render(
       <NativeWorkspaceIndexProvider capability={capability}>
@@ -624,6 +615,62 @@ it.each([
       lastError: state === 'error' ? describeBoundaryFailure(failure) : null,
       state,
     });
+    mounted.unmount();
+  }
+);
+
+/** What Main's `status()` answers when its read is refused: it catches the refusal (scoped-search). */
+it.each([
+  {
+    lastError: null,
+    state: 'waiting',
+    status: {
+      cause: { kind: 'closed', reason: 'reset' },
+      kind: 'unavailable',
+      phase: 'preparing',
+      reason: 'Native index activation is closed for terminal retirement.',
+    },
+  },
+  {
+    lastError: null,
+    state: 'waiting',
+    status: { cause: { kind: 'transitioning' }, ...PREPARING },
+  },
+  {
+    lastError: 'Initial native workspace scan was aborted.',
+    state: 'blocked',
+    status: {
+      cause: { kind: 'source-failure', message: 'Initial native workspace scan was aborted.' },
+      kind: 'unavailable',
+      phase: 'blocked',
+      reason: 'Initial native workspace scan was aborted.',
+    },
+  },
+] as const satisfies readonly {
+  lastError: string | null;
+  state: string;
+  status: IndexerStatus;
+}[])(
+  'shows a status refused with $status.cause.kind as sync state $state',
+  async ({ lastError, state, status }) => {
+    const capability = {
+      ...savedConfig(DEFAULT_INDEX_CONFIG),
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async (): Promise<IndexerStatus> => status),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() => expect(capability.status).toHaveBeenCalled());
+    await waitFor(() => expect(reconciliation.syncMountedRoots).toHaveBeenCalled());
+    await act(async () => {});
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({ lastError, state });
     mounted.unmount();
   }
 );
