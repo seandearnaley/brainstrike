@@ -126,7 +126,7 @@ async function readMatchingStatus(
 }
 /** Why Semantic is unavailable under a saved Text search choice, and the setting that changes it. */
 const SEMANTIC_OFF_REASON =
-  'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.';
+  'Semantic search is off. Choose Semantic in Settings, Search & Indexing.';
 
 /** The saved Text choice is the reason over any transient status; otherwise the status's own. */
 function profileUnavailableReason(

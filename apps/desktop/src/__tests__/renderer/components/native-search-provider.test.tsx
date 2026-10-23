@@ -451,8 +451,7 @@ describe('native provider and search controller observation refresh', () => {
       await waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability).toEqual({
           available: false,
-          reason:
-            'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.',
+          reason: 'Semantic search is off. Choose Semantic in Settings, Search & Indexing.',
         })
       );
     } finally {

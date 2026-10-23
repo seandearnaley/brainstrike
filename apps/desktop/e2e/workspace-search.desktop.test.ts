@@ -173,7 +173,7 @@ test.describe('Desktop workspace search', () => {
     await expect(async () => {
       await semantic.hover();
       await expect(window.getByRole('tooltip').first()).toHaveText(
-        'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.',
+        'Semantic search is off. Choose Semantic in Settings, Search & Indexing.',
         { timeout: 2000 }
       );
     }).toPass({ timeout: 30_000 });

@@ -358,7 +358,7 @@ test.describe('Text and semantic search transitions (desktop)', () => {
       await expect(async () => {
         await semantic.hover();
         await expect(page.getByRole('tooltip').first()).toHaveText(
-          'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.',
+          'Semantic search is off. Choose Semantic in Settings, Search & Indexing.',
           { timeout: 2000 }
         );
       }).toPass({ timeout: 30_000 });
