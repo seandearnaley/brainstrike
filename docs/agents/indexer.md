@@ -30,10 +30,14 @@ canonical-ingestion, for desktop's native index; so do the canonical catalog
 over the source catalog (`canonical-catalog.ts`), scan admission
 (`scan-admission.ts`), and a collection's vector profile and the inference that
 embeds its chunks (`canonical-profile.ts`), desktop giving it its transport,
-hosted embeddings and setup refusal. The saved Search & Indexing preferences are
-read by one decoder (`index-settings.ts`): desktop main reads them from its
-storage. Their partition, with its authority and the retirement of rows no
-binding owns at every open, is `index-partition.ts`. A transaction rejects stale
+hosted embeddings and setup refusal. Search & Indexing has one saved config, the
+StateStore setting `index/config`, written only through the host catalog's
+`host/index-config` domain; desktop main is its only caller
+(`apps/desktop/src/index-config.ts`) and publishes every change to the renderer,
+which reads and edits it through `window.indexSearch` (`readConfig`,
+`updateConfig`, `onConfigChanged`). `index-settings.ts` derives the native index
+settings from that config. Their partition, with its authority and the retirement
+of rows no binding owns at every open, is `index-partition.ts`. A transaction rejects stale
 preparation and atomically changes chunks, text indexes, vectors and graph data.
 Complete catalog inventories, acknowledged bindings and source revisions
 authorize publication/removal; a path match or partial scan is not authority.

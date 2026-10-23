@@ -25,6 +25,10 @@ refusal carries `storeDamage`), and the host sends both as the typed
 Purge, thread delete and blob GC: `state-deletion.ts` orchestrates them over the
 writer's `deletion-domain.mjs` ops, its derived index and its write chain.
 
+Settings the host serves as catalog domains (for example the search index config,
+`index/config` through `host/index-config`) are rows of the same writer; the
+catalog endpoints borrow it and are never a second store.
+
 ## Root and content identity
 
 The root lease supplies writer authority through acquisition, admitted work and
