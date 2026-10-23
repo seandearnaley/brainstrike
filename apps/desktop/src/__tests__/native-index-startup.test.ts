@@ -2,17 +2,17 @@ import { createActivationCatalogFixture } from './native-activation-catalog-fixt
 // @vitest-environment node
 
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { createIndexerConnection, type IndexerConnection } from '@brainstrike/indexer/transport';
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
-import { textCollectionSettings } from './helpers/native-index-settings';
+import { textSettings } from './helpers/native-index-settings';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
   closeReaders: vi.fn(),
   destroy: vi.fn(),
   manager: {
-    attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
@@ -58,7 +57,7 @@ vi.mock('../sqlite-query-host-manager', () => ({
 }));
 
 const storeId = 'a'.repeat(64);
-const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
+const workspace = { kind: 'workspace', rootId: 'root' } as const;
 const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy or inference operation.');
 };
@@ -77,7 +76,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
       dbPath: '/owned/profile/index.sqlite',
       fileBindings: [],
       rootIds: [],
-      scopes: [scope],
+      scopes: [workspace],
       storeId,
     }),
     coverageBatch: unused,
@@ -103,7 +102,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: async () => ({
+    verifyScopedManifest: async ({ scope }) => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
       changed: [],
@@ -117,7 +116,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
 }
 function fixture(applicationOverride?: ApplicationIpcDomain) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
-  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -156,23 +155,25 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function emptyCollection(
-  dependencies: CanonicalCollectionDependencies,
-  close = async (): Promise<void> => {}
-) {
-  return {
-    close,
-    scan: async (requestId: string) => {
-      const ticket = await dependencies.publication.beginScan({
-        requestId,
-        scope: dependencies.scope,
-      });
-      return dependencies.publication.finishScan({
-        ...{ aborted: false, errors: [], files: [], full: true, truncatedDirectories: [] },
-        ticket,
-      });
-    },
+/** Main's application domain with the one granted folder `root` mounted. */
+function mountedRoot(): ApplicationIpcDomain {
+  const lease: CanonicalWorkspaceLease = {
+    canonicalPath: '/actual/root',
+    generation: 'actual-generation',
+    listDir: unused,
+    readFile: unused,
+    retire: async () => {},
+    rootId: workspace.rootId,
+    signal: new AbortController().signal,
+    subscribe: unused,
   };
+  return {
+    roots: {
+      borrowSourceRoot: async () => lease,
+      restoreRoots: async () => [{ permissionState: 'granted', rootId: workspace.rootId }],
+    },
+    watches: { subscribe: unused },
+  } as unknown as ApplicationIpcDomain;
 }
 
 it.each(['startup', 'cleanup'] as const)(
@@ -196,12 +197,8 @@ it.each(['startup', 'cleanup'] as const)(
           () => undefined,
           (error: unknown) => error
         );
-        if (scenario === 'cleanup') {
-          expect(result).toBe(failure);
-        } else {
-          expect(result).toBeInstanceOf(NativeIndexRefusalError);
-          expect((result as NativeIndexRefusalError).cause).toBe(failure);
-        }
+        expect(result).toBeInstanceOf(NativeIndexRefusalError);
+        expect((result as NativeIndexRefusalError).cause).toBe(failure);
       }
       expect(mocks.acquire).toHaveBeenCalledOnce();
       await initialStartup;
@@ -243,7 +240,6 @@ it.each(['validated', 'slow-startup', 'slow-request'] as const)(
       await connection.ready;
       return mocks.manager;
     });
-    mocks.manager.attachCanonicalCollection.mockImplementation(emptyCollection);
     const { activation } = fixture();
     let settled = false;
     const read = activation.acquireRead().then(
@@ -320,30 +316,23 @@ it.each([false, true])(
     const canceled = Promise.withResolvers<void>();
     const joined = Promise.withResolvers<void>();
     const failure = new Error('Independent source retirement failure');
+    // The folder's close joins its running first scan, which ends only once `joined` resolves.
     const closeSource = vi.fn(async () => {
       canceled.resolve();
+      await joined.promise;
       if (fail) {
         throw failure;
       }
     });
-    mocks.manager.attachCanonicalCollection.mockImplementation(
-      (dependencies: CanonicalCollectionDependencies) => {
-        const collection = emptyCollection(dependencies, closeSource);
-        return {
-          ...collection,
-          scan: async (requestId: string) => {
-            entered.resolve();
-            await canceled.promise;
-            await joined.promise;
-            return collection.scan(requestId);
-          },
-        };
-      }
-    );
-    const { activation, settings } = fixture();
-    settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+    mocks.manager.attachCanonicalWorkspace.mockImplementation(async () => {
+      entered.resolve();
+      return { close: closeSource, trigger: unused };
+    });
+    catalogFixture.setRoot();
+    const { activation, settings } = fixture(mountedRoot());
+    settings.mockResolvedValue(textSettings({ paused: true }));
     await activation.acquire();
-    settings.mockResolvedValue(textCollectionSettings());
+    settings.mockResolvedValue(textSettings());
     const reconfiguration = activation.reconfigure().catch((error: unknown) => error);
     onTestFinished(async () => {
       canceled.resolve();

@@ -575,7 +575,6 @@ describe('native provider and search controller observation refresh', () => {
       const prior = mounted.result.current.dependencies;
       mounted.refresh({
         ...ready,
-        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
         publicationProgress: [
           {
             acknowledgedFiles: 10,

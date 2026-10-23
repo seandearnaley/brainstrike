@@ -126,7 +126,7 @@ export interface NativeCanonicalProfileDependencies {
     metadata: ProfileMetadata,
     context: CanonicalOperationContext
   ) => Promise<SelectedEmbeddingRequestPlan | undefined>;
-  /** Existing catalog authority resolves workspace membership or collection access, without creation. */
+  /** Existing catalog authority resolves a workspace's membership, without creation. */
   readonly resolveEmbeddingSetId: (
     scope: CanonicalSourceScope,
     context: CanonicalOperationContext
@@ -143,6 +143,7 @@ export class NativeCanonicalProfileResolver {
     context
   ) => (await this.resolve(scope, context)).profile;
 
+  /** An authorized workspace's profile: the vector space it joins. */
   async resolve(
     scope: CanonicalSourceScope,
     context: CanonicalOperationContext
@@ -150,7 +151,15 @@ export class NativeCanonicalProfileResolver {
     context.signal.throwIfAborted();
     const id = await this.dependencies.resolveEmbeddingSetId(scope, context);
     context.signal.throwIfAborted();
-    if (!id.trim() || (scope.kind === 'collection' && id !== scope.embeddingSetId)) {
+    return this.resolveVectorSpace(id, context);
+  }
+
+  /** The saved vector space's profile, whatever folders join it. */
+  async resolveVectorSpace(
+    id: string,
+    context: CanonicalOperationContext
+  ): Promise<NativeCanonicalProfile> {
+    if (!id.trim()) {
       throw new Error('Canonical profile embedding set is not authorized for this scope.');
     }
     const result = await this.dependencies.collections.collections({ id, operation: 'get' });

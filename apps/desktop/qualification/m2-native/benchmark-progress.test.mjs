@@ -6,7 +6,6 @@ import { nativeBuildComplete } from './native-benchmark.ts';
 const baseline = {
   authorizedCollectionIds: ['collection'],
   authorizedRootIds: ['root'],
-  collectionReadiness: [{ embeddingSetId: 'collection', scanComplete: false }],
   embedding: {
     indexMode: 'vector-configured',
     profile: {
@@ -74,7 +73,6 @@ function fixture(initial = baseline) {
 function complete(status = baseline) {
   return {
     ...structuredClone(status),
-    collectionReadiness: [{ embeddingSetId: 'collection', scanComplete: true }],
     rootReadiness: [{ rootId: 'root', scanComplete: true }],
   };
 }
@@ -95,10 +93,9 @@ function acknowledged(scope, count, changes = {}) {
   };
 }
 
-test('acknowledged plans sustain liveness through invalidated coverage and workspace to collection authority changes', async () => {
+test('acknowledged plans sustain liveness through invalidated coverage and workspace authority changes', async () => {
   const f = fixture();
   const workspace = { kind: 'workspace', rootId: 'root' };
-  const collection = { embeddingSetId: 'collection', kind: 'collection' };
   f.time(199_000);
   f.setStatus({ ...baseline, publicationProgress: [acknowledged(workspace, 1)] });
   assert.equal(await f.progress.observe(), null);
@@ -119,12 +116,11 @@ test('acknowledged plans sustain liveness through invalidated coverage and works
   f.setStatus({
     ...baseline,
     publicationProgress: [
-      acknowledged(workspace, 2, {
+      acknowledged(workspace, 3, {
         authorityEpoch: 'later-native-epoch',
-        authorityRevision: 1,
+        authorityRevision: 9,
         mutationRevision: 8,
       }),
-      acknowledged(collection, 1, { authorityEpoch: 'collection-epoch', authorityRevision: 9 }),
     ],
   });
   await f.progress.observe();
@@ -291,15 +287,6 @@ test('every exposed identity and scope inventory remains pinned after all scope 
     (s) => {
       s.rootReadiness[0].rootId = 'other';
     },
-    (s) => {
-      s.collectionReadiness[0].embeddingSetId = 'other';
-    },
-    (s) => {
-      s.collectionReadiness = undefined;
-    },
-    (s) => {
-      s.collectionReadiness.push(s.collectionReadiness[0]);
-    },
   ];
   for (const mutate of mutations) {
     const f = fixture(complete());
@@ -347,7 +334,6 @@ test('scope receipt status cannot finish or replace accepted coverage; fresh ful
   const f = fixture();
   const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
   const scope = {
-    collectionId: 'collection',
     files: 5000,
     mode: 'vector',
     profile: baseline.embedding.profile,
@@ -355,14 +341,6 @@ test('scope receipt status cannot finish or replace accepted coverage; fresh ful
     storeId: 'store',
   };
   const snapshot = (totals, status) => ({
-    collectionCoverage: {
-      collections: [{ embeddingSetId: 'collection', ...totals }],
-      embedding: baseline.embedding,
-      roots: [],
-      storeId: 'store',
-      totals,
-      vectorCoverageComplete: true,
-    },
     coverage: {
       embedding: baseline.embedding,
       roots: [{ rootId: 'root', ...totals }],
@@ -376,10 +354,7 @@ test('scope receipt status cannot finish or replace accepted coverage; fresh ful
   let accepted = snapshot(counts, baseline);
   f.setStatus(complete());
   assert.equal(await f.progress.observe(), null);
-  assert.equal(
-    nativeBuildComplete(accepted.status, accepted.coverage, scope, accepted.collectionCoverage),
-    false
-  );
+  assert.equal(nativeBuildComplete(accepted.status, accepted.coverage, scope), false);
   f.time(100_000);
   const fresh = snapshot(
     { chunks: 34_890, indexedFiles: 5000, missingVectors: 0, vectors: 34_890 },
@@ -389,10 +364,7 @@ test('scope receipt status cannot finish or replace accepted coverage; fresh ful
   const observation = await f.progress.observe();
   assert.equal(observation, fresh);
   accepted = observation;
-  assert.equal(
-    nativeBuildComplete(accepted.status, accepted.coverage, scope, accepted.collectionCoverage),
-    true
-  );
+  assert.equal(nativeBuildComplete(accepted.status, accepted.coverage, scope), true);
   f.time(200_000);
   await f.progress.observe();
   f.time(300_001);

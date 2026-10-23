@@ -78,22 +78,3 @@ export function createActivationCatalogFixture() {
   };
   return { catalog, modelCatalog, reset, setRecords, setRoot };
 }
-
-export function retainedCatalogRecords(
-  count: number,
-  contentHash: string,
-  size: number,
-  embeddingSetId: string
-): NativeCanonicalCatalogRecord[] {
-  return Array.from({ length: count }, (_, index) => ({
-    chunksProcessed: false,
-    content: null,
-    contentHash,
-    embeddingSetId,
-    fileId: `retained-${index}`,
-    fileName: `retained-${index}.txt`,
-    path: null,
-    rootId: null,
-    stat: { mtimeMs: 1, size },
-  }));
-}
