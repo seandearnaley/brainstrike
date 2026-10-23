@@ -12,6 +12,7 @@ import type * as React from 'react';
 import { useCallback, useMemo } from 'react';
 import type { FileSelectionState } from '../bridge/use-search-selection-bridge';
 import { useSearchSelectionBridge } from '../bridge/use-search-selection-bridge';
+import { unindexedFoldersNote } from '../core/native-workspace-search';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { buildSearchTreeNodes, type SearchNodeData } from './build-tree-nodes';
 
@@ -505,6 +506,11 @@ export function SearchResultsTree({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1">
+      {notices?.unindexedFolders?.length ? (
+        <p className="text-muted-foreground text-xs" role="status">
+          {unindexedFoldersNote(notices.unindexedFolders)}
+        </p>
+      ) : null}
       {notices?.scanLimited ? (
         <p className="text-muted-foreground text-xs" role="status">
           Partial search coverage — some files may not be included

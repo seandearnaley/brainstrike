@@ -25,6 +25,7 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
 import {
+  NATIVE_SEARCH_FOLDER_NOT_INDEXED,
   NATIVE_SEARCH_NO_FOLDERS,
   NativeAuthorityTransitionError,
   NativeIndexRefusalError,
@@ -161,7 +162,7 @@ function requestedScopes(
     new Set(request.rootIds).size !== request.rootIds.length ||
     request.rootIds.some((id) => !authority.rootIds.includes(id))
   ) {
-    throw new Error('Native search scope is duplicated or no longer authorized.');
+    throw new BoundaryFailureError(NATIVE_SEARCH_FOLDER_NOT_INDEXED);
   }
   if (request.collectionId !== undefined) {
     if (request.collectionId !== authority.collectionId) {

@@ -379,6 +379,23 @@ describe('SearchResultsTree', () => {
     ).toBeInTheDocument();
   });
 
+  it('names the open folders the search left out and how to include them', () => {
+    seedResults(makeResults([fileResult()], { unindexedFolders: ['wt2', 'wt3'] }));
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '"wt2", "wt3" are not in the search index, so they were not searched. Turn on indexing for them in Settings › Search & Indexing › Worktree map.'
+    );
+  });
+
+  it('names the left-out folder even when the indexed folders have no match', () => {
+    seedResults(makeResults([], { unindexedFolders: ['wt2'] }));
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    expect(screen.getByText('No matches found')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '"wt2" is not in the search index, so it was not searched. Turn on indexing for it in Settings › Search & Indexing › Worktree map.'
+    );
+  });
+
   it('renders a Show more button for truncated results when onShowMore is provided', () => {
     const onShowMore = vi.fn();
     seedResults(makeResults([fileResult()], { truncated: true }));

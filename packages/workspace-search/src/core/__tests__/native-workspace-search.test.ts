@@ -1,3 +1,7 @@
+import {
+  BoundaryFailureError,
+  describeBoundaryError,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   IndexerSearchHit,
   IndexerSearchResult,
@@ -309,6 +313,7 @@ function pool(hits: IndexerSearchHit[]): IndexerSearchResult {
 }
 const request = {
   caseSensitive: false,
+  folderName: (rootId: string) => (rootId === 'worktree' ? 'wt2' : rootId),
   isRegex: false,
   query: 'needle',
   rootIds: ['root-a'],
@@ -352,6 +357,55 @@ describe('native search consumer boundary', () => {
       ])
     );
   });
+  it('text searches the indexed folders and names the open folder the index leaves out', async () => {
+    const bridge = capability();
+    bridge.grep.mockResolvedValueOnce(pool([hit('grep-hit')]));
+    const result = await new NativeWorkspaceSearchExecutor({
+      capability: bridge,
+      embedQuery: vi.fn(),
+      profile,
+    }).searchText({ ...request, rootIds: ['root-a', 'worktree'] });
+    expect(bridge.search).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['root-a'] }));
+    expect(bridge.grep).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['root-a'] }));
+    expect(result?.files).toHaveLength(1);
+    expect(result?.notices.unindexedFolders).toEqual(['wt2']);
+  });
+  it('semantic searches the indexed folders and names the open folder the index leaves out', async () => {
+    const bridge = capability();
+    const result = await new NativeWorkspaceSearchExecutor({
+      capability: bridge,
+      embedQuery: vi.fn(async () => Array.from({ length: 384 }, () => 1)),
+      profile,
+    }).searchSemantic({ ...request, rootIds: ['root-a', 'worktree'] });
+    expect(bridge.coverage).toHaveBeenCalledWith({ rootIds: ['root-a'] });
+    expect(bridge.search).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'vector', rootIds: ['root-a'] })
+    );
+    expect(result?.notices.unindexedFolders).toEqual(['wt2']);
+  });
+  it.each(['text', 'semantic'] as const)(
+    '%s search refuses visibly, naming the folder, when no open folder is indexed',
+    async (mode) => {
+      const bridge = capability();
+      const executor = new NativeWorkspaceSearchExecutor({
+        capability: bridge,
+        embedQuery: vi.fn(),
+        profile,
+      });
+      const scoped = { ...request, rootIds: ['worktree'] };
+      const error = await (mode === 'text'
+        ? executor.searchText(scoped)
+        : executor.searchSemantic(scoped)
+      ).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(BoundaryFailureError);
+      expect(error).toMatchObject({ code: 'native-search.folder-not-indexed' });
+      expect(describeBoundaryError(error)).toBe(
+        '"wt2" is not in the search index, so there is nothing to search. Turn on indexing for it in Settings › Search & Indexing › Worktree map.'
+      );
+      expect(bridge.search).not.toHaveBeenCalled();
+      expect(bridge.grep).not.toHaveBeenCalled();
+    }
+  );
   it('text search with no folder open says to add one instead of finding nothing', async () => {
     const bridge = capability();
     await expect(
@@ -513,15 +567,9 @@ it('rejects an unauthorized candidate even when a pattern filter would discard i
     embedQuery: vi.fn(),
     profile,
   });
-  await expect(
-    executor.searchText({
-      caseSensitive: true,
-      isRegex: false,
-      query: 'needle',
-      rootIds: ['root-a'],
-      wholeWord: false,
-    })
-  ).rejects.toThrow('canonical source scope');
+  await expect(executor.searchText({ ...request, caseSensitive: true })).rejects.toThrow(
+    'canonical source scope'
+  );
 });
 
 it('searches a text-only native store without a selected vector plan or inference', async () => {

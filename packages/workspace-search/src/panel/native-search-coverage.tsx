@@ -31,7 +31,13 @@ export function NativeSearchCoverage({
   rootIds,
 }: SearchCoverageBannerProps & { native: NativeWorkspaceSearchDependencies }) {
   const { capability, status } = native;
-  const scopeKey = JSON.stringify(rootIds);
+  // A folder the index leaves out has no coverage to report; the search names it.
+  const indexedRootIds =
+    status?.kind === 'ready'
+      ? rootIds.filter((rootId) => status.authorizedRootIds.includes(rootId))
+      : rootIds;
+  const nothingIndexed = rootIds.length > 0 && indexedRootIds.length === 0;
+  const scopeKey = JSON.stringify(indexedRootIds);
   const [result, setResult] = useState<{
     capability: typeof capability;
     status: typeof status;
@@ -41,7 +47,7 @@ export function NativeSearchCoverage({
   // The existing producer observation invalidates this read; no polling.
   useEffect(() => {
     let active = true;
-    if (!capability || status?.kind === 'unavailable') {
+    if (!capability || status?.kind === 'unavailable' || nothingIndexed) {
       return;
     }
     const requestedRoots: string[] = JSON.parse(scopeKey);
@@ -68,15 +74,17 @@ export function NativeSearchCoverage({
     return () => {
       active = false;
     };
-  }, [capability, status, scopeKey]);
+  }, [capability, status, scopeKey, nothingIndexed]);
   const text = capability
     ? status?.kind === 'unavailable'
       ? status.reason
-      : result?.capability === capability &&
-          result.status === status &&
-          result.scopeKey === scopeKey
-        ? result.text
-        : 'Verifying index coverage…'
+      : nothingIndexed
+        ? null
+        : result?.capability === capability &&
+            result.status === status &&
+            result.scopeKey === scopeKey
+          ? result.text
+          : 'Verifying index coverage…'
     : 'Native index capability is unavailable.';
   return text ? (
     <div className="rounded-md bg-muted/40 px-2 py-1 text-muted-foreground text-xs" role="status">

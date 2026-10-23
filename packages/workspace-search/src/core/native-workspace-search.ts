@@ -1,3 +1,4 @@
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type IndexerCoverage,
   type IndexerCoverageCounts,
@@ -9,6 +10,7 @@ import {
   type IndexSearchCapability,
   indexerEmbeddingProfileValues,
   indexerStatusFailure,
+  NATIVE_SEARCH_FOLDER_NOT_INDEXED,
   NO_WORKSPACE_FOLDER_MESSAGE,
   validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -284,6 +286,8 @@ export function fuseNativeSearchPools(
 
 export interface NativeWorkspaceSearchRequest {
   caseSensitive: boolean;
+  /** The name the Explorer shows for an open folder, to name one the index leaves out. */
+  folderName: (rootId: string) => string;
   isRegex: boolean;
   query: string;
   rootIds: readonly string[];
@@ -378,7 +382,7 @@ export class NativeWorkspaceSearchExecutor {
     this.cancelPendingSearch();
     const seq = this.requestSeq;
     assertFolderOpen(request);
-    const { capability, profile } = this.deps;
+    const { capability } = this.deps;
     if (!capability) {
       throw new Error('Native workspace search is unavailable.');
     }
@@ -389,7 +393,36 @@ export class NativeWorkspaceSearchExecutor {
     if (status.kind !== 'ready') {
       throw indexerStatusFailure(status);
     }
-    assertNativeStatusScope(status, request.rootIds);
+    const unindexedFolders = request.rootIds
+      .filter((rootId) => !status.authorizedRootIds.includes(rootId))
+      .map(request.folderName);
+    const rootIds = request.rootIds.filter((rootId) => status.authorizedRootIds.includes(rootId));
+    if (rootIds.length === 0) {
+      throw noIndexedFolderRefusal(unindexedFolders);
+    }
+    return this.searchIndexed(
+      { ...request, rootIds },
+      mode,
+      { capability, seq, status },
+      unindexedFolders
+    );
+  }
+  /** Searches only the folders the index covers; `unindexedFolders` names the rest. */
+  private async searchIndexed(
+    request: NativeWorkspaceSearchRequest,
+    mode: WorkspaceSearchMode,
+    {
+      capability,
+      seq,
+      status,
+    }: {
+      capability: IndexSearchCapability;
+      seq: number;
+      status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>;
+    },
+    unindexedFolders: readonly string[]
+  ): Promise<NativeWorkspaceSearchResults | null> {
+    const { profile } = this.deps;
     const vector =
       mode === 'semantic' ? await this.prepareVector(request, capability, profile, seq) : undefined;
     if (vector === null || seq !== this.requestSeq) {
@@ -437,8 +470,13 @@ export class NativeWorkspaceSearchExecutor {
       status,
       (hit) => !constrained || hit.content.split('\n').some((line) => matcher.matches(line))
     );
+    const projected = projectNativeResults(fused, grep, request, mode, matcher, constrained);
     return {
-      ...projectNativeResults(fused, grep, request, mode, matcher, constrained),
+      ...projected,
+      notices: {
+        ...projected.notices,
+        ...(unindexedFolders.length > 0 ? { unindexedFolders } : {}),
+      },
       ...incompleteSourceProof([bm25, grep, ...(vectorPool ? [vectorPool] : [])], status.storeId),
     };
   }
@@ -523,13 +561,26 @@ function projectNativeResults(
   };
 }
 
-function assertNativeStatusScope(
-  status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
-  rootIds: readonly string[]
-): void {
-  if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
-    throw new Error('Native search scope contains an unauthorized workspace root.');
-  }
+const WORKTREE_MAP = 'Settings › Search & Indexing › Worktree map';
+function namedFolders(names: readonly string[]): { list: string; one: boolean } {
+  return { list: names.map((name) => `"${name}"`).join(', '), one: names.length === 1 };
+}
+/** Open folders a search left out because the index does not cover them, and how to include them. */
+export function unindexedFoldersNote(names: readonly string[]): string {
+  const { list, one } = namedFolders(names);
+  return `${list} ${one ? 'is' : 'are'} not in the search index, so ${one ? 'it was' : 'they were'} not searched. Turn on indexing for ${one ? 'it' : 'them'} in ${WORKTREE_MAP}.`;
+}
+/** No open folder is in the index: nothing to search, named, rather than an empty result. */
+export function noIndexedFolderRefusal(names: readonly string[]): BoundaryFailureError {
+  const { list, one } = namedFolders(names);
+  return new BoundaryFailureError(
+    refusal({
+      category: 'configuration',
+      code: NATIVE_SEARCH_FOLDER_NOT_INDEXED,
+      message: `${list} ${one ? 'is' : 'are'} not in the search index, so there is nothing to search.`,
+      remedy: `Turn on indexing for ${one ? 'it' : 'them'} in ${WORKTREE_MAP}.`,
+    })
+  );
 }
 function assertCanonicalHit(
   hit: IndexerSearchHit,

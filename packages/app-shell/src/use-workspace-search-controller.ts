@@ -4,6 +4,7 @@ import {
   BoundaryFailureError,
   describeBoundaryError,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type {
   IndexerSourceObservation,
   IndexerStatus,
@@ -17,6 +18,7 @@ import {
   type NativeSemanticAvailability,
   NativeWorkspaceSearchExecutor,
   nativeSourceCompletion,
+  noIndexedFolderRefusal,
   useNativeWorkspaceSearchDependencies,
   useWorkspaceSearchStore,
   type WorkspaceSearchMode,
@@ -46,6 +48,7 @@ export interface WorkspaceSearchController {
 export function createNativeWorkspaceSearchRunners(
   executor: NativeWorkspaceSearchExecutor,
   rootIds: readonly string[],
+  folderName: (rootId: string) => string,
   onTransitioning?: (generation: number, mode: WorkspaceSearchMode) => void,
   onIncompleteSource?: (
     generation: number,
@@ -64,7 +67,7 @@ export function createNativeWorkspaceSearchRunners(
     const store = useWorkspaceSearchStore.getState();
     const { query, caseSensitive, isRegex, wholeWord } = store;
     const generation = store.beginSearch();
-    const request = { caseSensitive, isRegex, query, rootIds, wholeWord };
+    const request = { caseSensitive, folderName, isRegex, query, rootIds, wholeWord };
     void (mode === 'text' ? executor.searchText(request) : executor.searchSemantic(request))
       .then((results) => {
         if (results !== null) {
@@ -150,6 +153,31 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
   useEnsureModelRegistry();
   const workspaceDbRootIds = rootIdentity?.workspaceDbRootIds ?? EMPTY_DB_ROOT_IDS;
+  const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
+  const folderName = useCallback(
+    (dbRootId: string): string => {
+      const adapterRootId = rootIdentity?.resolveAdapterRootId(dbRootId);
+      return (adapterRootId ? rootDescriptors[adapterRootId]?.displayName : undefined) ?? dbRootId;
+    },
+    [rootDescriptors, rootIdentity]
+  );
+  // The open folders the index serves; the others are named, never searched (BST-1988 opt-in).
+  // The authorized set by content: every status poll is a new object, and a new
+  // scope would send semantic availability back to "being verified".
+  const nativeStatus = nativeDependencies?.status;
+  const authorizedKey =
+    nativeStatus?.kind === 'ready' ? JSON.stringify(nativeStatus.authorizedRootIds) : null;
+  const indexedRootIds = useMemo((): readonly string[] => {
+    if (authorizedKey === null) {
+      return workspaceDbRootIds;
+    }
+    const authorized: readonly string[] = JSON.parse(authorizedKey);
+    return workspaceDbRootIds.filter((rootId) => authorized.includes(rootId));
+  }, [authorizedKey, workspaceDbRootIds]);
+  const unindexedFolders = useMemo(
+    () => workspaceDbRootIds.filter((rootId) => !indexedRootIds.includes(rootId)).map(folderName),
+    [folderName, indexedRootIds, workspaceDbRootIds]
+  );
 
   const nativeCapability = nativeDependencies?.capability ?? null;
   const nativeProfile = nativeDependencies?.profile ?? null;
@@ -222,16 +250,17 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
             ...(nativeProfileReason === undefined
               ? {}
               : { profileUnavailableReason: nativeProfileReason }),
-            rootIds: workspaceDbRootIds,
+            rootIds: indexedRootIds,
           },
-    [nativeCapability, nativeProfile, nativeEmbedQuery, nativeProfileReason, workspaceDbRootIds]
+    [nativeCapability, nativeProfile, nativeEmbedQuery, nativeProfileReason, indexedRootIds]
   );
+  const nothingIndexed = indexedRootIds.length === 0 && unindexedFolders.length > 0;
   const semanticAvailability: NativeSemanticAvailability =
     availabilityResult?.scope === availabilityScope
       ? availabilityResult.value
       : { available: false, reason: 'Native vector availability is being verified.' };
   useEffect(() => {
-    if (availabilityScope === null) {
+    if (availabilityScope === null || nothingIndexed) {
       return;
     }
     let current = true;
@@ -265,7 +294,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       current = false;
       refreshAvailability.current = null;
     };
-  }, [availabilityScope]);
+  }, [availabilityScope, nothingIndexed]);
   useEffect(() => {
     refreshAvailability.current?.();
   }, [availabilityScope, nativeDependencies]);
@@ -299,6 +328,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       return createNativeWorkspaceSearchRunners(
         nativeExecutor,
         workspaceDbRootIds,
+        folderName,
         lifecycle === undefined
           ? undefined
           : (generation, mode) => {
@@ -316,7 +346,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       useWorkspaceSearchStore.getState().failSearch(NATIVE_INDEX_NOT_ATTACHED, generation);
     };
     return { runSemanticSearch: unavailable, runTextSearch: unavailable };
-  }, [lifecycle, nativeExecutor, retainIncompleteSource, workspaceDbRootIds]);
+  }, [folderName, lifecycle, nativeExecutor, retainIncompleteSource, workspaceDbRootIds]);
 
   useEffect(() => {
     if (!pendingSearch || lifecycle?.kind === 'preparing') {
@@ -334,7 +364,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       pendingSearch,
       lifecycle,
       nativeDependencies?.status,
-      workspaceDbRootIds
+      indexedRootIds
     );
     if (!(outcome && store.consumeNativeSearch(pendingSearch))) {
       return;
@@ -348,7 +378,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     } else {
       runners.runSemanticSearch(outcome.completion ?? undefined);
     }
-  }, [lifecycle, nativeDependencies?.status, pendingSearch, runners, workspaceDbRootIds]);
+  }, [indexedRootIds, lifecycle, nativeDependencies?.status, pendingSearch, runners]);
 
   const resolveAdapterRootId = useCallback(
     (dbRootId: string): string | null => rootIdentity?.resolveAdapterRootId(dbRootId) ?? null,
@@ -396,7 +426,12 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     semanticAvailability:
       nativeDependencies === null
         ? { available: false, reason: NATIVE_INDEX_NOT_ATTACHED }
-        : semanticAvailability,
+        : nothingIndexed
+          ? {
+              available: false,
+              reason: describeBoundaryError(noIndexedFolderRefusal(unindexedFolders)),
+            }
+          : semanticAvailability,
     workspaceDbRootIds,
   };
 }

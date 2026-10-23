@@ -396,6 +396,28 @@ it('refuses a workspace search with no folder in words the person acts on, loggi
   expect(log).not.toHaveBeenCalled();
 });
 
+it.each([
+  ['a folder the index leaves out', ['root-a', 'worktree']],
+  ['the same folder twice', ['root-a', 'root-a']],
+])('refuses a search naming %s with a typed refusal, logging nothing', async (_case, rootIds) => {
+  const f = fixture();
+  f.replaceAuthority({ ...f.getAuthority(), rootIds: ['root-a'] });
+  const log = vi.fn();
+  for (const read of [
+    () => f.capability.search({ limit: 10, mode: 'bm25', rootIds, text: 'marker' }),
+    () =>
+      f.capability.grep({ caseSensitive: false, isRegex: false, limit: 10, pattern: 'm', rootIds }),
+    () => f.capability.coverage({ rootIds }),
+  ]) {
+    const error = await read().catch((caught: unknown) => caught);
+    expect(nativeIndexBoundaryFailure(error, log)).toMatchObject({
+      code: 'native-search.folder-not-indexed',
+      kind: 'refusal',
+    });
+  }
+  expect(log).not.toHaveBeenCalled();
+});
+
 it('refuses coverage under Off with the typed Off refusal, logging nothing', async () => {
   const message = 'Search is off. Turn it on in Settings, Search & Indexing.';
   const off = new NativeIndexRefusalError({ kind: 'off', message }, message);

@@ -78,6 +78,9 @@ export const NATIVE_INDEX_OFF_MESSAGE = 'Search is off. Turn it on in Settings, 
 export const NO_WORKSPACE_FOLDER_MESSAGE =
   'No folder is open in the workspace. Add a folder in the left file tree first.';
 
+/** A search naming a folder the index leaves out, such as a worktree not opted in. */
+export const NATIVE_SEARCH_FOLDER_NOT_INDEXED = 'native-search.folder-not-indexed';
+
 /** Only the lifecycle/resource owner can refuse admission with this typed cause. */
 export class NativeIndexRefusalError extends Error {
   readonly code: `native-index-${NativeIndexRefusalCause['kind']}`;

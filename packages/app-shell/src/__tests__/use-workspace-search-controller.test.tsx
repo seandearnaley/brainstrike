@@ -29,6 +29,18 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+// The Explorer's folder names, read through the explorer store the Search tab lives under.
+const explorer = vi.hoisted(() => ({
+  rootDescriptors: {
+    A1: { displayName: 'repo', path: '/work/repo', rootId: 'A1' },
+    A2: { displayName: 'wt2', path: '/work/wt2', rootId: 'A2' },
+  } as Record<string, { displayName: string; path: string; rootId: string }>,
+}));
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  useFileExplorerStoreSelector: <T,>(selector: (state: typeof explorer) => T): T =>
+    selector(explorer),
+}));
+
 describe('native Search boundary presentation', () => {
   it('retains the recorded GPU-loss remedy without exposing the private cause', async () => {
     useWorkspaceSearchStore.getState().reset();
@@ -51,7 +63,7 @@ describe('native Search boundary presentation', () => {
       profile: null,
     });
     vi.spyOn(executor, 'searchSemantic').mockRejectedValueOnce(failure);
-    createNativeWorkspaceSearchRunners(executor, ['D1']).runSemanticSearch();
+    createNativeWorkspaceSearchRunners(executor, ['D1'], String).runSemanticSearch();
     await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
     // A fault names the reference Main logged its private cause under (BST-2202).
     expect(useWorkspaceSearchStore.getState().error).toBe(
@@ -539,3 +551,107 @@ it.each([
     unmount();
   }
 );
+
+describe('Explorer search with an open folder the index leaves out', () => {
+  const embedding = { indexMode: 'text-only' as const };
+  const ready = {
+    authorizedRootIds: ['D1'],
+    embedding,
+    kind: 'ready' as const,
+    rootReadiness: [{ rootId: 'D1', scanComplete: true }],
+    storeId: 'store-a',
+  };
+  const response = {
+    candidateCount: 0,
+    candidatesTruncated: false,
+    embedding,
+    hits: [],
+    scanLimited: false,
+    storeId: 'store-a',
+    truncated: false,
+  };
+  function setup(identities: ReadonlyMap<string, string>, profile: unknown = null) {
+    const capability = {
+      coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => ({
+        code: 'native-coverage-observation-invalidated' as const,
+        kind: 'invalidated' as const,
+      })),
+      grep: vi.fn<IndexSearchCapability['grep']>(async () => response),
+      rebuild: vi.fn(async () => {}),
+      search: vi.fn<IndexSearchCapability['search']>(async () => response),
+      status: vi.fn<IndexSearchCapability['status']>(async () => ready),
+    };
+    const dependencies = {
+      capability,
+      embedQuery: vi.fn(),
+      profile,
+      status: ready,
+    } as NativeWorkspaceSearchDependencies;
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
+      );
+    }
+    useWorkspaceSearchStore.getState().reset();
+    useWorkspaceSearchStore.getState().setQuery('needle');
+    return {
+      capability,
+      ...renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper }),
+    };
+  }
+  const bothOpen = new Map([
+    ['A1', 'D1'],
+    ['A2', 'D2'],
+  ]);
+  const semanticProfile = {
+    dimensions: 384,
+    dtype: 'fp16' as const,
+    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+    revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
+    tokenCap: 256,
+  };
+
+  it('searches the indexed folder and names the left-out one', async () => {
+    const { capability, result } = setup(bothOpen);
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+    expect(capability.search).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['D1'] }));
+    expect(capability.grep).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['D1'] }));
+    expect(useWorkspaceSearchStore.getState().results?.notices.unindexedFolders).toEqual(['wt2']);
+  });
+
+  it('refuses visibly, naming the folder and how to include it, when no open folder is indexed', async () => {
+    const { capability, result } = setup(new Map([['A2', 'D2']]));
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      '"wt2" is not in the search index, so there is nothing to search. Turn on indexing for it in Settings › Search & Indexing › Worktree map.'
+    );
+    expect(capability.search).not.toHaveBeenCalled();
+    expect(capability.grep).not.toHaveBeenCalled();
+  });
+
+  it('checks semantic availability over the indexed folders only', async () => {
+    const { capability } = setup(bothOpen, semanticProfile);
+    await waitFor(() => expect(capability.coverageBatch).toHaveBeenCalled());
+    expect(capability.coverageBatch).toHaveBeenCalledWith([{ rootIds: ['D1'] }]);
+    expect(capability.coverageBatch).not.toHaveBeenCalledWith([{ rootIds: ['D1', 'D2'] }]);
+  });
+
+  it('says semantic search is unavailable, naming the folder, when no open folder is indexed', async () => {
+    const { capability, result } = setup(new Map([['A2', 'D2']]), semanticProfile);
+    await waitFor(() =>
+      expect(result.current.semanticAvailability).toEqual({
+        available: false,
+        reason:
+          '"wt2" is not in the search index, so there is nothing to search. Turn on indexing for it in Settings › Search & Indexing › Worktree map.',
+      })
+    );
+    expect(capability.coverageBatch).not.toHaveBeenCalled();
+  });
+});

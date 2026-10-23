@@ -24,6 +24,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   useIdeFileEditor: () => ({ openFileInTab: vi.fn(), registerOpenFileInTab: vi.fn() }),
 }));
+// The Search tab lives under the Explorer, whose store names each open folder.
+vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>()),
+  useFileExplorerStoreSelector: <T,>(selector: (state: { rootDescriptors: object }) => T): T =>
+    selector({ rootDescriptors: {} }),
+}));
 
 import { NativeSearchProvider } from '../../../renderer/components/native-search-provider';
 import { mountNativeSearchController } from './native-search-controller-fixture';

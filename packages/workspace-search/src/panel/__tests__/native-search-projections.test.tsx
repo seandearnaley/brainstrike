@@ -111,6 +111,34 @@ describe('native Search projections', () => {
     });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
+  it('reports coverage for the indexed folders only, leaving out a folder the index does not cover', async () => {
+    const complete = observation(true);
+    if (complete.kind !== 'current') {
+      throw new Error('Expected current fixture');
+    }
+    const coverageBatch = vi
+      .fn<IndexSearchCapability['coverageBatch']>()
+      .mockResolvedValue(complete);
+    const capability = bridge(coverageBatch);
+    const { rerender } = render(
+      <NativeWorkspaceSearchContext
+        value={{ capability, embedQuery: vi.fn(), profile: null, status: complete.status }}
+      >
+        <SearchCoverageBanner rootIds={['root-a', 'worktree']} />
+      </NativeWorkspaceSearchContext>
+    );
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(coverageBatch).toHaveBeenCalledExactlyOnceWith([{ rootIds: ['root-a'] }]);
+    rerender(
+      <NativeWorkspaceSearchContext
+        value={{ capability, embedQuery: vi.fn(), profile: null, status: complete.status }}
+      >
+        <SearchCoverageBanner rootIds={['worktree']} />
+      </NativeWorkspaceSearchContext>
+    );
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(coverageBatch).toHaveBeenCalledOnce();
+  });
   it('keeps an invalidated coverage observation pending without retrying it', async () => {
     const coverageBatch = vi
       .fn<IndexSearchCapability['coverageBatch']>()
