@@ -1,4 +1,9 @@
-import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  type BoundaryFailure,
+  BoundaryFailureError,
+  describeBoundaryFailure,
+  INTERNAL_FAULT,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type IndexConfig,
   type IndexConfigCapability,
@@ -12,7 +17,8 @@ import { useStoreWithEqualityFn } from 'zustand/traditional';
 export type IndexConfigView =
   | { readonly kind: 'loading' }
   | { readonly config: IndexConfig; readonly kind: 'ready' }
-  | { readonly kind: 'failed'; readonly message: string };
+  /** `failure` is Main's typed outcome, so a reader can tell a closed index from a damaged config. */
+  | { readonly failure: BoundaryFailure; readonly kind: 'failed'; readonly message: string };
 
 interface IndexConfigStore {
   readonly state: IndexConfigView;
@@ -63,8 +69,9 @@ export function followIndexConfig(capability: IndexConfigCapability): () => void
     },
     (error: unknown) => {
       if (following && !published) {
+        const failure = error instanceof BoundaryFailureError ? error.failure : INTERNAL_FAULT;
         useIndexConfigStore.setState({
-          state: { kind: 'failed', message: describeBoundaryError(error) },
+          state: { failure, kind: 'failed', message: describeBoundaryFailure(failure) },
         });
       }
     }

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { fault, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   DEFAULT_INDEX_CONFIG,
   type IndexConfig,
@@ -422,8 +422,13 @@ describe('Search & Indexing', () => {
   });
 
   it('says why the settings could not be read', () => {
+    const failure = fault({
+      category: 'internal',
+      code: 'index-config.store-failed',
+      message: 'The search index settings could not be read.',
+    });
     useIndexConfigStore.setState({
-      state: { kind: 'failed', message: 'The search index settings could not be read.' },
+      state: { failure, kind: 'failed', message: failure.message },
       update: null,
     });
     render(<SearchIndexSettingsSection />);

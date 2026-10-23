@@ -14,6 +14,7 @@ import {
   type WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
+  type BoundaryFailure,
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
@@ -244,13 +245,15 @@ function nativeProgressError(error: unknown): string {
  * an owner (a reset, a newer generation) replaces the index: it is preparing, as its status says.
  * Every other failure, typed or not, is the sync surface's error.
  */
+function isPreparingRefusal(failure: BoundaryFailure): boolean {
+  return (
+    failure.kind === 'refusal' &&
+    (failure.code === 'native-index-closed' || failure.code === 'native-index-transitioning')
+  );
+}
+
 function publishNativeFailure(error: unknown): void {
-  if (
-    error instanceof BoundaryFailureError &&
-    error.failure.kind === 'refusal' &&
-    (error.failure.code === 'native-index-closed' ||
-      error.failure.code === 'native-index-transitioning')
-  ) {
+  if (error instanceof BoundaryFailureError && isPreparingRefusal(error.failure)) {
     publishPreparingProgress();
     return;
   }
@@ -292,8 +295,11 @@ export function NativeWorkspaceIndexProvider({
   const mode = useIndexConfigStore((store) => selectIndexConfig(store)?.mode ?? null);
   const paused = useIndexConfigStore((store) => selectIndexConfig(store)?.paused === true);
   const model = useIndexModel();
+  // A config read refused because the index is closed or replaced is preparing, not a failure.
   const configFailure = useIndexConfigStore((store) =>
-    store.state.kind === 'failed' ? store.state.message : null
+    store.state.kind === 'failed' && !isPreparingRefusal(store.state.failure)
+      ? store.state.message
+      : null
   );
   useEffect(() => {
     let disposed = false;

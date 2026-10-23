@@ -151,6 +151,45 @@ it('shows why Main could not read the config instead of waiting forever', async 
   mounted.unmount();
 });
 
+it.each([
+  ['closed', 'native-index-closed'],
+  ['preparing', 'native-index-transitioning'],
+])(
+  'waits, with no error, when Main refuses the config read because its index is %s',
+  async (_kind, code) => {
+    // Main's config read reaches the agent-host profile, which a reset or quit has closed.
+    const failure = refusal({
+      category: 'availability',
+      code,
+      message: 'The search index is closed.',
+      remedy: 'Reopen the workspace to search again.',
+    });
+    const capability = {
+      ...mainConfig(async () => {
+        throw new BoundaryFailureError(failure);
+      }),
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() => expect(useIndexConfigStore.getState().state.kind).toBe('failed'));
+    await act(async () => {});
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: null,
+      state: 'waiting',
+    });
+    mounted.unmount();
+  }
+);
+
 it('observes an atomic batch and preserves acknowledged counters across ordinary mutation invalidation', async () => {
   const status = {
     authorizedCollectionIds: ['selected'],

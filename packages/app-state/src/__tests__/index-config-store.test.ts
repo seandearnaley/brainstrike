@@ -81,19 +81,17 @@ describe('index config store', () => {
   it('shows why the config could not be read', async () => {
     const main = capability();
     followIndexConfig(main.capability);
-    main.readFails(
-      new BoundaryFailureError(
-        fault({
-          category: 'internal',
-          code: 'index-config.store-failed',
-          correlationId: '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b',
-          message: 'The search index settings could not be read.',
-        })
-      )
-    );
+    const failure = fault({
+      category: 'internal',
+      code: 'index-config.store-failed',
+      correlationId: '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b',
+      message: 'The search index settings could not be read.',
+    });
+    main.readFails(new BoundaryFailureError(failure));
     await Promise.resolve();
     await Promise.resolve();
     expect(useIndexConfigStore.getState().state).toEqual({
+      failure,
       kind: 'failed',
       message:
         'The search index settings could not be read. Reference: 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b',
