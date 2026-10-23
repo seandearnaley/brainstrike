@@ -5,16 +5,11 @@ import type {
   NativeIndexState,
 } from '../native-index-lifecycle';
 import { createNativeIndexLifecycle } from '../native-index-lifecycle-owner';
-import { readNativeIndexSettings } from '../native-index-settings';
 import { NativeIndexEventRefusedError } from '../native-index-workflow-errors';
+import { textSettings, vectorSettings } from './helpers/native-index-settings';
 
-// Recorded from Main's storage reads (BST-1988).
-const TEXT = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
-const VECTOR = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":"3a48f02c-2c2a-4835-926d-59cbc286513a","mode":"root-folder-cache","nativeIndexMode":"VECTOR","nativeLocalSelection":{"device":"wasm","dimensions":384,"dtype":"q8","modelId":"Xenova/bge-small-en-v1.5"},"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
+const TEXT = textSettings();
+const VECTOR = vectorSettings();
 const ready: NativeIndexState = { generation: 1, kind: 'ready', settings: VECTOR };
 
 /** An executor whose opens report `opened` once they settle. */

@@ -31,6 +31,7 @@ import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { observeNativeReaderStartup } from '../native-index-startup-window';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
+import { textCollectionSettings, vectorSettings } from './helpers/native-index-settings';
 import {
   createActivation,
   emptyCollection,
@@ -38,7 +39,6 @@ import {
   mocks,
   requestedScope,
   resetActivationFixture,
-  saveSettingsChange,
   scope,
   setCatalogRecords,
   setCatalogRoot,
@@ -193,7 +193,7 @@ it('rebuilds only the derived writer with the saved collection and no inference 
       };
     }
   );
-  const { activation, storage, transport, onReceipt } = fixture();
+  const { activation, settings, transport, onReceipt } = fixture();
   await activation.acquire();
   await activation.rebuild();
   expect(modes).toEqual(['TEXT', 'TEXT']);
@@ -201,7 +201,7 @@ it('rebuilds only the derived writer with the saved collection and no inference 
   expect(mocks.destroy).toHaveBeenCalledOnce();
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
   expect(transport.documentEmbeddings).not.toHaveBeenCalled();
-  expect(storage.getItem).toHaveBeenCalledTimes(2);
+  expect(settings).toHaveBeenCalledTimes(2);
   expect(
     mocks.catalog.sourceCatalog.mock.calls.every(([request]) =>
       ['inventory', 'read'].includes(request.operation)
@@ -290,7 +290,7 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     mocks.manager.attachCanonicalCollection.mockImplementation(
       async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
     );
-    const { activation, storage } = fixture();
+    const { activation, settings } = fixture();
     await activation.acquire();
     const writerExit = Promise.withResolvers<void>();
     const destroyed = Promise.withResolvers<void>();
@@ -302,7 +302,7 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
       destroyed.resolve();
     });
     mocks.close.mockReturnValueOnce(writerExit.promise);
-    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
+    settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
     const changing = activation.reconfigure().catch((error: unknown) => error);
     await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
     expect(mocks.closeProfile).not.toHaveBeenCalled();
@@ -531,9 +531,8 @@ it('joins retained rooted-row convergence before admitting the replacement write
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation, storage } = fixture(application);
+  const { activation, settings } = fixture(application);
   await activation.acquire();
-  const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
   const selected = (await mocks.catalog.collections({ id: 'selected', operation: 'get' }))
     .collections[0];
   if (!selected) {
@@ -545,8 +544,7 @@ it('joins retained rooted-row convergence before admitting the replacement write
         ? [{ ...selected, id: 'next' }]
         : [selected],
   }));
-  saved.state['managedCollectionId'] = 'next';
-  storage.getItem.mockResolvedValue(JSON.stringify(saved));
+  settings.mockResolvedValue(textCollectionSettings({}, 'next'));
   const changing = activation.reconfigure();
   await vi.waitFor(() => expect(native.removeScopedFile).toHaveBeenCalledOnce());
   expect(native.removeScopedFile).toHaveBeenCalledWith({
@@ -737,26 +735,18 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     application,
     embedding: { destroyAndRestart: vi.fn(), documentEmbeddings },
     onError: vi.fn(),
-    storage: {
-      getItem: async () =>
-        JSON.stringify({
-          state: {
-            enabled: true,
-            indexingPolicyPreset: 'balanced',
-            managedCollectionId: 'selected',
-            nativeIndexMode: 'VECTOR',
-            nativeLocalSelection: {
-              device: 'wasm',
-              dimensions: 384,
-              dtype: 'q8',
-              modelId: profile.modelId,
-              revision: profile.revision,
-            },
-            paused: false,
-            worktreeRootIndexingOptInById: {},
+    settings: async () =>
+      vectorSettings(
+        {
+          model: {
+            dimensions: 384,
+            local: { device: 'wasm', dtype: 'q8', revision: profile.revision },
+            modelKey: `local::${profile.modelId}`,
           },
-        }),
-    },
+        },
+        'selected'
+      ),
+    storage: { getItem: unused },
   });
   await activation.acquire();
   expect(activation.getReadiness()).toMatchObject([
@@ -778,18 +768,7 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
 
 it('joins physical grep disposal before retiring read authority during a genuine settings replacement', async () => {
   const f = fixture();
-  const settings = {
-    state: {
-      enabled: true,
-      indexingPolicyPreset: 'balanced',
-      managedCollectionId: 'selected',
-      nativeIndexMode: 'TEXT',
-      nativeLocalSelection: null,
-      paused: true,
-      worktreeRootIndexingOptInById: {},
-    },
-  };
-  f.storage.getItem.mockImplementation(async () => JSON.stringify(settings));
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
   const disposing = Promise.withResolvers<void>();
   const disposed = Promise.withResolvers<void>();
   const close = vi.fn(async () => {
@@ -840,7 +819,7 @@ it('joins physical grep disposal before retiring read authority during a genuine
     })
     .catch((error: unknown) => error);
   await disposing.promise;
-  settings.state.enabled = false;
+  f.settings.mockResolvedValue(textCollectionSettings({ mode: 'off', paused: true }));
   const replacing = f.activation.reconfigure().catch((error: unknown) => error);
   await vi.waitFor(() =>
     expect(() => f.activation.captureAcknowledgedAuthority()).toThrow(

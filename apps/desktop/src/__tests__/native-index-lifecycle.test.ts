@@ -11,19 +11,12 @@ import {
   reduceNativeIndex,
 } from '../native-index-lifecycle';
 import { nativeIndexStateError } from '../native-index-lifecycle-errors';
-import { readNativeIndexSettings } from '../native-index-settings';
+import { textSettings, vectorSettings } from './helpers/native-index-settings';
 
-// Recorded from Main's storage reads while the desktop app chose Text search,
-// then Text and semantic search with WASM · Q8 (BST-1988).
-const TEXT = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
-const VECTOR_JSON =
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":"3a48f02c-2c2a-4835-926d-59cbc286513a","mode":"root-folder-cache","nativeIndexMode":"VECTOR","nativeLocalSelection":{"device":"wasm","dimensions":384,"dtype":"q8","modelId":"Xenova/bge-small-en-v1.5"},"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}';
-const VECTOR = readNativeIndexSettings(VECTOR_JSON);
-const VECTOR_PAUSED = readNativeIndexSettings(
-  VECTOR_JSON.replace('"paused":false', '"paused":true')
-);
+// Text search, then semantic search with WASM · Q8 (BST-1988).
+const TEXT = textSettings();
+const VECTOR = vectorSettings();
+const VECTOR_PAUSED = vectorSettings({ paused: true });
 const SETUP = {
   kind: 'setup-required',
   message: 'Choose a search mode in Search & Indexing settings.',

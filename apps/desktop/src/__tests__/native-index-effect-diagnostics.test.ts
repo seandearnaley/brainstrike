@@ -1,11 +1,9 @@
 import { addLogListener, configureLogger, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { expect, it } from 'vitest';
 import { createNativeIndexLifecycle } from '../native-index-lifecycle-owner';
-import { readNativeIndexSettings } from '../native-index-settings';
+import { textSettings } from './helpers/native-index-settings';
 
-const settings = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
+const settings = textSettings();
 it('exposes correlated admission, action and terminal spans through the existing logging owner', async () => {
   configureLogger({ console: false, level: LogLevel.INFO });
   const records: LogRecord[] = [];

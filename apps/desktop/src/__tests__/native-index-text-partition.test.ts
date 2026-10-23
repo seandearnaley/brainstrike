@@ -1,8 +1,8 @@
 // @vitest-environment node
 /**
- * BST-1988: text search needs no embedding model. Activation in TEXT mode with
- * no saved collection indexes the workspace roots as the TEXT partition: no
- * collection is invented, looked up or attached. VECTOR still requires one.
+ * BST-1988: text search needs no embedding model. Activation in TEXT mode
+ * indexes the workspace roots as the TEXT partition: no collection is invented,
+ * looked up or attached.
  */
 import type {
   CanonicalWorkspaceLease,
@@ -11,7 +11,7 @@ import type {
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
+import { textSettings } from './helpers/native-index-settings';
 import {
   createActivation,
   mocks,
@@ -26,22 +26,6 @@ import {
 beforeEach(resetActivationFixture);
 
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
-
-function savedSettings(state: Record<string, unknown>) {
-  return {
-    getItem: async () =>
-      JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: 'balanced',
-          nativeLocalSelection: null,
-          paused: false,
-          worktreeRootIndexingOptInById: {},
-          ...state,
-        },
-      }),
-  };
-}
 
 function mountedRoot(): ApplicationIpcDomain {
   const lease: CanonicalWorkspaceLease = {
@@ -104,7 +88,8 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
     application: mountedRoot(),
     embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
-    storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT' }),
+    settings: async () => textSettings(),
+    storage: { getItem: unused },
   });
   try {
     await activation.acquire();
@@ -130,26 +115,6 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
     expect(activation.getReadiness()).toEqual([
       expect.objectContaining({ scanComplete: true, scope: workspace }),
     ]);
-  } finally {
-    await activation.close();
-  }
-});
-
-it('still asks for a model and collection before VECTOR indexing', async () => {
-  const activation = createActivation({
-    application: mountedRoot(),
-    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
-    onError: vi.fn(),
-    storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'VECTOR' }),
-  });
-  try {
-    const failure = await activation.acquire().catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(NativeIndexSetupRequiredError);
-    expect(failure).toHaveProperty(
-      'message',
-      'Choose an embedding model and collection in Search & Indexing settings.'
-    );
-    expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
   } finally {
     await activation.close();
   }
@@ -197,7 +162,8 @@ it('routes explicit workspace scans to the existing admitted trigger and refuses
     application: mountedRoot(),
     embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
-    storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT' }),
+    settings: async () => textSettings(),
+    storage: { getItem: unused },
   });
   try {
     await activation.acquire();
@@ -228,7 +194,8 @@ it('refuses explicit workspace scans while source admission is paused', async ()
     application: mountedRoot(),
     embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
-    storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT', paused: true }),
+    settings: async () => textSettings({ paused: true }),
+    storage: { getItem: unused },
   });
   try {
     await activation.acquire();

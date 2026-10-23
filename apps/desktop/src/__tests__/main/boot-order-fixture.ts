@@ -220,6 +220,32 @@ vi.mock('../../native-index-activation', async (importOriginal) => {
   };
 });
 
+const { indexConfigCapture } = vi.hoisted(() => ({
+  indexConfigCapture: {
+    current: null as null | import('../../index-config').DesktopIndexConfigDependencies,
+  },
+}));
+vi.mock('../../index-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../index-config')>();
+  return {
+    ...actual,
+    createDesktopIndexConfig: (
+      dependencies: import('../../index-config').DesktopIndexConfigDependencies
+    ) => {
+      indexConfigCapture.current = dependencies;
+      return actual.createDesktopIndexConfig(dependencies);
+    },
+  };
+});
+
+/** Main's config owner's dependencies, as `main.ts` composed them. */
+function requireIndexConfig(): import('../../index-config').DesktopIndexConfigDependencies {
+  if (!indexConfigCapture.current) {
+    throw new Error('main.ts never created its search index config owner');
+  }
+  return indexConfigCapture.current;
+}
+
 vi.mock('../../ipc-embedding-host', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../ipc-embedding-host')>();
   return {
@@ -292,6 +318,7 @@ export function installMainBootFixture(): void {
     applicationDomainCapture.options = null;
     nativeReconfigureForReset.current = null;
     nativeActualPrepareForPause.current = null;
+    indexConfigCapture.current = null;
     nativePrepareForPause.mockReset().mockResolvedValue(null);
     publicEmbeddingStop.current = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
@@ -321,6 +348,7 @@ export {
   applicationDomainCapture,
   createLoggerMock,
   existsSyncMock,
+  indexConfigCapture,
   isDesktopShuttingDownMock,
   mockApp,
   mockBrowserWindowInstance,
@@ -332,6 +360,7 @@ export {
   nativePrepareForPause,
   nativeReconfigureForReset,
   publicEmbeddingStop,
+  requireIndexConfig,
   requireMainLogger,
   shutdownPlanCapture,
 };

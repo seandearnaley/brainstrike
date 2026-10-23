@@ -1,4 +1,5 @@
 import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
 import type {
@@ -33,12 +34,20 @@ const unusedRetry: IndexRetryCapability = {
     throw new Error('Unexpected Retry indexing in this test');
   },
 };
-/** The read-only cases register no Retry indexing work of their own. */
+const unusedConfig: Parameters<typeof registerIndexSearchIpcHandlers>[3] = {
+  read: async () => {
+    throw new Error('Unexpected search index settings read in this test');
+  },
+  update: async () => {
+    throw new Error('Unexpected search index settings change in this test');
+  },
+};
+/** The read-only cases register no Retry indexing or settings work of their own. */
 function registerWithoutRetry(
   cap: Parameters<typeof registerIndexSearchIpcHandlers>[0],
   registration: Parameters<typeof registerIndexSearchIpcHandlers>[1]
 ): () => void {
-  return registerIndexSearchIpcHandlers(cap, registration, unusedRetry);
+  return registerIndexSearchIpcHandlers(cap, registration, unusedRetry, unusedConfig);
 }
 const dispose: Array<() => void> = [];
 afterEach(() => {
@@ -484,7 +493,8 @@ it('routes Retry indexing to its own capability and keeps its typed refusal (BST
     registerIndexSearchIpcHandlers(
       capability(),
       { rootsRegistered: async () => {} },
-      { retryIndexing }
+      { retryIndexing },
+      unusedConfig
     )
   );
   await expect(handler('retryIndexing')(createTrustedInvokeEvent())).resolves.toMatchObject({
@@ -496,4 +506,31 @@ it('routes Retry indexing to its own capability and keeps its typed refusal (BST
     value: undefined,
   });
   expect(retryIndexing).toHaveBeenCalledTimes(2);
+});
+
+it("hands the renderer's settings change to Main's config owner undecoded and returns the saved config", async () => {
+  const saved = { ...DEFAULT_INDEX_CONFIG, paused: true };
+  const config = {
+    read: vi.fn(async () => DEFAULT_INDEX_CONFIG),
+    update: vi.fn(async () => saved),
+  };
+  dispose.push(
+    registerIndexSearchIpcHandlers(
+      capability(),
+      { rootsRegistered: async () => {} },
+      unusedRetry,
+      config
+    )
+  );
+  await expect(handler('readConfig')(createTrustedInvokeEvent())).resolves.toEqual({
+    ok: true,
+    value: DEFAULT_INDEX_CONFIG,
+  });
+  // Main decodes the change; the IPC boundary passes whatever the renderer sent.
+  const change = { mode: 'semantic', unexpected: true };
+  await expect(handler('updateConfig')(createTrustedInvokeEvent(), change)).resolves.toEqual({
+    ok: true,
+    value: saved,
+  });
+  expect(config.update).toHaveBeenCalledExactlyOnceWith(change);
 });

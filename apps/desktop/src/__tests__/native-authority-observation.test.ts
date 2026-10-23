@@ -4,15 +4,13 @@ import { createActivationCatalogFixture } from './native-activation-catalog-fixt
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
-import { registerStoragePreferencesIpcHandlers } from '../ipc-domains/storage-preferences-ipc';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { createNativeIndexActivation } from '../native-index-activation';
-import { NATIVE_INDEX_SETTINGS_KEY } from '../native-index-settings';
+import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { assignWindowRole, clearWindowRoleByWebContentsId } from '../window-role';
@@ -21,6 +19,7 @@ import {
   getRegisteredIpcMainHandler,
   resetElectronMainTestHarness,
 } from './helpers/electron-main-test-harness';
+import { textCollectionSettings, unreadableSettings } from './helpers/native-index-settings';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -126,21 +125,8 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   };
 }
 function fixture(applicationOverride?: ApplicationIpcDomain) {
-  const storage = {
-    getItem: vi.fn(async () =>
-      JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: 'balanced',
-          managedCollectionId: 'selected',
-          nativeIndexMode: 'TEXT',
-          nativeLocalSelection: null,
-          paused: false,
-          worktreeRootIndexingOptInById: {},
-        },
-      })
-    ),
-  };
+  /** Main's config owner; a test saves a change by resolving the next read with it. */
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -155,9 +141,10 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
-    storage,
+    settings,
+    storage: { getItem: unused },
   });
-  return { activation, onReceipt, storage, transport };
+  return { activation, onReceipt, settings, transport };
 }
 beforeEach(() => {
   vi.resetAllMocks();
@@ -176,41 +163,19 @@ beforeEach(() => {
 });
 
 it.each(['reconfigure', 'rebuild', 'resume'] as const)(
-  'recovers a failed missing-mode startup through %s without fatal status observations',
+  'recovers a failed settings startup through %s without fatal status observations',
   async (operation) => {
     const f = fixture();
-    let saved = JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'full-root',
-        managedCollectionId: 'selected',
-        nativeIndexMode: null,
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    });
-    f.storage.getItem.mockImplementation(async () => saved);
+    const unreadable = unreadableSettings();
+    f.settings.mockRejectedValue(unreadable);
     const capability = createNativeScopedSearchCapability({
       openQuery: unused,
       rebuild: f.activation.rebuild,
       withRead: f.activation.withRead,
     });
-    await expect(f.activation.acquire()).rejects.toThrow(
-      'Choose a search mode in Search & Indexing settings.'
-    );
+    await expect(f.activation.acquire()).rejects.toBe(unreadable);
     expect(mocks.acquire).not.toHaveBeenCalled();
-    saved = JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'full-root',
-        managedCollectionId: 'selected',
-        nativeIndexMode: 'TEXT',
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    });
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     mocks.acquireProfile.mockImplementation(async () => {
@@ -248,31 +213,11 @@ it.each(['reconfigure', 'rebuild', 'resume'] as const)(
   }
 );
 
-it('keeps the real persisted TEXT write and IPC status connected through serialized activation recovery', async () => {
+it('keeps IPC status connected while a saved TEXT change recovers activation through the serialized transition', async () => {
   resetElectronMainTestHarness();
   const f = fixture();
-  let saved = JSON.stringify({
-    state: {
-      enabled: true,
-      indexingPolicyPreset: 'balanced',
-      managedCollectionId: null,
-      nativeIndexMode: null,
-      nativeLocalSelection: null,
-      paused: true,
-      worktreeRootIndexingOptInById: {},
-    },
-  });
-  f.storage.getItem.mockImplementation(async () => saved);
-  const storage = {
-    clear: unused,
-    clearExcept: unused,
-    getAllKeys: unused,
-    getItem: f.storage.getItem,
-    removeItem: unused,
-    setItem: async (_key: string, value: string): Promise<void> => {
-      saved = value;
-    },
-  } as unknown as ElectronStorageAdapter;
+  const unreadable = unreadableSettings();
+  f.settings.mockRejectedValue(unreadable);
   const transitions = createNativeRootDataDeletion({
     acquire: f.activation.acquire,
     captureOwner: unused,
@@ -295,19 +240,6 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
     entered.resolve();
     await release.promise;
   });
-  const writes: Promise<void>[] = [];
-  const unregisterStorage = registerStoragePreferencesIpcHandlers({
-    getStore: () => null,
-    onStorageChanged: (key) => {
-      if (key !== NATIVE_INDEX_SETTINGS_KEY) {
-        return;
-      }
-      const changing = transitions.transition(f.activation.reconfigure);
-      changing.catch(() => undefined);
-      writes.push(changing);
-    },
-    storage,
-  });
   const capability = createNativeScopedSearchCapability({
     openQuery: unused,
     rebuild: f.activation.rebuild,
@@ -324,7 +256,8 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
       retryIndexing: async () => {
         throw new Error('Unexpected Retry indexing in read-only test');
       },
-    }
+    },
+    { read: unused, update: unused }
   );
   const senderId = 9498;
   assignWindowRole(
@@ -332,49 +265,20 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
     'visible-ui'
   );
   const event = { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
+  let changing: Promise<void> | undefined;
   try {
-    await expect(f.activation.acquire()).rejects.toThrow(
-      'Choose a search mode in Search & Indexing settings.'
-    );
-    const write = getRegisteredIpcMainHandler('storage:setItem');
-    for (const policy of ['balanced', 'full-root']) {
-      const incomplete = JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: policy,
-          managedCollectionId: 'selected',
-          nativeIndexMode: null,
-          nativeLocalSelection: null,
-          paused: true,
-          worktreeRootIndexingOptInById: {},
-        },
-      });
-      await write(event, NATIVE_INDEX_SETTINGS_KEY, incomplete);
-      await expect(writes.at(-1)).rejects.toThrow(
-        'Choose a search mode in Search & Indexing settings.'
-      );
-    }
-    const next = JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'full-root',
-        managedCollectionId: 'selected',
-        nativeIndexMode: 'TEXT',
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    });
-    await write(event, NATIVE_INDEX_SETTINGS_KEY, next);
-    expect(saved).toBe(next);
-    expect(writes).toHaveLength(3);
+    await expect(f.activation.acquire()).rejects.toBe(unreadable);
+    // Main's config owner saves the change, then applies it through the serialized transition.
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+    changing = transitions.transition(f.activation.reconfigure);
+    changing.catch(() => undefined);
     await entered.promise;
     expect(events.indexOf('readers-joined')).toBeLessThan(events.indexOf('profile-acquire'));
     expect(mocks.acquire).not.toHaveBeenCalled();
     const status = getRegisteredIpcMainHandler('index-search:status');
     const observation = await status(event);
     release.resolve();
-    await writes.at(-1);
+    await changing;
     expect(await capability.status()).toMatchObject({
       embedding: { indexMode: 'text-only' },
       kind: 'ready',
@@ -384,29 +288,16 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
     expect(observation).toMatchObject({ ok: true, value: { kind: 'unavailable' } });
   } finally {
     release.resolve();
-    await Promise.allSettled(writes);
+    await changing?.catch(() => undefined);
     await f.activation.close();
     unregisterSearch();
-    unregisterStorage();
     clearWindowRoleByWebContentsId(senderId);
   }
 });
 
 it('joins the previous writer and profile on terminal close and reports held resumed acquisition as unavailable', async () => {
   const f = fixture();
-  f.storage.getItem.mockResolvedValue(
-    JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'full-root',
-        managedCollectionId: 'selected',
-        nativeIndexMode: 'TEXT',
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    })
-  );
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
   const capability = createNativeScopedSearchCapability({
     openQuery: unused,
     rebuild: f.activation.rebuild,
@@ -445,13 +336,10 @@ it.each(['reconfigure', 'rebuild'] as const)(
   'retains the shared profile lease through %s and retires it only on terminal close',
   async (operation) => {
     const f = fixture();
-    const settings = JSON.parse(await f.storage.getItem()) as { state: Record<string, unknown> };
-    settings.state['paused'] = true;
-    f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
     await f.activation.acquire();
     try {
-      settings.state['indexingPolicyPreset'] = 'full-root';
-      f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+      f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
       await f.activation[operation]();
       expect(mocks.acquire).toHaveBeenCalledTimes(2);
       expect(mocks.acquireProfile).toHaveBeenCalledOnce();
@@ -465,19 +353,7 @@ it.each(['reconfigure', 'rebuild'] as const)(
 
 it('retains an independent terminal profile cleanup failure and admits no replacement until that original owner joins', async () => {
   const f = fixture();
-  f.storage.getItem.mockResolvedValue(
-    JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'full-root',
-        managedCollectionId: 'selected',
-        nativeIndexMode: 'TEXT',
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    })
-  );
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
   await f.activation.acquire();
   const cause = new Error('Original profile cleanup has not joined.');
   mocks.closeProfile.mockRejectedValueOnce(cause).mockResolvedValue(undefined);
@@ -498,37 +374,12 @@ it('retains an independent terminal profile cleanup failure and admits no replac
   }
 });
 
-it('preserves a new profile acquisition failure during missing-mode recovery without admitting a writer', async () => {
+it('preserves a new profile acquisition failure during settings recovery without admitting a writer', async () => {
   const f = fixture();
-  f.storage.getItem.mockResolvedValue(
-    JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'full-root',
-        managedCollectionId: 'selected',
-        nativeIndexMode: null,
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    })
-  );
-  await expect(f.activation.acquire()).rejects.toThrow(
-    'Choose a search mode in Search & Indexing settings.'
-  );
-  f.storage.getItem.mockResolvedValue(
-    JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'full-root',
-        managedCollectionId: 'selected',
-        nativeIndexMode: 'TEXT',
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    })
-  );
+  const unreadable = unreadableSettings();
+  f.settings.mockRejectedValue(unreadable);
+  await expect(f.activation.acquire()).rejects.toBe(unreadable);
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
   const cause = new Error('Replacement profile acquisition failed.');
   mocks.acquireProfile.mockRejectedValue(cause);
   const capability = createNativeScopedSearchCapability({
@@ -556,42 +407,37 @@ it('preserves a new profile acquisition failure during missing-mode recovery wit
   expect(mocks.closeProfile).toHaveBeenCalledTimes(2);
 });
 
-it.each([
-  { expected: SyntaxError, label: 'corrupt JSON', saved: '{' },
-  { expected: Error, label: 'invalid preference envelope', saved: '{}' },
-])(
-  'retains $label in blocked status and preserves its original strict-read failure',
-  async ({ saved, expected }) => {
-    const f = fixture();
-    f.storage.getItem.mockResolvedValue(saved);
-    const capability = createNativeScopedSearchCapability({
-      openQuery: unused,
-      rebuild: f.activation.rebuild,
-      withRead: f.activation.withRead,
-    });
-    try {
-      // Boot's reader starts the index; a status read never does (BST-2277).
-      const failure = await f.activation.acquireRead().catch((error: unknown) => error);
-      const observation = await capability.status();
-      expect(failure).toBeInstanceOf(NativeIndexRefusalError);
-      if (!(failure instanceof NativeIndexRefusalError)) {
-        throw new Error('Original settings failure was not retained.');
-      }
-      expect(failure.cause).toBeInstanceOf(expected);
-      expect(observation).toMatchObject({
-        cause: { kind: 'settings-invalid' },
-        kind: 'unavailable',
-        phase: 'blocked',
-        reason: failure.message,
-      });
-      await expect(f.activation.acquire()).rejects.toMatchObject({ cause: failure.cause });
-      expect(mocks.acquire).not.toHaveBeenCalled();
-      expect(mocks.acquireProfile).not.toHaveBeenCalled();
-    } finally {
-      await f.activation.close();
+it('retains an unreadable saved config in blocked status and preserves its original strict-read failure', async () => {
+  const f = fixture();
+  const unreadable = unreadableSettings();
+  f.settings.mockRejectedValue(unreadable);
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: f.activation.rebuild,
+    withRead: f.activation.withRead,
+  });
+  try {
+    // Boot's reader starts the index; a status read never does (BST-2277).
+    const failure = await f.activation.acquireRead().catch((error: unknown) => error);
+    const observation = await capability.status();
+    expect(failure).toBeInstanceOf(NativeIndexRefusalError);
+    if (!(failure instanceof NativeIndexRefusalError)) {
+      throw new Error('Original settings failure was not retained.');
     }
+    expect(failure.cause).toBe(unreadable);
+    expect(observation).toMatchObject({
+      cause: { kind: 'settings-invalid' },
+      kind: 'unavailable',
+      phase: 'blocked',
+      reason: failure.message,
+    });
+    await expect(f.activation.acquire()).rejects.toMatchObject({ cause: failure.cause });
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.acquireProfile).not.toHaveBeenCalled();
+  } finally {
+    await f.activation.close();
   }
-);
+});
 
 it.each([
   { method: 'status', phase: 'authority' },
@@ -607,18 +453,7 @@ it.each([
   async ({ method, phase }) => {
     const f = fixture();
     const native = writer();
-    const settings = JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'balanced',
-        managedCollectionId: 'selected',
-        nativeIndexMode: 'TEXT',
-        nativeLocalSelection: null,
-        paused: true,
-        worktreeRootIndexingOptInById: {},
-      },
-    });
-    f.storage.getItem.mockResolvedValue(settings);
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
     native.coverageScope = async () => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
@@ -690,9 +525,7 @@ it.each([
     let changing: Promise<void> | undefined;
     try {
       await entered.promise;
-      const changedSettings = JSON.parse(settings) as { state: { indexingPolicyPreset: string } };
-      changedSettings.state.indexingPolicyPreset = 'full-root';
-      f.storage.getItem.mockResolvedValue(JSON.stringify(changedSettings));
+      f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
       changing = f.activation.reconfigure();
       const changed = changing.catch((error: unknown) => error);
       if (phase === 'authority') {

@@ -114,7 +114,8 @@ const unregister = registerIndexSearchIpcHandlers(
     retryIndexing: async () => {
       throw new Error('Unexpected Retry indexing in read-only test');
     },
-  }
+  },
+  { read: unused, update: unused }
 );
 ipcMain.handle(DESKTOP_IPC_CHANNELS.embeddingHost.getStatus, () => ({
   active: false,

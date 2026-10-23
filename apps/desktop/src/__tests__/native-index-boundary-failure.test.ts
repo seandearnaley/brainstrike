@@ -22,7 +22,7 @@ import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { generateHostedEmbeddings } from '../hosted-embeddings';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { nativeIndexClosedError, nativeIndexStateError } from '../native-index-lifecycle-errors';
-import { readNativeIndexSettings } from '../native-index-settings';
+import { textSettings } from './helpers/native-index-settings';
 
 vi.mock('../secrets', () => ({
   getSecretsService: () => ({ getKey: async () => 'fake-boundary-test' }),
@@ -299,9 +299,7 @@ it('names the rebuild as the remedy for a store that refused its index file', ()
       },
       generation: 3,
       kind: 'failed',
-      settings: readNativeIndexSettings(
-        '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-      ),
+      settings: textSettings(),
     }),
     log
   );

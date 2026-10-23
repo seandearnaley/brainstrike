@@ -24,6 +24,7 @@ import {
   retireNativeIndexSources,
   settleNativeIndexSources,
 } from '../native-index-source-retirement';
+import { textCollectionSettings } from './helpers/native-index-settings';
 import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
 
 const catalogFixture = createActivationCatalogFixture();
@@ -148,21 +149,6 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   };
 }
 function fixture(applicationOverride?: ApplicationIpcDomain) {
-  const storage = {
-    getItem: vi.fn(async () =>
-      JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: 'balanced',
-          managedCollectionId: 'selected',
-          nativeIndexMode: 'TEXT',
-          nativeLocalSelection: null,
-          paused: false,
-          worktreeRootIndexingOptInById: {},
-        },
-      })
-    ),
-  };
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -177,9 +163,10 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
-    storage,
+    settings: async () => textCollectionSettings(),
+    storage: { getItem: unused },
   });
-  return { activation, onReceipt, storage, transport };
+  return { activation, onReceipt, transport };
 }
 beforeEach(() => {
   vi.resetAllMocks();

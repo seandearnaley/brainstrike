@@ -13,6 +13,7 @@ import {
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,
+  requireIndexConfig,
   requireMainLogger,
   shutdownPlanCapture,
 } from './boot-order-fixture';
@@ -105,11 +106,11 @@ describe('main boot order', () => {
     await import('../../main');
     const options = applicationDomainCapture.options;
     const plan = shutdownPlanCapture.current?.();
-    if (!(options?.onStorageChanged && options.onResetLocal && plan)) {
-      throw new Error('Main reset and storage callbacks were not captured');
+    if (!(options?.onResetLocal && plan)) {
+      throw new Error('Main reset callback and shutdown plan were not captured');
     }
-    const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
-    options.onStorageChanged(NATIVE_INDEX_SETTINGS_KEY);
+    // The same trigger Main's config owner uses once a change is saved.
+    const applying = requireIndexConfig().reconfigure();
     await entered.promise;
     const reset = options.onResetLocal();
     let closed = false;
@@ -118,7 +119,7 @@ describe('main boot order', () => {
     });
     onTestFinished(async () => {
       held.resolve();
-      await Promise.allSettled([reset, close]);
+      await Promise.allSettled([applying, reset, close]);
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(closed).toBe(false);
@@ -160,7 +161,7 @@ describe('main boot order', () => {
         pendingDeletionPaths: [],
         preservedPaths: [],
       });
-      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
+      let applying: Promise<void> | undefined;
       const resetPlatform = await import('../../desktop-reset-platform');
       const createReset = resetPlatform.createDesktopFactoryResetHandler;
       const compose = vi
@@ -169,7 +170,8 @@ describe('main boot order', () => {
           createReset({
             ...ports,
             completeSuccessfulReset: async () => {
-              applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+              // A settings change saved while the reset finishes applies through Main's owner.
+              applying = requireIndexConfig().reconfigure();
               notified.resolve();
               await replacement.promise;
             },
@@ -237,10 +239,8 @@ describe('main boot order', () => {
         expect(nativePrepareForPause).not.toHaveBeenCalled();
         expect(reconfigure).not.toHaveBeenCalled();
       }
-      expect(requireMainLogger().error).not.toHaveBeenCalledWith(
-        'Saved native index configuration could not activate',
-        expect.anything()
-      );
+      // The deferred change settles without an activation failure in every outcome.
+      await expect(applying).resolves.toBeUndefined();
     }
   );
 
@@ -260,18 +260,16 @@ describe('main boot order', () => {
       const reconfigure = vi.fn(async () => {});
       nativeReconfigureForReset.current = reconfigure;
       await import('../../main');
-      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
-      applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+      // A saved change comes from the renderer, so Main has shown its window first.
+      await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+      const applying = requireIndexConfig().reconfigure();
       expect(nativePrepareForPause).toHaveBeenCalledOnce();
       if (kind === 'none') {
-        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+        await expect(applying).resolves.toBeUndefined();
+        expect(reconfigure).toHaveBeenCalledOnce();
       } else {
-        await vi.waitFor(() =>
-          expect(requireMainLogger().error).toHaveBeenCalledWith(
-            'Saved native index configuration could not activate',
-            { error: failure }
-          )
-        );
+        // The owner's update returns this failure to the renderer as the apply refusal.
+        await expect(applying).rejects.toBe(failure);
         expect(reconfigure).not.toHaveBeenCalled();
       }
     }
