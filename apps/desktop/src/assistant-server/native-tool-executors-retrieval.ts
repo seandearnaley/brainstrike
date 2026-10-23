@@ -14,7 +14,6 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
-  logToolFailure,
   type NativeToolBuildContext,
   type NativeToolExecutor,
   parseToolExecuteInput,
@@ -65,18 +64,13 @@ export function retrievalToolExecutors(
           options?: ToolExecuteContext
         ) => {
           const resolvedInput = parseToolExecuteInput(inputSchema, input);
-          try {
-            return await runQueryEmbeddingSpaceWith(
-              resolvedInput,
-              runtimeData,
-              dependencies,
-              store,
-              resolveGuardedToolSignal(options)
-            );
-          } catch (error) {
-            logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
-            throw error;
-          }
+          return await runQueryEmbeddingSpaceWith(
+            resolvedInput,
+            runtimeData,
+            dependencies,
+            store,
+            resolveGuardedToolSignal(options)
+          );
         },
         id: NATIVE_TOOL_ID.queryEmbeddingSpace,
         inputSchema,
@@ -99,18 +93,13 @@ export function retrievalToolExecutors(
           options?: ToolExecuteContext
         ) => {
           const resolvedInput = parseToolExecuteInput(inputSchema, input);
-          try {
-            return await runHybridSearchWith(
-              resolvedInput,
-              runtimeData,
-              dependencies,
-              store,
-              resolveGuardedToolSignal(options)
-            );
-          } catch (error) {
-            logToolFailure('hybridSearch failed', error, resolvedInput);
-            throw error;
-          }
+          return await runHybridSearchWith(
+            resolvedInput,
+            runtimeData,
+            dependencies,
+            store,
+            resolveGuardedToolSignal(options)
+          );
         },
         id: NATIVE_TOOL_ID.hybridSearch,
         inputSchema,
@@ -127,16 +116,11 @@ export function retrievalToolExecutors(
             NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listEmbeddingSpaces],
             input
           );
-          try {
-            return await runListEmbeddingSpacesWith(
-              resolvedInput,
-              dependencies.nativeIndexSearch,
-              store
-            );
-          } catch (error) {
-            logToolFailure('listEmbeddingSpaces failed', error, resolvedInput);
-            throw error;
-          }
+          return await runListEmbeddingSpacesWith(
+            resolvedInput,
+            dependencies.nativeIndexSearch,
+            store
+          );
         },
         id: NATIVE_TOOL_ID.listEmbeddingSpaces,
         inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listEmbeddingSpaces],

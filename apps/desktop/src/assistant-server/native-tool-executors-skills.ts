@@ -60,16 +60,11 @@ export function runSkillScriptExecutor(
         const stream = resolveShellOutputStreamer(options, (error) => {
           logToolFailure('runSkillScript output streaming failed', error, resolvedInput);
         });
-        try {
-          return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
-            resolvePythonExecutable,
-            signal: resolveGuardedToolSignal(options),
-            ...(stream ? { stream } : {}),
-          });
-        } catch (error) {
-          logToolFailure('runSkillScript failed', error, resolvedInput);
-          throw error;
-        }
+        return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
+          resolvePythonExecutable,
+          signal: resolveGuardedToolSignal(options),
+          ...(stream ? { stream } : {}),
+        });
       },
       id: NATIVE_TOOL_ID.runSkillScript,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.runSkillScript],
