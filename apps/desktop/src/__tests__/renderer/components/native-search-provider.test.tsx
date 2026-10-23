@@ -44,15 +44,21 @@ function savedConfig(config: IndexConfig): void {
   useIndexConfigStore.setState({ state: { config, kind: 'ready' }, update: vi.fn() });
 }
 
-const profile = {
+const execution = {
   dimensions: 384,
   dtype: 'fp16' as const,
   modelId: MODEL_ID,
   revision: REVISION,
+};
+/** The index's profile as Main resolves it: the saved key's provider and model id. */
+const profile = {
+  ...execution,
+  distance: 'cosine' as const,
+  provider: 'local' as const,
   tokenCap: 256,
 };
 const queryPlan = {
-  inferencePlan: { ...profile, device: 'webgpu' as const, dimensions: 384 as const },
+  inferencePlan: { ...execution, device: 'webgpu' as const },
   modelKey: 'native:query-fixture',
 };
 const ready = {
@@ -60,7 +66,7 @@ const ready = {
   embedding: {
     indexMode: 'vector-configured' as const,
     profile,
-    profileHash: '60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914',
+    profileHash: 'caf69ae8e51f176fb397bac4dbb3e122e1c417e02c639306a29903bc716e6b68',
   },
   kind: 'ready' as const,
   queryPlan,
@@ -142,6 +148,30 @@ describe('native search follows Main’s saved choices', () => {
       'Native query inference no longer matches the explicit saved execution plan.'
     );
     expect(queryEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('serves a model only from the provider whose vectors the index holds', async () => {
+    savedConfig(hosted('ollama::nomic-embed-text', 768));
+    const { result } = mount({
+      ...ready,
+      embedding: {
+        indexMode: 'vector-configured',
+        profile: {
+          dimensions: 768,
+          distance: 'cosine',
+          modelId: 'nomic-embed-text',
+          provider: 'lmstudio',
+        },
+        profileHash: 'd'.repeat(64),
+      },
+      queryPlan: { modelKey: 'lmstudio::nomic-embed-text' },
+    });
+    await waitFor(() =>
+      expect(result.current?.profileUnavailableReason).toBe(
+        'Native search is activating the saved search mode and model.'
+      )
+    );
+    expect(result.current?.profile).toBeNull();
   });
 
   it('says search is off when Main’s config turns it off', async () => {

@@ -28,15 +28,21 @@ const SAVED_SEMANTIC: IndexConfig = {
   },
 };
 
-const profile = {
+const execution = {
   dimensions: 384,
   dtype: 'fp16' as const,
   modelId: MODEL_ID,
   revision: REVISION,
+};
+/** The index's profile as Main resolves it: the saved key's provider and model id. */
+const profile = {
+  ...execution,
+  distance: 'cosine' as const,
+  provider: 'local' as const,
   tokenCap: 256,
 };
 const queryPlan = {
-  inferencePlan: { ...profile, device: 'webgpu' as const, dimensions: 384 as const },
+  inferencePlan: { ...execution, device: 'webgpu' as const },
   modelKey: 'native:query-fixture',
 };
 const ready = {
@@ -45,7 +51,7 @@ const ready = {
   embedding: {
     indexMode: 'vector-configured' as const,
     profile,
-    profileHash: '60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914',
+    profileHash: 'caf69ae8e51f176fb397bac4dbb3e122e1c417e02c639306a29903bc716e6b68',
   },
   kind: 'ready' as const,
   queryPlan,

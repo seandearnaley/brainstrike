@@ -111,11 +111,11 @@ function settledStatus(enabled: boolean | null, snapshot: IndexingActivitySnapsh
   if (enabled === null) {
     return { busy: true, toneClassName: 'text-info', value: 'Preparing' };
   }
-  if (snapshot.status === 'unavailable') {
-    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };
-  }
   if (!enabled) {
     return { busy: false, toneClassName: 'text-muted-foreground', value: 'Off' };
+  }
+  if (snapshot.status === 'unavailable') {
+    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };
   }
   return { busy: false, toneClassName: 'text-success', value: 'Ready' };
 }

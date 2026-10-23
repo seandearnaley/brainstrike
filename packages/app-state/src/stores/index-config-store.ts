@@ -1,9 +1,10 @@
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
-import type {
-  IndexConfig,
-  IndexConfigCapability,
-  IndexConfigPatch,
-  IndexModel,
+import {
+  type IndexConfig,
+  type IndexConfigCapability,
+  type IndexConfigPatch,
+  type IndexModel,
+  sameIndexModel,
 } from '@brainstrike/assistant-contract/index-config';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
@@ -31,15 +32,15 @@ export const selectIndexConfig = (store: IndexConfigStore): IndexConfig | null =
 const selectIndexModel = (store: IndexConfigStore): IndexModel | null =>
   selectIndexConfig(store)?.model ?? null;
 
-const sameIndexModel = (left: IndexModel | null, right: IndexModel | null): boolean =>
-  JSON.stringify(left) === JSON.stringify(right);
+const sameSavedModel = (left: IndexModel | null, right: IndexModel | null): boolean =>
+  left === null || right === null ? left === right : sameIndexModel(left, right);
 
 /**
  * The saved model, one value until Main saves a different one: every change Main publishes is a
  * fresh copy of the whole config, so a worktree, policy or chunking change keeps this identity.
  */
 export function useIndexModel(): IndexModel | null {
-  return useStoreWithEqualityFn(useIndexConfigStore, selectIndexModel, sameIndexModel);
+  return useStoreWithEqualityFn(useIndexConfigStore, selectIndexModel, sameSavedModel);
 }
 
 /** Reads Main's config once and follows every change Main publishes. */

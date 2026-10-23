@@ -11,7 +11,6 @@ import {
   type IndexConfig,
   type IndexLocalSelection,
   type IndexModel,
-  indexModelId,
   indexModelLocalSelection,
 } from '@brainstrike/assistant-contract/index-config';
 import type {
@@ -52,12 +51,19 @@ function matchesSelection(
   );
 }
 
-/** Main builds the vector space with the model's id and dimensions; the index must hold it. */
+/**
+ * Main's vector space is the model's key and dimensions; the index must hold it. The profile
+ * carries the key as the provider and model id it was parsed into.
+ */
 function holdsModelVectors(status: ReadyStatus, model: IndexModel): boolean {
+  if (status.embedding.indexMode !== 'vector-configured') {
+    return false;
+  }
+  const { profile } = status.embedding;
   return (
-    status.embedding.indexMode === 'vector-configured' &&
-    status.embedding.profile.modelId === indexModelId(model) &&
-    status.embedding.profile.dimensions === model.dimensions
+    profile.provider !== undefined &&
+    `${profile.provider}::${profile.modelId}` === model.modelKey &&
+    profile.dimensions === model.dimensions
   );
 }
 

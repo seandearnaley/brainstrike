@@ -768,12 +768,21 @@ describe('IndexingStatusItem', () => {
 
   it('never reads Off before Main’s config is read', () => {
     useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null });
-    // The running app reports database work before the index provider publishes anything.
-    useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
 
     render(<IndexingStatusItem nativeIndexSearch={nativeIndex} />);
 
     expect(screen.getByTestId('indexing-status-value')).toHaveTextContent('Preparing');
+  });
+
+  it('reads Off, not Unavailable, once Main’s config turns search off', async () => {
+    savedConfig({ ...DEFAULT_INDEX_CONFIG, mode: 'off' });
+
+    render(<IndexingStatusItem nativeIndexSearch={nativeIndex} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Workspace Index status: Off');
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    const popover = await screen.findByTestId('indexing-status-popover');
+    expect(within(popover).queryByText('Unavailable')).not.toBeInTheDocument();
   });
 
   it('names what the index searches with, and nothing before Main’s config is read', async () => {
