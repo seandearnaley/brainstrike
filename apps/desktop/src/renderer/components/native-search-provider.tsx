@@ -52,18 +52,14 @@ function matchesSelection(
 }
 
 /**
- * Main's vector space is the model's key and dimensions; the index must hold it. The profile
- * carries the key as the provider and model id it was parsed into.
+ * Main's vector space is the collection's model key and dimensions, compared as Main compares
+ * them; the query plan names that key verbatim.
  */
 function holdsModelVectors(status: ReadyStatus, model: IndexModel): boolean {
-  if (status.embedding.indexMode !== 'vector-configured') {
-    return false;
-  }
-  const { profile } = status.embedding;
   return (
-    profile.provider !== undefined &&
-    `${profile.provider}::${profile.modelId}` === model.modelKey &&
-    profile.dimensions === model.dimensions
+    status.embedding.indexMode === 'vector-configured' &&
+    status.queryPlan?.modelKey === model.modelKey &&
+    status.embedding.profile.dimensions === model.dimensions
   );
 }
 

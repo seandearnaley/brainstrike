@@ -34,16 +34,19 @@ const execution = {
   modelId: MODEL_ID,
   revision: REVISION,
 };
-/** The index's profile as Main resolves it: the saved key's provider and model id. */
+/**
+ * The index's profile as Main reports a local model: the saved key's provider, the collection's
+ * distance and the execution's pins. Main's catalog facts carry no context window, so no token cap.
+ */
 const profile = {
   ...execution,
   distance: 'cosine' as const,
   provider: 'local' as const,
-  tokenCap: 256,
 };
+/** Main's query plan names the collection's model key verbatim. */
 const queryPlan = {
   inferencePlan: { ...execution, device: 'webgpu' as const },
-  modelKey: 'native:query-fixture',
+  modelKey: `local::${MODEL_ID}`,
 };
 const ready = {
   authorizedCollectionIds: ['collection-a'],
@@ -51,7 +54,7 @@ const ready = {
   embedding: {
     indexMode: 'vector-configured' as const,
     profile,
-    profileHash: 'caf69ae8e51f176fb397bac4dbb3e122e1c417e02c639306a29903bc716e6b68',
+    profileHash: '654bee3466feeb474f0f1827badb57d458a679001b339ef3ab959eadbd2b6443',
   },
   kind: 'ready' as const,
   queryPlan,
