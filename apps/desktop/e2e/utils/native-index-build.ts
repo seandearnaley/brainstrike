@@ -123,8 +123,8 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
   });
 }
 
-/** Saves semantic search with BGE Small on the device's execution plan while the index is paused. */
-export async function configureNativeIndex(page: Page, device: BenchDevice): Promise<void> {
+/** Saves semantic search with BGE Small on the device's execution plan. */
+export async function chooseSemanticSearch(page: Page, device: BenchDevice): Promise<void> {
   await updateIndexConfig(page, {
     mode: 'semantic',
     model: {
@@ -133,7 +133,24 @@ export async function configureNativeIndex(page: Page, device: BenchDevice): Pro
       modelKey: 'local::Xenova/bge-small-en-v1.5',
     },
   });
+}
+
+/** {@link chooseSemanticSearch} while the index is paused; it stays paused. */
+export async function configureNativeIndex(page: Page, device: BenchDevice): Promise<void> {
+  await chooseSemanticSearch(page, device);
   await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused');
+}
+
+/** Every folder scanned and embedded: one folder holding `indexedFiles` files. */
+export async function waitForEmbeddedFolder(page: Page, indexedFiles: number): Promise<void> {
+  await expect
+    .poll(async () => await readNativeIndexSummary(page), { timeout: 120_000 })
+    .toMatchObject({
+      missingVectors: 0,
+      roots: [{ indexedFiles, missingVectors: 0, scanComplete: true }],
+      status: 'ready',
+      vectorCoverageComplete: true,
+    });
 }
 
 /**

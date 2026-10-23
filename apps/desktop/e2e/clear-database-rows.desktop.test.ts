@@ -93,10 +93,7 @@ test('Clear Database removes native files and a waiting host run while retaining
     });
     await clearDatabaseRecords(page);
     const assertCleared = async (current: typeof page) => {
-      expect(await readNativeResetProbe(current, probe)).toEqual({
-        folders: 0,
-        retainedProbeIds: [],
-      });
+      expect(await readNativeResetProbe(current, probe)).toEqual({ folders: 0 });
       await expect
         .poll(() =>
           readHostThreadTree(userData).then(

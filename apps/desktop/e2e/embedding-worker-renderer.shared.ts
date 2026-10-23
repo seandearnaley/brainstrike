@@ -24,7 +24,6 @@ export {
   os,
   path,
   reloadRendererInTest,
-  showDatabaseDemoPanel,
   test,
   waitForAppReadyInTest,
   waitForTcpPortOpen,
@@ -38,7 +37,6 @@ export {
   getWorkspaceSemanticSearchSnapshot,
   openWorkspaceSearchPanel,
   runWorkspaceSemanticSearch,
-  selectWorkspaceSearchCollection,
   waitForWorkspaceSemanticSearchResults,
 } from './utils/workspace-search-helpers';
 

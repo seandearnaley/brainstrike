@@ -1,10 +1,8 @@
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, type Page } from '@playwright/test';
 
-type IndexSearchMethod = Exclude<keyof IndexSearchCapability, 'rebuild'>;
-
 /** One call on the renderer's production `indexSearch` adapter, as the Search panel makes it. */
-export async function callIndexSearch<M extends IndexSearchMethod>(
+export async function callIndexSearch<M extends keyof IndexSearchCapability>(
   page: Page,
   method: M,
   ...args: Parameters<IndexSearchCapability[M]>
@@ -22,7 +20,7 @@ export async function callIndexSearch<M extends IndexSearchMethod>(
       const run = capability[call.method] as (...values: unknown[]) => Promise<unknown>;
       return await run.apply(capability, [...call.args]);
     },
-    { args: args as readonly unknown[], method: method as IndexSearchMethod }
+    { args, method }
   );
   return result as Awaited<ReturnType<IndexSearchCapability[M]>>;
 }

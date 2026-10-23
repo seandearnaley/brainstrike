@@ -309,10 +309,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     // The reset ends with its replacement renderer ready; the retired one logged nothing wrong.
     const { waitForAppReady: waitForResetRenderer } = await loadElectronHelpers();
     await waitForResetRenderer(window);
-    expect(await readNativeResetProbe(window, resetProbe)).toEqual({
-      folders: 0,
-      retainedProbeIds: [],
-    });
+    expect(await readNativeResetProbe(window, resetProbe)).toEqual({ folders: 0 });
     window.off('console', recordError);
     expect(resetErrors).toEqual([]);
 
@@ -323,10 +320,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
 
     const { waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(restartedWindow);
-    expect(await readNativeResetProbe(restartedWindow, resetProbe)).toEqual({
-      folders: 0,
-      retainedProbeIds: [],
-    });
+    expect(await readNativeResetProbe(restartedWindow, resetProbe)).toEqual({ folders: 0 });
 
     await openTokenCountingSettings(restartedHomePage, restartedSettingsPage);
     await expect(restartedWindow.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(

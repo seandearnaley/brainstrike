@@ -1,12 +1,11 @@
+import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { ElectronApplication, Page } from 'playwright';
-import {
-  configureNativeCollectionSearch,
-  createNativeImportedSearchFixture,
-  waitForNativeCollectionCoverage,
-} from './embedding-worker-renderer.native-search';
+import { addWorkspaceFolder } from './embedding-worker-renderer.native-search';
 import { expect } from './fixtures/electron-fixture';
-import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
-import { showDatabaseDemoPanel } from './utils/layout-helpers';
+import { chooseSemanticSearch, waitForEmbeddedFolder } from './utils/native-index-build';
+import { textReadiness } from './utils/text-search-mode';
 
 /** Capture the real process receipt: exit zero alone did not catch the M3 native cleanup failure. */
 export function captureNativeShutdown(app: ElectronApplication): () => void {
@@ -48,41 +47,30 @@ export function captureNativeShutdown(app: ElectronApplication): () => void {
   };
 }
 
-export interface ActiveNativeIngestion {
-  readonly activeWindow: Page;
-  readonly searchableCollectionName: string;
-  readonly searchableEmbeddingSetId: string;
+/** The one file of the small folder the retirement cases search, and a query only it answers. */
+export const SEARCHABLE_FILE = 'backfill-fixture.ts';
+export const SEARCHABLE_QUERY = 'desktop import backfill regression';
+
+/** A small real folder holding {@link SEARCHABLE_FILE}. */
+export async function createSearchableRoot(): Promise<string> {
+  const rootPath = await realpath(await mkdtemp(path.join(tmpdir(), 'brainstrike-searchable-')));
+  await writeFile(
+    path.join(rootPath, SEARCHABLE_FILE),
+    `export function fixtureValue(): string { return "${SEARCHABLE_QUERY}"; }\n`
+  );
+  return rootPath;
 }
 
-/**
- * A fully embedded collection to search afterwards, then a large real folder
- * opened as the workspace, so the native index is still embedding it.
- */
-export async function prepareActiveNativeIngestion(
+/** Semantic search on WASM, then the searchable folder added and fully embedded. */
+export async function prepareSearchableFolder(
   electronApp: ElectronApplication,
-  window: Page,
-  rootPath: string
-): Promise<ActiveNativeIngestion> {
-  const activeWindow = await showDatabaseDemoPanel(window);
-  const searchableCollectionName = `Searchable native collection ${Date.now()}`;
-  const fixture = await createNativeImportedSearchFixture(activeWindow, searchableCollectionName);
-  await configureNativeCollectionSearch(activeWindow, searchableCollectionName);
-  await waitForNativeCollectionCoverage(activeWindow, fixture.embeddingSetId, fixture.fileCount);
-
-  // The folder picker returns this real directory instead of an OS dialog.
-  await electronApp.evaluate((_electron, root) => {
-    process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = root;
-  }, rootPath);
-  const explorer = getContextExplorerFileExplorerPanel(activeWindow);
-  await expect(explorer).toBeVisible({ timeout: 15_000 });
-  await activeWindow.getByTestId('select-root-button').click({ timeout: 15_000 });
-  await expect(
-    activeWindow.getByRole('treegrid', { name: 'File tree' }).getByText('stress-file-0000.ts')
-  ).toBeVisible({ timeout: 30_000 });
-
-  return {
-    activeWindow,
-    searchableCollectionName,
-    searchableEmbeddingSetId: fixture.embeddingSetId,
-  };
+  page: Page,
+  searchableRoot: string
+): Promise<void> {
+  await chooseSemanticSearch(page, 'wasm');
+  await expect
+    .poll(() => textReadiness(page), { timeout: 120_000 })
+    .toEqual({ folders: 0, indexMode: 'vector-configured', kind: 'ready' });
+  await addWorkspaceFolder(electronApp, page, searchableRoot, SEARCHABLE_FILE);
+  await waitForEmbeddedFolder(page, 1);
 }
