@@ -54,6 +54,25 @@ const SEMANTIC_CONFIG: IndexConfig = {
   },
 };
 
+/** What Main sends for its lifecycle owner's typed refusals (`nativeIndexBoundaryFailure`). */
+const CLOSED = refusal({
+  category: 'availability',
+  code: 'native-index-closed',
+  message: 'The search index is closed.',
+  remedy: 'Reopen the workspace to search again.',
+});
+const TRANSITIONING = refusal({
+  category: 'availability',
+  code: 'native-index-transitioning',
+  message: 'The search index is preparing.',
+});
+const SOURCE_FAILURE = refusal({
+  category: 'availability',
+  code: 'native-index-source-failure',
+  message: 'The search index could not prepare its sources.',
+  remedy: 'Review Search and indexing in Settings and retry.',
+});
+
 /** Main's side of the config: one read, then every change it publishes. */
 function mainConfig(read: () => Promise<IndexConfig>) {
   let listener: ((config: IndexConfig) => void) | undefined;
@@ -152,28 +171,49 @@ it('shows why Main could not read the config instead of waiting forever', async 
 });
 
 it.each([
-  ['closed', 'native-index-closed'],
-  ['preparing', 'native-index-transitioning'],
+  ['closed', CLOSED],
+  ['preparing', TRANSITIONING],
 ])(
-  'waits, with no error, when Main refuses the config read because its index is %s',
-  async (_kind, code) => {
+  'waits, with no error, when Main refuses the config read because its index is %s, then follows the config Main publishes',
+  async (_kind, failure) => {
     // Main's config read reaches the agent-host profile, which a reset or quit has closed.
-    const failure = refusal({
-      category: 'availability',
-      code,
-      message: 'The search index is closed.',
-      remedy: 'Reopen the workspace to search again.',
+    // Once the reset reopens the profile, Main publishes its config; nothing reads again.
+    const main = mainConfig(async () => {
+      throw new BoundaryFailureError(failure);
     });
+    const status: IndexerStatus = {
+      authorizedCollectionIds: [],
+      authorizedRootIds: [],
+      collectionReadiness: [],
+      embedding: { indexMode: 'text-only' },
+      kind: 'ready',
+      rootReadiness: [],
+      storeId: 'store',
+    };
+    const counts = { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 };
     const capability = {
-      ...mainConfig(async () => {
-        throw new BoundaryFailureError(failure);
-      }),
+      ...main,
       coverage: vi.fn(),
-      coverageBatch: vi.fn(),
+      coverageBatch: vi.fn(
+        async (): Promise<IndexerCoverageBatch> => ({
+          coverage: [
+            {
+              collections: [],
+              embedding: status.embedding,
+              roots: [],
+              storeId: 'store',
+              totals: counts,
+              vectorCoverageComplete: true,
+            },
+          ],
+          kind: 'current',
+          status,
+        })
+      ),
       grep: vi.fn(),
       rebuild: vi.fn(),
       search: vi.fn(),
-      status: vi.fn(),
+      status: vi.fn(async (): Promise<IndexerStatus> => status),
     };
     const mounted = render(
       <NativeWorkspaceIndexProvider capability={capability}>
@@ -186,6 +226,16 @@ it.each([
       lastError: null,
       state: 'waiting',
     });
+    expect(capability.status).not.toHaveBeenCalled();
+    main.publish(DEFAULT_INDEX_CONFIG);
+    await waitFor(() => expect(capability.status).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+        lastError: null,
+        state: 'idle',
+      })
+    );
+    expect(main.readConfig).toHaveBeenCalledOnce();
     mounted.unmount();
   }
 );
@@ -599,25 +649,6 @@ it.each([
     mounted.unmount();
   }
 );
-
-/** What Main sends for its lifecycle owner's typed refusals (`nativeIndexBoundaryFailure`). */
-const CLOSED = refusal({
-  category: 'availability',
-  code: 'native-index-closed',
-  message: 'The search index is closed.',
-  remedy: 'Reopen the workspace to search again.',
-});
-const TRANSITIONING = refusal({
-  category: 'availability',
-  code: 'native-index-transitioning',
-  message: 'The search index is preparing.',
-});
-const SOURCE_FAILURE = refusal({
-  category: 'availability',
-  code: 'native-index-source-failure',
-  message: 'The search index could not prepare its sources.',
-  remedy: 'Review Search and indexing in Settings and retry.',
-});
 
 const PREPARING: IndexerStatus = {
   kind: 'unavailable',

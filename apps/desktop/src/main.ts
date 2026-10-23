@@ -81,6 +81,7 @@ import {
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import { createDesktopResetResume } from './desktop-reset-resume';
 import {
   isDesktopShuttingDown,
   isExpectedShutdownRefusal,
@@ -677,13 +678,11 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   prepareDatabaseProfileReset: () => profileReset.prepare(),
   resetLocalDatabase: (lease) => profileReset.clear(lease),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
-  resumeAfterReset: async (outcome, signal) => {
-    if (outcome === 'succeeded') {
-      await nativeIndexActivation.resume(signal);
-    }
-    signal.throwIfAborted();
-    await resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome);
-  },
+  resumeAfterReset: createDesktopResetResume({
+    publishIndexConfig: () => indexConfig.publishSaved(),
+    resumeIndex: (signal) => nativeIndexActivation.resume(signal),
+    resumeMcp: (outcome) => resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome),
+  }),
   runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
     { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },

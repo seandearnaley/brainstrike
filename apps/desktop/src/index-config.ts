@@ -202,10 +202,31 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
     return nativeIndexSettingsFromConfig(config, space.id);
   });
 
+  const publishSaved = Effect.fn('IndexConfig.publishSaved')(function* (): Effect.fn.Return<
+    IndexConfig,
+    IndexConfigStoreFailed
+  > {
+    const config = yield* read();
+    dependencies.publish(config);
+    return config;
+  });
+
   return {
     nativeSettings: (): Promise<NativeIndexSettings> =>
       runAtPromiseBoundary(
         traceNativeIndexWorkflow(nativeSettings(), 'index-config.native-settings')
+      ),
+    /**
+     * Tells every window the profile's saved config when the profile, not a save, changed it: a
+     * reset's reopened profile holds its own. The permit orders it with saves, so no window
+     * hears an older config after a newer one.
+     */
+    publishSaved: (): Promise<IndexConfig> =>
+      runAtPromiseBoundary(
+        traceNativeIndexWorkflow(
+          permit.withPermits(1)(publishSaved()),
+          'index-config.publish-saved'
+        )
       ),
     read: (): Promise<IndexConfig> =>
       runAtPromiseBoundary(traceNativeIndexWorkflow(read(), 'index-config.read')),

@@ -427,6 +427,21 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
             0
           );
         }
+        // The replacement window loaded while the profile was closed; it learns the fresh
+        // profile's config from Main once the profile reopens, without a restart.
+        await expect(window.getByTestId('indexing-status-value')).toHaveText('Ready');
+        await homePage.openSettings();
+        const searchSettings = await new SettingsPage(window).openCategory(
+          /Search & Indexing/i,
+          'search-indexing'
+        );
+        await expect(
+          searchSettings
+            .getByRole('group', { name: 'Search mode' })
+            .getByRole('button', { name: /^Text/ })
+        ).toHaveAttribute('aria-pressed', 'true');
+        await expect(searchSettings).not.toContainText('The search index is closed');
+        await homePage.leaveSettings();
         const reopened = await electronHarness.restart(logs.observeApp);
         await waitForAppReady(reopened.window);
         await new HomePage(reopened.window).leaveSettings();
