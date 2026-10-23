@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
+import { updateIndexConfig } from './utils/index-config';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 /** Every control in the Search panel, with whether it paints inside the panel and takes a click. */
@@ -129,6 +130,8 @@ test.describe('Desktop workspace search', () => {
     // toggles past its edge. The Search panel fills the Files pane, so the pane
     // is narrowed to its minimum first.
     await ensureMockWorkspaceOpen(window);
+    // Search turned off answers a query with the results error card, whose Retry is measured too.
+    await updateIndexConfig(window, { mode: 'off' });
     await ensureFileExplorerPanelVisible(window);
     const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
     await tabStrip.getByRole('tab', { name: 'Search' }).click();
@@ -136,9 +139,10 @@ test.describe('Desktop workspace search', () => {
     await expect(searchPanel.getByRole('button', { name: 'Use regular expression' })).toBeVisible({
       timeout: 15_000,
     });
-    // A query's error card is part of the panel too.
     await searchPanel.getByPlaceholder('Search workspace').fill('export');
-    await expect(searchPanel.getByRole('alert')).toBeVisible({ timeout: 20_000 });
+    await expect(searchPanel.getByTestId('workspace-search-results-error')).toBeVisible({
+      timeout: 20_000,
+    });
     const layoutWidth = await shrinkFilesPaneToMinimum(window);
     const layout = await searchControlLayout(window);
     expect(layout.panelWidth).toBeLessThanOrEqual(layoutWidth * 0.16);
