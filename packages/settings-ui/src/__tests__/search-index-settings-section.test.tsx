@@ -38,6 +38,28 @@ function show(config: IndexConfig) {
   return render(<SearchIndexSettingsSection />);
 }
 
+/** Holds the next update pending; `finish` publishes `saved` as Main does, then resolves, once. */
+function holdUpdate(saved: IndexConfig): () => void {
+  let release: (() => void) | null = null;
+  update.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => {
+          useIndexConfigStore.setState({ state: { config: saved, kind: 'ready' } });
+          resolve(saved);
+        };
+      })
+  );
+  const finish = (): void => {
+    const run = release;
+    release = null;
+    run?.();
+  };
+  // React holds later transitions behind a pending action, so never leave this one pending.
+  onTestFinished(finish);
+  return finish;
+}
+
 describe('Search & Indexing', () => {
   beforeEach(() => {
     update.mockReset();
@@ -161,19 +183,7 @@ describe('Search & Indexing', () => {
       ...SEMANTIC,
       chunking: { _tag: 'Custom', maxTokens: 512, overlap: 64 },
     };
-    let finish = (): void => undefined;
-    update.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = () => {
-            // Main publishes the saved config, then the update resolves.
-            useIndexConfigStore.setState({ state: { config: saved, kind: 'ready' } });
-            resolve(saved);
-          };
-        })
-    );
-    // React holds later transitions behind a pending action, so never leave this one pending.
-    onTestFinished(() => finish());
+    const finish = holdUpdate(saved);
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     await act(async () => {
@@ -184,6 +194,26 @@ describe('Search & Indexing', () => {
     await act(async () => finish());
     expect(screen.getByLabelText('Chunk size (tokens)')).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Automatic' })).toBeEnabled();
+  });
+
+  it('freezes the staged execution while Apply is in flight', async () => {
+    const granite = {
+      dimensions: 384,
+      local: { device: 'wasm', dtype: 'q8', revision: GRANITE_REVISION },
+      modelKey: `local::${GRANITE_ID}`,
+    } as const;
+    const finish = holdUpdate({ ...SEMANTIC, model: granite });
+    show(SEMANTIC);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Run it on' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'WASM · Q8' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
+    });
+    expect(screen.getByRole('combobox', { name: 'Run it on' })).toBeDisabled();
+    await act(async () => finish());
+    expect(screen.getByRole('combobox', { name: 'Run it on' })).toBeEnabled();
   });
 
   it('keeps a refused change and says why', async () => {
@@ -320,6 +350,26 @@ describe('Search & Indexing', () => {
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
     fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
     expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the saved plan when the saved on-device model is picked back', async () => {
+    show({
+      ...SEMANTIC,
+      model: {
+        dimensions: 384,
+        local: { device: 'wasm', dtype: 'q8', revision: GRANITE_REVISION },
+        modelKey: `local::${GRANITE_ID}`,
+      },
+    });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/ }));
+    expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
+      'Model changes.'
+    );
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
+    expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Run it on' })).toHaveTextContent('WASM · Q8');
   });
 
   it('drops a model staged under Semantic when search switches to Text', async () => {

@@ -10,6 +10,7 @@ import {
 } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   decodeIndexLocalExecution,
+  type IndexLocalExecution,
   type IndexModel,
   indexModelId,
   indexModelLocalSelection,
@@ -272,21 +273,23 @@ export function SearchIndexModelCard({
     if (!(model && plan)) {
       return;
     }
+    let local: IndexLocalExecution;
     try {
-      const local = decodeIndexLocalExecution({
+      local = decodeIndexLocalExecution({
         device: plan.selection.device,
         dtype: plan.selection.dtype,
         ...(plan.selection.revision === undefined ? {} : { revision: plan.selection.revision }),
       });
-      setPlanError(null);
-      onChange({ ...model, local });
     } catch (cause) {
       // The decoder reports a refused plan as a TypeError; anything else is not a refusal.
       if (!(cause instanceof TypeError)) {
         throw cause;
       }
       setPlanError(`The search index can't run this model on ${plan.label}. ${cause.message}`);
+      return;
     }
+    setPlanError(null);
+    onChange({ ...model, local });
   };
   const selectedName =
     availableModels.find((candidate) => candidate.id === model?.modelKey)?.name ?? model?.modelKey;
@@ -337,7 +340,7 @@ export function SearchIndexModelCard({
         {model && plans.length > 0 ? (
           <div className="space-y-2">
             <Label htmlFor="search-index-execution">Run it on</Label>
-            <Select onValueChange={choosePlan} value={chosenPlan?.label ?? ''}>
+            <Select disabled={disabled} onValueChange={choosePlan} value={chosenPlan?.label ?? ''}>
               <SelectTrigger aria-label="Run it on" id="search-index-execution">
                 <SelectValue placeholder="Choose how to run it" />
               </SelectTrigger>

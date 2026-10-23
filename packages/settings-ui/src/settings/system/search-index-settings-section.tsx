@@ -90,6 +90,19 @@ function pendingLines(staged: Staged): readonly string[] {
   ];
 }
 
+/** A pick of the saved model, plan unchosen or the same, keeps the saved model and its plan. */
+function keepsSavedModel(next: IndexModel, saved: IndexModel | null): boolean {
+  if (saved === null) {
+    return false;
+  }
+  return (
+    sameIndexModel(next, saved) ||
+    (next.local === null &&
+      next.modelKey === saved.modelKey &&
+      next.dimensions === saved.dimensions)
+  );
+}
+
 /** Why the staged choices cannot be applied yet; null when they can. */
 function applyBlocker(
   mode: IndexConfig['mode'],
@@ -215,7 +228,7 @@ function SearchIndexForm({
   };
   const stageModel = (next: IndexModel): void =>
     setStaged(({ model: _dropped, ...rest }) =>
-      config.model !== null && sameIndexModel(next, config.model) ? rest : { ...rest, model: next }
+      keepsSavedModel(next, config.model) ? rest : { ...rest, model: next }
     );
   const stageChunking = (next: IndexChunking): void =>
     setStaged(({ chunking: _dropped, ...rest }) =>
