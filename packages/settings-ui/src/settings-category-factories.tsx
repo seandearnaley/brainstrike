@@ -60,10 +60,10 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
 }): SettingsCategory {
   return {
     content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
-    description: 'Control the tokenizer used for previews and chunk generation.',
+    description: 'Control the tokenizer used for Explorer token counts.',
     icon: Sigma,
     id: 'token-counting',
-    keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
+    keywords: ['token', 'counting', 'tiktoken', 'preview'],
     title: 'Token Counting',
   };
 }
