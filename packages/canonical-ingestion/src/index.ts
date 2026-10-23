@@ -35,13 +35,9 @@ export {
   workspaceRemoval,
 } from './index-partition.js';
 export {
-  type IndexSetupRequired,
-  NATIVE_INDEX_SETTINGS_KEY,
   type NativeIndexSettings,
   nativeIndexConfigurationIdentity,
-  readNativeIndexSettings,
-  readNativeManagedCollectionId,
-  readNativeSavedPause,
+  nativeIndexSettingsFromConfig,
 } from './index-settings.js';
 export * from './ports.js';
 export { createNativeScanAdmission } from './scan-admission.js';
