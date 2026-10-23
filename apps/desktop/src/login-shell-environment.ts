@@ -1,0 +1,125 @@
+/**
+ * The user's login-shell environment, resolved once the way VS Code does
+ * (src/vs/platform/shell/node/shellEnv.ts, `getResolvedShellEnv`).
+ *
+ * launchd starts a Dock or Finder app with PATH `/usr/bin:/bin:/usr/sbin:/sbin`;
+ * the PATH that finds gh, node, pnpm and Homebrew tools is set by the user's
+ * shell rc files. Main runs the shell as an interactive login shell, has it
+ * print the environment it built, and applies that before it forks any child,
+ * so the agent host and every command it runs inherit it.
+ *
+ * Unlike the reference, a shell that prints no environment is a failure the
+ * caller reports, never an empty result.
+ */
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { userInfo } from 'node:os';
+import path from 'node:path';
+import { performance } from 'node:perf_hooks';
+import type { EnvBootstrapLoginShell } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
+import { isDesktopEnvFileLoadingDisabled } from './desktop-env';
+
+/** The reported outcome, plus the printed environment Main applies but never reports. */
+export type LoginShellEnvironment =
+  | (Extract<EnvBootstrapLoginShell, { status: 'resolved' }> & {
+      readonly durationMs: number;
+      readonly env: NodeJS.ProcessEnv;
+    })
+  | Exclude<EnvBootstrapLoginShell, { status: 'resolved' }>;
+
+export interface ResolveLoginShellEnvironmentOptions {
+  readonly argv: readonly string[];
+  /** The launch environment; the shell starts from it. */
+  readonly env: Readonly<NodeJS.ProcessEnv>;
+  /** Electron's binary, run as Node to print the environment the shell built. */
+  readonly execPath: string;
+  readonly platform: NodeJS.Platform;
+}
+
+/** Set while the shell runs so rc files can skip work (VS Code: VSCODE_RESOLVING_ENVIRONMENT). */
+const RESOLVING_ENVIRONMENT = 'BRAINSTRIKE_RESOLVING_ENVIRONMENT';
+const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE';
+
+/** The shell's arguments; csh and tcsh accept `-i` but not `-l` with `-c`. */
+function shellArguments(shell: string, command: string): string[] {
+  const name = path.basename(shell);
+  return name === 'csh' || name === 'tcsh' ? ['-ic', command] : ['-i', '-l', '-c', command];
+}
+
+function failed(shell: string, message: string): LoginShellEnvironment {
+  return { message, shell, status: 'failed' };
+}
+
+export async function resolveLoginShellEnvironment(
+  options: ResolveLoginShellEnvironmentOptions
+): Promise<LoginShellEnvironment> {
+  if (options.platform === 'win32') {
+    return { reason: 'windows', status: 'skipped' };
+  }
+  // Test mode disables every ambient environment source, as it does the .env files.
+  if (isDesktopEnvFileLoadingDisabled(options.argv, options.env)) {
+    return { reason: 'test-mode', status: 'skipped' };
+  }
+  // Every shell exports SHLVL to what it starts; launchd does not. A terminal
+  // launch already carries the user's shell environment (VS Code: VSCODE_CLI).
+  if (options.env['SHLVL'] !== undefined) {
+    return { reason: 'launched-from-shell', status: 'skipped' };
+  }
+  const shell = options.env['SHELL'] || userInfo().shell;
+  if (!shell) {
+    return failed('', 'SHELL is unset and the user account has no login shell.');
+  }
+
+  const mark = randomUUID().replaceAll('-', '');
+  const printEnvironment = `'${options.execPath}' -p '"${mark}" + JSON.stringify(process.env) + "${mark}"'`;
+  const started = performance.now();
+  return await new Promise<LoginShellEnvironment>((resolve) => {
+    // Detached: the shell gets no controlling terminal, so a prompt reads EOF.
+    const child = spawn(shell, shellArguments(shell, printEnvironment), {
+      detached: true,
+      env: { ...options.env, [RESOLVING_ENVIRONMENT]: '1', [RUN_AS_NODE]: '1' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const stdout: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+    child.on('error', (error) => {
+      resolve(failed(shell, `The login shell ${shell} could not start: ${error.message}`));
+    });
+    child.on('close', (code, signal) => {
+      if (signal !== null) {
+        resolve(failed(shell, `The login shell ${shell} was stopped by ${signal}.`));
+        return;
+      }
+      if (code !== 0) {
+        resolve(
+          failed(
+            shell,
+            `The login shell ${shell} exited with code ${code} before printing its environment.`
+          )
+        );
+        return;
+      }
+      const printed = new RegExp(`${mark}(\\{.*\\})${mark}`).exec(
+        Buffer.concat(stdout).toString('utf8')
+      )?.[1];
+      if (printed === undefined) {
+        resolve(failed(shell, `The login shell ${shell} exited without printing its environment.`));
+        return;
+      }
+      const env = JSON.parse(printed) as NodeJS.ProcessEnv;
+      delete env[RESOLVING_ENVIRONMENT];
+      // The child ran as Node; Main's own children must not.
+      if (options.env[RUN_AS_NODE] === undefined) {
+        delete env[RUN_AS_NODE];
+      } else {
+        env[RUN_AS_NODE] = options.env[RUN_AS_NODE];
+      }
+      resolve({
+        durationMs: Math.round(performance.now() - started),
+        env,
+        shell,
+        status: 'resolved',
+      });
+    });
+  });
+}

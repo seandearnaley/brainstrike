@@ -2,6 +2,7 @@ import type { DeprecatedEnvVarReport } from '@brainstrike/assistant-contract';
 import {
   DESKTOP_ENV_FILE_LABELS,
   type EnvBootstrapFailure,
+  type EnvBootstrapLoginShell,
   type EnvBootstrapReport,
 } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { Button } from '@brainstrike/ui';
@@ -66,6 +67,37 @@ function FailureBanner({ failure }: { readonly failure: EnvBootstrapFailure }) {
       <p className="mt-1 text-xs opacity-80">
         No environment file was applied — one invalid file discards them all. Fix the line above and
         restart.
+      </p>
+    </div>
+  );
+}
+
+/** What the login shell contributed; a failure gets its own banner instead. */
+function loginShellText(loginShell: EnvBootstrapLoginShell): string | null {
+  if (loginShell.status === 'resolved') {
+    return `Login shell: ${loginShell.shell} environment applied`;
+  }
+  if (loginShell.status === 'failed' || loginShell.reason === 'windows') {
+    return null;
+  }
+  return loginShell.reason === 'test-mode'
+    ? 'Login shell: disabled (test mode)'
+    : 'Login shell: environment inherited from the terminal that launched BrainStrike';
+}
+
+function LoginShellFailureBanner({ message }: { readonly message: string }) {
+  return (
+    <div
+      className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-destructive text-sm"
+      data-testid="env-bootstrap-login-shell-failure"
+      role="alert"
+    >
+      <p className="font-medium">Your login shell environment was not applied</p>
+      {/* Names the shell and its exit status or error. */}
+      <p className="mt-1">{message}</p>
+      <p className="mt-1 text-xs opacity-80">
+        BrainStrike is running on the environment it was launched with, so commands may not find
+        tools your shell adds to PATH. Fix your shell startup files and restart.
       </p>
     </div>
   );
@@ -218,6 +250,7 @@ export function EnvironmentSection({
     ),
   ].sort();
   const revealTarget = userDataEnvPath(report);
+  const loginShellLine = loginShellText(report.loginShell);
 
   return (
     <div className="space-y-3">
@@ -237,6 +270,12 @@ export function EnvironmentSection({
         ) : null}
       </div>
 
+      {loginShellLine ? (
+        <p className="text-muted-foreground text-xs" data-testid="env-bootstrap-login-shell">
+          {loginShellLine}
+        </p>
+      ) : null}
+
       {revealError ? (
         <p
           className="text-destructive text-xs"
@@ -250,6 +289,10 @@ export function EnvironmentSection({
       {report.failures.map((failure) => (
         <FailureBanner failure={failure} key={failure.file} />
       ))}
+
+      {report.loginShell.status === 'failed' ? (
+        <LoginShellFailureBanner message={report.loginShell.message} />
+      ) : null}
 
       {retiredNames.map((name) => (
         <p

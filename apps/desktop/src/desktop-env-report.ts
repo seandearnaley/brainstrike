@@ -26,6 +26,7 @@ import {
   type DesktopEnvLoadResult,
   NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
 } from './desktop-env';
+import type { LoginShellEnvironment } from './login-shell-environment';
 
 // Union drift is caught by the assignments below: mapping the loader's
 // `DesktopEnvFile` entries into `EnvBootstrapLoadedFile`/`EnvBootstrapFailure`
@@ -36,6 +37,8 @@ export interface BuildDesktopEnvBootstrapReportOptions {
   /** Read for PRESENCE only — no value from this object reaches the result. */
   readonly env: Readonly<NodeJS.ProcessEnv>;
   readonly isPackaged: boolean;
+  /** The recorded login-shell outcome; a resolved shell's environment never reaches the result. */
+  readonly loginShell: LoginShellEnvironment;
   /** The recorded bootstrap result. Loading is NEVER re-run to build a report. */
   readonly result: DesktopEnvLoadResult;
   readonly userDataPath: string;
@@ -76,6 +79,7 @@ export function buildDesktopEnvBootstrapReport({
   appRoot,
   env,
   isPackaged,
+  loginShell,
   result,
   userDataPath,
 }: BuildDesktopEnvBootstrapReportOptions): EnvBootstrapReport {
@@ -120,6 +124,10 @@ export function buildDesktopEnvBootstrapReport({
     deprecatedVariablesInFiles: [...result.deprecatedVariableNames],
     failures,
     loadedFiles,
+    loginShell:
+      loginShell.status === 'resolved'
+        ? { shell: loginShell.shell, status: 'resolved' }
+        : loginShell,
     nonCredentialVariablesPresent: presentNames(
       NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
       presentEnvNames

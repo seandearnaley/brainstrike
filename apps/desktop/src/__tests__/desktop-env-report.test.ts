@@ -3,6 +3,7 @@ import { providerOverrideEnvKey } from '@brainstrike/assistant-contract/provider
 import { describe, expect, it } from 'vitest';
 import type { DesktopEnvLoadResult } from '../desktop-env';
 import { buildDesktopEnvBootstrapReport } from '../desktop-env-report';
+import type { LoginShellEnvironment } from '../login-shell-environment';
 
 const APP_ROOT = '/app/root';
 const USER_DATA_PATH = '/user/data';
@@ -24,12 +25,14 @@ function loadResult(overrides: Partial<DesktopEnvLoadResult> = {}): DesktopEnvLo
 function build(
   result: DesktopEnvLoadResult,
   env: NodeJS.ProcessEnv = {},
-  isPackaged = false
+  isPackaged = false,
+  loginShell: LoginShellEnvironment = { reason: 'test-mode', status: 'skipped' }
 ): ReturnType<typeof buildDesktopEnvBootstrapReport> {
   return buildDesktopEnvBootstrapReport({
     appRoot: APP_ROOT,
     env,
     isPackaged,
+    loginShell,
     result,
     userDataPath: USER_DATA_PATH,
   });
@@ -70,6 +73,7 @@ describe('buildDesktopEnvBootstrapReport', () => {
       deprecatedVariablesInFiles: [],
       failures: [],
       loadedFiles: [],
+      loginShell: { reason: 'test-mode', status: 'skipped' },
       nonCredentialVariablesPresent: [],
       skipped: true,
     });
@@ -154,6 +158,18 @@ describe('buildDesktopEnvBootstrapReport', () => {
     expect(serialized).not.toContain('DO-NOT-LEAK');
     // The NAME is still reported — the projection is names-only, not empty.
     expect(serialized).toContain(OPENAI_ENV_KEY);
+  });
+
+  it('reports the login shell that was applied, never the environment it printed', () => {
+    const report = build(loadResult(), {}, false, {
+      durationMs: 1200,
+      env: { [OPENAI_ENV_KEY]: 'value-DO-NOT-LEAK-login-shell', PATH: '/opt/homebrew/bin' },
+      shell: '/bin/zsh',
+      status: 'resolved',
+    });
+
+    expect(report.loginShell).toEqual({ shell: '/bin/zsh', status: 'resolved' });
+    expect(JSON.stringify(report)).not.toContain('DO-NOT-LEAK');
   });
 
   it('passes through the deprecated names spelled in the loaded files', () => {

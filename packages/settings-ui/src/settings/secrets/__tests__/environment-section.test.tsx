@@ -49,6 +49,7 @@ function report(overrides: Partial<EnvBootstrapReport> = {}): EnvBootstrapReport
     deprecatedVariablesInFiles: [],
     failures: [],
     loadedFiles: [],
+    loginShell: { reason: 'launched-from-shell', status: 'skipped' },
     nonCredentialVariablesPresent: [],
     skipped: false,
     ...overrides,
@@ -156,6 +157,48 @@ describe('EnvironmentSection', () => {
     fireEvent(window, new Event('focus'));
 
     await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+  });
+
+  describe('login shell', () => {
+    it('says the app runs on its launch environment when the login shell failed', async () => {
+      installBridge(
+        vi.fn().mockResolvedValue(
+          report({
+            loginShell: {
+              message:
+                'The login shell /bin/zsh exited with code 1 before printing its environment.',
+              shell: '/bin/zsh',
+              status: 'failed',
+            },
+          })
+        )
+      );
+
+      render(<EnvironmentSection />);
+
+      const banner = await screen.findByTestId('env-bootstrap-login-shell-failure');
+      expect(banner).toHaveAttribute('role', 'alert');
+      expect(banner).toHaveTextContent('Your login shell environment was not applied');
+      expect(banner).toHaveTextContent(
+        'The login shell /bin/zsh exited with code 1 before printing its environment.'
+      );
+      expect(banner).toHaveTextContent(
+        'BrainStrike is running on the environment it was launched with'
+      );
+    });
+
+    it('names the shell whose environment was applied', async () => {
+      installBridge(
+        vi.fn().mockResolvedValue(report({ loginShell: { shell: '/bin/zsh', status: 'resolved' } }))
+      );
+
+      render(<EnvironmentSection />);
+
+      expect(await screen.findByTestId('env-bootstrap-login-shell')).toHaveTextContent(
+        'Login shell: /bin/zsh environment applied'
+      );
+      expect(screen.queryByTestId('env-bootstrap-login-shell-failure')).toBeNull();
+    });
   });
 
   describe('parse failures', () => {
