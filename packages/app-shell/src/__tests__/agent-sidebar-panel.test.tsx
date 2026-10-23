@@ -4,24 +4,14 @@ import { type ReactElement, Suspense, use } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentSidebarPanel } from '../agent-sidebar-panel';
 
-const { mockPreloadDatabaseTab } = vi.hoisted(() => ({
-  mockPreloadDatabaseTab: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock('../database-tab', () => ({
-  preloadDatabaseTab: mockPreloadDatabaseTab,
-}));
-
 describe('AgentSidebarPanel', () => {
   beforeEach(() => {
-    mockPreloadDatabaseTab.mockClear();
     window.localStorage.clear();
   });
 
-  it('shows threads first and reveals database content when the database tab is selected', async () => {
+  it('shows Threads first among exactly two Library tabs', () => {
     render(
       <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
         promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
@@ -29,28 +19,34 @@ describe('AgentSidebarPanel', () => {
 
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Threads',
-      'Collections',
       'Prompts',
     ]);
     expect(screen.getByRole('tablist', { name: 'Library tabs' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Prompts' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
     expect(screen.getByText('Threads content')).toBeVisible();
-    expect(screen.queryByText('Database content')).not.toBeInTheDocument();
-
-    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
-    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
-
-    await waitFor(() => {
-      expect(databaseTab).toHaveAttribute('data-state', 'active');
-    });
-    expect(await screen.findByText('Database content')).toBeVisible();
+    expect(screen.queryByText('Prompts content')).not.toBeInTheDocument();
   });
+
+  it.each(['brainstrike.agent-sidebar-tab.v1', 'brainstrike.agent-sidebar-tab.v2'])(
+    'opens Threads when %s still holds the retired Collections tab',
+    (key) => {
+      window.localStorage.setItem(key, JSON.stringify('database'));
+
+      render(
+        <AgentSidebarPanel
+          promptsContent={<div>Prompts content</div>}
+          threadsContent={<div>Threads content</div>}
+        />
+      );
+
+      expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
+      expect(screen.getByText('Threads content')).toBeVisible();
+    }
+  );
 
   it('uses the shared panel-header (sm) switcher for every Library tab', async () => {
     render(
       <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
         promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
@@ -58,9 +54,8 @@ describe('AgentSidebarPanel', () => {
 
     expect(screen.getByTestId('agent-sidebar-tabs')).toHaveAttribute('data-size', 'sm');
     const threadsTab = screen.getByRole('tab', { name: 'Threads' });
-    const collectionsTab = screen.getByRole('tab', { name: 'Collections' });
     const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
-    for (const tab of [threadsTab, collectionsTab, promptsTab]) {
+    for (const tab of [threadsTab, promptsTab]) {
       // Geometry and states come from the shared `sm` variant, never a local
       // override, so Library matches Explorer|Search and Git.
       expect(tab).toHaveAttribute('data-slot', 'tabs-trigger');
@@ -82,7 +77,6 @@ describe('AgentSidebarPanel', () => {
     const user = userEvent.setup();
     render(
       <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
         promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
@@ -91,18 +85,18 @@ describe('AgentSidebarPanel', () => {
     act(() => screen.getByRole('tab', { name: 'Threads' }).focus());
     await user.keyboard('{ArrowRight}');
 
-    const collectionsTab = screen.getByRole('tab', { name: 'Collections' });
-    expect(collectionsTab).toHaveFocus();
-    expect(collectionsTab).toHaveAttribute('aria-selected', 'false');
-    expect(screen.queryByText('Database content')).not.toBeInTheDocument();
-    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBeNull();
+    const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
+    expect(promptsTab).toHaveFocus();
+    expect(promptsTab).toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByText('Prompts content')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v2')).toBeNull();
 
     await user.keyboard('{Enter}');
 
-    expect(collectionsTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText('Database content')).toBeVisible();
-    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBe(
-      JSON.stringify('database')
+    expect(promptsTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Prompts content')).toBeVisible();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v2')).toBe(
+      JSON.stringify('prompts')
     );
   });
 
@@ -119,7 +113,6 @@ describe('AgentSidebarPanel', () => {
     render(
       <Suspense fallback={<div>Library fallback</div>}>
         <AgentSidebarPanel
-          databaseContent={<div>Database content</div>}
           promptsContent={<SlowPrompts />}
           threadsContent={<div>Threads content</div>}
         />
@@ -164,55 +157,9 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Prompts content')).toBeVisible();
   });
 
-  it('prefetches the database chunk on pointer and keyboard intent', async () => {
-    render(
-      <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
-        promptsContent={<div>Prompts content</div>}
-        threadsContent={<div>Threads content</div>}
-      />
-    );
-
-    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
-
-    fireEvent.pointerEnter(databaseTab);
-    fireEvent.focus(databaseTab);
-
-    await waitFor(() => {
-      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it('retries the database prefetch after a transient preload failure', async () => {
-    mockPreloadDatabaseTab
-      .mockRejectedValueOnce(new Error('transient chunk load failure'))
-      .mockResolvedValueOnce(undefined);
-
-    render(
-      <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
-        promptsContent={<div>Prompts content</div>}
-        threadsContent={<div>Threads content</div>}
-      />
-    );
-
-    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
-
-    fireEvent.pointerEnter(databaseTab);
-    await waitFor(() => {
-      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
-    });
-
-    fireEvent.focus(databaseTab);
-    await waitFor(() => {
-      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(2);
-    });
-  });
-
   it('reveals prompt content and persists the selected prompts tab across remounts', async () => {
     const { unmount } = render(
       <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
         promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
@@ -232,7 +179,6 @@ describe('AgentSidebarPanel', () => {
 
     render(
       <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
         promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
@@ -242,70 +188,38 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Prompts content')).toBeVisible();
   });
 
-  it.each(['Collections', 'Prompts'])(
-    'keeps Threads mounted when switching through %s',
-    async (destination) => {
-      render(
-        <AgentSidebarPanel
-          databaseContent={<div>Database content</div>}
-          promptsContent={<div>Prompts content</div>}
-          threadsContent={<input aria-label="Thread search" defaultValue="" />}
-        />
-      );
-      const search = screen.getByRole('textbox', { name: 'Thread search' });
-      fireEvent.change(search, { target: { value: 'retain thread state' } });
-      fireEvent.mouseDown(screen.getByRole('tab', { name: destination }), {
-        button: 0,
-        ctrlKey: false,
-      });
-      await waitFor(() =>
-        expect(screen.getByRole('tab', { name: destination })).toHaveAttribute(
-          'aria-selected',
-          'true'
-        )
-      );
-      expect(search).toBeInTheDocument();
-      expect(search).not.toBeVisible();
-      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
-        button: 0,
-        ctrlKey: false,
-      });
-      expect(await screen.findByRole('textbox', { name: 'Thread search' })).toBe(search);
-      expect(search).toHaveValue('retain thread state');
-    }
-  );
-
-  it('keeps database tab state mounted after the first visit', async () => {
+  it.each(['Prompts'])('keeps Threads mounted when switching through %s', async (destination) => {
     render(
       <AgentSidebarPanel
-        databaseContent={<input aria-label="Database search" defaultValue="persisted query" />}
         promptsContent={<div>Prompts content</div>}
-        threadsContent={<div>Threads content</div>}
+        threadsContent={<input aria-label="Thread search" defaultValue="" />}
       />
     );
-
-    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
-    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
-
-    const searchField = await screen.findByRole('textbox', { name: 'Database search' });
-    fireEvent.change(searchField, { target: { value: 'keep me' } });
-    expect(searchField).toHaveValue('keep me');
-
+    const search = screen.getByRole('textbox', { name: 'Thread search' });
+    fireEvent.change(search, { target: { value: 'retain thread state' } });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: destination }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: destination })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    );
+    expect(search).toBeInTheDocument();
+    expect(search).not.toBeVisible();
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
       button: 0,
       ctrlKey: false,
     });
-    expect(screen.getByText('Threads content')).toBeVisible();
-    expect(searchField).not.toBeVisible();
-
-    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
-    expect(await screen.findByRole('textbox', { name: 'Database search' })).toHaveValue('keep me');
+    expect(await screen.findByRole('textbox', { name: 'Thread search' })).toBe(search);
+    expect(search).toHaveValue('retain thread state');
   });
 
   it('keeps prompts tab state mounted after the first visit', async () => {
     render(
       <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
         promptsContent={<input aria-label="Prompt library search" defaultValue="" />}
         threadsContent={<div>Threads content</div>}
       />
@@ -339,7 +253,6 @@ describe('AgentSidebarPanel', () => {
     const activity: boolean[] = [];
     render(
       <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
         promptsContent={(isActive) => {
           activity.push(isActive);
           return <input aria-label="Activity-aware prompt search" defaultValue="" />;
@@ -374,64 +287,20 @@ describe('AgentSidebarPanel', () => {
     expect(searchField).not.toBeVisible();
     expect(searchField).toHaveValue('preserve this');
   });
-
-  it('migrates the legacy tools panel tab and removes the old storage key', () => {
-    window.localStorage.setItem(
-      'tools-panel.v1',
-      JSON.stringify({
-        state: { activeTab: 'database' },
-        version: 2,
-      })
-    );
-
-    render(
-      <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
-        promptsContent={<div>Prompts content</div>}
-        threadsContent={<div>Threads content</div>}
-      />
-    );
-
-    expect(screen.getByRole('tab', { name: 'Collections' })).toHaveAttribute(
-      'data-state',
-      'active'
-    );
-    expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
-    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBe(
-      JSON.stringify('database')
-    );
-  });
-
-  it('falls back to the default tab when legacy tools panel storage is corrupted', () => {
-    window.localStorage.setItem('tools-panel.v1', '{not valid json');
-
-    render(
-      <AgentSidebarPanel
-        databaseContent={<div>Database content</div>}
-        promptsContent={<div>Prompts content</div>}
-        threadsContent={<div>Threads content</div>}
-      />
-    );
-
-    expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
-    expect(screen.getByText('Threads content')).toBeVisible();
-    expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
-    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBeNull();
-  });
 });
 
 describe('AgentSidebarPanel crash containment', () => {
-  let shouldThrowCollections = true;
+  let shouldThrowPrompts = true;
 
-  function FlakyCollections(): ReactElement {
-    if (shouldThrowCollections) {
-      throw new Error('Collections panel exploded');
+  function FlakyPrompts(): ReactElement {
+    if (shouldThrowPrompts) {
+      throw new Error('Prompts panel exploded');
     }
-    return <div>Database content</div>;
+    return <div>Prompts content</div>;
   }
 
   beforeEach(() => {
-    shouldThrowCollections = true;
+    shouldThrowPrompts = true;
     window.localStorage.clear();
     // TabPanelBoundary logs the caught error through createLogger; React also
     // warns to console.error for the uncaught-error case this test starts RED
@@ -443,21 +312,20 @@ describe('AgentSidebarPanel crash containment', () => {
     vi.restoreAllMocks();
   });
 
-  it('contains a Collections panel crash to its own boundary, keeps the switcher and Threads working, and Reload tab remounts it', async () => {
+  it('contains a Prompts panel crash to its own boundary, keeps the switcher and Threads working, and Reload tab remounts it', async () => {
     render(
       <AgentSidebarPanel
-        databaseContent={<FlakyCollections />}
-        promptsContent={<div>Prompts content</div>}
+        promptsContent={<FlakyPrompts />}
         threadsContent={<div>Threads content</div>}
       />
     );
 
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Collections' }), {
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Prompts' }), {
       button: 0,
       ctrlKey: false,
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Collections stopped working');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Prompts stopped working');
 
     // The switcher and the other panels stay interactive.
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
@@ -470,13 +338,13 @@ describe('AgentSidebarPanel crash containment', () => {
     expect(screen.getByText('Threads content')).toBeVisible();
 
     // "Reload tab" remounts the crashed panel.
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Collections' }), {
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Prompts' }), {
       button: 0,
       ctrlKey: false,
     });
     expect(await screen.findByRole('alert')).toBeInTheDocument();
-    shouldThrowCollections = false;
+    shouldThrowPrompts = false;
     fireEvent.click(screen.getByRole('button', { name: 'Reload tab' }));
-    expect(screen.getByText('Database content')).toBeVisible();
+    expect(screen.getByText('Prompts content')).toBeVisible();
   });
 });

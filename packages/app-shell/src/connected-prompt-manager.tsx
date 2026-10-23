@@ -13,7 +13,6 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type {
   PromptItem,
   PromptItemRepositoryPort,
@@ -31,6 +30,7 @@ import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,
 } from './assistant-ui-panel-wrapper-runtime';
+import { buildLocalEmbeddingModelConfigMap } from './embedding-models';
 import { createPromptLibraryRepository } from './prompt-library-repository';
 import { type PromptWorkbenchModelOption, PromptWorkbenchPanel } from './prompt-workbench-panel';
 import {

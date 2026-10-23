@@ -262,7 +262,7 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
        * `(undefined, error)`, whose `if (error) return` guard then declines),
        * so on the app's real hydration path neither the remap nor
        * `hasHydrated` ever landed. Same bug as #2086; see
-       * `import-settings-store.ts`.
+       * `token-preferences-store.ts`.
        *
        * `merge` needs no module binding and runs on EVERY hydration, not just
        * version bumps: zustand only calls `migrate` when

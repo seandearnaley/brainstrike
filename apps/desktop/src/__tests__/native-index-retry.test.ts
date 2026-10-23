@@ -9,12 +9,9 @@ import type {
 } from '../native-index-lifecycle';
 import { createNativeIndexLifecycle } from '../native-index-lifecycle-owner';
 import { createNativeIndexRetry } from '../native-index-retry';
-import { readNativeIndexSettings } from '../native-index-settings';
+import { vectorSettings } from './helpers/native-index-settings';
 
-// Recorded from Main's storage reads (BST-1988).
-const VECTOR = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":"3a48f02c-2c2a-4835-926d-59cbc286513a","mode":"root-folder-cache","nativeIndexMode":"VECTOR","nativeLocalSelection":{"device":"wasm","dimensions":384,"dtype":"q8","modelId":"Xenova/bge-small-en-v1.5"},"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
+const VECTOR = vectorSettings();
 const unresponsive = embeddingHostUnresponsiveError({
   elapsedMs: 60_000,
   lastProgress: { stage: 'setup' },

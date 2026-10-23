@@ -5,7 +5,7 @@ import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
-import { isQuitTerminalRefusal } from './native-index-boundary-failure';
+import { indexConfigCause, isQuitTerminalRefusal } from './native-index-boundary-failure';
 
 export interface DesktopResetRuntime {
   readonly name: string;
@@ -123,8 +123,9 @@ async function resumeDesktopResetRuntime({
     }
     // BST-2278: quit fences profile admission before its factory-reset step cancels this
     // reopen, so a reopen that borrows the profile meanwhile gets quit's one terminal
-    // refusal (ADR-0026). The deletion is complete; quit retires what this would reopen.
-    if (resetDataSucceeded && isQuitTerminalRefusal(error)) {
+    // refusal (ADR-0026), as does the reopened profile's config read under its owner's wrap.
+    // The deletion is complete; quit retires what this would reopen.
+    if (resetDataSucceeded && isQuitTerminalRefusal(indexConfigCause(error))) {
       logger.debug('Factory reset complete; resume skipped because the app is quitting', error);
       return failure;
     }

@@ -41,14 +41,6 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.logging.openDestination, 'invoke'],
       [DESKTOP_IPC_CHANNELS.logging.selectDestination, 'invoke'],
       [DESKTOP_IPC_CHANNELS.logging.setPreferences, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.ensureStarted, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.getStatus, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.reportStatus, 'event'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.reset, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.stop, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.chunkBatch, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.chunkFile, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.chunkingHost.reportResponse, 'event'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.ensureStarted, 'invoke'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.getStatus, 'invoke'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.reportStatus, 'event'],
@@ -66,11 +58,6 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.embeddingHost.reportModelCacheStatusResponse, 'event'],
       [DESKTOP_IPC_CHANNELS.workspace.openPathReady, 'event'],
     ]
-  ),
-  ...classify(
-    'separate-capability',
-    'Parser-host authority is exposed only to the chunking renderer.',
-    [[DESKTOP_IPC_CHANNELS.files.parserHostParse, 'invoke']]
   ),
   ...classify(
     'remaining-migration',

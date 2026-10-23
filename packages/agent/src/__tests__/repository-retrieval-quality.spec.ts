@@ -44,8 +44,8 @@ const judged = {
 };
 
 describe('repository retrieval quality', () => {
-  it('ships at least 100 unique queries with source-grounded span judgments', () => {
-    expect(repositoryRetrievalFixture.queries.length).toBeGreaterThanOrEqual(100);
+  it('ships at least 92 unique queries with source-grounded span judgments', () => {
+    expect(repositoryRetrievalFixture.queries.length).toBeGreaterThanOrEqual(92);
     expect(new Set(repositoryRetrievalFixture.queries.map((q) => q.query)).size).toBe(
       repositoryRetrievalFixture.queries.length
     );

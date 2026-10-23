@@ -1,5 +1,5 @@
-// The scoped writer's publication receipts, as canonical ingestion earns them: desktop's native index and the
-// browser's index worker (BST-1940) publish through the same owner.
+// The scoped writer's publication receipts, as canonical ingestion earns them: desktop's native index publishes
+// through this owner.
 import type {
   IndexerPort,
   ScopedCoverage,
@@ -56,6 +56,8 @@ interface ScanState {
   mutationRevision: number;
   readonly pending: Set<Promise<unknown>>;
   publication: NativeAcknowledgedPublication | undefined;
+  /** The ticket this scope's last finish released. */
+  released: CanonicalScanTicket | undefined;
   scanComplete: boolean;
   sourceProof:
     | { readonly files: readonly ScopedManifestFile[]; readonly storeId: string }
@@ -147,6 +149,7 @@ export function createNativeCanonicalPublication(
       mutationRevision: 0,
       pending: new Set(),
       publication: undefined,
+      released: undefined,
       scanComplete: false,
       sourceProof: undefined,
       ticket: undefined,
@@ -160,15 +163,13 @@ export function createNativeCanonicalPublication(
     }
     return state;
   };
+  const sameTicket = (held: CanonicalScanTicket | undefined, ticket: CanonicalScanTicket) =>
+    held?.storeId === ticket.storeId &&
+    held.requestId === ticket.requestId &&
+    held.generation === ticket.generation;
   const stateForTicket = (ticket: CanonicalScanTicket): ScanState => {
     const state = stateFor(ticket.scope);
-    const current = state.ticket;
-    if (
-      !current ||
-      current.storeId !== ticket.storeId ||
-      current.requestId !== ticket.requestId ||
-      current.generation !== ticket.generation
-    ) {
+    if (!sameTicket(state.ticket, ticket)) {
       throw new Error('Canonical publication ticket is stale or belongs to another store.');
     }
     return state;
@@ -271,6 +272,11 @@ export function createNativeCanonicalPublication(
   };
   return {
     abortScan: async (ticket) => {
+      // This scope's finish released exactly this ticket: its scan ended, so a retirement that
+      // cancels it late has nothing to stop (BST-1955). Every other unheld ticket stays stale.
+      if (sameTicket(stateFor(ticket.scope).released, ticket)) {
+        return;
+      }
       const state = stateForTicket(ticket);
       state.aborted = true;
       state.scanComplete = false;
@@ -385,6 +391,7 @@ export function createNativeCanonicalPublication(
           return receipt(result.complete ? 'complete' : 'manifest-mismatch');
         })
         .finally(() => {
+          state.released = state.ticket;
           state.ticket = undefined;
           state.finishing = undefined;
         });

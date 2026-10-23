@@ -260,8 +260,9 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   /**
    * Curated one-line marketing copy for the composer model menu (e.g. "Best
    * mix of smarts and speed"). REGISTRY-ONLY composer copy source — the DB
-   * model-catalog tagline column feeds the db-explorer, not this menu. Omit
-   * rather than invent copy: a model without a tagline renders name-only.
+   * model-catalog tagline column feeds embedding-model descriptions
+   * (app-shell `embedding-models.ts`), not this menu. Omit rather than invent
+   * copy: a model without a tagline renders name-only.
    */
   tagline?: string;
   /**

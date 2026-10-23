@@ -17,6 +17,7 @@ import type { TestMemoryEmbedder } from './settings/models/assistant-memory-embe
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
+import type { ClearContentProps } from './settings/system/clear-content-panel';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
   type HookReviewRoot,
@@ -27,7 +28,7 @@ import {
   type SavedBrowserOrigins,
   SavedBrowserOriginsSection,
 } from './settings/system/saved-browser-origins-section';
-import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
+import { SearchIndexSettingsSection } from './settings/system/search-index-settings-section';
 import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 import {
@@ -59,15 +60,16 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
 }): SettingsCategory {
   return {
     content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
-    description: 'Control the tokenizer used for previews and chunk generation.',
+    description: 'Control the tokenizer used for Explorer token counts.',
     icon: Sigma,
     id: 'token-counting',
-    keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
+    keywords: ['token', 'counting', 'tiktoken', 'preview'],
     title: 'Token Counting',
   };
 }
 
 export interface CreateFactoryResetSettingsCategoryOptions {
+  clearContent?: ClearContentProps;
   hasStoredFolders?: boolean;
   inlineFixtureSetting?: {
     available: boolean;
@@ -85,6 +87,7 @@ export function createFactoryResetSettingsCategory(
   return {
     content: (
       <FactoryResetSettingsSection
+        clearContent={options?.clearContent}
         hasStoredFolders={options?.hasStoredFolders}
         inlineFixtureSetting={options?.inlineFixtureSetting}
         isWebPlatform={options?.isWebPlatform}
@@ -143,15 +146,16 @@ export function createSearchIndexingSettingsCategory(
 ): SettingsCategory {
   return {
     content: (
-      <SearchIndexingSettingsSection
+      <SearchIndexSettingsSection
         {...(nativeIndex ? { nativeIndex } : {})}
         {...(localExecution ? { localExecution } : {})}
       />
     ),
-    description: 'Choose the managed cache collection and control root-folder background indexing.',
+    description:
+      'Choose how your folders are searched, the embedding model and how files are split.',
     icon: Search,
     id: 'search-indexing',
-    keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
+    keywords: ['search', 'indexing', 'semantic', 'embeddings', 'chunking', 'model'],
     title: 'Search & Indexing',
   };
 }

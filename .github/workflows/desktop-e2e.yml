@@ -282,7 +282,6 @@ jobs:
           unset NO_COLOR
           BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
             e2e/embedding-worker-renderer.smoke.desktop.test.ts \
-            e2e/embedding-worker-renderer.search.desktop.test.ts \
             e2e/embedding-worker-renderer.lifecycle.desktop.test.ts \
             e2e/mid-session-add-root.desktop.test.ts \
             e2e/native-index-semantic-results.desktop.test.ts \

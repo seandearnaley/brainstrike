@@ -26,8 +26,6 @@ export {
   fileNodeId,
   type HeadlineSegment,
   highlightQuery,
-  SearchCollectionPicker,
-  type SearchCollectionPickerProps,
   SearchCoverageBanner,
   type SearchCoverageBannerProps,
   SearchInputBar,

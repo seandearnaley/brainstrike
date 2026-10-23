@@ -57,7 +57,7 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
  * - visible BrowserWindow preload → dist/preload.js
  * - hidden renderer host preload → dist/hidden-preload.js
  * - main-thread watchdog worker → dist/main-watchdog-worker.js
- * - utilityProcess.fork sibling lookups → dist/parser-host-entry.js (resolved
+ * - utilityProcess.fork sibling lookups → dist/indexer-host-entry.js (resolved
  *   through bundled-sibling-path from the running bundle's __filename, so
  *   outputs must stay FLAT in dist/)
  */
@@ -79,7 +79,6 @@ describe('main-process bundle config', () => {
       'main-runtime': 'src/main.ts',
       'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
       'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
-      'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
       'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
     });

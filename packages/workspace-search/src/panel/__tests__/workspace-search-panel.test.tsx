@@ -8,8 +8,7 @@ import type {
 import type { WorkspaceSearchResults } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
 
-// The native collection picker and coverage banner have their own projection tests.
-vi.mock('../search-collection-picker', () => ({ SearchCollectionPicker: () => null }));
+// The coverage banner has its own projection tests.
 vi.mock('../search-coverage-banner', () => ({ SearchCoverageBanner: () => null }));
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -117,9 +116,10 @@ describe('WorkspaceSearchPanel', () => {
     useWorkspaceSearchStore.getState().reset();
   });
 
-  it('shows the idle empty state before any search', () => {
+  it('shows the idle empty state, with no collection to choose, before any search', () => {
     renderPanel();
     expect(screen.getByText('Search your workspace by text or meaning.')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
   it('shows a searching indicator', () => {

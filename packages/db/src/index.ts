@@ -26,7 +26,6 @@ export {
   type AssistantThreadMessageListOptions,
   type AssistantThreadRunEventListOptions,
 } from './repositories/assistant-history-repository.js';
-export { createCollectionCatalogRepository } from './repositories/collection-catalog-repository.js';
 export {
   DIAGNOSTIC_EVENTS_PURGE_LIMIT,
   type DiagnosticEventsQueryFilter,
@@ -41,7 +40,6 @@ export type {
   FileSymbolInsert,
   FileSymbolRefInsert,
 } from './repositories/file-symbol-repository.js';
-export type { IEmbeddingSetsRepository } from './repositories/interfaces.js';
 export {
   createThreadSearchService,
   type ThreadSearchExtraArms,

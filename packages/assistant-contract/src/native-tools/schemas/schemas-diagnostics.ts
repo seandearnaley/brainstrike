@@ -94,18 +94,6 @@ export const ListEmbeddingSetsInputSchema = Schema.Struct({
 
 export type ListEmbeddingSetsInput = typeof ListEmbeddingSetsInputSchema.Type;
 
-export const CreateEmbeddingSetInputSchema = Schema.Struct({
-  description: Schema.optionalKey(
-    Schema.String.check(Schema.isMaxLength(500)).annotate({ description: 'Optional description' })
-  ),
-  modelKey: nonEmpty.annotate({
-    description: 'Model key (provider::model format)',
-  }),
-  name: bounded(1, 100).annotate({ description: 'Name for the embedding set' }),
-});
-
-export type CreateEmbeddingSetInput = typeof CreateEmbeddingSetInputSchema.Type;
-
 // ============================================================================
 // System Diagnostics Tool Schema
 // ============================================================================

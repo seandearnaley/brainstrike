@@ -58,9 +58,7 @@ import {
 import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
-import { ChunkingHostManager } from './chunking-host-manager';
 import { closeDesktopRenderers } from './close-desktop-renderers';
-import { createDesktopCollectionCatalog } from './collection-catalog';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { joinProfileDirectory } from './database-location';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
@@ -82,6 +80,7 @@ import {
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import { createDesktopResetResume } from './desktop-reset-resume';
 import {
   isDesktopShuttingDown,
   isExpectedShutdownRefusal,
@@ -125,12 +124,11 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
+import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
-import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
-import { registerCollectionCatalogIpc } from './ipc-collection-catalog';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
@@ -148,13 +146,11 @@ import {
   suspendMcpSurfacesForContentClear,
 } from './ipc-mcp';
 import { registerModelCatalogIpc } from './ipc-model-catalog';
-import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
 import { registerSkillsIpcHandlers } from './ipc-skills';
-import { registerSourceFilesIpc } from './ipc-source-files';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -190,7 +186,6 @@ import {
   reportAgentHostStartupFailure as reportHostStartupFailure,
   reportNativeIndexActivationError as reportNativeIndexFailure,
 } from './native-index-activation-error';
-import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
   createNativeStartupFailureReporter,
   observeNativeReaderStartup,
@@ -198,7 +193,6 @@ import {
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeRootRegistration } from './native-root-registration';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
-import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
@@ -206,8 +200,6 @@ import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
-import { createSourceChunkReader } from './source-file-chunks';
-import { createDesktopSourceFiles } from './source-files';
 import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
@@ -469,9 +461,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           throw new AggregateError(causes, 'Child process shutdown cleanup failed');
         }
       },
-      'chunking-host': async () => {
-        await chunkingHostManager.dispose();
-      },
       // Stops everything that issues database work. It does NOT close the
       // database: that is `closeDatabase` below, a slice that always runs.
       'database-drain': () => {
@@ -527,9 +516,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await nativeRetirement;
         await agentHostClientIpc.close();
       },
-      'parser-host': async () => {
-        await parserHostManager.stop();
-      },
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
@@ -551,11 +537,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           admitDocumentClose(window);
         }
         const closes = await Promise.allSettled([
-          closeDesktopRenderers(
-            windows,
-            (window) =>
-              chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
-          ),
+          closeDesktopRenderers(windows, (window) => embeddingHostManager.isHostWindow(window)),
         ]);
         const rejections = [...preparations, ...closes].flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
@@ -650,8 +632,6 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
   }
 };
 
-const chunkingHostManager = new ChunkingHostManager();
-const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager({
   lifecycleDelays: lifecycleDelaySeam,
   storage,
@@ -693,13 +673,11 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   prepareDatabaseProfileReset: () => profileReset.prepare(),
   resetLocalDatabase: (lease) => profileReset.clear(lease),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
-  resumeAfterReset: async (outcome, signal) => {
-    if (outcome === 'succeeded') {
-      await nativeIndexActivation.resume(signal);
-    }
-    signal.throwIfAborted();
-    await resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome);
-  },
+  resumeAfterReset: createDesktopResetResume({
+    publishIndexConfig: () => indexConfig.publishSaved(),
+    resumeIndex: (signal) => nativeIndexActivation.resume(signal),
+    resumeMcp: (outcome) => resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome),
+  }),
   runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
     { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
@@ -712,7 +690,6 @@ const handleResetLocal = createDesktopFactoryResetHandler({
       stopForContent: suspendMcpSurfacesForContentClear,
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
-    { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
     // In-memory diagnostics ring: a factory reset must not carry the previous
     // profile's process samples into the next one.
     {
@@ -811,7 +788,6 @@ configureDesktopCommandSessionManager({
   resolver: createWorkspaceRootResolver(workspaceRootCatalog),
 });
 const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
-  chunkingHostManager,
   embeddingHostManager,
   getRootsCatalog: async () => workspaceRootCatalog,
   getUserDataPath: () => app.getPath('userData'),
@@ -844,14 +820,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     if (key === VECTOR_PREFERENCES_STORAGE_KEY) {
       // Recall's unpinned device follows the preference; the worker keeps its own until restart.
       embeddingHostManager.resolveDevice();
-      return;
     }
-    if (key !== NATIVE_INDEX_SETTINGS_KEY) {
-      return;
-    }
-    activateSavedNativeIndexSettings().catch((error: unknown) =>
-      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
-    );
   },
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
@@ -893,7 +862,43 @@ const nativeIndexActivation = createNativeIndexActivation({
   onReceipt: (receipt) =>
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
   profile: desktopBootstrap.profile,
+  settings: () => indexConfig.nativeSettings(),
   storage,
+});
+const indexConfig = createDesktopIndexConfig({
+  assertModel: assertRegisteredEmbeddingModel,
+  catalog: workspaceRootCatalog,
+  publish: (config) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.configChanged, config);
+      }
+    }
+  },
+  // A saved change joins the native owner's FIFO and `update` returns: the scan runs in the
+  // background, so a Pause saved meanwhile fences admission at once. During a factory reset a
+  // reconfigure waits for the reset while a rebuild or vector-space replacement joins the FIFO
+  // directly, so applies can run out of save order; each re-reads the saved config when it runs,
+  // so the index ends on the last save. Failures stay visible in the lifecycle observation and
+  // these reports.
+  rebuild: async () => {
+    nativeIndexSearch
+      .rebuild()
+      .catch((error: unknown) =>
+        reportNativeIndexActivationError('Search index rebuild for the new chunking failed', error)
+      );
+  },
+  reconfigure: async () => {
+    activateSavedNativeIndexSettings().catch((error: unknown) =>
+      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
+    );
+  },
+  replaceVectorSpace: (id) =>
+    nativeRootDataDeletion.transition(async () => {
+      await nativeIndexActivation.cleanupCollection(id);
+      await workspaceRootCatalog.collections({ id, operation: 'delete' });
+      await nativeIndexActivation.resume();
+    }),
 });
 const nativeLifecycleObserver = new AbortController();
 void nativeIndexActivation
@@ -973,35 +978,6 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
   resume: () => nativeIndexActivation.resume(),
   stopSources: () => nativeIndexActivation.stopSources(),
 });
-const collectionCatalog = createDesktopCollectionCatalog({
-  deleteCollection: (id, commit) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupCollection(id);
-      const deleted = await commit();
-      // Resume reopens from saved settings: a deleted saved selection stays an explicit
-      // lifecycle refusal until the user chooses again.
-      await nativeIndexActivation.resume();
-      return deleted;
-    }),
-  native: () => nativeIndexSearch,
-  store: workspaceRootCatalog,
-});
-ipcDisposers.add('collection-catalog', registerCollectionCatalogIpc(collectionCatalog));
-const sourceFiles = createDesktopSourceFiles({
-  catalog: workspaceRootCatalog,
-  publishSources: (partition) => nativeIndexActivation.publishImportedSources(partition),
-  readChunks: createSourceChunkReader({
-    catalog: workspaceRootCatalog,
-    withRead: nativeIndexActivation.withRead,
-  }),
-  removeSources: (files) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupFiles(files);
-      await workspaceRootCatalog.sourceCatalog({ files, operation: 'remove' });
-      await nativeIndexActivation.resume();
-    }),
-});
-ipcDisposers.add('source-files', registerSourceFilesIpc(sourceFiles));
 
 const nativeIndexSearch = createNativeScopedSearchCapability({
   openQuery: openIndexQuery,
@@ -1021,7 +997,8 @@ ipcDisposers.add(
     {
       retryIndexing: () =>
         nativeRootDataDeletion.transition(() => nativeIndexActivation.retryIndexing()),
-    }
+    },
+    indexConfig
   )
 );
 ipcDisposers.add('main', () => {
@@ -1031,8 +1008,6 @@ ipcDisposers.add('main', () => {
     logger.error('Application IPC domain cleanup failed during will-quit', { error });
   });
 });
-ipcDisposers.add('chunking-host', registerChunkingHostIpcHandlers(chunkingHostManager));
-ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
 ipcDisposers.add(
   'embedding-host',
   registerEmbeddingHostIpcHandlers(embeddingHostManager, {
@@ -1296,18 +1271,15 @@ if (singleInstanceLockAcquired) {
 
   completeFactoryResetRendererReplacement = async (signal) => {
     const visibleWindows = BrowserWindow.getAllWindows().filter(
-      (window) =>
-        !(chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window))
+      (window) => !embeddingHostManager.isHostWindow(window)
     );
     await factoryResetRendererReplacement.replace(visibleWindows, signal);
   };
 
   desktopBootstrap.bindSecondInstanceFocus(() => {
     const existingWindow =
-      BrowserWindow.getAllWindows().find(
-        (window) =>
-          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
-      ) ?? null;
+      BrowserWindow.getAllWindows().find((window) => !embeddingHostManager.isHostWindow(window)) ??
+      null;
     if (!existingWindow) {
       return;
     }
@@ -2080,8 +2052,7 @@ if (singleInstanceLockAcquired) {
           return;
         }
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
-          (window) =>
-            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+          (window) => !embeddingHostManager.isHostWindow(window)
         );
         if (!hasVisibleWindow) {
           await createMainWindow();

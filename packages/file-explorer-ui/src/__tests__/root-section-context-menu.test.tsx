@@ -1,4 +1,3 @@
-import { __resetBackgroundIndexingPreferencesStoreForTests } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
@@ -178,7 +177,6 @@ function renderSingleRoot(
 describe('root section context menu', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    __resetBackgroundIndexingPreferencesStoreForTests();
   });
 
   afterEach(async () => {
@@ -369,7 +367,6 @@ describe('single-root header menu (BST-1393 review fold-in)', () => {
   // layout's own header row is a real, working trigger for the same menu.
   beforeEach(() => {
     vi.restoreAllMocks();
-    __resetBackgroundIndexingPreferencesStoreForTests();
   });
 
   afterEach(async () => {

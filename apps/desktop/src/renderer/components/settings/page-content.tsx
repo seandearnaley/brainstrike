@@ -10,6 +10,7 @@ import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
+import { prepareFactoryReset } from '@brainstrike/app-state/factory-reset';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
@@ -18,7 +19,11 @@ import type {
   McpHostWatchEvent,
 } from '@brainstrike/assistant-contract';
 import type { McpCatalogInstallRequest } from '@brainstrike/assistant-contract/mcp-catalog';
-import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
+import {
+  hasDurableAssistantUsageCapability,
+  resetAssistantThreadStore,
+  useAssistantThreadGroupsStore,
+} from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { LocalExecutionCapability } from '@brainstrike/indexing-contract';
@@ -76,6 +81,22 @@ import { useWorktreeSettings } from './use-worktree-settings';
 
 const refuseWithoutHost = (): Promise<never> =>
   Promise.reject(new Error('The agent host provider reads are unavailable.'));
+
+/** Settings › Factory Reset › Clear content: Main deletes content after the renderer retires it. */
+const clearContent = {
+  clearContent: () => {
+    const bridge = window.electronAPI;
+    if (!(bridge && 'content' in bridge)) {
+      throw new Error('The desktop content clear bridge is unavailable.');
+    }
+    return bridge.content.clear('CONFIRM_CLEAR_DATABASE');
+  },
+  prepare: prepareFactoryReset,
+  retireContent: () => {
+    resetAssistantThreadStore();
+    useAssistantThreadGroupsStore.getState().reset();
+  },
+};
 
 configureModelRuntimeServices({
   // BST-2230: the hidden embedding host loads the model's catalog plan on the
@@ -505,6 +526,7 @@ export default function SettingsPageContent() {
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
+        clearContent,
         inlineFixtureSetting: {
           available: true,
           checked: devInlineFixtureEnabled,

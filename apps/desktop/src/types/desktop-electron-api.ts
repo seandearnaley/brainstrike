@@ -1,6 +1,5 @@
 import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type {
@@ -12,15 +11,6 @@ import type {
   WatcherHealthEvent,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import type {
-  ChunkingHostChunkBatchRequest,
-  ChunkingHostChunkFileByIdRequest,
-  ChunkingHostChunkFileRequest,
-  ChunkingHostProgressEvent,
-  ChunkingHostRequest,
-  ChunkingHostResponseReport,
-  ChunkingHostStatus,
-} from '../chunking-host-shared';
 import type {
   EmbeddingHostModelCacheRequest,
   EmbeddingHostModelCacheResponseReport,
@@ -118,27 +108,6 @@ export interface EmbeddingHostElectronApi {
   vectorPreferences: ElectronVectorPreferencesBridge;
 }
 
-export interface VisibleChunkingHostBridge {
-  chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<readonly ChunkResult[]>;
-  chunkFile: (
-    request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
-  ) => Promise<ChunkResult>;
-  ensureStarted: () => Promise<ChunkingHostStatus>;
-  getStatus: () => Promise<ChunkingHostStatus>;
-  onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
-  onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
-  onStatus: (callback: (status: ChunkingHostStatus) => void) => () => void;
-  reportResponse: (response: ChunkingHostResponseReport) => void;
-  reportStatus: (status: ChunkingHostStatus) => void;
-  reset: () => Promise<ChunkingHostStatus>;
-  stop: () => Promise<ChunkingHostStatus>;
-}
-
-export type ChunkingHostRuntimeBridge = Pick<
-  VisibleChunkingHostBridge,
-  'onRequest' | 'reportResponse' | 'reportStatus'
->;
-
 export interface VisibleEmbeddingHostBridge {
   cancelDocumentEmbeddings: (requestId: string) => Promise<void>;
   cancelQueryEmbedding: (requestId: string) => Promise<EmbeddingHostQueryCancellationResult>;
@@ -206,7 +175,6 @@ export type EmbeddingHostRuntimeBridge = Pick<
 >;
 
 export interface VisibleDesktopCapabilities {
-  chunkingHost: VisibleChunkingHostBridge;
   electronAPI: VisibleDesktopElectronApi;
   embeddingHost: VisibleEmbeddingHostBridge;
 }

@@ -1,19 +1,26 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  selectIndexConfig,
+  useIndexConfigStore,
+  useIndexModel,
+} from '@brainstrike/app-state/stores/index-config-store';
 import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import type {
-  IndexerEmbeddingProfile,
-  IndexerStatus,
-  IndexLifecycleCapability,
-  IndexSearchCapability,
-  NativeIndexLifecycleObservation,
+import {
+  type IndexConfig,
+  type IndexLocalSelection,
+  type IndexModel,
+  indexModelLocalSelection,
+} from '@brainstrike/assistant-contract/index-config';
+import {
+  type IndexerEmbeddingProfile,
+  type IndexerStatus,
+  type IndexLifecycleCapability,
+  type IndexSearchCapability,
+  NATIVE_INDEX_OFF_MESSAGE,
+  type NativeIndexLifecycleObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
-import type {
-  NativeIndexMode,
-  NativeLocalSelection,
-} from '@brainstrike/indexing-contract/indexer-producer';
 import {
   type NativeWorkspaceSearchDependencies,
   NativeWorkspaceSearchProvider,
@@ -33,7 +40,7 @@ interface NativeSearchStatus {
   readonly status: IndexerStatus;
 }
 function matchesSelection(
-  selection: NativeLocalSelection,
+  selection: IndexLocalSelection,
   plan: NonNullable<NonNullable<ReadyStatus['queryPlan']>['inferencePlan']>
 ): boolean {
   return (
@@ -45,24 +52,31 @@ function matchesSelection(
   );
 }
 
-function matchesSavedChoices(
-  status: ReadyStatus,
-  mode: NativeIndexMode | null,
-  selection: NativeLocalSelection | null,
-  collectionId: string | null
-): boolean {
-  if (mode === 'TEXT' && collectionId === null) {
+/**
+ * Main's vector space is the collection's model key and dimensions, compared as Main compares
+ * them; the query plan names that key verbatim.
+ */
+function holdsModelVectors(status: ReadyStatus, model: IndexModel): boolean {
+  return (
+    status.embedding.indexMode === 'vector-configured' &&
+    status.queryPlan?.modelKey === model.modelKey &&
+    status.embedding.profile.dimensions === model.dimensions
+  );
+}
+
+/** The saved choices search reads; Main's other changes (worktrees, policy, chunking) are not. */
+type SavedSearch = Pick<IndexConfig, 'mode' | 'model'>;
+
+function matchesSavedChoices(status: ReadyStatus, saved: SavedSearch | null): boolean {
+  if (saved?.mode === 'text') {
     return status.embedding.indexMode === 'text-only';
   }
-  if (collectionId === null || !status.authorizedCollectionIds?.includes(collectionId)) {
+  if (!(saved?.mode === 'semantic' && saved.model !== null)) {
     return false;
   }
-  if (mode === 'TEXT') {
-    return status.embedding.indexMode === 'text-only';
-  }
+  const selection = indexModelLocalSelection(saved.model);
   return (
-    mode === 'VECTOR' &&
-    status.embedding.indexMode === 'vector-configured' &&
+    holdsModelVectors(status, saved.model) &&
     status.queryPlan !== undefined &&
     (status.queryPlan.inferencePlan
       ? selection !== null && matchesSelection(selection, status.queryPlan.inferencePlan)
@@ -92,31 +106,33 @@ function nextSearchStatus(prior: NativeSearchStatus, status: IndexerStatus): Nat
     status: unchangedStatus(prior.status, status),
   };
 }
+
 async function readMatchingStatus(
   capability: IndexSearchCapability,
-  mode: NativeIndexMode | null,
-  selection: NativeLocalSelection | null,
-  collectionId: string | null
+  saved: SavedSearch | null
 ): Promise<IndexerStatus> {
+  if (saved?.mode === 'off') {
+    return { kind: 'unavailable', reason: NATIVE_INDEX_OFF_MESSAGE };
+  }
   const next = await capability.status();
-  if (next.kind === 'ready' && !matchesSavedChoices(next, mode, selection, collectionId)) {
+  if (next.kind === 'ready' && !matchesSavedChoices(next, saved)) {
     return {
       kind: 'unavailable',
-      reason: 'Native search is activating the saved collection and execution choices.',
+      reason: 'Native search is activating the saved search mode and model.',
     };
   }
   return next;
 }
 /** Why Semantic is unavailable under a saved Text search choice, and the setting that changes it. */
 const SEMANTIC_OFF_REASON =
-  'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.';
+  'Semantic search is off. Choose Semantic in Settings, Search & Indexing.';
 
 /** The saved Text choice is the reason over any transient status; otherwise the status's own. */
 function profileUnavailableReason(
-  mode: NativeIndexMode | null,
+  mode: IndexConfig['mode'] | null,
   status: IndexerStatus
 ): string | undefined {
-  if (mode === 'TEXT') {
+  if (mode === 'text') {
     return SEMANTIC_OFF_REASON;
   }
   return status.kind === 'unavailable' ? status.reason : undefined;
@@ -143,10 +159,10 @@ export function NativeSearchProvider({
   });
   const [lifecycle, setLifecycle] = useState<NativeIndexLifecycleObservation | null>(null);
   const { execution } = observation;
-  const mode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
-  const selection = useBackgroundIndexingPreferencesStore((state) => state.nativeLocalSelection);
-  const collectionId = useBackgroundIndexingPreferencesStore((state) => state.managedCollectionId);
+  const mode = useIndexConfigStore((store) => selectIndexConfig(store)?.mode ?? null);
+  const model = useIndexModel();
   useEffect(() => {
+    const saved = mode === null ? null : { mode, model };
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let revision = 0;
@@ -157,7 +173,7 @@ export function NativeSearchProvider({
       }
       const request = ++revision;
       try {
-        const next = await readMatchingStatus(capability, mode, selection, collectionId);
+        const next = await readMatchingStatus(capability, saved);
         if (!disposed && request === revision) {
           setStatus((prior) => nextSearchStatus(prior, next));
           const observed = latestEvent;
@@ -192,12 +208,11 @@ export function NativeSearchProvider({
         clearTimeout(timer);
       }
     };
-  }, [capability, collectionId, mode, selection]);
-  const vectorExecution = mode === 'VECTOR' ? execution : null;
+  }, [capability, mode, model]);
+  const semantic = mode === 'semantic';
+  const vectorExecution = semantic ? execution : null;
   const profile =
-    mode === 'VECTOR' &&
-    execution.kind === 'ready' &&
-    execution.embedding.indexMode === 'vector-configured'
+    semantic && execution.kind === 'ready' && execution.embedding.indexMode === 'vector-configured'
       ? execution.embedding.profile
       : null;
   const embedQuery = useCallback(
@@ -210,20 +225,12 @@ export function NativeSearchProvider({
       options.signal.throwIfAborted();
       const current = await capability.status();
       options.signal.throwIfAborted();
-      const saved = useBackgroundIndexingPreferencesStore.getState();
       if (
-        saved.nativeIndexMode !== 'VECTOR' ||
         !queryPlan ||
-        (queryPlan.inferencePlan
-          ? !(
-              saved.nativeLocalSelection &&
-              matchesSelection(saved.nativeLocalSelection, queryPlan.inferencePlan)
-            )
-          : saved.nativeLocalSelection !== null) ||
         current.kind !== 'ready' ||
+        !matchesSavedChoices(current, selectIndexConfig(useIndexConfigStore.getState())) ||
         JSON.stringify(executionStatus(current)) !== JSON.stringify(vectorExecution) ||
         current.embedding.indexMode !== 'vector-configured' ||
-        !current.authorizedCollectionIds?.includes(saved.managedCollectionId ?? '') ||
         JSON.stringify(current.embedding.profile) !== JSON.stringify(requested) ||
         JSON.stringify(current.queryPlan) !== JSON.stringify(queryPlan)
       ) {

@@ -3,7 +3,6 @@ import { AlertCircle, Loader2, Search } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useEffect, useRef } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
-import { SearchCollectionPicker } from './search-collection-picker';
 import { SearchCoverageBanner } from './search-coverage-banner';
 import { SearchInputBar } from './search-input-bar';
 import { SearchModeToggle } from './search-mode-toggle';
@@ -29,7 +28,7 @@ export interface WorkspaceSearchPanelProps {
 }
 
 /**
- * The workspace-search tab content: mode + collection controls, the query
+ * The workspace-search tab content: the mode toggle, the query
  * input, coverage banner and the status-driven results area. Presentation + store only — the executor lives at the composition
  * layer (Task 11) and is passed down as the two run callbacks.
  */
@@ -50,7 +49,6 @@ export function WorkspaceSearchPanel({
   const caseSensitive = useWorkspaceSearchStore((state) => state.caseSensitive);
   const isRegex = useWorkspaceSearchStore((state) => state.isRegex);
   const wholeWord = useWorkspaceSearchStore((state) => state.wholeWord);
-  const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
 
   // Same availability signal the mode toggle gates on. Load-bearing for the
   // SUBMIT gate below, not just the toggle's entry gate.
@@ -106,7 +104,7 @@ export function WorkspaceSearchPanel({
   // render — only an actual shrink across the threshold clears results.
   const prevQueryLengthRef = useRef<number | null>(null);
 
-  // caseSensitive/isRegex/wholeWord/collectionId are load-bearing deps even
+  // caseSensitive/isRegex/wholeWord are load-bearing deps even
   // though the body reads them via the run callback, not directly: changing any
   // search parameter must restart the 250ms debounce so a fresh query fires.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional restart triggers, not effect-body reads.
@@ -140,7 +138,7 @@ export function WorkspaceSearchPanel({
       }
     }, TEXT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [query, caseSensitive, isRegex, wholeWord, collectionId]);
+  }, [query, caseSensitive, isRegex, wholeWord]);
 
   const handleRetry = useCallback(() => {
     onSubmit();
@@ -156,14 +154,11 @@ export function WorkspaceSearchPanel({
       <div className="flex flex-col gap-2 border-b p-2">
         <div className="flex flex-wrap items-center gap-2">
           <SearchModeToggle semanticAvailability={semanticAvailability} />
-          <div className="min-w-32 flex-1">
-            <SearchCollectionPicker />
-          </div>
         </div>
 
         <SearchInputBar onSubmit={onSubmit} />
 
-        <SearchCoverageBanner collectionId={collectionId} rootIds={workspaceDbRootIds} />
+        <SearchCoverageBanner rootIds={workspaceDbRootIds} />
       </div>
 
       {/* Scrollable results / status area. */}

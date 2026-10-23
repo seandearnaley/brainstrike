@@ -1,15 +1,11 @@
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type {
-  IndexerCoverageCurrentObservation,
-  IndexSearchCapability,
-} from '@brainstrike/indexing-contract/indexer-client';
-import { openConnection } from '@brainstrike/sqlite-native';
 import { expect, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
-import { HomePage } from './page-objects/home-page';
+import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
+import { callIndexSearch, nativeStatus } from './utils/text-search-mode';
 
 /** Real disk files allow Main's native watcher to exercise the same import corpus. */
 export async function createNativeImportRoot(
@@ -34,293 +30,63 @@ export async function createNativeImportRoot(
   }
 }
 
-/** Original imported source only: the real canonical parser owns every native chunk. */
-export async function createNativeImportedSearchFixture(
+/** Adds a real folder with the explorer's Add Folder button, which picks `folder`. */
+export async function addWorkspaceFolder(
+  app: ElectronApplication,
   page: Page,
-  collectionName: string
-): Promise<{ embeddingSetId: string; fileCount: number }> {
-  return await page.evaluate(async (name) => {
-    if (!(window.collectionCatalog && window.sourceFiles)) {
-      throw new Error('Desktop source capabilities unavailable');
-    }
-    const collection = await window.collectionCatalog
-      .create({
-        dimensions: 384,
-        distance: 'cosine',
-        metadata: { name },
-        modelId: 'Xenova/bge-small-en-v1.5',
-        modelKey: 'local::Xenova/bge-small-en-v1.5',
-      })
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      });
-    const embeddingSetId = collection.id;
-    const files = [
-      {
-        content:
-          'This is a deterministic imported text fixture used to validate desktop chunking and immediate manual backfill.\nThe second chunk ensures manual backfill sees multiple persisted chunks for the same imported file.',
-        name: 'mock-file1.txt',
-      },
-      {
-        content:
-          'export function fixtureValue(): string { return "desktop import backfill regression"; }\nexport const fixtureLines = ["alpha", "beta", "gamma", "delta"];',
-        name: 'mock-file2.ts',
-      },
-    ];
-    await window.sourceFiles
-      .import({
-        embeddingSetId,
-        files: files.map((file) => ({
-          ...file,
-          path: `/import/${file.name}`,
-          size: new TextEncoder().encode(file.content).length,
-        })),
-      })
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      });
-    return { embeddingSetId, fileCount: files.length };
-  }, collectionName);
-}
-
-export async function configureNativeCollectionSearch(
-  page: Page,
-  collectionName: string
+  folder: string,
+  visibleFile: string
 ): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  await page.getByRole('button', { name: 'Search & Indexing' }).click();
-  await page.getByRole('combobox', { name: 'Managed collection' }).click();
-  await page.getByRole('option', { exact: true, name: collectionName }).click();
-  // Select the explicit execution plan before allowing source inference.
-  // Headless fixtures have no automatic WebGPU execution target.
-  const wasPaused = await page
-    .getByRole('button', { exact: true, name: 'Resume workspace index' })
-    .isVisible();
-  if (!wasPaused) {
-    await page.getByRole('button', { exact: true, name: 'Pause workspace index' }).click();
-    await expect(
-      page.getByRole('button', { exact: true, name: 'Resume workspace index' })
-    ).toBeVisible();
-  }
-  await page.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
-  await page.getByRole('combobox', { name: 'Local model execution' }).click();
-  await page.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
-  if (!wasPaused) {
-    await page.getByRole('button', { exact: true, name: 'Resume workspace index' }).click();
-    await expect(
-      page.getByRole('button', { exact: true, name: 'Pause workspace index' })
-    ).toBeVisible();
-  }
-  await home.leaveSettings();
-}
-
-export async function pauseNativeCollectionSources(page: Page): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  await page.getByRole('button', { name: 'Search & Indexing' }).click();
-  await page.getByRole('button', { exact: true, name: 'Pause workspace index' }).click();
+  await app.evaluate((_electron, picked) => {
+    process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = picked;
+  }, folder);
+  await ensureFileExplorerPanelVisible(page);
+  await page.getByTestId('select-root-button').click({ timeout: 15_000 });
   await expect(
-    page.getByRole('button', { exact: true, name: 'Resume workspace index' })
-  ).toBeVisible();
-  await home.leaveSettings();
+    page.getByRole('treegrid', { name: 'File tree' }).getByText(visibleFile)
+  ).toBeVisible({ timeout: 30_000 });
 }
 
-export async function resumeNativeCollectionSources(page: Page): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  await page.getByRole('button', { name: 'Search & Indexing' }).click();
-  await page.getByRole('button', { exact: true, name: 'Resume workspace index' }).click();
-  await expect(
-    page.getByRole('button', { exact: true, name: 'Pause workspace index' })
-  ).toBeVisible();
-  await home.leaveSettings();
-}
-
-export interface NativeCollectionWork {
+export interface NativeIngestionWork {
   readonly hostActive: boolean;
+  /** A folder has not finished its scan. */
   readonly incomplete: boolean;
-  readonly publicationFiles: number;
   readonly vectors: number;
 }
 
-export async function observeNativeCollectionWork(
-  page: Page,
-  collectionId: string
-): Promise<NativeCollectionWork | null> {
-  return await page.evaluate(async (id) => {
-    const browser = window as Window & {
-      __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
-      embeddingHost?: VisibleEmbeddingHostBridge;
-    };
-    if (!(browser.__brainstrikeTestHooks__?.indexSearch && browser.embeddingHost)) {
-      throw new Error('Native index or embedding host capability unavailable');
+/** The embedding host's activity and the index's progress over every folder; null until it answers. */
+export async function observeNativeIngestion(page: Page): Promise<NativeIngestionWork | null> {
+  const status = await nativeStatus(page);
+  if (status.kind !== 'ready') {
+    if (status.phase === 'blocked') {
+      throw new Error(status.reason);
     }
-    const status = await browser.__brainstrikeTestHooks__?.indexSearch.status();
-    if (status.kind !== 'ready') {
-      if (status.phase === 'blocked') {
-        throw new Error(status.reason);
-      }
-      return null;
-    }
-    const observation = await browser.__brainstrikeTestHooks__?.indexSearch.coverageBatch([
-      { collectionId: id, rootIds: [] },
-    ]);
-    if (observation.kind === 'blocked') {
-      throw new Error(observation.reason);
-    }
-    if (observation.kind === 'invalidated') {
-      return null;
-    }
-    const coverage = observation.coverage[0];
-    if (!coverage) {
-      throw new Error('Native collection coverage omitted its requested scope');
-    }
-    const host = await browser.embeddingHost.getStatus();
-    return {
-      hostActive: host.active,
-      incomplete: observation.status.rootReadiness.some((root) => !root.scanComplete),
-      publicationFiles: (observation.status.publicationProgress ?? [])
-        .filter((progress) => progress.scope.kind === 'workspace')
-        .reduce((count, progress) => count + progress.acknowledgedFiles, 0),
-      vectors: coverage.totals.vectors,
-    };
-  }, collectionId);
-}
-
-export async function waitForNativeCollectionCoverage(
-  page: Page,
-  collectionId: string,
-  fileCount: number
-): Promise<IndexerCoverageCurrentObservation> {
-  let current: IndexerCoverageCurrentObservation | undefined;
-  await expect
-    .poll(
-      async () =>
-        await page
-          .evaluate(async (id) => {
-            const capability = (
-              window as Window & {
-                __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
-              }
-            ).__brainstrikeTestHooks__?.indexSearch;
-            if (!capability) {
-              throw new Error('Native index capability unavailable');
-            }
-            const status = await capability.status();
-            if (status.kind !== 'ready') {
-              return status;
-            }
-            return await capability.coverageBatch([{ collectionId: id, rootIds: [] }]);
-          }, collectionId)
-          .then((observation) => {
-            if (observation.kind === 'current') {
-              current = observation;
-            }
-            return observation;
-          }),
-      { timeout: 120_000 }
-    )
-    .toMatchObject({
-      coverage: [
-        { totals: { indexedFiles: fileCount, missingVectors: 0 }, vectorCoverageComplete: true },
-      ],
-      kind: 'current',
-      status: { collectionReadiness: [{ embeddingSetId: collectionId, scanComplete: true }] },
-    });
-  if (!current) {
-    throw new Error('Native collection never published a current observation');
+    return null;
   }
-  return current;
-}
-
-/** Read-only inspection of this test's disposable native index, never the user profile. */
-export async function readNativeCollectionDiagnostics(
-  app: ElectronApplication,
-  collectionId: string
-) {
-  const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
-  const db = openConnection(path.join(userData, 'profiles', 'test', 'index.sqlite'), {
-    fileMustExist: true,
-    readonly: true,
+  const observation = await callIndexSearch(page, 'coverageBatch', [
+    { rootIds: status.authorizedRootIds },
+  ]);
+  if (observation.kind === 'blocked') {
+    throw new Error(observation.reason);
+  }
+  if (observation.kind === 'invalidated') {
+    return null;
+  }
+  const coverage = observation.coverage[0];
+  if (!coverage) {
+    throw new Error('Native coverage omitted its requested folders');
+  }
+  const hostActive = await page.evaluate(async () => {
+    const host = (window as Window & { readonly embeddingHost?: VisibleEmbeddingHostBridge })
+      .embeddingHost;
+    if (!host) {
+      throw new Error('Embedding host capability unavailable');
+    }
+    return (await host.getStatus()).active;
   });
-  try {
-    const rows = db
-      .prepare(`SELECT c.id, c.content, f.embedding_set_id AS embeddingSetId,
-      v.dimensions, v.emb FROM file_chunks c JOIN file_records f ON f.id = c.file_record_id
-      LEFT JOIN scoped_vectors v ON v.chunk_pk = c.pk WHERE f.embedding_set_id = ? ORDER BY c.id`)
-      .all(collectionId) as {
-      content: string;
-      dimensions: number | null;
-      emb: Uint8Array | null;
-      embeddingSetId: string;
-      id: string;
-    }[];
-    const first = rows.find((row) => row.emb !== null);
-    if (!(first?.emb && first.dimensions)) {
-      throw new Error('Native collection has no vector for its self-similarity proof');
-    }
-    const bytes = new DataView(first.emb.buffer, first.emb.byteOffset, first.emb.byteLength);
-    const vector = Array.from({ length: first.dimensions }, (_, index) =>
-      bytes.getFloat32(index * 4, true)
-    );
-    const indexed = db
-      .prepare(`SELECT count(*) AS count FROM file_chunks_fts
-      JOIN file_chunks c ON c.pk = file_chunks_fts.rowid JOIN file_records f ON f.id = c.file_record_id
-      WHERE f.embedding_set_id = ?`)
-      .get(collectionId) as { count: number };
-    const ftsEnabled = db
-      .prepare("SELECT sqlite_compileoption_used('ENABLE_FTS5') AS enabled")
-      .get() as { enabled: number };
-    return {
-      dimensions: rows.flatMap((row) => (row.dimensions === null ? [] : [row.dimensions])),
-      embeddedCount: rows.filter((row) => row.emb !== null).length,
-      embeddingSetIds: rows.map((row) => row.embeddingSetId),
-      ftsEnabled: ftsEnabled.enabled,
-      selfChunkId: first.id,
-      totalChunks: rows.length,
-      vector,
-      withContent: rows.filter((row) => row.content.length > 0).length,
-      withFts: indexed.count,
-    };
-  } finally {
-    db.close();
-  }
-}
-
-export async function searchNativeCollection(
-  page: Page,
-  collectionId: string,
-  vector?: readonly number[]
-) {
-  return await page.evaluate(
-    async ({ id, queryVector }) => {
-      const capability = (
-        window as Window & { __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability } }
-      ).__brainstrikeTestHooks__?.indexSearch;
-      if (!capability) {
-        throw new Error('Native index capability unavailable');
-      }
-      const status = await capability.status();
-      if (status.kind !== 'ready' || status.embedding.indexMode !== 'vector-configured') {
-        throw new Error('Native collection has no configured vector profile');
-      }
-      return await capability.search({
-        collectionId: id,
-        limit: 5,
-        rootIds: [],
-        ...(queryVector
-          ? { mode: 'vector' as const, profile: status.embedding.profile, vector: queryVector }
-          : { mode: 'bm25' as const, text: 'backfill' }),
-      });
-    },
-    { id: collectionId, queryVector: vector }
-  );
+  return {
+    hostActive,
+    incomplete: observation.status.rootReadiness.some((root) => !root.scanComplete),
+    vectors: coverage.totals.vectors,
+  };
 }

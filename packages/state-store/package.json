@@ -14,7 +14,6 @@
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "esbuild": "catalog:",
     "tsx": "^4.23.15",
     "typescript": "catalog:",
     "vitest": "catalog:"

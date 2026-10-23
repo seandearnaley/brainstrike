@@ -9,9 +9,8 @@
  * compatibility). What matters is whether the chunking pipeline ends up
  * cutting at the same byte offsets regardless of parser choice.
  *
- * Skip oxc-ipc-adapter for this test — the IPC layer is verified in
- * Phase 4. Here we're testing parser equivalence at the parsing layer
- * directly: babel via babelAdapter.parse(), oxc via oxc-parser.parseSync().
+ * Here we're testing parser equivalence at the parsing layer directly:
+ * babel via babelAdapter.parse(), oxc via oxc-parser.parseSync().
  *
  * If a fixture's chunk ranges diverge, that's either:
  *   (a) a real chunk-parity bug — fix it before merging, or

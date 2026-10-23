@@ -1,18 +1,21 @@
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, type Locator, type Page } from '@playwright/test';
-import { HomePage } from '../page-objects/home-page';
 import type { BenchDevice } from './foreground-latency-bench';
+import { updateIndexConfig } from './index-config';
 
 /**
  * Drives and reads a full native Workspace Index build (`NativeWorkspaceIndexProvider`)
- * through the app: the seeded roots open paused, BGE Small and the execution
- * device are chosen in Search & Indexing, and Resume starts the build. Counts,
- * scan receipts and the query plan come from the renderer's `indexSearch`
+ * through the app: the seeded roots open paused, semantic search with BGE Small on
+ * the device's execution plan is saved through Main, and Resume starts the build.
+ * Counts, scan receipts and the query plan come from the renderer's `indexSearch`
  * capability, the same observation the app itself reads.
  */
 
-/** Search & Indexing's execution choice for each device. */
-const EXECUTION_LABEL = { wasm: 'WASM · Q8', webgpu: 'WebGPU · FP16' } as const;
+/** BGE Small's execution plan for each device. */
+const EXECUTION = {
+  wasm: { device: 'wasm', dtype: 'q8' },
+  webgpu: { device: 'webgpu', dtype: 'fp16' },
+} as const;
 
 export interface NativeRootSummary {
   readonly chunks: number;
@@ -120,25 +123,34 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
   });
 }
 
-/** Chooses BGE Small and the device's execution plan while the index is paused. */
+/** Saves semantic search with BGE Small on the device's execution plan. */
+export async function chooseSemanticSearch(page: Page, device: BenchDevice): Promise<void> {
+  await updateIndexConfig(page, {
+    mode: 'semantic',
+    model: {
+      dimensions: 384,
+      local: EXECUTION[device],
+      modelKey: 'local::Xenova/bge-small-en-v1.5',
+    },
+  });
+}
+
+/** {@link chooseSemanticSearch} while the index is paused; it stays paused. */
 export async function configureNativeIndex(page: Page, device: BenchDevice): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  await page.getByRole('button', { name: 'Search & Indexing' }).click();
-  await page.getByTestId('settings-category-search-indexing').waitFor();
-  await page.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-  await page.getByRole('option', { name: /BGE Small/ }).click();
-  await page.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-  await expect(page.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-    'Workspace Index (BGE Small)',
-    { timeout: 30_000 }
-  );
-  await page.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
-  await page.getByRole('combobox', { name: 'Local model execution' }).click();
-  await page.getByRole('option', { exact: true, name: EXECUTION_LABEL[device] }).click();
-  await home.leaveSettings();
+  await chooseSemanticSearch(page, device);
   await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused');
+}
+
+/** Every folder scanned and embedded: one folder holding `indexedFiles` files. */
+export async function waitForEmbeddedFolder(page: Page, indexedFiles: number): Promise<void> {
+  await expect
+    .poll(async () => await readNativeIndexSummary(page), { timeout: 120_000 })
+    .toMatchObject({
+      missingVectors: 0,
+      roots: [{ indexedFiles, missingVectors: 0, scanComplete: true }],
+      status: 'ready',
+      vectorCoverageComplete: true,
+    });
 }
 
 /**

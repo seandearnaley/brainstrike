@@ -1,7 +1,6 @@
 // @ts-check
-// The writer's side of purge and thread deletion, wherever the state DB's schema runs: the desktop writer worker and
-// the browser writer (@brainstrike/web-state-store). Each function runs on the writing connection; the orchestration
-// (`state-deletion.ts`) calls them in its order, between the derived index's steps.
+// The writer's side of purge and thread deletion, run by the desktop writer worker. Each function runs on the writing
+// connection; the orchestration (`state-deletion.ts`) calls them in its order, between the derived index's steps.
 import { executeMemoryRequest } from './memory-domain.mjs';
 
 /**

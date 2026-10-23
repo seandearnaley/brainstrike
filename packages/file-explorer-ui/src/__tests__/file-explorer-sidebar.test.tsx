@@ -1,7 +1,3 @@
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
@@ -82,7 +78,6 @@ describe('FileExplorerSidebar', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    __resetBackgroundIndexingPreferencesStoreForTests();
   });
 
   it('renders with directory and files', () => {
@@ -186,44 +181,6 @@ describe('FileExplorerSidebar', () => {
     expect(screen.queryByTestId('root-section-header')).toBeNull();
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
     expect(screen.getByTestId('single-root-header-row')).toBeInTheDocument();
-  });
-
-  it('shows the indexing control for an excluded single worktree root', () => {
-    useBackgroundIndexingPreferencesStore
-      .getState()
-      .setWorktreeRootIndexingState([
-        { adapterRootId: 'adapter-root', dbRootId: 'db-root', indexed: false },
-      ]);
-
-    act(() => {
-      renderWithProviders(
-        <FileExplorerSidebar
-          {...defaultProps}
-          rootIdByPath={new Map([['/test-directory', 'adapter-root']])}
-        />
-      );
-    });
-
-    expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
-  });
-
-  it('shows the indexing control for an excluded single worktree root', () => {
-    useBackgroundIndexingPreferencesStore
-      .getState()
-      .setWorktreeRootIndexingState([
-        { adapterRootId: 'adapter-root', dbRootId: 'db-root', indexed: false },
-      ]);
-
-    act(() => {
-      renderWithProviders(
-        <FileExplorerSidebar
-          {...defaultProps}
-          rootIdByPath={new Map([['/test-directory', 'adapter-root']])}
-        />
-      );
-    });
-
-    expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
   });
 
   // BST-2088: a recursive folder click shows a loader, then its scan lands the

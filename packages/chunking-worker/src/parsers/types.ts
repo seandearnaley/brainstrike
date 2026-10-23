@@ -4,8 +4,8 @@
  * The chunking worker needs JS/TS AST information to identify function-level
  * boundaries for AST-aware chunking. Historically that was done by importing
  * @babel/parser directly inside portable-chunking.ts. The adapter pattern
- * lets us swap parser implementations (Babel today, oxc-parser via Electron
- * IPC in future phases) without touching the consumer.
+ * lets us swap parser implementations (Babel, native oxc-parser, tree-sitter)
+ * without touching the consumer.
  *
  * Contract requirements:
  *  - Adapters MUST return an AstNode-shaped tree whose nodes carry `type`,
@@ -60,8 +60,8 @@ export interface ParseOptions {
  *
  * Implementations:
  *  - `babel-adapter` — pure-JS @babel/parser, runs everywhere
- *  - `oxc-ipc-adapter` — Electron IPC client for the native oxc parser host
- *    (added in Phase 4)
+ *  - `oxc-native-adapter` — in-process native oxc-parser for Node callers
+ *    (`createNodeChunker`)
  *  - `tree-sitter-adapter` — WASM tree-sitter for non-JS/TS languages
  *    (added in tree-sitter Phase 2; Phase 1 grammar = Python)
  *

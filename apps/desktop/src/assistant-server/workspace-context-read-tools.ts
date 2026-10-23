@@ -20,6 +20,7 @@ import {
   WorkspacePathRefusal,
   type WorkspacePathRefusalReason,
 } from '@brainstrike/host-capabilities/native-tools';
+import { NO_WORKSPACE_FOLDER_MESSAGE } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceIndexSummary } from './workspace-index-summary';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
@@ -60,9 +61,7 @@ export function runListWorkspaceContext(
     throw new TypeError('Workspace root metadata is malformed. Refresh the workspace and retry.');
   }
   if (workspaceRoots.length === 0 && resolvedWorkspaceRoots === undefined) {
-    throw new ToolInputError(
-      'No folder is open in the workspace. Add a folder in the left file tree first.'
-    );
+    throw new ToolInputError(NO_WORKSPACE_FOLDER_MESSAGE);
   }
   // The first root is the MAIN root (client-declared via mainRootId, with the
   // DB created_at order as fallback — see orderWorkspaceRoots).

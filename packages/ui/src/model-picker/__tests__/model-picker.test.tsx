@@ -378,7 +378,7 @@ describe('ModelPicker', () => {
   });
 
   describe('local embedding models (BST-299 regression)', () => {
-    // Test data that mimics what ManageEmbeddingSetsDialog produces
+    // Two local embedding models beside a hosted one, each with its default dimension
     const localEmbeddingModels: ModelPickerModel[] = [
       {
         capabilities: { defaultDimension: 384, type: 'embedding' },

@@ -98,20 +98,6 @@ test('reset joins cleanup manifest removal before destroying the same physical w
   await f.runtime.retireProfile();
 });
 
-test('individual cleanup captures only requested file IDs within their existing scopes', async () => {
-  const f = nativeRuntimeFixture();
-  await f.runtime.closeIndex();
-  await f.runtime.cleanupFiles([{ embeddingSetId: 'collection', fileId: 'chosen', rootId: null }]);
-  expect(f.createIndexOwner).toHaveBeenCalledWith({
-    fileBindings: [],
-    rootIds: [],
-    scopes: [{ embeddingSetId: 'collection', kind: 'collection' }],
-  });
-  expect(f.getAuthority).not.toHaveBeenCalled();
-  await f.runtime.closeIndex();
-  await f.runtime.retireProfile();
-});
-
 test('destroying inactive native content opens only the owned writer and keeps the profile available', async () => {
   const f = nativeRuntimeFixture();
   const original = f.createIndexOwner.getMockImplementation();

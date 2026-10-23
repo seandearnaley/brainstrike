@@ -7,10 +7,7 @@
 
 import type { DistanceMetric, ProviderMetadata, Result } from './provider-types.js';
 
-/**
- * Parameters required to create an embedding set.
- * Maps to IEmbeddingSetsRepository.getOrCreateSet parameters.
- */
+/** Parameters required to create an embedding set. */
 export interface EmbeddingSetCreateParams {
   /** Expected embedding dimensions */
   dimensions: number;

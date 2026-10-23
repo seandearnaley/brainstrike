@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * BST-1645, the same bug class as BST-423 / #2086 (see
- * `import-settings-hydration-at-module-load.test.ts`).
+ * `token-preferences-store.ts`).
  *
  * Every store below persists through SYNCHRONOUS storage, so zustand's persist
  * middleware resolves `hydrate()` inside `create(...)` — while the module-level

@@ -10,25 +10,7 @@ import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-a
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
-
-const BACKGROUND_INDEXING_PREFERENCES_KEY = 'background-indexing-preferences.v1' as const;
-
-interface CollectionRow {
-  readonly dimensions: number;
-  readonly id: string;
-  readonly model_id: string;
-  readonly model_key: string;
-  readonly name: string;
-  readonly system_role: string | null;
-}
-
-interface SavedPreferences {
-  readonly enabled: boolean;
-  readonly managedCollectionId: string | null;
-  readonly nativeIndexMode: 'TEXT' | 'VECTOR' | null;
-  readonly nativeLocalSelection: unknown;
-  readonly paused: boolean;
-}
+import { readIndexConfig, updateIndexConfig } from './utils/index-config';
 
 async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page }): Promise<void> {
   await args.homePage.openSettings();
@@ -101,40 +83,6 @@ async function readOrtWasmRequests(app: ElectronApplication): Promise<string[]> 
   );
 }
 
-async function readCollectionRows(page: Page): Promise<CollectionRow[]> {
-  return await page.evaluate(async () => {
-    if (!window.collectionCatalog) {
-      throw new Error('Desktop collection catalog is unavailable');
-    }
-    return (
-      await window.collectionCatalog.list().then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      })
-    ).map((row) => ({
-      dimensions: row.dimensions,
-      id: row.id,
-      model_id: row.modelId,
-      model_key: row.modelKey,
-      name: row.name ?? '',
-      system_role: row.systemRole ?? null,
-    }));
-  });
-}
-
-async function readSavedPreferences(page: Page): Promise<SavedPreferences> {
-  return await page.evaluate(async (key) => {
-    const saved = await window.electronAPI?.storage.getItem(key);
-    if (!saved) {
-      throw new Error('Background indexing preferences were not persisted.');
-    }
-    const envelope = JSON.parse(saved) as { state: SavedPreferences };
-    return envelope.state;
-  }, BACKGROUND_INDEXING_PREFERENCES_KEY);
-}
-
 async function readNativeStatus(
   page: Page
 ): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
@@ -148,29 +96,6 @@ async function readNativeStatus(
       throw new Error('Native indexing capability is unavailable.');
     }
     return await capability.status();
-  });
-}
-
-async function createCatalogCollection(page: Page): Promise<string> {
-  return await page.evaluate(async () => {
-    if (!window.collectionCatalog) {
-      throw new Error('Desktop collection catalog is unavailable');
-    }
-    const collection = await window.collectionCatalog
-      .create({
-        dimensions: 384,
-        distance: 'cosine',
-        metadata: { name: 'Fresh collection' },
-        modelId: 'Xenova/bge-small-en-v1.5',
-        modelKey: 'local::Xenova/bge-small-en-v1.5',
-      })
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      });
-    return collection.id;
   });
 }
 
@@ -199,7 +124,6 @@ test.describe('Workspace Index first run (desktop)', () => {
       try {
         const { app, window } = await electron.ensureContext();
         await recordOrtWasmRequests(app);
-        expect(await readCollectionRows(window)).toEqual([]);
         await app.evaluate((_electron, path) => {
           process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
         }, folder);
@@ -213,17 +137,18 @@ test.describe('Workspace Index first run (desktop)', () => {
         await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible({
           timeout: 15_000,
         });
-        await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+        const section = window.getByTestId('settings-category-search-indexing');
+        await section
+          .getByRole('group', { name: 'Search mode' })
+          .getByRole('button', { name: /^Semantic/ })
+          .click();
+        await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
         await window.getByRole('option', { name: new RegExp(setup.model) }).click();
-        await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-        await expect(window.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-          `Workspace Index (${setup.model})`,
-          { timeout: 15_000 }
-        );
-        await window.getByRole('combobox', { name: 'Search mode' }).click();
-        await window.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
-        await window.getByRole('combobox', { name: 'Local model execution' }).click();
+        await section.getByRole('combobox', { exact: true, name: 'Run it on' }).click();
         await window.getByRole('option', { exact: true, name: setup.execution }).click();
+        const pending = section.getByRole('status', { name: 'Pending changes' });
+        await pending.getByRole('button', { exact: true, name: 'Apply and re-index' }).click();
+        await expect(pending).toBeHidden({ timeout: 15_000 });
         await expect
           .poll(
             async () =>
@@ -326,8 +251,7 @@ test.describe('Workspace Index first run (desktop)', () => {
         await testInfo.attach('ui-created-index', {
           body: JSON.stringify(
             {
-              choices: await readSavedPreferences(window),
-              collections: await readCollectionRows(window),
+              config: await readIndexConfig(window),
               status: await readNativeStatus(window),
             },
             null,
@@ -352,56 +276,37 @@ test.describe('Workspace Index first run (desktop)', () => {
     { tag: '@smoke' },
     async ({ homePage, window }, testInfo) => {
       await openSearchIndexingSettings({ homePage, page: window });
-      await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-      await window.getByRole('option', { name: /BGE Small/ }).click();
-      await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-      await expect(window.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-        'Workspace Index (BGE Small)',
-        { timeout: 15_000 }
-      );
-      await window.getByRole('combobox', { name: 'Search mode' }).click();
-      await window.getByRole('option', { exact: true, name: 'Text search' }).click();
+      const section = window.getByTestId('settings-category-search-indexing');
       await expect
         .poll(() => readNativeStatus(window), { timeout: 15_000 })
         .toMatchObject({ embedding: { indexMode: 'text-only' }, kind: 'ready' });
-      const initial = await readSavedPreferences(window);
-      expect(initial.managedCollectionId).not.toBeNull();
-      await window.getByRole('button', { name: 'Pause workspace index' }).click();
+      await section.getByRole('button', { exact: true, name: 'Pause indexing' }).click();
+      await expect(
+        section.getByRole('button', { exact: true, name: 'Resume indexing' })
+      ).toBeVisible({ timeout: 15_000 });
       await expect
-        .poll(() => readSavedPreferences(window), { timeout: 15_000 })
+        .poll(() => readIndexConfig(window), { timeout: 15_000 })
         .toMatchObject({ paused: true });
 
-      // Mode is saved before execution: this is a real failed open with no writer,
-      // not a source pause on an already configured semantic host.
-      await window.getByRole('combobox', { name: 'Search mode' }).click();
-      await window.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
-      await expect
-        .poll(() => readNativeStatus(window), { timeout: 15_000 })
-        .toMatchObject({ cause: { kind: 'setup-required' }, kind: 'unavailable' });
-      const incomplete = await readNativeStatus(window);
-      await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-      await window.getByRole('option', { name: /BGE Small/ }).click();
-      await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-      await window.getByRole('combobox', { name: 'Local model execution' }).click();
-      await window.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
-      await expect
-        .poll(() => readSavedPreferences(window), { timeout: 15_000 })
-        .toMatchObject({
-          managedCollectionId: initial.managedCollectionId,
-          nativeIndexMode: 'VECTOR',
-          nativeLocalSelection: {
-            device: 'wasm',
-            dtype: 'q8',
-            modelId: 'Xenova/bge-small-en-v1.5',
-          },
-          paused: true,
-        });
+      await updateIndexConfig(window, {
+        mode: 'semantic',
+        model: {
+          dimensions: 384,
+          local: { device: 'wasm', dtype: 'q8' },
+          modelKey: 'local::Xenova/bge-small-en-v1.5',
+        },
+      });
+      expect(await readIndexConfig(window)).toMatchObject({
+        mode: 'semantic',
+        model: { local: { device: 'wasm', dtype: 'q8' } },
+        paused: true,
+      });
       // Paused read authority needs a real native writer, but no document inference
       // or model download. Do not resume ingestion to make this assertion pass.
       await expect
         .poll(() => readNativeStatus(window), { timeout: 15_000 })
         .toMatchObject({
-          authorizedCollectionIds: [initial.managedCollectionId],
+          authorizedCollectionIds: [expect.any(String)],
           embedding: {
             indexMode: 'vector-configured',
             profile: { dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
@@ -409,11 +314,17 @@ test.describe('Workspace Index first run (desktop)', () => {
           kind: 'ready',
           queryPlan: { inferencePlan: { device: 'wasm', dtype: 'q8' } },
         });
-      await expect(window.getByRole('button', { name: 'Resume workspace index' })).toBeVisible();
+      await expect(
+        section
+          .getByRole('group', { name: 'Search mode' })
+          .getByRole('button', { name: /^Semantic/ })
+      ).toHaveAttribute('aria-pressed', 'true');
+      await expect(
+        section.getByRole('button', { exact: true, name: 'Resume indexing' })
+      ).toBeVisible();
       await testInfo.attach('paused-semantic-setup', {
         body: JSON.stringify({
-          incomplete,
-          preferences: await readSavedPreferences(window),
+          config: await readIndexConfig(window),
           status: await readNativeStatus(window),
         }),
         contentType: 'application/json',
@@ -421,125 +332,30 @@ test.describe('Workspace Index first run (desktop)', () => {
     }
   );
 
-  test('does not invent a collection or native search mode for a fresh profile', async ({
+  test('a fresh profile starts in Text search and invents no collection', async ({
     electron,
   }, testInfo) => {
     const { window } = await electron.ensureContext();
     await openSearchIndexingSettings({ homePage: new HomePage(window), page: window });
-    const managedCollection = window.getByRole('combobox', { name: 'Managed collection' });
-    await expect(managedCollection).toContainText('No managed collection', { timeout: 15_000 });
-    await expect(window.getByRole('switch', { name: 'Workspace Index' })).toBeChecked({
-      timeout: 15_000,
-    });
-    await expect(window.getByRole('combobox', { name: 'Search mode' })).toContainText(
-      'Choose a search mode',
-      { timeout: 15_000 }
-    );
-    const initialCollections = await readCollectionRows(window);
-    expect(initialCollections).toEqual([]);
-    const initialStatus = await readNativeStatus(window);
-    expect(initialStatus).toMatchObject({ kind: 'unavailable' });
-    await testInfo.attach('fresh-profile-unconfigured', {
-      body: JSON.stringify({ collections: initialCollections, status: initialStatus }, null, 2),
-      contentType: 'application/json',
-    });
-  });
-
-  test('awaits explicit native choices and preserves the selected TEXT collection across restart', async ({
-    electron,
-  }, testInfo) => {
-    const { window } = await electron.ensureContext();
-    expect(await readCollectionRows(window)).toEqual([]);
-    const collectionId = await createCatalogCollection(window);
-    await openSearchIndexingSettings({ homePage: new HomePage(window), page: window });
-    const managedCollection = window.getByRole('combobox', { name: 'Managed collection' });
-    await expect(managedCollection).toContainText('No managed collection', { timeout: 15_000 });
-    await expect(window.getByRole('combobox', { name: 'Search mode' })).toContainText(
-      'Choose a search mode',
-      { timeout: 15_000 }
-    );
-    await managedCollection.click();
-    await window.getByRole('option', { exact: true, name: 'Fresh collection' }).click();
-    await window.getByRole('combobox', { name: 'Search mode' }).click();
-    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
-    const expectedChoices = {
-      enabled: true,
-      managedCollectionId: collectionId,
-      nativeIndexMode: 'TEXT',
-      nativeLocalSelection: null,
+    await expect(
+      window
+        .getByTestId('settings-category-search-indexing')
+        .getByRole('group', { name: 'Search mode' })
+        .getByRole('button', { name: /^Text/ })
+    ).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
+    expect(await readIndexConfig(window)).toEqual({
+      chunking: { _tag: 'Auto' },
+      mode: 'text',
+      model: null,
       paused: false,
-    };
-    await expect
-      .poll(() => readSavedPreferences(window), { timeout: 15_000 })
-      .toMatchObject(expectedChoices);
+      policy: 'balanced',
+      worktrees: {},
+    });
     await expect
       .poll(() => readNativeStatus(window), { timeout: 15_000 })
-      .toMatchObject({
-        authorizedCollectionIds: [collectionId],
-        collectionReadiness: [
-          expect.objectContaining({ embeddingSetId: collectionId, scanComplete: true }),
-        ],
-        embedding: { indexMode: 'text-only' },
-        kind: 'ready',
-      });
-    const statusBeforeRestart = await readNativeStatus(window);
-    const beforeRestart = await readCollectionRows(window);
-    expect(beforeRestart).toEqual([
-      expect.objectContaining({ id: collectionId, name: 'Fresh collection', system_role: null }),
-    ]);
-    await testInfo.attach('fresh-explicit-selection-before-restart', {
-      body: JSON.stringify(
-        {
-          collections: beforeRestart,
-          preferences: await readSavedPreferences(window),
-          status: await readNativeStatus(window),
-        },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    });
-    const restarted = await electron.restart();
-    await openSearchIndexingSettings({
-      homePage: new HomePage(restarted.window),
-      page: restarted.window,
-    });
-    await expect(
-      restarted.window.getByRole('combobox', { name: 'Managed collection' })
-    ).toContainText('Fresh collection', { timeout: 15_000 });
-    await expect(restarted.window.getByRole('combobox', { name: 'Search mode' })).toContainText(
-      'Text search',
-      { timeout: 15_000 }
-    );
-    await expect
-      .poll(() => readSavedPreferences(restarted.window), { timeout: 15_000 })
-      .toMatchObject(expectedChoices);
-    await expect
-      .poll(() => readNativeStatus(restarted.window), { timeout: 15_000 })
-      .toMatchObject({
-        authorizedCollectionIds: [collectionId],
-        collectionReadiness: [
-          expect.objectContaining({ embeddingSetId: collectionId, scanComplete: true }),
-        ],
-        embedding: { indexMode: 'text-only' },
-        kind: 'ready',
-      });
-    expect(await readCollectionRows(restarted.window)).toEqual(beforeRestart);
-    const statusAfterRestart = await readNativeStatus(restarted.window);
-    if (statusBeforeRestart.kind !== 'ready' || statusAfterRestart.kind !== 'ready') {
-      throw new Error('Native indexing lost readiness around restart.');
-    }
-    expect(statusAfterRestart.storeId).toBe(statusBeforeRestart.storeId);
-    await testInfo.attach('fresh-explicit-selection-after-restart', {
-      body: JSON.stringify(
-        {
-          collections: await readCollectionRows(restarted.window),
-          preferences: await readSavedPreferences(restarted.window),
-          status: await readNativeStatus(restarted.window),
-        },
-        null,
-        2
-      ),
+      .toMatchObject({ embedding: { indexMode: 'text-only' }, kind: 'ready' });
+    await testInfo.attach('fresh-profile-text-search', {
+      body: JSON.stringify({ status: await readNativeStatus(window) }, null, 2),
       contentType: 'application/json',
     });
   });

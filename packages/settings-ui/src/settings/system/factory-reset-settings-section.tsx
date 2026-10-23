@@ -1,8 +1,11 @@
+import { ClearContentPanel, type ClearContentProps } from './clear-content-panel';
 import { ClearStoredFoldersPanel } from './clear-stored-folders-panel';
 import { FactoryResetPanel } from './factory-reset-panel';
 import { InlineFixtureSettingsPanel } from './inline-fixture-settings-panel';
 
 export interface FactoryResetSettingsSectionProps {
+  /** Clears content through Main while keeping configuration */
+  clearContent?: ClearContentProps | undefined;
   /** Whether stored folders exist */
   hasStoredFolders?: boolean | undefined;
   /** Inline fixture settings (developer feature) */
@@ -21,6 +24,7 @@ export interface FactoryResetSettingsSectionProps {
 }
 
 export function FactoryResetSettingsSection({
+  clearContent,
   isWebPlatform = true,
   hasStoredFolders = false,
   onClearStoredFolders,
@@ -34,6 +38,7 @@ export function FactoryResetSettingsSection({
           Wipe application data (files, embeddings, queues) and reset preferences.
         </p>
       </div>
+      {clearContent ? <ClearContentPanel {...clearContent} /> : null}
       <FactoryResetPanel />
       <ClearStoredFoldersPanel
         hasStoredFolders={hasStoredFolders}

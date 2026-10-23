@@ -52,11 +52,6 @@ export interface CapturedNativeIndexAuthority {
   /** Read only after admitted sources settle; tied to this exact retained writer owner. */
   readAuthority(): NativeIndexAuthority;
 }
-export interface NativeSourceIdentity {
-  readonly embeddingSetId: string | null;
-  readonly fileId: string;
-  readonly rootId: string | null;
-}
 export interface NativeIndexRuntime<Attachment = unknown> {
   /**
    * The acknowledged writer once any acquisition in flight settles, without
@@ -72,7 +67,6 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   /** Closed admission only: retire one persisted collection through the retained physical writer. */
   cleanupCollection(embeddingSetId: string): Promise<void>;
-  cleanupFiles(files: readonly NativeSourceIdentity[]): Promise<void>;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
@@ -430,10 +424,7 @@ export function createNativeIndexRuntime<Attachment>(
     });
     return closing;
   };
-  const cleanupOwned = (
-    requested: NativeIndexAuthority,
-    selected?: ReadonlySet<string>
-  ): Promise<void> => {
+  const cleanupOwned = (requested: NativeIndexAuthority): Promise<void> => {
     if (!(closed && readsClosed) || closing || cleanup || indexOwner) {
       return Promise.reject(
         new Error('Collection cleanup requires joined native retirement and closed admission.')
@@ -446,7 +437,7 @@ export function createNativeIndexRuntime<Attachment>(
       const owned = await dependencies.createIndexOwner(requested);
       indexOwner = owned;
       const writer = await owned.start();
-      await retireUnownedRows(writer, requested, selected);
+      await retireUnownedRows(writer, requested);
     })().finally(() => {
       cleanup = undefined;
     });
@@ -461,25 +452,6 @@ export function createNativeIndexRuntime<Attachment>(
       rootIds: [],
       scopes: [{ embeddingSetId, kind: 'collection' }],
     });
-  };
-  const cleanupFiles = (files: readonly NativeSourceIdentity[]): Promise<void> => {
-    const roots = [...new Set(files.flatMap((file) => (file.rootId ? [file.rootId] : [])))];
-    const collections = [
-      ...new Set(
-        files.flatMap((file) => (!file.rootId && file.embeddingSetId ? [file.embeddingSetId] : []))
-      ),
-    ];
-    return cleanupOwned(
-      {
-        fileBindings: [],
-        rootIds: roots,
-        scopes: [
-          ...roots.map((rootId) => ({ kind: 'workspace' as const, rootId })),
-          ...collections.map((embeddingSetId) => ({ embeddingSetId, kind: 'collection' as const })),
-        ],
-      },
-      new Set(files.map((file) => file.fileId))
-    );
   };
   const acquireCurrent = (): Promise<NativePort> => {
     if (closed) {
@@ -527,7 +499,6 @@ export function createNativeIndexRuntime<Attachment>(
     acquireProfile,
     captureAcknowledgedAuthority,
     cleanupCollection,
-    cleanupFiles,
     closeIndex: () => closeIndex(),
     destroyIndex: () => closeIndex(true),
     mutateAuthority: <T>(expected: NativePort, work: () => Promise<T>): Promise<T> => {

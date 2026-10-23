@@ -1,106 +1,15 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
+import { readIndexConfig } from './utils/index-config';
 
-const BACKGROUND_INDEXING_PREFERENCES_KEY = 'background-indexing-preferences.v1' as const;
-
-interface PersistedBackgroundIndexingPreferences {
-  enabled: boolean;
-  indexingPolicyPreset: 'balanced' | 'full-root';
-  managedCollectionId: string | null;
-  mode: 'root-folder-cache';
-}
-
-interface ElectronHarnessLike {
-  getUserDataDir: () => string;
-}
-
-interface CollectionRow {
-  readonly dimensions: number;
-  readonly id: string;
-  readonly model_id: string;
-  readonly model_key: string;
-  readonly name: string;
-  readonly system_role: string | null;
-}
-
-interface SavedPreferences {
-  readonly enabled: boolean;
-  readonly managedCollectionId: string | null;
-  readonly nativeIndexMode: 'TEXT' | 'VECTOR' | null;
-  readonly nativeLocalSelection: unknown;
-  readonly paused: boolean;
-}
-
-async function seedBackgroundIndexingPreferences(args: {
-  electronHarness: ElectronHarnessLike;
-  preferences: PersistedBackgroundIndexingPreferences;
-}): Promise<void> {
-  const userDataDir = args.electronHarness.getUserDataDir();
-  await mkdir(userDataDir, { recursive: true });
-
-  const storagePath = path.join(userDataDir, 'electron-storage.json');
-  let existingStorage: Record<string, string> = {};
-  try {
-    existingStorage = JSON.parse(await readFile(storagePath, 'utf8')) as Record<string, string>;
-  } catch {
-    existingStorage = {};
-  }
-
-  const nextStorage = {
-    ...existingStorage,
-    [BACKGROUND_INDEXING_PREFERENCES_KEY]: JSON.stringify({
-      state: args.preferences,
-      version: 2,
-    }),
-  };
-
-  await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
-}
-
-async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page }): Promise<void> {
-  await args.homePage.openSettings();
-  await args.page.getByRole('button', { name: 'Search & Indexing' }).click();
-  await expect(args.page.getByTestId('settings-category-search-indexing')).toBeVisible({
-    timeout: 15_000,
-  });
-}
-
-async function readCollectionRows(page: Page): Promise<CollectionRow[]> {
-  return await page.evaluate(async () => {
-    if (!window.collectionCatalog) {
-      throw new Error('Desktop collection catalog is unavailable');
-    }
-    return (
-      await window.collectionCatalog.list().then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      })
-    ).map((row) => ({
-      dimensions: row.dimensions,
-      id: row.id,
-      model_id: row.modelId,
-      model_key: row.modelKey,
-      name: row.name ?? '',
-      system_role: row.systemRole ?? null,
-    }));
-  });
-}
-
-async function readSavedPreferences(page: Page): Promise<SavedPreferences> {
-  return await page.evaluate(async (key) => {
-    const saved = await window.electronAPI?.storage.getItem(key);
-    if (!saved) {
-      throw new Error('Background indexing preferences were not persisted.');
-    }
-    const envelope = JSON.parse(saved) as { state: SavedPreferences };
-    return envelope.state;
-  }, BACKGROUND_INDEXING_PREFERENCES_KEY);
+async function openSearchIndexingSettings(page: Page) {
+  await new HomePage(page).openSettings();
+  await page.getByRole('button', { name: 'Search & Indexing' }).click();
+  const section = page.getByTestId('settings-category-search-indexing');
+  await expect(section).toBeVisible({ timeout: 15_000 });
+  return section;
 }
 
 async function readNativeStatus(
@@ -119,176 +28,67 @@ async function readNativeStatus(
   });
 }
 
-async function seedStaleSelection(electron: ElectronHarnessLike): Promise<void> {
-  await seedBackgroundIndexingPreferences({
-    electronHarness: electron,
-    preferences: {
-      enabled: true,
-      indexingPolicyPreset: 'balanced',
-      managedCollectionId: 'set-stale-after-db-wipe',
-      mode: 'root-folder-cache',
-    },
-  });
+async function readyStoreId(page: Page): Promise<string> {
+  const status = await readNativeStatus(page);
+  if (status.kind !== 'ready') {
+    throw new Error(`Native indexing is not ready: ${status.reason}`);
+  }
+  return status.storeId;
 }
 
-async function createCatalogCollection(page: Page): Promise<string> {
-  return await page.evaluate(async () => {
-    if (!window.collectionCatalog) {
-      throw new Error('Desktop collection catalog is unavailable');
-    }
-    const collection = await window.collectionCatalog
-      .create({
-        dimensions: 384,
-        distance: 'cosine',
-        metadata: { name: 'Selected collection' },
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      })
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      });
-    return collection.id;
-  });
-}
-
-test.describe('Workspace Index settings (desktop)', () => {
-  test('clears a missing legacy collection and awaits explicit native choices', async ({
+test.describe('Search & Indexing settings (desktop)', () => {
+  test('keeps the chosen file policy and Text search across a restart', async ({
     electron,
   }, testInfo) => {
-    await seedStaleSelection(electron);
-
     const { window } = await electron.ensureContext();
-    const homePage = new HomePage(window);
-    await openSearchIndexingSettings({ homePage, page: window });
-
-    const managedCollectionTrigger = window.locator('#managed-cache-collection');
-    await expect(window.getByRole('switch', { name: 'Workspace Index' })).toBeChecked({
-      timeout: 15_000,
+    const section = await openSearchIndexingSettings(window);
+    const text = section.getByRole('group', { name: 'Search mode' }).getByRole('button', {
+      name: /^Text/,
     });
-    await expect(managedCollectionTrigger).toContainText('No managed collection', {
-      timeout: 15_000,
-    });
-    await expect(window.getByRole('combobox', { name: 'Search mode' })).toContainText(
-      'Choose a search mode',
-      {
-        timeout: 15_000,
-      }
+    await expect(text).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
+    // The file policy applies at once, apart from the choices Apply re-indexes with.
+    await section.getByRole('combobox', { exact: true, name: 'Files' }).click();
+    await window.getByRole('option', { exact: true, name: 'Full root' }).click();
+    await expect(section.getByRole('combobox', { exact: true, name: 'Files' })).toContainText(
+      'Full root'
     );
-
     await expect
-      .poll(
-        async () =>
-          await window
-            .getByText('Managed collection metadata is invalid.', { exact: true })
-            .count(),
-        {
-          message: 'Stale managed collection ids should not surface the invalid-metadata error.',
-          timeout: 15_000,
-        }
-      )
-      .toBe(0);
-
-    await expect
-      .poll(() => readSavedPreferences(window), { timeout: 15_000 })
-      .toMatchObject({
-        enabled: true,
-        managedCollectionId: null,
-        nativeIndexMode: null,
-        nativeLocalSelection: null,
-      });
-    const collections = await readCollectionRows(window);
-    expect(collections).toEqual([]);
-    const status = await readNativeStatus(window);
-    expect(status).toMatchObject({
-      kind: 'unavailable',
-    });
-    await testInfo.attach('legacy-selection-cleared', {
-      body: JSON.stringify(
-        { collections, preferences: await readSavedPreferences(window), status },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    });
-  });
-
-  test('uses and preserves the explicitly selected TEXT collection after a stale legacy selection', async ({
-    electron,
-  }, testInfo) => {
-    await seedStaleSelection(electron);
-    const { window } = await electron.ensureContext();
-    const collectionId = await createCatalogCollection(window);
-    await openSearchIndexingSettings({ homePage: new HomePage(window), page: window });
-    const managedCollection = window.getByRole('combobox', { name: 'Managed collection' });
-    await expect(managedCollection).toContainText('No managed collection', { timeout: 15_000 });
-    await managedCollection.click();
-    await window.getByRole('option', { exact: true, name: 'Selected collection' }).click();
-    await window.getByRole('combobox', { name: 'Search mode' }).click();
-    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
-    const expectedChoices = {
-      enabled: true,
-      managedCollectionId: collectionId,
-      nativeIndexMode: 'TEXT',
-      nativeLocalSelection: null,
-      paused: false,
-    };
-    await expect
-      .poll(() => readSavedPreferences(window), { timeout: 15_000 })
-      .toMatchObject(expectedChoices);
+      .poll(() => readIndexConfig(window), { timeout: 15_000 })
+      .toMatchObject({ mode: 'text', policy: 'full-root' });
     await expect
       .poll(() => readNativeStatus(window), { timeout: 15_000 })
-      .toMatchObject({
-        authorizedCollectionIds: [collectionId],
-        embedding: { indexMode: 'text-only' },
-        kind: 'ready',
-      });
-    const beforeRestart = await readCollectionRows(window);
-    expect(beforeRestart).toEqual([
-      expect.objectContaining({ id: collectionId, name: 'Selected collection', system_role: null }),
-    ]);
-    await testInfo.attach('explicit-selection-before-restart', {
+      .toMatchObject({ embedding: { indexMode: 'text-only' }, kind: 'ready' });
+    const storeId = await readyStoreId(window);
+    await testInfo.attach('chosen-before-restart', {
       body: JSON.stringify(
-        {
-          collections: beforeRestart,
-          preferences: await readSavedPreferences(window),
-          status: await readNativeStatus(window),
-        },
+        { config: await readIndexConfig(window), status: await readNativeStatus(window) },
         null,
         2
       ),
       contentType: 'application/json',
     });
+
     const restarted = await electron.restart();
-    await openSearchIndexingSettings({
-      homePage: new HomePage(restarted.window),
-      page: restarted.window,
-    });
-    await expect(
-      restarted.window.getByRole('combobox', { name: 'Managed collection' })
-    ).toContainText('Selected collection', { timeout: 15_000 });
-    await expect(restarted.window.getByRole('combobox', { name: 'Search mode' })).toContainText(
-      'Text search',
+    const reopened = await openSearchIndexingSettings(restarted.window);
+    await expect(reopened.getByRole('combobox', { exact: true, name: 'Files' })).toContainText(
+      'Full root',
       { timeout: 15_000 }
     );
-    await expect
-      .poll(() => readSavedPreferences(restarted.window), { timeout: 15_000 })
-      .toMatchObject(expectedChoices);
+    await expect(
+      reopened.getByRole('group', { name: 'Search mode' }).getByRole('button', { name: /^Text/ })
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(await readIndexConfig(restarted.window)).toMatchObject({
+      mode: 'text',
+      policy: 'full-root',
+    });
     await expect
       .poll(() => readNativeStatus(restarted.window), { timeout: 15_000 })
-      .toMatchObject({
-        authorizedCollectionIds: [collectionId],
-        embedding: { indexMode: 'text-only' },
-        kind: 'ready',
-      });
-    expect(await readCollectionRows(restarted.window)).toEqual(beforeRestart);
-    await testInfo.attach('explicit-selection-after-restart', {
+      .toMatchObject({ embedding: { indexMode: 'text-only' }, kind: 'ready' });
+    expect(await readyStoreId(restarted.window)).toBe(storeId);
+    await testInfo.attach('chosen-after-restart', {
       body: JSON.stringify(
         {
-          collections: await readCollectionRows(restarted.window),
-          preferences: await readSavedPreferences(restarted.window),
+          config: await readIndexConfig(restarted.window),
           status: await readNativeStatus(restarted.window),
         },
         null,

@@ -288,7 +288,6 @@
         "packages/app-shell/**",
         "packages/app-state/**",
         "packages/settings-ui/**",
-        "packages/db-explorer/**",
         "packages/vector-management/**"
       ],
       "linter": {
@@ -506,10 +505,6 @@
         "packages/app-shell/src/threads-panel.tsx",
         "packages/app-state/src/__tests__/assistant-preferences-store.test.ts",
         "packages/app-state/src/stores/assistant-preferences-store.ts",
-        "packages/db-explorer/src/__tests__/database-demo-panel.test.tsx",
-        "packages/db-explorer/src/__tests__/use-database-demo-data.test.ts",
-        "packages/db-explorer/src/hooks/__tests__/use-semantic-search-executor.test.ts",
-        "packages/db-explorer/src/use-database-demo-data.ts",
         "packages/db/__tests__/file-chunk-repository.test.ts",
         "packages/db/__tests__/managed-cache-batch.test.ts",
         "packages/db/src/database-work-scheduler.ts",
@@ -539,7 +534,6 @@
         "packages/file-explorer/src/__tests__/context-generation.test.ts",
         "packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts",
         "packages/file-explorer/src/persistence/__tests__/state-serialization.test.ts",
-        "packages/file-import/src/__tests__/chunking-worker-context.test.tsx",
         "packages/file-import/src/__tests__/chunking.test.ts",
         "packages/file-import/src/__tests__/enhanced-import.test.ts",
         "packages/file-import/src/enhanced-import.ts",
@@ -557,8 +551,6 @@
         "packages/assistant-ui/src/data-stream-runtime.ts",
         "packages/ui/src/layout/ide-layout.tsx",
         "packages/ui/src/tree-table/tree-table.tsx",
-        "packages/vector-management/src/__tests__/use-vector-queue-state.test.ts",
-        "packages/vector-management/src/__tests__/vector-queue-service.test.ts",
         "scripts/__tests__/check-ci-parity.test.mjs"
       ],
       "linter": {

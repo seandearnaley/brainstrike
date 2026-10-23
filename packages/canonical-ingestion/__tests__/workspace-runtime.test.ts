@@ -3,6 +3,11 @@ import { expect, it, vi } from 'vitest';
 import type { CanonicalWorkspaceRuntimeDependencies } from '../src/workspace-runtime.js';
 import { CanonicalWorkspaceIngestionRuntime } from '../src/workspace-runtime.js';
 
+/** The typed transition as another bundle's copy of its class declares it: same name, other class. */
+class TransitionCopy extends Error {
+  override readonly name = 'NativeAuthorityTransitionError';
+}
+
 function fixture(): CanonicalWorkspaceRuntimeDependencies {
   return {
     catalog: {
@@ -111,6 +116,43 @@ it('joins revoked catalog preflight without misreporting the exact mount cancell
   expect(dependencies.publication.beginScan).not.toHaveBeenCalled();
   expect(dependencies.source.lease.retire).toHaveBeenCalledOnce();
 });
+
+it.each([
+  ['a plain error', () => new Error('Catalog read failed.')],
+  ["another bundle's copy of the typed transition", () => new TransitionCopy('Lease retired.')],
+  ['an abort', () => new DOMException('Catalog read aborted.', 'AbortError')],
+])(
+  'retires once the pass it cancelled settles with %s, and reports nothing',
+  async (_shape, failure) => {
+    const dependencies = fixture();
+    let fail: ((error: unknown) => void) | undefined;
+    const loadFiles = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          fail = reject;
+        })
+    );
+    const runtime = new CanonicalWorkspaceIngestionRuntime({
+      ...dependencies,
+      source: {
+        ...dependencies.source,
+        inventory: { ...dependencies.source.inventory, loadFiles },
+      },
+    });
+    await runtime.start();
+    await vi.waitFor(() => expect(loadFiles).toHaveBeenCalledOnce());
+    let retired = false;
+    const retiring = runtime.close().then(() => {
+      retired = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(retired).toBe(false);
+    fail?.(failure());
+    await expect(retiring).resolves.toBeUndefined();
+    expect(dependencies.onError).not.toHaveBeenCalled();
+    expect(dependencies.source.lease.retire).toHaveBeenCalledOnce();
+  }
+);
 
 it('consumes explicit VECTOR dependencies and rejects missing full-root coverage without a ready receipt', async () => {
   const dependencies = fixture();

@@ -17,8 +17,13 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
-import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
+import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
+import {
+  textCollectionSettings,
+  unreadableSettings,
+  vectorSettings,
+} from './helpers/native-index-settings';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -123,21 +128,8 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   };
 }
 function fixture(applicationOverride?: ApplicationIpcDomain) {
-  const storage = {
-    getItem: vi.fn(async () =>
-      JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: 'balanced',
-          managedCollectionId: 'selected',
-          nativeIndexMode: 'TEXT',
-          nativeLocalSelection: null,
-          paused: false,
-          worktreeRootIndexingOptInById: {},
-        },
-      })
-    ),
-  };
+  /** Main's config owner; a test saves a change by resolving the next read with it. */
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -155,9 +147,10 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
-    storage,
+    settings,
+    storage: { getItem: unused },
   });
-  return { activation, onReceipt, storage, transport };
+  return { activation, onReceipt, settings, transport };
 }
 beforeEach(() => {
   vi.resetAllMocks();
@@ -209,13 +202,12 @@ function emptyCollection(
   };
 }
 
+/** Saves Pause or Resume over the current saved settings. */
 async function savePause(
-  storage: ReturnType<typeof fixture>['storage'],
+  settings: ReturnType<typeof fixture>['settings'],
   paused: boolean
 ): Promise<void> {
-  const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
-  saved.state['paused'] = paused;
-  storage.getItem.mockResolvedValue(JSON.stringify(saved));
+  settings.mockResolvedValue({ ...(await settings()), paused });
 }
 
 it('boots cold paused status, coverage and grep with actual authority and no canonical source admission', async () => {
@@ -235,8 +227,8 @@ it('boots cold paused status, coverage and grep with actual authority and no can
   native.coverageBatch = async (input) =>
     Promise.all((input as readonly unknown[]).map((request) => native.coverageScope(request)));
   mocks.readyPort.mockReturnValue(native);
-  const { activation, storage, transport, onReceipt } = fixture();
-  await savePause(storage, true);
+  const { activation, settings, transport, onReceipt } = fixture();
+  await savePause(settings, true);
   const grep = vi.fn(async () => ({
     columns: [
       'id',
@@ -300,12 +292,12 @@ it('retains a completed native reader and original cleanup authority through pau
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies, close)
   );
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   const native = await activation.acquire();
   const captured = activation.captureAcknowledgedAuthority();
   const before = await activation.getSearchAuthority();
   const readerCloses = mocks.closeReaders.mock.calls.length;
-  await savePause(storage, true);
+  await savePause(settings, true);
   await activation.reconfigure();
   expect(await activation.acquireRead()).toBe(native);
   expect(await activation.getSearchAuthority()).toEqual(before);
@@ -317,7 +309,7 @@ it('retains a completed native reader and original cleanup authority through pau
   expect(mocks.closeReaders).toHaveBeenCalledTimes(readerCloses);
   expect(mocks.closeProfile).not.toHaveBeenCalled();
   expect(mocks.acquire).toHaveBeenCalledOnce();
-  await savePause(storage, false);
+  await savePause(settings, false);
   await activation.reconfigure();
   expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledTimes(2);
   expect(mocks.acquire).toHaveBeenCalledOnce();
@@ -338,11 +330,11 @@ it('joins an admitted physical scan before pause acknowledges and retains the re
     scan.reject(new Error('Owned pause cancellation.'));
   });
   mocks.manager.attachCanonicalCollection.mockResolvedValue({ close, scan: () => scan.promise });
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   const starting = activation.acquire().catch((error: unknown) => error);
   await vi.waitFor(() => expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce());
   const native = await activation.acquireRead();
-  await savePause(storage, true);
+  await savePause(settings, true);
   let settled = false;
   const pausing = activation.reconfigure().then(() => {
     settled = true;
@@ -371,9 +363,9 @@ it('invalidates changed catalog proof and replaces trusted bindings while paused
   );
   const replaceFileBindings = vi.fn<ScopedIndexerPort['replaceFileBindings']>(async () => {});
   mocks.readyPort.mockReturnValue({ ...writer(), replaceFileBindings });
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   await activation.acquire();
-  await savePause(storage, true);
+  await savePause(settings, true);
   await activation.reconfigure();
   records = catalogRows(1);
   await activation.acquireRead();
@@ -387,7 +379,7 @@ it('invalidates changed catalog proof and replaces trusted bindings while paused
     expect.objectContaining({ fileId: 'retained-0' }),
   ]);
   expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce();
-  await savePause(storage, false);
+  await savePause(settings, false);
   await activation.reconfigure();
   expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledTimes(2);
   await activation.close();
@@ -399,9 +391,9 @@ it('retains failed pause cleanup for explicit retry and keeps reset behind that 
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies, close)
   );
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   await activation.acquire();
-  await savePause(storage, true);
+  await savePause(settings, true);
   await expect(activation.reconfigure()).rejects.toMatchObject({ errors: [cause] });
   await expect(activation.acquireRead()).rejects.toThrow();
   expect(mocks.close).not.toHaveBeenCalled();
@@ -426,65 +418,21 @@ function vectorPauseFixture() {
     revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   } as const;
   // Collection and model metadata come from the current canonical catalog fixture.
-  f.storage.getItem.mockResolvedValue(
-    JSON.stringify({
-      state: {
-        enabled: true,
-        indexingPolicyPreset: 'balanced',
-        managedCollectionId: 'selected',
-        nativeIndexMode: 'VECTOR',
-        nativeLocalSelection: {
-          device: 'wasm',
+  f.settings.mockResolvedValue(
+    vectorSettings(
+      {
+        model: {
           dimensions: profile.dimensions,
-          dtype: profile.dtype,
-          modelId: profile.modelId,
-          revision: profile.revision,
+          local: { device: 'wasm', dtype: profile.dtype, revision: profile.revision },
+          modelKey: `local::${profile.modelId}`,
         },
         paused: true,
-        worktreeRootIndexingOptInById: {},
       },
-    })
+      'selected'
+    )
   );
   return { ...f, profile };
 }
-
-it('opens a paused writer after the saved local execution choice completes previously incomplete VECTOR setup', async () => {
-  const { activation, storage, profile, transport } = vectorPauseFixture();
-  onTestFinished(() => activation.close());
-  const complete = await storage.getItem();
-  const incomplete = JSON.parse(complete) as { state: Record<string, unknown> };
-  incomplete.state['nativeLocalSelection'] = null;
-  storage.getItem.mockResolvedValue(JSON.stringify(incomplete));
-  // The physical runtime has no ready host until its first acquisition. Its
-  // production guard must not be bypassed merely because settings were saved.
-  const absentHost = new Error(
-    'Native indexer capability is unavailable or its owned host is not ready.'
-  );
-  mocks.readyHost.mockImplementation(() => {
-    if (mocks.acquire.mock.calls.length === 0) {
-      throw absentHost;
-    }
-    return mocks.manager;
-  });
-  const applySaved = async (): Promise<void> => {
-    const prepared = await activation.prepareSavedPause();
-    if (prepared) {
-      await prepared.complete();
-    } else {
-      await activation.reconfigure();
-    }
-  };
-  await expect(applySaved()).rejects.toBeInstanceOf(NativeIndexSetupRequiredError);
-  expect(mocks.acquire).not.toHaveBeenCalled();
-  expect(mocks.readyHost).not.toHaveBeenCalled();
-  storage.getItem.mockResolvedValue(complete);
-  await applySaved();
-  await activation.acquireRead();
-  expect(mocks.acquire).toHaveBeenCalledOnce();
-  expect((await activation.getSearchAuthority()).profile).toEqual(profile);
-  expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
-  expect(transport.documentEmbeddings).not.toHaveBeenCalled();
-});
 
 it('opens cold paused VECTOR authority with the exact saved query plan and zero document inference', async () => {
   const { activation, transport, profile } = vectorPauseFixture();
@@ -513,8 +461,8 @@ it('opens cold paused VECTOR authority with the exact saved query plan and zero 
 });
 
 it('joins actual document adapter cancellation before Pause acknowledges and keeps VECTOR read authority', async () => {
-  const { activation, storage, transport, profile } = vectorPauseFixture();
-  await savePause(storage, false);
+  const { activation, settings, transport, profile } = vectorPauseFixture();
+  await savePause(settings, false);
   const physical = Promise.withResolvers<void>();
   let inferenceSignal: AbortSignal | undefined;
   transport.documentEmbeddings.mockImplementation(async (_payload, options) => {
@@ -542,7 +490,7 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
   );
   const starting = activation.acquire().catch((error: unknown) => error);
   await vi.waitFor(() => expect(transport.documentEmbeddings).toHaveBeenCalledOnce());
-  await savePause(storage, true);
+  await savePause(settings, true);
   let paused = false;
   const pausing = activation.reconfigure().then(() => {
     paused = true;
@@ -563,8 +511,8 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
 });
 
 it('starts exact document cancellation before waiting for an admitted native read on close', async () => {
-  const { activation, storage, transport, profile } = vectorPauseFixture();
-  await savePause(storage, false);
+  const { activation, settings, transport, profile } = vectorPauseFixture();
+  await savePause(settings, false);
   const physical = Promise.withResolvers<void>();
   let inferenceSignal: AbortSignal | undefined;
   transport.documentEmbeddings.mockImplementation(async (_payload, options) => {
@@ -695,12 +643,12 @@ it('retires source borrows on Pause while the original mounted read-authority bo
       };
     }
   );
-  const { activation, storage } = fixture(application);
-  await savePause(storage, true);
+  const { activation, settings } = fixture(application);
+  await savePause(settings, true);
   await activation.acquireRead();
   expect(leases).toHaveLength(1);
   expect(leases[0]?.subscribe).not.toHaveBeenCalled();
-  await savePause(storage, false);
+  await savePause(settings, false);
   await activation.reconfigure();
   expect(leases).toHaveLength(2);
   if (!notifyWorkspace) {
@@ -711,7 +659,7 @@ it('retires source borrows on Pause while the original mounted read-authority bo
   await vi.waitFor(() =>
     expect(activation.getReadiness().every(({ scanComplete }) => scanComplete)).toBe(true)
   );
-  await savePause(storage, true);
+  await savePause(settings, true);
   await activation.reconfigure();
   notifyWorkspace();
   expect(collectionScans).toBe(2);
@@ -729,9 +677,9 @@ it('joins a held Pause with terminal retirement without reopening the original n
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies, close)
   );
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   await activation.acquire();
-  await savePause(storage, true);
+  await savePause(settings, true);
   const pausing = activation.reconfigure().catch((error: unknown) => error);
   await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
   let retired = false;
@@ -747,47 +695,20 @@ it('joins a held Pause with terminal retirement without reopening the original n
   await expect(activation.acquireRead()).rejects.toThrow('closed');
 });
 
-it('revokes old read authority when new saved execution choices are invalid', async () => {
+it('revokes old read authority when the newly saved settings are refused', async () => {
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   await activation.acquire();
-  const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
-  saved.state['nativeIndexMode'] = 'VECTOR';
-  storage.getItem.mockResolvedValue(JSON.stringify(saved));
-  // Collection and model metadata come from the current canonical catalog fixture.
-  await expect(activation.reconfigure()).rejects.toThrow(NativeIndexSetupRequiredError);
-  await expect(activation.acquireRead()).rejects.toThrow(
-    'Choose local model execution in Search & Indexing settings.'
-  );
+  const refused = unreadableSettings();
+  settings.mockRejectedValue(refused);
+  await expect(activation.reconfigure()).rejects.toBe(refused);
+  await expect(activation.acquireRead()).rejects.toMatchObject({
+    cause: refused,
+    refusal: { kind: 'settings-invalid' },
+  });
   expect(mocks.acquire).toHaveBeenCalledOnce();
-  await activation.close();
-});
-
-it('keeps the setup requirement as the read refusal after a reconfiguration finds no choices', async () => {
-  const { activation, storage } = fixture();
-  // No search mode is chosen in Search & Indexing.
-  const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
-  saved.state['nativeIndexMode'] = null;
-  storage.getItem.mockResolvedValue(JSON.stringify(saved));
-  await activation.acquire().catch(() => undefined);
-  // Mounting a workspace root reconfigures; the saved choices are still missing.
-  await expect(activation.reconfigure()).rejects.toThrow(NativeIndexSetupRequiredError);
-  // Composed as Main composes it for the index-search IPC domain.
-  const capability = createNativeScopedSearchCapability({
-    openQuery: unused,
-    rebuild: unused,
-    withRead: activation.withRead,
-  });
-  const setup = 'Choose a search mode in Search & Indexing settings.';
-  await expect(capability.status()).resolves.toEqual({
-    cause: { kind: 'setup-required', message: setup },
-    kind: 'unavailable',
-    phase: 'setup-required',
-    reason: setup,
-  });
-  await expect(capability.coverageBatch([{ rootIds: ['root'] }])).rejects.toThrow(setup);
   await activation.close();
 });
 
@@ -795,11 +716,11 @@ it('fences reads and joins a held settings read before terminal retirement ackno
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   await activation.acquire();
-  const saved = await storage.getItem();
-  const reading = Promise.withResolvers<string>();
-  storage.getItem.mockReturnValueOnce(reading.promise);
+  const saved = await settings();
+  const reading = Promise.withResolvers<NativeIndexSettings>();
+  settings.mockReturnValueOnce(reading.promise);
   const reconfiguring = activation.reconfigure().catch((error: unknown) => error);
   await expect(activation.acquireRead()).rejects.toThrow('being revalidated');
   let retired = false;
@@ -819,9 +740,9 @@ it('refuses reused read ownership when source retirement left the actual manager
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   await activation.acquire();
-  await savePause(storage, true);
+  await savePause(settings, true);
   const cause = new Error('Actual indexer owner is terminally closed.');
   mocks.manager.start.mockRejectedValueOnce(cause);
   await expect(activation.reconfigure()).rejects.toBe(cause);

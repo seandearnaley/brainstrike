@@ -333,7 +333,24 @@ describe('FactoryResetPanel', () => {
       });
     });
 
-    it('swallows reload errors and continues', async () => {
+    it('still reloads after a successful reset when recording the reload intent fails', async () => {
+      installDesktopReset(vi.fn().mockResolvedValue({ success: true }));
+      Object.defineProperty(window, 'desktopLifecycle', {
+        configurable: true,
+        value: { noteReloadIntent: vi.fn().mockRejectedValue(new Error('lifecycle closed')) },
+        writable: true,
+      });
+
+      render(<FactoryResetPanel />);
+
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
+
+      await waitFor(() => {
+        expect(mockReload).toHaveBeenCalled();
+      });
+    });
+
+    it('logs a failed reload and continues', async () => {
       installDesktopReset(vi.fn().mockResolvedValue({ success: true }));
       mockReload.mockImplementation(() => {
         throw new Error('Reload failed');

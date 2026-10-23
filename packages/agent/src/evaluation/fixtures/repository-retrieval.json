@@ -21,16 +21,8 @@
       "sha256": "339525e0634d08c2778b620b68ca9857b12e5784b5c4d598d95b73943f39b439"
     },
     {
-      "relativePath": "packages/chunking-worker/src/message-validation.ts",
-      "sha256": "c2e8c1bb831f5a68b532f5dad8a230a66607e171c045962ded062bfb3c704241"
-    },
-    {
       "relativePath": "packages/chunking-worker/src/chunking-config.ts",
       "sha256": "549357349ce76cf1ed8b2d0a2bbd12921c38afcec3228196cd4e31844441102d"
-    },
-    {
-      "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
-      "sha256": "913e3590f0bf920892f9db1203545e2e8df465edb2818377965e44d8595c1e82"
     },
     {
       "relativePath": "packages/utils/src/relative-file-path.ts",
@@ -443,86 +435,6 @@
       ]
     },
     {
-      "id": "repo-023",
-      "query": "isChunkBatchRequest",
-      "kind": "exact",
-      "intent": "The worker batch guard uses the typed runtime schema.",
-      "judgments": [
-        {
-          "id": "repo-023-answer-1",
-          "relativePath": "packages/chunking-worker/src/message-validation.ts",
-          "startLine": 106,
-          "endLine": 106,
-          "evidence": "return matchesBatch(value);",
-          "rationale": "The worker batch guard uses the typed runtime schema."
-        }
-      ]
-    },
-    {
-      "id": "repo-024",
-      "query": "Which worker validation accepts content of any string length so oversized files fail per file later?",
-      "kind": "semantic",
-      "intent": "Content size is handled by worker execution rather than initialization schema.",
-      "judgments": [
-        {
-          "id": "repo-024-answer-1",
-          "relativePath": "packages/chunking-worker/src/message-validation.ts",
-          "startLine": 43,
-          "endLine": 43,
-          "evidence": "content: Schema.String,",
-          "rationale": "Content size is handled by worker execution rather than initialization schema."
-        }
-      ]
-    },
-    {
-      "id": "repo-025",
-      "query": "chunk batch requests min length maxBatchSize",
-      "kind": "mixed",
-      "intent": "Batch arrays must be nonempty and bounded.",
-      "judgments": [
-        {
-          "id": "repo-025-answer-1",
-          "relativePath": "packages/chunking-worker/src/message-validation.ts",
-          "startLine": 56,
-          "endLine": 56,
-          "evidence": "Schema.isMaxLength(CHUNKING_CONFIG.maxBatchSize)",
-          "rationale": "Batch arrays must be nonempty and bounded."
-        }
-      ]
-    },
-    {
-      "id": "repo-026",
-      "query": "Where does the chunking strategy validator use the text splitter source of truth?",
-      "kind": "semantic",
-      "intent": "The strategy set is shared instead of locally duplicated.",
-      "judgments": [
-        {
-          "id": "repo-026-answer-1",
-          "relativePath": "packages/chunking-worker/src/message-validation.ts",
-          "startLine": 26,
-          "endLine": 26,
-          "evidence": "const chunkingStrategy = Schema.declare(isChunkingStrategy);",
-          "rationale": "The strategy set is shared instead of locally duplicated."
-        }
-      ]
-    },
-    {
-      "id": "repo-027",
-      "query": "UndeclaredKeys Writable guardFor drift check",
-      "kind": "exact",
-      "intent": "The generic guard verifies schema/interface agreement in both directions.",
-      "judgments": [
-        {
-          "id": "repo-027-answer-1",
-          "relativePath": "packages/chunking-worker/src/message-validation.ts",
-          "startLine": 86,
-          "endLine": 86,
-          "evidence": "const guardFor = <S extends Schema.Top>(schema: S) => {",
-          "rationale": "The generic guard verifies schema/interface agreement in both directions."
-        }
-      ]
-    },
-    {
       "id": "repo-028",
       "query": "codeLanguageDefaults rust maxTokens overlap",
       "kind": "exact",
@@ -583,54 +495,6 @@
           "endLine": 40,
           "evidence": "maxMetadataFieldLength: 4096, // Hard limit for request metadata strings (ids, names, paths)",
           "rationale": "Metadata strings have an explicit 4096-character limit."
-        }
-      ]
-    },
-    {
-      "id": "repo-032",
-      "query": "resolveChunkingWorkerUrl ?worker&url",
-      "kind": "exact",
-      "intent": "The worker source is imported with Vite worker URL ownership.",
-      "judgments": [
-        {
-          "id": "repo-032-answer-1",
-          "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
-          "startLine": 3,
-          "endLine": 3,
-          "evidence": "import chunkingWorkerUrlHref from '../../chunking-worker/src/chunking.worker.ts?worker&url';",
-          "rationale": "The worker source is imported with Vite worker URL ownership."
-        }
-      ]
-    },
-    {
-      "id": "repo-033",
-      "query": "How is the chunk worker base URL chosen when there is no browser window?",
-      "kind": "semantic",
-      "intent": "Nonwindow contexts use the current module URL as base.",
-      "judgments": [
-        {
-          "id": "repo-033-answer-1",
-          "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
-          "startLine": 13,
-          "endLine": 13,
-          "evidence": "return import.meta.url;",
-          "rationale": "Nonwindow contexts use the current module URL as base."
-        }
-      ]
-    },
-    {
-      "id": "repo-034",
-      "query": "chunking worker URL resolution failure throws",
-      "kind": "mixed",
-      "intent": "Resolution errors are rethrown with the failure message.",
-      "judgments": [
-        {
-          "id": "repo-034-answer-1",
-          "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
-          "startLine": 45,
-          "endLine": 45,
-          "evidence": "`Failed to resolve chunking worker URL: ${error instanceof Error ? error.message : String(error)}`",
-          "rationale": "Resolution errors are rethrown with the failure message."
         }
       ]
     },

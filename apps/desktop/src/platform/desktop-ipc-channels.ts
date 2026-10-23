@@ -34,34 +34,8 @@ export const DESKTOP_IPC_CHANNELS = {
     inventory: 'changes:inventory',
     resolveView: 'changes:resolveView',
   },
-  // Hidden chunking host (renderer-only inference, docs/agents/local-inference.md).
-  // `request`/`progress`/`status` are one-way main→host pushes; `report*` are
-  // host→main sends. Pinned equal to the @brainstrike/worker-runtime
-  // descriptor in chunking-host-shared.ts by desktop-ipc-channel-contract.test.ts.
-  chunkingHost: {
-    chunkBatch: 'chunking-host:chunk-batch',
-    chunkFile: 'chunking-host:chunk-file',
-    ensureStarted: 'chunking-host:ensure-started',
-    getStatus: 'chunking-host:get-status',
-    progress: 'chunking-host:progress',
-    reportResponse: 'chunking-host:report-response',
-    reportStatus: 'chunking-host:report-status',
-    request: 'chunking-host:request',
-    reset: 'chunking-host:reset',
-    status: 'chunking-host:status',
-    stop: 'chunking-host:stop',
-  },
   clipboard: {
     writeText: 'clipboard:write-text',
-  },
-  collectionCatalog: {
-    create: 'collection-catalog:create',
-    delete: 'collection-catalog:delete',
-    ensureWorkspaceIndex: 'collection-catalog:ensure-workspace-index',
-    get: 'collection-catalog:get',
-    list: 'collection-catalog:list',
-    snapshot: 'collection-catalog:snapshot',
-    update: 'collection-catalog:update',
   },
   commandPalette: {
     // One-way main→renderer push: the app menu's Cmd+K accelerator triggers
@@ -91,7 +65,7 @@ export const DESKTOP_IPC_CHANNELS = {
     readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
     readProcessCounters: 'desktop-diagnostics:read-process-counters',
   },
-  // Hidden embedding host; same pinning as chunkingHost (embedding-host-shared.ts).
+  // Hidden embedding host; pinned equal to the worker-runtime descriptor in embedding-host-shared.ts by desktop-ipc-channel-contract.test.ts.
   embeddingHost: {
     cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
     cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
@@ -126,7 +100,6 @@ export const DESKTOP_IPC_CHANNELS = {
     deleteRootData: 'fs:deleteRootData',
     exists: 'fs:exists',
     listRecentRoots: 'fs:listRecentRoots',
-    parserHostParse: 'parser-host:parse',
     readDirectory: 'fs:readDirectory',
     readFile: 'fs:readFile',
     readFileByAbsolutePath: 'fs:readFileByAbsolutePath',
@@ -176,16 +149,19 @@ export const DESKTOP_IPC_CHANNELS = {
     untrustProjectHooks: 'hooks:untrust-project-hooks',
   },
   indexSearch: {
+    configChanged: 'index-search:config-changed',
     coverage: 'index-search:coverage',
     coverageBatch: 'index-search:coverage-batch',
     fileChunks: 'index-search:file-chunks',
     grep: 'index-search:grep',
     lifecycleChanged: 'index-search:lifecycle-changed',
+    readConfig: 'index-search:read-config',
     rebuild: 'index-search:rebuild',
     retryIndexing: 'index-search:retry-indexing',
     rootsRegistered: 'index-search:roots-registered',
     search: 'index-search:search',
     status: 'index-search:status',
+    updateConfig: 'index-search:update-config',
   },
   // Logging settings/ingest surface; `platform/logging-api-contract.ts`
   // re-exports this group as LOGGING_API_CHANNELS (its validators need
@@ -248,13 +224,6 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   skills: {
     scan: 'skills:scan',
-  },
-  sourceFiles: {
-    chunks: 'source-files:chunks',
-    delete: 'source-files:delete',
-    import: 'source-files:import',
-    list: 'source-files:list',
-    read: 'source-files:read',
   },
   storage: {
     clear: 'storage:clear',

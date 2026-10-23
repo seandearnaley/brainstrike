@@ -16,6 +16,9 @@ import type {
   CanonicalVectorPublicationPort,
 } from '../src/ports.js';
 
+const diagnostics = vi.hoisted(() => ({ debug: vi.fn() }));
+vi.mock('@brainstrike/logging', () => ({ createLogger: () => diagnostics }));
+
 const profile: VectorProfile = {
   dimensions: 384,
   distance: 'cosine',
@@ -501,7 +504,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     await closing;
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
   });
-  it('preserves an independent AbortError and failed stop notice during cancellation', async () => {
+  it('reports an independent AbortError and failed stop notice to the scan it cancelled', async () => {
     const f = await fixture();
     const physical = deferred();
     const independent = new DOMException('independent renderer failure', 'AbortError');
@@ -523,7 +526,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     }
     expect(failure.errors).toContain(independent);
     expect(failure.errors).toContain(notice);
-    expect(await cancelling).toBe(failure);
+    expect(await cancelling).toBeUndefined();
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
     await f.host.close();
   });
@@ -546,7 +549,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     expect(f.catalog.resolveProfile).not.toHaveBeenCalled();
     await f.host.close();
   });
-  it('accepts the inference owner successful cancellation disposition without matching AbortError names', async () => {
+  it('reports a cancelled generation as the scan cancellation and logs how it ended', async () => {
     const f = await fixture();
     const physical = deferred();
     const ownedReason = new DOMException('native owner cancelled', 'AbortError');
@@ -561,14 +564,18 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     physical.resolve();
     await cancelling;
     const reason = await result;
-    // The scan ends on the host's own typed cancellation, not the inference owner's reason.
+    // The scan ends on the host's own typed cancellation; the generation's reason is logged.
     expect(reason).toBeInstanceOf(CanonicalOperationCancelledError);
     expect(reason).not.toBe(ownedReason);
+    expect(diagnostics.debug).toHaveBeenCalledWith(expect.any(String), {
+      error: ownedReason,
+      requestId: expect.stringMatching(new RegExp(`^${f.request.requestId}:`)),
+    });
     expect(f.inference.join).toHaveBeenCalledOnce();
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
     await f.host.close();
   });
-  it('preserves an independent AbortError through the inference owner joined disposition', async () => {
+  it('reports an independent AbortError to the scan and keeps an unjoined inference owned', async () => {
     const f = await fixture();
     const physical = deferred();
     const independent = new DOMException('independent renderer fault', 'AbortError');
@@ -583,8 +590,9 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     await vi.waitFor(() => expect(f.inference.cancel).toHaveBeenCalledOnce());
     physical.resolve();
     expect(await result).toBe(independent);
-    expect(await cancelling).toBe(independent);
+    expect(await cancelling).toBeUndefined();
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+    // An inference request whose join fails is still owned: retirement fails with it.
     await expect(f.host.close()).rejects.toThrow('retirement failed');
     vi.mocked(f.inference.join).mockResolvedValue();
     await f.host.close();
@@ -615,7 +623,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
       await f.host.close();
     }
   );
-  it('keeps an independent port failure a failed cancel', async () => {
+  it('reports an independent port failure to the scan it cancelled, and settles the cancel', async () => {
     const f = await fixture();
     const physical = deferred();
     const independent = new DOMException('independent coverage fault', 'AbortError');
@@ -627,7 +635,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     await vi.waitFor(() => expect(f.publication.vectorCoverage).toHaveBeenCalledOnce());
     const cancelling = f.host.cancel(f.request.requestId).catch((error: unknown) => error);
     physical.resolve();
-    expect(await cancelling).toBe(independent);
+    expect(await cancelling).toBeUndefined();
     expect(await result).toBe(independent);
     await f.host.close();
   });

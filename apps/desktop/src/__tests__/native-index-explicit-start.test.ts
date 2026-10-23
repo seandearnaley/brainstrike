@@ -7,8 +7,8 @@ import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/n
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
+import { unreadableSettings } from './helpers/native-index-settings';
 import {
   emptyCollection,
   fixture,
@@ -213,26 +213,22 @@ it('acquire after resume joins the open that resume started', async () => {
   }
 });
 
-it('resume after a reset cleared the settings resolves with the index refused as setup required', async () => {
+it('resume resolves with the index refused when the saved settings cannot be read', async () => {
   const f = heldOpens();
   try {
     await f.activation.acquireProfile();
     await f.activation.acquire();
     await f.activation.closeNativeOwner();
-    f.storage.getItem.mockResolvedValue(null as unknown as string);
+    const unreadable = unreadableSettings();
+    f.settings.mockRejectedValue(unreadable);
     await f.activation.resume();
     await vi.waitFor(async () =>
       expect(await lifecycleOf(f.activation)).toMatchObject({
-        cause: { kind: 'setup-required' },
+        cause: { kind: 'settings-invalid' },
         kind: 'refused',
       })
     );
-    await vi.waitFor(() =>
-      expect(f.onError).toHaveBeenCalledWith(
-        'open after resume',
-        expect.any(NativeIndexSetupRequiredError)
-      )
-    );
+    await vi.waitFor(() => expect(f.onError).toHaveBeenCalledWith('open after resume', unreadable));
   } finally {
     await f.activation.close();
   }

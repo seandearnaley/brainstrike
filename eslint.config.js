@@ -77,7 +77,6 @@ export default [
       'packages/settings-ui/src/**/*.{js,jsx,ts,tsx}',
       'packages/token-cache/src/**/*.{js,jsx,ts,tsx}',
       'packages/vector-management/src/**/*.{js,jsx,ts,tsx}',
-      'packages/db-explorer/src/**/*.{js,jsx,ts,tsx}',
       'packages/file-explorer-hooks/src/**/*.{js,jsx,ts,tsx}',
       'packages/file-explorer-ui/src/**/*.{js,jsx,ts,tsx}',
       'packages/hooks/src/**/*.{js,jsx,ts,tsx}',

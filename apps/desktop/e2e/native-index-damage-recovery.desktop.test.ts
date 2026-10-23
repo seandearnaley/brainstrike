@@ -16,7 +16,7 @@ import { SettingsPage } from './page-objects/settings-page';
 import { withAppHost } from './utils/agent-host-log';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { seedHostThreads } from './utils/seed-threads';
-import { chooseTextSearch, nativeStatus, textReadiness } from './utils/text-search-mode';
+import { nativeStatus, textReadiness } from './utils/text-search-mode';
 
 const MARKER = 'damaged-index-marker-1878';
 /** The user-facing words of a `rebuild-required` refusal (`native-index-lifecycle.ts`). */
@@ -115,7 +115,6 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
     expect(root).not.toBe('');
     writeFileSync(path.join(root, 'notes.txt'), `first line\n${MARKER} in the notes\n`);
     try {
-      await chooseTextSearch(page);
       await ensureMockWorkspaceOpen(page);
       await expect(page.getByText('notes.txt').first()).toBeVisible({ timeout: 60_000 });
       await expect
@@ -172,8 +171,8 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
         /Search & Indexing/i,
         'search-indexing'
       );
-      await settings.getByRole('button', { name: 'Rebuild search index' }).click();
-      await expect(settings.getByRole('button', { name: 'Rebuild search index' })).toBeEnabled({
+      await settings.getByRole('button', { name: 'Rebuild index' }).click();
+      await expect(settings.getByRole('button', { name: 'Rebuild index' })).toBeEnabled({
         timeout: 120_000,
       });
       await expect(settings.getByRole('alert')).toHaveCount(0);
