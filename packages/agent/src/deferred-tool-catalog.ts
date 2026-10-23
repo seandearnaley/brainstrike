@@ -32,9 +32,11 @@ const catalogInputSchema = Schema.Struct({
   ).annotate({
     description: 'Start at 0; use nextOffset for subsequent pages with the same prefix.',
   }),
-  prefix: Schema.optional(
-    Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(128))
-  ).annotate({ description: 'Case-insensitive tool name prefix.' }),
+  // An empty prefix lists everything: a model that writes every key sends one,
+  // and a refused "" derailed GPT-6 Luna into ten minutes of garbage arguments.
+  prefix: Schema.optional(Schema.String.check(Schema.isMaxCodePoints(128))).annotate({
+    description: 'Case-insensitive tool name prefix; omit it or pass "" for every tool.',
+  }),
 });
 
 const catalogOutputSchema = Schema.Struct({
