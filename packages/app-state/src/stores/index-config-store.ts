@@ -1,7 +1,7 @@
 import {
   type BoundaryFailure,
   BoundaryFailureError,
-  describeBoundaryFailure,
+  describeBoundaryError,
   INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import {
@@ -69,9 +69,12 @@ export function followIndexConfig(capability: IndexConfigCapability): () => void
     },
     (error: unknown) => {
       if (following && !published) {
-        const failure = error instanceof BoundaryFailureError ? error.failure : INTERNAL_FAULT;
         useIndexConfigStore.setState({
-          state: { failure, kind: 'failed', message: describeBoundaryFailure(failure) },
+          state: {
+            failure: error instanceof BoundaryFailureError ? error.failure : INTERNAL_FAULT,
+            kind: 'failed',
+            message: describeBoundaryError(error),
+          },
         });
       }
     }
