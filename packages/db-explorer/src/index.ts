@@ -4,8 +4,6 @@
 export { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 // Components
 export * from './components';
-// Context Actions
-export * from './context-actions';
 export * from './database-demo-panel';
 // Hooks
 export { useAvailableModels, useAvailableProviders } from './hooks/use-available-models';

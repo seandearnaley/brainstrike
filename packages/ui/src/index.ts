@@ -17,7 +17,6 @@ export * from './card';
 export * from './checkbox';
 export * from './chunk-load';
 export * from './code-surface';
-export * from './collection-browser';
 export * from './collection-picker';
 export * from './command-palette';
 export * from './context-menu';

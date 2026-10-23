@@ -4,7 +4,6 @@
   "dependencies": {
     "@brainstrike/app-state": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
@@ -40,10 +39,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./context-actions": {
-      "types": "./dist/context-actions/index.d.ts",
-      "import": "./dist/context-actions/index.js"
     },
     "./embedding-models": {
       "types": "./dist/utils/embedding-models.d.ts",

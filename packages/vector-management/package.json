@@ -10,8 +10,7 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "lucide-react": "catalog:"
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

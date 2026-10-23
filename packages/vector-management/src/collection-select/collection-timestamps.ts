@@ -35,9 +35,9 @@ const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T/u;
  *
  * The collections query is not the only way rows reach the shared cache: the
  * `embedding-set-updated` event carries an `EmbeddingSet`, whose `createdAt` is
- * TYPED `string` but is produced by `String(row.created_at)` in both
- * `EmbeddingSetsRepository.fromRow` and `manage-embedding-sets-dialog` — and
- * `String(new Date(…))` is `'Sun Aug 09 2026 …'`, not ISO.
+ * TYPED `string` but is produced by `String(row.created_at)` in
+ * `EmbeddingSetsRepository.fromRow` — and `String(new Date(…))` is
+ * `'Sun Aug 09 2026 …'`, not ISO.
  *
  * Mixing the two formats in one cache breaks `compareCollectionsDesc`, which
  * compares `createdAt` relationally: `'S' > '2'`, so an event-sourced entry

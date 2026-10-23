@@ -102,10 +102,6 @@
       "types": "./dist/stores/diagnostics-retention-store.d.ts",
       "import": "./dist/stores/diagnostics-retention-store.js"
     },
-    "./stores/embedding-preferences-store": {
-      "types": "./dist/stores/embedding-preferences-store.d.ts",
-      "import": "./dist/stores/embedding-preferences-store.js"
-    },
     "./stores/explorer-column-sizes-store": {
       "types": "./dist/stores/explorer-column-sizes-store.d.ts",
       "import": "./dist/stores/explorer-column-sizes-store.js"
