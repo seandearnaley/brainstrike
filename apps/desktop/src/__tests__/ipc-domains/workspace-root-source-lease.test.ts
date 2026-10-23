@@ -236,6 +236,36 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     expect(logger.info).toHaveBeenCalledOnce();
   });
 
+  it('answers a read its folder data deletion took over with the typed refusal, sent without a log', async () => {
+    const started = deferred<void>();
+    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const root = {
+      ...secureRoot('/workspace'),
+      readFile: vi.fn(() => {
+        started.resolve();
+        return nativeRead.promise;
+      }),
+    };
+    const { registry, rootId } = await mounted(root);
+    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
+    await started.promise;
+    // The deletion owns the mount before it retires the lease: the read finishes in between.
+    const reservation = registry.reserveRootDataDeletion(rootId);
+    nativeRead.resolve({ content: Buffer.from('late bytes'), status: 'ok' });
+    const error = await outcome;
+    expect(lease.signal.aborted).toBe(false);
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    const log = vi.fn();
+    expect(nativeIndexBoundaryFailure(error, log)).toMatchObject({
+      code: 'native-index-transitioning',
+      kind: 'refusal',
+    });
+    expect(log).not.toHaveBeenCalled();
+    reservation.release();
+    await lease.retire();
+  });
+
   it('disconnect revokes admission and joins the borrow before closing the shared mount', async () => {
     const started = deferred<void>();
     const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();

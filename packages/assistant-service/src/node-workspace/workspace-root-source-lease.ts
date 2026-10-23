@@ -126,7 +126,8 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
     if (this.retired) {
       return Promise.resolve();
     }
-    // The owner retired this mount (removal, replacement, reset): its work is superseded, typed so.
+    // The owner retired this mount (removal, replacement, reset) or the borrower ended its own
+    // lease: work still in flight is superseded, typed so.
     this.stopping.abort(new NativeAuthorityTransitionError('Mounted source lease was retired.'));
     this.retirement ??= this.joinRetirement().finally(() => {
       this.retirement = undefined;
