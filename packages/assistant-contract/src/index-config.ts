@@ -5,26 +5,28 @@ import { Schema } from 'effect';
 export const CHUNK_SIZE_TOKENS = { maximum: 2048, minimum: 128 } as const;
 export const CHUNK_OVERLAP_TOKENS = { maximum: 256, minimum: 0 } as const;
 
-const Tokens = (bounds: { readonly maximum: number; readonly minimum: number }) =>
+const IntBetween = (bounds: { readonly maximum: number; readonly minimum: number }) =>
   Schema.Int.check(Schema.isBetween(bounds));
-const Text = Schema.String.check(Schema.isPattern(/\S/));
 
 /** Auto keeps the chunker's per-language sizes; Custom applies one size to every file type. */
 export const IndexChunkingSchema = Schema.TaggedUnion({
   // biome-ignore lint/style/useNamingConvention: TaggedUnion keys are the persisted `_tag` values.
   Auto: {},
   // biome-ignore lint/style/useNamingConvention: TaggedUnion keys are the persisted `_tag` values.
-  Custom: { maxTokens: Tokens(CHUNK_SIZE_TOKENS), overlap: Tokens(CHUNK_OVERLAP_TOKENS) },
+  Custom: { maxTokens: IntBetween(CHUNK_SIZE_TOKENS), overlap: IntBetween(CHUNK_OVERLAP_TOKENS) },
 });
 
-/** An embedding model whose dimensions were verified; `local` is how an on-device model runs. */
+/**
+ * An embedding model whose dimensions were verified; `local` is how an on-device model runs,
+ * limited to the dtypes and pinned commit revisions every local executor accepts.
+ */
 export const IndexModelSchema = Schema.Struct({
-  dimensions: Tokens({ maximum: 16_000, minimum: 1 }),
+  dimensions: IntBetween({ maximum: 16_000, minimum: 1 }),
   local: Schema.NullOr(
     Schema.Struct({
       device: Schema.Literals(['webgpu', 'wasm']),
-      dtype: Text,
-      revision: Schema.optionalKey(Text),
+      dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
+      revision: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u))),
     })
   ),
   modelKey: Schema.String.check(Schema.isPattern(/^[^:\s]+::\S+/)),
@@ -83,7 +85,11 @@ export const sameIndexChunking = Schema.toEquivalence(IndexChunkingSchema);
 
 /** `provider::modelId` → `modelId`. */
 export function indexModelId(model: Pick<IndexModel, 'modelKey'>): string {
-  return model.modelKey.slice(model.modelKey.indexOf('::') + 2);
+  const separator = model.modelKey.indexOf('::');
+  if (separator === -1) {
+    throw new Error(`Embedding model key "${model.modelKey}" names no provider.`);
+  }
+  return model.modelKey.slice(separator + 2);
 }
 
 /** Structurally the indexing contract's `NativeLocalSelection`. */

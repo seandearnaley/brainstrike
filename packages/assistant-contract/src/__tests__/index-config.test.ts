@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_INDEX_CONFIG,
   decodeIndexConfig,
+  indexModelId,
   indexModelLocalSelection,
   sameIndexChunking,
 } from '../index-config.js';
@@ -11,7 +12,11 @@ const semantic = {
   mode: 'semantic',
   model: {
     dimensions: 768,
-    local: { device: 'webgpu', dtype: 'fp16' },
+    local: {
+      device: 'webgpu',
+      dtype: 'fp16',
+      revision: '0123456789abcdef0123456789abcdef01234567',
+    },
     modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
   },
 } as const;
@@ -38,19 +43,46 @@ describe('index config', () => {
     );
   });
 
-  it.each([
-    ['a chunk size above 2048', { _tag: 'Custom', maxTokens: 4096, overlap: 64 }],
-    ['a chunk size below 128', { _tag: 'Custom', maxTokens: 64, overlap: 0 }],
-    ['an overlap above 256', { _tag: 'Custom', maxTokens: 512, overlap: 512 }],
-  ])('refuses %s', (_label, chunking) => {
-    expect(() => decodeIndexConfig({ ...DEFAULT_INDEX_CONFIG, chunking })).toThrow();
+  it('accepts the largest custom chunk size and overlap', () => {
+    const chunking = { _tag: 'Custom', maxTokens: 2048, overlap: 256 } as const;
+    expect(decodeIndexConfig({ ...DEFAULT_INDEX_CONFIG, chunking }).chunking).toEqual(chunking);
   });
 
-  it('refuses a model key without its provider and any unknown field', () => {
-    expect(() =>
-      decodeIndexConfig({ ...semantic, model: { ...semantic.model, modelKey: 'bge-small' } })
-    ).toThrow();
-    expect(() => decodeIndexConfig({ ...DEFAULT_INDEX_CONFIG, collection: 'x' })).toThrow();
+  it.each([
+    ['a chunk size above 2048', { _tag: 'Custom', maxTokens: 4096, overlap: 64 }, 'maxTokens'],
+    ['a chunk size below 128', { _tag: 'Custom', maxTokens: 64, overlap: 0 }, 'maxTokens'],
+    ['an overlap above 256', { _tag: 'Custom', maxTokens: 512, overlap: 512 }, 'overlap'],
+  ])('refuses %s', (_label, chunking, field) => {
+    expect(() => decodeIndexConfig({ ...DEFAULT_INDEX_CONFIG, chunking })).toThrow(
+      `at ["chunking"]["${field}"]`
+    );
+  });
+
+  it.each([
+    [
+      'a model key without its provider',
+      { ...semantic, model: { ...semantic.model, modelKey: 'bge-small' } },
+      '["model"]["modelKey"]',
+    ],
+    [
+      'a local revision that is not a commit SHA',
+      {
+        ...semantic,
+        model: { ...semantic.model, local: { ...semantic.model.local, revision: 'main' } },
+      },
+      '["model"]["local"]["revision"]',
+    ],
+    [
+      'a local dtype no executor runs',
+      {
+        ...semantic,
+        model: { ...semantic.model, local: { ...semantic.model.local, dtype: 'int8' } },
+      },
+      '["model"]["local"]["dtype"]',
+    ],
+    ['an unknown field', { ...DEFAULT_INDEX_CONFIG, collection: 'x' }, '["collection"]'],
+  ])('refuses %s', (_label, input, path) => {
+    expect(() => decodeIndexConfig(input)).toThrow(`at ${path}`);
   });
 
   it('names the on-device execution the index runs a local model with', () => {
@@ -59,8 +91,15 @@ describe('index config', () => {
       dimensions: 768,
       dtype: 'fp16',
       modelId: 'jinaai/jina-embeddings-v2-base-code',
+      revision: '0123456789abcdef0123456789abcdef01234567',
     });
     expect(indexModelLocalSelection({ ...semantic.model, local: null })).toBeNull();
+  });
+
+  it('refuses to name a model whose key has no provider', () => {
+    expect(() => indexModelId({ modelKey: 'bge-small' })).toThrow(
+      'Embedding model key "bge-small" names no provider.'
+    );
   });
 
   it('compares chunking by value', () => {
