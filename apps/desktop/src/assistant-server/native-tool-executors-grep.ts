@@ -8,7 +8,6 @@ import { type GrepSearchInput, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/ag
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
   attachGrepSearchTelemetry,
-  logToolFailure,
   type NativeToolExecutor,
   parseToolExecuteInput,
   projectGrepSearchModelOutput,
@@ -26,21 +25,16 @@ export function grepSearchExecutor(): NativeToolExecutor {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
         input
       );
-      try {
-        return await withRepeatedCallGuard({
-          input: resolvedInput,
-          run: async () =>
-            attachGrepSearchTelemetry(
-              resolvedInput,
-              await runGrepSearchWith(resolvedInput, runtimeData)
-            ),
-          threadScope: readStateScope(runtimeData),
-          toolId: NATIVE_TOOL_ID.grepSearch,
-        });
-      } catch (error) {
-        logToolFailure('grepSearch failed', error, resolvedInput);
-        throw error;
-      }
+      return await withRepeatedCallGuard({
+        input: resolvedInput,
+        run: async () =>
+          attachGrepSearchTelemetry(
+            resolvedInput,
+            await runGrepSearchWith(resolvedInput, runtimeData)
+          ),
+        threadScope: readStateScope(runtimeData),
+        toolId: NATIVE_TOOL_ID.grepSearch,
+      });
     },
     id: NATIVE_TOOL_ID.grepSearch,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],

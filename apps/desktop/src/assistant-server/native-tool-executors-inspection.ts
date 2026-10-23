@@ -6,7 +6,6 @@
 import { type LspInspectInput, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
-  logToolFailure,
   type NativeToolExecutor,
   parseToolExecuteInput,
   projectLspInspectModelOutput,
@@ -24,12 +23,7 @@ export const INSPECTION_TOOL_EXECUTORS: {
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
         input
       );
-      try {
-        return await runLspInspect(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('lspInspect failed', error, resolvedInput);
-        throw error;
-      }
+      return await runLspInspect(resolvedInput, runtimeData);
     },
     id: NATIVE_TOOL_ID.lspInspect,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
