@@ -210,7 +210,9 @@ describe('assistant vite helpers', () => {
       true
     );
     expect(
-      isContextActionSystemModule('/workspace/packages/db-explorer/src/context-actions/actions.ts')
+      isContextActionSystemModule(
+        '/workspace/packages/file-explorer-ui/src/context-actions/file-entry-actions.ts'
+      )
     ).toBe(true);
     expect(
       isContextActionSystemModule(

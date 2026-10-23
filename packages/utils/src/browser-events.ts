@@ -3,9 +3,8 @@
  * lifecycle (BST-580).
  *
  * These events are dispatched in one package and listened to in others
- * (file-import / app-shell / vector-management dispatch; db-explorer /
- * preferences / app-shell / vector-management listen), so the event names and
- * detail shapes are a wire contract. Before this module existed the three
+ * (vector-management dispatches; vector-management and workspace-search
+ * listen), so the event names and detail shapes are a wire contract. Before this module existed the three
  * 'queue-drained' dispatchers had drifted to divergent detail shapes; this
  * module is now the single owner of the names, the detail interfaces, and the
  * dispatch/listen helpers.
