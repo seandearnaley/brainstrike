@@ -10,6 +10,7 @@ import { getFileSizeConfig } from '@brainstrike/file-system';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { NATIVE_MAX_READ_BYTES } from '@brainstrike/file-system/secure-file-read';
 import { MAX_DIRECTORY_ENTRIES } from '@brainstrike/file-system/workspace-root-nodes';
+import { NativeAuthorityTransitionError } from '../node-native-index/errors.js';
 import { resolveReadAgainstMountedRoot } from './workspace-root-read.js';
 import type { MountedWorkspaceRoot } from './workspace-root-types.js';
 
@@ -125,7 +126,8 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
     if (this.retired) {
       return Promise.resolve();
     }
-    this.stopping.abort(new Error('Mounted source lease was retired.'));
+    // The owner retired this mount (removal, replacement, reset): its work is superseded, typed so.
+    this.stopping.abort(new NativeAuthorityTransitionError('Mounted source lease was retired.'));
     this.retirement ??= this.joinRetirement().finally(() => {
       this.retirement = undefined;
     });
