@@ -8,13 +8,13 @@ import {
   type ThreadSearchCoverage,
   type ThreadSearchExtraArms,
 } from '@brainstrike/db';
-import type { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type {
   EmbeddingSetModelInfo,
   UseSearchEmbedderResult,
 } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { AssistantThreadSearchSemantic } from './assistant-thread-host-context';
+import type { buildLocalEmbeddingModelConfigMap } from './embedding-models';
 import {
   combineThreadSearchCoverage,
   embedPendingHostSearchRows,

@@ -66,6 +66,7 @@ export function createDesktopWorkspaceRootCatalog(
     collections: (request) => borrow((client) => client.collections(request)),
     forgeCache: (request) => borrow((client) => client.forgeCache(request)),
     forgeCacheSnapshot: () => borrow((client) => client.forgeCacheSnapshot()),
+    indexConfig: (request) => borrow((client) => client.indexConfig(request)),
     modelChoices: (request) => borrow((client) => client.modelChoices(request)),
     prepareClose: () => {
       closing ??= Promise.allSettled([...pending]).then((results) => {

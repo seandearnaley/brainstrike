@@ -1,7 +1,4 @@
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import {
   __resetIndexingActivityStoreForTests,
   useIndexingActivityStore,
@@ -13,8 +10,13 @@ import {
 import {
   BoundaryFailureError,
   describeBoundaryFailure,
+  fault,
   refusal,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  DEFAULT_INDEX_CONFIG,
+  type IndexConfig,
+} from '@brainstrike/assistant-contract/index-config';
 import type {
   IndexerCoverageBatch,
   IndexerCoverageRequest,
@@ -42,13 +44,69 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 vi.mock('../../roots/use-roots-reconciliation', () => ({
   useRootsReconciliation: () => reconciliation,
 }));
+const SEMANTIC_CONFIG: IndexConfig = {
+  ...DEFAULT_INDEX_CONFIG,
+  mode: 'semantic',
+  model: {
+    dimensions: 384,
+    local: { device: 'wasm', dtype: 'q8' },
+    modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
+  },
+};
+
+/** What Main sends for its lifecycle owner's typed refusals (`nativeIndexBoundaryFailure`). */
+const CLOSED = refusal({
+  category: 'availability',
+  code: 'native-index-closed',
+  message: 'The search index is closed.',
+  remedy: 'Reopen the workspace to search again.',
+});
+const TRANSITIONING = refusal({
+  category: 'availability',
+  code: 'native-index-transitioning',
+  message: 'The search index is preparing.',
+});
+const SOURCE_FAILURE = refusal({
+  category: 'availability',
+  code: 'native-index-source-failure',
+  message: 'The search index could not prepare its sources.',
+  remedy: 'Review Search and indexing in Settings and retry.',
+});
+
+/** Main's side of the config: one read, then every change it publishes. */
+function mainConfig(read: () => Promise<IndexConfig>) {
+  let listener: ((config: IndexConfig) => void) | undefined;
+  return {
+    onConfigChanged: (next: (config: IndexConfig) => void) => {
+      listener = next;
+      return () => {
+        listener = undefined;
+      };
+    },
+    publish: (config: IndexConfig) => act(() => listener?.(config)),
+    readConfig: vi.fn(read),
+    updateConfig: vi.fn(),
+  };
+}
+
+const savedConfig = (config: IndexConfig) => mainConfig(async () => config);
+
 beforeEach(() => {
   __resetIndexingActivityStoreForTests();
-  __resetBackgroundIndexingPreferencesStoreForTests();
+  useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null });
   __resetWorkspaceCollectionSyncStatusStoreForTests();
 });
-it('reports missing mode and collection, then lets native authority validate provider-specific execution without blocking hosted models', async () => {
+
+it('waits for Main’s config before reading the index, then follows each change', async () => {
+  let answer: (config: IndexConfig) => void = () => {};
+  const main = mainConfig(
+    () =>
+      new Promise<IndexConfig>((resolve) => {
+        answer = resolve;
+      })
+  );
   const capability = {
+    ...main,
     coverage: vi.fn(),
     coverageBatch: vi.fn(),
     grep: vi.fn(),
@@ -64,26 +122,125 @@ it('reports missing mode and collection, then lets native authority validate pro
       <span>Workspace</span>
     </NativeWorkspaceIndexProvider>
   );
-  await waitFor(() =>
-    expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain('search mode')
-  );
-  act(() => useBackgroundIndexingPreferencesStore.getState().setNativeIndexMode('VECTOR'));
-  await waitFor(() =>
-    expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain('embedding model')
-  );
-  act(() => useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('selected'));
+  await waitFor(() => expect(main.readConfig).toHaveBeenCalledOnce());
+  expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting');
+  expect(capability.status).not.toHaveBeenCalled();
+  act(() => answer(SEMANTIC_CONFIG));
   await waitFor(() => expect(capability.status).toHaveBeenCalledOnce());
   expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toBe(
     'Waiting for native activation.'
   );
+  main.publish({ ...SEMANTIC_CONFIG, paused: true });
+  expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('paused');
+  main.publish({ ...SEMANTIC_CONFIG, mode: 'off' });
+  expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('disabled');
   mounted.unmount();
 });
 
-it('observes an atomic batch and preserves acknowledged counters across ordinary mutation invalidation', async () => {
-  useBackgroundIndexingPreferencesStore.setState({
-    managedCollectionId: 'selected',
-    nativeIndexMode: 'VECTOR',
+it('shows why Main could not read the config instead of waiting forever', async () => {
+  const failure = fault({
+    category: 'internal',
+    code: 'index-config.store-failed',
+    correlationId: '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b',
+    message: 'The search index settings could not be read.',
   });
+  const capability = {
+    ...mainConfig(async () => {
+      throw new BoundaryFailureError(failure);
+    }),
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(),
+    grep: vi.fn(),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(),
+  };
+  const mounted = render(
+    <NativeWorkspaceIndexProvider capability={capability}>
+      <span>Workspace</span>
+    </NativeWorkspaceIndexProvider>
+  );
+  await waitFor(() =>
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: describeBoundaryFailure(failure),
+      state: 'error',
+    })
+  );
+  expect(capability.status).not.toHaveBeenCalled();
+  mounted.unmount();
+});
+
+it.each([
+  ['closed', CLOSED],
+  ['preparing', TRANSITIONING],
+])(
+  'waits, with no error, when Main refuses the config read because its index is %s, then follows the config Main publishes',
+  async (_kind, failure) => {
+    // Main's config read reaches the agent-host profile, which a reset or quit has closed.
+    // Once the reset reopens the profile, Main publishes its config; nothing reads again.
+    const main = mainConfig(async () => {
+      throw new BoundaryFailureError(failure);
+    });
+    const status: IndexerStatus = {
+      authorizedCollectionIds: [],
+      authorizedRootIds: [],
+      collectionReadiness: [],
+      embedding: { indexMode: 'text-only' },
+      kind: 'ready',
+      rootReadiness: [],
+      storeId: 'store',
+    };
+    const counts = { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 };
+    const capability = {
+      ...main,
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(
+        async (): Promise<IndexerCoverageBatch> => ({
+          coverage: [
+            {
+              collections: [],
+              embedding: status.embedding,
+              roots: [],
+              storeId: 'store',
+              totals: counts,
+              vectorCoverageComplete: true,
+            },
+          ],
+          kind: 'current',
+          status,
+        })
+      ),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async (): Promise<IndexerStatus> => status),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() => expect(useIndexConfigStore.getState().state.kind).toBe('failed'));
+    await act(async () => {});
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: null,
+      state: 'waiting',
+    });
+    expect(capability.status).not.toHaveBeenCalled();
+    main.publish(DEFAULT_INDEX_CONFIG);
+    await waitFor(() => expect(capability.status).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+        lastError: null,
+        state: 'idle',
+      })
+    );
+    expect(main.readConfig).toHaveBeenCalledOnce();
+    mounted.unmount();
+  }
+);
+
+it('observes an atomic batch and preserves acknowledged counters across ordinary mutation invalidation', async () => {
   const status = {
     authorizedCollectionIds: ['selected'],
     authorizedRootIds: ['root'],
@@ -103,6 +260,7 @@ it('observes an atomic batch and preserves acknowledged counters across ordinary
     vectorCoverageComplete: true,
   };
   const capability = {
+    ...savedConfig(SEMANTIC_CONFIG),
     coverage: vi.fn(async () => {
       throw new Error('strict observation invalidated');
     }),
@@ -167,13 +325,9 @@ it('observes an atomic batch and preserves acknowledged counters across ordinary
   mounted.unmount();
 });
 
-it.each(['collection', 'roots', 'profile', 'store'] as const)(
+it.each(['roots', 'profile', 'store'] as const)(
   'clears previous counters when %s identity changes during an invalidated observation',
   async (changed) => {
-    useBackgroundIndexingPreferencesStore.setState({
-      managedCollectionId: 'selected',
-      nativeIndexMode: 'VECTOR',
-    });
     let status: Extract<IndexerStatus, { kind: 'ready' }> = {
       authorizedCollectionIds: ['selected', 'next'],
       authorizedRootIds: ['root'],
@@ -184,6 +338,7 @@ it.each(['collection', 'roots', 'profile', 'store'] as const)(
     };
     const counts = { chunks: 251, indexedFiles: 54, missingVectors: 0, vectors: 251 };
     const capability = {
+      ...savedConfig(SEMANTIC_CONFIG),
       coverage: vi.fn(),
       coverageBatch: vi.fn(
         async (): Promise<IndexerCoverageBatch> => ({
@@ -218,9 +373,7 @@ it.each(['collection', 'roots', 'profile', 'store'] as const)(
       code: 'native-coverage-observation-invalidated',
       kind: 'invalidated',
     }));
-    if (changed === 'collection') {
-      act(() => useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('next'));
-    } else if (changed === 'roots') {
+    if (changed === 'roots') {
       status = { ...status, authorizedRootIds: ['new-root'] };
     } else if (changed === 'store') {
       status = { ...status, storeId: 'rebuilt-store' };
@@ -253,13 +406,10 @@ it.each(['collection', 'roots', 'profile', 'store'] as const)(
 it.each(['status', 'batch'] as const)(
   'keeps a retained startup failure from %s visibly blocked across polling and exposes its actionable reason',
   async (source) => {
-    useBackgroundIndexingPreferencesStore.setState({
-      managedCollectionId: 'selected',
-      nativeIndexMode: 'VECTOR',
-    });
     const reason =
       'Native indexing is blocked: Indexer startup exceeded its caller-provided deadline. Open Diagnostics for details.';
     const capability = {
+      ...savedConfig(SEMANTIC_CONFIG),
       coverage: vi.fn(),
       coverageBatch: vi.fn(
         async (): Promise<IndexerCoverageBatch> => ({ kind: 'blocked', reason })
@@ -310,15 +460,12 @@ it.each(['status', 'batch'] as const)(
 it.each(['status', 'batch'] as const)(
   'carries an unresponsive embedding host from %s as the blocked reason that offers Retry indexing (BST-2104)',
   async (source) => {
-    useBackgroundIndexingPreferencesStore.setState({
-      managedCollectionId: 'selected',
-      nativeIndexMode: 'VECTOR',
-    });
     const reason =
       'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
     const cause = { kind: 'embedding-host-unresponsive' as const, message: reason };
     let unresponsive = true;
     const capability = {
+      ...savedConfig(SEMANTIC_CONFIG),
       coverage: vi.fn(),
       coverageBatch: vi.fn(
         async (): Promise<IndexerCoverageBatch> =>
@@ -388,10 +535,6 @@ it.each([
 ])(
   'reports Text search ready with no collection: $label (BST-1988)',
   async ({ files, rootIds }) => {
-    useBackgroundIndexingPreferencesStore.setState({
-      managedCollectionId: null,
-      nativeIndexMode: 'TEXT',
-    });
     // The shape the desktop recorded for the TEXT partition: roots only, no collection.
     const status = {
       authorizedCollectionIds: [],
@@ -411,6 +554,7 @@ it.each([
       vectorCoverageComplete: true,
     };
     const capability = {
+      ...savedConfig(DEFAULT_INDEX_CONFIG),
       coverage: vi.fn(),
       coverageBatch: vi.fn(
         async (requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch> => {
@@ -477,12 +621,9 @@ it.each([
 ] as const)(
   'keeps the native $code remedy visible without its private cause',
   async (description) => {
-    useBackgroundIndexingPreferencesStore.setState({
-      managedCollectionId: 'selected',
-      nativeIndexMode: 'VECTOR',
-    });
     const failure = refusal(description);
     const capability = {
+      ...savedConfig(SEMANTIC_CONFIG),
       coverage: vi.fn(),
       coverageBatch: vi.fn(),
       grep: vi.fn(),
@@ -505,6 +646,101 @@ it.each([
     expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).not.toContain(
       'private fixture diagnostic'
     );
+    mounted.unmount();
+  }
+);
+
+const PREPARING: IndexerStatus = {
+  kind: 'unavailable',
+  phase: 'preparing',
+  reason: 'Native index is transitioning.',
+};
+
+it.each([
+  { failure: CLOSED, state: 'waiting' },
+  { failure: TRANSITIONING, state: 'waiting' },
+  { failure: SOURCE_FAILURE, state: 'error' },
+] as const)(
+  'shows $failure.code from restoring roots as sync state $state',
+  async ({ failure, state }) => {
+    reconciliation.syncMountedRoots.mockRejectedValueOnce(new BoundaryFailureError(failure));
+    const capability = {
+      ...savedConfig(DEFAULT_INDEX_CONFIG),
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async () => PREPARING),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() => expect(capability.status).toHaveBeenCalled());
+    await waitFor(() => expect(reconciliation.syncMountedRoots).toHaveBeenCalled());
+    await act(async () => {});
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: state === 'error' ? describeBoundaryFailure(failure) : null,
+      state,
+    });
+    mounted.unmount();
+  }
+);
+
+/** What Main's `status()` answers when its read is refused: it catches the refusal (scoped-search). */
+it.each([
+  {
+    lastError: null,
+    state: 'waiting',
+    status: {
+      cause: { kind: 'closed', reason: 'reset' },
+      kind: 'unavailable',
+      phase: 'preparing',
+      reason: 'Native index activation is closed for terminal retirement.',
+    },
+  },
+  {
+    lastError: null,
+    state: 'waiting',
+    status: { cause: { kind: 'transitioning' }, ...PREPARING },
+  },
+  {
+    lastError: 'Initial native workspace scan was aborted.',
+    state: 'blocked',
+    status: {
+      cause: { kind: 'source-failure', message: 'Initial native workspace scan was aborted.' },
+      kind: 'unavailable',
+      phase: 'blocked',
+      reason: 'Initial native workspace scan was aborted.',
+    },
+  },
+] as const satisfies readonly {
+  lastError: string | null;
+  state: string;
+  status: IndexerStatus;
+}[])(
+  'shows a status refused with $status.cause.kind as sync state $state',
+  async ({ lastError, state, status }) => {
+    const capability = {
+      ...savedConfig(DEFAULT_INDEX_CONFIG),
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async (): Promise<IndexerStatus> => status),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() => expect(capability.status).toHaveBeenCalled());
+    await waitFor(() => expect(reconciliation.syncMountedRoots).toHaveBeenCalled());
+    await act(async () => {});
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({ lastError, state });
     mounted.unmount();
   }
 );

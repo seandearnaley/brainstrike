@@ -1,6 +1,6 @@
 // Purge, thread deletion and blob GC, in the order that keeps a crash recoverable and a referenced blob alive. The
-// desktop StateStore and the browser writer (@brainstrike/web-state-store) both run this orchestration: each supplies
-// its writer's deletion ops (`deletion-domain.mjs` underneath), its derived index and its write chain.
+// desktop StateStore runs this orchestration: it supplies its writer's deletion ops (`deletion-domain.mjs`
+// underneath), its derived index and its write chain.
 import { IndexerRequiredError } from './errors.js';
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 import type { IndexerPort, PurgeReport } from './state-store-types.js';

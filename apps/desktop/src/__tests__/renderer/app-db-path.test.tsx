@@ -63,14 +63,6 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   };
 });
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    DbProvider: mockDbProvider,
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  };
-});
 
 vi.mock('../../renderer/components/root-layout-content', () => ({
   default: () => <div>RootLayout</div>,
@@ -165,10 +157,8 @@ beforeEach(() => {
   } as never;
 
   Object.assign(window, {
-    collectionCatalog: { snapshot: vi.fn() },
     modelCatalog: { read: vi.fn() },
     promptLibrary: { request: vi.fn() },
-    sourceFiles: { chunks: vi.fn(), list: vi.fn(), read: vi.fn() },
     threadGroups: { readRoots: vi.fn(), request: vi.fn() },
     viewFilterPresets: { request: vi.fn() },
   });

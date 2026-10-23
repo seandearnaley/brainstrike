@@ -110,10 +110,6 @@ refuses restart until retirement succeeds.
 Git runs through `execFile` on every platform (ADR-0027), so there is no per-command
 native Job for quit to join. Windows agent commands keep their wrapper and Job.
 
-Parser host Stop joins every owned generation’s exit and listeners; there is no
-caller-side wait to give up on it. A failed kill remains visible and retryable,
-blocks parsing on that generation, and never acknowledges successful cleanup.
-
 The E2E harness joins the app's exit under the test timeout and requires exit code
 0. A SIGTERM from the harness is cleanup after a failed close, and the test fails.
 

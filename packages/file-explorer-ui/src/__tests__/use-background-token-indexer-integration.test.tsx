@@ -1,7 +1,3 @@
-import {
-  __resetVectorStatusUIStoreForTests,
-  useVectorStatusUIStore,
-} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { addLogListener, LogLevel } from '@brainstrike/logging';
 import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
@@ -246,7 +242,6 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    __resetVectorStatusUIStoreForTests();
     mockBackgroundIndexer.isIndexing = false;
     mockFileTreeIndexContext = null;
     tokenCacheContextOverride = undefined;
@@ -979,68 +974,6 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         )
       ).toHaveLength(1);
     });
-
-    it('dispatches selection-driven token counting even while embedding is active', () => {
-      // Regression for the Context Explorer responsiveness bug reported on
-      // 2026-04-20: the preview panel tokens column stayed on em-dash for the
-      // duration of a collection-sync run. The prior implementation gated the
-      // foreground dispatch on `isEmbeddingActive`, which is set whenever the
-      // collection sync's embedding queue is active. That inverted the
-      // priority contract: the foreground (user-selected) tokenizer is CPU-
-      // only, runs in a dedicated Web Worker, and does not contend with
-      // WebGPU embeddings or with the collection sync's PGLite writes (PGLite
-      // serializes internally). The correct WebGPU gate lives in
-      // `background-work-arbiter` and already suspends the collection sync
-      // when the local LLM acquires `local-llm`. Removing this gate restores
-      // the stated priority order: LLM > foreground tokens > background sync.
-      useVectorStatusUIStore.setState({ isEmbeddingActive: true });
-
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
-
-      flushTimers();
-
-      expect(indexFilesMock).toHaveBeenCalledTimes(1);
-      expect(indexFilesMock.mock.calls[0]?.[0].map((file) => file.compositeKey)).toEqual([
-        fileAKey,
-      ]);
-    });
-
-    it('dispatches selection-driven token counting even while file import is in progress', () => {
-      // Regression for the Context Explorer token-count loss during
-      // background indexing (see logs 2026-04-20T18:08:22Z, line
-      // "Selection effect skipped - file import in progress"). The
-      // collection-sync provider calls `setIsImporting(true)` for the entire
-      // duration of its scan -- which can be many minutes on a large root.
-      // The prior `getSelectionSkipState` short-circuited the foreground
-      // dispatch on that flag, starving the preview panel tokens column for
-      // the entire sync. The foreground tokenizer does not write to PGLite
-      // on the same connection as the collection sync batcher; PGLite
-      // serializes writes internally, so concurrent `TokenCacheStore.set`
-      // calls cannot corrupt data. The foreground dispatch must therefore
-      // not be gated on `isImporting`.
-      useVectorStatusUIStore.setState({ isImporting: true });
-
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
-
-      flushTimers();
-
-      expect(indexFilesMock).toHaveBeenCalledTimes(1);
-      expect(indexFilesMock.mock.calls[0]?.[0].map((file) => file.compositeKey)).toEqual([
-        fileAKey,
-      ]);
-    });
   });
 
   describe('cache hydration', () => {
@@ -1182,45 +1115,6 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       });
 
       expect(preloadFolder).toHaveBeenCalledTimes(2);
-    });
-
-    it('hydrates warm cache from persistent store even while file import is in progress', async () => {
-      // Regression for the Context Explorer warm-cache loss during
-      // background indexing (see logs 2026-04-20T18:08:22Z, line
-      // "Warm cache effect skipped - file import in progress"). Warm-cache
-      // hydration is a READ from PGLite; it does not contend with the
-      // collection sync's writes. The prior gate bailed out of hydration
-      // whenever `isImporting=true`, so selecting a folder during a long
-      // sync would fail to surface token counts that were already persisted
-      // from prior sessions -- exactly the failure mode the persistent
-      // cache is supposed to prevent. Reads and writes are independent;
-      // hydration must proceed regardless of the import flag.
-      useVectorStatusUIStore.setState({ isImporting: true });
-
-      const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
-      updateHotCacheSpy.mockClear();
-
-      const cachedEntries = new Map([
-        ['a.txt', { filePath: 'a.txt', folderId: 'root', tokenCount: 100 }],
-        ['b.txt', { filePath: 'b.txt', folderId: 'root', tokenCount: 200 }],
-      ]);
-      (storeMock.getBatch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(cachedEntries);
-
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey, fileBKey]),
-        })
-      );
-
-      await act(async () => {
-        await vi.runAllTimersAsync();
-      });
-
-      expect(storeMock.getBatch).toHaveBeenCalledWith('root', ['a.txt', 'b.txt']);
-      expect(updateHotCacheSpy).toHaveBeenCalledWith('root', 'a.txt', 100);
-      expect(updateHotCacheSpy).toHaveBeenCalledWith('root', 'b.txt', 200);
     });
   });
 

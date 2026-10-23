@@ -1,3 +1,4 @@
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type IndexerCoverage,
   type IndexerCoverageCounts,
@@ -9,6 +10,8 @@ import {
   type IndexSearchCapability,
   indexerEmbeddingProfileValues,
   indexerStatusFailure,
+  NATIVE_SEARCH_FOLDER_NOT_INDEXED,
+  NO_WORKSPACE_FOLDER_MESSAGE,
   validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
@@ -29,6 +32,7 @@ export interface NativeSemanticAvailability {
 }
 export interface NativeSearchScope {
   capability: IndexSearchCapability | null;
+  /** Main's assistant retrieval scopes its default query to the saved collection. */
   collectionId?: string | null;
   profile: IndexerEmbeddingProfile | null;
   profileUnavailableReason?: string;
@@ -93,10 +97,6 @@ function validCoverageCounts(coverage: IndexerCoverage, rootIds: readonly string
   );
 }
 
-function validNativeScope(rootIds: readonly string[], collectionId: string | null): boolean {
-  return (rootIds.length > 0 || collectionId !== null) && new Set(rootIds).size === rootIds.length;
-}
-
 /** Exact-profile native rows are searchable during ingestion; completion remains a separate proof. */
 export async function getNativeSemanticAvailability(
   scope: NativeSearchScope
@@ -112,8 +112,11 @@ export async function getNativeSemanticAvailability(
         'Vector search requires a complete configured embedding profile.'
     );
   }
-  if (!validNativeScope(rootIds, collectionId)) {
-    return unavailable('Vector search requires an explicit nonempty workspace root scope.');
+  if (rootIds.length === 0 && collectionId === null) {
+    return unavailable(NO_WORKSPACE_FOLDER_MESSAGE);
+  }
+  if (new Set(rootIds).size !== rootIds.length) {
+    return unavailable('Vector search was asked for the same workspace folder twice.');
   }
   const observation = await capability.coverageBatch([
     {
@@ -156,7 +159,12 @@ export async function getNativeSemanticAvailability(
   if (reason !== null) {
     return unavailable(reason);
   }
-  return admittedCoverage(coverage, completeScopeReceipts(status, rootIds, collectionId));
+  return admittedCoverage(
+    coverage,
+    collectionId === null
+      ? completeScopeReceipts(status, rootIds)
+      : completeCollectionReceipt(status, collectionId)
+  );
 }
 
 function admittedCoverage(
@@ -278,24 +286,12 @@ export function fuseNativeSearchPools(
 
 export interface NativeWorkspaceSearchRequest {
   caseSensitive: boolean;
-  collectionId: string | null;
+  /** The name the Explorer shows for an open folder, to name one the index leaves out. */
+  folderName: (rootId: string) => string;
   isRegex: boolean;
   query: string;
   rootIds: readonly string[];
   wholeWord: boolean;
-}
-function emptyNativeResults(mode: WorkspaceSearchMode): WorkspaceSearchResults {
-  return {
-    files: [],
-    mode,
-    notices: {
-      candidatesTruncated: false,
-      scanLimited: false,
-      skippedMissingLineMetadata: 0,
-      truncated: false,
-    },
-    totalMatches: 0,
-  };
 }
 export interface NativeWorkspaceSearchResults extends WorkspaceSearchResults {
   /** Only the scoped producer can prove incompleteness; bounded results do not imply it. */
@@ -334,7 +330,6 @@ export class NativeWorkspaceSearchExecutor {
     }
     const scope = {
       capability,
-      collectionId: request.collectionId,
       profile,
       rootIds: request.rootIds,
     };
@@ -386,11 +381,8 @@ export class NativeWorkspaceSearchExecutor {
   ): Promise<NativeWorkspaceSearchResults | null> {
     this.cancelPendingSearch();
     const seq = this.requestSeq;
-    const empty = emptyScopeResult(request, mode);
-    if (empty !== null) {
-      return empty;
-    }
-    const { capability, profile } = this.deps;
+    assertFolderOpen(request);
+    const { capability } = this.deps;
     if (!capability) {
       throw new Error('Native workspace search is unavailable.');
     }
@@ -401,22 +393,47 @@ export class NativeWorkspaceSearchExecutor {
     if (status.kind !== 'ready') {
       throw indexerStatusFailure(status);
     }
-    assertNativeStatusScope(status, request.rootIds, request.collectionId);
+    const unindexedFolders = request.rootIds
+      .filter((rootId) => !status.authorizedRootIds.includes(rootId))
+      .map(request.folderName);
+    const rootIds = request.rootIds.filter((rootId) => status.authorizedRootIds.includes(rootId));
+    if (rootIds.length === 0) {
+      throw noIndexedFolderRefusal(unindexedFolders);
+    }
+    return this.searchIndexed(
+      { ...request, rootIds },
+      mode,
+      { capability, seq, status },
+      unindexedFolders
+    );
+  }
+  /** Searches only the folders the index covers; `unindexedFolders` names the rest. */
+  private async searchIndexed(
+    request: NativeWorkspaceSearchRequest,
+    mode: WorkspaceSearchMode,
+    {
+      capability,
+      seq,
+      status,
+    }: {
+      capability: IndexSearchCapability;
+      seq: number;
+      status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>;
+    },
+    unindexedFolders: readonly string[]
+  ): Promise<NativeWorkspaceSearchResults | null> {
+    const { profile } = this.deps;
     const vector =
       mode === 'semantic' ? await this.prepareVector(request, capability, profile, seq) : undefined;
     if (vector === null || seq !== this.requestSeq) {
       return null;
     }
     const { pattern, isRegex } = buildGrepPattern(request);
-    const queryScope = {
-      rootIds: request.rootIds,
-      ...(request.collectionId === null ? {} : { collectionId: request.collectionId }),
-    };
     const sourceRequests = [
       capability.search({
         limit: NATIVE_SEARCH_CANDIDATE_LIMIT,
         mode: 'bm25',
-        ...queryScope,
+        rootIds: request.rootIds,
         text: request.query,
       }),
       capability.grep({
@@ -424,7 +441,7 @@ export class NativeWorkspaceSearchExecutor {
         isRegex,
         limit: NATIVE_SEARCH_CANDIDATE_LIMIT,
         pattern,
-        ...queryScope,
+        rootIds: request.rootIds,
       }),
     ];
     if (vector) {
@@ -433,7 +450,6 @@ export class NativeWorkspaceSearchExecutor {
           limit: NATIVE_SEARCH_CANDIDATE_LIMIT,
           mode: 'vector',
           profile: requireConfiguredVectorProfile(profile),
-          ...(request.collectionId === null ? {} : { collectionId: request.collectionId }),
           rootIds: request.rootIds,
           vector,
         })
@@ -446,11 +462,7 @@ export class NativeWorkspaceSearchExecutor {
     if (!(bm25 && grep) || (mode === 'semantic' && !vectorPool)) {
       throw new Error('Native search did not return every requested candidate pool.');
     }
-    assertCandidateScopes(
-      [bm25, grep, ...(vectorPool ? [vectorPool] : [])],
-      request.rootIds,
-      request.collectionId
-    );
+    assertCandidateScopes([bm25, grep, ...(vectorPool ? [vectorPool] : [])], request.rootIds);
     const matcher = createGrepLineMatcher(pattern, isRegex, request.caseSensitive);
     const constrained = request.isRegex || request.caseSensitive || request.wholeWord;
     const fused = fuseNativeSearchPools(
@@ -458,8 +470,13 @@ export class NativeWorkspaceSearchExecutor {
       status,
       (hit) => !constrained || hit.content.split('\n').some((line) => matcher.matches(line))
     );
+    const projected = projectNativeResults(fused, grep, request, mode, matcher, constrained);
     return {
-      ...projectNativeResults(fused, grep, request, mode, matcher, constrained),
+      ...projected,
+      notices: {
+        ...projected.notices,
+        ...(unindexedFolders.length > 0 ? { unindexedFolders } : {}),
+      },
       ...incompleteSourceProof([bm25, grep, ...(vectorPool ? [vectorPool] : [])], status.storeId),
     };
   }
@@ -494,7 +511,7 @@ function projectNativeResults(
   const groups = new Map<string, WorkspaceSearchFileResult>();
   const maxScore = fused.hits[0]?.rrfScore ?? 1;
   for (const { hit, rrfScore } of fused.hits) {
-    assertCanonicalHit(hit, request.rootIds, request.collectionId);
+    assertCanonicalHit(hit, request.rootIds);
     const children: WorkspaceSearchChild[] =
       mode === 'text' && (constrained || grepIds.has(hit.chunkId))
         ? nativeLineMatches(hit, matcher)
@@ -544,29 +561,39 @@ function projectNativeResults(
   };
 }
 
-function assertNativeStatusScope(
-  status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
-  rootIds: readonly string[],
-  collectionId: string | null
-): void {
-  if (collectionId !== null && !status.authorizedCollectionIds?.includes(collectionId)) {
-    throw new Error('Native collection search is not currently authorized.');
-  }
-  if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
-    throw new Error('Native search scope contains an unauthorized workspace root.');
-  }
+/**
+ * Where a worktree is turned on. The renderer cannot tell a worktree from an
+ * ordinary folder, so it names the setting without claiming which folder is which.
+ */
+const WORKTREES_SETTING = 'Worktrees can be turned on in Settings, Search & Indexing.';
+function namedFolders(names: readonly string[]): { list: string; one: boolean } {
+  return { list: names.map((name) => `"${name}"`).join(', '), one: names.length === 1 };
+}
+/** Open folders a search left out because the index does not serve them. */
+export function unindexedFoldersNote(names: readonly string[]): string {
+  const { list, one } = namedFolders(names);
+  return `${list} ${one ? 'is' : 'are'} not indexed, so ${one ? 'it was' : 'they were'} not searched. ${WORKTREES_SETTING}`;
+}
+/** No open folder is indexed: nothing to search, named, rather than an empty result. */
+export function noIndexedFolderRefusal(names: readonly string[]): BoundaryFailureError {
+  const { list, one } = namedFolders(names);
+  return new BoundaryFailureError(
+    refusal({
+      category: 'configuration',
+      code: NATIVE_SEARCH_FOLDER_NOT_INDEXED,
+      message: `${list} ${one ? 'is' : 'are'} not indexed, so there is nothing to search.`,
+      remedy: WORKTREES_SETTING,
+    })
+  );
 }
 function assertCanonicalHit(
   hit: IndexerSearchHit,
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): asserts hit is IndexerSearchHit & { tokenCount: number } {
   if (
-    !(
-      (collectionId === null
-        ? hit.rootId !== null && rootIds.includes(hit.rootId)
-        : hit.embeddingSetId === collectionId) && Number.isSafeInteger(hit.tokenCount)
-    ) ||
+    hit.rootId === null ||
+    !rootIds.includes(hit.rootId) ||
+    !Number.isSafeInteger(hit.tokenCount) ||
     hit.tokenCount === null ||
     hit.tokenCount <= 0 ||
     !Number.isSafeInteger(hit.startLine) ||
@@ -580,12 +607,11 @@ function assertCanonicalHit(
 
 function assertCandidateScopes(
   pools: readonly IndexerSearchResult[],
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): void {
   for (const pool of pools) {
     for (const hit of pool.hits) {
-      assertCanonicalHit(hit, rootIds, collectionId);
+      assertCanonicalHit(hit, rootIds);
     }
   }
 }
@@ -637,19 +663,21 @@ function nativeLineMatches(
 
 export function completeScopeReceipts(
   status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
-  rootIds: readonly string[],
-  collectionId: string | null
+  rootIds: readonly string[]
 ): boolean {
-  if (collectionId !== null) {
-    const receipts = status.collectionReadiness?.filter(
-      (receipt) => receipt.embeddingSetId === collectionId
-    );
-    return receipts?.length === 1 && receipts[0]?.scanComplete === true;
-  }
   return rootIds.every((rootId) => {
     const receipts = status.rootReadiness.filter((receipt) => receipt.rootId === rootId);
     return receipts.length === 1 && receipts[0]?.scanComplete === true;
   });
+}
+function completeCollectionReceipt(
+  status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
+  collectionId: string
+): boolean {
+  const receipts = status.collectionReadiness?.filter(
+    (receipt) => receipt.embeddingSetId === collectionId
+  );
+  return receipts?.length === 1 && receipts[0]?.scanComplete === true;
 }
 function coverageRefusal(
   coverage: IndexerCoverage,
@@ -694,15 +722,9 @@ function validCollectionCounts(coverage: IndexerCoverage, collectionId: string):
   );
 }
 
-function emptyScopeResult(
-  request: NativeWorkspaceSearchRequest,
-  mode: WorkspaceSearchMode
-): WorkspaceSearchResults | null {
-  if (request.rootIds.length !== 0 || request.collectionId !== null) {
-    return null;
+/** No folder means nothing to search: say so rather than answer with no matches. */
+function assertFolderOpen(request: NativeWorkspaceSearchRequest): void {
+  if (request.rootIds.length === 0) {
+    throw new Error(NO_WORKSPACE_FOLDER_MESSAGE);
   }
-  if (mode === 'text') {
-    return emptyNativeResults(mode);
-  }
-  throw new Error('Vector search requires an explicit nonempty workspace root scope.');
 }

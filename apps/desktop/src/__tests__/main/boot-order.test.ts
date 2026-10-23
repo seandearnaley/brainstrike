@@ -2,17 +2,19 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 import {
   applicationDomainCapture,
+  bootWindow,
   createLoggerMock,
   installMainBootFixture,
   isDesktopShuttingDownMock,
   mockApp,
-  mockBrowserWindowInstance,
   nativeAcquire,
   nativeAcquireProfile,
   nativeAcquireRead,
   nativeCloseForShutdown,
   nativePrepareForPause,
+  nativeRebuild,
   nativeReconfigureForReset,
+  requireIndexConfig,
   requireMainLogger,
   shutdownPlanCapture,
 } from './boot-order-fixture';
@@ -105,11 +107,11 @@ describe('main boot order', () => {
     await import('../../main');
     const options = applicationDomainCapture.options;
     const plan = shutdownPlanCapture.current?.();
-    if (!(options?.onStorageChanged && options.onResetLocal && plan)) {
-      throw new Error('Main reset and storage callbacks were not captured');
+    if (!(options?.onResetLocal && plan)) {
+      throw new Error('Main reset callback and shutdown plan were not captured');
     }
-    const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
-    options.onStorageChanged(NATIVE_INDEX_SETTINGS_KEY);
+    // The same trigger Main's config owner uses once a change is saved.
+    await requireIndexConfig().reconfigure();
     await entered.promise;
     const reset = options.onResetLocal();
     let closed = false;
@@ -160,7 +162,6 @@ describe('main boot order', () => {
         pendingDeletionPaths: [],
         preservedPaths: [],
       });
-      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
       const resetPlatform = await import('../../desktop-reset-platform');
       const createReset = resetPlatform.createDesktopFactoryResetHandler;
       const compose = vi
@@ -169,7 +170,8 @@ describe('main boot order', () => {
           createReset({
             ...ports,
             completeSuccessfulReset: async () => {
-              applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+              // A settings change saved while the reset finishes applies through Main's owner.
+              await requireIndexConfig().reconfigure();
               notified.resolve();
               await replacement.promise;
             },
@@ -260,11 +262,26 @@ describe('main boot order', () => {
       const reconfigure = vi.fn(async () => {});
       nativeReconfigureForReset.current = reconfigure;
       await import('../../main');
-      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
-      applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+      // The same trigger Main's config owner uses once a change is saved.
+      const applying = requireIndexConfig().reconfigure();
       expect(nativePrepareForPause).toHaveBeenCalledOnce();
+      // The owner's update returns once the change is queued; it applies in the background.
+      await expect(applying).resolves.toBeUndefined();
       if (kind === 'none') {
         await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+      } else if (kind === 'typed') {
+        // A Pause its owner superseded is the requested outcome, not a failure.
+        await vi.waitFor(() =>
+          expect(requireMainLogger().info).toHaveBeenCalledWith(
+            'Native index generation replaced or retired',
+            { reason: failure.message }
+          )
+        );
+        expect(requireMainLogger().error).not.toHaveBeenCalledWith(
+          'Saved native index configuration could not activate',
+          expect.anything()
+        );
+        expect(reconfigure).not.toHaveBeenCalled();
       } else {
         await vi.waitFor(() =>
           expect(requireMainLogger().error).toHaveBeenCalledWith(
@@ -277,6 +294,22 @@ describe('main boot order', () => {
     }
   );
 
+  it('rebuilds for saved chunking in the background and reports the rebuild failure', async () => {
+    const failure = new Error('Native rebuild failed');
+    nativeRebuild.current = vi.fn(async () => {
+      throw failure;
+    });
+    await import('../../main');
+    // The same trigger Main's config owner uses once a chunking change is saved.
+    await expect(requireIndexConfig().rebuild()).resolves.toBeUndefined();
+    await vi.waitFor(() =>
+      expect(requireMainLogger().error).toHaveBeenCalledWith(
+        'Search index rebuild for the new chunking failed',
+        { error: failure }
+      )
+    );
+  });
+
   it('starts profile and native acquisition before showing a reader-ready window without PG', async () => {
     const reader = Promise.withResolvers<void>();
     nativeAcquireRead.mockReturnValue(reader.promise);
@@ -284,16 +317,16 @@ describe('main boot order', () => {
     await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
     expect(nativeAcquireProfile).toHaveBeenCalled();
     expect(nativeAcquire).toHaveBeenCalledOnce();
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
     reader.resolve();
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
   });
 
   it('shows the failure-capable shell when native reader startup fails', async () => {
     const failure = new Error('Native reader unavailable');
     nativeAcquireRead.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     expect(
       requireMainLogger().error.mock.calls.some(
         ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
@@ -325,7 +358,7 @@ describe('main boot order', () => {
           details?.error === failure
       )
     ).toBe(false);
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('keeps an independent reader failure visible during shutdown', async () => {
@@ -344,14 +377,14 @@ describe('main boot order', () => {
         )
       ).toBe(true)
     );
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('preserves profile startup failure without opening a retired database', async () => {
     const failure = new Error('Profile unavailable');
     nativeAcquireProfile.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     expect(
       requireMainLogger().error.mock.calls.some(
         ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
@@ -365,7 +398,7 @@ describe('main boot order', () => {
     nativeAcquire.mockRejectedValue(failure);
     nativeAcquireRead.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     expect(
       requireMainLogger().error.mock.calls.filter(
         ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
@@ -379,7 +412,7 @@ describe('main boot order', () => {
     const failure = new AggregateError([first, undefined], 'Native acquisition failed');
     nativeAcquire.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     const details = requireMainLogger().error.mock.calls.find(
       ([, value]: [unknown, { error?: unknown; innerErrors?: unknown }]) => value?.error === failure
     )?.[1];
@@ -399,7 +432,7 @@ describe('main boot order', () => {
     isDesktopShuttingDownMock.mockReturnValue(true);
     reader.resolve();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('joins native retirement before acknowledging the native shutdown step', async () => {
@@ -499,7 +532,7 @@ describe('main boot order', () => {
 
     it('installs no handlers under NODE_ENV=test, so importing main never touches the test process', async () => {
       await import('../../main');
-      await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+      await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalled());
 
       expect(capture.handlers.size).toBe(0);
     });

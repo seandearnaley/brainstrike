@@ -1,3 +1,4 @@
+import type { IndexConfig } from '@brainstrike/assistant-contract/index-config';
 import type {
   IndexChunkBoundsCapability,
   IndexRetryCapability,
@@ -16,7 +17,8 @@ import {
 export function registerIndexSearchIpcHandlers(
   capability: IndexSearchCapability & IndexChunkBoundsCapability,
   registration: IndexRootRegistrationCapability,
-  retry: IndexRetryCapability
+  retry: IndexRetryCapability,
+  config: { read(): Promise<IndexConfig>; update(patch: unknown): Promise<IndexConfig> }
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const failure = { category: 'native-index', code: 'native-index-failed' };
@@ -25,11 +27,13 @@ export function registerIndexSearchIpcHandlers(
     coverageBatch: (requests) => settleIpcResult(failure, () => capability.coverageBatch(requests)),
     fileChunks: (request) => settleIpcResult(failure, () => capability.fileChunks(request)),
     grep: (request) => settleIpcResult(failure, () => capability.grep(request)),
+    readConfig: () => settleIpcResult(failure, () => config.read()),
     rebuild: () => settleIpcResult(failure, () => capability.rebuild()),
     retryIndexing: () => settleIpcResult(failure, () => retry.retryIndexing()),
     rootsRegistered: () => settleIpcResult(failure, () => registration.rootsRegistered()),
     search: (request) => settleIpcResult(failure, () => capability.search(request)),
     status: () => settleIpcResult(failure, () => capability.status()),
+    updateConfig: (patch) => settleIpcResult(failure, () => config.update(patch)),
   });
   return () => registry.unregisterAll();
 }

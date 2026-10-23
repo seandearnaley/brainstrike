@@ -4,6 +4,7 @@ import {
   type WorkspaceIndexingTriggerScope,
 } from '@brainstrike/file-system/workspace-indexing-coordinator';
 import { normalizeScopedChangePath } from '@brainstrike/file-system/workspace-scan-paths';
+import { createLogger } from '@brainstrike/logging';
 import type {
   DirectoryHandle,
   FileSystemChange,
@@ -42,11 +43,11 @@ export type CanonicalWorkspaceRuntimeDependencies =
 interface ActivePass {
   readonly context: CanonicalOperationContext;
   readonly controller: AbortController;
-  error?: unknown;
   scanStarted: boolean;
   settled: Promise<void>;
   sourceInvalidated: boolean;
 }
+const logger = createLogger('CanonicalWorkspaceRuntime');
 
 /** Existing WorkspaceIndexingCoordinator, driven by the existing main watch owner. */
 export class CanonicalWorkspaceIngestionRuntime {
@@ -207,7 +208,14 @@ export class CanonicalWorkspaceIngestionRuntime {
     active.settled = running.then(
       () => {},
       (error: unknown) => {
-        active.error = error;
+        // A cancelled pass's outcome is superseded: the next pass redoes its work under a live
+        // owner. Any other failure reaches the coordinator through `sync`.
+        if (controller.signal.aborted) {
+          logger.debug('A cancelled workspace pass ended with an error', {
+            error,
+            requestId: context.requestId,
+          });
+        }
       }
     );
     try {
@@ -286,31 +294,20 @@ export class CanonicalWorkspaceIngestionRuntime {
     }
   }
 
+  /** Settles once the cancelled pass has ended, however it ends. */
   private async cancelPass(): Promise<void> {
     const active = this.active;
     if (!active) {
       return;
     }
     active.controller.abort(new DOMException('Workspace pass cancelled.', 'AbortError'));
-    const failures: unknown[] = [];
-    if (active.scanStarted) {
-      try {
+    try {
+      if (active.scanStarted) {
         await this.host.cancel(active.context.requestId);
-      } catch (error) {
-        failures.push(error);
       }
-    }
-    await active.settled;
-    const leaseSignal = this.dependencies.source.lease.signal;
-    const expectedCancellation =
-      active.error === active.controller.signal.reason ||
-      (leaseSignal.aborted && active.error === leaseSignal.reason) ||
-      (active.error instanceof Error && active.error.name === 'AbortError');
-    if (active.error !== undefined && !expectedCancellation) {
-      failures.push(active.error);
-    }
-    if (failures.length > 0) {
-      throw new AggregateError(failures, 'Workspace pass cancellation failed.');
+    } finally {
+      // The pass ends before anything closes under it, even when its scan's cancel throws.
+      await active.settled;
     }
   }
 

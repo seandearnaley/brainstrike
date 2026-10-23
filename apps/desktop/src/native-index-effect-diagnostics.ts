@@ -14,6 +14,10 @@ const OPERATIONS = [
   'native-index.transition',
   'native-index.settings',
   'native-index.action',
+  'index-config.read',
+  'index-config.update',
+  'index-config.native-settings',
+  'index-config.publish-saved',
 ] as const;
 
 /** Count independent failures after the existing redactor, without copying error text or stacks. */

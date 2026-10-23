@@ -1,4 +1,3 @@
-import { babelAdapter } from './parsers/babel-adapter';
 import { treeSitterAdapter } from './parsers/tree-sitter-adapter';
 import type { ParserAdapter } from './parsers/types';
 import { chunkContent, type PortableChunkingResult } from './portable-chunking';
@@ -25,13 +24,4 @@ export function canonicalChunker(codeAdapter: ParserAdapter): CanonicalChunker {
       selectAdapter: (fileName) => (/\.pyi?$/i.test(fileName ?? '') ? pythonAdapter : codeAdapter),
       strict: true,
     });
-}
-
-/**
- * Canonical chunking in the browser (BST-1940): Babel parses code, as the web
- * chunking worker does, and the tree-sitter grammar is fetched beside the
- * module. The same algorithm as desktop's `createNodeChunker({ parser: 'babel' })`.
- */
-export function createBrowserChunker(): CanonicalChunker {
-  return canonicalChunker(babelAdapter);
 }

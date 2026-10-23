@@ -1,7 +1,7 @@
 import { parseSync } from 'oxc-parser';
 import type { AstNode, ParseOptions, ParserAdapter } from './types';
 
-/** Same vendor dialect and recovery policy as the desktop parser-host entry. */
+/** Parses in-process with native oxc; without `errorRecovery`, oxc's first error is thrown. */
 export const oxcNativeAdapter: ParserAdapter = {
   id: 'oxc-native',
   async parse(content: string, options: ParseOptions): Promise<AstNode> {

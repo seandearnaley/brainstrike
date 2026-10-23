@@ -5,18 +5,16 @@ import type {
   NativeIndexState,
 } from '../native-index-lifecycle';
 import { createNativeIndexLifecycle } from '../native-index-lifecycle-owner';
-import { readNativeIndexSettings } from '../native-index-settings';
+import type { NativeIndexSettings } from '../native-index-settings';
+import { textSettings, unreadableSettings, vectorSettings } from './helpers/native-index-settings';
 
-// Recorded from Main's storage reads while the desktop app chose Text search,
-// then Text and semantic search with WASM · Q8 (BST-1988).
-const TEXT_SAVED =
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}';
-const VECTOR_SAVED =
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":"3a48f02c-2c2a-4835-926d-59cbc286513a","mode":"root-folder-cache","nativeIndexMode":"VECTOR","nativeLocalSelection":{"device":"wasm","dimensions":384,"dtype":"q8","modelId":"Xenova/bge-small-en-v1.5"},"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}';
-const VECTOR_PAUSED = VECTOR_SAVED.replace('"paused":false', '"paused":true');
+// Text search, then semantic search with WASM · Q8 (BST-1988).
+const TEXT_SAVED = textSettings();
+const VECTOR_SAVED = vectorSettings();
+const VECTOR_PAUSED = vectorSettings({ paused: true });
 
-function ready(saved: string): NativeIndexState {
-  return { generation: 1, kind: 'ready', settings: readNativeIndexSettings(saved) };
+function ready(saved: NativeIndexSettings): NativeIndexState {
+  return { generation: 1, kind: 'ready', settings: saved };
 }
 function failed(recovery?: 'sources'): NativeIndexState {
   return {
@@ -27,16 +25,23 @@ function failed(recovery?: 'sources'): NativeIndexState {
     },
     generation: 1,
     kind: 'failed',
-    settings: readNativeIndexSettings(VECTOR_SAVED),
+    settings: VECTOR_SAVED,
   };
 }
-async function owner(saved: string | null, state: NativeIndexState) {
+/** `saved` is what Main's config owner returns, or the failure its read rejects with. */
+async function owner(saved: NativeIndexSettings | Error, state: NativeIndexState) {
   const execute = vi.fn(
     async (action: NativeIndexAction): Promise<NativeIndexEvent | undefined> =>
       action.kind === 'open' ? { generation: action.generation, kind: 'opened' } : undefined
   );
   const lifecycle = await createNativeIndexLifecycle(state, { execute, fence: vi.fn() });
-  return { execute, lifecycle, read: async () => readNativeIndexSettings(saved) };
+  const read = async (): Promise<NativeIndexSettings> => {
+    if (saved instanceof Error) {
+      throw saved;
+    }
+    return saved;
+  };
+  return { execute, lifecycle, read };
 }
 
 it('a second save of the configuration already live changes nothing', async () => {
@@ -70,18 +75,17 @@ it('roots changed with only a pause change applies it to the live graph, as a sa
   await roots.lifecycle.configure(roots.read, true);
   expect(roots.execute).toHaveBeenCalledExactlyOnceWith({
     kind: 'apply-sources',
-    settings: readNativeIndexSettings(VECTOR_PAUSED),
+    settings: VECTOR_PAUSED,
   });
 });
 
 it('roots changed still validates the saved settings first', async () => {
-  const roots = await owner(null, ready(VECTOR_SAVED));
-  await expect(roots.lifecycle.configure(roots.read, true)).rejects.toMatchObject({
-    refusal: { kind: 'setup-required' },
-  });
+  const unreadable = unreadableSettings();
+  const roots = await owner(unreadable, ready(VECTOR_SAVED));
+  await expect(roots.lifecycle.configure(roots.read, true)).rejects.toBe(unreadable);
   expect(roots.execute).toHaveBeenCalledExactlyOnceWith({ kind: 'close' });
   await expect(roots.lifecycle.state()).resolves.toMatchObject({
-    cause: { kind: 'setup-required' },
+    cause: { kind: 'settings-invalid' },
     kind: 'unconfigured',
   });
 });
@@ -108,6 +112,6 @@ it.each([
   await settings.lifecycle.configure(settings.read);
   expect(settings.execute).toHaveBeenCalledExactlyOnceWith({
     kind: 'apply-sources',
-    settings: readNativeIndexSettings(saved),
+    settings: saved,
   });
 });

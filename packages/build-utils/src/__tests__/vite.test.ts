@@ -10,13 +10,11 @@ const {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   getWorkspaceSourceOptimizeDepsInclude,
-  isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
@@ -172,33 +170,23 @@ describe('assistant vite helpers', () => {
     expect(entries.some((entry) => entry.includes('@assistant-ui/react-data-stream'))).toBe(false);
   });
 
-  test('returns database lazy-panel optimize-deps package ids', () => {
-    // Exact match, not arrayContaining: reintroducing file-saver here must fail
-    // (platform-contracts.md calls it a regression).
-    expect(getDatabaseOptimizeDepsInclude()).toEqual(['jszip', 'react-resizable-panels']);
-  });
-
   test('returns heavy runtime optimize-deps exclusions', () => {
     expect(getHeavyRuntimeOptimizeDepsExclude()).toEqual(
       expect.arrayContaining(['@huggingface/transformers'])
     );
   });
 
-  test('returns lazy-surface entry points for assistant and database surfaces', () => {
+  test('returns lazy-surface entry points for the assistant surfaces', () => {
     const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
     writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
     const entries = getLazySurfaceOptimizeDepsEntries(appDir);
 
     expect(entries).toEqual([
       `${toVitePath(appDir)}/index.html`,
-      expect.stringContaining('/packages/app-shell/src/database-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-chat-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
-      expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
       expect.stringContaining('/packages/assistant-ui/src/assistant-ui-panel.tsx'),
       expect.stringContaining('/packages/assistant-ui/src/markdown-text.tsx'),
-      expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
-      expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
     ]);
   });
 
@@ -209,7 +197,7 @@ describe('assistant vite helpers', () => {
     expect(() =>
       getLazySurfaceOptimizeDepsEntries(
         appDir,
-        (entry) => !entry.includes('/packages/db-explorer/src/database-demo-panel.tsx')
+        (entry) => !entry.includes('/packages/assistant-ui/src/markdown-text.tsx')
       )
     ).toThrow(/Lazy-surface optimizeDeps entry does not exist/);
   });
@@ -221,7 +209,9 @@ describe('assistant vite helpers', () => {
       true
     );
     expect(
-      isContextActionSystemModule('/workspace/packages/db-explorer/src/context-actions/actions.ts')
+      isContextActionSystemModule(
+        '/workspace/packages/file-explorer-ui/src/context-actions/file-entry-actions.ts'
+      )
     ).toBe(true);
     expect(
       isContextActionSystemModule(
@@ -233,17 +223,6 @@ describe('assistant vite helpers', () => {
       false
     );
     expect(isContextActionSystemModule('/workspace/packages/ui/src/button.tsx')).toBe(false);
-  });
-
-  test('classifies browser-events modules without matching dependency copies', () => {
-    expect(isBrowserEventsModule('/workspace/packages/utils/src/browser-events.ts')).toBe(true);
-    expect(
-      isBrowserEventsModule(String.raw`C:\workspace\packages\utils\dist\browser-events.js`)
-    ).toBe(true);
-    expect(isBrowserEventsModule('/workspace/node_modules/utils/src/browser-events.js')).toBe(
-      false
-    );
-    expect(isBrowserEventsModule('/workspace/packages/logging/src/logger.ts')).toBe(false);
   });
 
   test('classifies only the installed zustand package as its vendor chunk', () => {

@@ -395,9 +395,7 @@ it.each(['complete', 'failed', 'terminal'] as const)(
       },
     ];
     const observation = {
-      leases: new Map([[workspace.rootId, {}]]),
       observedCatalogFingerprint: catalogFingerprint([]),
-      observedCatalogRecords: [],
       settings: { managedCollectionId: collection.embeddingSetId },
     };
     const completions = test.admission.getWorkspaceCompletions();

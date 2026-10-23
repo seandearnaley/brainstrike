@@ -6,7 +6,10 @@ import type {
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it, vi } from 'vitest';
+import { reportNativeIndexActivationError } from '../../native-index-activation-error';
+import { nativeIndexBoundaryFailure } from '../../native-index-boundary-failure';
 import { createRegistry, rootHandle, secureRoot } from './workspace-root-registry-test-helpers';
 
 function deferred<T>(): {
@@ -194,6 +197,103 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     expect(await outcome).toBe(canceled);
     await retirement;
     expect(root.close).not.toHaveBeenCalled();
+  });
+
+  it('retires a borrow once a read it cancelled settles, whatever that read ended with', async () => {
+    const started = deferred<void>();
+    let fail: ((error: unknown) => void) | undefined;
+    const root = {
+      ...secureRoot('/workspace'),
+      readFile: vi.fn(() => {
+        started.resolve();
+        return new Promise<never>((_resolve, reject) => {
+          fail = reject;
+        });
+      }),
+    };
+    const { registry, rootId } = await mounted(root);
+    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
+    await started.promise;
+    let retired = false;
+    const retirement = lease.retire().then(() => {
+      retired = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(retired).toBe(false);
+    const failure = new Error('EIO: native read failed');
+    fail?.(failure);
+    await expect(retirement).resolves.toBeUndefined();
+    // The read's own caller still learns how it ended.
+    expect(await outcome).toBe(failure);
+    expect(root.close).not.toHaveBeenCalled();
+  });
+
+  it('answers a read its folder removal retired with the typed refusal, logged at info and sent typed', async () => {
+    const started = deferred<void>();
+    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const root = {
+      ...secureRoot('/workspace'),
+      readFile: vi.fn(() => {
+        started.resolve();
+        return nativeRead.promise;
+      }),
+    };
+    const { registry, rootId } = await mounted(root);
+    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
+    await started.promise;
+    const removal = registry.removeRoot(rootId);
+    await waitForAbort(lease.signal);
+    nativeRead.resolve({ content: Buffer.from('late bytes'), status: 'ok' });
+    const error = await outcome;
+    await removal;
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    const log = vi.fn();
+    expect(nativeIndexBoundaryFailure(error, log)).toMatchObject({
+      code: 'native-index-transitioning',
+      kind: 'refusal',
+    });
+    expect(log).not.toHaveBeenCalled();
+    const logger = { error: vi.fn(), info: vi.fn() };
+    reportNativeIndexActivationError(
+      'Registered native source configuration could not activate',
+      error,
+      false,
+      logger
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledOnce();
+  });
+
+  it('answers a read its folder data deletion took over with the typed refusal, sent without a log', async () => {
+    const started = deferred<void>();
+    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const root = {
+      ...secureRoot('/workspace'),
+      readFile: vi.fn(() => {
+        started.resolve();
+        return nativeRead.promise;
+      }),
+    };
+    const { registry, rootId } = await mounted(root);
+    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
+    await started.promise;
+    // The deletion owns the mount before it retires the lease: the read finishes in between.
+    const reservation = registry.reserveRootDataDeletion(rootId);
+    nativeRead.resolve({ content: Buffer.from('late bytes'), status: 'ok' });
+    const error = await outcome;
+    expect(lease.signal.aborted).toBe(false);
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    const log = vi.fn();
+    expect(nativeIndexBoundaryFailure(error, log)).toMatchObject({
+      code: 'native-index-transitioning',
+      kind: 'refusal',
+    });
+    expect(log).not.toHaveBeenCalled();
+    reservation.release();
+    await lease.retire();
   });
 
   it('disconnect revokes admission and joins the borrow before closing the shared mount', async () => {

@@ -1,23 +1,18 @@
-// Narrow Electron preload for the renderer-only chunking and embedding hosts.
+// Narrow Electron preload for the renderer-only embedding host.
 // Main selects the role with a BrowserWindow additionalArgument; an absent,
 // duplicated, or unknown role is a packaging error and fails closed.
 const { contextBridge, ipcRenderer } = require('electron');
 
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
-import { sourceFilesContract } from './ipc-domains/source-files.contract';
 import { vectorPreferencesContract } from './ipc-domains/storage-preferences.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createIpcBridge } from './platform/ipc-bridge';
 import {
   assertDesktopElectronApiKeyParity,
-  type ChunkingHostRuntimeBridge,
   type EmbeddingHostElectronApi,
   type EmbeddingHostRuntimeBridge,
 } from './types/desktop-electron-api';
 
-type ChunkingHostRequest = import('./chunking-host-shared').ChunkingHostRequest;
-type ChunkingHostResponseReport = import('./chunking-host-shared').ChunkingHostResponseReport;
-type ChunkingHostStatus = import('./chunking-host-shared').ChunkingHostStatus;
 type EmbeddingHostCommand = import('./embedding-host-shared').EmbeddingHostCommand;
 type EmbeddingHostDocumentEmbeddingsRequest =
   import('./embedding-host-shared').EmbeddingHostDocumentEmbeddingsRequest;
@@ -40,7 +35,7 @@ type EmbeddingHostWebGpuAdapterRequest =
   import('./embedding-host-webgpu-adapter').EmbeddingHostWebGpuAdapterRequest;
 type EmbeddingHostWebGpuAdapterResponseReport =
   import('./embedding-host-webgpu-adapter').EmbeddingHostWebGpuAdapterResponseReport;
-type HiddenRendererRole = 'chunking-host' | 'embedding-host';
+type HiddenRendererRole = 'embedding-host';
 
 const HIDDEN_RENDERER_ROLE_ARGUMENT = '--brainstrike-hidden-renderer-role=' as const;
 
@@ -54,7 +49,7 @@ function resolveHiddenRendererRole(argv: readonly string[]): HiddenRendererRole 
     );
   }
   const role = roleArguments[0]?.slice(HIDDEN_RENDERER_ROLE_ARGUMENT.length);
-  if (role === 'chunking-host' || role === 'embedding-host') {
+  if (role === 'embedding-host') {
     return role;
   }
   throw new Error(`Hidden renderer preload received unsupported role: ${String(role)}`);
@@ -77,28 +72,6 @@ function exposeLoggingBridge(): void {
     onPreferencesUpdated: (callback: (preferences: unknown) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.logging.preferencesUpdated, callback),
   });
-}
-
-function exposeChunkingHostBridge(): void {
-  const chunkingHost = {
-    onRequest: (callback: (request: ChunkingHostRequest) => void) =>
-      subscribe(DESKTOP_IPC_CHANNELS.chunkingHost.request, callback),
-    reportResponse: (response: ChunkingHostResponseReport): void => {
-      ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportResponse, response);
-    },
-    reportStatus: (status: ChunkingHostStatus): void => {
-      ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportStatus, status);
-    },
-  } satisfies ChunkingHostRuntimeBridge;
-  contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
-  contextBridge.exposeInMainWorld('parserHost', {
-    parse: (request: unknown) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
-  });
-  contextBridge.exposeInMainWorld(
-    'sourceFiles',
-    createIpcBridge(ipcRenderer, { read: sourceFilesContract.read })
-  );
 }
 
 /**
@@ -171,10 +144,6 @@ function exposeEmbeddingHostBridge(): void {
   });
 }
 
-const hiddenRendererRole = resolveHiddenRendererRole(process.argv);
+resolveHiddenRendererRole(process.argv);
 exposeLoggingBridge();
-if (hiddenRendererRole === 'chunking-host') {
-  exposeChunkingHostBridge();
-} else {
-  exposeEmbeddingHostBridge();
-}
+exposeEmbeddingHostBridge();

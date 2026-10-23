@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
+import { updateIndexConfig } from './utils/index-config';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 /** Every control in the Search panel, with whether it paints inside the panel and takes a click. */
@@ -67,9 +67,9 @@ async function shrinkFilesPaneToMinimum(page: Page): Promise<number> {
  * `file_chunks`, so this smoke asserts the feature is fully MOUNTED and WIRED —
  * the Explorer|Search tab strip toggles, the lazy search panel loads its
  * controls, and typing a query drives the store to an honest terminal state
- * (an error banner: no workspace index is available on a fresh app) without
- * crashing. The full results→selection round trip belongs in a nightly test
- * with a seeded, indexed fixture (see task-12 report Follow-Up).
+ * (the error card saying no folder is open on a fresh app) without crashing.
+ * The full results→selection round trip belongs in a nightly test with a
+ * seeded, indexed fixture (see task-12 report Follow-Up).
  */
 test.describe('Desktop workspace search', () => {
   test('Explorer|Search tab strip mounts, the search panel loads, and a query reaches an honest terminal state', async ({
@@ -103,14 +103,14 @@ test.describe('Desktop workspace search', () => {
     const queryInput = searchPanel.getByPlaceholder('Search workspace');
     await expect(queryInput).toBeVisible();
 
-    // Text mode auto-searches ≥3 chars after a 250ms debounce. With no workspace
-    // index seeded, the run resolves to a definitive honest state: an error
-    // banner (no index / db not ready) or an empty results tree — never a crash.
+    // Text mode auto-searches ≥3 chars after a 250ms debounce. A fresh app has no
+    // folder open, so the search says to add one instead of finding nothing.
     await queryInput.fill('export');
 
-    const errorBanner = searchPanel.getByRole('alert');
-    const emptyResults = searchPanel.getByText('No matches found', { exact: true });
-    await expect(errorBanner.or(emptyResults).first()).toBeVisible({ timeout: 20_000 });
+    await expect(searchPanel.getByTestId('workspace-search-results-error')).toHaveText(
+      'No folder is open in the workspace. Add a folder in the left file tree first.',
+      { timeout: 20_000 }
+    );
 
     // The store wiring survives a switch back to Explorer, which re-selects and
     // reveals the file-explorer surface (its empty-state add-folder affordance).
@@ -130,6 +130,8 @@ test.describe('Desktop workspace search', () => {
     // toggles past its edge. The Search panel fills the Files pane, so the pane
     // is narrowed to its minimum first.
     await ensureMockWorkspaceOpen(window);
+    // Search turned off answers a query with the results error card, whose Retry is measured too.
+    await updateIndexConfig(window, { mode: 'off' });
     await ensureFileExplorerPanelVisible(window);
     const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
     await tabStrip.getByRole('tab', { name: 'Search' }).click();
@@ -137,9 +139,10 @@ test.describe('Desktop workspace search', () => {
     await expect(searchPanel.getByRole('button', { name: 'Use regular expression' })).toBeVisible({
       timeout: 15_000,
     });
-    // A query's error card is part of the panel too.
     await searchPanel.getByPlaceholder('Search workspace').fill('export');
-    await expect(searchPanel.getByRole('alert')).toBeVisible({ timeout: 20_000 });
+    await expect(searchPanel.getByTestId('workspace-search-results-error')).toBeVisible({
+      timeout: 20_000,
+    });
     const layoutWidth = await shrinkFilesPaneToMinimum(window);
     const layout = await searchControlLayout(window);
     expect(layout.panelWidth).toBeLessThanOrEqual(layoutWidth * 0.16);
@@ -158,42 +161,12 @@ test.describe('Desktop workspace search', () => {
     expect(layout.controls.filter(({ inside, reachable }) => !(inside && reachable))).toEqual([]);
   });
 
-  test('a mounted workspace with no search mode chosen tells the user how to enable semantic search', async ({
-    window,
-  }) => {
-    test.setTimeout(60_000);
-    // Mounting a root reconfigures the native index; no Search & Indexing choice is saved.
-    await ensureMockWorkspaceOpen(window);
-    await ensureFileExplorerPanelVisible(window);
-    const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
-    await tabStrip.getByRole('tab', { name: 'Search' }).click();
-    const searchPanel = window.getByTestId('explorer-search-panel-search');
-    const semantic = searchPanel.getByRole('button', { name: 'Semantic' });
-    await expect(semantic).toHaveAttribute('aria-disabled', 'true', { timeout: 15_000 });
-    // The disabled reason is the setup step, never an internal admission state.
-    await expect(async () => {
-      await semantic.hover();
-      await expect(window.getByRole('tooltip').first()).toHaveText(
-        'Choose a search mode in Search & Indexing settings.',
-        { timeout: 2000 }
-      );
-    }).toPass({ timeout: 30_000 });
-  });
-
   test('Text search mode tells the user which setting turns semantic search on', async ({
     window,
   }) => {
     test.setTimeout(60_000);
+    // A fresh profile searches by text.
     await ensureMockWorkspaceOpen(window);
-    const home = new HomePage(window);
-    await home.openSettings();
-    await window
-      .getByRole('navigation', { name: 'Settings categories' })
-      .getByRole('button', { name: 'Search & Indexing' })
-      .click();
-    await window.getByRole('combobox', { name: 'Search mode' }).click();
-    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
-    await home.leaveSettings();
     await ensureFileExplorerPanelVisible(window);
     const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
     await tabStrip.getByRole('tab', { name: 'Search' }).click();
@@ -204,7 +177,7 @@ test.describe('Desktop workspace search', () => {
     await expect(async () => {
       await semantic.hover();
       await expect(window.getByRole('tooltip').first()).toHaveText(
-        'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.',
+        'Semantic search is off. Choose Semantic in Settings, Search & Indexing.',
         { timeout: 2000 }
       );
     }).toPass({ timeout: 30_000 });

@@ -19,7 +19,6 @@ interface TestRuntimeHostBridge {
 }
 
 type TestWindowWithRuntimeHosts = Window & {
-  chunkingHost?: TestRuntimeHostBridge;
   electronAPI?: {
     db: {
       query: unknown;
@@ -403,15 +402,6 @@ describe('setup-inline-fixture-subscription', () => {
     debugWindow.electronAPI = {
       db: { query },
     };
-    debugWindow.chunkingHost = {
-      getStatus: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'chunking-host:test',
-        runtimeKind: 'chunking-host',
-        state: 'running',
-      })),
-    };
     debugWindow.embeddingHost = {
       getStatus: vi.fn(async () => ({
         active: true,
@@ -450,16 +440,6 @@ describe('setup-inline-fixture-subscription', () => {
         },
       ],
       hosts: {
-        chunking: {
-          available: true,
-          status: {
-            active: false,
-            lastError: null,
-            runtimeId: 'chunking-host:test',
-            runtimeKind: 'chunking-host',
-            state: 'running',
-          },
-        },
         embedding: {
           available: true,
           status: {
@@ -515,7 +495,6 @@ describe('setup-inline-fixture-subscription', () => {
     unsubscribe();
     expect(window.__BRAINSTRIKE_INDEXING_DEBUG__).toBeUndefined();
     Reflect.deleteProperty(window, 'electronAPI');
-    Reflect.deleteProperty(debugWindow, 'chunkingHost');
     Reflect.deleteProperty(debugWindow, 'embeddingHost');
   });
 
@@ -537,7 +516,6 @@ describe('setup-inline-fixture-subscription', () => {
       chunkingBacklog: [],
       collectionStats: [],
       hosts: {
-        chunking: { available: false, reason: 'chunkingHost bridge unavailable' },
         embedding: { available: false, reason: 'embeddingHost bridge unavailable' },
       },
       queueCounts: [],

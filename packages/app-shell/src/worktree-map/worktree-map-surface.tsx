@@ -3,10 +3,11 @@
  * the desktop wrapper renders `<WorktreeMapSurface />` and this component
  * resolves the resource, the running-thread set and the thread
  * actions from context. Every mutation it can trigger goes through a seam that
- * already exists — the checkout-intent store, the thread store, the durable
- * indexing setter, the platform bridge — so the Map owns only ephemeral collection-view state.
+ * already exists — the checkout-intent store, the thread store, Main's search
+ * index config, the platform bridge — so the Map owns only ephemeral collection-view state.
  */
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantThreadCatalogRepository,
   useAssistantThreadStore,
@@ -53,9 +54,18 @@ export function WorktreeMapSurface(): ReactElement {
   const selectedThreadId = selectedThreadByResourceId[resourceId];
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
-  const setWorktreeRootIndexingEnabled = useBackgroundIndexingPreferencesStore(
-    (state) => state.setWorktreeRootIndexingEnabled
-  );
+  const updateIndexConfig = useIndexConfigStore((store) => store.update);
+  const [indexingError, setIndexingError] = useState<string | null>(null);
+  const setWorktreeRootIndexingEnabled = (rootId: string, enabled: boolean): void => {
+    if (!updateIndexConfig) {
+      setIndexingError('Search index settings are unavailable in this window.');
+      return;
+    }
+    setIndexingError(null);
+    updateIndexConfig({ worktrees: { [rootId]: enabled } }).catch((cause: unknown) =>
+      setIndexingError(describeBoundaryError(cause))
+    );
+  };
   const publishIntent = useWorktreeCheckoutIntentStore((state) => state.publish);
   // Committed mode creates the thread through the host's existing thread
   // owner, exactly as the threads panel does.
@@ -160,6 +170,11 @@ export function WorktreeMapSurface(): ReactElement {
           {actionError ? (
             <p className="text-destructive text-sm" role="alert">
               {actionError}
+            </p>
+          ) : null}
+          {indexingError ? (
+            <p className="text-destructive text-sm" role="alert">
+              {indexingError}
             </p>
           ) : null}
           {loading && repositories.length === 0 ? (

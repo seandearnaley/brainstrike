@@ -2,7 +2,7 @@ import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import config from './vitest.config.mts';
 
-/** The Node integration lane: built native-process fixtures, without the unit config's browser project. */
+/** The Node integration lane: built native-process fixtures. */
 export default defineConfig({
   resolve: {
     ...config.resolve,

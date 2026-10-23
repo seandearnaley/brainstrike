@@ -147,8 +147,9 @@ describe('useThreadWorkspaceCoordinator', () => {
   }
 
   it('Clear joins a mounted workspace save before retiring tabs and the host content', async () => {
-    const { DatabaseDemoPanel } = await import('@brainstrike/db-explorer');
-    const { TooltipProvider } = await import('@brainstrike/ui');
+    const { createFactoryResetSettingsCategory } = await import(
+      '@brainstrike/settings-ui/settings-category-factories'
+    );
     const { resetAssistantThreadStore, useAssistantThreadStore, useAssistantThreadGroupsStore } =
       await import('@brainstrike/assistant-data');
     const harness = createHarness();
@@ -184,33 +185,21 @@ describe('useThreadWorkspaceCoordinator', () => {
       harness.rows.clear();
       return { deletedChunks: 0, deletedFiles: 0 };
     });
-    vi.stubGlobal('electronAPI', { content: { clear } });
-    const files: import('@brainstrike/assistant-contract/boundary-result').BoundaryTransport<
-      import('@brainstrike/assistant-contract').SourceFilesCapability
-    > = {
-      chunks: vi.fn(),
-      delete: vi.fn(),
-      import: vi.fn(),
-      list: async () => ({ ok: true, value: [] }),
-      read: vi.fn(),
-    };
-    vi.stubGlobal('sourceFiles', files);
-    vi.stubGlobal('collectionCatalog', { snapshot: async () => ({ ok: true, value: [] }) });
     const retireTabs = vi.fn(() => {
       resetAssistantThreadStore();
       useAssistantThreadGroupsStore.getState().reset();
     });
-    const action = renderComponent(
-      <TooltipProvider>
-        <DatabaseDemoPanel onDatabaseCleared={retireTabs} />
-      </TooltipProvider>
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Import settings' }));
-    const trigger = await screen.findByRole('button', { name: 'Clear Database' });
-    await waitFor(() => expect(trigger).not.toBeDisabled());
-    fireEvent.click(trigger);
-    const dialog = await screen.findByRole('dialog', { name: 'Clear Database' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear Database' }));
+    const factoryReset = createFactoryResetSettingsCategory({
+      clearContent: {
+        clearContent: clear,
+        prepare: prepareFactoryReset,
+        retireContent: retireTabs,
+      },
+    });
+    const action = renderComponent(factoryReset.content);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear content…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Clear content' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear content' }));
     try {
       expect(clear).not.toHaveBeenCalled();
       expect(retireTabs).not.toHaveBeenCalled();
@@ -231,7 +220,6 @@ describe('useThreadWorkspaceCoordinator', () => {
     expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
     expect(harness.rows.size).toBe(0);
     action.unmount();
-    vi.unstubAllGlobals();
   });
 
   it('factory reset joins an admitted save before its owner can retire', async () => {

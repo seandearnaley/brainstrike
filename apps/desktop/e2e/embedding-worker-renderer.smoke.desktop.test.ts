@@ -3,12 +3,10 @@ import { expect, test } from './embedding-worker-renderer.shared';
 
 const {
   AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR,
-  ERROR_LOCATOR,
   ensureEmbeddingHostStarted,
   getEmbeddingHostPage,
   getEmbeddingHostStatus,
   getRendererLogRecords,
-  isDatabaseError,
   recordContainsText,
   requestLocalQueryEmbedding,
   setVectorDevicePreference,
@@ -23,11 +21,6 @@ test.describe('Embedding Host Renderer - smoke', () => {
     const context = await electron.restart();
     const window = context.window;
     await waitForAppReadyInTest(window);
-
-    if (await isDatabaseError(window)) {
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
 
     const initialStatus = await getEmbeddingHostStatus(window);
 
@@ -81,11 +74,6 @@ test.describe('Embedding Host Renderer - smoke', () => {
         stream?.on('data', (chunk: Buffer) => output.push(chunk.toString()));
       }
       await waitForAppReadyInTest(window);
-
-      if (await isDatabaseError(window)) {
-        await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
-        return;
-      }
 
       const initialStatus = await getEmbeddingHostStatus(window);
       expect(initialStatus.state).toBe('stopped');

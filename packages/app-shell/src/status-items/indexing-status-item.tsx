@@ -1,9 +1,14 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useAvailableModels } from '@brainstrike/app-state/hooks/use-available-embedding-models';
+import {
+  selectIndexConfig,
+  useIndexConfigStore,
+} from '@brainstrike/app-state/stores/index-config-store';
 import type {
   IndexingActivitySnapshot,
   IndexingManagedCollectionStatsState,
 } from '@brainstrike/app-state/stores/indexing-activity-store';
 import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
@@ -11,6 +16,8 @@ import {
   shouldShowWorkspaceCollectionSyncPauseControl,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import { type IndexConfig, indexModelId } from '@brainstrike/assistant-contract/index-config';
 import type {
   IndexRetryCapability,
   IndexSearchCapability,
@@ -29,7 +36,7 @@ import {
 } from '@brainstrike/ui';
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
-import { useId, useState } from 'react';
+import { startTransition, useActionState, useId, useState } from 'react';
 import { RetryIndexingButton, RetryIndexingFailure } from './retry-indexing-control';
 import { offeredRetryIndexing, useRetryIndexing } from './use-retry-indexing';
 
@@ -45,8 +52,6 @@ const selectCollectionSyncStatus = (
   embeddingProgress: state.embeddingProgress,
   importProgress: state.importProgress,
   lastError: state.lastError,
-  managedCollectionId: state.managedCollectionId,
-  managedCollectionName: state.managedCollectionName,
   pauseReasons: state.pauseReasons,
   processedFiles: state.processedFiles,
   queueProgress: state.queueProgress,
@@ -101,8 +106,23 @@ function formatSnapshotActivity(snapshot: IndexingActivitySnapshot): string {
   return 'Active';
 }
 
+/** An index with no work or setup to report: what Main's config and the snapshot say. */
+function settledStatus(enabled: boolean | null, snapshot: IndexingActivitySnapshot): DisplayStatus {
+  if (enabled === null) {
+    return { busy: true, toneClassName: 'text-info', value: 'Preparing' };
+  }
+  if (!enabled) {
+    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Off' };
+  }
+  if (snapshot.status === 'unavailable') {
+    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };
+  }
+  return { busy: false, toneClassName: 'text-success', value: 'Ready' };
+}
+
 function getDisplayStatus(args: {
-  readonly enabled: boolean;
+  /** Null until Main's config is read: unknown is never off. */
+  readonly enabled: boolean | null;
   readonly native: boolean;
   readonly managedStats: IndexingManagedCollectionStatsState;
   readonly paused: boolean;
@@ -163,17 +183,7 @@ function getDisplayStatus(args: {
           : 'No root selected',
     };
   }
-  if (snapshot.status === 'unavailable') {
-    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };
-  }
-  if (!enabled) {
-    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Off' };
-  }
-  return {
-    busy: false,
-    toneClassName: 'text-success',
-    value: 'Ready',
-  };
+  return settledStatus(enabled, snapshot);
 }
 
 function truncateMiddle(value: string, maxLength = 64): string {
@@ -495,6 +505,62 @@ function currentIndexActivity(
   };
 }
 
+/** What the status item shows from Main's config; nothing is claimed before it is read. */
+function indexConfigFacts(config: IndexConfig | null, native: boolean) {
+  return {
+    enabled: config === null ? null : config.mode !== 'off',
+    paused: config?.paused === true,
+    policyLabel: config
+      ? getBackgroundIndexingPolicyOption(config.policy).label
+      : EMPTY_METRIC_VALUE,
+    // Text search reads the native text index and uses no embeddings (BST-1988).
+    textSearch: native && config?.mode === 'text',
+  };
+}
+
+/** What the index searches with, as Main's config says; nothing is claimed before it is read. */
+function useSearchIndexLabel(config: IndexConfig | null): string {
+  const models = useAvailableModels(useModelRegistryStore((store) => store.models));
+  // Semantic search always names a model (the config's own rule), so no model is Text search.
+  const model = config?.mode === 'semantic' ? config.model : null;
+  const name = models.find((candidate) => candidate.id === model?.modelKey)?.name;
+  if (config === null) {
+    return EMPTY_METRIC_VALUE;
+  }
+  if (config.mode === 'off') {
+    return 'Off';
+  }
+  if (model === null) {
+    return 'Text search';
+  }
+  return name ?? indexModelId(model);
+}
+
+/**
+ * Pause and Resume go through Main, the config's only writer; a refusal or fault comes back as
+ * the sentence to show. Unavailable until this window has read the config and can change it.
+ */
+function usePauseIndexing(config: IndexConfig | null) {
+  const update = useIndexConfigStore((store) => store.update);
+  const [error, togglePause, pending] = useActionState(async () => {
+    if (!(update && config)) {
+      return 'Search index settings are unavailable in this window.';
+    }
+    try {
+      await update({ paused: !config.paused });
+      return null;
+    } catch (cause) {
+      return describeBoundaryError(cause);
+    }
+  }, null);
+  return {
+    available: config !== null && update !== null,
+    error,
+    pending,
+    toggle: () => startTransition(() => togglePause()),
+  };
+}
+
 export function IndexingStatusItem({
   nativeIndexRetry = null,
   nativeIndexSearch,
@@ -508,18 +574,13 @@ export function IndexingStatusItem({
   const popoverTitleId = useId();
   const snapshot = useIndexingActivityStore((state) => state.snapshot);
   const managedStats = useIndexingActivityStore((state) => state.managedCollectionStats);
-  const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
-  const managedCollectionId = useBackgroundIndexingPreferencesStore(
-    (state) => state.managedCollectionId
+  const config = useIndexConfigStore(selectIndexConfig);
+  const pause = usePauseIndexing(config);
+  const searchIndexLabel = useSearchIndexLabel(config);
+  const { enabled, paused, policyLabel, textSearch } = indexConfigFacts(
+    config,
+    Boolean(nativeIndexSearch)
   );
-  const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
-    (state) => state.indexingPolicyPreset
-  );
-  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
-  const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
-  const nativeIndexMode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
-  // Text search reads the native text index and uses no embeddings (BST-1988).
-  const textSearch = Boolean(nativeIndexSearch) && nativeIndexMode === 'TEXT';
   const syncStatus = useWorkspaceCollectionSyncStatusStore(selectCollectionSyncStatus);
   const displayStatus = getDisplayStatus({
     enabled,
@@ -529,18 +590,11 @@ export function IndexingStatusItem({
     snapshot,
     syncStatus,
   });
-  const selectedPolicy = getBackgroundIndexingPolicyOption(indexingPolicyPreset);
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = currentIndexActivity(syncStatus, Boolean(nativeIndexSearch));
   const stats = getVisibleStats(managedStats);
   const coverage = embeddingCoverage(managedStats, textSearch);
   const combinedError = indexingError(syncStatus, managedStats, snapshot);
-  const collectionName =
-    syncStatus.managedCollectionName ??
-    snapshot.background.managedCollectionName ??
-    managedStats.collectionId ??
-    managedCollectionId ??
-    (textSearch ? 'Text search' : 'Not configured');
   const showPauseControl =
     shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state) ||
     shouldShowWorkspaceCollectionSyncPauseControl(snapshot.background.state);
@@ -599,8 +653,12 @@ export function IndexingStatusItem({
               <div className="font-semibold text-sm" id={popoverTitleId}>
                 Workspace Index
               </div>
-              <div className="truncate text-muted-foreground text-xs" title={collectionName}>
-                {collectionName}
+              <div
+                className="truncate text-muted-foreground text-xs"
+                data-testid="indexing-status-subtitle"
+                title={searchIndexLabel}
+              >
+                {searchIndexLabel}
               </div>
             </div>
             <Badge
@@ -613,9 +671,7 @@ export function IndexingStatusItem({
               {displayStatus.value}
             </Badge>
           </div>
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            Policy: {selectedPolicy.label}
-          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Policy: {policyLabel}</div>
         </div>
 
         <div className="space-y-3 p-4">
@@ -697,6 +753,12 @@ export function IndexingStatusItem({
 
           {retryIndexing ? <RetryIndexingFailure action={retryIndexing} /> : null}
 
+          {pause.error ? (
+            <p className="text-destructive text-sm" role="alert">
+              {pause.error}
+            </p>
+          ) : null}
+
           <div
             className="flex h-11 justify-end gap-2 border-t pt-3"
             data-testid="indexing-action-region"
@@ -714,8 +776,14 @@ export function IndexingStatusItem({
               Open indexing settings
             </Button>
             {retryIndexing ? <RetryIndexingButton action={retryIndexing} /> : null}
-            {showPauseControl ? (
-              <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+            {pause.available && showPauseControl ? (
+              <Button
+                disabled={pause.pending}
+                onClick={pause.toggle}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
                 {paused ? 'Resume workspace index' : 'Pause workspace index'}
               </Button>
             ) : null}

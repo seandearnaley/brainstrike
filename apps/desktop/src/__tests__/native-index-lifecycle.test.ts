@@ -1,7 +1,9 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { IndexerError } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { embeddingHostUnresponsiveError } from '../embedding-host-unresponsive';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import {
   NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE,
   type NativeIndexEvent,
@@ -11,19 +13,12 @@ import {
   reduceNativeIndex,
 } from '../native-index-lifecycle';
 import { nativeIndexStateError } from '../native-index-lifecycle-errors';
-import { readNativeIndexSettings } from '../native-index-settings';
+import { textSettings, vectorSettings } from './helpers/native-index-settings';
 
-// Recorded from Main's storage reads while the desktop app chose Text search,
-// then Text and semantic search with WASM · Q8 (BST-1988).
-const TEXT = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
-const VECTOR_JSON =
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":"3a48f02c-2c2a-4835-926d-59cbc286513a","mode":"root-folder-cache","nativeIndexMode":"VECTOR","nativeLocalSelection":{"device":"wasm","dimensions":384,"dtype":"q8","modelId":"Xenova/bge-small-en-v1.5"},"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}';
-const VECTOR = readNativeIndexSettings(VECTOR_JSON);
-const VECTOR_PAUSED = readNativeIndexSettings(
-  VECTOR_JSON.replace('"paused":false', '"paused":true')
-);
+// Text search, then semantic search with WASM · Q8 (BST-1988).
+const TEXT = textSettings();
+const VECTOR = vectorSettings();
+const VECTOR_PAUSED = vectorSettings({ paused: true });
 const SETUP = {
   kind: 'setup-required',
   message: 'Choose a search mode in Search & Indexing settings.',
@@ -508,5 +503,66 @@ describe('an embedding host that stopped responding', () => {
       generation: 4,
       kind: 'refused',
     });
+  });
+});
+
+describe('search turned Off', () => {
+  const OFF = textSettings({ mode: 'off' });
+  const idle: NativeIndexState = { generation: 3, kind: 'idle' };
+
+  it.each([ready, failed, opening, unconfigured, idle])(
+    'a save of Off from $kind opens nothing and closes what was live',
+    (state) => {
+      const next = reduceNativeIndex(state, saved(OFF));
+      expect(next.refused).toBeUndefined();
+      expect(next.actions).toEqual(state.kind === 'unconfigured' ? [] : [{ kind: 'close' }]);
+      expect(next.state).toMatchObject({
+        cause: { kind: 'off' },
+        generation: 4,
+        kind: 'unconfigured',
+      });
+    }
+  );
+
+  it.each([ready, failed, opening, unconfigured, idle])(
+    'a rebuild under Off from $kind is refused with the Off cause and destroys nothing',
+    (state) => {
+      const off = reduceNativeIndex(state, saved(OFF)).state;
+      for (const current of [state, off]) {
+        expect(reduceNativeIndex(current, { kind: 'rebuild-settings', settings: OFF })).toEqual({
+          actions: [],
+          refused: {
+            kind: 'off',
+            message: 'Search is off. Turn it on in Settings, Search & Indexing.',
+          },
+          state: current,
+        });
+      }
+    }
+  );
+
+  it('a later save that turns search on opens it', () => {
+    const off = reduceNativeIndex(ready, saved(OFF)).state;
+    expect(reduceNativeIndex(off, saved(TEXT))).toEqual({
+      actions: [openAction(5)],
+      state: { generation: 5, kind: 'opening', settings: TEXT },
+    });
+  });
+
+  it('refuses reads with the typed Off refusal in the provider words, logging nothing', () => {
+    const off = reduceNativeIndex(ready, saved(OFF)).state;
+    expect(nativeIndexReadiness(off)).toMatchObject({ cause: { kind: 'off' }, kind: 'refused' });
+    const error = nativeIndexStateError(off);
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    // The status reason a renderer search shows in its results card is this message.
+    expect(error).toMatchObject({
+      code: 'native-index-off',
+      message: 'Search is off. Turn it on in Settings, Search & Indexing.',
+    });
+    const log = vi.fn();
+    expect(describeBoundaryFailure(nativeIndexBoundaryFailure(error, log))).toBe(
+      'Search is off. Turn it on in Settings, Search & Indexing.'
+    );
+    expect(log).not.toHaveBeenCalled();
   });
 });

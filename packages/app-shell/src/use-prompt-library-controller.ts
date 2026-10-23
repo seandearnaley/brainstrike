@@ -1,4 +1,3 @@
-import type { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type {
   PromptItem,
   PromptItemRepositoryPort,
@@ -9,6 +8,7 @@ import type {
   UseSearchEmbedderResult,
 } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { buildLocalEmbeddingModelConfigMap } from './embedding-models';
 import { resolvePromptEmbeddingModelInfo } from './prompt-embedding-model-info';
 import { embedPendingPromptItems, queryPromptSuggestions } from './prompt-library-embedding';
 

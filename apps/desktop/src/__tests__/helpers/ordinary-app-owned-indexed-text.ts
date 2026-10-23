@@ -20,7 +20,6 @@ import { Schema } from 'effect';
 import { _electron, type ElectronApplication } from 'playwright';
 import { expect, onTestFinished } from 'vitest';
 import { z } from 'zod';
-import { HomePage } from '../../../e2e/page-objects/home-page';
 import { closeElectronApp } from '../../../e2e/utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from '../../../e2e/utils/layout-helpers';
 import {
@@ -345,21 +344,8 @@ export async function qualifyOrdinaryAppIndexedText(
     if (!mountedRootId) {
       throw new Error('The ordinary workspace has no mounted root identity');
     }
-    const home = new HomePage(page);
-    await home.openSettings();
-    await page.getByRole('button', { name: 'Search & Indexing' }).click();
-    await page.getByTestId('settings-category-search-indexing').waitFor();
-    await page.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-    await page.getByRole('option', { name: /BGE Small/ }).click();
-    await page.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-    await expect
-      .poll(
-        async () => await page.getByRole('combobox', { name: 'Managed collection' }).textContent()
-      )
-      .toContain('Workspace Index (BGE Small)');
-    await page.getByRole('combobox', { name: 'Search mode' }).click();
-    await page.getByRole('option', { exact: true, name: 'Text search' }).click();
-    // Observe actual canonical publication; never seed/query native rows here.
+    // A fresh profile indexes Text search; observe actual canonical publication and never
+    // seed/query native rows here.
     await expect
       .poll(
         async () => {
@@ -418,7 +404,6 @@ export async function qualifyOrdinaryAppIndexedText(
       pid: record.pid,
       start: record.start,
     });
-    await home.leaveSettings();
     await ensureAssistantShellVisible(page);
     checkpoint('ordinary-native-text-publication-ready');
     // The startup thread is already open and visible; New Thread's own thread

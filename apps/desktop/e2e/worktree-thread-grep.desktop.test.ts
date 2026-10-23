@@ -16,7 +16,7 @@ import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { chooseTextSearch, textReadiness } from './utils/text-search-mode';
+import { textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-worktree-thread-grep';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -84,7 +84,6 @@ test('an agent in a new worktree greps the unindexed worktree', async ({
   expect(root).not.toBe('');
   initRepo(root);
   try {
-    await chooseTextSearch(page);
     await ensureMockWorkspaceOpen(page);
     await expect(page.getByText('hello.ts').first()).toBeVisible({ timeout: 60_000 });
     await expect

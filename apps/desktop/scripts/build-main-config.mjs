@@ -10,8 +10,6 @@
  * - dist/lifecycle-delay-seam.js  Main's one E2E delay seam, shared by every Main bundle
  * - dist/preload.js         visible BrowserWindow preload
  * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
- * - dist/parser-host-entry.js  utilityProcess.fork target, resolved as a SIBLING
- *                           of the bundled main.js via module.filename
  * - dist/host-lease-entry.js  shared root-discovery utility process
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
  * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
@@ -20,15 +18,13 @@
  * This single-file-per-entry-point (`bundle: true`) output is why resolving
  * a sibling output file from the running bundled module's own on-disk path
  * is safe: the file that's actually running always sits directly in
- * `dist/`, regardless of how Electron was launched. That's now load-bearing
- * at THREE more call sites beyond parser-host-entry (BST-1459
- * — `app.getAppPath()` returns launch-mode-dependent values and cannot
- * substitute for this), all three now consolidated into
+ * `dist/`, regardless of how Electron was launched. That's load-bearing
+ * (BST-1459 — `app.getAppPath()` returns launch-mode-dependent values and
+ * cannot substitute for this) at every call site consolidated into
  * `apps/desktop/src/bundled-sibling-path.ts` (see its docblock for why it
  * uses `__filename`, not `module.filename` — empty under Vitest's module
  * transform — or `import.meta.filename` — empty in this esbuild `cjs`
- * output; parser-host-entry still uses the older
- * `module.filename` shape, tracked as BST-1460 migration debt):
+ * output), among them:
  * - `resolveMainWatchdogWorkerPath` (diagnostics/main-watchdog-path.ts)
  * - `resolveMainLogTransportPath` (diagnostics/main-log-transport-path.ts)
  * - `resolveDesktopPythonRuntimeResourcesDir` (python-runtime/resources-dir.ts) —
@@ -65,7 +61,6 @@ export const MAIN_PROCESS_ENTRY_POINTS = {
   'main-runtime': 'src/main.ts',
   'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
   'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
-  'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
 };

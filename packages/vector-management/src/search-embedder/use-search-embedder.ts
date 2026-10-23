@@ -63,7 +63,7 @@ export interface EmbeddingSetModelInfo {
 export interface UseSearchEmbedderResult {
   /** Embed indexed content with document semantics and device-loss recovery. */
   embedDocumentWithRecovery: (info: EmbeddingSetModelInfo, text: string) => Promise<number[]>;
-  /** Embed with the device-loss single-retry semantics from db-explorer. */
+  /** Embed a search query with device-loss single-retry recovery. */
   embedQueryWithRecovery: (
     info: EmbeddingSetModelInfo,
     text: string,

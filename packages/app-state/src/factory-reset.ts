@@ -1,7 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assistant-budget-preferences-store';
 import { resetAssistantSubagentPreferencesStoreToDefaults } from './stores/assistant-subagent-preferences-store';
-import { resetBackgroundIndexingPreferencesStoreToDefaults } from './stores/background-indexing-preferences-store';
 import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store';
 import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
 import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store';
@@ -462,14 +461,6 @@ function clearBrowserStorage(): void {
   resetLiveStoreSafely(
     'workspace instructions preferences store',
     resetWorkspaceInstructionsPreferencesStoreToDefaults
-  );
-
-  // Same rationale as the workspace instructions store above: the per-root
-  // `worktreeRootIndexingOptInById` opt-in map is live in-memory state a reset
-  // without a reload (web path) would otherwise leave in place.
-  resetLiveStoreSafely(
-    'background indexing preferences store',
-    resetBackgroundIndexingPreferencesStoreToDefaults
   );
 
   // Budget guardrail caps are persisted preferences; reset the live store too

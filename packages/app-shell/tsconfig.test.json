@@ -18,8 +18,7 @@
   "include": [
     "src/**/*",
     "**/*.test.*",
-    "../file-explorer-ui/src/types/**/*.d.ts",
-    "../file-import/src/types/**/*.d.ts"
+    "../file-explorer-ui/src/types/**/*.d.ts"
   ],
   "exclude": [
     "dist",

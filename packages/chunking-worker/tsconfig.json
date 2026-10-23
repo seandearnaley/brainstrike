@@ -9,25 +9,7 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true,
-    "plugins": [
-      {
-        "name": "@effect/language-service",
-        "diagnosticSeverity": {
-          "apiStabilityLeak": "error",
-          "floatingEffect": "error",
-          "floatingEffectInVitest": "error",
-          "missingEffectContext": "error",
-          "missingEffectError": "error",
-          "missingStarInYieldEffectGen": "error",
-          "promiseInEffectSuccess": "error",
-          "returnEffectInGen": "error",
-          "unsafeEffectTypeAssertion": "error",
-          "experimentalApiUsage": "error",
-          "unstableApiUsage": "error"
-        }
-      }
-    ]
+    "strictNullChecks": true
   },
   "include": [
     "src/**/*"
@@ -38,9 +20,6 @@
     "**/*.test.ts"
   ],
   "references": [
-    {
-      "path": "../effect-kit"
-    },
     {
       "path": "../text-splitter"
     },

@@ -18,9 +18,8 @@ function modeButtonClass(isActive: boolean, gated: boolean): string {
 }
 
 /**
- * Segmented control for switching between text and semantic search. Matches the
- * app's canonical segmented pattern (the retrieval-mode control in
- * `search-config-panel`): active tab reads primary, inactive reads muted.
+ * Segmented control for switching between text and semantic search: active tab
+ * reads primary, inactive reads muted.
  * Store-driven apart from the semantic availability prop.
  *
  * The Semantic button is gated (with a named tooltip reason) when semantic

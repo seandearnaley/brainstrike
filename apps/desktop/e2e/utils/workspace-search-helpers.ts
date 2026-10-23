@@ -11,19 +11,13 @@
  * helpers, and both are load-bearing for any fixture that wants to be visible
  * here:
  *
- * 1. **Explicit scope.** Native collection search retains imported rootless
- *    files; workspace search is scoped to live workspace roots.
+ * 1. **Explicit scope.** Workspace search is scoped to live workspace roots.
  * 2. **Line-attributed chunks.** The semantic executor drops any chunk missing
  *    `start_line`/`end_line` (it cannot build a navigable range) and reports it
- *    as `skippedMissingLineMetadata`. Synthetic chunk fixtures must therefore
- *    write both columns.
+ *    as `skippedMissingLineMetadata`.
  *
- * Observation is DOM-only and deliberately so: the retired harness read a
- * `window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__` bridge mounted by
- * production code, and there is no reason to grow a second one when the panel
- * renders every state we need to assert (searching status, error card, empty
- * state, and level-1 file rows). Rootless imported results have no context
- * selection checkbox, so that optional control cannot count search results.
+ * Observation is DOM-only: the panel renders every state these helpers assert
+ * (searching status, error card, empty state, and level-1 file rows).
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -61,41 +55,6 @@ export async function openWorkspaceSearchPanel(page: Page): Promise<Locator> {
   const panel = page.getByTestId('explorer-search-panel-search');
   await expect(panel).toBeVisible({ timeout: 15_000 });
   return panel;
-}
-
-/**
- * Select an embedding set in the search panel's collection picker.
- *
- * Imported collections always require an explicit picker choice. The sole
- * managed workspace-index collection renders quiet text because the default
- * workspace scope already identifies it.
- */
-export async function selectWorkspaceSearchCollection(
-  panel: Locator,
-  collectionName: string
-): Promise<void> {
-  const picker = panel.getByRole('combobox', { exact: true, name: 'Search collection' });
-  const quietLabel = panel.getByTestId('workspace-search-single-collection');
-  // Live collection rows arrive after the lazy panel mounts. Absence of the
-  // picker is a single-set state only when the requested quiet label is visible.
-  await expect
-    .poll(
-      async () =>
-        (await picker.isVisible()) ||
-        (await quietLabel.getByText(collectionName, { exact: true }).isVisible()),
-      { timeout: 15_000 }
-    )
-    .toBe(true);
-  if ((await picker.count()) === 0) {
-    await expect(quietLabel).toHaveText(collectionName, { timeout: 15_000 });
-    return;
-  }
-
-  await picker.click({ timeout: 15_000 });
-  const option = panel.page().getByRole('option', { name: collectionName });
-  await expect(option).toBeVisible({ timeout: 15_000 });
-  await option.click({ timeout: 15_000 });
-  await expect(picker).toContainText(collectionName, { timeout: 15_000 });
 }
 
 /**

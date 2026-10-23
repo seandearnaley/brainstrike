@@ -27,15 +27,6 @@
     },
     {
       "path": "../indexing-contract"
-    },
-    {
-      "path": "../text-splitter"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../worker-runtime"
     }
   ]
 }

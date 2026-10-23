@@ -14,6 +14,7 @@ import {
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
+import { createLogger } from '@brainstrike/logging';
 import type { CanonicalRemoteIngestion } from './canonical-utility-parent';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { generateHostedEmbeddings } from './hosted-embeddings';
@@ -34,7 +35,6 @@ import {
   deferNativeIndexCatalog,
   observeNativeIndexCatalog,
   settleDeferredNativeIndexCatalog,
-  triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
 import { createNativeIndexContentOperations } from './native-index-content-operations';
 import {
@@ -44,7 +44,11 @@ import {
   type NativeIndexActivationGraph as Graph,
   loadNativeGraphRecords,
 } from './native-index-graph';
-import { nativeIndexObservation, nativeIndexReadiness } from './native-index-lifecycle';
+import {
+  type NativeIndexState,
+  nativeIndexObservation,
+  nativeIndexReadiness,
+} from './native-index-lifecycle';
 import { nativeIndexStateError as stateError } from './native-index-lifecycle-errors';
 import {
   createNativeIndexLifecycle,
@@ -55,12 +59,7 @@ import { createNativeIndexProfileAdmission } from './native-index-profile-admiss
 import { createNativeIndexFailures } from './native-index-reopen';
 import { createNativeIndexRetry } from './native-index-retry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
-import {
-  NATIVE_INDEX_SETTINGS_KEY,
-  type NativeIndexSettings,
-  prepareSavedNativeIndexPause,
-  readNativeIndexSettings,
-} from './native-index-settings';
+import { type NativeIndexSettings, prepareSavedNativeIndexPause } from './native-index-settings';
 import {
   type NativeIndexSources,
   settleNativeIndexSources,
@@ -72,6 +71,14 @@ import {
   installIndexQueryTarget,
   openIndexCoverage,
 } from './sqlite-query-host-manager';
+
+/** Why a closing generation's work ends: its settings failure, or the typed Off choice. */
+function unconfiguredReason(state: Extract<NativeIndexState, { kind: 'unconfigured' }>): unknown {
+  return state.cause.kind === 'off'
+    ? stateError(state)
+    : (state.cause.error ?? new Error(state.cause.message));
+}
+const logger = createLogger('NativeIndexActivation');
 
 /** Desktop main's actual catalog/grant/inference callbacks; the utility owns parsing and scans. */
 export function createNativeIndexActivation(dependencies: Dependencies) {
@@ -197,10 +204,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     });
     return current.retirement;
   };
+  // The lifecycle opens no generation for Off settings (`native-index-lifecycle.ts`, `open`).
   const startOwned = async (settings: NativeIndexSettings, generation: number): Promise<void> => {
-    if (!settings.enabled) {
-      throw new Error('Native indexing is disabled in saved settings.');
-    }
     const current: Graph = {
       controller: new AbortController(),
       generation,
@@ -246,14 +251,19 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       authorized.scopes
     );
     current.publication = publication;
-    current.observedCatalogRecords = await loadRecords(current);
-    current.observedCatalogFingerprint = catalogFingerprint(current.observedCatalogRecords);
+    current.observedCatalogFingerprint = catalogFingerprint(await loadRecords(current));
     assertCurrent(current);
     if (!settings.paused) {
       admitSources(current, port).then(failures.started, (error: unknown) => {
-        if (!(current.controller.signal.aborted || current.settings.paused)) {
-          failures.record(current.generation, error, true);
+        if (current.controller.signal.aborted || current.settings.paused) {
+          // Superseded, its collection scan included: the next generation redoes the work.
+          logger.debug('A retired native ingestion generation ended with an error', {
+            error,
+            generation: current.generation,
+          });
+          return;
         }
+        failures.record(current.generation, error, true);
       });
     }
   };
@@ -356,7 +366,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       parser: { parser: 'oxc' as const },
       request: {
         batchSize: 64,
-        chunkingOptions: { strategy: 'auto' as const },
+        chunkingOptions:
+          settings.chunking._tag === 'Custom'
+            ? {
+                maxTokens: settings.chunking.maxTokens,
+                overlap: settings.chunking.overlap,
+                strategy: 'auto' as const,
+              }
+            : { strategy: 'auto' as const },
         maxFileBytes: getFileSizeConfig().maxFileSize,
       },
     };
@@ -573,8 +590,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       );
       return;
     }
-    const changedRoots = observeNativeIndexCatalog(current, records);
-    if (!changedRoots) {
+    if (!observeNativeIndexCatalog(current, records)) {
       if (join) {
         await current.sources?.waitForCollection?.();
       }
@@ -584,9 +600,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       // Reconcile authority only; never start a parser, watcher or inference while paused.
       return;
     }
-    triggerCatalogWorkspaces(changedRoots, current.sources?.workspaceTriggers, (error) =>
-      dependencies.onError('catalog workspace reconciliation', error)
-    );
     if (inventory || !current.sources?.scanCollection) {
       return;
     }
@@ -599,8 +612,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       await scan;
     }
   };
-  const readSettings = async (): Promise<NativeIndexSettings> =>
-    readNativeIndexSettings(await dependencies.storage.getItem(NATIVE_INDEX_SETTINGS_KEY));
+  const readSettings = (): Promise<NativeIndexSettings> => dependencies.settings();
   const captureSettings = (): Promise<NativeIndexSettings> => {
     const settings = readSettings();
     // Observe immediately while owner construction/admission is pending; preserve the rejection.
@@ -647,7 +659,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           case 'close': {
             const state = await (await lifecycle).state();
             if (state.kind === 'unconfigured') {
-              graph?.controller.abort(state.cause.error ?? new Error(state.cause.message));
+              graph?.controller.abort(unconfiguredReason(state));
             }
             await closeOwned();
             return;
@@ -749,7 +761,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const acquire = async (): Promise<IndexerPort & ScopedIndexerPort> => {
     const current = await currentReader(true);
-    await current.sources?.startup;
+    await current.sources?.startup?.catch((error: unknown) => {
+      // A generation its owner replaced or retired answers with that owner's typed reason; its
+      // sources' own rejection (a retired mount's abort) only echoes that retirement.
+      current.controller.signal.throwIfAborted();
+      throw error;
+    });
     assertCurrent(current);
     const state = await (await lifecycle).state();
     if (nativeIndexReadiness(state).kind !== 'ready') {
@@ -841,7 +858,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await (await lifecycle).configure(() => settings, roots);
     await graph?.sources?.startup;
   };
-  const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.storage, lifecycle);
+  const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.settings, lifecycle);
   const assertReadAdmission = async (): Promise<void> => {
     const state = await (await lifecycle).state();
     if (nativeIndexReadiness(state).kind !== 'ready') {
@@ -918,9 +935,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   return {
     ...createNativeIndexContentOperations({
-      acquire,
       assertCurrent,
-      captureSettings,
       closeNativeOwner: () => dispatch({ kind: 'terminal', reason: 'root-data-deletion' }),
       closeOwned,
       getGraph: () => graph,

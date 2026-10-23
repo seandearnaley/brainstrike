@@ -55,12 +55,14 @@ export interface IndexerPublicationProgress {
  * `embedding-host-unresponsive`: the embedding host stopped responding to a document batch, so
  * only the person's Retry indexing (which restarts it) serves again; never retried automatically
  * (BST-2104).
+ * `off`: the saved choice turned search off, so no index is open; turning it on serves again.
  */
 export type NativeIndexRefusalCause =
   | { readonly kind: 'transitioning' }
   | { readonly kind: 'closed'; readonly reason: string }
   | {
       readonly kind:
+        | 'off'
         | 'setup-required'
         | 'settings-invalid'
         | 'source-failure'
@@ -68,6 +70,16 @@ export type NativeIndexRefusalCause =
         | 'embedding-host-unresponsive';
       readonly message: string;
     };
+
+/** What search says under the saved Off choice, wherever it is refused: Main or the renderer. */
+export const NATIVE_INDEX_OFF_MESSAGE = 'Search is off. Turn it on in Settings, Search & Indexing.';
+
+/** What a workspace search or tool says when no folder is open: Main or the renderer. */
+export const NO_WORKSPACE_FOLDER_MESSAGE =
+  'No folder is open in the workspace. Add a folder in the left file tree first.';
+
+/** A search naming a folder the index leaves out, such as a worktree not opted in. */
+export const NATIVE_SEARCH_FOLDER_NOT_INDEXED = 'native-search.folder-not-indexed';
 
 /** Only the lifecycle/resource owner can refuse admission with this typed cause. */
 export class NativeIndexRefusalError extends Error {

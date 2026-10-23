@@ -1,5 +1,5 @@
-// A scan's source inventory over the canonical catalog: desktop's native index and the browser's index worker
-// (BST-1940) read a scope's authorized files through the same owner.
+// A scan's source inventory over the canonical catalog: desktop's native index reads a scope's authorized files
+// through this owner.
 import type { VectorProfile } from '@brainstrike/indexer/browser';
 import type {
   createNativeCanonicalCatalog,

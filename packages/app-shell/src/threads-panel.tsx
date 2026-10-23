@@ -25,7 +25,6 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import {
   Button,
   type CheckboxState,
@@ -70,6 +69,7 @@ import {
   resolveThreadRowStatusState,
 } from './assistant-thread-presentation';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
+import { buildLocalEmbeddingModelConfigMap } from './embedding-models';
 import { useCreateThreadInFolderRepository } from './hooks/use-create-thread-in-folder';
 import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
 import { useOnScreenThreadId } from './hooks/use-on-screen-thread';

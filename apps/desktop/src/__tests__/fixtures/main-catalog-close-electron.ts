@@ -216,7 +216,6 @@ async function main(): Promise<void> {
       closeErrorLogSink: () => event('error-log-closed'),
       steps: {
         'child-processes': step('child-processes'),
-        'chunking-host': step('chunking-host'),
         'database-drain': step('database-drain'),
         'embedding-host': step('embedding-host'),
         'factory-reset': step('factory-reset'),
@@ -226,7 +225,6 @@ async function main(): Promise<void> {
         'main-catalog': step('main-catalog'),
         'mcp-runtime': step('mcp-runtime'),
         'native-index': step('native-index'),
-        'parser-host': step('parser-host'),
         renderers: step('renderers'),
         'snapshot-maintenance': step('snapshot-maintenance'),
       },

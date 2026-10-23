@@ -124,13 +124,6 @@ vi.mock('@brainstrike/db', () => ({
     throw new Error('PGlite is unavailable in the native hidden host');
   },
 }));
-vi.mock('@brainstrike/db/react', () => ({
-  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
-  usePGliteDatabase: () => {
-    throw new Error('PGlite is unavailable in the native hidden host');
-  },
-}));
-
 vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,
   useVectorPreferencesStore: Object.assign(

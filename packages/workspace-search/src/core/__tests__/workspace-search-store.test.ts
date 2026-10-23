@@ -48,7 +48,6 @@ describe('useWorkspaceSearchStore', () => {
     expect(state.error).toBeNull();
     expect(state.query).toBe('');
     expect(state.mode).toBe('text');
-    expect(state.collectionId).toBeNull();
     expect(state.expandedIds.size).toBe(0);
   });
 
@@ -151,11 +150,10 @@ describe('useWorkspaceSearchStore', () => {
   it('invalidating changes advance the generation', () => {
     const start = useWorkspaceSearchStore.getState().generation;
     useWorkspaceSearchStore.getState().setMode('semantic');
-    useWorkspaceSearchStore.getState().setCollectionId('set-1');
     useWorkspaceSearchStore.getState().toggleCase();
     useWorkspaceSearchStore.getState().toggleRegex();
     useWorkspaceSearchStore.getState().toggleWholeWord();
-    expect(useWorkspaceSearchStore.getState().generation).toBe(start + 5);
+    expect(useWorkspaceSearchStore.getState().generation).toBe(start + 4);
   });
 
   it('setMode clears results, resets status to idle, and updates mode', () => {
@@ -163,15 +161,6 @@ describe('useWorkspaceSearchStore', () => {
     useWorkspaceSearchStore.getState().setMode('semantic');
     const state = useWorkspaceSearchStore.getState();
     expect(state.mode).toBe('semantic');
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-  });
-
-  it('setCollectionId clears results and resets status to idle', () => {
-    seedResults();
-    useWorkspaceSearchStore.getState().setCollectionId('embedding-set-1');
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.collectionId).toBe('embedding-set-1');
     expect(state.results).toBeNull();
     expect(state.status).toBe('idle');
   });
@@ -280,7 +269,6 @@ describe('useWorkspaceSearchStore', () => {
 
     it.each([
       ['setMode', () => useWorkspaceSearchStore.getState().setMode('semantic')],
-      ['setCollectionId', () => useWorkspaceSearchStore.getState().setCollectionId('set-1')],
       ['toggleCase', () => useWorkspaceSearchStore.getState().toggleCase()],
       ['toggleRegex', () => useWorkspaceSearchStore.getState().toggleRegex()],
       ['toggleWholeWord', () => useWorkspaceSearchStore.getState().toggleWholeWord()],

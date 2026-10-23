@@ -3,7 +3,6 @@ import {
   describeBoundaryError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import type { NativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import {
   NativeWorkspaceSearchExecutor,
@@ -30,6 +29,18 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+// The Explorer's folder names, read through the explorer store the Search tab lives under.
+const explorer = vi.hoisted(() => ({
+  rootDescriptors: {
+    A1: { displayName: 'repo', path: '/work/repo', rootId: 'A1' },
+    A2: { displayName: 'wt2', path: '/work/wt2', rootId: 'A2' },
+  } as Record<string, { displayName: string; path: string; rootId: string }>,
+}));
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  useFileExplorerStoreSelector: <T,>(selector: (state: typeof explorer) => T): T =>
+    selector(explorer),
+}));
+
 describe('native Search boundary presentation', () => {
   it('retains the recorded GPU-loss remedy without exposing the private cause', async () => {
     useWorkspaceSearchStore.getState().reset();
@@ -52,7 +63,7 @@ describe('native Search boundary presentation', () => {
       profile: null,
     });
     vi.spyOn(executor, 'searchSemantic').mockRejectedValueOnce(failure);
-    createNativeWorkspaceSearchRunners(executor, ['D1']).runSemanticSearch();
+    createNativeWorkspaceSearchRunners(executor, ['D1'], String).runSemanticSearch();
     await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
     // A fault names the reference Main logged its private cause under (BST-2202).
     expect(useWorkspaceSearchStore.getState().error).toBe(
@@ -70,16 +81,9 @@ describe('useWorkspaceSearchController', () => {
     useWorkspaceSearchStore.getState().reset();
   });
 
-  // The controller reads the shared embedder via `useSharedSearchEmbedder`, which
-  // THROWS without a provider (no silent fallback). Enclose the hook in the real
-  // provider; its embedder machinery is lazy, so no model loads in these tests.
   function withRootIdentity(map: ReadonlyMap<string, string>) {
     return function Wrapper({ children }: { children: ReactNode }) {
-      return (
-        <SearchEmbedderProvider>
-          <RootIdentityProvider dbRootIdByAdapterRootId={map}>{children}</RootIdentityProvider>
-        </SearchEmbedderProvider>
-      );
+      return <RootIdentityProvider dbRootIdByAdapterRootId={map}>{children}</RootIdentityProvider>;
     };
   }
 
@@ -149,15 +153,13 @@ describe('useWorkspaceSearchController', () => {
     const embedQuery = vi.fn();
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider
-            dependencies={{ capability: null, embedQuery, profile: null }}
-          >
-            <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider
+          dependencies={{ capability: null, embedQuery, profile: null }}
+        >
+          <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     useWorkspaceSearchStore.getState().setQuery('needle');
@@ -172,20 +174,46 @@ describe('useWorkspaceSearchController', () => {
     expect(useWorkspaceSearchStore.getState().mode).toBe('text');
   });
 
-  it('preserves explicit semantic mode and collection when native capability is lost', async () => {
-    useWorkspaceSearchStore.getState().setMode('semantic');
-    useWorkspaceSearchStore.getState().setCollectionId('explicit-collection');
+  it('tells the user to add a folder when a text search runs with no folder open', async () => {
+    const capability = {
+      coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(),
+      grep: vi.fn<IndexSearchCapability['grep']>(),
+      rebuild: vi.fn(async () => {}),
+      search: vi.fn<IndexSearchCapability['search']>(),
+      status: vi.fn<IndexSearchCapability['status']>(),
+    };
+    const dependencies = { capability, embedQuery: vi.fn(), profile: null };
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider
-            dependencies={{ capability: null, embedQuery: vi.fn(), profile: null }}
-          >
-            <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={new Map()}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
+      );
+    }
+    useWorkspaceSearchStore.getState().setQuery('needle');
+    const { result } = renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper });
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
+    expect(capability.search).not.toHaveBeenCalled();
+    expect(capability.grep).not.toHaveBeenCalled();
+  });
+  it('preserves explicit semantic mode when native capability is lost', async () => {
+    useWorkspaceSearchStore.getState().setMode('semantic');
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <NativeWorkspaceSearchProvider
+          dependencies={{ capability: null, embedQuery: vi.fn(), profile: null }}
+        >
+          <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     const { result } = renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper });
@@ -196,7 +224,6 @@ describe('useWorkspaceSearchController', () => {
       'Native workspace search is unavailable.'
     );
     expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
-    expect(useWorkspaceSearchStore.getState().collectionId).toBe('explicit-collection');
   });
   it('composes text-only native search over canonical roots without a PGlite handle or model', async () => {
     const embedding = { indexMode: 'text-only' as const };
@@ -230,13 +257,11 @@ describe('useWorkspaceSearchController', () => {
     const identities = new Map([['A1', 'D1']]);
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider dependencies={dependencies}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     useWorkspaceSearchStore.getState().setQuery('needle');
@@ -300,13 +325,11 @@ describe('useWorkspaceSearchController', () => {
     const identities = new Map([['A1', 'D1']]);
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider dependencies={dependencies}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     useWorkspaceSearchStore.getState().setQuery('needle');
@@ -396,13 +419,11 @@ describe('useWorkspaceSearchController', () => {
       const identities = new Map([['A1', 'D1']]);
       function Wrapper({ children }: { children: ReactNode }) {
         return (
-          <SearchEmbedderProvider>
-            <NativeWorkspaceSearchProvider dependencies={dependencies}>
-              <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-                {children}
-              </RootIdentityProvider>
-            </NativeWorkspaceSearchProvider>
-          </SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider dependencies={dependencies}>
+            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
         );
       }
       useWorkspaceSearchStore.getState().setQuery('needle');
@@ -509,13 +530,11 @@ it.each([
     const identities = new Map([['A1', 'D1']]);
     function Wrapper({ children }: { children: ReactNode }) {
       return (
-        <SearchEmbedderProvider>
-          <NativeWorkspaceSearchProvider dependencies={dependencies}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-              {children}
-            </RootIdentityProvider>
-          </NativeWorkspaceSearchProvider>
-        </SearchEmbedderProvider>
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
       );
     }
     const { result, unmount } = renderHook(() => useWorkspaceSearchController(), {
@@ -532,3 +551,107 @@ it.each([
     unmount();
   }
 );
+
+describe('Explorer search with an open folder the index leaves out', () => {
+  const embedding = { indexMode: 'text-only' as const };
+  const ready = {
+    authorizedRootIds: ['D1'],
+    embedding,
+    kind: 'ready' as const,
+    rootReadiness: [{ rootId: 'D1', scanComplete: true }],
+    storeId: 'store-a',
+  };
+  const response = {
+    candidateCount: 0,
+    candidatesTruncated: false,
+    embedding,
+    hits: [],
+    scanLimited: false,
+    storeId: 'store-a',
+    truncated: false,
+  };
+  function setup(identities: ReadonlyMap<string, string>, profile: unknown = null) {
+    const capability = {
+      coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => ({
+        code: 'native-coverage-observation-invalidated' as const,
+        kind: 'invalidated' as const,
+      })),
+      grep: vi.fn<IndexSearchCapability['grep']>(async () => response),
+      rebuild: vi.fn(async () => {}),
+      search: vi.fn<IndexSearchCapability['search']>(async () => response),
+      status: vi.fn<IndexSearchCapability['status']>(async () => ready),
+    };
+    const dependencies = {
+      capability,
+      embedQuery: vi.fn(),
+      profile,
+      status: ready,
+    } as NativeWorkspaceSearchDependencies;
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <NativeWorkspaceSearchProvider dependencies={dependencies}>
+          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+            {children}
+          </RootIdentityProvider>
+        </NativeWorkspaceSearchProvider>
+      );
+    }
+    useWorkspaceSearchStore.getState().reset();
+    useWorkspaceSearchStore.getState().setQuery('needle');
+    return {
+      capability,
+      ...renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper }),
+    };
+  }
+  const bothOpen = new Map([
+    ['A1', 'D1'],
+    ['A2', 'D2'],
+  ]);
+  const semanticProfile = {
+    dimensions: 384,
+    dtype: 'fp16' as const,
+    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+    revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
+    tokenCap: 256,
+  };
+
+  it('searches the indexed folder and names the left-out one', async () => {
+    const { capability, result } = setup(bothOpen);
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+    expect(capability.search).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['D1'] }));
+    expect(capability.grep).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['D1'] }));
+    expect(useWorkspaceSearchStore.getState().results?.notices.unindexedFolders).toEqual(['wt2']);
+  });
+
+  it('refuses visibly, naming the folder and how to include it, when no open folder is indexed', async () => {
+    const { capability, result } = setup(new Map([['A2', 'D2']]));
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      '"wt2" is not indexed, so there is nothing to search. Worktrees can be turned on in Settings, Search & Indexing.'
+    );
+    expect(capability.search).not.toHaveBeenCalled();
+    expect(capability.grep).not.toHaveBeenCalled();
+  });
+
+  it('checks semantic availability over the indexed folders only', async () => {
+    const { capability } = setup(bothOpen, semanticProfile);
+    await waitFor(() => expect(capability.coverageBatch).toHaveBeenCalled());
+    expect(capability.coverageBatch).toHaveBeenCalledWith([{ rootIds: ['D1'] }]);
+    expect(capability.coverageBatch).not.toHaveBeenCalledWith([{ rootIds: ['D1', 'D2'] }]);
+  });
+
+  it('says semantic search is unavailable, naming the folder, when no open folder is indexed', async () => {
+    const { capability, result } = setup(new Map([['A2', 'D2']]), semanticProfile);
+    await waitFor(() =>
+      expect(result.current.semanticAvailability).toEqual({
+        available: false,
+        reason:
+          '"wt2" is not indexed, so there is nothing to search. Worktrees can be turned on in Settings, Search & Indexing.',
+      })
+    );
+    expect(capability.coverageBatch).not.toHaveBeenCalled();
+  });
+});
