@@ -77,10 +77,7 @@ function fixture(): CanonicalRemoteWorkspaceDependencies {
     request: { batchSize: 2, chunkingOptions: { strategy: 'recursive' }, maxFileBytes: 1024 },
     source: {
       indexingPolicyPreset: 'balanced',
-      inventory: {
-        loadFiles: async () => [],
-        readRetained: async () => ({ content: '', stat: { mtimeMs: null, size: 0 } }),
-      },
+      inventory: { loadFiles: async () => [] },
       lease: {
         canonicalPath: '/actual/root',
         generation: 'generation',

@@ -1,19 +1,16 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
 import {
-  type CanonicalCatalogFile,
   type CanonicalOperationContext,
   type CanonicalScanReceipt,
   type CanonicalWorkspaceLease,
   createNativeCanonicalPublication,
 } from '@brainstrike/canonical-ingestion';
-import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
-  type CanonicalCollectionDependencies,
   type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
@@ -121,32 +118,26 @@ function messages(error: unknown): string[] {
 }
 const source = 'export const canonical = "actual utility parser";\n';
 const sourceHash = createHash('sha256').update(source).digest('hex');
-const rootlessFile: CanonicalCatalogFile = {
-  chunksProcessed: false,
-  contentHash: null,
-  embeddingSetId: 'collection',
-  fileId: 'file',
-  fileName: 'source.ts',
-  relativePath: null,
-  rootId: null,
-  sourcePath: null,
-  stat: { mtimeMs: null, size: Buffer.byteLength(source) },
-};
-function collection(published: CanonicalIndexPayload[]): CanonicalCollectionDependencies {
-  const { contentHash: _hash, chunksProcessed: _processed, ...file } = rootlessFile;
+type TextWorkspace = Extract<CanonicalRemoteWorkspaceDependencies, { readonly mode?: 'TEXT' }>;
+/** A TEXT workspace owner on an empty mounted root; a test replaces what it exercises. */
+function workspace(published: CanonicalIndexPayload[]): TextWorkspace {
   return {
     catalog: {
       applyManagedCacheBatch: async () => {},
       completeFiles: async () => {},
-      loadAuthorizedBatch: async ({ files }) => files.map(() => rootlessFile),
+      loadAuthorizedBatch: async () => [],
       prepareManagedSourcesBatch: async () => {
-        throw new Error('Rootless attempted filesystem discovery');
+        throw new Error('Unrequested discovery');
       },
       removeFiles: async () => {},
       resolveProfile: async () => {
         throw new Error('TEXT resolved inference');
       },
     },
+    managedCollectionId: null,
+    onError: vi.fn(),
+    onReceipt: vi.fn(),
+    onWatchHealth: vi.fn(),
     parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
@@ -177,30 +168,32 @@ function collection(published: CanonicalIndexPayload[]): CanonicalCollectionDepe
       }),
     },
     request: { batchSize: 2, chunkingOptions: { strategy: 'auto' }, maxFileBytes: 1024 },
-    scope: { embeddingSetId: 'collection', kind: 'collection' },
     source: {
       indexingPolicyPreset: 'balanced',
-      inventory: {
-        loadFiles: async () => [file],
-        readRetained: async () => ({ content: source, stat: file.stat }),
+      inventory: { loadFiles: async () => [] },
+      lease: {
+        canonicalPath: '/captured/root',
+        generation: 'generation',
+        listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+        readFile: async () => ({ status: 'not-found' as const }),
+        retire: async () => {},
+        rootId: 'root',
+        signal: new AbortController().signal,
+        subscribe: async () => ({ close: async () => {} }),
       },
     },
   };
 }
 
 /** An empty folder whose scan reads its root through `lease`; it never completes a scan. */
-function workspace(
+function folderWorkspace(
   lease: CanonicalWorkspaceLease,
   onError: CanonicalRemoteWorkspaceDependencies['onError'] = vi.fn()
-): CanonicalRemoteWorkspaceDependencies {
-  const base = collection([]);
+): TextWorkspace {
+  const base = workspace([]);
   return {
-    catalog: { ...base.catalog, loadAuthorizedBatch: async () => [] },
-    managedCollectionId: null,
+    ...base,
     onError,
-    onReceipt: vi.fn(),
-    onWatchHealth: vi.fn(),
-    parser: base.parser,
     publication: {
       ...base.publication,
       finishScan: async ({ aborted, ticket }) => ({
@@ -209,83 +202,11 @@ function workspace(
         ticket,
       }),
     },
-    request: base.request,
-    source: {
-      indexingPolicyPreset: 'balanced',
-      inventory: { ...base.source.inventory, loadFiles: async () => [] },
-      lease,
-    },
+    source: { ...base.source, lease },
   };
 }
 
 describe('actual utility canonical runtime attachment', () => {
-  it('joins a stopped owner whose correlated source request arrives after admission closes', async () => {
-    const request = Promise.withResolvers<object>();
-    const cancelled = Promise.withResolvers<object>();
-    const { parent, child } = connected((input) => {
-      const frame = decodeCanonicalFrame(input);
-      if (frame.kind === 'cancel') {
-        cancelled.resolve(structuredClone(input));
-        return true;
-      }
-      if (frame.kind !== 'call' || frame.op !== 'load-files') {
-        return false;
-      }
-      request.resolve(structuredClone(input));
-      return true;
-    });
-    const dependencies = collection([]);
-    const load = vi.spyOn(dependencies.source.inventory, 'loadFiles');
-    const finish = vi.spyOn(dependencies.publication, 'finishScan');
-    const attachment = await parent.attachCollection(dependencies);
-    const scan = await attachment.startScan('late-owned-source');
-    const held = await request.promise;
-    const retirement = parent.retireAttachments();
-    const notice = await cancelled.promise;
-    // Deliver correlated frames in original call/notice order after the actual child abort.
-    parent.receive(held);
-    parent.receive(notice);
-    await retirement;
-    // Typed as Main's own retirement, so its owners classify it (BST-2140).
-    const joined = scan.join().catch((error: unknown) => error);
-    expect(await joined).toBeInstanceOf(NativeAuthorityTransitionError);
-    expect(await joined).toMatchObject({ message: expect.stringMatching(/cancelled/) });
-    expect(load).not.toHaveBeenCalled();
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({ aborted: true, full: false }));
-    expect(child.channel.pendingCount).toBe(0);
-    expect(parent.channel.pendingCount).toBe(0);
-    await parent.close();
-  });
-
-  // BST-2140: the shutdown fence stops the scan's Main-side work before any close.
-  it('reports a scan its port owner cancelled as cancelled, and as retirement once Main retired it', async () => {
-    const { parent } = connected();
-    const dependencies = collection([]);
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    dependencies.source.inventory.loadFiles = async () => {
-      entered.resolve();
-      await release.promise;
-      throw new NativeAuthorityTransitionError('Native owner terminal retirement requested.');
-    };
-    // The failed scan still settles its ticket; this fixture's default finish expects a file.
-    dependencies.publication.finishScan = async ({ ticket }) => ({
-      reason: 'scan-errors',
-      scanComplete: false,
-      ticket,
-    });
-    const attachment = await parent.attachCollection(dependencies);
-    const scan = await attachment.startScan('fenced-scan');
-    await entered.promise;
-    parent.fenceAttachments();
-    release.resolve();
-    const joined = scan.join().catch((error: unknown) => error);
-    expect(await joined).toBeInstanceOf(NativeAuthorityTransitionError);
-    expect(await joined).toMatchObject({ refusal: { kind: 'transitioning' } });
-    await parent.retireAttachments();
-    await parent.close();
-  });
-
   // A reset, or a newly added folder, retires a folder whose attachment is still being acquired:
   // the utility's acquisition ends on that retirement, which Main's owners must see typed.
   it('settles an attach in flight when Main retires it with the typed retirement', async () => {
@@ -303,33 +224,7 @@ describe('actual utility canonical runtime attachment', () => {
       subscribe.resolve(structuredClone(input));
       return true;
     });
-    const base = collection([]);
-    const attaching = parent
-      .attachWorkspace({
-        catalog: { ...base.catalog, loadAuthorizedBatch: async () => [] },
-        managedCollectionId: null,
-        onError: vi.fn(),
-        onReceipt: vi.fn(),
-        onWatchHealth: vi.fn(),
-        parser: base.parser,
-        publication: base.publication,
-        request: base.request,
-        source: {
-          indexingPolicyPreset: 'balanced',
-          inventory: { ...base.source.inventory, loadFiles: async () => [] },
-          lease: {
-            canonicalPath: '/captured/root',
-            generation: 'generation',
-            listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
-            readFile: async () => ({ status: 'not-found' as const }),
-            retire: async () => {},
-            rootId: 'root',
-            signal: new AbortController().signal,
-            subscribe: async () => ({ close: async () => {} }),
-          },
-        },
-      })
-      .catch((error: unknown) => error);
+    const attaching = parent.attachWorkspace(workspace([])).catch((error: unknown) => error);
     const held = await subscribe.promise;
     const retirement = parent.retireAttachments();
     // The utility's watch request reaches Main after the retirement, then its cancel notice.
@@ -350,7 +245,7 @@ describe('actual utility canonical runtime attachment', () => {
       return folder.held(context);
     };
     const { answer, parent } = answering();
-    await parent.attachWorkspace(workspace(folder.lease));
+    await parent.attachWorkspace(folderWorkspace(folder.lease));
     await reading.promise;
     void folder.lease.retire();
     await expect(parent.retireAttachments()).resolves.toBeUndefined();
@@ -366,7 +261,7 @@ describe('actual utility canonical runtime attachment', () => {
     const reader = folderLease();
     const loading = Promise.withResolvers<void>();
     const reported = vi.fn();
-    const dependencies = workspace(borrowed.lease, reported);
+    const dependencies = folderWorkspace(borrowed.lease, reported);
     dependencies.source.inventory.loadFiles = async () => {
       loading.resolve();
       await new Promise((resolve) => {
@@ -393,7 +288,7 @@ describe('actual utility canonical runtime attachment', () => {
     };
     const { answer, parent } = answering();
     const attaching = parent
-      .attachWorkspace(workspace(folder.lease))
+      .attachWorkspace(folderWorkspace(folder.lease))
       .catch((error: unknown) => error);
     await watching.promise;
     void folder.lease.retire();
@@ -411,7 +306,7 @@ describe('actual utility canonical runtime attachment', () => {
     const { answer, parent } = answering();
     const reported = Promise.withResolvers<unknown>();
     await parent.attachWorkspace(
-      workspace(folder.lease, (_operation, error) => reported.resolve(error))
+      folderWorkspace(folder.lease, (_operation, error) => reported.resolve(error))
     );
     const failed = await answer('list-dir');
     expect(failed).toMatchObject({ error: { message: 'Folder read failed.' }, ok: false });
@@ -420,6 +315,37 @@ describe('actual utility canonical runtime attachment', () => {
     await parent.retireAttachments();
     await parent.close();
   });
+
+  it.each([
+    ['a plain error', () => new Error('independent permission failure')],
+    ['the typed transition', () => new NativeAuthorityTransitionError('Native ingestion paused.')],
+    ["another bundle's copy of the typed transition", () => new TransitionCopy('Lease retired.')],
+    ['an abort', () => new DOMException('independent source failure', 'AbortError')],
+  ])(
+    'retires a folder once the source work it cancelled settles with %s',
+    async (_shape, failure) => {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const { parent } = connected();
+      const dependencies = folderWorkspace(folderLease().lease);
+      dependencies.source.inventory.loadFiles = async () => {
+        entered.resolve();
+        await release.promise;
+        throw failure();
+      };
+      await parent.attachWorkspace(dependencies);
+      await entered.promise;
+      let retired = false;
+      const retirement = parent.retireAttachments().then(() => {
+        retired = true;
+      });
+      await quiescent();
+      expect(retired).toBe(false);
+      release.resolve();
+      await expect(retirement).resolves.toBeUndefined();
+      await parent.close();
+    }
+  );
 
   // A reset, or a newly added folder, retires the attachments while a scan finishes. Main's
   // finish releases the scan's ticket before the utility's cancellation of that scan reaches it.
@@ -476,33 +402,14 @@ describe('actual utility canonical runtime attachment', () => {
       [scope]
     );
     const finished = Promise.withResolvers<void>();
-    const base = collection([]);
+    const base = workspace([]);
     await parent.attachWorkspace({
-      catalog: { ...base.catalog, loadAuthorizedBatch: async () => [] },
-      managedCollectionId: null,
-      onError: vi.fn(),
-      onReceipt: vi.fn(),
-      onWatchHealth: vi.fn(),
-      parser: base.parser,
+      ...base,
       publication: {
         ...publication,
         finishScan: (request) => publication.finishScan(request).finally(finished.resolve),
       },
-      request: base.request,
-      source: {
-        indexingPolicyPreset: 'balanced',
-        inventory: { ...base.source.inventory, loadFiles: async () => [] },
-        lease: {
-          canonicalPath: '/captured/root',
-          generation: 'generation',
-          listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
-          readFile: fail,
-          retire: async () => {},
-          rootId: scope.rootId,
-          signal: new AbortController().signal,
-          subscribe: async () => ({ close: async () => {} }),
-        },
-      },
+      source: { ...base.source, lease: { ...base.source.lease, readFile: fail } },
     });
     await verifying.promise;
     const retirement = parent.retireAttachments().then(
@@ -517,148 +424,11 @@ describe('actual utility canonical runtime attachment', () => {
     await parent.close();
   });
 
-  it('refuses a scan of a fenced attachment with the typed retirement, and starts none', async () => {
-    const { parent } = connected();
-    const dependencies = collection([]);
-    const load = vi.spyOn(dependencies.source.inventory, 'loadFiles');
-    const attachment = await parent.attachCollection(dependencies);
-    parent.fenceAttachments();
-    await expect(attachment.startScan('after-fence')).rejects.toBeInstanceOf(
-      NativeAuthorityTransitionError
-    );
-    expect(load).not.toHaveBeenCalled();
-    await parent.retireAttachments();
-    await parent.close();
-  });
-
-  it('keeps a cancelled scan of an attachment Main never retired a typed cancellation', async () => {
-    const { parent } = connected();
-    const dependencies = collection([]);
-    const entered = Promise.withResolvers<void>();
-    dependencies.source.inventory.loadFiles = async (_scope, context) => {
-      entered.resolve();
-      await new Promise((_resolve, reject) => {
-        context.signal.addEventListener('abort', () => reject(context.signal.reason), {
-          once: true,
-        });
-      });
-      return [];
-    };
-    const attachment = await parent.attachCollection(dependencies);
-    const scan = await attachment.startScan('cancelled-scan');
-    await entered.promise;
-    await attachment.cancel();
-    const joined = scan.join().catch((error: unknown) => error);
-    expect(await joined).toBeInstanceOf(CanonicalOperationCancelledError);
-    expect(await joined).not.toBeInstanceOf(NativeAuthorityTransitionError);
-    await parent.retireAttachments();
-    await parent.close();
-  });
-
-  it.each([
-    ['a plain error', () => new Error('independent permission failure')],
-    ['the typed transition', () => new NativeAuthorityTransitionError('Native ingestion paused.')],
-    ["another bundle's copy of the typed transition", () => new TransitionCopy('Lease retired.')],
-    ['an abort', () => new DOMException('independent source failure', 'AbortError')],
-  ])(
-    'retires a collection once the source work it cancelled settles with %s',
-    async (_shape, failure) => {
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      const { parent } = connected();
-      const dependencies = collection([]);
-      dependencies.source.inventory.loadFiles = async () => {
-        entered.resolve();
-        await release.promise;
-        throw failure();
-      };
-      const attachment = await parent.attachCollection(dependencies);
-      const scan = await attachment.startScan('cancelled-source');
-      const joined = scan.join().catch((error: unknown) => error);
-      await entered.promise;
-      let retired = false;
-      const retirement = parent.retireAttachments().then(() => {
-        retired = true;
-      });
-      await quiescent();
-      expect(retired).toBe(false);
-      release.resolve();
-      await expect(retirement).resolves.toBeUndefined();
-      // Its own caller still learns how it ended.
-      expect(await joined).toBeInstanceOf(Error);
-      await parent.close();
-    }
-  );
-
-  it('runs the public rootless host with the actual OXC chunker and no mount', async () => {
-    const published: CanonicalIndexPayload[] = [];
-    const { parent } = connected();
-    const attachment = await parent.attachCollection(collection(published));
-    const receipt = await attachment.scan('rootless-request');
-    expect(receipt.scanComplete).toBe(true);
-    expect(published).toHaveLength(1);
-    expect(published[0]).toMatchObject({ content: source, fileId: 'file' });
-    expect(published[0]?.providedChunks.length).toBeGreaterThan(0);
-    expect(published[0]?.syntax?.symbols.some((symbol) => symbol.name === 'canonical')).toBe(true);
-    await attachment.close();
-    await parent.close();
-  });
-
-  it.each(['complete', 'failure', 'closed'] as const)(
-    'retains a fast %s scan terminal until its matching join',
-    async (scenario) => {
-      const { parent } = connected();
-      const dependencies = collection([]);
-      let finished!: () => void;
-      const terminal = new Promise<void>((resolve) => {
-        finished = resolve;
-      });
-      const original = dependencies.publication.finishScan;
-      const failure = new Error('independent publication failure');
-      dependencies.publication.finishScan = async (input) => {
-        finished();
-        if (scenario === 'failure') {
-          throw failure;
-        }
-        return original(input);
-      };
-      const attachment = await parent.attachCollection(dependencies);
-      try {
-        const admitted = await attachment.startScan('fast');
-        await terminal;
-        // Reservation remains live even when the runtime settles before its caller joins.
-        await expect(attachment.startScan('overlap')).rejects.toThrow(/already owned/);
-        if (scenario === 'closed') {
-          await attachment.close();
-        }
-        const joined = admitted.join();
-        expect(admitted.join()).toBe(joined);
-        if (scenario === 'failure') {
-          await expect(joined).rejects.toThrow('independent publication failure');
-        } else {
-          await expect(joined).resolves.toMatchObject({
-            scanComplete: true,
-            ticket: { requestId: 'fast' },
-          });
-          if (scenario === 'closed') {
-            await expect(attachment.scan('next')).rejects.toThrow(/admission is closed/);
-          } else {
-            await expect(attachment.scan('next')).resolves.toMatchObject({
-              ticket: { requestId: 'next' },
-            });
-          }
-        }
-      } finally {
-        await parent.close();
-      }
-    }
-  );
-
   it.each(['unchanged', 'replaced', 'revoked', 'held-retirement', 'failed-retirement'] as const)(
     'constructs the public workspace coordinator and joins original %s lease/watch ownership through the real child',
     async (scenario) => {
       const published: CanonicalIndexPayload[] = [];
-      const base = collection(published);
+      const base = workspace(published);
       const { parent } = connected();
       let resolveReceipt!: (receipt: CanonicalScanReceipt) => void;
       const completed = new Promise<CanonicalScanReceipt>((resolve) => {
@@ -686,26 +456,20 @@ describe('actual utility canonical runtime attachment', () => {
       const retire = vi.fn(async () => {});
       const errors = vi.fn();
       const leaseController = new AbortController();
-      const dependencies: CanonicalRemoteWorkspaceDependencies = {
+      const dependencies: TextWorkspace = {
+        ...base,
         catalog: {
           ...base.catalog,
-          loadAuthorizedBatch: async () => [],
           prepareManagedSourcesBatch: async ({ files }) =>
             files.map((file) => ({ ...file, embeddingSetId: 'collection', fileId: 'file' })),
         },
         managedCollectionId: 'collection',
         onError: errors,
         onReceipt: resolveReceipt,
-        onWatchHealth: vi.fn(),
-        parser: base.parser,
-        publication: base.publication,
-        request: base.request,
         source: {
-          indexingPolicyPreset: 'balanced',
-          inventory: { ...base.source.inventory, loadFiles: async () => [] },
+          ...base.source,
           lease: {
-            canonicalPath: '/captured/root',
-            generation: 'generation',
+            ...base.source.lease,
             listDir: async () => ({
               entries: [
                 {
@@ -722,7 +486,6 @@ describe('actual utility canonical runtime attachment', () => {
             }),
             readFile: async () => ({ content: Buffer.from(source), status: 'ok' }),
             retire,
-            rootId: 'root',
             signal: leaseController.signal,
             subscribe: async () => ({ close: unsubscribe }),
           },
