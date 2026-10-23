@@ -3876,9 +3876,6 @@ importers:
 
   packages/workspace-search:
     dependencies:
-      '@brainstrike/app-state':
-        specifier: workspace:*
-        version: link:../app-state
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract

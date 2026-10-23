@@ -1,9 +1,9 @@
 import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
+import { NO_WORKSPACE_FOLDER_MESSAGE } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
-import { NO_WORKSPACE_FOLDER_MESSAGE } from '../node-native-index/errors.js';
 import type { StoredWorkspaceRoot } from './workspace-root-types.js';
 
 const logger = createLogger('AssistantWorkspaceRoots');

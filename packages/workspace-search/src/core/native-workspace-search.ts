@@ -9,6 +9,7 @@ import {
   type IndexSearchCapability,
   indexerEmbeddingProfileValues,
   indexerStatusFailure,
+  NO_WORKSPACE_FOLDER_MESSAGE,
   validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
@@ -289,19 +290,6 @@ export interface NativeWorkspaceSearchRequest {
   rootIds: readonly string[];
   wholeWord: boolean;
 }
-function emptyNativeResults(mode: WorkspaceSearchMode): WorkspaceSearchResults {
-  return {
-    files: [],
-    mode,
-    notices: {
-      candidatesTruncated: false,
-      scanLimited: false,
-      skippedMissingLineMetadata: 0,
-      truncated: false,
-    },
-    totalMatches: 0,
-  };
-}
 export interface NativeWorkspaceSearchResults extends WorkspaceSearchResults {
   /** Only the scoped producer can prove incompleteness; bounded results do not imply it. */
   readonly incompleteSource?: {
@@ -390,10 +378,7 @@ export class NativeWorkspaceSearchExecutor {
   ): Promise<NativeWorkspaceSearchResults | null> {
     this.cancelPendingSearch();
     const seq = this.requestSeq;
-    const empty = emptyScopeResult(request, mode);
-    if (empty !== null) {
-      return empty;
-    }
+    assertFolderOpen(request);
     const { capability, profile } = this.deps;
     if (!capability) {
       throw new Error('Native workspace search is unavailable.');
@@ -683,15 +668,9 @@ function validCollectionCounts(coverage: IndexerCoverage, collectionId: string):
   );
 }
 
-function emptyScopeResult(
-  request: NativeWorkspaceSearchRequest,
-  mode: WorkspaceSearchMode
-): WorkspaceSearchResults | null {
-  if (request.rootIds.length !== 0) {
-    return null;
+/** No folder means nothing to search: say so rather than answer with no matches. */
+function assertFolderOpen(request: NativeWorkspaceSearchRequest): void {
+  if (request.rootIds.length === 0) {
+    throw new Error(NO_WORKSPACE_FOLDER_MESSAGE);
   }
-  if (mode === 'text') {
-    return emptyNativeResults(mode);
-  }
-  throw new Error('Vector search requires an explicit nonempty workspace root scope.');
 }

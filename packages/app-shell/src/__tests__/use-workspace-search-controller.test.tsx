@@ -172,6 +172,37 @@ describe('useWorkspaceSearchController', () => {
     expect(useWorkspaceSearchStore.getState().mode).toBe('text');
   });
 
+  it('tells the user to add a folder when a text search runs with no folder open', async () => {
+    const capability = {
+      coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(),
+      grep: vi.fn<IndexSearchCapability['grep']>(),
+      rebuild: vi.fn(async () => {}),
+      search: vi.fn<IndexSearchCapability['search']>(),
+      status: vi.fn<IndexSearchCapability['status']>(),
+    };
+    const dependencies = { capability, embedQuery: vi.fn(), profile: null };
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider dependencies={dependencies}>
+            <RootIdentityProvider dbRootIdByAdapterRootId={new Map()}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
+        </SearchEmbedderProvider>
+      );
+    }
+    useWorkspaceSearchStore.getState().setQuery('needle');
+    const { result } = renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper });
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
+    expect(capability.search).not.toHaveBeenCalled();
+    expect(capability.grep).not.toHaveBeenCalled();
+  });
   it('preserves explicit semantic mode when native capability is lost', async () => {
     useWorkspaceSearchStore.getState().setMode('semantic');
     function Wrapper({ children }: { children: ReactNode }) {

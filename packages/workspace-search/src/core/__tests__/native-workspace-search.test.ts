@@ -349,6 +349,20 @@ describe('native search consumer boundary', () => {
       ])
     );
   });
+  it('text search with no folder open says to add one instead of finding nothing', async () => {
+    const bridge = capability();
+    await expect(
+      new NativeWorkspaceSearchExecutor({
+        capability: bridge,
+        embedQuery: vi.fn(),
+        profile,
+      }).searchText({ ...request, rootIds: [] })
+    ).rejects.toThrow(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
+    expect(bridge.search).not.toHaveBeenCalled();
+    expect(bridge.grep).not.toHaveBeenCalled();
+  });
   it('semantic rejects incomplete coverage before inference or any candidate arm', async () => {
     const bridge = capability();
     bridge.coverage.mockResolvedValueOnce({

@@ -3,7 +3,6 @@
   "description": "Workspace search result model and session-lived search store",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/app-state": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
