@@ -16,6 +16,9 @@ import type {
   CanonicalVectorPublicationPort,
 } from '../src/ports.js';
 
+const diagnostics = vi.hoisted(() => ({ debug: vi.fn() }));
+vi.mock('@brainstrike/logging', () => ({ createLogger: () => diagnostics }));
+
 const profile: VectorProfile = {
   dimensions: 384,
   distance: 'cosine',
@@ -546,7 +549,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     expect(f.catalog.resolveProfile).not.toHaveBeenCalled();
     await f.host.close();
   });
-  it('accepts the inference owner successful cancellation disposition without matching AbortError names', async () => {
+  it('reports a cancelled generation as the scan cancellation and logs how it ended', async () => {
     const f = await fixture();
     const physical = deferred();
     const ownedReason = new DOMException('native owner cancelled', 'AbortError');
@@ -561,9 +564,13 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     physical.resolve();
     await cancelling;
     const reason = await result;
-    // The scan ends on the host's own typed cancellation, not the inference owner's reason.
+    // The scan ends on the host's own typed cancellation; the generation's reason is logged.
     expect(reason).toBeInstanceOf(CanonicalOperationCancelledError);
     expect(reason).not.toBe(ownedReason);
+    expect(diagnostics.debug).toHaveBeenCalledWith(expect.any(String), {
+      error: ownedReason,
+      requestId: expect.stringMatching(new RegExp(`^${f.request.requestId}:`)),
+    });
     expect(f.inference.join).toHaveBeenCalledOnce();
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
     await f.host.close();

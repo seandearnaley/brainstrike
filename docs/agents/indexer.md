@@ -104,11 +104,16 @@ Retiring a source, workspace runtime, ingestion host, utility attachment or Main
 native-index sources (a reset, a folder added or removed, Pause) fences new work,
 cancels the work in flight, waits for that work to settle however it ends, then
 closes what it owns: handles, watches, mounts, leases, the utility session. It
-fails only when one of those does not close or the utility does not exit. How the
-cancelled work ended is not part of its result: that work's own caller still
-learns it, a cancelled workspace pass's error is logged at debug with its request
-id, and the next generation redoes the work under a live owner, where a real error
-shows again.
+fails only when one of those does not close. How the cancelled work ended is not
+part of its result; that work's own caller still learns it. The coordinator, a
+workspace pass's caller, discards a superseded pass's outcome, logged at debug
+with the pass's request id; Main does the same for a retired generation's startup,
+its collection scan included. When a cancelled scan's inference generation failed
+and its cancel and join settled, the scan reports its own cancellation instead and
+logs the generation's error at debug. The next generation redoes the work under a
+live owner, where a real error shows again. Main revokes the native authority in
+the same turn that it stops the utility's attachments (`fenceAttachments`), so
+admitted work that fails on that revocation is answered as cancelled (BST-1955).
 
 Only explicit owners start Main's index: boot, `resume()` after a reset or
 deletion, and host-loss recovery once a replacement host is admitted (BST-2004).

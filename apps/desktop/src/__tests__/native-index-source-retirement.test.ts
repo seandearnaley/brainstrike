@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
+  debug: vi.fn(),
   destroy: vi.fn(),
   fence: vi.fn(),
   manager: {
@@ -44,6 +45,16 @@ const mocks = vi.hoisted(() => ({
   },
   readyPort: vi.fn(),
 }));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const logging = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...logging,
+    createLogger: (scope: string) =>
+      scope === 'NativeIndexActivation'
+        ? { ...logging.createLogger(scope), debug: mocks.debug }
+        : logging.createLogger(scope),
+  };
+});
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -345,6 +356,11 @@ it.each([
     collectionRelease.resolve();
     const outcome = await settled;
     await startup;
+    // The retired generation's collection scan ended superseded: its outcome is logged at debug.
+    expect(mocks.debug).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ error: expect.anything(), generation: expect.any(Number) })
+    );
     const reply = replies
       .map(decodeCanonicalFrame)
       .find(

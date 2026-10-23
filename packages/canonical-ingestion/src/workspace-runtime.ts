@@ -301,10 +301,14 @@ export class CanonicalWorkspaceIngestionRuntime {
       return;
     }
     active.controller.abort(new DOMException('Workspace pass cancelled.', 'AbortError'));
-    if (active.scanStarted) {
-      await this.host.cancel(active.context.requestId);
+    try {
+      if (active.scanStarted) {
+        await this.host.cancel(active.context.requestId);
+      }
+    } finally {
+      // The pass ends before anything closes under it, even when its scan's cancel throws.
+      await active.settled;
     }
-    await active.settled;
   }
 
   private async retire(): Promise<void> {
