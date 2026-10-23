@@ -195,6 +195,7 @@ const {
   nativeAcquireRead,
   nativeCloseForShutdown,
   nativePrepareForPause,
+  nativeRebuild,
   nativeReconfigureForReset,
   publicEmbeddingStop,
 } = vi.hoisted(() => ({
@@ -214,6 +215,7 @@ const {
       typeof import('../../native-index-activation').createNativeIndexActivation
     >['prepareSavedPause']
   >(async () => null),
+  nativeRebuild: { current: null as null | (() => Promise<void>) },
   nativeReconfigureForReset: { current: null as null | (() => Promise<void>) },
   publicEmbeddingStop: {
     current: null as null | import('../../embedding-host-manager').EmbeddingHostManager['stop'],
@@ -235,6 +237,7 @@ vi.mock('../../native-index-activation', async (importOriginal) => {
         acquireRead: nativeAcquireRead,
         close: nativeCloseForShutdown,
         prepareSavedPause: nativePrepareForPause,
+        rebuild: () => nativeRebuild.current?.() ?? owner.rebuild(),
         reconfigure: () => nativeReconfigureForReset.current?.() ?? owner.reconfigure(),
       };
     },
@@ -340,6 +343,7 @@ export function installMainBootFixture(): void {
     applicationDomainCapture.close = null;
     applicationDomainCapture.options = null;
     nativeReconfigureForReset.current = null;
+    nativeRebuild.current = null;
     nativeActualPrepareForPause.current = null;
     indexConfigCapture.current = null;
     nativePrepareForPause.mockReset().mockResolvedValue(null);
@@ -381,6 +385,7 @@ export {
   nativeActualPrepareForPause,
   nativeCloseForShutdown,
   nativePrepareForPause,
+  nativeRebuild,
   nativeReconfigureForReset,
   publicEmbeddingStop,
   requireIndexConfig,

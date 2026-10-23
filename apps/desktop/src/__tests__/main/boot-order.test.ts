@@ -12,6 +12,7 @@ import {
   nativeAcquireRead,
   nativeCloseForShutdown,
   nativePrepareForPause,
+  nativeRebuild,
   nativeReconfigureForReset,
   requireIndexConfig,
   requireMainLogger,
@@ -279,6 +280,22 @@ describe('main boot order', () => {
       }
     }
   );
+
+  it('rebuilds for saved chunking in the background and reports the rebuild failure', async () => {
+    const failure = new Error('Native rebuild failed');
+    nativeRebuild.current = vi.fn(async () => {
+      throw failure;
+    });
+    await import('../../main');
+    // The same trigger Main's config owner uses once a chunking change is saved.
+    await expect(requireIndexConfig().rebuild()).resolves.toBeUndefined();
+    await vi.waitFor(() =>
+      expect(requireMainLogger().error).toHaveBeenCalledWith(
+        'Search index rebuild for the new chunking failed',
+        { error: failure }
+      )
+    );
+  });
 
   it('starts profile and native acquisition before showing a reader-ready window without PG', async () => {
     const reader = Promise.withResolvers<void>();

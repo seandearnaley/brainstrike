@@ -1,6 +1,7 @@
 import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
+import { IndexConfigStoreFailed } from '../index-config';
 import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
@@ -19,6 +20,30 @@ it('reports a typed closing catalog refusal as retirement only during shutdown',
   expect(logger.error).not.toHaveBeenCalled();
   expect(logger.info).toHaveBeenCalledWith('Native index activation retired during shutdown', {
     reason: error.message,
+  });
+  logger.info.mockClear();
+  reportNativeIndexActivationError('Saved configuration could not activate', error, false, logger);
+  expect(logger.error).toHaveBeenCalledWith('Saved configuration could not activate', { error });
+  expect(logger.info).not.toHaveBeenCalled();
+});
+
+it('reports a closing refusal under a search index settings read as retirement during shutdown', () => {
+  const logger = { error: vi.fn(), info: vi.fn() };
+  const refused = new BoundaryFailureError(
+    refusal({
+      category: 'availability',
+      code: 'host.closing',
+      message: 'The agent host is closing.',
+    })
+  );
+  const error = new IndexConfigStoreFailed({
+    cause: refused,
+    message: 'The search index settings could not be read.',
+  });
+  reportNativeIndexActivationError('Saved configuration could not activate', error, true, logger);
+  expect(logger.error).not.toHaveBeenCalled();
+  expect(logger.info).toHaveBeenCalledWith('Native index activation retired during shutdown', {
+    reason: refused.message,
   });
   logger.info.mockClear();
   reportNativeIndexActivationError('Saved configuration could not activate', error, false, logger);

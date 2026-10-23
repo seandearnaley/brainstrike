@@ -881,9 +881,12 @@ const indexConfig = createDesktopIndexConfig({
       }
     }
   },
-  // A saved change joins the native owner's FIFO in save order and `update` returns: the scan
-  // runs in the background, so a Pause saved meanwhile fences admission at once. Failures stay
-  // visible in the lifecycle observation and these reports.
+  // A saved change joins the native owner's FIFO and `update` returns: the scan runs in the
+  // background, so a Pause saved meanwhile fences admission at once. During a factory reset a
+  // reconfigure waits for the reset while a rebuild or vector-space replacement joins the FIFO
+  // directly, so applies can run out of save order; each re-reads the saved config when it runs,
+  // so the index ends on the last save. Failures stay visible in the lifecycle observation and
+  // these reports.
   rebuild: async () => {
     nativeIndexSearch
       .rebuild()
