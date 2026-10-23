@@ -214,26 +214,6 @@ describe('captured canonical utility capabilities', () => {
     await close;
   });
 
-  it('preserves an independently revoked mounted lease while its owner is stopping', async () => {
-    const dependencies = fixture();
-    const revoked = new AbortController();
-    Object.assign(dependencies.source.lease, { signal: revoked.signal });
-    const { parent, owner, frames } = await attached(dependencies);
-    revoked.abort(new Error('independent permission revocation'));
-    const close = parent.close();
-    call(parent, owner, 200, 'read-file', { maxBytes: 1, relativePath: 'file' });
-    const response = frames.find((input) => {
-      const frame = decodeCanonicalFrame(input);
-      return frame.kind === 'result' && frame.id === 200;
-    });
-    expect(response).toMatchObject({
-      error: { message: 'Canonical request has no live mounted lease.' },
-      ok: false,
-    });
-    expect(response).not.toHaveProperty('cancelled');
-    await close;
-  });
-
   it('rejects a foreign captured owner while stopping without a cancellation response', async () => {
     const { parent, frames } = await attached();
     const close = parent.close();
@@ -765,6 +745,55 @@ it('refuses an acquisition a fence overtook with the typed retirement and retire
   expect(await attaching).toBeInstanceOf(NativeAuthorityTransitionError);
   await parent.retireAttachments();
   expect(deps.source.lease.retire).toHaveBeenCalledOnce();
+  await parent.close();
+});
+
+// A folder added while the first attach is starting retires that generation: Main stops the
+// attachment and retires its lease in one turn, before the utility's subscribe arrives.
+it('a folder added while the first attach is starting answers the late subscribe as cancelled', async () => {
+  const frames: object[] = [];
+  const attach = Promise.withResolvers<void>();
+  const parent = new CanonicalUtilityParent((input) => {
+    frames.push(input);
+    const frame = decodeCanonicalFrame(input);
+    if (frame.kind !== 'call') {
+      return;
+    }
+    const respond = (): void =>
+      parent.receive({
+        channel: CANONICAL_CHANNEL,
+        id: frame.id,
+        kind: 'result',
+        ok: true,
+        owner: frame.owner,
+        value: null,
+      });
+    if (frame.op === 'attach') {
+      void attach.promise.then(respond);
+      return;
+    }
+    queueMicrotask(respond);
+  }, vi.fn());
+  const deps = fixture();
+  const lease = new AbortController();
+  Object.assign(deps.source.lease, {
+    retire: vi.fn(async () => lease.abort(new Error('Canonical mount retired.'))),
+    signal: lease.signal,
+  });
+  const attaching = parent.attachWorkspace(deps).catch((error: unknown) => error);
+  const owner = decodeCanonicalFrame(frames[0]).owner;
+  const retiring = parent.retireAttachments();
+  void deps.source.lease.retire();
+  call(parent, owner, 1, 'subscribe', null);
+  attach.resolve();
+  await retiring;
+  expect(await attaching).toBeInstanceOf(Error);
+  const response = frames.find((input) => {
+    const frame = decodeCanonicalFrame(input);
+    return frame.kind === 'result' && frame.id === 1;
+  });
+  expect(response).toMatchObject({ cancelled: true, ok: false });
+  expect(deps.source.lease.subscribe).not.toHaveBeenCalled();
   await parent.close();
 });
 

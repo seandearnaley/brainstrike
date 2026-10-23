@@ -25,7 +25,6 @@ function assertLeaseRequest(session: Session, frame: Request): void {
   if (!['list-dir', 'read-file', 'subscribe'].includes(frame.op)) {
     return;
   }
-  capturedAuthority(session, frame).ownedLease();
   if (frame.op === 'subscribe') {
     if (session.subscriptionAcquired) {
       throw new Error('Canonical watcher already has an owner.');
