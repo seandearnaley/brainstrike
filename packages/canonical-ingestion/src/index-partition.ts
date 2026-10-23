@@ -1,9 +1,9 @@
 /**
  * The index's partition follows the saved choice (BST-1988), for desktop's
- * native index. A saved collection owns the workspace's sources in either
- * mode. With none, TEXT is the TEXT partition: workspace roots only, and
- * sources with no embedding set. Text search needs no model, so no collection
- * is invented for it.
+ * native index. Under semantic search (VECTOR), the vector space Main ensured
+ * for the saved model owns the workspace's sources. Text search (TEXT) has no
+ * vector space: its partition is the workspace roots only, and sources with no
+ * embedding set. Text search needs no model, so no collection is invented for it.
  */
 import type {
   IndexFileBinding,

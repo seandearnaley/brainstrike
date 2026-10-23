@@ -44,7 +44,20 @@ describe('native index settings from the saved config', () => {
     });
   });
 
-  it('turns indexing off while keeping the chosen model', () => {
+  it('runs semantic search with a hosted model in its vector space, with no on-device plan', () => {
+    expect(
+      nativeIndexSettingsFromConfig(
+        {
+          ...DEFAULT_INDEX_CONFIG,
+          mode: 'semantic',
+          model: { dimensions: 1536, local: null, modelKey: 'openai::text-embedding-3-small' },
+        },
+        'space-1'
+      )
+    ).toMatchObject({ managedCollectionId: 'space-1', mode: 'VECTOR', selection: null });
+  });
+
+  it('turns indexing off', () => {
     expect(
       nativeIndexSettingsFromConfig({ ...DEFAULT_INDEX_CONFIG, mode: 'off', model }, null)
     ).toMatchObject({ enabled: false, managedCollectionId: null, mode: 'TEXT' });
