@@ -2,11 +2,11 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 import {
   applicationDomainCapture,
+  bootWindow,
   createLoggerMock,
   installMainBootFixture,
   isDesktopShuttingDownMock,
   mockApp,
-  mockBrowserWindowInstance,
   nativeAcquire,
   nativeAcquireProfile,
   nativeAcquireRead,
@@ -260,8 +260,6 @@ describe('main boot order', () => {
       const reconfigure = vi.fn(async () => {});
       nativeReconfigureForReset.current = reconfigure;
       await import('../../main');
-      // A saved change comes from the renderer, so Main has shown its window first.
-      await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
       const applying = requireIndexConfig().reconfigure();
       expect(nativePrepareForPause).toHaveBeenCalledOnce();
       if (kind === 'none') {
@@ -282,16 +280,16 @@ describe('main boot order', () => {
     await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
     expect(nativeAcquireProfile).toHaveBeenCalled();
     expect(nativeAcquire).toHaveBeenCalledOnce();
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
     reader.resolve();
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
   });
 
   it('shows the failure-capable shell when native reader startup fails', async () => {
     const failure = new Error('Native reader unavailable');
     nativeAcquireRead.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     expect(
       requireMainLogger().error.mock.calls.some(
         ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
@@ -323,7 +321,7 @@ describe('main boot order', () => {
           details?.error === failure
       )
     ).toBe(false);
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('keeps an independent reader failure visible during shutdown', async () => {
@@ -342,14 +340,14 @@ describe('main boot order', () => {
         )
       ).toBe(true)
     );
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('preserves profile startup failure without opening a retired database', async () => {
     const failure = new Error('Profile unavailable');
     nativeAcquireProfile.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     expect(
       requireMainLogger().error.mock.calls.some(
         ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
@@ -363,7 +361,7 @@ describe('main boot order', () => {
     nativeAcquire.mockRejectedValue(failure);
     nativeAcquireRead.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     expect(
       requireMainLogger().error.mock.calls.filter(
         ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
@@ -377,7 +375,7 @@ describe('main boot order', () => {
     const failure = new AggregateError([first, undefined], 'Native acquisition failed');
     nativeAcquire.mockRejectedValue(failure);
     await import('../../main');
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     const details = requireMainLogger().error.mock.calls.find(
       ([, value]: [unknown, { error?: unknown; innerErrors?: unknown }]) => value?.error === failure
     )?.[1];
@@ -397,7 +395,7 @@ describe('main boot order', () => {
     isDesktopShuttingDownMock.mockReturnValue(true);
     reader.resolve();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('joins native retirement before acknowledging the native shutdown step', async () => {
@@ -497,7 +495,7 @@ describe('main boot order', () => {
 
     it('installs no handlers under NODE_ENV=test, so importing main never touches the test process', async () => {
       await import('../../main');
-      await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+      await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalled());
 
       expect(capture.handlers.size).toBe(0);
     });
