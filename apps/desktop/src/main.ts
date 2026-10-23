@@ -881,8 +881,21 @@ const indexConfig = createDesktopIndexConfig({
       }
     }
   },
-  rebuild: () => nativeIndexSearch.rebuild(),
-  reconfigure: () => activateSavedNativeIndexSettings(),
+  // A saved change joins the native owner's FIFO in save order and `update` returns: the scan
+  // runs in the background, so a Pause saved meanwhile fences admission at once. Failures stay
+  // visible in the lifecycle observation and these reports.
+  rebuild: async () => {
+    nativeIndexSearch
+      .rebuild()
+      .catch((error: unknown) =>
+        reportNativeIndexActivationError('Search index rebuild for the new chunking failed', error)
+      );
+  },
+  reconfigure: async () => {
+    activateSavedNativeIndexSettings().catch((error: unknown) =>
+      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
+    );
+  },
   replaceVectorSpace: (id) =>
     nativeRootDataDeletion.transition(async () => {
       await nativeIndexActivation.cleanupCollection(id);

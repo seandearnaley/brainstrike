@@ -84,8 +84,7 @@ describe('Main public embedding Stop', () => {
       });
       await import('../../main');
       // The same trigger Main's config owner uses once a change is saved.
-      const applying = requireIndexConfig().reconfigure();
-      applying.catch(() => undefined);
+      await requireIndexConfig().reconfigure();
       await entered.promise;
       const complete = vi.fn(async () => physical.promise);
       nativePrepareForPause.mockImplementation(async () => ({
@@ -161,8 +160,7 @@ describe('Main public embedding Stop', () => {
     });
     await import('../../main');
     // The same trigger Main's config owner uses once a change is saved.
-    const applying = requireIndexConfig().reconfigure();
-    applying.catch(() => undefined);
+    await requireIndexConfig().reconfigure();
     await entered.promise;
     const publicStop = publicEmbeddingStop.current;
     if (!publicStop) {

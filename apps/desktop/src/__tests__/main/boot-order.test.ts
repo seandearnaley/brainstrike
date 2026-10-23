@@ -110,7 +110,7 @@ describe('main boot order', () => {
       throw new Error('Main reset callback and shutdown plan were not captured');
     }
     // The same trigger Main's config owner uses once a change is saved.
-    const applying = requireIndexConfig().reconfigure();
+    await requireIndexConfig().reconfigure();
     await entered.promise;
     const reset = options.onResetLocal();
     let closed = false;
@@ -119,7 +119,7 @@ describe('main boot order', () => {
     });
     onTestFinished(async () => {
       held.resolve();
-      await Promise.allSettled([applying, reset, close]);
+      await Promise.allSettled([reset, close]);
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(closed).toBe(false);
@@ -161,7 +161,6 @@ describe('main boot order', () => {
         pendingDeletionPaths: [],
         preservedPaths: [],
       });
-      let applying: Promise<void> | undefined;
       const resetPlatform = await import('../../desktop-reset-platform');
       const createReset = resetPlatform.createDesktopFactoryResetHandler;
       const compose = vi
@@ -171,7 +170,7 @@ describe('main boot order', () => {
             ...ports,
             completeSuccessfulReset: async () => {
               // A settings change saved while the reset finishes applies through Main's owner.
-              applying = requireIndexConfig().reconfigure();
+              await requireIndexConfig().reconfigure();
               notified.resolve();
               await replacement.promise;
             },
@@ -239,8 +238,10 @@ describe('main boot order', () => {
         expect(nativePrepareForPause).not.toHaveBeenCalled();
         expect(reconfigure).not.toHaveBeenCalled();
       }
-      // The deferred change settles without an activation failure in every outcome.
-      await expect(applying).resolves.toBeUndefined();
+      expect(requireMainLogger().error).not.toHaveBeenCalledWith(
+        'Saved native index configuration could not activate',
+        expect.anything()
+      );
     }
   );
 
@@ -260,14 +261,20 @@ describe('main boot order', () => {
       const reconfigure = vi.fn(async () => {});
       nativeReconfigureForReset.current = reconfigure;
       await import('../../main');
+      // The same trigger Main's config owner uses once a change is saved.
       const applying = requireIndexConfig().reconfigure();
       expect(nativePrepareForPause).toHaveBeenCalledOnce();
+      // The owner's update returns once the change is queued; it applies in the background.
+      await expect(applying).resolves.toBeUndefined();
       if (kind === 'none') {
-        await expect(applying).resolves.toBeUndefined();
-        expect(reconfigure).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
       } else {
-        // The owner's update returns this failure to the renderer as the apply refusal.
-        await expect(applying).rejects.toBe(failure);
+        await vi.waitFor(() =>
+          expect(requireMainLogger().error).toHaveBeenCalledWith(
+            'Saved native index configuration could not activate',
+            { error: failure }
+          )
+        );
         expect(reconfigure).not.toHaveBeenCalled();
       }
     }

@@ -2,6 +2,8 @@ import { type BoundaryLog, toBoundaryFailure } from '@brainstrike/agent-host/bou
 import {
   type BoundaryFailure,
   BoundaryFailureError,
+  fault,
+  isBoundaryRefusal,
   refusal,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import {
@@ -10,9 +12,52 @@ import {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 
+import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
+import { IndexConfigApplyFailed, IndexConfigRefused, IndexConfigStoreFailed } from './index-config';
 
 const logger = createLogger('NativeIndexBoundary');
+
+/** Only Factory Reset clears a saved config that no longer decodes, where the app offers it. */
+const STORE_FAILED_REMEDY =
+  getFactoryResetUnavailableReason(process.platform) === undefined
+    ? 'If this keeps happening, the saved settings may be damaged. Factory Reset in Settings clears them, along with your other local app data.'
+    : undefined;
+
+/** What a search index config failure wraps, so quit's retirement underneath stays recognisable. */
+export function indexConfigCause(error: unknown): unknown {
+  return error instanceof IndexConfigStoreFailed || error instanceof IndexConfigApplyFailed
+    ? error.cause
+    : error;
+}
+
+/** The config owner's sentence reaches Settings; a typed refusal underneath keeps its own outcome. */
+function indexConfigFailure(error: unknown, log: BoundaryLog): BoundaryFailure | undefined {
+  if (error instanceof IndexConfigRefused) {
+    return refusal({ category: 'input', code: 'index-config.refused', message: error.message });
+  }
+  if (!(error instanceof IndexConfigStoreFailed || error instanceof IndexConfigApplyFailed)) {
+    return undefined;
+  }
+  if (isBoundaryRefusal(error.cause) || error.cause instanceof NativeIndexRefusalError) {
+    return nativeIndexBoundaryFailure(error.cause, log);
+  }
+  const stored = error instanceof IndexConfigStoreFailed;
+  const code = stored ? 'index-config.store-failed' : 'index-config.apply-failed';
+  const correlationId = crypto.randomUUID();
+  log('Search index settings failure retained its cause', {
+    cause: error.cause,
+    code,
+    correlationId,
+  });
+  return fault({
+    category: 'internal',
+    code,
+    correlationId,
+    message: error.message,
+    ...(stored && STORE_FAILED_REMEDY !== undefined ? { remedy: STORE_FAILED_REMEDY } : {}),
+  });
+}
 
 const descriptions: Readonly<
   Record<NativeIndexRefusalCause['kind'], Pick<BoundaryFailure, 'category' | 'message' | 'remedy'>>
@@ -95,6 +140,10 @@ function uniformHostedRefusal(error: unknown): BoundaryFailure | undefined {
 
 /** Preserve proven native outcomes; source and cleanup diagnostics stay in Main. */
 export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): BoundaryFailure {
+  const configFailure = indexConfigFailure(error, log);
+  if (configFailure) {
+    return configFailure;
+  }
   const hostedFailure = uniformHostedRefusal(error);
   if (hostedFailure) {
     const correlationId = crypto.randomUUID();

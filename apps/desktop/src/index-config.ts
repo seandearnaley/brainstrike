@@ -40,7 +40,9 @@ export interface DesktopIndexConfigDependencies {
   readonly assertModel: (model: IndexModel) => void;
   readonly catalog: IndexConfigPort & CollectionPort;
   readonly publish: (config: IndexConfig) => void;
+  /** Queues a rebuild with the saved chunking; resolves once queued, not once rebuilt. */
   readonly rebuild: () => Promise<void>;
+  /** Queues the saved settings on the native owner; resolves once queued, not once applied. */
   readonly reconfigure: () => Promise<void>;
   /** Retires the old vector space through the native owner; its resume ensures the new one. */
   readonly replaceVectorSpace: (id: string) => Promise<void>;

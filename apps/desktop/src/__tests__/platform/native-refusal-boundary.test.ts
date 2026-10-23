@@ -16,11 +16,15 @@ import {
   resetDesktopShutdownStateForTests,
 } from '../../desktop-shutdown-state';
 import { HostedEmbeddingError } from '../../hosted-embedding-error';
+import { IndexConfigApplyFailed } from '../../index-config';
 import { settleIpcResult } from '../../platform/desktop-ipc-registry';
 
 const log = vi.hoisted(() => vi.fn());
 const info = vi.hoisted(() => vi.fn());
-vi.mock('@brainstrike/logging', () => ({ createLogger: () => ({ error: log, info }) }));
+vi.mock('@brainstrike/logging', async (original) => ({
+  ...(await original<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({ error: log, info }),
+}));
 afterEach(() => {
   resetDesktopShutdownStateForTests();
   vi.clearAllMocks();
@@ -164,6 +168,38 @@ it.each([false, true])(
     expect(quitting ? info : log).toHaveBeenCalledExactlyOnceWith(
       'Untyped failure crossed a process boundary',
       fields
+    );
+    expect(quitting ? log : info).not.toHaveBeenCalled();
+  }
+);
+
+it.each([false, true])(
+  'logs an indexer exit under a search index settings change at error, or at info while quitting (quitting=%s)',
+  async (quitting) => {
+    if (quitting) {
+      markDesktopShuttingDown();
+    }
+    const exited = new IndexerError('indexer-exited', 'Indexer process exited.');
+    const wire = await settleIpcResult(
+      { category: 'native-index', code: 'native-index-failed' },
+      () => {
+        throw new IndexConfigApplyFailed({
+          cause: exited,
+          message: "The previous model's vectors could not be removed.",
+        });
+      }
+    );
+    expect(wire).toMatchObject({
+      error: {
+        code: 'index-config.apply-failed',
+        kind: 'fault',
+        message: "The previous model's vectors could not be removed.",
+      },
+      ok: false,
+    });
+    expect(quitting ? info : log).toHaveBeenCalledExactlyOnceWith(
+      expect.any(String),
+      expect.objectContaining({ cause: exited, correlationId: expect.any(String) })
     );
     expect(quitting ? log : info).not.toHaveBeenCalled();
   }

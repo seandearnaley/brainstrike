@@ -2,7 +2,7 @@ import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-
 import { createLogger } from '@brainstrike/logging';
 import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
-import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
+import { indexConfigCause, nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { type DesktopWindowRole, getWindowRoleByWebContentsId } from '../window-role';
 import {
   type DesktopIpcSenderFrameAllowlist,
@@ -394,7 +394,9 @@ export async function settleIpcResult<T>(
   try {
     return ipcOk(await run());
   } catch (error) {
-    const quitting = isExpectedShutdownRefusal(error);
+    // A config failure's cause is classified here, in Main's bundle: the shared shutdown-state
+    // bundle would hold a second copy of the config error classes.
+    const quitting = isExpectedShutdownRefusal(indexConfigCause(error));
     return ipcFailure(
       nativeIndexBoundaryFailure(error, (message, fields) => {
         const details =
