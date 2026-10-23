@@ -264,20 +264,11 @@ export class NativeCanonicalInference implements InferencePort {
         signal: controller.signal,
       })
     );
+    // Cancel and join prove physical settlement only: generate alone delivers how it ended.
     const completion = operation.then(
       () => undefined,
-      (error: unknown) => {
-        // generate already delivered a failure its caller did not cancel, so cancel and
-        // join only prove physical settlement. After cancellation the caller expects its
-        // owned reason; join then preserves an independent failure.
-        if (!controller.signal.aborted || error === controller.signal.reason) {
-          return;
-        }
-        throw error;
-      }
+      () => undefined
     );
-    // Observe rejection even when a caller has not joined yet; join still receives the same failure.
-    completion.catch(() => undefined);
     this.pending.set(requestId, { completion, controller });
     return await operation;
   };
@@ -296,33 +287,18 @@ export class NativeCanonicalInference implements InferencePort {
     if (!pending) {
       return;
     }
-    try {
-      await pending.completion;
-    } finally {
-      // Completion proves physical settlement on every outcome. Keep the original
-      // failure for this join, without retaining an already-settled request forever.
-      if (this.pending.get(requestId) === pending) {
-        this.pending.delete(requestId);
-      }
+    await pending.completion;
+    // Completion proves physical settlement on every outcome: retain no settled request.
+    if (this.pending.get(requestId) === pending) {
+      this.pending.delete(requestId);
     }
   }
 
   async close(): Promise<void> {
     this.closed = true;
     const requestIds = [...this.pending.keys()];
-    const canceled = await Promise.allSettled(requestIds.map((id) => this.cancel(id)));
-    // A failed cancellation still needs its physical join and ownership consumption.
-    const joined = await Promise.allSettled(requestIds.map((id) => this.join(id)));
-    const errors = [
-      ...new Set(
-        [...canceled, ...joined].flatMap((result) =>
-          result.status === 'rejected' ? [result.reason as unknown] : []
-        )
-      ),
-    ];
-    if (errors.length > 0) {
-      throw new AggregateError(errors, 'Canonical inference retirement failed.');
-    }
+    await Promise.all(requestIds.map((id) => this.cancel(id)));
+    await Promise.all(requestIds.map((id) => this.join(id)));
     this.pending.clear();
     this.usedRequestIds.clear();
   }

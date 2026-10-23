@@ -199,6 +199,36 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     expect(root.close).not.toHaveBeenCalled();
   });
 
+  it('retires a borrow once a read it cancelled settles, whatever that read ended with', async () => {
+    const started = deferred<void>();
+    let fail: ((error: unknown) => void) | undefined;
+    const root = {
+      ...secureRoot('/workspace'),
+      readFile: vi.fn(() => {
+        started.resolve();
+        return new Promise<never>((_resolve, reject) => {
+          fail = reject;
+        });
+      }),
+    };
+    const { registry, rootId } = await mounted(root);
+    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
+    await started.promise;
+    let retired = false;
+    const retirement = lease.retire().then(() => {
+      retired = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(retired).toBe(false);
+    const failure = new Error('EIO: native read failed');
+    fail?.(failure);
+    await expect(retirement).resolves.toBeUndefined();
+    // The read's own caller still learns how it ended.
+    expect(await outcome).toBe(failure);
+    expect(root.close).not.toHaveBeenCalled();
+  });
+
   it('answers a read its folder removal retired with the typed refusal, logged at info and sent typed', async () => {
     const started = deferred<void>();
     const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();

@@ -100,6 +100,25 @@ function folderLease(): {
     reason,
   };
 }
+/** The typed transition as another bundle's copy of its class declares it: same name, other class. */
+class TransitionCopy extends Error {
+  override readonly name = 'NativeAuthorityTransitionError';
+}
+/** Every frame the pair has queued has been delivered and answered. */
+function quiescent(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+/** Every message in an error tree, as it crossed the utility boundary. */
+function messages(error: unknown): string[] {
+  if (!(error instanceof Error)) {
+    return [String(error)];
+  }
+  return [
+    error.message,
+    ...(error instanceof AggregateError ? (error.errors as unknown[]).flatMap(messages) : []),
+    ...(error.cause === undefined ? [] : messages(error.cause)),
+  ];
+}
 const source = 'export const canonical = "actual utility parser";\n';
 const sourceHash = createHash('sha256').update(source).digest('hex');
 const rootlessFile: CanonicalCatalogFile = {
@@ -339,6 +358,32 @@ describe('actual utility canonical runtime attachment', () => {
     await parent.close();
   });
 
+  // A reset's re-registration takes the folder back from both of the index's borrows of it. Main's
+  // scan work in flight then fails on the other borrow's retirement, a reason none of the
+  // attachment's own signals carries, from another bundle's copy of the typed class.
+  it('retires a folder whose scan work fails on another borrow of that folder', async () => {
+    const borrowed = folderLease();
+    const reader = folderLease();
+    const loading = Promise.withResolvers<void>();
+    const reported = vi.fn();
+    const dependencies = workspace(borrowed.lease, reported);
+    dependencies.source.inventory.loadFiles = async () => {
+      loading.resolve();
+      await new Promise((resolve) => {
+        reader.lease.signal.addEventListener('abort', resolve, { once: true });
+      });
+      throw reader.reason;
+    };
+    const { parent } = connected();
+    await parent.attachWorkspace(dependencies);
+    await loading.promise;
+    void reader.lease.retire();
+    void borrowed.lease.retire();
+    await expect(parent.retireAttachments()).resolves.toBeUndefined();
+    expect(reported).not.toHaveBeenCalled();
+    await parent.close();
+  });
+
   it('settles an attach whose folder was retired while it started with that retirement', async () => {
     const folder = folderLease();
     const watching = Promise.withResolvers<void>();
@@ -511,12 +556,13 @@ describe('actual utility canonical runtime attachment', () => {
   });
 
   it.each([
-    new Error('Canonical source admission is closed.'),
-    new DOMException('independent source failure', 'AbortError'),
-    new Error('independent permission failure'),
+    ['a plain error', () => new Error('independent permission failure')],
+    ['the typed transition', () => new NativeAuthorityTransitionError('Native ingestion paused.')],
+    ["another bundle's copy of the typed transition", () => new TransitionCopy('Lease retired.')],
+    ['an abort', () => new DOMException('independent source failure', 'AbortError')],
   ])(
-    'preserves an already-admitted independent source failure through retirement: %s',
-    async (failure) => {
+    'retires a collection once the source work it cancelled settles with %s',
+    async (_shape, failure) => {
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
       const { parent } = connected();
@@ -524,17 +570,22 @@ describe('actual utility canonical runtime attachment', () => {
       dependencies.source.inventory.loadFiles = async () => {
         entered.resolve();
         await release.promise;
-        throw failure;
+        throw failure();
       };
       const attachment = await parent.attachCollection(dependencies);
-      const scan = await attachment.startScan('independent-source');
+      const scan = await attachment.startScan('cancelled-source');
+      const joined = scan.join().catch((error: unknown) => error);
       await entered.promise;
-      const retirement = parent.retireAttachments();
-      const rejected = expect(retirement).rejects.toThrow(/remain owned/);
+      let retired = false;
+      const retirement = parent.retireAttachments().then(() => {
+        retired = true;
+      });
+      await quiescent();
+      expect(retired).toBe(false);
       release.resolve();
-      await rejected;
-      await expect(scan.join()).rejects.toThrow(failure.message);
-      await parent.retireAttachments();
+      await expect(retirement).resolves.toBeUndefined();
+      // Its own caller still learns how it ended.
+      expect(await joined).toBeInstanceOf(Error);
       await parent.close();
     }
   );
@@ -701,7 +752,10 @@ describe('actual utility canonical runtime attachment', () => {
         releaseRetirement();
       }
       if (scenario === 'failed-retirement') {
-        await expect(close).rejects.toThrow();
+        // A watch that does not close fails the retirement, with that watch's own error.
+        expect(messages(await close.catch((error: unknown) => error))).toContain(
+          'real owned native unsubscribe failed'
+        );
         expect(retire).toHaveBeenCalled();
         await attachment.close();
       } else {

@@ -350,26 +350,26 @@ it.each([
       .find(
         (frame) => frame.kind === 'result' && frame.id === queuedId && frame.owner === queuedOwner
       );
-    if (failure || failedWatch) {
+    if (failure) {
+      // The work this retirement cancelled ended on its own failure: Main still answers it with
+      // that failure, and the retirement does not fail with it.
+      expect(reply).toMatchObject({
+        error: { message: failure.message },
+        kind: 'result',
+        ok: false,
+      });
+      expect(reply).not.toHaveProperty('cancelled', true);
+    } else {
+      expect(reply).toMatchObject({ cancelled: true, kind: 'result', ok: false });
+    }
+    if (failedWatch) {
+      // A watch that does not close keeps the retirement failed until an explicit retry.
       expect(outcome).toMatchObject({ ok: false });
-      if (failure) {
-        expect(reply).toMatchObject({
-          error: { message: failure.message },
-          kind: 'result',
-          ok: false,
-        });
-        expect(reply).not.toHaveProperty('cancelled', true);
-      } else {
-        expect(reply).toMatchObject({ cancelled: true, kind: 'result', ok: false });
-      }
       expect(mocks.close).not.toHaveBeenCalled();
       expect(mocks.closeProfile).not.toHaveBeenCalled();
       await activation.close();
     } else {
-      expect({ outcome, reply }).toEqual({
-        outcome: { ok: true },
-        reply: expect.objectContaining({ cancelled: true, kind: 'result', ok: false }),
-      });
+      expect(outcome).toEqual({ ok: true });
     }
     expect(onReceipt).toHaveBeenCalledOnce();
     expect(verify).toHaveBeenCalledTimes(verificationCalls);

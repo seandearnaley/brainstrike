@@ -1834,6 +1834,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
