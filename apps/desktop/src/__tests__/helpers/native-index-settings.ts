@@ -2,10 +2,7 @@ import {
   DEFAULT_INDEX_CONFIG,
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
-import {
-  type NativeIndexSettings,
-  nativeIndexSettingsFromConfig,
-} from '@brainstrike/canonical-ingestion';
+import { nativeIndexSettingsFromConfig } from '@brainstrike/canonical-ingestion';
 import { IndexConfigStoreFailed } from '../../index-config';
 
 export const SPACE = 'space-1';
@@ -22,15 +19,6 @@ export const vectorSettings = (change: Partial<IndexConfig> = {}, space: string 
     { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model: MODEL, ...change },
     space
   );
-/**
- * The engine's rootless collection partition, scanned through the TEXT pipeline so no inference
- * runs. Main's config gives a collection only to semantic search; the activation tests drive the
- * engine's collection scan with this until that partition is deleted (plan follow-up).
- */
-export const textCollectionSettings = (
-  change: Partial<IndexConfig> = {},
-  collection = 'selected'
-): NativeIndexSettings => ({ ...textSettings(change), managedCollectionId: collection });
 /** What Main's config owner rejects with when the saved config does not decode. */
 export const unreadableSettings = () =>
   new IndexConfigStoreFailed({

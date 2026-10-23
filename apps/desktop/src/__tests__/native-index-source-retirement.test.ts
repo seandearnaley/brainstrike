@@ -1,6 +1,5 @@
 // @vitest-environment node
 import type {
-  CanonicalSourceScope,
   CanonicalWorkspaceLease,
   NativeCanonicalInference,
 } from '@brainstrike/canonical-ingestion';
@@ -9,7 +8,6 @@ import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader
 import { beforeEach, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
-  type CanonicalCollectionDependencies,
   type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
@@ -24,7 +22,7 @@ import {
   retireNativeIndexSources,
   settleNativeIndexSources,
 } from '../native-index-source-retirement';
-import { textCollectionSettings } from './helpers/native-index-settings';
+import { textSettings } from './helpers/native-index-settings';
 import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
 
 const catalogFixture = createActivationCatalogFixture();
@@ -34,27 +32,15 @@ const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
-  debug: vi.fn(),
   destroy: vi.fn(),
   fence: vi.fn(),
   manager: {
-    attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
   },
   readyPort: vi.fn(),
 }));
-vi.mock('@brainstrike/logging', async (importOriginal) => {
-  const logging = await importOriginal<typeof import('@brainstrike/logging')>();
-  return {
-    ...logging,
-    createLogger: (scope: string) =>
-      scope === 'NativeIndexActivation'
-        ? { ...logging.createLogger(scope), debug: mocks.debug }
-        : logging.createLogger(scope),
-  };
-});
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -83,29 +69,10 @@ vi.mock('../sqlite-query-host-manager', () => ({
 }));
 
 const storeId = 'a'.repeat(64);
-const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
+const workspace = { kind: 'workspace', rootId: 'root' } as const;
 const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy or inference operation.');
 };
-function requestedScope(input: unknown): CanonicalSourceScope {
-  if (!input || typeof input !== 'object') {
-    throw new Error('Expected a native scope request.');
-  }
-  const selected: unknown = Reflect.get(input, 'scope');
-  if (!selected || typeof selected !== 'object') {
-    throw new Error('Expected explicit native scope.');
-  }
-  const kind: unknown = Reflect.get(selected, 'kind');
-  const rootId: unknown = Reflect.get(selected, 'rootId');
-  const embeddingSetId: unknown = Reflect.get(selected, 'embeddingSetId');
-  if (kind === 'workspace' && typeof rootId === 'string') {
-    return { kind, rootId };
-  }
-  if (kind === 'collection' && typeof embeddingSetId === 'string') {
-    return { embeddingSetId, kind };
-  }
-  throw new Error('Expected an authorized native scope.');
-}
 function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
@@ -121,7 +88,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
       dbPath: '/owned/profile/index.sqlite',
       fileBindings: [],
       rootIds: [],
-      scopes: [scope],
+      scopes: [workspace],
       storeId,
     }),
     coverageBatch: unused,
@@ -147,7 +114,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: async () => ({
+    verifyScopedManifest: async ({ scope }) => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
       changed: [],
@@ -174,7 +141,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
-    settings: async () => textCollectionSettings(),
+    settings: async () => textSettings(),
     storage: { getItem: unused },
   });
   return { activation, onReceipt, transport };
@@ -207,89 +174,64 @@ it.each([
   },
   { failedWatch: true, failure: undefined, name: 'failed watch unsubscribe' },
 ])(
-  'joins active collection and queued workspace retirement with $name',
+  'joins an admitted folder request and its watch retirement with $name',
   async ({ failure, failedWatch }) => {
-    const collectionEntered = Promise.withResolvers<void>();
-    const collectionRelease = Promise.withResolvers<void>();
-    const workspaceQueued = Promise.withResolvers<void>();
+    const requestEntered = Promise.withResolvers<void>();
+    const requestRelease = Promise.withResolvers<void>();
     const watchEntered = Promise.withResolvers<void>();
     const watchRelease = Promise.withResolvers<void>();
+    const closeSent = Promise.withResolvers<void>();
     const replies: object[] = [];
     const parent = new CanonicalUtilityParent((frame) => {
       replies.push(structuredClone(frame));
+      const sent = decodeCanonicalFrame(frame);
+      if (sent.kind === 'call' && sent.op === 'close') {
+        closeSent.resolve();
+      }
       queueMicrotask(() => child.receive(structuredClone(frame)));
     }, vi.fn());
     const child = new CanonicalUtilityChild((frame) =>
       queueMicrotask(() => parent.receive(structuredClone(frame)))
     );
-    let workspace!: Awaited<ReturnType<CanonicalUtilityParent['attachWorkspace']>>;
-    let collectionActive = false;
-    let queuedId: number | undefined;
-    let queuedOwner: string | undefined;
+    let attachment!: Awaited<ReturnType<CanonicalUtilityParent['attachWorkspace']>>;
+    let triggered = false;
+    let heldId: number | undefined;
+    let heldOwner: string | undefined;
     const originalReceive = parent.receive.bind(parent);
     vi.spyOn(parent, 'receive').mockImplementation((input) => {
       const frame = decodeCanonicalFrame(input);
-      if (
-        collectionActive &&
-        queuedId === undefined &&
-        frame.kind === 'call' &&
-        frame.op === 'load-files' &&
-        frame.payload !== null &&
-        typeof frame.payload === 'object' &&
-        Reflect.get(frame.payload, 'kind') === 'workspace'
-      ) {
-        queuedId = frame.id;
-        queuedOwner = frame.owner;
-        originalReceive(input);
-        workspaceQueued.resolve();
-        return;
+      if (triggered && heldId === undefined && frame.kind === 'call' && frame.op === 'load-files') {
+        heldId = frame.id;
+        heldOwner = frame.owner;
       }
       originalReceive(input);
     });
     mocks.manager.attachCanonicalWorkspace.mockImplementation(
       async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
         const inventory = dependencies.source.inventory;
-        workspace = await parent.attachWorkspace({
+        attachment = await parent.attachWorkspace({
           ...dependencies,
           source: {
             ...dependencies.source,
             inventory: {
               ...inventory,
               loadFiles: async (requested, context) => {
-                try {
-                  return await inventory.loadFiles(requested, context);
-                } catch (error) {
-                  if (failure && collectionActive) {
-                    throw failure;
-                  }
-                  throw error;
+                if (!triggered) {
+                  return inventory.loadFiles(requested, context);
                 }
-              },
-            },
-          },
-        });
-        return workspace;
-      }
-    );
-    mocks.manager.attachCanonicalCollection.mockImplementation(
-      async (dependencies: CanonicalCollectionDependencies) => {
-        const inventory = dependencies.source.inventory;
-        return parent.attachCollection({
-          ...dependencies,
-          source: {
-            ...dependencies.source,
-            inventory: {
-              ...inventory,
-              loadFiles: async (requested, context) => {
-                collectionActive = true;
-                collectionEntered.resolve();
-                await collectionRelease.promise;
+                // The triggered scan's inventory read is admitted, then held past retirement.
+                requestEntered.resolve();
+                await requestRelease.promise;
+                if (failure) {
+                  throw failure;
+                }
                 context.signal.throwIfAborted();
                 return inventory.loadFiles(requested, context);
               },
             },
           },
         });
+        return attachment;
       }
     );
     mocks.manager.retireCanonicalSources.mockImplementation(() => parent.retireAttachments());
@@ -321,51 +263,36 @@ it.each([
       watches: { subscribe: unused },
     } as unknown as ApplicationIpcDomain;
     const native = writer();
-    const verify = vi.fn(
-      async (input: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]) => ({
-        authorityEpoch: 'b'.repeat(64),
-        authorityRevision: 1,
-        changed: [],
-        complete: true,
-        missing: [],
-        scope: requestedScope(input),
-        storeId,
-        unexpected: [],
-      })
-    );
+    const verify = vi.fn(native.verifyScopedManifest);
     native.verifyScopedManifest = verify;
     mocks.readyPort.mockReturnValue(native);
     const { activation, onReceipt } = fixture(application);
-    const startup = activation.acquire().catch((error: unknown) => error);
-    await collectionEntered.promise;
+    await activation.acquire();
     expect(onReceipt).toHaveBeenCalledOnce();
     const verificationCalls = verify.mock.calls.length;
-    await workspace.trigger();
-    await workspaceQueued.promise;
+    triggered = true;
+    await attachment.trigger();
+    await requestEntered.promise;
     const retired = activation.close();
     const settled = retired.then(
       () => ({ ok: true }),
       (error: unknown) => ({ error, ok: false })
     );
+    // Retirement reached the folder's attachment while its admitted request is still held.
+    await closeSent.promise;
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    requestRelease.resolve();
+    // The attachment's watch retires once its scan has ended.
     await watchEntered.promise;
     expect(mocks.close).not.toHaveBeenCalled();
     expect(mocks.closeProfile).not.toHaveBeenCalled();
     watchRelease.resolve();
-    await Promise.resolve();
-    expect(mocks.close).not.toHaveBeenCalled();
-    collectionRelease.resolve();
     const outcome = await settled;
     await startup;
-    // The retired generation's collection scan ended superseded: its outcome is logged at debug.
-    expect(mocks.debug).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ error: expect.anything(), generation: expect.any(Number) })
-    );
     const reply = replies
       .map(decodeCanonicalFrame)
-      .find(
-        (frame) => frame.kind === 'result' && frame.id === queuedId && frame.owner === queuedOwner
-      );
+      .find((frame) => frame.kind === 'result' && frame.id === heldId && frame.owner === heldOwner);
     if (failure) {
       // The work this retirement cancelled ended on its own failure: Main still answers it with
       // that failure, and the retirement does not fail with it.
