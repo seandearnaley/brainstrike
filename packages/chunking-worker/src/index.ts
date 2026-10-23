@@ -16,10 +16,6 @@ export type {
   PortableSymbolRef,
   PortableSymbolRefKind,
 } from './extract-symbols';
-// Re-export tree-sitter rollout bootstrap helper for app renderers.
-// Apps call this at startup and assign the result to
-// globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ (Phase 8 of #998).
-export { resolveBootstrapTreeSitterLanguages } from './parsers/tree-sitter-rollout';
 export type { ChunkSkipCode, PortableChunkingResult } from './portable-chunking';
 // Re-export portable chunking for direct usage
 export { chunkContent } from './portable-chunking';
