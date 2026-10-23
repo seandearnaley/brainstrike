@@ -40,7 +40,12 @@ function innerError(error: unknown): InnerError {
 /**
  * A generation a newer one replaced (`transitioning`), or one an owner closed: reset, terminal
  * retirement, root-data deletion, profile retirement or shutdown (`closed`). Typed only by the
- * lifecycle owner, so a failure of the current generation or an untyped error never matches.
+ * lifecycle owner; an untyped error or a `source-failure` refusal never matches.
+ *
+ * A generation re-opening after a failure is `transitioning` too ("Native index is re-opening
+ * after a failure: …"), so it matches. The failure it retries was logged when it happened: by
+ * the caller that awaited the failed startup (the boot `acquire`, `reconfigure`, a rebuild or a
+ * resumed open) and, for an automatic re-open, by the re-open scheduler's warning.
  */
 function isReplacedOrRetiredGeneration(error: unknown): boolean {
   const kind =
