@@ -241,23 +241,12 @@ export function CredentialRow({
           <ProviderNameCell slot={slot} />
         </TableCell>
         <TableCell className="py-2">
-          {slot.envVar ? (
-            <code
-              className="break-all font-mono text-xs"
-              data-testid={`credential-env-var-${slot.id}`}
-            >
-              {slot.envVar}
-            </code>
-          ) : (
-            // A subscription slot has no env name at all — saying so beats an
-            // empty cell the user would read as "not loaded yet".
-            <span
-              className="text-muted-foreground text-xs"
-              data-testid={`credential-no-env-var-${slot.id}`}
-            >
-              Sign-in only — no environment variable
-            </span>
-          )}
+          <code
+            className="break-all font-mono text-xs"
+            data-testid={`credential-env-var-${slot.id}`}
+          >
+            {slot.envVar}
+          </code>
           {deprecatedReports.map((report) => (
             <p
               className="mt-1 text-warning text-xs"

@@ -91,7 +91,7 @@ describe('host provider services', () => {
       fetchImpl: fetchImpl as typeof fetch,
     });
 
-    const snapshot = await services.verify('openrouter', 'desktop-ui', open);
+    const snapshot = await services.verify('openrouter', open);
 
     expect(snapshot.result).toMatchObject({ detail: 'HTTP 401', status: 'invalid' });
     expect(requests).toEqual([
@@ -134,8 +134,8 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
     const provider = services(held.fetchImpl);
     const leaving = new AbortController();
     // Both join the one single-flight probe before either leaves.
-    const cancelled = provider.verify('openai', 'public-socket', leaving.signal);
-    const staying = provider.verify('openai', 'public-socket', open);
+    const cancelled = provider.verify('openai', leaving.signal);
+    const staying = provider.verify('openai', open);
     await vi.waitFor(() => expect(held.signals).toHaveLength(1));
     const reason = new Error('This caller left');
     leaving.abort(reason);
@@ -151,13 +151,13 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
     const held = heldFetch();
     const provider = services(held.fetchImpl);
     const leaving = new AbortController();
-    const cancelled = provider.verify('openai', 'public-socket', leaving.signal);
+    const cancelled = provider.verify('openai', leaving.signal);
     await vi.waitFor(() => expect(held.signals).toHaveLength(1));
     leaving.abort(new Error('The only caller left'));
 
     await expect(cancelled).rejects.toThrow('The only caller left');
     expect(held.signals[0]?.aborted).toBe(true);
-    const next = provider.verify('openai', 'public-socket', open);
+    const next = provider.verify('openai', open);
     await vi.waitFor(() => expect(held.signals).toHaveLength(2));
     held.answer();
     await expect(next).resolves.toMatchObject({ freshness: 'live' });
@@ -199,7 +199,7 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
       fetchImpl: held.fetchImpl,
     });
     const leaving = new AbortController();
-    const verifying = provider.verify('openai', 'public-socket', leaving.signal);
+    const verifying = provider.verify('openai', leaving.signal);
     const reading = provider.openRouterModel('openai/gpt-5.4-mini', leaving.signal);
     await vi.waitFor(() => expect(secrets.getCredential).toHaveBeenCalledTimes(2));
     const reason = new Error('The caller left during the credential read');

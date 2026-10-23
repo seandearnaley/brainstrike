@@ -1527,8 +1527,7 @@ if (singleInstanceLockAcquired) {
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       // Settings reads the profile store directly and writes through the host,
-      // the single credential writer. Its `auth/clear` also drops the sign-in
-      // engine's in-memory rotated-token overlay (BST-1356) and the host's MCP
+      // the single credential writer. Its `auth/clear` also drops the host's MCP
       // OAuth records with their live providers.
       const secretsService = createDesktopSettingsSecrets({
         clear: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,

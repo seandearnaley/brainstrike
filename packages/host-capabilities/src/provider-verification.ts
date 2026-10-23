@@ -347,11 +347,6 @@ function resolveProbe(
     if (credential.type === 'api_key') {
       return buildAwsBearerProbe(credential.key, resolveEnvAwsRegion(env));
     }
-    if (credential.type !== 'aws') {
-      throw new UnsupportedVerificationCredentialError(
-        'the provider expects an AWS credential but a different type is stored'
-      );
-    }
     if (credential.mode === 'profile_chain') {
       // BST-1353: the chain IS the credential, so resolving it is the probe —
       // no network call, and a far more useful verdict than the old

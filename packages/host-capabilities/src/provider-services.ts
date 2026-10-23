@@ -81,6 +81,6 @@ export function createHostProviderServices(
         providers,
         secrets,
       }),
-    verify: async (providerId, _origin, signal) => await verification.verify(providerId, signal),
+    verify: async (providerId, signal) => await verification.verify(providerId, signal),
   };
 }

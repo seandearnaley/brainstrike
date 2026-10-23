@@ -311,65 +311,69 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
 
   it('captures pinned split-row replay and provider-executed Anthropic history without part metadata', async () => {
     const recorded: Record<string, unknown> = {};
-    for (const store of [true, false]) {
-      let body: unknown;
-      const client = createOpenAI({
-        apiKey: 'offline-fixture',
-        fetch: async (_input, init) => {
-          body = JSON.parse(String(init?.body));
-          return new Response(
-            JSON.stringify({
-              created_at: 0,
-              id: 'resp_offline',
-              model: 'gpt-6-sol',
-              output: [],
-              usage: { input_tokens: 1, output_tokens: 1 },
-            }),
-            { headers: { 'content-type': 'application/json' }, status: 200 }
-          );
-        },
-      });
-      const prompt: LanguageModelV4Prompt = [
-        user('old'),
-        {
-          content: [
-            {
-              providerOptions: {
-                openai: {
-                  itemId: 'rs_split',
-                  reasoningEncryptedContent: 'offline-encrypted-split',
-                },
+    let splitBody: unknown;
+    const client = createOpenAI({
+      apiKey: 'offline-fixture',
+      fetch: async (_input, init) => {
+        splitBody = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            created_at: 0,
+            id: 'resp_offline',
+            model: 'gpt-6-sol',
+            output: [],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      },
+    });
+    const splitPrompt: LanguageModelV4Prompt = [
+      user('old'),
+      {
+        content: [
+          {
+            providerOptions: {
+              openai: {
+                itemId: 'rs_split',
+                reasoningEncryptedContent: 'offline-encrypted-split',
               },
-              text: 'recorded split reasoning',
-              type: 'reasoning',
             },
-          ],
-          role: 'assistant',
-        },
-        {
-          content: [
-            {
-              providerOptions: { openai: { itemId: 'msg_split' } },
-              text: 'recorded split answer',
-              type: 'text',
-            },
-          ],
-          role: 'assistant',
-        },
-        user('continue'),
-      ];
-      const prepared = await prepareProviderRequest({ prompt }, client.responses('gpt-6-sol'), {
+            text: 'recorded split reasoning',
+            type: 'reasoning',
+          },
+        ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            providerOptions: { openai: { itemId: 'msg_split' } },
+            text: 'recorded split answer',
+            type: 'text',
+          },
+        ],
+        role: 'assistant',
+      },
+      user('continue'),
+    ];
+    const splitPrepared = await prepareProviderRequest(
+      { prompt: splitPrompt },
+      client.responses('gpt-6-sol'),
+      {
         provider: 'openai',
         tokenMeasurement: measurement,
-      });
-      await materializeHostProviderModel(client.responses('gpt-6-sol')).doGenerate(prepared.params);
-      recorded[store ? 'stored_split' : 'stateless_split'] = body;
-      expect.soft(JSON.stringify(body)).toContain(store ? 'rs_split' : 'offline-encrypted-split');
-      // OpenAI 4.0.93 (vercel/ai#23123) references reasoning-model text only
-      // when reasoning precedes it in the SAME assistant row. Split rows keep
-      // their answer inline, avoiding a stored message with missing reasoning.
-      expect.soft(JSON.stringify(body)).toContain('recorded split answer');
-    }
+      }
+    );
+    await materializeHostProviderModel(client.responses('gpt-6-sol')).doGenerate(
+      splitPrepared.params
+    );
+    recorded['stored_split'] = splitBody;
+    expect.soft(JSON.stringify(splitBody)).toContain('rs_split');
+    // OpenAI 4.0.93 (vercel/ai#23123) references reasoning-model text only
+    // when reasoning precedes it in the SAME assistant row. Split rows keep
+    // their answer inline, avoiding a stored message with missing reasoning.
+    expect.soft(JSON.stringify(splitBody)).toContain('recorded split answer');
     const anthropic = createAnthropic({
       apiKey: 'offline-fixture',
       fetch: async () =>

@@ -1,6 +1,6 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { ErrorCodes, ResponseError } from 'vscode-jsonrpc';
-import type { HostClientOrigin, HostProviderService } from './ports.js';
+import type { HostProviderService } from './ports.js';
 import type { HostMethod, HostParams } from './protocol.js';
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
@@ -18,8 +18,7 @@ type HostSignalMethodHandler = <M extends HostMethod>(
  */
 export function bindHostProviderMethods(
   handle: HostSignalMethodHandler,
-  providers: HostProviderService | undefined,
-  origin: HostClientOrigin
+  providers: HostProviderService | undefined
 ): void {
   const service = (): HostProviderService => {
     if (!providers) {
@@ -46,7 +45,7 @@ export function bindHostProviderMethods(
   };
   handle('host/status', () => visible(() => service().status()));
   handle('providers/verify', ({ provider }, signal) =>
-    visible(() => service().verify(provider, origin, signal))
+    visible(() => service().verify(provider, signal))
   );
   handle('providers/openrouter-model', ({ model }, signal) =>
     visible(() => service().openRouterModel(model, signal))

@@ -1,7 +1,7 @@
 /**
  * The audited, symlink-safe, containment-checked WRITE path for main-process
  * file mutations. Extracted VERBATIM from `assistant-server/assistant-tools.ts`
- * so non-assistant IPC domains can reuse the SINGLE
+ * so every caller shares the SINGLE
  * audited write path instead of forking a weaker copy. `assistant-tools.ts`
  * re-exports these symbols, so existing importers are unaffected.
  */

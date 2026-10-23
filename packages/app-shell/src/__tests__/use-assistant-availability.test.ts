@@ -185,7 +185,7 @@ describe('fetchAssistantStatusState', () => {
           },
           { provider: 'anthropic', source: 'stored' },
         ],
-        providers: ['openai', 'anthropic', 'ollama'],
+        providers: ['openai', 'anthropic'],
       }),
       ok: true,
     } as unknown as Response);
@@ -204,7 +204,7 @@ describe('fetchAssistantStatusState', () => {
         },
         { provider: 'anthropic', source: 'stored' },
       ],
-      providers: ['openai', 'anthropic', 'ollama'],
+      providers: ['openai', 'anthropic'],
       state: 'enabled',
     });
   });
@@ -217,7 +217,7 @@ describe('fetchAssistantStatusState', () => {
         ],
         enabled: true,
         providerKeySources: [],
-        providers: ['ollama'],
+        providers: [],
       }),
       ok: true,
     } as unknown as Response);
@@ -232,7 +232,7 @@ describe('fetchAssistantStatusState', () => {
         { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
       ],
       providerKeySources: [],
-      providers: ['ollama'],
+      providers: [],
       state: 'enabled',
     });
   });
@@ -352,7 +352,7 @@ describe('fetchAssistantStatusState', () => {
       json: async () => ({
         enabled: true,
         providerKeySources: [],
-        providers: ['ollama'],
+        providers: [],
         ...extraPayload,
       }),
       ok: true,
@@ -403,7 +403,7 @@ describe('fetchAssistantStatusState', () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({
         enabled: true,
-        providers: ['openai', 'ollama'],
+        providers: ['openai'],
         ...extraPayload,
       }),
       ok: true,
@@ -474,7 +474,7 @@ describe('fetchAssistantStatusState', () => {
       json: async () => ({
         enabled: true,
         providerKeySources: [],
-        providers: ['openai', 'ollama'],
+        providers: ['openai'],
       }),
       ok: true,
     } as unknown as Response);
@@ -492,7 +492,7 @@ describe('fetchAssistantStatusState', () => {
       json: async () => ({
         enabled: true,
         providerKeySources: [{ provider: 'openai', source: 'stored' }],
-        providers: ['ollama'],
+        providers: [],
       }),
       ok: true,
     } as unknown as Response);
@@ -518,7 +518,7 @@ describe('fetchAssistantStatusState', () => {
           },
         ],
         providerKeySources: [],
-        providers: ['openai', 'ollama'],
+        providers: ['openai'],
       }),
       ok: true,
     } as unknown as Response);
@@ -533,7 +533,7 @@ describe('fetchAssistantStatusState', () => {
 
   it('rejects unknown root status fields', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
-      json: async () => ({ enabled: true, providers: ['ollama'], unexpected: true }),
+      json: async () => ({ enabled: true, providers: [], unexpected: true }),
       ok: true,
     } as unknown as Response);
 

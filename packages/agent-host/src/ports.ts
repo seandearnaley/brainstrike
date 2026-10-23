@@ -578,8 +578,6 @@ export interface HostTool {
 export interface HostMemoryEmbedderRequest {
   /** The client's Assistant Memory settings, as a run's configuration carries them. */
   readonly memorySettings: Readonly<Record<string, unknown>>;
-  /** The requesting client: credentials resolve for it, as a run's do. */
-  readonly origin: HostClientOrigin;
   readonly signal: AbortSignal;
 }
 /** A resolved memory embedder and the identity its failures name. */
@@ -592,12 +590,7 @@ export interface HostProviderService {
   openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
   /** The availability payload Settings and the assistant panel gate on. */
   status(): Promise<Readonly<Record<string, unknown>>>;
-  /** A subscription probe needs the desktop origin, like a subscription run. */
-  verify(
-    provider: string,
-    origin: HostClientOrigin,
-    signal: AbortSignal
-  ): Promise<ProviderVerificationSnapshot>;
+  verify(provider: string, signal: AbortSignal): Promise<ProviderVerificationSnapshot>;
 }
 
 /**
