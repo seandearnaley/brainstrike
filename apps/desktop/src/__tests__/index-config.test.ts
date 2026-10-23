@@ -5,12 +5,16 @@ import {
 } from '@brainstrike/assistant-contract/index-config';
 import type { CollectionRecord, CollectionRequest } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
-import { createDesktopIndexConfig, type DesktopIndexConfigDependencies } from '../index-config';
+import {
+  assertRegisteredEmbeddingModel,
+  createDesktopIndexConfig,
+  type DesktopIndexConfigDependencies,
+} from '../index-config';
 
 const MODEL = {
   dimensions: 384,
   local: { device: 'wasm', dtype: 'q8' },
-  modelKey: 'transformers::Xenova/bge-small-en-v1.5',
+  modelKey: 'local::Xenova/bge-small-en-v1.5',
 } as const;
 const OTHER = {
   dimensions: 1536,
@@ -22,7 +26,7 @@ function harness(saved: IndexConfig | null, spaces: CollectionRecord[] = []) {
   let config = saved;
   const rows = [...spaces];
   const dependencies = {
-    assertModel: vi.fn(),
+    assertModel: assertRegisteredEmbeddingModel,
     catalog: {
       collections: vi.fn(async (request: CollectionRequest) => {
         if (request.operation === 'create') {
@@ -36,6 +40,7 @@ function harness(saved: IndexConfig | null, spaces: CollectionRecord[] = []) {
         return { collections: rows };
       }),
       indexConfig: vi.fn(async (request) => {
+        await Promise.resolve();
         if (request.operation === 'write') {
           config = request.config;
         }
@@ -97,6 +102,14 @@ describe('Main search index config', () => {
     expect(saved()?.worktrees).toEqual({ a: true, b: true });
   });
 
+  it('keeps both of two quick worktree toggles', async () => {
+    const { owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, worktrees: { a: true } });
+    const first = owner.update({ worktrees: { b: true } });
+    const second = owner.update({ worktrees: { c: true } });
+    await Promise.all([first, second]);
+    expect(saved()?.worktrees).toEqual({ a: true, b: true, c: true });
+  });
+
   it('saves nothing when a change is refused', async () => {
     const { dependencies, owner } = harness(null);
     await expect(owner.update({ mode: 'semantic' })).rejects.toMatchObject({
@@ -108,6 +121,63 @@ describe('Main search index config', () => {
     expect(dependencies.catalog.indexConfig).not.toHaveBeenCalledWith(
       expect.objectContaining({ operation: 'write' })
     );
+  });
+
+  it.each([
+    {
+      message: 'Choose how to run Xenova/bge-small-en-v1.5 on this device first.',
+      model: { ...MODEL, local: null },
+      name: 'an on-device model with no way to run it',
+    },
+    {
+      message: 'text-embedding-3-small runs through OpenAI, not on this device.',
+      model: { ...OTHER, local: MODEL.local },
+      name: 'a hosted model with an on-device plan',
+    },
+    {
+      message: 'Search index model provider "transformers" is not registered.',
+      model: { ...MODEL, modelKey: 'transformers::Xenova/bge-small-en-v1.5' },
+      name: 'a model from an unregistered provider',
+    },
+  ])('refuses $name and saves nothing', async ({ message, model }) => {
+    const { dependencies, owner, saved } = harness(null);
+    await expect(owner.update({ mode: 'semantic', model })).rejects.toMatchObject({
+      _tag: 'IndexConfigRefused',
+      message,
+    });
+    expect(saved()).toBeNull();
+    expect(dependencies.publish).not.toHaveBeenCalled();
+  });
+
+  it('keeps and shows a saved change the index could not apply', async () => {
+    const { dependencies, owner, saved } = harness(null);
+    dependencies.reconfigure.mockRejectedValueOnce(new Error('host stopped'));
+    await expect(owner.update({ paused: true })).rejects.toMatchObject({
+      _tag: 'IndexConfigApplyFailed',
+    });
+    expect(saved()).toMatchObject({ paused: true });
+    expect(dependencies.publish).toHaveBeenCalledWith(expect.objectContaining({ paused: true }));
+    expect(await owner.read()).toMatchObject({ paused: true });
+  });
+
+  it('never shows defaults when the saved config cannot be read', async () => {
+    const { dependencies, owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, paused: true });
+    dependencies.catalog.indexConfig.mockRejectedValue(new Error('store closed'));
+    await expect(owner.read()).rejects.toMatchObject({ _tag: 'IndexConfigStoreFailed' });
+    await expect(owner.update({ policy: 'full-root' })).rejects.toMatchObject({
+      _tag: 'IndexConfigStoreFailed',
+    });
+    expect(saved()).toMatchObject({ paused: true, policy: 'balanced' });
+  });
+
+  it('saves nothing when the vector space cannot be read', async () => {
+    const { dependencies, owner, saved } = harness(null);
+    dependencies.catalog.collections.mockRejectedValueOnce(new Error('store closed'));
+    await expect(owner.update({ paused: true })).rejects.toMatchObject({
+      _tag: 'IndexConfigStoreFailed',
+    });
+    expect(saved()).toBeNull();
+    expect(dependencies.publish).not.toHaveBeenCalled();
   });
 
   it('runs semantic search in the vector space it ensures for the saved model', async () => {

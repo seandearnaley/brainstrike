@@ -16,7 +16,7 @@ import {
 } from '@brainstrike/canonical-ingestion';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import type { CollectionPort, CollectionRecord } from '@brainstrike/state-store';
-import { DateTime, Effect, Schema } from 'effect';
+import { DateTime, Effect, Schema, Semaphore } from 'effect';
 import { traceNativeIndexWorkflow } from './native-index-effect-diagnostics';
 
 /** A change the config cannot hold; nothing was saved. */
@@ -36,7 +36,7 @@ export class IndexConfigApplyFailed extends Schema.TaggedError<IndexConfigApplyF
 ) {}
 
 export interface DesktopIndexConfigDependencies {
-  /** A registered provider's embedding model, as collection creation required. */
+  /** A registered provider's embedding model that runs as saved; throws a sentence for the user. */
   readonly assertModel: (model: IndexModel) => void;
   readonly catalog: IndexConfigPort & CollectionPort;
   readonly publish: (config: IndexConfig) => void;
@@ -54,24 +54,40 @@ const refused = (error: { readonly message: string }) =>
 const sameModel = (space: CollectionRecord, model: IndexModel): boolean =>
   space.modelKey === model.modelKey && space.dimensions === model.dimensions;
 
-/** A registered provider's embedding model; runtime-discovered local models verify at inference. */
+/**
+ * A registered provider's embedding model that runs as saved: an on-device model carries its
+ * execution plan and no other model does. Runtime-discovered local-server models verify at
+ * inference.
+ */
 export function assertRegisteredEmbeddingModel(model: IndexModel): void {
   const providerId = model.modelKey.slice(0, model.modelKey.indexOf('::'));
   const provider = findProviderDefinition(providerId);
   if (!provider) {
     throw new Error(`Search index model provider "${providerId}" is not registered.`);
   }
-  const definition = provider.models.find((candidate) => candidate.id === indexModelId(model));
+  const modelId = indexModelId(model);
+  const definition = provider.models.find((candidate) => candidate.id === modelId);
   if (
     !(provider.runtime === 'local' && provider.authType === 'none') &&
     definition?.type !== 'embedding'
   ) {
     throw new Error('Search index model must be a registered embedding model.');
   }
+  const onDevice = provider.runtime === 'on-device';
+  if (onDevice && model.local === null) {
+    throw new Error(`Choose how to run ${modelId} on this device first.`);
+  }
+  if (!onDevice && model.local !== null) {
+    throw new Error(`${modelId} runs through ${provider.displayName}, not on this device.`);
+  }
 }
 
-/** Main's owner of the profile's search index config: the one caller of `host/index-config`. */
+/**
+ * Main's owner of the profile's search index config: the one caller of `host/index-config`.
+ * One permit serializes changes, so each one merges into the config the previous one saved.
+ */
 export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDependencies) {
+  const permit = Semaphore.makeUnsafe(1);
   const store = <A>(message: string, run: () => Promise<A>) =>
     Effect.tryPromise({
       catch: (cause) => new IndexConfigStoreFailed({ cause, message }),
@@ -83,21 +99,32 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
       try: run,
     });
 
-  const read = Effect.fn('IndexConfig.read')(function* () {
+  const read = Effect.fn('IndexConfig.read')(function* (): Effect.fn.Return<
+    IndexConfig,
+    IndexConfigStoreFailed
+  > {
     const { config } = yield* store('The search index settings could not be read.', () =>
       dependencies.catalog.indexConfig({ operation: 'read' })
     );
     return config ?? DEFAULT_INDEX_CONFIG;
   });
 
-  const vectorSpace = Effect.fn('IndexConfig.vectorSpace')(function* () {
+  const vectorSpace = Effect.fn('IndexConfig.vectorSpace')(function* (): Effect.fn.Return<
+    CollectionRecord | null,
+    IndexConfigStoreFailed
+  > {
     const { collections } = yield* store('The search index vector space could not be read.', () =>
       dependencies.catalog.collections({ operation: 'list' })
     );
     return collections.find((row) => row.systemRole === 'workspace-index') ?? null;
   });
 
-  const update = Effect.fn('IndexConfig.update')(function* (patch: unknown) {
+  const update = Effect.fn('IndexConfig.update')(function* (
+    patch: unknown
+  ): Effect.fn.Return<
+    IndexConfig,
+    IndexConfigApplyFailed | IndexConfigRefused | IndexConfigStoreFailed
+  > {
     const change = yield* decodePatch(patch).pipe(Effect.mapError(refused));
     const previous = yield* read();
     const next = yield* decodeConfig({
@@ -115,11 +142,11 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
         try: () => dependencies.assertModel(model),
       });
     }
+    const space = yield* vectorSpace();
     yield* store('The search index settings could not be saved.', () =>
       dependencies.catalog.indexConfig({ config: next, operation: 'write' })
     );
     dependencies.publish(next);
-    const space = yield* vectorSpace();
     if (next.mode === 'semantic' && model !== null && space !== null && !sameModel(space, model)) {
       yield* apply("The previous model's vectors could not be removed.", () =>
         dependencies.replaceVectorSpace(space.id)
@@ -135,7 +162,10 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
     return next;
   });
 
-  const nativeSettings = Effect.fn('IndexConfig.nativeSettings')(function* () {
+  const nativeSettings = Effect.fn('IndexConfig.nativeSettings')(function* (): Effect.fn.Return<
+    NativeIndexSettings,
+    IndexConfigApplyFailed | IndexConfigStoreFailed
+  > {
     const config = yield* read();
     const model = config.mode === 'semantic' ? config.model : null;
     if (model === null) {
@@ -178,6 +208,8 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
     read: (): Promise<IndexConfig> =>
       runAtPromiseBoundary(traceNativeIndexWorkflow(read(), 'index-config.read')),
     update: (patch: unknown): Promise<IndexConfig> =>
-      runAtPromiseBoundary(traceNativeIndexWorkflow(update(patch), 'index-config.update')),
+      runAtPromiseBoundary(
+        traceNativeIndexWorkflow(permit.withPermits(1)(update(patch)), 'index-config.update')
+      ),
   };
 }
