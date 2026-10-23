@@ -4,14 +4,8 @@
 // activation: replacement starts, failed and lost hosts (BST-2004), reset
 // resume and terminal retirement. Moved from native-index-activation.test.ts.
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
-import { textCollectionSettings } from './helpers/native-index-settings';
-import {
-  emptyCollection,
-  fixture,
-  mocks,
-  resetActivationFixture,
-} from './native-index-activation-fixture';
+import { textSettings } from './helpers/native-index-settings';
+import { fixture, mocks, resetActivationFixture } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
 
@@ -76,14 +70,11 @@ it('refuses reset resume before profile admission when quit is already terminal'
 });
 
 it('retains the assistant profile through index settings replacement and rebuild until terminal close', async () => {
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const { activation, settings } = fixture();
   try {
     await activation.acquireProfile();
     await activation.acquire();
-    settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
+    settings.mockResolvedValue(textSettings({ policy: 'full-root' }));
     await activation.reconfigure();
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.closeProfile).not.toHaveBeenCalled();

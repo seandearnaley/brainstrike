@@ -4,7 +4,6 @@ import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
 import { getFileExtension, isBinaryExtension } from '@brainstrike/utils/file-utils';
-import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type {
   CanonicalDiscoveredSourceFile,
   CanonicalDiscoveryCompletion,
@@ -47,8 +46,8 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
 
   constructor(private readonly dependencies: CanonicalWorkspaceSourceDependencies) {
     const lease = dependencies.lease;
-    lease?.signal.throwIfAborted();
-    if (lease && !(lease.rootId.trim() && lease.generation.trim() && lease.canonicalPath.trim())) {
+    lease.signal.throwIfAborted();
+    if (!(lease.rootId.trim() && lease.generation.trim() && lease.canonicalPath.trim())) {
       throw new Error(
         'Mounted source lease requires its actual root, generation and canonical path.'
       );
@@ -91,24 +90,8 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
       signal: AbortSignal.any([context.signal, run.context.signal]),
     };
     return this.own(readContext, async () => {
-      if (run.request.scope.kind === 'collection') {
-        if (!('fileId' in file)) {
-          throw new Error('Retained source requires its real catalog identity.');
-        }
-        const result = await this.dependencies.inventory.readRetained(
-          file,
-          maxFileBytes,
-          readContext
-        );
-        readContext.signal.throwIfAborted();
-        if (utf8ByteLength(result.content) > maxFileBytes) {
-          throw new Error('Retained source exceeds its explicit byte bound.');
-        }
-        this.assertContent(result.content, file.fileName, false);
-        return result;
-      }
       const lease = this.dependencies.lease;
-      if (!lease || file.rootId !== lease.rootId || !file.relativePath) {
+      if (file.rootId !== lease.rootId || !file.relativePath) {
         throw new Error('Source read belongs to another mounted lease.');
       }
       const node = run.nodes.get(file.relativePath);
@@ -130,7 +113,7 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
         maxFileBytes
       );
       readContext.signal.throwIfAborted();
-      this.assertContent(content, file.fileName, true);
+      this.assertContent(content, file.fileName);
       return {
         content,
         stat: { mtimeMs: node.lastModified ?? null, size: node.size ?? content.length },
@@ -155,9 +138,6 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
   ): Promise<CanonicalSourceSubscription> {
     this.assertOpen();
     const lease = this.dependencies.lease;
-    if (!lease) {
-      throw new Error('Watch requires an authorized mounted lease.');
-    }
     const localContext = this.context(context);
     return this.own(localContext, async () => {
       const subscription = await lease.subscribe(
@@ -227,23 +207,9 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
       request,
     });
     try {
-      const discovery = await this.own(context, async () => {
-        if (request.scope.kind === 'workspace') {
-          return discoverCanonicalWorkspace(this.dependencies, request, context);
-        }
-        const files = await this.dependencies.inventory.loadFiles(request.scope, context);
-        const embeddingSetId = request.scope.embeddingSetId;
-        if (files.some((file) => file.embeddingSetId !== embeddingSetId)) {
-          throw new Error('Retained inventory belongs to another collection.');
-        }
-        return {
-          completion: { errors: [], full: true, truncatedDirectories: [] },
-          discovered: [],
-          files,
-          nodes: new Map<string, IFileNode>(),
-          removed: [],
-        };
-      });
+      const discovery = await this.own(context, () =>
+        discoverCanonicalWorkspace(this.dependencies, request, context)
+      );
       const admitted = new WeakSet<SourceFile>([...discovery.files, ...discovery.discovered]);
       this.runs.set(request.requestId, { admitted, context, nodes: discovery.nodes, request });
       const entries = [
@@ -278,10 +244,7 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
   }
 
   private context(context: CanonicalOperationContext): CanonicalOperationContext {
-    const signals = [context.signal, this.stopping.signal];
-    if (this.dependencies.lease) {
-      signals.push(this.dependencies.lease.signal);
-    }
+    const signals = [context.signal, this.stopping.signal, this.dependencies.lease.signal];
     return { requestId: context.requestId, signal: AbortSignal.any(signals) };
   }
 
@@ -305,17 +268,13 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
     this.stopping.signal.throwIfAborted();
   }
 
-  private assertContent(content: string, fileName: string, filesystem: boolean): void {
+  private assertContent(content: string, fileName: string): void {
     const error = getContentIndexingError({ content, status: 'accessible' });
     if (error) {
-      throw filesystem
-        ? new CanonicalSourceContentExcludedError('null-byte-content', error)
-        : new Error(error);
+      throw new CanonicalSourceContentExcludedError('null-byte-content', error);
     }
     if (isBinaryExtension(getFileExtension(fileName)) || !fileContent.isTextContent(content)) {
-      throw filesystem
-        ? new CanonicalSourceContentExcludedError('binary-content', BINARY_CONTENT_MESSAGE)
-        : new Error(BINARY_CONTENT_MESSAGE);
+      throw new CanonicalSourceContentExcludedError('binary-content', BINARY_CONTENT_MESSAGE);
     }
   }
 
@@ -345,7 +304,7 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
     if (errors.length > 0) {
       throw new AggregateError(errors, 'Canonical source retirement failed.');
     }
-    await this.dependencies.lease?.retire();
+    await this.dependencies.lease.retire();
     this.retired = true;
   }
 }

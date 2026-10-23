@@ -25,17 +25,9 @@ test('collection choice keeps its original identity and complete metadata across
         operation: 'create',
       })
     ).rejects.toThrow();
-    const changed = await store.collections({
-      id: collection.id,
-      metadata: { name: 'Renamed collection', tags: 'docs,code' },
-      operation: 'update',
-    });
-    expect(changed.collections).toEqual([
-      { ...collection, name: 'Renamed collection', tags: 'docs,code' },
-    ]);
     await store.close();
     store = await StateStore.open(directory);
-    expect(await store.collections({ id: collection.id, operation: 'get' })).toEqual(changed);
+    expect(await store.collections({ id: collection.id, operation: 'get' })).toEqual(created);
     expect((await store.collections({ id: 'absent', operation: 'get' })).collections).toEqual([]);
   } finally {
     await store.close();
@@ -99,16 +91,10 @@ test('collection deletion preserves its canonical source bytes and identity', as
     if (!first) {
       throw new Error('Source write omitted identity');
     }
-    expect((await store.collections({ operation: 'snapshot' })).counts).toEqual([
-      { chunks: 0, files: 1, id: collection.id, unprocessedFiles: 1 },
-    ]);
     await store.sourceCatalog({
       files: [{ chunkCount: 3, expected: first }],
       operation: 'complete',
     });
-    expect((await store.collections({ operation: 'snapshot' })).counts).toEqual([
-      { chunks: 3, files: 1, id: collection.id, unprocessedFiles: 0 },
-    ]);
     await store.collections({ id: collection.id, operation: 'delete' });
     expect((await store.collections({ operation: 'list' })).collections).toEqual([]);
     expect(

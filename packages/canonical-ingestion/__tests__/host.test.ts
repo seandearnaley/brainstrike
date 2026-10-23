@@ -7,7 +7,7 @@ import { CanonicalWorkspaceSource } from '../src/workspace-source.js';
 import type { CanonicalWorkspaceLease } from '../src/workspace-source-ports.js';
 import { deferred, discoveredFixture, fixture } from './host-test-fixture.js';
 
-describe('utility canonical retained-source ingestion', () => {
+describe('utility canonical source ingestion', () => {
   it.each(['registered-then-unresolved', 'unresolved-then-registered', 'same-batch'] as const)(
     'rejects a shared workspace path across %s identity forms before conflicting work',
     async (order) => {
@@ -312,33 +312,6 @@ describe('utility canonical retained-source ingestion', () => {
     }
   });
 
-  it('does not convert retained collection scope into new filesystem membership', async () => {
-    const f = await fixture({ embeddingSetId: 'retained-set', kind: 'collection' });
-    f.source.discover = async function* () {
-      yield {
-        discovered: [
-          {
-            fileName: f.file.fileName,
-            relativePath: f.recorded.relativePath,
-            rootId: 'root',
-            sourcePath: f.recorded.relativePath,
-            stat: f.file.stat,
-          },
-        ],
-        files: [],
-        removed: [],
-      };
-      return f.completion;
-    };
-    try {
-      await expect(f.host.scan(f.request)).rejects.toThrow('authorized workspace scope');
-      expect(f.source.read).not.toHaveBeenCalled();
-      expect(f.catalog.prepareManagedSourcesBatch).not.toHaveBeenCalled();
-    } finally {
-      await f.host.close();
-    }
-  });
-
   it('publishes the actual recorded chunks and graph and completes PG metadata after native writes', async () => {
     const f = await fixture();
     expect((await f.host.scan(f.request)).scanComplete).toBe(true);
@@ -353,52 +326,6 @@ describe('utility canonical retained-source ingestion', () => {
     expect(vi.mocked(f.catalog.completeFiles).mock.invocationCallOrder[0]).toBeGreaterThan(
       vi.mocked(f.publication.commitTextFile).mock.invocationCallOrder[0] ?? 0
     );
-  });
-
-  it('preserves rootless standalone collection identities', async () => {
-    const f = await fixture({ embeddingSetId: 'saved-set', kind: 'collection' });
-    await f.host.scan(f.request);
-    expect(vi.mocked(f.publication.commitTextFile).mock.calls[0]?.[0].file).toMatchObject({
-      embeddingSetId: 'saved-set',
-      fileId: f.recorded.fileId,
-      relativePath: null,
-      rootId: null,
-      sourcePath: null,
-    });
-    expect(vi.mocked(f.publication.commitTextFile).mock.calls[0]?.[0].payload).not.toHaveProperty(
-      'rootId'
-    );
-  });
-
-  it('keeps distinct retained file IDs when both collection roots and paths are null', async () => {
-    const f = await fixture({ embeddingSetId: 'saved-set', kind: 'collection' });
-    const second = { ...f.file, fileId: 'second-retained-id', fileName: 'second-retained.ts' };
-    f.source.discover = async function* () {
-      yield { files: [f.file, second], removed: [] };
-      return f.completion;
-    };
-    try {
-      expect((await f.host.scan(f.request)).scanComplete).toBe(true);
-      const files = vi.mocked(f.publication.commitTextFile).mock.calls.map(([call]) => call.file);
-      expect(files.map((file) => file.fileId)).toEqual([f.file.fileId, second.fileId]);
-      expect(files).toEqual([
-        expect.objectContaining({
-          embeddingSetId: 'saved-set',
-          relativePath: null,
-          rootId: null,
-          sourcePath: null,
-        }),
-        expect.objectContaining({
-          embeddingSetId: 'saved-set',
-          relativePath: null,
-          rootId: null,
-          sourcePath: null,
-        }),
-      ]);
-      expect(f.catalog.prepareManagedSourcesBatch).not.toHaveBeenCalled();
-    } finally {
-      await f.host.close();
-    }
   });
 
   it('uses the existing stat-skip principle only when native coverage agrees', async () => {
@@ -745,14 +672,8 @@ describe('chunker-ineligible content through the canonical scan', () => {
           ? { content, stat: { mtimeMs: 123, size: Buffer.byteLength(content) } }
           : { content: f.recorded.content, stat: f.file.stat }
       );
-      const host = new CanonicalIngestionHost({
-        catalog: f.catalog,
-        chunker: createNodeChunker({ parser: 'oxc' }),
-        publication: f.publication,
-        source: f.source,
-      });
       // Desktop's read bound (getFileSizeConfig().maxFileSize) admits files above the chunker's.
-      const receipt = await host.scan({ ...f.request, maxFileBytes: 1024 * 1024 });
+      const receipt = await f.host.scan({ ...f.request, maxFileBytes: 1024 * 1024 });
       expect(receipt.scanComplete).toBe(true);
       expect(receipt).toMatchObject({
         excluded: [{ fileId: skippedFile.fileId, reason, relativePath: fileName, rootId: 'root' }],
@@ -831,7 +752,6 @@ describe('workspace content eligibility through the canonical scan', () => {
         indexingPolicyPreset: 'balanced',
         inventory: {
           loadFiles: async () => (managed ? [excludedFile] : []),
-          readRetained: vi.fn(),
         },
         lease,
       });

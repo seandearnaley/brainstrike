@@ -43,9 +43,7 @@ export interface IndexerPublicationProgress {
   readonly profileHash: string | null;
   readonly requestId: string;
   readonly scanGeneration: number;
-  readonly scope:
-    | { readonly kind: 'workspace'; readonly rootId: string }
-    | { readonly kind: 'collection'; readonly embeddingSetId: string };
+  readonly scope: { readonly kind: 'workspace'; readonly rootId: string };
   readonly storeId: string;
 }
 /**
@@ -151,10 +149,6 @@ export type IndexerStatus =
       readonly sourceObservation?: IndexerSourceObservation;
       readonly authorizedRootIds: readonly string[];
       readonly authorizedCollectionIds?: readonly string[];
-      readonly collectionReadiness?: readonly {
-        readonly embeddingSetId: string;
-        readonly scanComplete: boolean;
-      }[];
       readonly queryPlan?: {
         readonly modelKey: string;
         readonly inferencePlan?: {
@@ -172,7 +166,6 @@ export type IndexerStatus =
       readonly rootReadiness: readonly IndexerRootReadiness[];
     };
 export interface IndexerCoverageRequest {
-  readonly collectionId?: string;
   readonly rootIds: readonly string[];
 }
 export interface IndexerCoverageCounts {
@@ -182,7 +175,6 @@ export interface IndexerCoverageCounts {
   readonly vectors: number;
 }
 export interface IndexerCoverage {
-  readonly collections?: readonly (IndexerCoverageCounts & { readonly embeddingSetId: string })[];
   readonly embedding: IndexerEmbeddingState;
   readonly roots: readonly (IndexerCoverageCounts & { readonly rootId: string })[];
   readonly storeId: string;
@@ -195,7 +187,6 @@ export interface IndexerCoverage {
   readonly vectorCoverageComplete: boolean;
 }
 export type IndexerSearchRequest = {
-  readonly collectionId?: string;
   readonly rootIds: readonly string[];
   readonly limit: number;
 } & (
@@ -278,7 +269,6 @@ export interface IndexChunkBoundsCapability {
 }
 export interface IndexerGrepRequest {
   readonly caseSensitive: boolean;
-  readonly collectionId?: string;
   /** Exact canonical relative paths, selected before the candidate limit. */
   readonly filePaths?: readonly string[];
   readonly isRegex: boolean;

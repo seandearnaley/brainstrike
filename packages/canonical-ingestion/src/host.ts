@@ -80,10 +80,9 @@ interface CanonicalIngestionCommon {
   readonly chunker: CanonicalChunker;
   /**
    * The partition discovered workspace sources join: the workspace's collection,
-   * or null for the native TEXT partition (BST-1988). A host that never discovers
-   * files (a retained collection) omits it, and discovery without it is refused.
+   * or null for the native TEXT partition (BST-1988).
    */
-  readonly managedCollectionId?: string | null;
+  readonly managedCollectionId: string | null;
   readonly source: CanonicalSourcePort;
 }
 export type CanonicalIngestionDependencies = CanonicalIngestionCommon &
@@ -860,14 +859,8 @@ function positiveInteger(value: number): boolean {
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
 }
-function sameScope(left: CanonicalSourceScope, right: CanonicalSourceScope): boolean {
-  if (left.kind === 'workspace' && right.kind === 'workspace') {
-    return left.rootId === right.rootId;
-  }
-  if (left.kind === 'collection' && right.kind === 'collection') {
-    return left.embeddingSetId === right.embeddingSetId;
-  }
-  return false;
+function sameScope(left: ScopedManifestResult['scope'], right: CanonicalSourceScope): boolean {
+  return left.kind === 'workspace' && left.rootId === right.rootId;
 }
 function sameTicket(left: CanonicalScanTicket, right: CanonicalScanTicket): boolean {
   return (
@@ -907,10 +900,7 @@ function authorizeBatch(
     ) {
       throw new Error('Canonical source binding differs from the authoritative catalog.');
     }
-    if (
-      (scope.kind === 'workspace' && actual.rootId !== scope.rootId) ||
-      (scope.kind === 'collection' && actual.embeddingSetId !== scope.embeddingSetId)
-    ) {
+    if (actual.rootId !== scope.rootId) {
       throw new Error('Canonical file is outside its authorized scope.');
     }
   }

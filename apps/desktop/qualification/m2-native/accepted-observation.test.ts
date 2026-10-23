@@ -20,7 +20,6 @@ afterEach(() => {
 function configuredSnapshot(): NativeSnapshot {
   const { label: _label, device, ...profile } = VECTOR_PROFILES['webgpu-fp16'];
   return {
-    collectionCoverage: null,
     coverage: null,
     inference: {
       active: false,

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { CanonicalScanReceipt, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
 import {
@@ -32,7 +31,6 @@ import { isolateNativeCoverage } from './native-coverage-reader';
 import { nativeFileIdentity } from './native-index-attach';
 import {
   catalogFingerprint,
-  catalogReadiness,
   deferNativeIndexCatalog,
   observeNativeIndexCatalog,
   settleDeferredNativeIndexCatalog,
@@ -112,8 +110,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     const profile =
       current.settings.mode === 'VECTOR'
         ? (
-            await resolver(current).resolve(
-              { embeddingSetId: vectorCollectionId(current.settings), kind: 'collection' },
+            await resolver(current).resolveVectorSpace(
+              vectorCollectionId(current.settings),
               contextFor(current)
             )
           ).profile
@@ -121,7 +119,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     return partitionAuthority({
       identity: (record) => identity(current, record),
       profile,
-      records: current.sources?.scanAdmission?.getInventory() ?? (await loadRecords(current)),
+      records: await loadRecords(current),
       rootIds: [...current.leases.keys()],
       settings: current.settings,
     });
@@ -249,7 +247,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         verifyScopedManifest: (request) =>
           runtime.withWriterRead(port, () => port.verifyScopedManifest(request)),
       },
-      authorized.scopes
+      authorized.rootIds.map((rootId) => ({ kind: 'workspace', rootId }) as const)
     );
     current.publication = publication;
     current.observedCatalogFingerprint = catalogFingerprint(await loadRecords(current));
@@ -257,7 +255,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (!settings.paused) {
       admitSources(current, port).then(failures.started, (error: unknown) => {
         if (current.controller.signal.aborted || current.settings.paused) {
-          // Superseded, its collection scan included: the next generation redoes the work.
+          // Superseded: the next generation redoes the work.
           logger.debug('A retired native ingestion generation ended with an error', {
             error,
             generation: current.generation,
@@ -322,18 +320,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         profileResolver.resolveProfile({ scope }, context),
       resolveScope: async (scope) => {
         assertSource();
-        if (
-          (scope.kind === 'workspace' && !current.leases.has(scope.rootId)) ||
-          (scope.kind === 'collection' && scope.embeddingSetId !== settings.managedCollectionId)
-        ) {
+        if (!current.leases.has(scope.rootId)) {
           throw new Error('Canonical catalog scope is not currently authorized.');
         }
         return {
           assertCurrent: () => {
             assertSource();
-            if (scope.kind === 'workspace') {
-              current.leases.get(scope.rootId)?.signal.throwIfAborted();
-            }
+            current.leases.get(scope.rootId)?.signal.throwIfAborted();
           },
           assertDiscoveredSource: (file) => {
             const lease = current.leases.get(file.rootId);
@@ -356,10 +349,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         catalog,
         identity: (record) => identity(current, record),
         loadRecords: () => loadRecords(current),
-        retainCollection: (records) => {
-          sources.collectionInventory = records;
-        },
-        scanAdmission,
         scope,
       });
     const manager = getReadyIndexerHost();
@@ -382,12 +371,10 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       if (settings.mode === 'TEXT') {
         return {
           catalog,
+          managedCollectionId: settings.managedCollectionId,
           mode: 'TEXT',
           parser: common.parser,
-          publication:
-            scope.kind === 'workspace'
-              ? scanAdmission.workspacePublication(publication)
-              : publication,
+          publication: scanAdmission.workspacePublication(publication),
         };
       }
       const inference = new NativeCanonicalInference({
@@ -401,12 +388,10 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       return {
         catalog,
         inference,
+        managedCollectionId: settings.managedCollectionId,
         mode: 'VECTOR',
         parser: common.parser,
-        publication:
-          scope.kind === 'workspace'
-            ? scanAdmission.workspacePublication(publication)
-            : publication,
+        publication: scanAdmission.workspacePublication(publication),
       };
     };
     const firstReceipts: Promise<CanonicalScanReceipt>[] = [];
@@ -423,7 +408,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       workspace = await manager.attachCanonicalWorkspace({
         ...common,
         ...pipeline(scope),
-        managedCollectionId: settings.managedCollectionId,
         onError: (operation, error) => {
           if (operation === 'sync' || operation === 'sync loop') {
             scanAdmission.failWorkspace(lease.rootId, error);
@@ -444,16 +428,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           } else {
             reject(new Error(`Initial native workspace scan was ${receipt.reason}.`));
           }
-          if (sources.scanCollection && !sources.controller.signal.aborted) {
-            sources
-              .scanCollection()
-              .catch((error: unknown) =>
-                dependencies.onError('collection refresh after workspace scan', error)
-              );
-          }
         },
         onWatchHealth: createNativeIndexWatchHealthHandler({
-          collectionId: settings.managedCollectionId,
           onError: dependencies.onError,
           publication: () => current.publication,
           rootId: lease.rootId,
@@ -473,71 +449,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       assertSource();
     }
     await Promise.all(firstReceipts);
-    assertSource();
-    const collectionId = settings.managedCollectionId;
-    if (collectionId === null) {
-      // The TEXT partition is its workspace roots: no retained collection to ingest (BST-1988).
-      return;
-    }
-    const scope = { embeddingSetId: collectionId, kind: 'collection' } as const;
-    const collection = await manager.attachCanonicalCollection({
-      ...common,
-      ...pipeline(scope),
-      scope,
-      source: { indexingPolicyPreset: settings.indexingPolicyPreset, inventory: inventory(scope) },
-    });
-    sources.attachments.add(collection);
-    const reverifyWorkspaces = async (): Promise<void> => {
-      const profile =
-        settings.mode === 'VECTOR'
-          ? (await profileResolver.resolve(scope, contextFor(current))).profile
-          : null;
-      for (const rootId of current.leases.keys()) {
-        await publication.reverifyScope({ kind: 'workspace', rootId }, profile);
-        assertSource();
-      }
-    };
-    let collectionScan: Promise<void> | undefined;
-    sources.waitForCollection = () => collectionScan ?? Promise.resolve();
-    let requested = false;
-    sources.scanCollection = (): Promise<void> => {
-      assertSource();
-      requested = true;
-      collectionScan ??= Promise.resolve()
-        .then(async () => {
-          while (requested) {
-            requested = false;
-            assertSource();
-            const requestId = randomUUID();
-            await scanAdmission.runCollection(requestId, async () => {
-              sources.collectionInventory = await loadRecords(current);
-              scanAdmission.retainInventory(sources.collectionInventory);
-              await runtime.acquire();
-              assertSource();
-              await refreshCatalog(current, false, sources.collectionInventory);
-              const receipt = await collection.scan(requestId);
-              dependencies.onReceipt?.(receipt);
-              assertSource();
-              if (!receipt.scanComplete) {
-                throw new Error(`Native collection scan was ${receipt.reason}.`);
-              }
-              await reverifyWorkspaces();
-              const latest = await loadRecords(current);
-              await refreshCatalog(current, false, latest);
-              if (catalogFingerprint(latest) !== catalogFingerprint(sources.collectionInventory)) {
-                requested = true;
-              }
-            });
-          }
-        })
-        .finally(() => {
-          collectionScan = undefined;
-          sources.collectionScan = undefined;
-        });
-      sources.collectionScan = collectionScan;
-      return collectionScan;
-    };
-    await sources.scanCollection();
     assertSource();
   };
   const admitSources = (current: Graph, port: IndexerPort & ScopedIndexerPort): Promise<void> => {
@@ -559,29 +470,22 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     sources.startup.catch(() => undefined);
     return sources.startup;
   };
-  const refreshCatalog = async (
-    current: Graph,
-    join: boolean,
-    inventory?: readonly NativeCanonicalCatalogRecord[],
-    joinScan = true
-  ): Promise<void> => {
-    const records = inventory ?? (await loadRecords(current));
+  const refreshCatalog = async (current: Graph, joinScan = true): Promise<void> => {
+    const records = await loadRecords(current);
     const sources = current.sources;
-    const pending = inventory
-      ? undefined
-      : deferNativeIndexCatalog(
-          current,
-          records,
-          sources?.collectionScan ?? sources?.scanAdmission?.getWorkspaceCompletions()
-        );
+    const pending = deferNativeIndexCatalog(
+      current,
+      records,
+      sources?.scanAdmission?.getWorkspaceCompletions()
+    );
     if (pending) {
       // Passive catalog observation must not invalidate the discovery publication
-      // whose committed records it just read. Internal inventory never joins itself.
+      // whose committed records it just read.
       await settleDeferredNativeIndexCatalog(
         current,
         sources?.scanAdmission?.joinPublication(pending) ?? pending,
         joinScan,
-        () => refreshCatalog(current, join),
+        () => refreshCatalog(current),
         (error) => {
           if (graph === current && !current.controller.signal.aborted) {
             failures.record(current.generation, error);
@@ -591,27 +495,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       );
       return;
     }
-    if (!observeNativeIndexCatalog(current, records)) {
-      if (join) {
-        await current.sources?.waitForCollection?.();
-      }
-      return;
-    }
-    if (current.settings.paused) {
-      // Reconcile authority only; never start a parser, watcher or inference while paused.
-      return;
-    }
-    if (inventory || !current.sources?.scanCollection) {
-      return;
-    }
-    const scan = current.sources.scanCollection();
-    scan.catch((error: unknown) => {
-      failures.record(current.generation, error);
-      dependencies.onError('catalog collection reconciliation', error);
-    });
-    if (join) {
-      await scan;
-    }
+    observeNativeIndexCatalog(current, records);
   };
   const readSettings = (): Promise<NativeIndexSettings> => dependencies.settings();
   const captureSettings = (): Promise<NativeIndexSettings> => {
@@ -753,7 +637,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       }
       throw error;
     });
-    await refreshCatalog(current, false, undefined, false);
+    await refreshCatalog(current, false);
     // While a catalog change waits for its scan, reads stay on the acknowledged bindings.
     const read = current.queuedCatalogRecords ? runtime.acknowledged : runtime.acquire;
     return current.sources?.scanAdmission
@@ -773,7 +657,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (nativeIndexReadiness(state).kind !== 'ready') {
       throw stateError(state);
     }
-    await refreshCatalog(current, true);
+    await refreshCatalog(current);
     return current.sources?.scanAdmission
       ? current.sources.scanAdmission.acquireRead(() => runtime.acquire())
       : runtime.acquire();
@@ -885,8 +769,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     const authorized = await authority();
     const resolved =
       current.settings.mode === 'VECTOR'
-        ? await resolver(current).resolve(
-            { embeddingSetId: vectorCollectionId(current.settings), kind: 'collection' },
+        ? await resolver(current).resolveVectorSpace(
+            vectorCollectionId(current.settings),
             contextFor(current)
           )
         : null;
@@ -906,7 +790,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
             modelKey: resolved.modelKey,
           }
         : undefined,
-      readiness: catalogReadiness(current),
+      readiness: current.publication?.getReadiness() ?? [],
       rootIds: authorized.rootIds,
     };
   };
@@ -979,7 +863,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       await dispatch({ kind: 'terminal', reason: 'host-released' });
     },
     fenceTerminal,
-    getReadiness: () => (graph ? catalogReadiness(graph) : []),
+    getReadiness: () => graph?.publication?.getReadiness() ?? [],
     getSearchAuthority: () => getSearchAuthority(),
     observeLifecycle: async (
       listener: (value: ReturnType<typeof nativeIndexObservation>) => void,

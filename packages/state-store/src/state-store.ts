@@ -572,16 +572,9 @@ export class StateStore implements MemoryDomainPort {
   collections(request: CollectionRequest): Promise<CollectionReply> {
     const execute = async (): Promise<CollectionReply> => {
       const reply = await this.call({ op: 'collections', request });
-      return {
-        collections: reply['collections'] as CollectionReply['collections'],
-        ...(request.operation === 'snapshot'
-          ? { counts: reply['counts'] as NonNullable<CollectionReply['counts']> }
-          : {}),
-      };
+      return { collections: reply['collections'] as CollectionReply['collections'] };
     };
-    return request.operation === 'list' ||
-      request.operation === 'snapshot' ||
-      request.operation === 'get'
+    return request.operation === 'list' || request.operation === 'get'
       ? execute()
       : this.run(execute);
   }
@@ -639,7 +632,6 @@ export class StateStore implements MemoryDomainPort {
   /** Authoritative source bytes use this writer's existing content-addressed blobs. */
   sourceCatalog(request: SourceCatalogRequest): Promise<SourceCatalogReply> {
     const mutatesSource =
-      request.operation === 'import' ||
       request.operation === 'prepare' ||
       request.operation === 'replace' ||
       request.operation === 'remove';
@@ -652,12 +644,7 @@ export class StateStore implements MemoryDomainPort {
       if (mutatesSource) {
         await this.deletion.collectRetiredSources();
       }
-      return {
-        files: reply['files'] as SourceCatalogReply['files'],
-        ...(request.operation === 'import'
-          ? { imported: reply['imported'] as readonly boolean[] }
-          : {}),
-      };
+      return { files: reply['files'] as SourceCatalogReply['files'] };
     };
     return request.operation === 'list' ||
       request.operation === 'inventory' ||

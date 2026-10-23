@@ -56,7 +56,9 @@ async function readNativeListing(
   if (!includeStats || embeddingSetId === null) {
     return { workspaceIndex };
   }
-  const batch = await capability.coverageBatch([{ collectionId: embeddingSetId, rootIds: [] }]);
+  // The space's files are its folders' files: one coverage read over every indexed folder.
+  const rootIds = status.authorizedRootIds;
+  const batch = await capability.coverageBatch([{ rootIds }]);
   if (batch.kind === 'blocked') {
     throw new ToolInputError(batch.reason);
   }
@@ -64,12 +66,10 @@ async function readNativeListing(
     return { coverageObservation: { code: batch.code, kind: batch.kind }, workspaceIndex };
   }
   const coverage = batch.coverage[0];
-  const collection = coverage?.collections?.[0];
   if (
     batch.coverage.length !== 1 ||
     !coverage ||
-    coverage.collections?.length !== 1 ||
-    collection?.embeddingSetId !== embeddingSetId ||
+    coverage.roots.length !== rootIds.length ||
     coverage.storeId !== status.storeId ||
     batch.status.storeId !== status.storeId ||
     !batch.status.authorizedCollectionIds?.includes(embeddingSetId) ||
@@ -80,19 +80,19 @@ async function readNativeListing(
       'Native collection coverage changed authority or returned inconsistent scope.'
     );
   }
+  const counts = coverage.totals;
   return {
     coverage: {
       coveragePercent:
-        collection.chunks > 0 ? Math.round((collection.vectors / collection.chunks) * 100) : null,
-      embeddedChunks: collection.vectors,
-      fileCount: collection.indexedFiles,
-      missingVectors: collection.missingVectors,
-      scanComplete:
-        batch.status.collectionReadiness?.some(
-          (row) => row.embeddingSetId === embeddingSetId && row.scanComplete
-        ) === true,
+        counts.chunks > 0 ? Math.round((counts.vectors / counts.chunks) * 100) : null,
+      embeddedChunks: counts.vectors,
+      fileCount: counts.indexedFiles,
+      missingVectors: counts.missingVectors,
+      scanComplete: rootIds.every((rootId) =>
+        batch.status.rootReadiness.some((row) => row.rootId === rootId && row.scanComplete)
+      ),
       source: 'native',
-      totalChunks: collection.chunks,
+      totalChunks: counts.chunks,
       vectorCoverageComplete: coverage.vectorCoverageComplete,
     },
     coverageObservation: { kind: 'current' },

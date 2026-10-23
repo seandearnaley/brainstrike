@@ -10,9 +10,9 @@ production Node chunker and publish its exact chunks and graph.
 Catalog, source, writer/receipt and hidden inference ports keep separate
 responsibilities. Historical PG naming in a port does not select the desktop
 storage engine: the current catalog adapter borrows the host's existing owner.
-Workspace/collection scopes, actual canonical IDs and nullable standalone
-collection root/path metadata stay explicit. TEXT calls neither model/profile
-resolution nor inference; this package introduces no engine/model substitution.
+A scan's scope is one workspace folder; actual canonical IDs stay explicit. TEXT
+calls neither model/profile resolution nor inference; this package introduces no
+engine/model substitution.
 
 Catalog completion follows acknowledged native publication; native removal
 precedes catalog invalidation. A path match, partial inventory or progress event
@@ -22,8 +22,7 @@ Discovered workspace files without a canonical ID count against the same batch
 bound. After secure original-source read/hash, `prepareManagedSourcesBatch` uses
 the existing identity/mutation owner and awaits trusted native binding
 acknowledgement. Only its exact identity/hash reply becomes publishable; missing,
-extra, repeated or mismatched replies refuse before parsing/publication. Collection
-scope does not establish new workspace filesystem membership.
+extra, repeated or mismatched replies refuse before parsing/publication.
 
 ## Lifetime and integration
 

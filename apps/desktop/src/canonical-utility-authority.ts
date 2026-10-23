@@ -5,14 +5,12 @@ import type {
   CanonicalInferencePort,
   CanonicalIngestionDependencies,
   CanonicalPublicationPort,
-  CanonicalScanRequest,
   CanonicalSourceInventoryPort,
   CanonicalSourceScope,
   CanonicalSourceSubscription,
   CanonicalVectorPublicationPort,
   CanonicalWorkspaceLease,
   CanonicalWorkspaceRuntimeDependencies,
-  CanonicalWorkspaceSourceDependencies,
   NodeChunkerOptions,
 } from '@brainstrike/canonical-ingestion';
 import type { ScopedManifestFile, VectorProfile } from '@brainstrike/indexer';
@@ -38,23 +36,18 @@ type Remote<T> = T extends unknown
   : never;
 export type CanonicalRemoteIngestion = Remote<WithoutSource<CanonicalIngestionDependencies>>;
 export type CanonicalRemoteWorkspaceDependencies = Remote<CanonicalWorkspaceRuntimeDependencies>;
-export type CanonicalCollectionDependencies = CanonicalRemoteIngestion & {
-  readonly request: Omit<CanonicalScanRequest, 'requestId' | 'scope' | 'forceFileIds'>;
-  readonly scope: Extract<CanonicalSourceScope, { kind: 'collection' }>;
-  readonly source: Omit<CanonicalWorkspaceSourceDependencies, 'lease' | 'resolveScanScope'>;
-};
 export interface Session {
   readonly catalog: CanonicalCatalogPort;
   childClosed: boolean;
   close?: Promise<void> | undefined;
   readonly config: CanonicalUtilityConfig;
-  readonly dependencies: CanonicalRemoteWorkspaceDependencies | CanonicalCollectionDependencies;
+  readonly dependencies: CanonicalRemoteWorkspaceDependencies;
   readonly files: Map<string, CanonicalFileIdentity>;
   readonly inference: CanonicalInferencePort<VectorProfile> | undefined;
   readonly inferenceRequests: Set<string>;
   readonly inventory: CanonicalSourceInventoryPort;
   lastRequestId: number;
-  readonly lease: CanonicalWorkspaceLease | undefined;
+  readonly lease: CanonicalWorkspaceLease;
   readonly pending: Map<number, { controller: AbortController; settled: Promise<void> }>;
   readonly publication: CanonicalPublicationPort;
   /** Main's retirement of this attachment: stop() aborts it with Main's typed reason. */
@@ -115,11 +108,7 @@ export function assertMode(dependencies: Session['dependencies']): void {
   }
 }
 export function sameScope(left: CanonicalSourceScope, right: CanonicalSourceScope): boolean {
-  return left.kind === 'workspace' && right.kind === 'workspace'
-    ? left.rootId === right.rootId
-    : left.kind === 'collection' &&
-        right.kind === 'collection' &&
-        left.embeddingSetId === right.embeddingSetId;
+  return left.rootId === right.rootId;
 }
 function sameFile(left: CanonicalFileIdentity, right: CanonicalFileIdentity): boolean {
   return (
@@ -132,19 +121,14 @@ function sameFile(left: CanonicalFileIdentity, right: CanonicalFileIdentity): bo
   );
 }
 function assertFileScope(file: CanonicalFileIdentity, config: CanonicalUtilityConfig): void {
-  if (config.scope.kind === 'workspace') {
-    if (
-      file.rootId !== config.scope.rootId ||
-      !file.relativePath ||
-      !config.lease ||
-      file.sourcePath !== path.join(config.lease.canonicalPath, file.relativePath)
-    ) {
-      throw new Error('Canonical file is outside its captured workspace.');
-    }
-    assertRelative(file.relativePath);
-  } else if (file.embeddingSetId !== config.scope.embeddingSetId) {
-    throw new Error('Rootless canonical file is outside its captured collection.');
+  if (
+    file.rootId !== config.scope.rootId ||
+    !file.relativePath ||
+    file.sourcePath !== path.join(config.lease.canonicalPath, file.relativePath)
+  ) {
+    throw new Error('Canonical file is outside its captured workspace.');
   }
+  assertRelative(file.relativePath);
 }
 export function assertRelative(value: string, directory = false): void {
   if (directory && value === '.') {
@@ -166,12 +150,11 @@ export function capturedAuthority(
   const { dependencies: deps, config } = session;
   const cleanup = isOwnedCleanup(frame);
   const lease = session.lease;
-  const liveLease = 'lease' in deps.source ? deps.source.lease : undefined;
   if (
     !cleanup &&
     ((deps.mode ?? 'TEXT') !== config.mode ||
       (deps.mode === 'VECTOR' && deps.inference !== session.inference) ||
-      liveLease !== lease ||
+      deps.source.lease !== lease ||
       deps.catalog !== session.catalog ||
       deps.publication !== session.publication ||
       deps.source.inventory !== session.inventory)
@@ -180,9 +163,7 @@ export function capturedAuthority(
   }
   if (
     !cleanup &&
-    lease &&
-    (!config.lease ||
-      lease.rootId !== config.lease.rootId ||
+    (lease.rootId !== config.lease.rootId ||
       lease.generation !== config.lease.generation ||
       lease.canonicalPath !== config.lease.canonicalPath)
   ) {
@@ -211,13 +192,7 @@ export function capturedAuthority(
       session.files.set(file.fileId, file);
     }
   };
-  const ownedLease = (): NonNullable<typeof lease> => {
-    if (!lease) {
-      throw new Error('Canonical request has no mounted lease.');
-    }
-    return lease;
-  };
-  return { files, lease, ownedLease, remember, scope };
+  return { files, lease, remember, scope };
 }
 
 export function recheckCallbackAuthority(
@@ -308,7 +283,6 @@ export function assertDiscoveredSource(
 ): void {
   assertRelative(file.relativePath);
   if (
-    !config.lease ||
     file.rootId !== config.lease.rootId ||
     file.sourcePath !== path.join(config.lease.canonicalPath, file.relativePath) ||
     file.fileName !== path.basename(file.relativePath) ||

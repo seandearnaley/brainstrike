@@ -35,7 +35,7 @@ it('retires an already physically settled missing-key request after generate del
     modelId: 'embed-english-v3.0',
     modelKey: 'cohere::embed-english-v3.0',
   } as const;
-  const scope = { embeddingSetId: metadata.id, kind: 'collection' } as const;
+  const scope = { kind: 'workspace', rootId: 'root' } as const;
   const resolver = new NativeCanonicalProfileResolver({
     collections: {
       collections: async () => ({

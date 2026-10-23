@@ -9,14 +9,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CanonicalFileIdentity, CanonicalSourceScope } from '../src/ports.js';
 import { createNativeCanonicalPublication } from '../src/scoped-publication.js';
 
-const scope = { embeddingSetId: 'collection', kind: 'collection' } as const;
+const scope = { kind: 'workspace', rootId: 'root' } as const;
 const file: CanonicalFileIdentity = {
-  embeddingSetId: 'collection',
+  embeddingSetId: 'managed-set',
   fileId: 'file',
   fileName: 'file.txt',
-  relativePath: null,
-  rootId: null,
-  sourcePath: null,
+  relativePath: 'file.txt',
+  rootId: 'root',
+  sourcePath: '/actual/root/file.txt',
 };
 const storeId = 'store';
 function requestedScope(input: unknown): CanonicalSourceScope {
@@ -29,12 +29,8 @@ function requestedScope(input: unknown): CanonicalSourceScope {
   }
   const kind: unknown = Reflect.get(selected, 'kind');
   const rootId: unknown = Reflect.get(selected, 'rootId');
-  const embeddingSetId: unknown = Reflect.get(selected, 'embeddingSetId');
   if (kind === 'workspace' && typeof rootId === 'string') {
     return { kind, rootId };
-  }
-  if (kind === 'collection' && typeof embeddingSetId === 'string') {
-    return { embeddingSetId, kind };
   }
   throw new Error('Expected an authorized native scope.');
 }
@@ -83,15 +79,8 @@ const localProfile = {
   revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   tokenCap: 512,
 } as const;
-function overlappingFixture() {
-  const { port } = fixture();
-  const workspace = { kind: 'workspace', rootId: 'root' } as const;
-  const rooted = {
-    ...file,
-    relativePath: 'file.txt',
-    rootId: 'root',
-    sourcePath: '/actual/root/file.txt',
-  };
+function planFixture() {
+  const { port, publication } = fixture();
   const plan: ScopedFilePlan = {
     authorityEpoch: 'epoch',
     authorityRevision: 1,
@@ -117,7 +106,7 @@ function overlappingFixture() {
     profile: localProfile,
     profileHash: vectorProfileHash(localProfile),
     snapshot: {
-      ...rooted,
+      ...file,
       content: 'canonical',
       providedChunks: [
         {
@@ -138,27 +127,13 @@ function overlappingFixture() {
   };
   port.prepareScopedFile.mockResolvedValue(plan);
   port.commitScopedFile.mockResolvedValue({});
-  port.coverageScope.mockImplementation(async (request: unknown) => ({
-    authorityEpoch: 'epoch',
-    authorityRevision: 1,
-    counts: { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 },
-    profile: localProfile,
-    profileHash: vectorProfileHash(localProfile),
-    scope: requestedScope(request),
-    storeId,
-    vectorCoverageComplete: true,
-  }));
-  const publication = createNativeCanonicalPublication(port, [workspace, scope]);
-  const scan = async (requested: typeof scope | typeof workspace): Promise<void> => {
-    const ticket = await publication.beginScan({
-      requestId: JSON.stringify(requested),
-      scope: requested,
-    });
+  const scan = async (): Promise<void> => {
+    const ticket = await publication.beginScan({ requestId: 'scan', scope });
     const prepared = await publication.prepareVectorFile({
-      file: rooted,
+      file,
       payload: {
         content: plan.snapshot.content,
-        fileId: rooted.fileId,
+        fileId: file.fileId,
         providedChunks: 'providedChunks' in plan.snapshot ? plan.snapshot.providedChunks : [],
       },
       profile: localProfile,
@@ -166,7 +141,7 @@ function overlappingFixture() {
     });
     await publication.commitVectorFile({
       embeddings: [],
-      file: rooted,
+      file,
       plan: prepared,
       profile: localProfile,
       ticket,
@@ -174,26 +149,17 @@ function overlappingFixture() {
     expect(
       await publication.finishScan({
         ...completion,
-        files: [{ ...rooted, contentHash: plan.contentHash }],
+        files: [{ ...file, contentHash: plan.contentHash }],
         ticket,
       })
     ).toMatchObject({ scanComplete: true });
   };
-  return {
-    contentHash: plan.contentHash,
-    file: rooted,
-    plan,
-    port,
-    publication,
-    scan,
-    scope,
-    workspace,
-  };
+  return { contentHash: plan.contentHash, file, plan, port, publication, scan };
 }
 
 it('projects distinct matching native plans only after commit acknowledgement', async () => {
-  const f = overlappingFixture();
-  const ticket = await f.publication.beginScan({ requestId: 'ack-progress', scope: f.workspace });
+  const f = planFixture();
+  const ticket = await f.publication.beginScan({ requestId: 'ack-progress', scope });
   let acknowledge = (): void => {
     throw new Error('Commit was not admitted');
   };
@@ -229,7 +195,6 @@ it('projects distinct matching native plans only after commit acknowledgement', 
     },
     scanComplete: false,
   });
-  expect(f.publication.getReadiness()[1]?.publication).toBeUndefined();
   await commit();
   expect(f.publication.getReadiness()[0]?.publication?.acknowledgedFiles).toBe(1);
   await f.publication.finishScan({
@@ -240,7 +205,7 @@ it('projects distinct matching native plans only after commit acknowledgement', 
   expect(f.publication.getReadiness()[0]?.publication?.acknowledgedFiles).toBe(1);
   const replacement = await f.publication.beginScan({
     requestId: 'replacement',
-    scope: f.workspace,
+    scope,
   });
   expect(replacement.generation).toBe(ticket.generation + 1);
   expect(f.publication.getReadiness()[0]?.publication).toBeUndefined();
@@ -250,8 +215,8 @@ it('projects distinct matching native plans only after commit acknowledgement', 
 it.each(['aborted', 'failed', 'invalidated'] as const)(
   'does not project %s native commit work as publication progress',
   async (mode) => {
-    const f = overlappingFixture();
-    const ticket = await f.publication.beginScan({ requestId: mode, scope: f.workspace });
+    const f = planFixture();
+    const ticket = await f.publication.beginScan({ requestId: mode, scope });
     let settle = (): void => {
       throw new Error('Commit was not admitted');
     };
@@ -282,11 +247,11 @@ it.each(['aborted', 'failed', 'invalidated'] as const)(
   }
 );
 
-it('keeps ticket identity while acknowledged authority advances from workspace to collection publication', async () => {
-  const f = overlappingFixture();
+it('keeps ticket identity while acknowledged authority advances within one scan', async () => {
+  const f = planFixture();
   const workspaceTicket = await f.publication.beginScan({
     requestId: 'workspace',
-    scope: f.workspace,
+    scope,
   });
   await f.publication.commitVectorFile({
     embeddings: [],
@@ -318,44 +283,13 @@ it('keeps ticket identity while acknowledged authority advances from workspace t
     generation: workspaceTicket.generation,
     requestId: workspaceTicket.requestId,
   });
-  await f.publication.finishScan({
-    ...completion,
-    files: [
-      { ...f.file, contentHash: f.plan.contentHash },
-      { ...second, contentHash: secondPlan.contentHash },
-    ],
-    ticket: workspaceTicket,
-  });
-  const collectionTicket = await f.publication.beginScan({
-    requestId: 'collection',
-    scope: f.scope,
-  });
-  await f.publication.commitVectorFile({
-    embeddings: [],
-    file: f.file,
-    plan: { ...f.plan, authorityEpoch: 'collection-authority', authorityRevision: 10 },
-    profile: localProfile,
-    ticket: collectionTicket,
-  });
-  expect(f.publication.getReadiness()[0]?.publication).toEqual(acknowledged);
-  expect(f.publication.getReadiness()[0]?.mutationRevision).toBeGreaterThan(
-    acknowledged!.mutationRevision
-  );
-  expect(f.publication.getReadiness()[1]?.publication).toMatchObject({
-    acknowledgedFiles: 1,
-    authorityEpoch: 'collection-authority',
-    authorityRevision: 10,
-    generation: collectionTicket.generation,
-    requestId: collectionTicket.requestId,
-  });
-  expect(f.publication.getReadiness().every((entry) => !entry.scanComplete)).toBe(true);
 });
 
 it.each(['store', 'profile', 'scope'] as const)(
   'refuses a mismatched %s plan before it can earn progress',
   async (mode) => {
-    const f = overlappingFixture();
-    const ticket = await f.publication.beginScan({ requestId: mode, scope: f.workspace });
+    const f = planFixture();
+    const ticket = await f.publication.beginScan({ requestId: mode, scope });
     const plan =
       mode === 'store'
         ? { ...f.plan, storeId: 'foreign' }
@@ -376,27 +310,21 @@ it.each(['store', 'profile', 'scope'] as const)(
   }
 );
 
-it('discards the removed file plan and overlapping proofs so a returned identity cannot reuse a stat skip', async () => {
-  const f = overlappingFixture();
-  await f.scan(f.workspace);
-  await f.scan(f.scope);
-  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(true);
+it('discards the removed file plan and its proof so a returned identity cannot reuse a stat skip', async () => {
+  const f = planFixture();
+  await f.scan();
   f.publication.invalidateFile(f.file);
   expect(f.publication.getReadiness().every((scope) => !scope.scanComplete)).toBe(true);
   const file = { ...f.file, contentHash: f.contentHash };
-  expect(await f.publication.verifyManifest({ files: [file], scope: f.scope })).toMatchObject({
+  expect(await f.publication.verifyManifest({ files: [file], scope })).toMatchObject({
     complete: false,
     missing: [file],
   });
-  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(false);
-  expect(await f.publication.reverifyScope(f.scope, localProfile)).toBe(false);
 });
 
 it('preserves surviving complete proofs when an already-retired binding is acknowledged again', async () => {
-  const f = overlappingFixture();
-  await f.scan(f.workspace);
-  await f.scan(f.scope);
-  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(true);
+  const f = planFixture();
+  await f.scan();
   f.publication.invalidateFile({ ...f.file, fileId: 'already-retired' });
   expect(f.publication.getReadiness().every((scope) => scope.scanComplete)).toBe(true);
 });
@@ -404,8 +332,8 @@ it('preserves surviving complete proofs when an already-retired binding is ackno
 it.each(['TEXT', 'VECTOR'] as const)(
   'fences a late %s commit ACK after file invalidation until a new scan republishes',
   async (mode) => {
-    const f = overlappingFixture();
-    const ticket = await f.publication.beginScan({ requestId: 'before-delete', scope: f.scope });
+    const f = planFixture();
+    const ticket = await f.publication.beginScan({ requestId: 'before-delete', scope });
     const plan = await f.port.prepareScopedFile({});
     if (mode === 'TEXT') {
       f.port.prepareScopedFile.mockResolvedValue({ ...plan, profile: null, profileHash: null });
@@ -438,9 +366,10 @@ it.each(['TEXT', 'VECTOR'] as const)(
     held.resolve();
     expect(await outcome).toMatchObject({ message: expect.stringContaining('invalidated') });
     const declared = { ...f.file, contentHash: f.contentHash };
-    expect(await f.publication.verifyManifest({ files: [declared], scope: f.scope })).toMatchObject(
-      { complete: false, missing: [declared] }
-    );
+    expect(await f.publication.verifyManifest({ files: [declared], scope })).toMatchObject({
+      complete: false,
+      missing: [declared],
+    });
     await expect(
       f.publication.commitTextFile({
         file: f.file,
@@ -450,7 +379,7 @@ it.each(['TEXT', 'VECTOR'] as const)(
     ).rejects.toThrow('invalidated');
     await f.publication.abortScan(ticket);
     await f.publication.finishScan({ ...completion, aborted: true, ticket });
-    const next = await f.publication.beginScan({ requestId: 'returned-id', scope: f.scope });
+    const next = await f.publication.beginScan({ requestId: 'returned-id', scope });
     if (mode === 'TEXT') {
       await f.publication.commitTextFile({
         file: f.file,
@@ -466,95 +395,15 @@ it.each(['TEXT', 'VECTOR'] as const)(
         ticket: next,
       });
     }
-    expect(await f.publication.verifyManifest({ files: [declared], scope: f.scope })).toMatchObject(
-      { complete: true, missing: [] }
-    );
+    expect(await f.publication.verifyManifest({ files: [declared], scope })).toMatchObject({
+      complete: true,
+      missing: [],
+    });
   }
 );
 
-it('reverifies full workspace manifest and selected-profile coverage after zero-missing VECTOR overlap', async () => {
-  const f = overlappingFixture();
-  await f.scan(f.workspace);
-  await f.scan(f.scope);
-  expect(f.publication.getReadiness()).toContainEqual(
-    expect.objectContaining({ scanComplete: false, scope: f.workspace })
-  );
-  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(true);
-  expect(f.publication.getReadiness()).toMatchObject([
-    { scanComplete: true, scope: f.workspace },
-    { scanComplete: true, scope: f.scope },
-  ]);
-  expect(f.port.verifyScopedManifest).toHaveBeenCalledTimes(3);
-  expect(f.port.coverageScope).toHaveBeenCalledExactlyOnceWith({
-    profile: localProfile,
-    scope: f.workspace,
-  });
-  expect(f.port.prepareScopedFile).toHaveBeenCalledTimes(2);
-  expect(f.port.commitScopedFile).toHaveBeenCalledTimes(2);
-});
-
-it.each([
-  { chunks: 0, covered: true, name: 'no chunks has nothing to embed' },
-  { chunks: 1, covered: false, name: 'a chunk without its vector stays uncovered' },
-])('reverifies a complete empty-manifest scope: $name (BST-2053)', async ({ chunks, covered }) => {
-  const { port, publication } = fixture();
-  const ticket = await publication.beginScan({ requestId: 'scan', scope });
-  expect(await publication.finishScan({ ...completion, ticket })).toMatchObject({
-    scanComplete: true,
-  });
-  // The indexer's own answer: a scope with no chunks is never vector readiness.
-  port.coverageScope.mockResolvedValue({
-    authorityEpoch: 'epoch',
-    authorityRevision: 1,
-    counts: { chunks, indexedFiles: 0, missingVectors: chunks, vectors: 0 },
-    profile: localProfile,
-    profileHash: vectorProfileHash(localProfile),
-    scope,
-    storeId,
-    vectorCoverageComplete: false,
-  });
-  expect(await publication.reverifyScope(scope, localProfile)).toBe(covered);
-  expect(publication.getReadiness()).toMatchObject([{ scanComplete: covered, scope }]);
-});
-
-it('cannot reuse a complete source proof after explicit source invalidation', async () => {
-  const f = overlappingFixture();
-  await f.scan(f.workspace);
-  f.publication.invalidateScope(f.workspace);
-  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(false);
-  expect(f.port.verifyScopedManifest).toHaveBeenCalledTimes(1);
-  expect(f.publication.getReadiness()).toContainEqual(
-    expect.objectContaining({ scanComplete: false, scope: f.workspace })
-  );
-});
-
-it('refuses stale full-scope revalidation when a later mutation races its held native proof', async () => {
-  const f = overlappingFixture();
-  await f.scan(f.workspace);
-  await f.scan(f.scope);
-  const held = Promise.withResolvers<Awaited<ReturnType<typeof f.port.verifyScopedManifest>>>();
-  f.port.verifyScopedManifest.mockReturnValueOnce(held.promise);
-  const rechecking = f.publication.reverifyScope(f.workspace, localProfile);
-  await vi.waitFor(() => expect(f.port.verifyScopedManifest).toHaveBeenCalledTimes(3));
-  await f.scan(f.scope);
-  held.resolve({
-    authorityEpoch: 'epoch',
-    authorityRevision: 1,
-    changed: [],
-    complete: true,
-    missing: [],
-    scope: f.workspace,
-    storeId,
-    unexpected: [],
-  });
-  expect(await rechecking).toBe(false);
-  expect(f.publication.getReadiness()).toContainEqual(
-    expect.objectContaining({ scanComplete: false, scope: f.workspace })
-  );
-});
-
 describe('main canonical publication ownership', () => {
-  it('joins an admitted rootless removal before abort and refuses late writes', async () => {
+  it('joins an admitted removal before abort and refuses late writes', async () => {
     const { port, publication } = fixture();
     const held = Promise.withResolvers<boolean>();
     port.removeScopedFile.mockReturnValueOnce(held.promise);
@@ -592,7 +441,7 @@ describe('main canonical publication ownership', () => {
     expect(port.verifyScopedManifest).not.toHaveBeenCalled();
   });
 
-  it('refuses overlapping and consumed tickets and verifies the actual empty collection', async () => {
+  it('refuses overlapping and consumed tickets and verifies the actual empty scope', async () => {
     const { port, publication } = fixture();
     const ticket = await publication.beginScan({ requestId: 'scan', scope });
     await expect(publication.beginScan({ requestId: 'overlap', scope })).rejects.toThrow('owned');
@@ -659,37 +508,16 @@ describe('main canonical publication ownership', () => {
   });
 });
 
-it('invalidates an overlapping collection receipt when a workspace mutation is admitted', async () => {
-  const { port } = fixture();
-  const workspace = { kind: 'workspace', rootId: 'root' } as const;
-  const publication = createNativeCanonicalPublication(port, [scope, workspace]);
-  const collectionTicket = await publication.beginScan({ requestId: 'collection-complete', scope });
-  await publication.finishScan({ ...completion, ticket: collectionTicket });
-  expect(publication.getReadiness()[0]?.scanComplete).toBe(true);
-  const ticket = await publication.beginScan({ requestId: 'workspace-change', scope: workspace });
-  const held = Promise.withResolvers<boolean>();
-  port.removeScopedFile.mockReturnValueOnce(held.promise);
-  const removing = publication.removeFile({
-    file: { ...file, relativePath: 'file.txt', rootId: 'root' },
-    ticket,
-  });
-  expect(publication.getReadiness()[0]?.scanComplete).toBe(false);
-  held.resolve(true);
-  await removing;
-  await publication.abortScan(ticket);
-  await publication.finishScan({ ...completion, ticket });
-});
-
 it('retains monotonic scan and mutation stamps when readiness returns to the same complete value', async () => {
-  const f = overlappingFixture();
-  await f.scan(f.workspace);
+  const f = planFixture();
+  await f.scan();
   const before = f.publication.getReadiness().find((entry) => entry.scope.kind === 'workspace')!;
-  await f.scan(f.workspace);
+  await f.scan();
   const after = f.publication.getReadiness().find((entry) => entry.scope.kind === 'workspace')!;
   expect(before.scanComplete).toBe(true);
   expect(after.scanComplete).toBe(true);
   expect(after.generation).toBeGreaterThan(before.generation);
-  f.publication.invalidateScope(f.workspace);
+  f.publication.invalidateScope(scope);
   const invalid = f.publication.getReadiness().find((entry) => entry.scope.kind === 'workspace')!;
   expect(invalid.mutationRevision).toBeGreaterThan(after.mutationRevision);
   expect(invalid.scanComplete).toBe(false);

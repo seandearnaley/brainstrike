@@ -12,7 +12,6 @@ import { CanonicalUtilityParent } from '../canonical-utility-parent';
 import { catalogFingerprint, deferNativeIndexCatalog } from '../native-index-catalog-observation';
 
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
-const collection = { embeddingSetId: 'selected', kind: 'collection' } as const;
 const file: CanonicalFileIdentity = {
   embeddingSetId: 'selected',
   fileId: 'file',
@@ -32,12 +31,8 @@ function requestedScope(request: unknown): CanonicalSourceScope {
   }
   const kind: unknown = Reflect.get(scope, 'kind');
   const rootId: unknown = Reflect.get(scope, 'rootId');
-  const embeddingSetId: unknown = Reflect.get(scope, 'embeddingSetId');
   if (kind === 'workspace' && typeof rootId === 'string') {
     return { kind, rootId };
-  }
-  if (kind === 'collection' && typeof embeddingSetId === 'string') {
-    return { embeddingSetId, kind };
   }
   throw new Error('Expected an authorized native scope.');
 }
@@ -74,7 +69,7 @@ function fixture() {
       })
     ),
   };
-  const nativePublication = createNativeCanonicalPublication(writer, [workspace, collection]);
+  const nativePublication = createNativeCanonicalPublication(writer, [workspace]);
   const publication = admission.workspacePublication(nativePublication);
   const context = (requestId: string) => ({ requestId, signal: source.signal });
   return { admission, context, nativePublication, publication, source, writer };
@@ -145,12 +140,7 @@ it.each(['overflow', 'unexplained-mismatch', 'write-failure'] as const)(
       request: { batchSize: 2, chunkingOptions: { strategy: 'auto' }, maxFileBytes: 1024 },
       source: {
         indexingPolicyPreset: 'balanced',
-        inventory: {
-          loadFiles: async () => [],
-          readRetained: async () => {
-            throw new Error('Empty root must not read retained files.');
-          },
-        },
+        inventory: { loadFiles: async () => [] },
         lease: {
           canonicalPath: '/actual/root',
           generation: 'actual-borrow',
@@ -185,7 +175,8 @@ it.each(['overflow', 'unexplained-mismatch', 'write-failure'] as const)(
         expect(receipt).not.toHaveBeenCalled();
         if (scenario === 'write-failure') {
           expect(error.mock.calls[0]?.[1]).toMatchObject({ message: writeFailure.message });
-          await expect(test.admission.runCollection('after-failure', async () => {})).rejects.toBe(
+          // The failed workspace stays owned: a catalog refresh joining it sees the original failure.
+          await expect(Promise.all(test.admission.getWorkspaceCompletions())).rejects.toBe(
             error.mock.calls[0]?.[1]
           );
         } else {
@@ -210,103 +201,18 @@ it.each(['overflow', 'unexplained-mismatch', 'write-failure'] as const)(
   }
 );
 
-it('drains native workspace removal and the physical host receipt; existing ACK stays admissible and later publication waits', async () => {
+it('admits no binding ACK, read or publication once its source retires', async () => {
   const test = fixture();
-  const ticket = await test.publication.beginScan({ requestId: 'workspace', scope: workspace });
-  const removed = Promise.withResolvers<boolean>();
-  test.writer.removeScopedFile.mockImplementation(() => removed.promise);
-  const removing = test.publication.removeFile({ file, ticket });
-  const admitted = Promise.withResolvers<void>();
-  const scan = Promise.withResolvers<void>();
-  const collectionPass = test.admission.runCollection('collection', async () => {
-    test.admission.retainInventory([]);
-    admitted.resolve();
-    await scan.promise;
-  });
-  const currentAck = vi.fn(async () => {});
-  await test.admission.acquireBindings(test.context('workspace'), currentAck);
-  expect(currentAck).toHaveBeenCalledOnce();
-  const later = test.publication.beginScan({ requestId: 'later', scope: workspace });
-  await Promise.resolve();
-  expect(test.writer.info).toHaveBeenCalledOnce();
-  removed.resolve(true);
-  await removing;
-  const receipt = await test.publication.finishScan({ ...completion, ticket });
-  // Native finish is still inside the original host/channel pass.
-  expect(test.admission.getInventory()).toBeUndefined();
-  test.admission.completeWorkspace(receipt);
-  await admitted.promise;
-  expect(test.writer.info).toHaveBeenCalledOnce();
-  const ownedAck = vi.fn(async () => {});
-  await test.admission.acquireBindings(test.context('collection'), ownedAck);
-  expect(ownedAck).toHaveBeenCalledOnce();
-  scan.resolve();
-  await collectionPass;
-  const laterTicket = await later;
-  test.admission.completeWorkspace(
-    await test.publication.finishScan({ ...completion, ticket: laterTicket })
-  );
-});
-
-it('joins an already-admitted binding ACK before loading the single collection snapshot and keeps identical reads available', async () => {
-  const test = fixture();
-  const ack = Promise.withResolvers<void>();
-  const started = Promise.withResolvers<void>();
-  const prior = test.admission.acquireRead(async () => {
-    started.resolve();
-    await ack.promise;
-  });
-  await started.promise;
-  const snapshot = Promise.withResolvers<void>();
-  const scan = Promise.withResolvers<void>();
-  const pass = test.admission.runCollection('collection', async () => {
-    test.admission.retainInventory([]);
-    snapshot.resolve();
-    await scan.promise;
-  });
-  const read = vi.fn(async () => 'reader');
-  const queued = test.admission.acquireRead(read);
-  await Promise.resolve();
-  expect(read).not.toHaveBeenCalled();
-  ack.resolve();
-  await prior;
-  await snapshot.promise;
-  expect(await queued).toBe('reader');
-  expect(await test.admission.acquireRead(read)).toBe('reader');
-  scan.resolve();
-  await pass;
-});
-
-it('rejects queued ACK, read and publication on source retirement while running native work keeps its snapshot through physical settlement', async () => {
-  const test = fixture();
-  const entered = Promise.withResolvers<void>();
-  const native = Promise.withResolvers<void>();
-  const pass = test.admission
-    .runCollection('collection', async () => {
-      test.admission.retainInventory([]);
-      entered.resolve();
-      await native.promise;
-      test.source.signal.throwIfAborted();
-    })
-    .catch((error: unknown) => error);
-  await entered.promise;
-  const callback = vi.fn(async () => {});
-  const ack = test.admission
-    .acquireBindings(test.context('later'), callback)
-    .catch((error: unknown) => error);
-  const publication = test.publication
-    .beginScan({ requestId: 'later', scope: workspace })
-    .catch((error: unknown) => error);
   const reason = new Error('owned source retirement');
   test.source.abort(reason);
-  expect(await ack).toBe(reason);
-  expect(await publication).toBe(reason);
-  expect(callback).not.toHaveBeenCalled();
-  expect(test.admission.getInventory()).toEqual([]);
-  await expect(test.admission.acquireRead(callback)).rejects.toBe(reason);
-  native.resolve();
-  expect(await pass).toBe(reason);
-  expect(test.admission.getInventory()).toEqual([]);
+  const work = vi.fn(async () => {});
+  await expect(test.admission.acquireBindings(test.context('later'), work)).rejects.toBe(reason);
+  await expect(test.admission.acquireRead(work)).rejects.toBe(reason);
+  await expect(test.publication.beginScan({ requestId: 'later', scope: workspace })).rejects.toBe(
+    reason
+  );
+  expect(work).not.toHaveBeenCalled();
+  expect(test.writer.info).not.toHaveBeenCalled();
 });
 
 it('keeps an aborted workspace fenced until its physical pass settles and preserves a failed VECTOR preparation cause', async () => {
@@ -322,11 +228,9 @@ it('keeps an aborted workspace fenced until its physical pass settles and preser
       ticket,
     })
     .catch((error: unknown) => error);
-  const admitted = vi.fn(async () => {});
-  const pass = test.admission
-    .runCollection('collection', admitted)
-    .catch((error: unknown) => error);
   const aborting = test.publication.abortScan(ticket);
+  const later = () => test.publication.beginScan({ requestId: 'later', scope: workspace });
+  await expect(later()).rejects.toThrow('Workspace publication admission remains owned.');
   const failure = new AggregateError(
     [new Error('native prepare failure')],
     'original workspace failure',
@@ -335,45 +239,10 @@ it('keeps an aborted workspace fenced until its physical pass settles and preser
   native.reject(failure);
   expect(await prepare).toBe(failure);
   await aborting;
-  expect(admitted).not.toHaveBeenCalled();
   test.admission.failWorkspace(workspace.rootId, failure);
-  expect(await pass).toBe(failure);
-  expect(admitted).not.toHaveBeenCalled();
-  await expect(test.admission.acquireBindings(test.context('later'), async () => {})).rejects.toBe(
-    failure
-  );
-});
-
-it('rejects a read queued before inventory capture on retirement and still joins the original physical binding ACK', async () => {
-  const test = fixture();
-  const native = Promise.withResolvers<void>();
-  const prior = test.admission.acquireRead(() => native.promise);
-  const work = vi.fn(async () => {});
-  const pass = test.admission.runCollection('collection', work).catch((error: unknown) => error);
-  const read = test.admission.acquireRead(work).catch((error: unknown) => error);
-  const reason = new Error('retire before inventory capture');
-  test.source.abort(reason);
-  expect(await pass).toBe(reason);
-  expect(await read).toBe(reason);
-  expect(work).not.toHaveBeenCalled();
-  native.resolve();
-  await prior;
-});
-
-it('retains a failed binding ACK and rejects later admission with its exact aggregate failure', async () => {
-  const test = fixture();
-  const failure = new AggregateError([new Error('replacement failed')], 'original ACK failure', {
-    cause: new Error('original ACK cause'),
-  });
-  await expect(
-    test.admission.acquireRead(async () => {
-      throw failure;
-    })
-  ).rejects.toBe(failure);
-  const work = vi.fn(async () => {});
-  await expect(test.admission.runCollection('collection', work)).rejects.toBe(failure);
-  await expect(test.admission.acquireRead(work)).rejects.toBe(failure);
-  expect(work).not.toHaveBeenCalled();
+  // The failed workspace stays owned: a catalog refresh joining it sees the original failure.
+  await expect(later()).rejects.toThrow('Workspace publication admission remains owned.');
+  await expect(Promise.all(test.admission.getWorkspaceCompletions())).rejects.toBe(failure);
 });
 
 it.each(['complete', 'failed', 'terminal'] as const)(
@@ -396,7 +265,7 @@ it.each(['complete', 'failed', 'terminal'] as const)(
     ];
     const observation = {
       observedCatalogFingerprint: catalogFingerprint([]),
-      settings: { managedCollectionId: collection.embeddingSetId },
+      settings: { managedCollectionId: 'selected' },
     };
     const completions = test.admission.getWorkspaceCompletions();
     expect(completions).toHaveLength(1);

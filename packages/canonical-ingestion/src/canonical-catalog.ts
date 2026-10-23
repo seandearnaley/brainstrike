@@ -14,7 +14,6 @@ import type {
   CanonicalManifestFile,
   CanonicalOperationContext,
   CanonicalSourceScope,
-  CanonicalSourceStat,
 } from './ports.js';
 
 const nullableText = Schema.NullOr(Schema.String);
@@ -98,7 +97,7 @@ function assertBatch(files: readonly { readonly fileId: string }[]): void {
 }
 function assertDiscoveryBatch(
   files: readonly CanonicalDiscoveredSourceFile[],
-  scope: Extract<CanonicalSourceScope, { readonly kind: 'workspace' }>,
+  scope: CanonicalSourceScope,
   authority: NativeCanonicalCatalogScope
 ): void {
   if (files.length > 250) {
@@ -130,10 +129,7 @@ function identityFor(
   scope: CanonicalSourceScope,
   authority: NativeCanonicalCatalogScope
 ): CanonicalFileIdentity {
-  if (
-    record.embeddingSetId !== authority.embeddingSetId ||
-    (scope.kind === 'workspace' && record.rootId !== scope.rootId)
-  ) {
+  if (record.embeddingSetId !== authority.embeddingSetId || record.rootId !== scope.rootId) {
     throw new Error('Canonical identity is outside the authorized scope.');
   }
   const identity = authority.resolveIdentity(record);
@@ -142,8 +138,7 @@ function identityFor(
     identity.fileName !== record.fileName ||
     identity.embeddingSetId !== record.embeddingSetId ||
     identity.rootId !== record.rootId ||
-    (identity.relativePath !== null && identity.relativePath !== record.path) ||
-    (scope.kind === 'workspace' && identity.relativePath !== record.path)
+    identity.relativePath !== record.path
   ) {
     throw new Error('Authoritative identity does not match canonical metadata.');
   }
@@ -197,33 +192,18 @@ function assertRemovalRecords(
 /** All admitted writer and binding promises settle before cancellation returns. */
 export function createNativeCanonicalCatalog<Profile>(
   dependencies: NativeCanonicalCatalogDependencies<Profile>
-): CanonicalCatalogPort<Profile> & {
-  readRetainedSource(
-    file: CanonicalFileIdentity,
-    maxFileBytes: number,
-    scope: CanonicalSourceScope,
-    context: CanonicalOperationContext
-  ): Promise<{ readonly content: string; readonly stat: CanonicalSourceStat }>;
-} {
+): CanonicalCatalogPort<Profile> {
   async function authorize(
     scope: CanonicalSourceScope,
     context: CanonicalOperationContext
   ): Promise<NativeCanonicalCatalogScope> {
     context.signal.throwIfAborted();
-    if (
-      !(
-        context.requestId.trim() &&
-        (scope.kind === 'workspace' ? scope.rootId : scope.embeddingSetId).trim()
-      )
-    ) {
+    if (!(context.requestId.trim() && scope.rootId.trim())) {
       throw new Error('Canonical catalog requires a nonblank request and scope identity.');
     }
     const authority = await dependencies.resolveScope(scope, context);
     checkCurrent(authority, context);
-    if (
-      (authority.embeddingSetId !== null && !authority.embeddingSetId.trim()) ||
-      (scope.kind === 'collection' && authority.embeddingSetId !== scope.embeddingSetId)
-    ) {
+    if (authority.embeddingSetId !== null && !authority.embeddingSetId.trim()) {
       throw new Error('Canonical collection membership does not match scope authority.');
     }
     return authority;
@@ -257,12 +237,6 @@ export function createNativeCanonicalCatalog<Profile>(
           throw new Error('Canonical source is missing.');
         }
         assertIdentity(identityFor(record, request.scope, authority), file);
-        if (
-          record.rootId === null &&
-          (record.content !== file.content || record.contentHash !== file.contentHash)
-        ) {
-          throw new Error('Original retained source changed during collection ingestion.');
-        }
         return {
           expected: record,
           source: {
@@ -387,25 +361,6 @@ export function createNativeCanonicalCatalog<Profile>(
         assertIdentity(identityFor(record, request.scope, authority), expected);
       });
       return prepared;
-    },
-    async readRetainedSource(file, maxFileBytes, scope, context) {
-      if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1) {
-        throw new Error('Retained source requires a positive byte bound.');
-      }
-      const authority = await authorize(scope, context);
-      const [record] = await loadRecords(dependencies.catalog, [file], maxFileBytes);
-      checkCurrent(authority, context);
-      if (!record) {
-        throw new Error('Retained source identity is missing.');
-      }
-      assertIdentity(identityFor(record, scope, authority), file);
-      if (record.content === null || utf8ByteLength(record.content) > maxFileBytes) {
-        throw new Error('Original retained source is absent or exceeds the byte bound.');
-      }
-      if (record.contentHash !== null) {
-        assertHash(record.content, record.contentHash);
-      }
-      return { content: record.content, stat: record.stat };
     },
     async removeFiles(request, context) {
       const authority = await authorize(request.scope, context);
