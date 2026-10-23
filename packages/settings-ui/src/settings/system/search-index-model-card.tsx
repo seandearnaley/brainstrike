@@ -247,6 +247,11 @@ export function SearchIndexModelCard({
       model.local.revision === selection.revision
   );
   const choose = (modelKey: string): void => {
+    setUnverified(null);
+    // The model on screen keeps its execution; picking it again changes nothing.
+    if (modelKey === model?.modelKey) {
+      return;
+    }
     const choice = availableModels.find((candidate) => candidate.id === modelKey);
     const dimensions = choice?.capabilities.defaultDimension;
     if (
@@ -258,7 +263,6 @@ export function SearchIndexModelCard({
       setUnverified(choice?.name ?? modelKey);
       return;
     }
-    setUnverified(null);
     setPlanError(null);
     onChange({ dimensions, local: null, modelKey: choice.id });
   };
@@ -277,8 +281,11 @@ export function SearchIndexModelCard({
       setPlanError(null);
       onChange({ ...model, local });
     } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
-      setPlanError(`The search index can't run this model on ${plan.label}. ${reason}`);
+      // The decoder reports a refused plan as a TypeError; anything else is not a refusal.
+      if (!(cause instanceof TypeError)) {
+        throw cause;
+      }
+      setPlanError(`The search index can't run this model on ${plan.label}. ${cause.message}`);
     }
   };
   const selectedName =

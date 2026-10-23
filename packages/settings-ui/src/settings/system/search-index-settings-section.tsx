@@ -239,7 +239,7 @@ function SearchIndexForm({
         />
       ) : null}
       <FoldersCard onPolicy={(policy) => change({ policy })} policy={config.policy} />
-      <ChunkingCard custom={custom} onStage={stageChunking} />
+      <ChunkingCard custom={custom} disabled={applying} onStage={stageChunking} />
       {nativeIndex ? <MaintenanceCard nativeIndex={nativeIndex} /> : null}
       {changeError ? (
         <p className="text-destructive text-sm" role="alert">
@@ -345,9 +345,11 @@ function FoldersCard({
 
 function ChunkingCard({
   custom,
+  disabled,
   onStage,
 }: {
   readonly custom: CustomChunking | null;
+  readonly disabled: boolean;
   readonly onStage: (chunking: IndexChunking) => void;
 }) {
   return (
@@ -360,6 +362,7 @@ function ChunkingCard({
         <fieldset aria-label="Chunking" className="flex min-w-0 gap-2">
           <Button
             aria-pressed={custom === null}
+            disabled={disabled}
             onClick={() => onStage({ _tag: 'Auto' })}
             size="sm"
             type="button"
@@ -369,6 +372,7 @@ function ChunkingCard({
           </Button>
           <Button
             aria-pressed={custom !== null}
+            disabled={disabled}
             onClick={() => onStage(custom ?? FIRST_CUSTOM)}
             size="sm"
             type="button"
@@ -383,6 +387,7 @@ function ChunkingCard({
           <div className="grid gap-3 sm:grid-cols-2">
             <TokenField
               bounds={CHUNK_SIZE_TOKENS}
+              disabled={disabled}
               id="search-index-chunk-size"
               label="Chunk size (tokens)"
               onChange={(maxTokens) => onStage({ ...custom, maxTokens })}
@@ -390,6 +395,7 @@ function ChunkingCard({
             />
             <TokenField
               bounds={CHUNK_OVERLAP_TOKENS}
+              disabled={disabled}
               id="search-index-chunk-overlap"
               label="Overlap (tokens)"
               onChange={(overlap) => onStage({ ...custom, overlap })}
@@ -426,12 +432,14 @@ function AutomaticSizes() {
 
 function TokenField({
   bounds,
+  disabled,
   id,
   label,
   onChange,
   value,
 }: {
   readonly bounds: Bounds;
+  readonly disabled: boolean;
   readonly id: string;
   readonly label: string;
   readonly onChange: (value: number) => void;
@@ -445,6 +453,7 @@ function TokenField({
       <Input
         aria-describedby={valid ? undefined : errorId}
         aria-invalid={valid ? undefined : true}
+        disabled={disabled}
         id={id}
         max={bounds.maximum}
         min={bounds.minimum}

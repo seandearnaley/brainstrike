@@ -7,7 +7,7 @@ import {
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { makeDbModel, makeDbProvider } from '../settings/models/__tests__/catalog-test-harness';
 import { SearchIndexSettingsSection } from '../settings/system/search-index-settings-section';
 
@@ -156,6 +156,36 @@ describe('Search & Indexing', () => {
     );
   });
 
+  it('freezes the staged chunking while Apply is in flight', async () => {
+    const saved: IndexConfig = {
+      ...SEMANTIC,
+      chunking: { _tag: 'Custom', maxTokens: 512, overlap: 64 },
+    };
+    let finish = (): void => undefined;
+    update.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => {
+            // Main publishes the saved config, then the update resolves.
+            useIndexConfigStore.setState({ state: { config: saved, kind: 'ready' } });
+            resolve(saved);
+          };
+        })
+    );
+    // React holds later transitions behind a pending action, so never leave this one pending.
+    onTestFinished(() => finish());
+    show(SEMANTIC);
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
+    });
+    expect(screen.getByLabelText('Chunk size (tokens)')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Automatic' })).toBeDisabled();
+    await act(async () => finish());
+    expect(screen.getByLabelText('Chunk size (tokens)')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Automatic' })).toBeEnabled();
+  });
+
   it('keeps a refused change and says why', async () => {
     update.mockRejectedValueOnce(
       refusalError(
@@ -275,6 +305,20 @@ describe('Search & Indexing', () => {
     );
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
     fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/ }));
+    expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
+  });
+
+  it('stages nothing when the saved on-device model is picked again', async () => {
+    show({
+      ...SEMANTIC,
+      model: {
+        dimensions: 384,
+        local: { device: 'wasm', dtype: 'q8', revision: GRANITE_REVISION },
+        modelKey: `local::${GRANITE_ID}`,
+      },
+    });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
     expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
   });
 
