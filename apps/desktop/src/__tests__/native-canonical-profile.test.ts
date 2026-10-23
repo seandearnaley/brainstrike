@@ -139,14 +139,19 @@ describe('saved canonical profile identity', () => {
     }
   );
 
-  it.each([undefined, { ...selection, device: undefined }, { ...selection, dtype: undefined }])(
-    'refuses missing or unverified local pins %#',
-    (saved) => {
-      expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(
-        /explicit|execution|Run it on/
-      );
-    }
-  );
+  const unverifiedPins =
+    'Catalog embedding execution requires exact model, dimensions, device, dtype and a valid optional revision.';
+  it.each([
+    [
+      'no local selection',
+      undefined,
+      'Choose how to run the model under Run it on in Settings, Search & Indexing.',
+    ],
+    ['no device', { ...selection, device: undefined }, unverifiedPins],
+    ['no dtype', { ...selection, dtype: undefined }, unverifiedPins],
+  ])('refuses missing or unverified local pins: %s', (_case, saved, message) => {
+    expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(message);
+  });
 
   it('preserves existing Jina model dimensions without fabricated pins', () => {
     const saved = {
