@@ -463,8 +463,7 @@ export async function createHostPlatform(
           },
         }
       : {}),
-    // The standalone host has no private desktop client: subscription auth refuses.
-    resolveProviderAuth: (provider) => host.auth.resolveProviderAuth(provider, undefined),
+    resolveProviderAuth: (provider) => host.auth.resolveProviderAuth(provider),
     resolveWorkspaceRoot: async ({ rootId }) => {
       const root = workspaceRoots.find((candidate) => candidate.rootId === rootId);
       if (!root) {

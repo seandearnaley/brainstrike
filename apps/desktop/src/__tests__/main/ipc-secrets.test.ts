@@ -681,17 +681,15 @@ describe('registerSecretsIpcHandlers', () => {
   });
 
   describe('typed credential channels (BST-1348)', () => {
-    const oauthCredential = {
-      access: 'at-1',
-      accountId: 'acct-9',
-      expires: 1_755_500_000_000,
-      refresh: 'rt-1',
-      type: 'oauth',
+    const awsCredential = {
+      bearerKey: 'bedrock-bearer',
+      mode: 'bearer',
+      region: 'us-east-1',
+      type: 'aws',
     } as const;
     const typedCredentials = [
       ['api_key', { key: 'sk-typed', metadata: { org: 'org-1' }, type: 'api_key' }],
-      ['oauth', oauthCredential],
-      ['aws', { bearerKey: 'bedrock-bearer', mode: 'bearer', region: 'us-east-1', type: 'aws' }],
+      ['aws', awsCredential],
     ] as const;
 
     it.each(typedCredentials)(
@@ -778,7 +776,7 @@ describe('registerSecretsIpcHandlers', () => {
       process.env['NODE_ENV'] = 'production';
       const secretsService: SecretsServiceMock = {
         deleteKey: vi.fn(),
-        getCredential: vi.fn().mockResolvedValue(oauthCredential),
+        getCredential: vi.fn().mockResolvedValue(awsCredential),
         getKey: vi.fn(),
         listProviders: vi.fn(),
         saveKey: vi.fn(),
@@ -788,13 +786,13 @@ describe('registerSecretsIpcHandlers', () => {
       const { getHandler } = await bootstrap(secretsService);
 
       await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', oauthCredential)
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', awsCredential)
       ).resolves.toBe(true);
-      expect(secretsService.setCredential).toHaveBeenCalledWith('anthropic', oauthCredential);
+      expect(secretsService.setCredential).toHaveBeenCalledWith('anthropic', awsCredential);
 
       await expect(
         getHandler('secrets:getCredential')!(createInvokeEvent(), 'anthropic')
-      ).resolves.toEqual({ credential: oauthCredential, ok: true });
+      ).resolves.toEqual({ credential: awsCredential, ok: true });
       expect(secretsService.getCredential).toHaveBeenCalledWith('anthropic');
     });
 
@@ -816,9 +814,9 @@ describe('registerSecretsIpcHandlers', () => {
       const { getHandler } = await bootstrap(secretsService);
 
       await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', { type: 'oauth' })
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', { type: 'aws' })
       ).resolves.toEqual({ error: 'malformed_credential', ok: false });
-      expect(secretsService.setCredential).toHaveBeenCalledWith('openai', { type: 'oauth' });
+      expect(secretsService.setCredential).toHaveBeenCalledWith('openai', { type: 'aws' });
     });
 
     it('serializes a SecretReadError from getCredential as data (invoke drops custom props)', async () => {

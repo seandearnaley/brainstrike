@@ -32,48 +32,6 @@
       ],
       "store": true
     },
-    "stateless_split": {
-      "model": "gpt-6-sol",
-      "input": [
-        {
-          "role": "user",
-          "content": [
-            {
-              "type": "input_text",
-              "text": "old"
-            }
-          ]
-        },
-        {
-          "type": "reasoning",
-          "id": "rs_split",
-          "encrypted_content": "offline-encrypted-split",
-          "summary": [
-            {
-              "type": "summary_text",
-              "text": "recorded split reasoning"
-            }
-          ]
-        },
-        {
-          "role": "assistant",
-          "content": "recorded split answer"
-        },
-        {
-          "role": "user",
-          "content": [
-            {
-              "type": "input_text",
-              "text": "continue"
-            }
-          ]
-        }
-      ],
-      "store": false,
-      "include": [
-        "reasoning.encrypted_content"
-      ]
-    },
     "anthropic_server_response_messages": [
       {
         "role": "assistant",

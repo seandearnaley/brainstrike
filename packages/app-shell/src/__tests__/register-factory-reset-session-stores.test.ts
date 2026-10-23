@@ -9,7 +9,6 @@ import {
   useContextUsageStore,
 } from '@brainstrike/assistant-ui/context-usage-store';
 import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
-import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
@@ -30,14 +29,6 @@ import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
-// The real notes-vault store's default services require indexedDB (handle
-// persistence), which this vitest environment does not provide. The reset
-// entry point is mocked so registration can be asserted without booting the
-// vault store graph.
-vi.mock('@brainstrike/notes-vault/store-reset', () => ({
-  resetNotesVaultSessionState: vi.fn(),
-}));
-
 // Import for side-effect registration (same path root-layout-content uses).
 import '../register-factory-reset-session-stores';
 
@@ -50,16 +41,6 @@ describe('register-factory-reset-session-stores', () => {
     resetAssistantThreadStore();
     useBrowserTabsStore.getState().reset();
     resetRootRegistrationEventsForTests();
-    vi.mocked(resetNotesVaultSessionState).mockClear();
-  });
-
-  it('registers the notes-vault session reset with the factory-reset pipeline', async () => {
-    expect(resetNotesVaultSessionState).not.toHaveBeenCalled();
-
-    const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
-    expect(result.success).toBe(true);
-
-    expect(resetNotesVaultSessionState).toHaveBeenCalledTimes(1);
   });
 
   it('clears sibling session stores when factory reset drains registered resetters', async () => {

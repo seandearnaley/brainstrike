@@ -9,9 +9,7 @@ import { getProviderDefinition, listProviders } from '../provider-registry.js';
 describe('provider auth metadata', () => {
   it('every provider declares an authType', () => {
     for (const provider of listProviders()) {
-      expect(['api_key', 'oauth_subscription', 'aws', 'none'], `${provider.id} authType`).toContain(
-        provider.authType
-      );
+      expect(['api_key', 'aws', 'none'], `${provider.id} authType`).toContain(provider.authType);
     }
   });
 

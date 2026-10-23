@@ -62,8 +62,6 @@ describe('agent-client-loader', () => {
       'cohere',
       'voyage',
       'bedrock',
-      // BST-1356 — inserted after bedrock to match PROVIDER_DEFINITIONS.
-      'openai-codex',
       'local',
       'ollama',
       'lmstudio',

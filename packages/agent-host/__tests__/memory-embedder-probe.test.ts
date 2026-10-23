@@ -26,7 +26,6 @@ test('a provider that answers after the probe was cancelled does not pass the te
     probeHostMemoryEmbedder(
       async () => ({ embedder, identity: { modelId: 'openai::text-embedding-3-small' } }),
       { memorySettings: {} },
-      'desktop-ui',
       controller.signal
     )
   ).rejects.toBe(cancelled);

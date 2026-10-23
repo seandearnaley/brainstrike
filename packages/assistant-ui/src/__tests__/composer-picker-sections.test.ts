@@ -83,16 +83,16 @@ const providerGroups: ProviderGroupConfig[] = [
           streaming: true,
           supportsStandardEmbeddingDimension: false,
         },
-        id: 'openai-codex',
+        id: 'bedrock',
         models: [
           {
             enabled: true,
-            id: 'codex/gpt-5.5',
+            id: 'openai.gpt-5.5',
             label: 'GPT-5.5',
             type: 'llm',
           },
         ],
-        name: 'OpenAI (ChatGPT)',
+        name: 'Amazon Bedrock',
         runtime: 'hosted',
       },
     ],
@@ -260,7 +260,7 @@ describe('buildComposerPickerSections — empty query', () => {
       .filter((entry) => entry.modelLabel === 'GPT-5.5');
     expect(gpt55.map((entry) => [entry.compositeKey, entry.providerName])).toEqual([
       ['openai::gpt-5.5', 'OpenAI'],
-      ['openai-codex::codex/gpt-5.5', 'OpenAI (ChatGPT)'],
+      ['bedrock::openai.gpt-5.5', 'Amazon Bedrock'],
     ]);
   });
 });
@@ -273,7 +273,7 @@ describe('buildComposerPickerSections — with a query', () => {
     expect(keys(sections.matches)).toEqual([
       'openai::gpt-5.6-terra',
       'openai::gpt-5.5',
-      'openai-codex::codex/gpt-5.5',
+      'bedrock::openai.gpt-5.5',
     ]);
   });
 
@@ -289,8 +289,8 @@ describe('buildComposerPickerSections — with a query', () => {
   });
 
   it('matches the provider display name', () => {
-    const sections = buildComposerPickerSections({ ...base, query: 'chatgpt' });
-    expect(keys(sections.matches)).toEqual(['openai-codex::codex/gpt-5.5']);
+    const sections = buildComposerPickerSections({ ...base, query: 'bedrock' });
+    expect(keys(sections.matches)).toEqual(['bedrock::openai.gpt-5.5']);
   });
 
   it('returns every section empty when nothing matches', () => {

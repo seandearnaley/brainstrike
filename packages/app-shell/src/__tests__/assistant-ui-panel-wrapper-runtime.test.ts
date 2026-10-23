@@ -1070,7 +1070,6 @@ describe('assistant runtime helpers', () => {
           local: ['local-gemma'],
           ollama: [],
           openai: [],
-          'openai-codex': [],
           openrouter: [],
           voyage: [],
         },

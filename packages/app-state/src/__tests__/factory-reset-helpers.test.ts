@@ -485,7 +485,6 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
       yield 'app'; // legacy unversioned
       yield 'app-pg17'; // older major
       yield 'web-pg18';
-      yield 'brainstrike-notes'; // notes vault default — must be wiped even when pglite dirs exist
       yield 'brainstrike-web-state-default'; // browser state DB pools
       yield 'brainstrike-web-state-web-e2e-1';
       yield 'brainstrike-web-state-default--files'; // the file index's own pool
@@ -525,14 +524,6 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     expect(removed).toEqual(expect.arrayContaining(['app-pg18', 'app', 'app-pg17', 'web-pg18']));
     // A non-pglite OPFS consumer's root dir must never be swept by factory reset.
     expect(removed).not.toContain('some-other-lib');
-  });
-
-  it('wipes the notes vault OPFS dir even when pglite dirs are enumerated (reset must not skip it)', async () => {
-    await clearPersistentUiState();
-
-    // Regression: enumeration finding pglite dirs used to bypass the fallback
-    // list entirely, leaving brainstrike-notes (note plaintext) alive.
-    expect(removeEntry.mock.calls.map(([name]) => name)).toContain('brainstrike-notes');
   });
 
   it('removes every browser state DB pool', async () => {

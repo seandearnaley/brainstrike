@@ -449,13 +449,13 @@ describe('RootLayoutContent', () => {
       navigationItems: [
         { icon: () => <div />, name: 'Context Explorer', path: '/' },
         { icon: () => <div />, name: 'Settings', path: '/settings' },
-        { icon: () => <div />, name: 'Notes', path: '/notes' },
+        { icon: () => <div />, name: 'Git', path: '/git' },
       ],
     });
 
     // The wrappers append capability-gated routes AFTER the shared list, so
     // the shell owns the rule that Settings is the last rail item.
-    expect(mockHandlers.navigationPaths).toEqual(['/', '/notes', '/settings']);
+    expect(mockHandlers.navigationPaths).toEqual(['/', '/git', '/settings']);
   });
 
   it('refuses a navigation list without the settings rail item instead of hiding Settings', () => {
@@ -486,71 +486,24 @@ describe('RootLayoutContent', () => {
 
     expect(usePanelLayoutStore.getState().activeTab).toBe('git');
     expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
-    // Keep-mounted contract, same as notes: hidden, not gone.
+    // Keep-mounted contract: hidden, not gone.
     const settingsRoute = screen.getByTestId('settings-route');
     expect(settingsRoute).toHaveClass('hidden');
     expect(settingsRoute).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
-  it('mounts the notes route when the notes nav item is selected', () => {
-    renderComponent({ notesPageContent: <div data-testid="notes-page">Notes</div> });
-
-    // Lazily mounted: not in the DOM until the tab is first opened.
-    expect(screen.queryByTestId('notes-route')).not.toBeInTheDocument();
-
-    act(() => {
-      mockHandlers.onNavigationClick('/notes');
-    });
-
-    const notesRoute = screen.getByTestId('notes-route');
-    expect(notesRoute).not.toHaveClass('hidden');
-    expect(notesRoute).toHaveAttribute('aria-hidden', 'false');
-    expect(screen.getByTestId('notes-page')).toBeInTheDocument();
-  });
-
-  it('keeps the notes route mounted but hidden after switching to another tab', () => {
-    renderComponent({ notesPageContent: <div data-testid="notes-page">Notes</div> });
-
-    act(() => {
-      mockHandlers.onNavigationClick('/notes');
-    });
-    act(() => {
-      mockHandlers.onNavigationClick('/');
-    });
-
-    // Keep-mounted contract: the vault surface only toggles hidden so
-    // watchers, scan state, and scroll position survive tab switches.
-    const notesRoute = screen.getByTestId('notes-route');
-    expect(notesRoute).toBeInTheDocument();
-    expect(notesRoute).toHaveClass('hidden');
-    expect(notesRoute).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getByTestId('notes-page')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
-  });
-
-  it('renders no notes route when notesPageContent is absent', () => {
-    renderComponent();
-
-    act(() => {
-      mockHandlers.onNavigationClick('/notes');
-    });
-
-    expect(screen.queryByTestId('notes-route')).not.toBeInTheDocument();
-  });
-
   it('disables prompt suggestions on every hidden outer route without unmounting prompts', async () => {
     const user = userEvent.setup();
     renderComponent({
       gitPageContent: <div>Git</div>,
-      notesPageContent: <div>Notes</div>,
     });
 
     await user.click(screen.getByRole('button', { name: 'Select Prompts tab' }));
     const promptManager = screen.getByTestId('connected-prompt-manager');
     expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
 
-    for (const path of ['/git', '/notes']) {
+    for (const path of ['/git']) {
       act(() => {
         mockHandlers.onNavigationClick(path);
       });

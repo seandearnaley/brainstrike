@@ -1,19 +1,6 @@
 import { isAbsolute } from 'node:path';
 import { Schema } from 'effect';
 
-/** A disposable sign-in issuer: only a loopback HTTP origin is accepted. */
-const LoopbackIssuer = Schema.Trim.check(
-  Schema.makeFilter((value) => (URL.canParse(value) ? undefined : 'Invalid URL'))
-).check(
-  Schema.makeFilter((value) =>
-    ((value) => {
-      const url = new URL(value);
-      return url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.origin === value;
-    })(value)
-      ? undefined
-      : { issue: 'A test OAuth issuer must be a loopback http origin', path: [] }
-  )
-);
 /** Trusted launch selection only; values and credentials stay in the adapter. */
 export const HostPlatformLaunchOptionsSchema = Schema.Struct({
   appPaths: Schema.optional(
@@ -78,7 +65,6 @@ export const HostPlatformLaunchOptionsSchema = Schema.Struct({
       ),
     })
   ),
-  openAiCodexIssuer: Schema.optional(LoopbackIssuer),
   workspaceRoots: Schema.optional(
     Schema.mutable(
       Schema.Array(

@@ -167,25 +167,6 @@ vi.mock('../../ipc-handlers', async () => {
   };
 });
 
-const { notesVaultCapture } = vi.hoisted(() => ({
-  notesVaultCapture: {
-    close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
-  },
-}));
-
-vi.mock('../../ipc-notes-vault', async () => {
-  const actual =
-    await vi.importActual<typeof import('../../ipc-notes-vault')>('../../ipc-notes-vault');
-  return {
-    ...actual,
-    registerNotesVaultIpc: (...args: Parameters<typeof actual.registerNotesVaultIpc>) => {
-      const close = vi.fn(actual.registerNotesVaultIpc(...args));
-      notesVaultCapture.close = close;
-      return close;
-    },
-  };
-});
-
 const {
   nativeActualPrepareForPause,
   nativeAcquireProfile,
@@ -309,7 +290,6 @@ export function installMainBootFixture(): void {
     shutdownPlanCapture.run = null;
     applicationDomainCapture.close = null;
     applicationDomainCapture.options = null;
-    notesVaultCapture.close = null;
     nativeReconfigureForReset.current = null;
     nativeActualPrepareForPause.current = null;
     nativePrepareForPause.mockReset().mockResolvedValue(null);
@@ -351,7 +331,6 @@ export {
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,
-  notesVaultCapture,
   publicEmbeddingStop,
   requireMainLogger,
   shutdownPlanCapture,

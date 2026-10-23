@@ -656,7 +656,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
     // The typed health protocol is the richer desktop superset of the shared
     // FileSystemWatchSignal channel (#1764): derive signals from transitions
-    // so main-process callers (e.g. notes-vault) get the same overflow/errored
+    // so main-process callers get the same overflow/errored
     // semantics as the web adapter, from ONE source of truth.
     const onHealth = (event: WatcherHealthTransition): void => {
       options?.onHealth?.(event);

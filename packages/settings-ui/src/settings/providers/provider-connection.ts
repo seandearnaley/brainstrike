@@ -1,5 +1,4 @@
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
-import type { ProviderAuthState } from '@brainstrike/assistant-contract/provider-auth';
 import type {
   ProviderAuthType,
   ProviderDefinition,
@@ -26,16 +25,9 @@ export type ProviderSourceState = CredentialSourceState | 'unavailable';
  * invent a problem the user cannot fix on this surface. `unknown` is equally
  * deliberate — while the credential listing is loading, has FAILED, or is
  * unavailable entirely, "not set" is a claim the data cannot support (NO
- * SILENT FALLBACKS). `reconnect-required` is the subscription case: an account
- * exists, its session expired, and "Not connected" would send the user to
- * re-add something they never removed.
+ * SILENT FALLBACKS).
  */
-export type ProviderConnectionState =
-  | 'connected'
-  | 'disconnected'
-  | 'not-applicable'
-  | 'reconnect-required'
-  | 'unknown';
+export type ProviderConnectionState = 'connected' | 'disconnected' | 'not-applicable' | 'unknown';
 
 export interface ProviderCardModel {
   readonly connection: ProviderConnectionState;
@@ -78,39 +70,17 @@ const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
 /** How many providers the first-run panel suggests. */
 const RECOMMENDATION_COUNT = 3;
 
-/**
- * Sign-in states that are a VERDICT. Everything else the OAuth engine can
- * report (`connecting`, `awaiting_browser`, `awaiting_device_code`, `error`)
- * is mid-flow or a failure, and resolves to `unknown` rather than being
- * flattened into "not connected".
- */
-const OAUTH_VERDICTS: Partial<Record<ProviderAuthState, ProviderConnectionState>> = {
-  connected: 'connected',
-  disconnected: 'disconnected',
-  // biome-ignore lint/style/useNamingConvention: BST-1355 wire state name, matched verbatim to the ProviderAuthStatus union.
-  reconnect_required: 'reconnect-required',
-};
-
 export function resolveProviderConnection({
-  authState,
   authType,
   source,
   sourceState,
 }: {
-  /** Sign-in state for `oauth_subscription` providers; absent means no bridge. */
-  readonly authState?: ProviderAuthState | undefined;
   readonly authType: ProviderAuthType;
   readonly source: ProviderKeySource<string> | undefined;
   readonly sourceState: ProviderSourceState;
 }): ProviderConnectionState {
   if (authType === 'none') {
     return 'not-applicable';
-  }
-  // BST-1356: a subscription provider's tokens live in the desktop OAuth
-  // engine, NOT in the `secrets.list()` payload — reading the key listing for
-  // one would report a signed-in account as "Not connected" forever.
-  if (authType === 'oauth_subscription') {
-    return authState ? (OAUTH_VERDICTS[authState] ?? 'unknown') : 'unknown';
   }
   if (source) {
     return 'connected';
@@ -124,13 +94,10 @@ function connectionRank(connection: ProviderConnectionState): number {
 }
 
 export function buildProviderRuntimeGroups({
-  authStates,
   definitions,
   sourcesBySlotId,
   sourceState,
 }: {
-  /** Sign-in state per `oauth_subscription` provider id. */
-  readonly authStates?: ReadonlyMap<string, ProviderAuthState> | undefined;
   readonly definitions: readonly ProviderDefinition[];
   readonly sourcesBySlotId: ReadonlyMap<string, ProviderKeySource<string>>;
   readonly sourceState: ProviderSourceState;
@@ -150,7 +117,6 @@ export function buildProviderRuntimeGroups({
     }
     bucket.push({
       connection: resolveProviderConnection({
-        authState: authStates?.get(definition.id),
         authType: definition.authType,
         source,
         sourceState,
@@ -192,10 +158,7 @@ export function listRecommendedProviders(
   const connectable: ProviderCardModel[] = [];
   for (const group of groups) {
     for (const card of group.providers) {
-      // The panel's offer is literally "add a key", so a subscription provider
-      // does not belong in it — it is connected by signing in, and BST-1356 is
-      // explicit that oauth must never be presented as paste-a-key.
-      if (card.connection === 'disconnected' && card.definition.authType !== 'oauth_subscription') {
+      if (card.connection === 'disconnected') {
         connectable.push(card);
       }
     }

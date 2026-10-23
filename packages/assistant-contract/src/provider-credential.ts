@@ -27,12 +27,11 @@
  * `bearerKey`, `profile_chain` keeps `profile` optional (the default AWS
  * profile chain is legitimate). Both `api_key` and `aws` carry an optional
  * non-secret string-record `metadata` (BST-1362 uses it for the
- * `{last4, savedAt}` save fingerprint); `oauth` has no metadata field.
+ * `{last4, savedAt}` save fingerprint).
  */
 
 export type ProviderCredential =
   | { type: 'api_key'; key: string; metadata?: Record<string, string> }
-  | { type: 'oauth'; access: string; refresh: string; expires: number; accountId?: string }
   | {
       type: 'aws';
       mode: 'bearer';
@@ -52,7 +51,6 @@ export type ProviderCredentialType = ProviderCredential['type'];
 
 export const PROVIDER_CREDENTIAL_TYPES = [
   'api_key',
-  'oauth',
   'aws',
 ] as const satisfies readonly ProviderCredentialType[];
 
@@ -112,29 +110,6 @@ export function isApiKeyCredential(
   );
 }
 
-export function isOauthCredential(
-  value: unknown
-): value is Extract<ProviderCredential, { type: 'oauth' }> {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const candidate = value as {
-    access?: unknown;
-    accountId?: unknown;
-    expires?: unknown;
-    refresh?: unknown;
-    type?: unknown;
-  };
-  return (
-    candidate.type === 'oauth' &&
-    typeof candidate.access === 'string' &&
-    typeof candidate.refresh === 'string' &&
-    typeof candidate.expires === 'number' &&
-    Number.isFinite(candidate.expires) &&
-    isOptionalString(candidate.accountId)
-  );
-}
-
 export function isAwsCredential(
   value: unknown
 ): value is Extract<ProviderCredential, { type: 'aws' }> {
@@ -168,7 +143,7 @@ export function isAwsCredential(
 }
 
 export function isProviderCredential(value: unknown): value is ProviderCredential {
-  return isApiKeyCredential(value) || isOauthCredential(value) || isAwsCredential(value);
+  return isApiKeyCredential(value) || isAwsCredential(value);
 }
 
 function isTaggedObject(value: unknown): value is { type: unknown } {

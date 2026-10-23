@@ -1,25 +1,16 @@
-import { Schema } from 'effect';
-import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostAuthService, HostClientOrigin } from './ports.js';
-import {
-  CLIENT_OPEN_EXTERNAL,
-  ClientOpenExternalParamsSchema,
-  ClientOpenExternalResultSchema,
-  type HostMethod,
-  type HostParams,
-} from './protocol.js';
+import type { HostMethod, HostParams } from './protocol.js';
 export type HostMethodHandler = <M extends HostMethod>(
   method: M,
   request: (params: HostParams<M>) => unknown
 ) => void;
 /**
  * The host's credential methods on one authenticated connection. Writes other
- * than a validated provider login, and refresh-aware verification, belong to
- * the launching desktop's private client only.
+ * than a validated provider login belong to the launching desktop's private
+ * client only.
  */
 export function bindHostAuthMethods(
   handle: HostMethodHandler,
-  connection: MessageConnection,
   auth: HostAuthService | undefined,
   origin: HostClientOrigin
 ): void {
@@ -39,27 +30,6 @@ export function bindHostAuthMethods(
     await service().storeProviderCredential(provider, credential);
     return { stored: true };
   });
-  handle('auth/status', ({ provider }) => service().status(provider));
-  // The requesting client opens the sign-in page: a UI action, never the host's.
-  const openOnClient = async (url: string): Promise<void> => {
-    Schema.decodeUnknownSync(ClientOpenExternalResultSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(
-      await connection.sendRequest(
-        CLIENT_OPEN_EXTERNAL,
-        Schema.decodeSync(ClientOpenExternalParamsSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })({ url })
-      )
-    );
-  };
-  handle('auth/connect', ({ method, provider }) =>
-    service().connect(provider, method, origin, openOnClient)
-  );
-  handle('auth/cancel', ({ provider }) => service().cancel(provider));
-  handle('auth/disconnect', ({ provider }) => service().disconnect(provider));
   handle('auth/credential/set', async ({ account, credential }) => {
     await desktop().setCredential(account, credential);
     return { stored: true };
@@ -68,5 +38,4 @@ export function bindHostAuthMethods(
     deleted: await desktop().deleteCredential(account),
   }));
   handle('auth/clear', async () => ({ cleared: await desktop().clear() }));
-  handle('auth/verify', ({ provider }) => desktop().verify(provider));
 }

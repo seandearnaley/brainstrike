@@ -4,7 +4,6 @@ import {
   listApiKeyProbeProviderIds,
   MissingProviderCredentialError,
   UnknownVerificationProviderError,
-  UnsupportedVerificationCredentialError,
 } from '@brainstrike/host-capabilities/provider-verification';
 import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 
@@ -511,20 +510,6 @@ describe('ProviderVerificationService aws probes', () => {
       await expect(service.verify('bedrock')).rejects.toThrow(/AWS region/i);
       expect(fetchImpl).not.toHaveBeenCalled();
     });
-
-    it('still rejects a credential type that is neither aws nor api_key', async () => {
-      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
-      const { service } = createService({
-        env: { AWS_REGION: 'us-east-1' },
-        fetchImpl,
-        findProvider: () => ({ authType: 'aws' }),
-        readCredential: () =>
-          Promise.resolve({ access: 'a', expires: 1, refresh: 'r', type: 'oauth' }),
-      });
-
-      await expect(service.verify('bedrock')).rejects.toThrow(/AWS credential/i);
-      expect(fetchImpl).not.toHaveBeenCalled();
-    });
   });
 });
 
@@ -860,49 +845,5 @@ describe('ProviderVerificationService routing and caching', () => {
       const snapshot = await service.verify(provider);
       expect(JSON.stringify(snapshot)).not.toContain(FAKE_KEY);
     }
-  });
-});
-
-describe('ProviderVerificationService subscription sign-in', () => {
-  it("answers from the host's refresher without reading the sign-in in Main", async () => {
-    const readCredential = vi.fn(() => Promise.resolve(apiKeyCredential()));
-    const verifySubscriptionSession = vi.fn(async () => ({ ok: true }) as const);
-    const fetchImpl = vi.fn<typeof fetch>();
-    const service = createProviderVerificationService({
-      env: {},
-      fetchImpl,
-      now: () => 1_000_000,
-      readCredential,
-      verifySubscriptionSession,
-    });
-
-    await expect(service.verify('openai-codex')).resolves.toMatchObject({
-      freshness: 'live',
-      result: { status: 'verified_limited' },
-    });
-    expect(verifySubscriptionSession).toHaveBeenCalledWith('openai-codex');
-    expect(readCredential).not.toHaveBeenCalled();
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('reports a disconnected or revoked sign-in as invalid', async () => {
-    const service = createProviderVerificationService({
-      env: {},
-      now: () => 1_000_000,
-      readCredential: () => Promise.resolve(undefined),
-      verifySubscriptionSession: async () => ({ ok: false, status: 'reconnect_required' }),
-    });
-
-    await expect(service.verify('openai-codex')).resolves.toMatchObject({
-      result: { status: 'invalid' },
-    });
-  });
-
-  it('fails closed without the host verifier', async () => {
-    const { service } = createService();
-
-    await expect(service.verify('openai-codex')).rejects.toBeInstanceOf(
-      UnsupportedVerificationCredentialError
-    );
   });
 });

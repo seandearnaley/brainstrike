@@ -22,7 +22,6 @@ import {
   preparedPromptToolCalls,
   prepareProviderRequest,
   prepareProviderToolInputSchema,
-  SubscriptionQuotaExhaustedError,
 } from '../provider-request';
 import { createProvider } from '../providers/provider-factory';
 import type { SupportedProvider } from '../providers/types';
@@ -708,55 +707,41 @@ describe('canonical provider request preparation', () => {
     expect(errors[0]).toBeInstanceOf(OpenAIStoredItemExpiredError);
   });
 
-  it.each([
-    ['openai-codex', 1],
-    ['openai', 3],
-  ] as const)(
-    'a %s HTTP 429 is retried by the SDK only when it is not subscription quota',
-    async (provider, expectedRequests) => {
-      let requests = 0;
-      const fixture: LanguageModelV4 = {
-        ...model(),
-        doStream: () => {
-          requests += 1;
-          throw new APICallError({
-            isRetryable: true,
-            message: 'You have hit your usage limit.',
-            requestBodyValues: {},
-            // Keep the SDK's own Retry-After handling in the path without a real wait.
-            responseHeaders: { 'retry-after': '0' },
-            statusCode: 429,
-            url: 'https://example.test/responses',
-          });
-        },
-      };
-      const errors: unknown[] = [];
-      for await (const part of sdk.streamText({
-        maxRetries: 2,
-        messages: [{ content: 'continue', role: 'user' }],
-        model: sdk.wrapLanguageModel({
-          middleware: createProviderRequestMiddleware({
-            context: () => ({ provider, tokenMeasurement: measurement }),
-          }),
-          model: fixture,
-        }),
-      }).fullStream) {
-        if (part.type === 'error') {
-          errors.push(part.error);
-        }
-      }
-      expect(requests).toBe(expectedRequests);
-      expect(errors).toHaveLength(1);
-      if (provider === 'openai-codex') {
-        expect(errors[0]).toBeInstanceOf(SubscriptionQuotaExhaustedError);
-        expect(errors[0]).toMatchObject({
-          code: 'subscription_quota_exhausted',
+  it('an OpenAI HTTP 429 is retried by the SDK', async () => {
+    let requests = 0;
+    const fixture: LanguageModelV4 = {
+      ...model(),
+      doStream: () => {
+        requests += 1;
+        throw new APICallError({
+          isRetryable: true,
           message: 'You have hit your usage limit.',
-          retryable: false,
+          requestBodyValues: {},
+          // Keep the SDK's own Retry-After handling in the path without a real wait.
+          responseHeaders: { 'retry-after': '0' },
+          statusCode: 429,
+          url: 'https://example.test/responses',
         });
+      },
+    };
+    const errors: unknown[] = [];
+    for await (const part of sdk.streamText({
+      maxRetries: 2,
+      messages: [{ content: 'continue', role: 'user' }],
+      model: sdk.wrapLanguageModel({
+        middleware: createProviderRequestMiddleware({
+          context: () => ({ provider: 'openai', tokenMeasurement: measurement }),
+        }),
+        model: fixture,
+      }),
+    }).fullStream) {
+      if (part.type === 'error') {
+        errors.push(part.error);
       }
     }
-  );
+    expect(requests).toBe(3);
+    expect(errors).toHaveLength(1);
+  });
 });
 
 const fixtureUrl = new URL(
@@ -765,7 +750,6 @@ const fixtureUrl = new URL(
 );
 const providers = [
   ['openai', 'gpt-6-sol'],
-  ['openai-codex', 'codex/gpt-6-sol'],
   ['anthropic', 'claude-sonnet-5'],
   ['google', 'gemini-3.1-pro-preview'],
   ['bedrock', 'anthropic.claude-sonnet-5'],
@@ -791,12 +775,6 @@ describe('recorded installed-provider payloads (offline)', () => {
         provider: 'openai' as const,
         replay: true,
       },
-      {
-        key: 'openai-stateless-replay',
-        modelId: 'codex/gpt-6-sol',
-        provider: 'openai-codex' as const,
-        replay: true,
-      },
     ];
     for (const { provider, modelId, key, replay } of cases) {
       const bodies: unknown[] = [];
@@ -817,9 +795,7 @@ describe('recorded installed-provider payloads (offline)', () => {
       const auth =
         provider === 'bedrock'
           ? { apiKey: 'offline-fixture', kind: 'aws' as const, region: 'us-east-1' }
-          : provider === 'openai-codex'
-            ? { apiKey: 'offline-fixture', fetch: globalThis.fetch, kind: 'custom_fetch' as const }
-            : { apiKey: 'offline-fixture', kind: 'api_key' as const };
+          : { apiKey: 'offline-fixture', kind: 'api_key' as const };
       const config = createProvider(
         provider,
         auth,

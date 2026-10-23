@@ -66,7 +66,7 @@ export const useTerminalTargetStore = create<TerminalTargetState>((set) => ({
   openTerminalAt: (target) => {
     set({ target });
     // The workspace panel only exists on the `explorer` route; selecting the
-    // Terminal tab alone would appear to do nothing with Git/Notes/Browser
+    // Terminal tab alone would appear to do nothing with Git/Browser
     // active (`use-terminal-hotkey.ts` documents the same finding).
     usePanelLayoutStore.getState().setActiveTab('explorer');
     useWorkspaceTabSelectionStore.getState().openApp(TERMINAL_APP_ID);

@@ -19,7 +19,6 @@ import {
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { Schema } from 'effect';
-import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 import type { JsonSchemaFactory } from './json-value.js';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.js';
@@ -72,7 +71,6 @@ import {
   WorkspaceRelativePath,
 } from './workspace-wire.js';
 
-export * from './client-open-external-wire.js';
 export * from './mcp-authority-wire.js';
 export * from './protocol-mcp-content.js';
 export * from './protocol-mcp-presentation.js';
@@ -127,7 +125,10 @@ export * from './workspace-wire.js';
 // `memory/embedder/probe` (BST-2227), a new method, so a v12 client that never calls it sees
 // nothing new; `memory.recall.failed` (a turn's failed semantic recall, which the turn answers
 // without), a new variant.
-export const AGENT_HOST_PROTOCOL_VERSION = 12;
+// v13 (2026-10-22): ChatGPT subscription sign-in is removed: `auth/connect`, `auth/cancel`,
+// `auth/disconnect`, `auth/status`, `auth/verify` and the host-to-client `client/open-external`
+// are gone, and a login credential is an API key or an AWS credential.
+export const AGENT_HOST_PROTOCOL_VERSION = 13;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
@@ -325,16 +326,7 @@ export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
 }
 export const HostRunSnapshotSchema = hostRunSnapshotSchema(() => Schema.MutableJson);
 export type HostRunSnapshot = (typeof HostRunSnapshotSchema)['Type'];
-/** A key a user supplies directly. Subscription OAuth is never a login payload. */
-export type HostLoginCredential = Exclude<
-  ProviderCredential,
-  {
-    readonly type: 'oauth';
-  }
->;
-const LoginCredential = Schema.declare<HostLoginCredential>(
-  (value) => isProviderCredential(value) && value.type !== 'oauth'
-);
+const LoginCredential = Schema.declare<ProviderCredential>(isProviderCredential);
 const Provider = { provider: Id };
 /** A workspace root by its durable ID: the desktop's DB `roots.id`. */
 const HookRoot = { rootId: Id };
@@ -354,18 +346,10 @@ export const HOST_METHOD_SCHEMAS = {
   ...PERMISSION_POLICY_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
-  'auth/cancel': Schema.Struct(Provider),
   'auth/clear': Schema.Record(Schema.String, Schema.Never),
-  'auth/connect': Schema.Struct({
-    ...Provider,
-    method: Schema.optional(Schema.Literals(['device', 'loopback'])),
-  }),
   'auth/credential/delete': Schema.Struct({ account: Id }),
   'auth/credential/set': Schema.Struct({ account: Id, credential: LoginCredential }),
-  'auth/disconnect': Schema.Struct(Provider),
   'auth/login': Schema.Struct({ ...Provider, credential: LoginCredential }),
-  'auth/status': Schema.Struct(Provider),
-  'auth/verify': Schema.Struct(Provider),
   /**
    * Restore a finished run's edited paths to their state before the run first
    * changed them (one entry, or every unreverted entry of the run). Refused
@@ -951,15 +935,10 @@ export const HOST_RESULT_SCHEMAS = {
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   ...PERMISSION_POLICY_RESULT_SCHEMAS,
-  'auth/cancel': HostAuthStatusSchema,
   'auth/clear': Schema.Struct({ cleared: Schema.Boolean }),
-  'auth/connect': HostAuthStatusSchema,
   'auth/credential/delete': Schema.Struct({ deleted: Schema.Boolean }),
   'auth/credential/set': Schema.Struct({ stored: Schema.Literal(true) }),
-  'auth/disconnect': HostAuthStatusSchema,
   'auth/login': Schema.Struct({ stored: Schema.Literal(true) }),
-  'auth/status': HostAuthStatusSchema,
-  'auth/verify': HostAuthVerdictSchema,
   'checkpoint/revert': Schema.Struct({
     outcomes: Schema.mutable(Schema.Array(HostEditRevertOutcomeSchema)),
   }),

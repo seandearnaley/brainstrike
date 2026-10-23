@@ -275,8 +275,8 @@ export function bindHostConnection(
       start: record.start,
     };
   });
-  bindHostAuthMethods(handle, connection, auth, origin);
-  bindHostProviderMethods(handle, providers, origin);
+  bindHostAuthMethods(handle, auth, origin);
+  bindHostProviderMethods(handle, providers);
   disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
   disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
   bindHostMcpContentMethods(handle, mcpContent, origin);
@@ -292,7 +292,7 @@ export function bindHostConnection(
   handle('thread/update', (params) => core.updateThread(params));
   handle('thread/memory/read', (params) => core.readThreadMemory(params, origin));
   handle('memory/embedder/probe', (params, signal) =>
-    probeHostMemoryEmbedder(resolveMemoryEmbedder, params, origin, signal)
+    probeHostMemoryEmbedder(resolveMemoryEmbedder, params, signal)
   );
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),

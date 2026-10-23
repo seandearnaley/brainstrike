@@ -278,14 +278,6 @@ export function resolveReasoningControlsAvailability(
         'openai',
         modelId === undefined ? undefined : findDeclaredLlmModel('openai', modelId)?.reasoning
       );
-    case 'openai-codex':
-      // BST-1356: the same GPT-5.x families as the platform `openai` entry,
-      // reached through the Codex backend. Reasoning controls belong to the
-      // MODEL, not the endpoint, so this shares the OpenAI control family.
-      return resolveOpenAiFamilyControls(
-        'openai',
-        modelId === undefined ? undefined : findDeclaredLlmModel('openai-codex', modelId)?.reasoning
-      );
     case 'openrouter':
       return resolveOpenRouterControls(modelId, openRouterMetadata);
     case 'anthropic':

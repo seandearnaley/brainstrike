@@ -4,10 +4,8 @@
  *
  * Everything here is SYNCHRONOUS, on purpose. A `DataTransferItem` is invalid
  * the moment the drop event settles, so both `webkitGetAsEntry()` and
- * `getAsFile()` must be called inside the drop tick — the contract
- * `packages/notes-vault/src/core/drop.ts` established and whose test proves by
- * invalidating the item after one microtask. This module needs no `await` at
- * all: unlike the vault's FSA path, `getPathForFile` is synchronous.
+ * `getAsFile()` must be called inside the drop tick. This module needs no
+ * `await` at all: `getPathForFile` is synchronous.
  *
  * Files vs folders are told apart by ASKING the DOM (`entry.isDirectory`),
  * never by guessing from `size`/`type` and never by forwarding everything to

@@ -4,8 +4,7 @@
  * Watching runs in the MAIN process (@parcel/watcher via
  * `@brainstrike/file-system/electron`, injected by ipc-handlers.ts) and pushes
  * batched `FileSystemChange[]` payloads plus optional bounded filtered-boundary
- * evidence to the OWNING renderer only — the same ownership / reaper model as
- * the notes-vault watch channels. The renderer never receives Node watcher
+ * evidence to the OWNING renderer only. The renderer never receives Node watcher
  * objects; it holds an opaque `watchId` and a one-way push subscription (see
  * `ElectronRendererFileSystemAdapter.watchDirectory`).
  */
@@ -143,7 +142,7 @@ const telemetry = {
   setupLatencySamples: 0,
 };
 
-// WeakSet — never strongly retain a WebContents (matches notes-vault).
+// WeakSet — never strongly retain a WebContents.
 const reaperAttachedOwners = new WeakSet<WebContents>();
 // Invalidates async watch setup that belongs to a renderer context reaped
 // during path resolution. WeakMap preserves the no-strong-retention contract.

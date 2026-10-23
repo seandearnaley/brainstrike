@@ -29,7 +29,6 @@ import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
-import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
@@ -316,21 +315,6 @@ contextBridge.exposeInMainWorld('secrets', {
 // @brainstrike/assistant-contract env-bootstrap-bridge.ts (EnvBootstrapBridge).
 contextBridge.exposeInMainWorld('envBootstrap', {
   read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.envBootstrap),
-});
-
-// Provider OAuth bridge (BST-1355). Status-only by contract: every method
-// resolves a token-free ProviderAuthStatus; token material NEVER crosses IPC
-// (legal gate BST-1351 constraint 3). Shape defined ONCE in
-// @brainstrike/assistant-contract provider-auth.ts (ProviderAuthBridge).
-contextBridge.exposeInMainWorld('providerAuth', {
-  cancel: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.cancel, provider),
-  disconnect: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.disconnect, provider),
-  start: (provider: string, method?: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.start, provider, method),
-  status: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.status, provider),
 });
 
 // Settings Store API (factory reset support)
@@ -959,19 +943,6 @@ if (shouldExposeBridge('terminal')) {
 // The bridge exposes workspace-scoped observation/control only; web omits it.
 if (shouldExposeBridge('commandSessions')) {
   exposeBridge('commandSessions', commandSessionsContract);
-}
-
-// Notes vault bridge (desktop-only): Node-fs backend for the markdown notes
-// vault, per packages/notes-vault/src/desktop/bridge-contract.ts. Every path is
-// containment-checked in main against the APPROVED vault roots; every method
-// resolves to a structured NotesVaultResult (never throws across IPC).
-// pickDirectory resolves { ok: true, value: null } when the user cancels the
-// native dialog. Watch change pushes arrive one-way on `notes-vault:changed`
-// for THIS renderer only; `onChanged` registers a listener and returns an
-// unsubscribe fn. Web never constructs this bridge (no preload), so consumers
-// must capability-check `window.notesVault` rather than `isElectron()`.
-if (shouldExposeBridge('notesVault')) {
-  exposeBridge('notesVault', notesVaultContract);
 }
 
 if (shouldExposeBridge('promptLibrary')) {
