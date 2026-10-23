@@ -99,10 +99,16 @@ Enabled is a separate choice. Resume uses the saved pipeline. Fence new source,
 read and inference admission before joining physical owners. Destroy files or
 release a profile only after those joins; independent failures retain ownership
 for explicit retry. Derived rebuild preserves chats, catalog and choices.
-Adding a folder reopens the sources while a scan may be running: Main revokes the
-native authority in the same turn that it stops the utility's attachments, and
-admitted work that fails on that revocation settles as their cancellation
-(BST-1955).
+
+Retiring a source, workspace runtime, ingestion host, utility attachment or Main's
+native-index sources (a reset, a folder added or removed, Pause) fences new work,
+cancels the work in flight, waits for that work to settle however it ends, then
+closes what it owns: handles, watches, mounts, leases, the utility session. It
+fails only when one of those does not close or the utility does not exit. How the
+cancelled work ended is not part of its result: that work's own caller still
+learns it, a cancelled workspace pass's error is logged at debug with its request
+id, and the next generation redoes the work under a live owner, where a real error
+shows again.
 
 Only explicit owners start Main's index: boot, `resume()` after a reset or
 deletion, and host-loss recovery once a replacement host is admitted (BST-2004).

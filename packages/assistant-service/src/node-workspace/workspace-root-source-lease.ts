@@ -21,11 +21,6 @@ interface SourceLeaseDependencies {
   readonly subscribe: CanonicalWorkspaceLease['subscribe'];
 }
 
-interface PendingSourceOperation {
-  readonly promise: Promise<unknown>;
-  readonly signal: AbortSignal;
-}
-
 /** Borrowed operations never close or reopen the registry's mounted native handle. */
 export function createWorkspaceRootSourceLease(
   dependencies: SourceLeaseDependencies
@@ -39,7 +34,7 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
   readonly rootId: string;
   readonly signal: AbortSignal;
   private readonly stopping = new AbortController();
-  private readonly pending = new Set<PendingSourceOperation>();
+  private readonly pending = new Set<Promise<unknown>>();
   private readonly subscriptions = new Set<CanonicalSourceSubscription>();
   private retirement: Promise<void> | undefined;
   private retired = false;
@@ -179,25 +174,21 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
       this.dependencies.assertCurrent();
       return value;
     });
-    const pending = { promise, signal };
-    this.pending.add(pending);
+    this.pending.add(promise);
     try {
       return await promise;
     } finally {
-      this.pending.delete(pending);
+      this.pending.delete(promise);
     }
   }
 
+  /**
+   * Work in flight settles first, however it ends: its callers own its outcome. Only a watch that
+   * does not close fails the retirement.
+   */
   private async joinRetirement(): Promise<void> {
-    const pending = [...this.pending];
-    const results = await Promise.allSettled(pending.map((operation) => operation.promise));
+    await Promise.allSettled(this.pending);
     const errors: unknown[] = [];
-    results.forEach((result, index) => {
-      const signal = pending[index]?.signal;
-      if (result.status === 'rejected' && !(signal?.aborted && result.reason === signal.reason)) {
-        errors.push(result.reason);
-      }
-    });
     for (const subscription of this.subscriptions) {
       try {
         await subscription.close();

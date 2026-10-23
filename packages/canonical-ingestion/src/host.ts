@@ -56,7 +56,6 @@ export class CanonicalScanIncompleteError extends Error {
 
 interface ActiveScan {
   readonly controller: AbortController;
-  error: unknown;
   readonly requestId: string;
   readonly settled: Promise<void>;
 }
@@ -160,13 +159,10 @@ export class CanonicalIngestionHost {
     );
     const active: ActiveScan = {
       controller,
-      error: undefined,
       requestId: request.requestId,
       settled: run.then(
         () => {},
-        (error: unknown) => {
-          active.error = error;
-        }
+        () => {}
       ),
     };
     this.active = active;
@@ -179,6 +175,7 @@ export class CanonicalIngestionHost {
     }
   }
 
+  /** Settles once the cancelled scan has ended, however it ends: the scan's caller owns that. */
   async cancel(requestId: string): Promise<void> {
     const active = this.active;
     if (!active || active.requestId !== requestId) {
@@ -186,22 +183,14 @@ export class CanonicalIngestionHost {
     }
     active.controller.abort(new CanonicalOperationCancelledError('Canonical scan cancelled.'));
     await active.settled;
-    // The scan ends as its cancellation either way: on this abort, or on a port operation its
-    // owner cancelled while retiring the same attachment (BST-2140). Any other error stays.
-    if (active.error !== undefined && !(active.error instanceof CanonicalOperationCancelledError)) {
-      throw active.error;
-    }
   }
 
+  /** Fails only when what it owns does not close: retained inference or its source. */
   async close(): Promise<void> {
     this.closed = true;
     const errors: unknown[] = [];
     if (this.active) {
-      try {
-        await this.cancel(this.active.requestId);
-      } catch (error) {
-        errors.push(error);
-      }
+      await this.cancel(this.active.requestId);
     }
     if (this.dependencies.mode === 'VECTOR') {
       for (const requestId of this.inferenceRequests) {
@@ -747,8 +736,8 @@ export class CanonicalIngestionHost {
       }
       context.signal.removeEventListener('abort', abort);
     }
-    // The inference owner alone recognizes its exact cancellation reason. Its
-    // joined disposition must rethrow independent faults, including AbortError.
+    // A generation this scan cancelled, then cancelled and joined, ends as that cancellation:
+    // how it ended is superseded. A failed join stays a failure of its own.
     if (
       context.signal.aborted &&
       generationFailed &&
