@@ -96,6 +96,20 @@ describe('Main search index config', () => {
     expect(dependencies.rebuild).not.toHaveBeenCalled();
   });
 
+  it('replaces the vector space once when the model and chunking change together', async () => {
+    const chunking = { _tag: 'Custom', maxTokens: 256, overlap: 32 } as const;
+    const { dependencies, owner, saved } = harness(
+      { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model: MODEL },
+      [space(MODEL)]
+    );
+    await owner.update({ chunking, model: OTHER });
+    expect(saved()).toMatchObject({ chunking, model: OTHER });
+    // The new vector space starts empty, so its first scan chunks every file with the new sizes.
+    expect(dependencies.replaceVectorSpace).toHaveBeenCalledOnce();
+    expect(dependencies.replaceVectorSpace).toHaveBeenCalledWith('space-old');
+    expect(dependencies.rebuild).not.toHaveBeenCalled();
+  });
+
   it('merges one worktree toggle into the saved map', async () => {
     const { owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, worktrees: { a: true } });
     await owner.update({ worktrees: { b: true } });
