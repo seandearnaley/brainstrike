@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CanonicalOperationContext } from '@brainstrike/canonical-ingestion';
 import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { Schema } from 'effect';
 import {
   assertDiscoveredSource,
@@ -243,11 +244,13 @@ export class CanonicalUtilityParent {
           // cancellation, named by the owner's own reason: a folder lease's typed refusal can be
           // another bundle's copy of its class. Main also revokes its native authority in the
           // turn its retirement stops this request, so admitted work failing on that revocation
-          // is the same cancellation (BST-1955). Any other failure, and a cleanup the retirement
-          // still owns, stays visible.
+          // is the same cancellation (BST-1955); the revocation is known by its refusal kind,
+          // since its class can be either bundle's copy. Any other failure, and a cleanup the
+          // retirement still owns, stays visible.
           const revoked =
             controller.signal.aborted &&
-            error instanceof NativeAuthorityTransitionError &&
+            error instanceof NativeIndexRefusalError &&
+            error.refusal.kind === 'transitioning' &&
             !isOwnedCleanup(frame);
           const retired =
             signals.find((signal) => signal.aborted && error === signal.reason) ??
