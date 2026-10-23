@@ -2,11 +2,11 @@
  * Desktop E2E (BST-1988): moving between text-only and semantic search.
  *
  * TEXT→VECTOR: a workspace indexed as the TEXT partition (no model) is
- * re-ingested into the collection a model creates; semantic search then works,
- * and text search reads that collection only. The TEXT partition's PG sources
- * stay, unreachable, as an outgoing collection's do.
- * VECTOR→TEXT: the saved collection stays; semantic search turns off and text
- * search keeps reading the same collection.
+ * re-ingested into the vector space the model's config creates; semantic search
+ * then works, and text search reads that space only. The TEXT partition's PG
+ * sources stay, unreachable, as an outgoing collection's do.
+ * VECTOR→TEXT: the saved model and its vector space stay; semantic search turns
+ * off and text search reads the TEXT partition again.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,39 +19,65 @@ import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readIndexConfig, updateIndexConfig } from './utils/index-config';
 import { seedRoot } from './utils/seed-root';
 
 const MARKER = 'transition-marker-1988';
-const PREFERENCES_KEY = 'background-indexing-preferences.v1';
 const MODEL = 'BGE Small';
+const MODEL_KEY = 'local::Xenova/bge-small-en-v1.5';
 
 async function openSearchSettings(page: Page) {
   await new HomePage(page).openSettings();
   return await new SettingsPage(page).openCategory(/Search & Indexing/i, 'search-indexing');
 }
 
-async function chooseSearchMode(page: Page, mode: 'Text search' | 'Text and semantic search') {
-  const section = await openSearchSettings(page);
-  await section.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: mode }).click();
-  if (mode === 'Text and semantic search') {
-    await section.getByRole('combobox', { name: 'Local model execution' }).click();
-    await page.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
-  }
-  await new HomePage(page).leaveSettings();
+/** Semantic search with BGE Small on WASM · Q8, saved through Main as Settings saves it. */
+async function chooseSemanticSearch(page: Page): Promise<void> {
+  await updateIndexConfig(page, {
+    mode: 'semantic',
+    model: { dimensions: 384, local: { device: 'wasm', dtype: 'q8' }, modelKey: MODEL_KEY },
+  });
 }
 
-/** The visible model choice, which creates (or selects) that model's collection. */
-async function chooseModel(page: Page): Promise<void> {
-  const section = await openSearchSettings(page);
-  await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-  await page.getByRole('option', { name: new RegExp(MODEL) }).click();
-  await section.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-  await expect(section.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-    `Workspace Index (${MODEL})`,
-    { timeout: 15_000 }
-  );
-  await new HomePage(page).leaveSettings();
+/** The one vector space the ready index serves under semantic search. */
+async function servedCollection(page: Page): Promise<string> {
+  const served = await page.evaluate(async () => {
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
+    if (!capability) {
+      throw new Error('The native index capability is unavailable');
+    }
+    const status = await capability.status();
+    if (status.kind !== 'ready') {
+      throw new Error(status.reason);
+    }
+    return status.authorizedCollectionIds ?? [];
+  });
+  expect(served).toHaveLength(1);
+  const [collectionId] = served;
+  if (collectionId === undefined) {
+    throw new Error('The ready index serves no vector space');
+  }
+  return collectionId;
+}
+
+/** The ids of the profile's catalog collections. */
+async function collectionIds(page: Page): Promise<string[]> {
+  return await page.evaluate(async () => {
+    if (!window.collectionCatalog) {
+      throw new Error('Desktop collection catalog is unavailable');
+    }
+    const rows = await window.collectionCatalog.list().then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
+    return rows.map((row) => row.id);
+  });
 }
 
 /** Ready with every root scanned, in the expected mode; vectors complete when semantic. */
@@ -167,17 +193,6 @@ async function semanticFinds(page: Page, phrase: string): Promise<boolean> {
   }, phrase);
 }
 
-async function savedCollection(page: Page): Promise<string | null> {
-  return await page.evaluate(async (key) => {
-    const saved = await window.electronAPI?.storage.getItem(key);
-    if (!saved) {
-      throw new Error('Search & Indexing choices were not saved');
-    }
-    return (JSON.parse(saved) as { state: { managedCollectionId: string | null } }).state
-      .managedCollectionId;
-  }, PREFERENCES_KEY);
-}
-
 /** Canonical workspace source records in the TEXT partition. */
 async function textPartitionRows(page: Page): Promise<number> {
   return await page.evaluate(async () => {
@@ -207,7 +222,7 @@ function workspaceFolder(): string {
 
 test.describe('Text and semantic search transitions (desktop)', () => {
   test.beforeEach(() => {
-    // The semantic step selects WASM through the visible execution control.
+    // The semantic step chooses WASM explicitly, as the visible execution control does.
     process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = '1';
   });
   test.afterEach(() => {
@@ -222,19 +237,16 @@ test.describe('Text and semantic search transitions (desktop)', () => {
     const root = workspaceFolder();
     try {
       await seedRoot(page, root, { reloadReason: 'm6-text-to-vector', rootId: randomUUID() });
-      await chooseSearchMode(page, 'Text search');
       await waitForIndex(page, 'text-only');
-      expect(await savedCollection(page)).toBeNull();
+      expect(await readIndexConfig(page)).toMatchObject({ mode: 'text', model: null });
       expect(await textHits(page)).toEqual([
         { path: 'bread.md', set: null },
         { path: 'notes.txt', set: null },
       ]);
 
-      await chooseModel(page);
-      await chooseSearchMode(page, 'Text and semantic search');
+      await chooseSemanticSearch(page);
       await waitForIndex(page, 'vector-configured');
-      const collectionId = await savedCollection(page);
-      expect(collectionId).not.toBeNull();
+      const collectionId = await servedCollection(page);
       expect(await semanticFinds(page, 'how to keep a bread starter alive')).toBe(true);
 
       // The outgoing TEXT partition's PG sources stay, as an outgoing
@@ -259,32 +271,37 @@ test.describe('Text and semantic search transitions (desktop)', () => {
     const root = workspaceFolder();
     try {
       await seedRoot(page, root, { reloadReason: 'm6-text-mode-first', rootId: randomUUID() });
-      await chooseSearchMode(page, 'Text search');
       await waitForIndex(page, 'text-only');
       expect(await textHits(page)).toEqual([
         { path: 'bread.md', set: null },
         { path: 'notes.txt', set: null },
       ]);
 
-      // The order a person picks them: semantic search, then its model, then
-      // the model's execution. Each choice is saved before the next exists.
+      // The order a person picks them on the Settings page: semantic search, then
+      // its model, then the model's execution, staged until Apply saves them together.
       const section = await openSearchSettings(page);
-      await section.getByRole('combobox', { name: 'Search mode' }).click();
-      await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
+      await section
+        .getByRole('group', { name: 'Search mode' })
+        .getByRole('button', { name: /^Semantic/ })
+        .click();
+      const pending = section.getByRole('status', { name: 'Pending changes' });
+      const apply = pending.getByRole('button', { exact: true, name: 'Apply and re-index' });
+      await expect(apply).toBeDisabled();
       await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
       await page.getByRole('option', { name: new RegExp(MODEL) }).click();
-      await section.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-      await expect(section.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-        `Workspace Index (${MODEL})`,
-        { timeout: 15_000 }
-      );
-      await section.getByRole('combobox', { name: 'Local model execution' }).click();
+      await expect(apply).toBeDisabled();
+      await section.getByRole('combobox', { exact: true, name: 'Run it on' }).click();
       await page.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
+      await apply.click();
+      await expect(pending).toBeHidden({ timeout: 15_000 });
+      expect(await readIndexConfig(page)).toMatchObject({
+        mode: 'semantic',
+        model: { dimensions: 384, local: { device: 'wasm', dtype: 'q8' }, modelKey: MODEL_KEY },
+      });
       await new HomePage(page).leaveSettings();
 
       await waitForIndex(page, 'vector-configured');
-      const collectionId = await savedCollection(page);
-      expect(collectionId).not.toBeNull();
+      const collectionId = await servedCollection(page);
       expect(await semanticFinds(page, 'how to keep a bread starter alive')).toBe(true);
       expect(await textHits(page)).toEqual([
         { path: 'bread.md', set: collectionId },
@@ -296,7 +313,7 @@ test.describe('Text and semantic search transitions (desktop)', () => {
     }
   });
 
-  test('turning semantic search off keeps the collection and its text search', async ({
+  test('turning semantic search off keeps the model and its vector space, and text search works', async ({
     electron,
     window: page,
   }) => {
@@ -304,19 +321,28 @@ test.describe('Text and semantic search transitions (desktop)', () => {
     const root = workspaceFolder();
     try {
       await seedRoot(page, root, { reloadReason: 'm6-vector-to-text', rootId: randomUUID() });
-      await chooseModel(page);
-      await chooseSearchMode(page, 'Text and semantic search');
+      await chooseSemanticSearch(page);
       await waitForIndex(page, 'vector-configured');
-      const collectionId = await savedCollection(page);
-      expect(collectionId).not.toBeNull();
+      const collectionId = await servedCollection(page);
 
-      await chooseSearchMode(page, 'Text search');
+      // Text applies right away from the Search mode group.
+      const section = await openSearchSettings(page);
+      const text = section
+        .getByRole('group', { name: 'Search mode' })
+        .getByRole('button', { name: /^Text/ });
+      await text.click();
+      await expect(text).toHaveAttribute('aria-pressed', 'true');
+      await new HomePage(page).leaveSettings();
       await waitForIndex(page, 'text-only');
-      expect(await savedCollection(page)).toBe(collectionId);
-      expect(await textPartitionRows(page)).toBe(0);
+      expect(await readIndexConfig(page)).toMatchObject({
+        mode: 'text',
+        model: { modelKey: MODEL_KEY },
+      });
+      expect(await collectionIds(page)).toContain(collectionId);
+      expect(await textPartitionRows(page)).toBe(2);
       expect(await textHits(page)).toEqual([
-        { path: 'bread.md', set: collectionId },
-        { path: 'notes.txt', set: collectionId },
+        { path: 'bread.md', set: null },
+        { path: 'notes.txt', set: null },
       ]);
 
       // Semantic search says which setting turns it back on.

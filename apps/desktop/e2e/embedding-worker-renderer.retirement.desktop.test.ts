@@ -77,10 +77,15 @@ test.describe('@destructive native retirement', () => {
     await new HomePage(page).openSettings();
     await new SettingsPage(page).openCategory(/Permissions/i, 'permissions');
     await expect(page.getByTestId('permission-policy-edit')).toHaveValue('ask');
-    await new SettingsPage(page).openCategory(/Search & Indexing/i, 'search-indexing');
-    await expect(page.getByRole('combobox', { name: 'Search mode' })).toHaveText(
-      'Choose a search mode'
+    const searchIndexing = await new SettingsPage(page).openCategory(
+      /Search & Indexing/i,
+      'search-indexing'
     );
+    await expect(
+      searchIndexing
+        .getByRole('group', { name: 'Search mode' })
+        .getByRole('button', { name: /^Text/ })
+    ).toHaveAttribute('aria-pressed', 'true');
     await new HomePage(page).leaveSettings();
   }
 

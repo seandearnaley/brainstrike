@@ -17,32 +17,15 @@ test('native-index pause exposes a correlated start, action and cleanup timeline
   window,
   homePage,
 }, testInfo) => {
-  const collectionId = await window.evaluate(async () => {
-    if (!globalThis.window.collectionCatalog) {
-      throw new Error('Collection catalog bridge unavailable');
-    }
-    const result = await globalThis.window.collectionCatalog.create({
-      dimensions: 384,
-      distance: 'cosine',
-      metadata: { name: 'Effect diagnostic collection' },
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-    });
-    if (!result.ok) {
-      throw new Error(result.error.message);
-    }
-    return result.value.id;
-  });
   await homePage.openSettings();
-  await new SettingsPage(window).openCategory(/Search & Indexing/i, 'search-indexing');
-  await window.getByRole('combobox', { name: 'Managed collection' }).click();
-  await window.getByRole('option', { exact: true, name: 'Effect diagnostic collection' }).click();
-  await window.getByRole('combobox', { name: 'Search mode' }).click();
-  await window.getByRole('option', { exact: true, name: 'Text search' }).click();
+  const section = await new SettingsPage(window).openCategory(
+    /Search & Indexing/i,
+    'search-indexing'
+  );
   await expect(window.getByTestId('indexing-status-trigger')).toContainText('Ready', {
     timeout: 15_000,
   });
-  await window.getByRole('button', { exact: true, name: 'Pause workspace index' }).click();
+  await section.getByRole('button', { exact: true, name: 'Pause indexing' }).click();
   await expect(window.getByTestId('indexing-status-trigger')).toContainText('Paused', {
     timeout: 15_000,
   });
@@ -77,7 +60,7 @@ test('native-index pause exposes a correlated start, action and cleanup timeline
     expect(timeline.some((parent) => parent.spanId === event.parentSpanId)).toBe(true);
   }
   await testInfo.attach('native-index-effect-timeline', {
-    body: JSON.stringify({ collectionId, timeline }, null, 2),
+    body: JSON.stringify({ timeline }, null, 2),
     contentType: 'application/json',
   });
   await new HomePage(window).openSettings();

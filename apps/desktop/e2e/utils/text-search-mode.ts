@@ -1,20 +1,5 @@
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, type Page } from '@playwright/test';
-import { HomePage } from '../page-objects/home-page';
-import { SettingsPage } from '../page-objects/settings-page';
-
-/** Text search through the visible Search & Indexing control, choosing no embedding model. */
-export async function chooseTextSearch(page: Page): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  const section = await new SettingsPage(page).openCategory(
-    /Search & Indexing/i,
-    'search-indexing'
-  );
-  await section.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text search' }).click();
-  await home.leaveSettings();
-}
 
 /** The renderer's native index status, as the Search panel and status bar read it. */
 export async function nativeStatus(

@@ -8,6 +8,7 @@ import type { ElectronHarness } from '../fixtures/electron-harness';
 import { readHostThreadWorkspace, waitForAppHost } from './agent-host-log';
 import { configureAssistantProvider } from './assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './context-explorer-locators';
+import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
 
@@ -62,22 +63,10 @@ export async function openDurableUiFixture(
         'rootsList',
         JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId }])
       );
-      localStorage.setItem(
-        'background-indexing-preferences.v1',
-        JSON.stringify({
-          state: {
-            enabled: false,
-            indexingPolicyPreset: 'full-root',
-            managedCollectionId: null,
-            mode: 'root-folder-cache',
-            paused: true,
-          },
-          version: 4,
-        })
-      );
     },
     { root: rootPath, rootId: ROOT_ID }
   );
+  await updateIndexConfig(seedPage, { paused: true });
   const { window: page } = await electron.restart();
   const { waitForAppReady } = await loadElectronHelpers();
   await waitForAppReady(page);

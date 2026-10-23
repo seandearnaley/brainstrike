@@ -13,7 +13,7 @@ import type { Locator, Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { seedRoot } from './utils/seed-root';
-import { chooseTextSearch, expectStatusBarReady, textReadiness } from './utils/text-search-mode';
+import { expectStatusBarReady, textReadiness } from './utils/text-search-mode';
 
 function workspaceFolder(prefix: string, file: string): string {
   const folder = realpathSync(mkdtempSync(path.join(os.tmpdir(), prefix)));
@@ -61,7 +61,6 @@ test.describe('Text search folder removal (desktop)', () => {
     const next = workspaceFolder('bs-m6-text-removal-next-', 'next.txt');
     try {
       await seedRoot(page, first, { reloadReason: 'm6-text-removal-only', rootId: randomUUID() });
-      await chooseTextSearch(page);
       await expect.poll(() => textReadiness(page), { timeout: 120_000 }).toEqual(textReady(1));
 
       await showExplorer(page);
@@ -103,7 +102,6 @@ test.describe('Text search folder removal (desktop)', () => {
       await setPickerFolder(bravo);
       await page.getByRole('button', { name: 'Add Folder to Workspace' }).click();
       await expect(page.getByText('bravo.txt').first()).toBeVisible({ timeout: 60_000 });
-      await chooseTextSearch(page);
       await expect.poll(() => textReadiness(page), { timeout: 120_000 }).toEqual(textReady(2));
 
       // The second folder first, while another remains.

@@ -1,9 +1,9 @@
 /**
  * Desktop E2E (BST-1988): text search is the default and needs no embedding
- * model. On a fresh profile, adding a folder and choosing Text search makes
- * Explorer Text search read the native text index, and the agent's grepSearch
- * finds the same text on disk (ADR 0026); no model is chosen, no collection is
- * invented and nothing is downloaded.
+ * model. On a fresh profile, adding a folder makes Explorer Text search read the
+ * native text index, and the agent's grepSearch finds the same text on disk
+ * (ADR 0026); no model is chosen, no collection is invented and nothing is
+ * downloaded.
  */
 import { readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -14,15 +14,15 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { readIndexConfig } from './utils/index-config';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { chooseTextSearch, expectStatusBarReady, textReadiness } from './utils/text-search-mode';
+import { expectStatusBarReady, textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-text-search-fresh-profile';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL = 'anthropic/claude-sonnet-4.6';
 const MARKER = 'textfirst-marker-1988';
 const REPLY = 'The text search ran.';
-const PREFERENCES_KEY = 'background-indexing-preferences.v1';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -46,14 +46,9 @@ async function enableChatModel(page: Page): Promise<void> {
   }, MODEL);
 }
 
-/** What the fresh profile chose: saved preferences and every embedding collection row. */
-async function savedChoices(page: Page): Promise<{ collections: unknown[]; state: unknown }> {
-  return await page.evaluate(async (key) => {
-    const api = window.electronAPI;
-    if (!api) {
-      throw new Error('The desktop bridge is unavailable');
-    }
-    const saved = await api.storage.getItem(key);
+/** Every embedding collection row the profile has. */
+async function collectionRows(page: Page): Promise<unknown[]> {
+  return await page.evaluate(async () => {
     if (!window.collectionCatalog) {
       throw new Error('Desktop collection catalog is unavailable');
     }
@@ -63,11 +58,8 @@ async function savedChoices(page: Page): Promise<{ collections: unknown[]; state
       }
       return result.value;
     });
-    return {
-      collections: [...collections],
-      state: saved ? (JSON.parse(saved) as { state: unknown }).state : null,
-    };
-  }, PREFERENCES_KEY);
+    return [...collections];
+  });
 }
 
 /** Model weights anywhere in the profile: an embedding model download leaves `.onnx` files. */
@@ -92,7 +84,6 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
   writeFileSync(path.join(root, 'other.txt'), 'nothing to find here\n');
   try {
     // Text search is ready before any folder is added: there is nothing to index yet.
-    await chooseTextSearch(page);
     await expect
       .poll(() => textReadiness(page), { timeout: 60_000 })
       .toEqual({ folders: 0, indexMode: 'text-only', kind: 'ready' });
@@ -126,18 +117,14 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
       /Search & Indexing/i,
       'search-indexing'
     );
-    await expect(settings).toContainText('Collection: Not used by Text search');
+    await expect(
+      settings.getByRole('group', { name: 'Search mode' }).getByRole('button', { name: /^Text/ })
+    ).toHaveAttribute('aria-pressed', 'true');
     await expect(settings).not.toContainText('Setup required');
     await expect(settings).not.toContainText('set up a collection');
     await home.leaveSettings();
-    expect(await savedChoices(page)).toEqual({
-      collections: [],
-      state: expect.objectContaining({
-        managedCollectionId: null,
-        nativeIndexMode: 'TEXT',
-        nativeLocalSelection: null,
-      }),
-    });
+    expect(await readIndexConfig(page)).toMatchObject({ mode: 'text', model: null });
+    expect(await collectionRows(page)).toEqual([]);
 
     // Explorer Text search finds the marker through the index.
     await ensureFileExplorerPanelVisible(page);

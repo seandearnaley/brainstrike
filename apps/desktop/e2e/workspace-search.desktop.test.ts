@@ -1,7 +1,6 @@
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 /** Every control in the Search panel, with whether it paints inside the panel and takes a click. */
@@ -158,42 +157,12 @@ test.describe('Desktop workspace search', () => {
     expect(layout.controls.filter(({ inside, reachable }) => !(inside && reachable))).toEqual([]);
   });
 
-  test('a mounted workspace with no search mode chosen tells the user how to enable semantic search', async ({
-    window,
-  }) => {
-    test.setTimeout(60_000);
-    // Mounting a root reconfigures the native index; no Search & Indexing choice is saved.
-    await ensureMockWorkspaceOpen(window);
-    await ensureFileExplorerPanelVisible(window);
-    const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
-    await tabStrip.getByRole('tab', { name: 'Search' }).click();
-    const searchPanel = window.getByTestId('explorer-search-panel-search');
-    const semantic = searchPanel.getByRole('button', { name: 'Semantic' });
-    await expect(semantic).toHaveAttribute('aria-disabled', 'true', { timeout: 15_000 });
-    // The disabled reason is the setup step, never an internal admission state.
-    await expect(async () => {
-      await semantic.hover();
-      await expect(window.getByRole('tooltip').first()).toHaveText(
-        'Choose a search mode in Search & Indexing settings.',
-        { timeout: 2000 }
-      );
-    }).toPass({ timeout: 30_000 });
-  });
-
   test('Text search mode tells the user which setting turns semantic search on', async ({
     window,
   }) => {
     test.setTimeout(60_000);
+    // A fresh profile searches by text.
     await ensureMockWorkspaceOpen(window);
-    const home = new HomePage(window);
-    await home.openSettings();
-    await window
-      .getByRole('navigation', { name: 'Settings categories' })
-      .getByRole('button', { name: 'Search & Indexing' })
-      .click();
-    await window.getByRole('combobox', { name: 'Search mode' }).click();
-    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
-    await home.leaveSettings();
     await ensureFileExplorerPanelVisible(window);
     const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
     await tabStrip.getByRole('tab', { name: 'Search' }).click();

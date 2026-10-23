@@ -9,7 +9,7 @@ export async function seedNativeResetProbe(
   const { join } = await import('node:path');
   const { expect } = await import('@playwright/test');
   const { ensureMockWorkspaceOpen } = await import('./layout-helpers');
-  const { chooseTextSearch, textReadiness } = await import('./text-search-mode');
+  const { textReadiness } = await import('./text-search-mode');
   if (!workspacePath) {
     throw new Error('Disposable workspace path is required');
   }
@@ -18,8 +18,7 @@ export async function seedNativeResetProbe(
     'Native reset indexed marker.\n',
     'utf8'
   );
-  await chooseTextSearch(page);
-  // Settle the generation the settings change opens before adding the folder: one still
+  // Settle the fresh profile's first Text generation before adding the folder: one still
   // opening can lease the new folder and publish its chunks, and the folder's own
   // registration then opens the next generation, which refuses reads (BST-2152).
   await expect

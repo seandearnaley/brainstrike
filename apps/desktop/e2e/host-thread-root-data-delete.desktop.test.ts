@@ -11,8 +11,6 @@ import path from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
-import { SettingsPage } from './page-objects/settings-page';
 import { readHostProcess, readHostRootRecords, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -33,24 +31,6 @@ async function enableModel(page: Page): Promise<void> {
     provider: 'openrouter',
   });
   await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
-}
-
-/** Text search through the visible Search & Indexing controls: deleting a folder's data needs it. */
-async function enableTextIndexing(page: Page): Promise<void> {
-  await new HomePage(page).openSettings();
-  const section = await new SettingsPage(page).openCategory(
-    /Search & Indexing/i,
-    'search-indexing'
-  );
-  await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-  await page.getByRole('option', { name: /BGE Small/ }).click();
-  await section.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-  await expect(section.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-    'Workspace Index (BGE Small)',
-    { timeout: 15_000 }
-  );
-  await section.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text search' }).click();
 }
 
 /** The durable `roots.id` of a mounted folder, from the app's own database. */
@@ -127,7 +107,6 @@ test('deleting another folder’s indexed data leaves a streaming host run runni
     const bravoId = await rootIdOf(page, bravoRoot);
 
     await enableModel(page);
-    await enableTextIndexing(page);
     await expect
       .poll(async () => await scannedRoots(page), { timeout: 120_000 })
       .toEqual([alphaId, bravoId].sort());
