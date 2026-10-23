@@ -27,7 +27,7 @@ import {
   type SavedBrowserOrigins,
   SavedBrowserOriginsSection,
 } from './settings/system/saved-browser-origins-section';
-import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
+import { SearchIndexSettingsSection } from './settings/system/search-index-settings-section';
 import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 import {
@@ -143,15 +143,16 @@ export function createSearchIndexingSettingsCategory(
 ): SettingsCategory {
   return {
     content: (
-      <SearchIndexingSettingsSection
+      <SearchIndexSettingsSection
         {...(nativeIndex ? { nativeIndex } : {})}
         {...(localExecution ? { localExecution } : {})}
       />
     ),
-    description: 'Choose the managed cache collection and control root-folder background indexing.',
+    description:
+      'Choose how your folders are searched, the embedding model and how files are split.',
     icon: Search,
     id: 'search-indexing',
-    keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
+    keywords: ['search', 'indexing', 'semantic', 'embeddings', 'chunking', 'model'],
     title: 'Search & Indexing',
   };
 }
