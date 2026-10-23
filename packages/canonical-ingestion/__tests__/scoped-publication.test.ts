@@ -605,6 +605,20 @@ describe('main canonical publication ownership', () => {
     await expect(publication.removeFile({ file, ticket })).rejects.toThrow('stale');
   });
 
+  // A retirement can cancel a scan whose finish already released its ticket (BST-1955).
+  it('settles an abort of a scan its finish ended, and leaves the next scan running', async () => {
+    const { publication } = fixture();
+    const ended = await publication.beginScan({ requestId: 'ended', scope });
+    await publication.finishScan({ ...completion, ticket: ended });
+    await expect(publication.abortScan(ended)).resolves.toBeUndefined();
+    const next = await publication.beginScan({ requestId: 'next', scope });
+    await publication.abortScan(ended);
+    expect(await publication.finishScan({ ...completion, ticket: next })).toMatchObject({
+      reason: 'complete',
+      scanComplete: true,
+    });
+  });
+
   it('keeps readiness false when cancellation arrives during physical manifest verification', async () => {
     const { port, publication } = fixture();
     const held = Promise.withResolvers<Awaited<ReturnType<typeof port.verifyScopedManifest>>>();

@@ -160,15 +160,14 @@ export function createNativeCanonicalPublication(
     }
     return state;
   };
+  /** Whether the ticket still names its scope's scan: a finish releases it. */
+  const owns = (state: ScanState, ticket: CanonicalScanTicket): boolean =>
+    state.ticket?.storeId === ticket.storeId &&
+    state.ticket.requestId === ticket.requestId &&
+    state.ticket.generation === ticket.generation;
   const stateForTicket = (ticket: CanonicalScanTicket): ScanState => {
     const state = stateFor(ticket.scope);
-    const current = state.ticket;
-    if (
-      !current ||
-      current.storeId !== ticket.storeId ||
-      current.requestId !== ticket.requestId ||
-      current.generation !== ticket.generation
-    ) {
+    if (!owns(state, ticket)) {
       throw new Error('Canonical publication ticket is stale or belongs to another store.');
     }
     return state;
@@ -271,7 +270,12 @@ export function createNativeCanonicalPublication(
   };
   return {
     abortScan: async (ticket) => {
-      const state = stateForTicket(ticket);
+      const state = stateFor(ticket.scope);
+      // Its finish already released the ticket, so nothing of that scan is left to stop: a
+      // retirement that cancels a scan its finish just ended settles as that cancellation (BST-1955).
+      if (!owns(state, ticket)) {
+        return;
+      }
       state.aborted = true;
       state.scanComplete = false;
       await Promise.allSettled([...state.pending]);

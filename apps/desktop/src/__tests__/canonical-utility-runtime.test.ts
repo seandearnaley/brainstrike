@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import type { CanonicalCatalogFile, CanonicalScanReceipt } from '@brainstrike/canonical-ingestion';
+import {
+  type CanonicalCatalogFile,
+  type CanonicalScanReceipt,
+  createNativeCanonicalPublication,
+} from '@brainstrike/canonical-ingestion';
 import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { describe, expect, it, vi } from 'vitest';
@@ -165,6 +169,102 @@ describe('actual utility canonical runtime attachment', () => {
       message: 'Canonical attachment retirement cancelled its scan.',
     });
     await parent.retireAttachments();
+    await parent.close();
+  });
+
+  // A reset, or a newly added folder, retires the attachments while a scan finishes. Main's
+  // finish releases the scan's ticket before the utility's cancellation of that scan reaches it.
+  it('retires a workspace whose scan finished in Main before its cancellation arrived', async () => {
+    const notice = Promise.withResolvers<object>();
+    let held = false;
+    const { parent } = connected((input) => {
+      const frame = decodeCanonicalFrame(input);
+      if (held || frame.kind !== 'call' || frame.op !== 'abort-scan') {
+        return false;
+      }
+      held = true;
+      notice.resolve(structuredClone(input));
+      return true;
+    });
+    const scope = { kind: 'workspace', rootId: 'root' } as const;
+    const verifying = Promise.withResolvers<void>();
+    const verified = Promise.withResolvers<void>();
+    const fail = async (): Promise<never> => {
+      throw new Error('An empty root writes nothing.');
+    };
+    const publication = createNativeCanonicalPublication(
+      {
+        commitScopedFile: fail,
+        commitScopedTextFile: fail,
+        coverageScope: fail,
+        info: async () => ({
+          dbPath: '/owned/index.sqlite',
+          embedding: { indexMode: 'text-only' as const },
+          journalMode: 'wal',
+          pid: 1,
+          readerQueryOnly: 1,
+          storeId: 'store',
+          vecVersion: '0.1.9',
+          writerThreadId: 1,
+        }),
+        prepareScopedFile: fail,
+        removeScopedFile: fail,
+        verifyScopedManifest: async () => {
+          verifying.resolve();
+          await verified.promise;
+          return {
+            authorityEpoch: 'epoch',
+            authorityRevision: 1,
+            changed: [],
+            complete: true,
+            missing: [],
+            scope,
+            storeId: 'store',
+            unexpected: [],
+          };
+        },
+      },
+      [scope]
+    );
+    const finished = Promise.withResolvers<void>();
+    const base = collection([]);
+    await parent.attachWorkspace({
+      catalog: { ...base.catalog, loadAuthorizedBatch: async () => [] },
+      managedCollectionId: null,
+      onError: vi.fn(),
+      onReceipt: vi.fn(),
+      onWatchHealth: vi.fn(),
+      parser: base.parser,
+      publication: {
+        ...publication,
+        finishScan: (request) => publication.finishScan(request).finally(finished.resolve),
+      },
+      request: base.request,
+      source: {
+        indexingPolicyPreset: 'balanced',
+        inventory: { ...base.source.inventory, loadFiles: async () => [] },
+        lease: {
+          canonicalPath: '/captured/root',
+          generation: 'generation',
+          listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+          readFile: fail,
+          retire: async () => {},
+          rootId: scope.rootId,
+          signal: new AbortController().signal,
+          subscribe: async () => ({ close: async () => {} }),
+        },
+      },
+    });
+    await verifying.promise;
+    const retirement = parent.retireAttachments().then(
+      () => 'retired',
+      (error: unknown) => error
+    );
+    const cancellation = await notice.promise;
+    verified.resolve();
+    await finished.promise;
+    parent.receive(cancellation);
+    expect(await retirement).toBe('retired');
     await parent.close();
   });
 
