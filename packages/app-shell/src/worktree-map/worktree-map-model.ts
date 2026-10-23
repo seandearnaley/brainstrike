@@ -35,8 +35,11 @@ export interface WorktreeMapCardModel {
    * there is no indexing preference to report. It is NOT "excluded": inventing
    * an answer for an unmounted path would be a silent fallback. `unknown`
    * means Main's search index config has not been read yet, so no claim is made.
+   * `open-folder` means the index serves the root without a worktree opt-in:
+   * it is open as an ordinary folder, always indexed, and this map's choice
+   * does not control it.
    */
-  readonly indexing: 'excluded' | 'included' | 'not-a-root' | 'unknown';
+  readonly indexing: 'excluded' | 'included' | 'not-a-root' | 'open-folder' | 'unknown';
   readonly lastActivityLabel: string | null;
   readonly provenanceLabel: string;
   readonly pullRequest: ForgePrCacheEntry | null;
@@ -82,7 +85,8 @@ function branchLabelFor(entry: WorktreeListEntry): string {
 
 function indexingFor(
   entry: WorktreeListEntry,
-  optInByRootId: Readonly<Record<string, boolean>> | null
+  optInByRootId: Readonly<Record<string, boolean>> | null,
+  indexedRootIds: readonly string[] | null
 ): WorktreeMapCardModel['indexing'] {
   // (bot review fix, PR #2664 finding 1) `rootId` alone is NOT "this
   // checkout's own root" — it can be the first root that merely CONTAINS
@@ -99,7 +103,10 @@ function indexingFor(
   if (optInByRootId === null) {
     return 'unknown';
   }
-  return optInByRootId[entry.rootId] === true ? 'included' : 'excluded';
+  if (optInByRootId[entry.rootId] === true) {
+    return 'included';
+  }
+  return indexedRootIds?.includes(entry.rootId) ? 'open-folder' : 'excluded';
 }
 
 function threadFor(
@@ -282,6 +289,8 @@ export function buildWorktreeMap(input: {
   readonly entries: readonly WorktreeListEntry[];
   /** Injectable for the unit lane; defaults to {@link formatWorktreeActivity}. */
   readonly formatActivity?: (at: Date) => string;
+  /** The roots the index serves; null while its status is not ready. */
+  readonly indexedRootIds: readonly string[] | null;
   /** Main's worktree index choices; null until Main's config is read. */
   readonly indexingOptInByRootId: Readonly<Record<string, boolean>> | null;
   readonly now?: Date;
@@ -304,7 +313,7 @@ export function buildWorktreeMap(input: {
       createdAt: entry.createdAt,
       disabledReason: entry.disabledReason,
       entry,
-      indexing: indexingFor(entry, input.indexingOptInByRootId),
+      indexing: indexingFor(entry, input.indexingOptInByRootId, input.indexedRootIds),
       lastActivityLabel: lastActivityLabelFor(thread, entry.createdAt, format),
       provenanceLabel: describeWorktreeProvenance(entry),
       pullRequest: entry.branch

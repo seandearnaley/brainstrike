@@ -31,9 +31,13 @@ const MOUNTED_WORKTREE: WorktreeListEntry = {
 };
 
 /** The card for a mounted worktree, given Main's worktree choices (null until read). */
-function renderCard(indexingOptInByRootId: Readonly<Record<string, boolean>> | null) {
+function renderCard(
+  indexingOptInByRootId: Readonly<Record<string, boolean>> | null,
+  indexedRootIds: readonly string[] | null = null
+) {
   const card = buildWorktreeMap({
     entries: [MOUNTED_WORKTREE],
+    indexedRootIds,
     indexingOptInByRootId,
     prCache: new Map(),
     runningThreadIds: new Set(),
@@ -74,5 +78,14 @@ describe('WorktreeMapCard indexing toggle', () => {
   ] as const)('states Main’s choice %o as %s', (choices, label) => {
     renderCard(choices);
     expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+  });
+
+  it('shows a checkout open as an ordinary folder as indexed, with no toggle claiming to control it', () => {
+    renderCard({}, ['root-1']);
+    expect(screen.queryByRole('button', { name: /not indexed|indexing enabled/iu })).toBeNull();
+    expect(screen.getByRole('img', { name: 'Indexed as an open folder' })).toHaveAttribute(
+      'title',
+      'Indexed: this checkout is open as a folder in the Explorer, so this map does not control it.'
+    );
   });
 });

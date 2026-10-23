@@ -138,6 +138,20 @@ function WorktreeIndexingToggle({
 }: Pick<WorktreeMapCardProps, 'card' | 'onToggleIndexing'>): ReactElement {
   const { entry } = card;
   const indexingEnabled = card.indexing === 'included';
+  if (card.indexing === 'open-folder') {
+    const reason =
+      'Indexed: this checkout is open as a folder in the Explorer, so this map does not control it.';
+    return (
+      <span
+        aria-label="Indexed as an open folder"
+        className="flex size-8 shrink-0 items-center justify-center text-primary"
+        role="img"
+        title={reason}
+      >
+        <Database aria-hidden="true" className="size-3.5" />
+      </span>
+    );
+  }
   return card.indexing === 'not-a-root' || card.indexing === 'unknown' ? (
     <span aria-hidden="true" className="size-8 shrink-0" />
   ) : (

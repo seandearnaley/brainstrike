@@ -16,6 +16,7 @@ import {
 import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeListEntry } from '@brainstrike/types';
+import { useNativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
@@ -169,17 +170,29 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   const indexingOptInByRootId = useIndexConfigStore(
     (store) => selectIndexConfig(store)?.worktrees ?? null
   );
+  // What the index serves: an open folder that is also a worktree is indexed
+  // without an opt-in, and the card says so rather than offer a toggle.
+  const indexStatus = useNativeWorkspaceSearchDependencies()?.status;
+  const indexedRootIds = indexStatus?.kind === 'ready' ? indexStatus.authorizedRootIds : null;
 
   const repositories = useMemo(
     () =>
       buildWorktreeMap({
         entries,
+        indexedRootIds,
         indexingOptInByRootId,
         prCache: prCache.byRepoBranch,
         runningThreadIds: input.runningThreadIds,
         threads,
       }),
-    [entries, indexingOptInByRootId, prCache.byRepoBranch, input.runningThreadIds, threads]
+    [
+      entries,
+      indexedRootIds,
+      indexingOptInByRootId,
+      prCache.byRepoBranch,
+      input.runningThreadIds,
+      threads,
+    ]
   );
 
   const paths = useMemo(
