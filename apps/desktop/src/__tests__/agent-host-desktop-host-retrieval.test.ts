@@ -5,11 +5,12 @@ import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { embeddingProfileHash } from '@brainstrike/indexer';
-import type {
-  IndexerCoverageRequest,
-  IndexerSearchResult,
-  IndexerStatus,
-  IndexSearchCapability,
+import {
+  type IndexerCoverageRequest,
+  type IndexerSearchResult,
+  type IndexerStatus,
+  type IndexSearchCapability,
+  NO_WORKSPACE_FOLDER_MESSAGE,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { Schema } from 'effect';
 import { expect, test, vi } from 'vitest';
@@ -115,6 +116,35 @@ const space = {
 } as const;
 const queryVector = Array.from({ length: profile.dimensions }, () => 0.1);
 const roots = [{ displayName: 'A', path: '/workspace/a', rootId: 'root-a' }];
+/** A folder open in the app but not in this thread, indexed like A. */
+const otherFolderHit = {
+  ...result.hits[0],
+  chunkId: 'chunk-c',
+  content: 'Other folder C marker',
+  fileId: 'file-c',
+  relativePath: 'c.txt',
+  rootId: 'root-c',
+} as IndexerSearchResult['hits'][number];
+const otherFileRecord = {
+  ...fileRecord,
+  id: 'file-c',
+  name: 'c.txt',
+  path: 'c.txt',
+  rootId: 'root-c',
+  rootName: 'C',
+};
+/** Main's index over A and C; a search answers the folders it names. */
+const twoFolderIndex = {
+  hits: [...result.hits, otherFolderHit],
+  status: {
+    ...status,
+    authorizedRootIds: ['root-a', 'root-c'],
+    rootReadiness: [
+      { rootId: 'root-a', scanComplete: true },
+      { rootId: 'root-c', scanComplete: true },
+    ],
+  } as IndexerStatus,
+};
 function coverage(scope: IndexerCoverageRequest) {
   return {
     ...(scope.collectionId === undefined
@@ -128,7 +158,19 @@ function coverage(scope: IndexerCoverageRequest) {
   };
 }
 /** Main's typed reads for one host thread, as host-tool-services answers them; and the admission's roots. */
-function mainReads() {
+function mainReads(
+  index: { readonly hits: IndexerSearchResult['hits']; readonly status: IndexerStatus } = {
+    hits: result.hits,
+    status,
+  },
+  threadRoots: readonly (typeof roots)[number][] = roots
+) {
+  const scoped = (request: { readonly rootIds: readonly string[] }): IndexerSearchResult => ({
+    ...result,
+    hits: index.hits.filter(
+      (hit) => request.rootIds.length === 0 || request.rootIds.includes(hit.rootId ?? '')
+    ),
+  });
   return vi.fn(async (method: string, input: unknown): Promise<unknown> => {
     const { request, threadId } = (input ?? {}) as {
       request?: unknown;
@@ -140,25 +182,30 @@ function mainReads() {
     }
     switch (method) {
       case 'admission/fresh-roots':
-        return roots;
+        return threadRoots;
       case 'desktop-read/index/status':
-        return status;
+        return index.status;
       case 'desktop-read/index/search':
       case 'desktop-read/index/grep':
-        return result;
+        return scoped(request as IndexerCoverageRequest);
       case 'desktop-read/index/coverage':
         return coverage(request as IndexerCoverageRequest);
       case 'desktop-read/index/coverage-batch':
         return {
           coverage: (request as IndexerCoverageRequest[]).map(coverage),
           kind: 'current',
-          status,
+          status: index.status,
         };
       // Reads that can refuse answer with an outcome (BST-1996).
       case 'desktop-read/retrieval/embedding-set':
         return { ok: true, result: embeddingSetRow };
       case 'desktop-read/retrieval/file-records':
-        return { ok: true, result: [fileRecord] };
+        return {
+          ok: true,
+          result: [fileRecord, otherFileRecord].filter((row) =>
+            (request as { readonly ids: readonly string[] }).ids.includes(row.id)
+          ),
+        };
       case 'desktop-read/retrieval/embedding-spaces':
         return { ok: true, result: [space] };
       case 'platform/embedding/query':
@@ -297,6 +344,35 @@ test('hybridSearch without an explicit set searches the native index’s one aut
   });
   expectOnlyReads(request);
 });
+const folderB = { displayName: 'B', path: '/workspace/b', rootId: 'root-b' };
+test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
+  '%s without a folder searches this thread’s indexed folders and names one left out',
+  async (name) => {
+    // A is indexed; B (say, a worktree not opted in) is not; C is open in the app, not this thread.
+    const request = mainReads(twoFolderIndex, [...roots, folderB]);
+    const output = await tool(hostTools(request), name).execute({ query: 'marker' }, execution());
+    expect(JSON.stringify(output)).toContain('Selected A marker');
+    expect(JSON.stringify(output)).not.toContain('Other folder C marker');
+    expect(output).toMatchObject({
+      hint: expect.stringContaining('"B" is not in the search index'),
+    });
+  }
+);
+test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
+  '%s with no folder open in the thread says to add one',
+  async (name) => {
+    const request = mainReads(twoFolderIndex, []);
+    const output = await tool(hostTools(request), name).execute({ query: 'marker' }, execution());
+    expect(output).toEqual(
+      refusal(
+        name === 'brainstrike_hybridSearch'
+          ? NATIVE_TOOL_ID.hybridSearch
+          : NATIVE_TOOL_ID.queryEmbeddingSpace,
+        NO_WORKSPACE_FOLDER_MESSAGE
+      )
+    );
+  }
+);
 test('the desktop host runs listEmbeddingSpaces in its own process over Main’s catalog read', async () => {
   const request = mainReads();
   const output = await tool(hostTools(request), 'brainstrike_listEmbeddingSpaces').execute(
