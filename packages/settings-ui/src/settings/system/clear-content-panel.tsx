@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@brainstrike/ui';
 import { startTransition, useActionState, useState } from 'react';
+import { reloadThroughLifecycle } from './reload-through-lifecycle';
 
 const logger = createLogger('ClearContentPanel');
 
@@ -21,23 +22,6 @@ export interface ClearContentProps {
   readonly prepare: () => Promise<void>;
   /** Retires the renderer's thread and group stores. */
   readonly retireContent: () => void;
-}
-
-/**
- * Preparation is terminal for this renderer: once it has started, a failure can
- * only end in a reload through the lifecycle, the same path as Factory Reset.
- */
-async function reloadAfterFailedClear(): Promise<void> {
-  try {
-    await (
-      window as Window & {
-        desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
-      }
-    ).desktopLifecycle?.noteReloadIntent('content-clear-failed-after-preparation');
-  } catch (error) {
-    logger.error('Failed to record the content clear reload intent', { error });
-  }
-  window.location.reload();
 }
 
 /** Deletes the profile's content through Main's content clear; configuration stays. */
@@ -87,7 +71,7 @@ export function ClearContentPanel({ clearContent, prepare, retireContent }: Clea
             {failed ? (
               <Button
                 onClick={() => {
-                  void reloadAfterFailedClear();
+                  void reloadThroughLifecycle('content-clear-failed-after-preparation', logger);
                 }}
                 type="button"
               >

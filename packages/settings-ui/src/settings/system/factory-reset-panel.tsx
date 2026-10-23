@@ -7,6 +7,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { Button, Label } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
+import { reloadThroughLifecycle } from './reload-through-lifecycle';
 
 const logger = createLogger('FactoryResetPanel');
 
@@ -14,18 +15,6 @@ type DesktopResetBridge = () => Promise<{ message?: string; success: boolean }>;
 interface DesktopResetCapability {
   readonly resetLocal?: DesktopResetBridge;
   readonly unavailableReason?: string;
-}
-
-async function requestFactoryResetReload(reason: string): Promise<void> {
-  try {
-    const currentWindow = window as Window & {
-      desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
-    };
-    await currentWindow.desktopLifecycle?.noteReloadIntent(reason);
-    window.location.reload();
-  } catch {
-    /* swallow reload errors; UI may still be in a reset state */
-  }
 }
 
 function getDesktopResetCapability(): DesktopResetCapability | undefined {
@@ -96,12 +85,12 @@ export function FactoryResetPanel() {
       // Clear CacheStorage while the live renderer still owns its backing store.
       await runDesktopFactoryReset(desktopResetBridge);
       // Ensure a full reload so the renderer boots cleanly.
-      await requestFactoryResetReload('factory-reset');
+      await reloadThroughLifecycle('factory-reset', logger);
     } catch (err) {
       logger.error('Factory reset failed after renderer reset preparation began', {
         error: err,
       });
-      await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
+      await reloadThroughLifecycle('factory-reset-failed-after-renderer-clear', logger);
     }
   }, []);
 
