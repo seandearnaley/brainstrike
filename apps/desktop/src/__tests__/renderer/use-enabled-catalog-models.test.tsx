@@ -17,18 +17,6 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useEnabledCatalogModels } from '../../renderer/use-enabled-catalog-models';
 
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: () => 'unused',
-  usePGliteDatabase: (options?: { enabled?: boolean }) => {
-    if (options?.enabled !== false) {
-      throw new Error('Desktop model selection must not initialize PGlite');
-    }
-    return null;
-  },
-  usePGliteLiveQuery: () => {
-    throw new Error('Desktop model selection must not query PGlite');
-  },
-}));
 const initial = projectModelCatalog({ models: [], providers: [] });
 const model = initial.models.find((row) => row.providerId === 'openai');
 if (!model) {

@@ -1,10 +1,22 @@
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
 
-/** Current desktop proof: real TEXT chunks plus independently committed imported bytes. */
+const MARKER = 'Native reset indexed marker';
+
+type IndexHooks = typeof globalThis & {
+  readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+};
+
+/** The indexed probe file's identity. */
+export interface NativeResetProbe {
+  readonly indexedFileId: string;
+}
+
+/** Current desktop proof: a real folder's file, indexed and found by text search. */
 export async function seedNativeResetProbe(
   page: Page,
   workspacePath: string
-): Promise<{ indexedFileId: string; importedFileId: string }> {
+): Promise<NativeResetProbe> {
   const { writeFile } = await import('node:fs/promises');
   const { join } = await import('node:path');
   const { expect } = await import('@playwright/test');
@@ -13,11 +25,7 @@ export async function seedNativeResetProbe(
   if (!workspacePath) {
     throw new Error('Disposable workspace path is required');
   }
-  await writeFile(
-    join(workspacePath, 'reset-indexed-probe.txt'),
-    'Native reset indexed marker.\n',
-    'utf8'
-  );
+  await writeFile(join(workspacePath, 'reset-indexed-probe.txt'), `${MARKER}.\n`, 'utf8');
   // Settle the fresh profile's first Text generation before adding the folder: one still
   // opening can lease the new folder and publish its chunks, and the folder's own
   // registration then opens the next generation, which refuses reads (BST-2152).
@@ -29,106 +37,69 @@ export async function seedNativeResetProbe(
   await expect
     .poll(() => textReadiness(page), { timeout: 60_000 })
     .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
-  return await page.evaluate(async () => {
-    const files = window.sourceFiles;
-    if (!files) {
-      throw new Error('Canonical source capability missing');
+  return await page.evaluate(async (marker) => {
+    const capability = (globalThis as IndexHooks).__brainstrikeTestHooks__?.indexSearch;
+    if (!capability) {
+      throw new Error('The index search capability is unavailable.');
     }
-    const indexed = (
-      await files.list().then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      })
-    ).find((file) => file.fileName === 'reset-indexed-probe.txt');
-    if (!indexed) {
-      throw new Error('Actual indexed source missing');
+    const status = await capability.status();
+    if (status.kind !== 'ready') {
+      throw new Error(status.reason);
     }
-    const chunks = await files
-      .chunks({ fileId: indexed.fileId, limit: 100, offset: 0 })
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      });
-    if (
-      chunks.kind !== 'available' ||
-      chunks.total === 0 ||
-      !chunks.chunks.some((chunk) => chunk.content.includes('Native reset indexed marker'))
-    ) {
-      throw new Error('Actual native reset probe chunks unavailable');
-    }
-    const content = 'Canonical imported reset marker';
-    const imported = await files
-      .import({
-        embeddingSetId: null,
-        files: [
-          {
-            content,
-            name: 'reset-imported-probe.txt',
-            path: 'reset-imported-probe.txt',
-            size: content.length,
-          },
-        ],
-      })
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      });
-    const receipt = imported.items[0];
-    if (!receipt?.imported) {
-      throw new Error('Imported reset probe was not committed');
-    }
-    // Import returns committed metadata. Read the same canonical ID to prove
-    // the bytes survived the existing source/blob writer, rather than assuming
-    // metadata receipts carry the content payload.
-    const persisted = await files.read([receipt.file.fileId], content.length).then((result) => {
-      if (!result.ok) {
-        throw new Error(result.error.message);
-      }
-      return result.value;
+    const result = await capability.search({
+      limit: 10,
+      mode: 'bm25',
+      rootIds: [...status.authorizedRootIds],
+      text: marker,
     });
-    if (
-      persisted.length !== 1 ||
-      persisted[0]?.fileId !== receipt.file.fileId ||
-      persisted[0]?.content !== content
-    ) {
-      throw new Error('Imported reset probe content was not retained by its canonical ID');
+    const hit = result.hits.find(
+      (candidate) =>
+        candidate.relativePath === 'reset-indexed-probe.txt' && candidate.content.includes(marker)
+    );
+    if (!hit) {
+      throw new Error('Text search did not find the indexed reset probe');
     }
-    // Unassigned imports remain retained/pending; no fabricated embedding job or chunk.
-    if (imported.indexing.kind !== 'pending') {
-      throw new Error('Unassigned import incorrectly claimed indexing');
-    }
-    return { importedFileId: receipt.file.fileId, indexedFileId: indexed.fileId };
-  });
+    return { indexedFileId: hit.fileId };
+  }, MARKER);
 }
 
+/** The index's folders, and whether its search still finds the probe file. */
 export async function readNativeResetProbe(
   page: Page,
-  probe: { indexedFileId: string; importedFileId: string }
-): Promise<{ files: number; retainedProbeIds: string[] }> {
-  return await page.evaluate(async (ids) => {
-    const source = window.sourceFiles;
-    if (!source) {
-      throw new Error('Canonical source capability missing');
-    }
-    const listed = await source.list().then((result) => {
-      if (!result.ok) {
-        throw new Error(result.error.message);
+  probe: NativeResetProbe
+): Promise<{ folders: number; retainedProbeIds: string[] }> {
+  const { expect } = await import('@playwright/test');
+  const { nativeStatus } = await import('./text-search-mode');
+  await expect.poll(async () => (await nativeStatus(page)).kind, { timeout: 60_000 }).toBe('ready');
+  return await page.evaluate(
+    async ({ indexedFileId, marker }) => {
+      const capability = (globalThis as IndexHooks).__brainstrikeTestHooks__?.indexSearch;
+      if (!capability) {
+        throw new Error('The index search capability is unavailable.');
       }
-      return result.value;
-    });
-    // read() requires existing canonical IDs; deletion is proved by the full
-    // authoritative inventory, not a read of identities that no longer exist.
-    return {
-      files: listed.length,
-      retainedProbeIds: listed
-        .filter((file) => file.fileId === ids.indexedFileId || file.fileId === ids.importedFileId)
-        .map((file) => file.fileId),
-    };
-  }, probe);
+      const status = await capability.status();
+      if (status.kind !== 'ready') {
+        throw new Error(status.reason);
+      }
+      // With no folder there is nothing to search: the index holds no files.
+      if (status.authorizedRootIds.length === 0) {
+        return { folders: 0, retainedProbeIds: [] };
+      }
+      const result = await capability.search({
+        limit: 10,
+        mode: 'bm25',
+        rootIds: [...status.authorizedRootIds],
+        text: marker,
+      });
+      return {
+        folders: status.authorizedRootIds.length,
+        retainedProbeIds: [
+          ...new Set(
+            result.hits.filter((hit) => hit.fileId === indexedFileId).map((hit) => hit.fileId)
+          ),
+        ],
+      };
+    },
+    { indexedFileId: probe.indexedFileId, marker: MARKER }
+  );
 }

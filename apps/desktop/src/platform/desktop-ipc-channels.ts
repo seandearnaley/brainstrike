@@ -37,15 +37,6 @@ export const DESKTOP_IPC_CHANNELS = {
   clipboard: {
     writeText: 'clipboard:write-text',
   },
-  collectionCatalog: {
-    create: 'collection-catalog:create',
-    delete: 'collection-catalog:delete',
-    ensureWorkspaceIndex: 'collection-catalog:ensure-workspace-index',
-    get: 'collection-catalog:get',
-    list: 'collection-catalog:list',
-    snapshot: 'collection-catalog:snapshot',
-    update: 'collection-catalog:update',
-  },
   commandPalette: {
     // One-way main→renderer push: the app menu's Cmd+K accelerator triggers
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
@@ -233,13 +224,6 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   skills: {
     scan: 'skills:scan',
-  },
-  sourceFiles: {
-    chunks: 'source-files:chunks',
-    delete: 'source-files:delete',
-    import: 'source-files:import',
-    list: 'source-files:list',
-    read: 'source-files:read',
   },
   storage: {
     clear: 'storage:clear',

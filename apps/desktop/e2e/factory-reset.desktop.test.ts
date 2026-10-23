@@ -258,9 +258,10 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
     );
     const resetProbe = await seedNativeResetProbe(window, workspacePath);
-    expect((await readNativeResetProbe(window, resetProbe)).retainedProbeIds.sort()).toEqual(
-      [resetProbe.indexedFileId, resetProbe.importedFileId].sort()
-    );
+    expect(await readNativeResetProbe(window, resetProbe)).toEqual({
+      folders: 1,
+      retainedProbeIds: [resetProbe.indexedFileId],
+    });
 
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
@@ -309,7 +310,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const { waitForAppReady: waitForResetRenderer } = await loadElectronHelpers();
     await waitForResetRenderer(window);
     expect(await readNativeResetProbe(window, resetProbe)).toEqual({
-      files: 0,
+      folders: 0,
       retainedProbeIds: [],
     });
     window.off('console', recordError);
@@ -323,7 +324,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const { waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(restartedWindow);
     expect(await readNativeResetProbe(restartedWindow, resetProbe)).toEqual({
-      files: 0,
+      folders: 0,
       retainedProbeIds: [],
     });
 

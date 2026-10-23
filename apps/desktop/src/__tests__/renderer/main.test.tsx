@@ -128,8 +128,6 @@ describe('renderer main entry', () => {
       },
     } as never;
     window.modelCatalog = { read: vi.fn() } as never;
-    window.collectionCatalog = { snapshot: vi.fn() } as never;
-    window.sourceFiles = { chunks: vi.fn(), list: vi.fn(), read: vi.fn() } as never;
     window.viewFilterPresets = { request: vi.fn() };
     window.threadGroups = { readRoots: vi.fn(), request: vi.fn() };
     window.promptLibrary = { request: vi.fn() };

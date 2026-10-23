@@ -59,7 +59,6 @@ import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { closeDesktopRenderers } from './close-desktop-renderers';
-import { createDesktopCollectionCatalog } from './collection-catalog';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { joinProfileDirectory } from './database-location';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
@@ -130,7 +129,6 @@ import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery'
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
-import { registerCollectionCatalogIpc } from './ipc-collection-catalog';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
@@ -153,7 +151,6 @@ import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
 import { registerSkillsIpcHandlers } from './ipc-skills';
-import { registerSourceFilesIpc } from './ipc-source-files';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -203,8 +200,6 @@ import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
-import { createSourceChunkReader } from './source-file-chunks';
-import { createDesktopSourceFiles } from './source-files';
 import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
@@ -983,35 +978,6 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
   resume: () => nativeIndexActivation.resume(),
   stopSources: () => nativeIndexActivation.stopSources(),
 });
-const collectionCatalog = createDesktopCollectionCatalog({
-  deleteCollection: (id, commit) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupCollection(id);
-      const deleted = await commit();
-      // Resume reopens from saved settings: a deleted saved selection stays an explicit
-      // lifecycle refusal until the user chooses again.
-      await nativeIndexActivation.resume();
-      return deleted;
-    }),
-  native: () => nativeIndexSearch,
-  store: workspaceRootCatalog,
-});
-ipcDisposers.add('collection-catalog', registerCollectionCatalogIpc(collectionCatalog));
-const sourceFiles = createDesktopSourceFiles({
-  catalog: workspaceRootCatalog,
-  publishSources: (partition) => nativeIndexActivation.publishImportedSources(partition),
-  readChunks: createSourceChunkReader({
-    catalog: workspaceRootCatalog,
-    withRead: nativeIndexActivation.withRead,
-  }),
-  removeSources: (files) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupFiles(files);
-      await workspaceRootCatalog.sourceCatalog({ files, operation: 'remove' });
-      await nativeIndexActivation.resume();
-    }),
-});
-ipcDisposers.add('source-files', registerSourceFilesIpc(sourceFiles));
 
 const nativeIndexSearch = createNativeScopedSearchCapability({
   openQuery: openIndexQuery,

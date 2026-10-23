@@ -31,8 +31,6 @@ export type DesktopIpcDomain =
   | 'hooks'
   | 'logging'
   | 'mcp'
-  | 'collectionCatalog'
-  | 'sourceFiles'
   | 'modelCatalog'
   | 'preferences'
   | 'runtime'

@@ -927,9 +927,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   return {
     ...createNativeIndexContentOperations({
-      acquire,
       assertCurrent,
-      captureSettings,
       closeNativeOwner: () => dispatch({ kind: 'terminal', reason: 'root-data-deletion' }),
       closeOwned,
       getGraph: () => graph,
