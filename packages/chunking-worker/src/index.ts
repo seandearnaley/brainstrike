@@ -21,21 +21,13 @@ export type {
 // globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ (Phase 8 of #998).
 export { resolveBootstrapTreeSitterLanguages } from './parsers/tree-sitter-rollout';
 export type { ChunkSkipCode, PortableChunkingResult } from './portable-chunking';
-// Re-export portable chunking for direct usage (if needed outside worker)
+// Re-export portable chunking for direct usage
 export { chunkContent } from './portable-chunking';
 // Re-export shared types
 export type {
-  ChunkBatchRequest,
-  ChunkError,
   ChunkingRequestOptions,
   ChunkingStrategy,
-  ChunkProgress,
-  ChunkRequest,
   ChunkResult,
   ChunkType,
   PortableChunk,
-  WorkerLog,
-  WorkerReady,
-  WorkerRequest,
-  WorkerResponse,
 } from './shared';

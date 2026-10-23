@@ -1,6 +1,6 @@
 {
   "name": "@brainstrike/chunking-worker",
-  "description": "Web Worker for off-main-thread file chunking with AST-aware code splitting and token counting.",
+  "description": "Portable canonical chunking algorithm (AST-aware code splitting and token counting), executed by @brainstrike/chunking-worker/node.",
   "version": "0.1.0",
   "//web-tree-sitter": "Exact pin qualified for the canonical Python 0.25.0 grammar. Native Parser/Language/Query APIs and renamed web-tree-sitter.wasm assets are tested through real worker and Node owners. Upstream recovery issue 5910 remains reproducible with JSON 0.24.8, which this runtime does not route; do not expand grammars or advance this pin without rechecking the applicable recovery/source-range and CSP/asset gates. No upstream fix is claimed.",
   "dependencies": {

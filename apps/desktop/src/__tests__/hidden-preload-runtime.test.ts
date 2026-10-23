@@ -168,7 +168,7 @@ describe('hidden preload runtime capability manifest', () => {
     ['an unsupported role', [`${ROLE_ARGUMENT_PREFIX}visible-ui`]],
     [
       'duplicate roles',
-      [`${ROLE_ARGUMENT_PREFIX}embedding-host`, `${ROLE_ARGUMENT_PREFIX}chunking-host`],
+      [`${ROLE_ARGUMENT_PREFIX}embedding-host`, `${ROLE_ARGUMENT_PREFIX}embedding-host`],
     ],
   ] as const)('fails closed for %s', async (_description, roleArguments) => {
     await expect(loadHiddenPreload(roleArguments)).rejects.toThrow(
