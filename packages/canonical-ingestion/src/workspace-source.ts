@@ -29,10 +29,6 @@ interface SourceRun {
   readonly nodes: ReadonlyMap<string, IFileNode>;
   readonly request: CanonicalScanRequest;
 }
-interface PendingOperation {
-  readonly promise: Promise<unknown>;
-  readonly signal: AbortSignal;
-}
 const incomplete: CanonicalDiscoveryCompletion = {
   errors: [],
   full: false,
@@ -42,7 +38,7 @@ const incomplete: CanonicalDiscoveryCompletion = {
 /** Utility-owned orchestration over a borrowed main mount and authoritative PG inventory. */
 export class CanonicalWorkspaceSource implements CanonicalSourcePort {
   private readonly stopping = new AbortController();
-  private readonly pending = new Set<PendingOperation>();
+  private readonly pending = new Set<Promise<unknown>>();
   private readonly iterators = new Set<ReturnType<CanonicalSourcePort['discover']>>();
   private readonly runs = new Map<string, SourceRun>();
   private readonly subscriptions = new Set<CanonicalSourceSubscription>();
@@ -295,14 +291,13 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
   ): Promise<T> {
     context.signal.throwIfAborted();
     const promise = operation();
-    const pending = { promise, signal: context.signal };
-    this.pending.add(pending);
+    this.pending.add(promise);
     try {
       const value = await promise;
       context.signal.throwIfAborted();
       return value;
     } finally {
-      this.pending.delete(pending);
+      this.pending.delete(promise);
     }
   }
 
@@ -324,24 +319,19 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
     }
   }
 
+  /**
+   * Work this close cancelled settles first, however it ends: its callers own its outcome. Only
+   * what this source owns failing to close fails the retirement.
+   */
   private async retire(): Promise<void> {
-    const pending = [...this.pending];
-    const results = await Promise.allSettled(pending.map((operation) => operation.promise));
+    await Promise.allSettled(this.pending);
     const errors: unknown[] = [];
-    results.forEach((result, index) => {
-      const signal = pending[index]?.signal;
-      if (result.status === 'rejected' && !isExpectedAbort(result.reason, signal)) {
-        errors.push(result.reason);
-      }
-    });
     for (const iterator of this.iterators) {
       try {
         await iterator.return(incomplete);
         this.iterators.delete(iterator);
       } catch (error) {
-        if (!isExpectedAbort(error, this.stopping.signal)) {
-          errors.push(error);
-        }
+        errors.push(error);
       }
     }
     for (const subscription of this.subscriptions) {
@@ -358,11 +348,4 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
     await this.dependencies.lease?.retire();
     this.retired = true;
   }
-}
-
-function isExpectedAbort(error: unknown, signal?: AbortSignal): boolean {
-  return (
-    signal?.aborted === true &&
-    (error === signal.reason || (error instanceof Error && error.name === 'AbortError'))
-  );
 }

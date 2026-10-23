@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
+  debug: vi.fn(),
   destroy: vi.fn(),
   fence: vi.fn(),
   manager: {
@@ -44,6 +45,16 @@ const mocks = vi.hoisted(() => ({
   },
   readyPort: vi.fn(),
 }));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const logging = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...logging,
+    createLogger: (scope: string) =>
+      scope === 'NativeIndexActivation'
+        ? { ...logging.createLogger(scope), debug: mocks.debug }
+        : logging.createLogger(scope),
+  };
+});
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -345,31 +356,36 @@ it.each([
     collectionRelease.resolve();
     const outcome = await settled;
     await startup;
+    // The retired generation's collection scan ended superseded: its outcome is logged at debug.
+    expect(mocks.debug).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ error: expect.anything(), generation: expect.any(Number) })
+    );
     const reply = replies
       .map(decodeCanonicalFrame)
       .find(
         (frame) => frame.kind === 'result' && frame.id === queuedId && frame.owner === queuedOwner
       );
-    if (failure || failedWatch) {
+    if (failure) {
+      // The work this retirement cancelled ended on its own failure: Main still answers it with
+      // that failure, and the retirement does not fail with it.
+      expect(reply).toMatchObject({
+        error: { message: failure.message },
+        kind: 'result',
+        ok: false,
+      });
+      expect(reply).not.toHaveProperty('cancelled', true);
+    } else {
+      expect(reply).toMatchObject({ cancelled: true, kind: 'result', ok: false });
+    }
+    if (failedWatch) {
+      // A watch that does not close keeps the retirement failed until an explicit retry.
       expect(outcome).toMatchObject({ ok: false });
-      if (failure) {
-        expect(reply).toMatchObject({
-          error: { message: failure.message },
-          kind: 'result',
-          ok: false,
-        });
-        expect(reply).not.toHaveProperty('cancelled', true);
-      } else {
-        expect(reply).toMatchObject({ cancelled: true, kind: 'result', ok: false });
-      }
       expect(mocks.close).not.toHaveBeenCalled();
       expect(mocks.closeProfile).not.toHaveBeenCalled();
       await activation.close();
     } else {
-      expect({ outcome, reply }).toEqual({
-        outcome: { ok: true },
-        reply: expect.objectContaining({ cancelled: true, kind: 'result', ok: false }),
-      });
+      expect(outcome).toEqual({ ok: true });
     }
     expect(onReceipt).toHaveBeenCalledOnce();
     expect(verify).toHaveBeenCalledTimes(verificationCalls);

@@ -15,6 +15,7 @@ import {
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
+import { createLogger } from '@brainstrike/logging';
 import type { CanonicalRemoteIngestion } from './canonical-utility-parent';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { generateHostedEmbeddings } from './hosted-embeddings';
@@ -78,6 +79,7 @@ function unconfiguredReason(state: Extract<NativeIndexState, { kind: 'unconfigur
     ? stateError(state)
     : (state.cause.error ?? new Error(state.cause.message));
 }
+const logger = createLogger('NativeIndexActivation');
 
 /** Desktop main's actual catalog/grant/inference callbacks; the utility owns parsing and scans. */
 export function createNativeIndexActivation(dependencies: Dependencies) {
@@ -254,9 +256,15 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     assertCurrent(current);
     if (!settings.paused) {
       admitSources(current, port).then(failures.started, (error: unknown) => {
-        if (!(current.controller.signal.aborted || current.settings.paused)) {
-          failures.record(current.generation, error, true);
+        if (current.controller.signal.aborted || current.settings.paused) {
+          // Superseded, its collection scan included: the next generation redoes the work.
+          logger.debug('A retired native ingestion generation ended with an error', {
+            error,
+            generation: current.generation,
+          });
+          return;
         }
+        failures.record(current.generation, error, true);
       });
     }
   };

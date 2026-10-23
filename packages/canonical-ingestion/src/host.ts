@@ -8,6 +8,7 @@ import {
   type VectorProfile,
   vectorProfileHash,
 } from '@brainstrike/indexer/browser';
+import { createLogger } from '@brainstrike/logging';
 import { sha256Hex } from '@brainstrike/utils/crypto';
 import { CanonicalOperationCancelledError } from './cancellation.js';
 import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
@@ -45,6 +46,7 @@ import {
  * (BST-2055). This many reads of the pair that all straddled a move fail.
  */
 const VECTOR_PROOF_READS = 5;
+const logger = createLogger('CanonicalIngestionHost');
 
 /** An owned, physically settled scan whose source proof is incomplete. */
 export class CanonicalScanIncompleteError extends Error {
@@ -56,7 +58,6 @@ export class CanonicalScanIncompleteError extends Error {
 
 interface ActiveScan {
   readonly controller: AbortController;
-  error: unknown;
   readonly requestId: string;
   readonly settled: Promise<void>;
 }
@@ -160,13 +161,10 @@ export class CanonicalIngestionHost {
     );
     const active: ActiveScan = {
       controller,
-      error: undefined,
       requestId: request.requestId,
       settled: run.then(
         () => {},
-        (error: unknown) => {
-          active.error = error;
-        }
+        () => {}
       ),
     };
     this.active = active;
@@ -179,6 +177,7 @@ export class CanonicalIngestionHost {
     }
   }
 
+  /** Settles once the cancelled scan has ended, however it ends: the scan's caller owns that. */
   async cancel(requestId: string): Promise<void> {
     const active = this.active;
     if (!active || active.requestId !== requestId) {
@@ -186,22 +185,14 @@ export class CanonicalIngestionHost {
     }
     active.controller.abort(new CanonicalOperationCancelledError('Canonical scan cancelled.'));
     await active.settled;
-    // The scan ends as its cancellation either way: on this abort, or on a port operation its
-    // owner cancelled while retiring the same attachment (BST-2140). Any other error stays.
-    if (active.error !== undefined && !(active.error instanceof CanonicalOperationCancelledError)) {
-      throw active.error;
-    }
   }
 
+  /** Fails only when what it owns does not close: retained inference or its source. */
   async close(): Promise<void> {
     this.closed = true;
     const errors: unknown[] = [];
     if (this.active) {
-      try {
-        await this.cancel(this.active.requestId);
-      } catch (error) {
-        errors.push(error);
-      }
+      await this.cancel(this.active.requestId);
     }
     if (this.dependencies.mode === 'VECTOR') {
       for (const requestId of this.inferenceRequests) {
@@ -245,6 +236,11 @@ export class CanonicalIngestionHost {
     if (ticket.requestId !== request.requestId || !sameScope(ticket.scope, request.scope)) {
       throw new Error('Canonical scan ticket differs from its requested authority.');
     }
+    // The ticket is the publication's, not this host's. Its finish releases it on every outcome,
+    // an abort only marks it aborted, and a notice for a ticket already released refuses without
+    // holding anything. So a failed abort or finish notice of a cancelled scan is that scan's
+    // outcome alone, never an owned resource left open. The publication belongs to Main's index
+    // generation and the scan admission to its sources generation; both are replaced with them.
     let abortFailure: unknown;
     let abortNotice: Promise<void> | undefined;
     const abort = (): void => {
@@ -747,8 +743,10 @@ export class CanonicalIngestionHost {
       }
       context.signal.removeEventListener('abort', abort);
     }
-    // The inference owner alone recognizes its exact cancellation reason. Its
-    // joined disposition must rethrow independent faults, including AbortError.
+    // The scan was cancelled, and the generation's own failure is the only error: its cancel
+    // (sent on the scan's abort, or after that failure) and its join both settled. It ends as the
+    // scan's cancellation, which its callers type; how it ended is logged here once. A failed
+    // cancel or join stays a failure of its own.
     if (
       context.signal.aborted &&
       generationFailed &&
@@ -756,6 +754,10 @@ export class CanonicalIngestionHost {
       inferenceJoined &&
       errors.length === 1
     ) {
+      logger.debug('A cancelled scan reports its generation as its cancellation', {
+        error: errors[0],
+        requestId,
+      });
       errors[0] = context.signal.reason;
     }
     const unique = [...new Set(errors)];

@@ -18,6 +18,10 @@ const request: CanonicalScanRequest = {
   scope: { kind: 'workspace', rootId: 'root' },
 };
 const context = { requestId: 'scan', signal: new AbortController().signal };
+/** The typed transition as another bundle's copy of its class declares it: same name, other class. */
+class TransitionCopy extends Error {
+  override readonly name = 'NativeAuthorityTransitionError';
+}
 function file(relativePath: string, fileId: string): CanonicalSourceFile {
   return {
     embeddingSetId: 'set',
@@ -220,6 +224,45 @@ describe('canonical workspace source', () => {
     await closing;
     expect(borrowed.retire).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['a plain error', () => new Error('Mounted read failed.')],
+    ["another bundle's copy of the typed transition", () => new TransitionCopy('Lease retired.')],
+    ['an abort', () => new DOMException('Read aborted.', 'AbortError')],
+  ])(
+    'close retires its borrow once a read it cancelled settles with %s',
+    async (_shape, failure) => {
+      let fail: ((error: unknown) => void) | undefined;
+      const held = new Promise<never>((_resolve, reject) => {
+        fail = reject;
+      });
+      const borrowed = lease({ readFile: vi.fn(() => held) });
+      const source = new CanonicalWorkspaceSource({
+        indexingPolicyPreset: 'balanced',
+        inventory: { loadFiles: vi.fn(async () => []), readRetained: vi.fn() },
+        lease: borrowed,
+      });
+      const iterator = source.discover(request, context);
+      const next = await iterator.next();
+      if (next.done || !next.value.discovered?.[0]) {
+        throw new Error('Expected real discovery');
+      }
+      const reading = source.read(next.value.discovered[0], 4, context).catch((error) => error);
+      await vi.waitFor(() => expect(borrowed.readFile).toHaveBeenCalledOnce());
+      let closed = false;
+      const closing = source.close().then(() => {
+        closed = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(closed).toBe(false);
+      const error = failure();
+      fail?.(error);
+      await expect(closing).resolves.toBeUndefined();
+      expect(borrowed.retire).toHaveBeenCalledOnce();
+      // The read's own caller still learns how it ended.
+      expect(await reading).toBe(error);
+    }
+  );
 
   it('joins revoked listing work and never loads catalog rows after revocation', async () => {
     const revoked = new AbortController();

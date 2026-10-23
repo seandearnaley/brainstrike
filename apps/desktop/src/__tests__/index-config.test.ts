@@ -86,6 +86,28 @@ describe('Main search index config', () => {
     expect(dependencies.reconfigure).not.toHaveBeenCalled();
   });
 
+  it('refuses a chunking change while search is off and saves nothing', async () => {
+    const off = { ...DEFAULT_INDEX_CONFIG, mode: 'off' } as const;
+    const { dependencies, owner, saved } = harness(off);
+    await expect(
+      owner.update({ chunking: { _tag: 'Custom', maxTokens: 768, overlap: 64 } })
+    ).rejects.toMatchObject({
+      _tag: 'IndexConfigRefused',
+      message: 'Turn search on before changing chunking.',
+    });
+    expect(saved()).toEqual(off);
+    expect(dependencies.publish).not.toHaveBeenCalled();
+    expect(dependencies.rebuild).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds when search turns on with new chunking in one change', async () => {
+    const chunking = { _tag: 'Custom', maxTokens: 768, overlap: 64 } as const;
+    const { dependencies, owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, mode: 'off' });
+    await owner.update({ chunking, mode: 'text' });
+    expect(saved()).toMatchObject({ chunking, mode: 'text' });
+    expect(dependencies.rebuild).toHaveBeenCalledOnce();
+  });
+
   it('replaces the old vector space when the model changes', async () => {
     const { dependencies, owner } = harness(
       { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model: MODEL },
@@ -122,6 +144,82 @@ describe('Main search index config', () => {
     const second = owner.update({ worktrees: { c: true } });
     await Promise.all([first, second]);
     expect(saved()?.worktrees).toEqual({ a: true, b: true, c: true });
+  });
+
+  it('finishes a model change while a factory reset publishes the saved config', async () => {
+    const { dependencies, owner } = harness(
+      { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model: MODEL },
+      [space(MODEL)]
+    );
+    const replacing = Promise.withResolvers<void>();
+    const published = Promise.withResolvers<void>();
+    // The reset holds the transition queue, so the replacement runs only after its publish.
+    dependencies.replaceVectorSpace.mockImplementationOnce(async () => {
+      replacing.resolve();
+      await published.promise;
+    });
+    const change = owner.update({ model: OTHER });
+    await replacing.promise;
+    const publish = owner.publishSaved().finally(() => published.resolve());
+    await expect(Promise.all([change, publish])).resolves.toMatchObject([
+      { model: OTHER },
+      { model: OTHER },
+    ]);
+  });
+
+  it('applies a save made during a model change after the replacement', async () => {
+    const { dependencies, owner, saved } = harness(
+      { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model: MODEL },
+      [space(MODEL)]
+    );
+    // The native owner's FIFO: each apply runs after the one queued before it.
+    const applied: string[] = [];
+    let queue = Promise.resolve();
+    const enqueue = (name: string, work: () => Promise<void>) => {
+      const run = queue.then(work).then(() => {
+        applied.push(name);
+      });
+      queue = run.catch(() => undefined);
+      return run;
+    };
+    const replacing = Promise.withResolvers<void>();
+    const replaced = Promise.withResolvers<void>();
+    dependencies.replaceVectorSpace.mockImplementationOnce(() =>
+      enqueue('model change', async () => {
+        replacing.resolve();
+        await replaced.promise;
+      })
+    );
+    // The old space is still listed while it is removed, so the Pause's apply removes it again
+    // (nothing left to remove) and reopens from the saved config.
+    dependencies.replaceVectorSpace.mockImplementationOnce(() =>
+      enqueue(`pause ${saved()?.paused}`, async () => {})
+    );
+    const change = owner.update({ model: OTHER });
+    await replacing.promise;
+    // A Pause saved meanwhile is saved at once; its apply waits behind the replacement.
+    const pause = owner.update({ paused: true });
+    await vi.waitFor(() => expect(saved()).toMatchObject({ model: OTHER, paused: true }));
+    expect(applied).toEqual([]);
+    replaced.resolve();
+    await expect(Promise.all([change, pause])).resolves.toMatchObject([
+      { model: OTHER },
+      { model: OTHER, paused: true },
+    ]);
+    expect(applied).toEqual(['model change', 'pause true']);
+  });
+
+  it('shows a model change the index could not apply', async () => {
+    const { dependencies, owner, saved } = harness(
+      { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model: MODEL },
+      [space(MODEL)]
+    );
+    dependencies.replaceVectorSpace.mockRejectedValueOnce(new Error('host stopped'));
+    await expect(owner.update({ model: OTHER })).rejects.toMatchObject({
+      _tag: 'IndexConfigApplyFailed',
+      message: "The previous model's vectors could not be removed.",
+    });
+    expect(saved()).toMatchObject({ model: OTHER });
   });
 
   it('saves nothing when a change is refused', async () => {

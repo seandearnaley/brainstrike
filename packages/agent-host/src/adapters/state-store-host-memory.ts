@@ -85,6 +85,54 @@ function withholdsObservation(
   return committedThreadBranches(rows, runId);
 }
 
+/** Whether recall reached a committed turn: its question, or any row of its run. */
+function recallReaches(
+  rows: readonly HostLogRow[],
+  recalled: ReadonlySet<string>,
+  runId: string,
+  userMessageId: string
+): boolean {
+  return (
+    recalled.has(userMessageId) ||
+    rows.some(
+      (row) =>
+        'runId' in row.event && row.event.runId === runId && recalled.has(committedRowAddress(row))
+    )
+  );
+}
+
+/** A committed run's answer: its last assistant text, without the tool exchange before it. */
+function committedRunAnswer(
+  rows: readonly HostLogRow[],
+  threadId: string,
+  runId: string
+): ModelMessage[] {
+  for (const row of rows.toReversed()) {
+    const event = row.event;
+    if (
+      row.threadId !== threadId ||
+      (event.type !== 'model.step' && event.type !== 'model.messages') ||
+      event.runId !== runId
+    ) {
+      continue;
+    }
+    for (const message of event.messages.toReversed()) {
+      const parsed = modelMessageSchema.parse(message);
+      if (parsed.role !== 'assistant') {
+        continue;
+      }
+      const text =
+        typeof parsed.content === 'string'
+          ? parsed.content
+          : parsed.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
+      if (text.trim().length > 0) {
+        return [{ content: [{ text, type: 'text' }], role: 'assistant' }];
+      }
+    }
+  }
+  return [];
+}
+
 /** This run's native Memory: without OM on a branched thread, with its reason committed. */
 async function selectRunMemory(
   native: StateStoreHostMemoryOptions['native'],
@@ -446,9 +494,6 @@ export class StateStoreHostMemory implements HostRunOwner {
     // window still follow each step.
     this.turnRecall ??= this.recallMessageIds(query);
     const recalled = await this.turnRecall;
-    for (const id of recalled) {
-      selected.add(id);
-    }
     // Active SDK messages retain their actual validated approval/runtime objects.
     // Public Memory selects previous committed turns, never reconstructs an
     // active call or changes the existing host approval occurrence.
@@ -521,14 +566,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       // window started inside an older turn. Its
       // assistant tail cannot be a standalone provider conversation. A semantic
       // hit anchors its actual committed turn; an ordinary history tail does not.
-      const recalledSegment =
-        recalled.size > 0 &&
-        rows.some(
-          (row) =>
-            'runId' in row.event &&
-            row.event.runId === previousRunId &&
-            recalled.has(committedRowAddress(row))
-        );
+      const recalledSegment = recallReaches(rows, recalled, previousRunId, previous.userMessageId);
       if (!(selected.has(previous.userMessageId) || recalledSegment)) {
         continue;
       }
@@ -548,6 +586,12 @@ export class StateStoreHostMemory implements HostRunOwner {
             selected.has(committedRowAddress(row))
         )
       ) {
+        // A turn reached only through recall brings its answer, never the tool
+        // exchange behind it: one hit on a long delegated run once carried that
+        // run's every step into a new thread.
+        if (recalledSegment) {
+          historical.push(...committedRunAnswer(rows, started.threadId, previousRunId));
+        }
         continue;
       }
       const committed = rows.flatMap((row) => {
