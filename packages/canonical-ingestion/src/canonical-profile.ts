@@ -1,5 +1,5 @@
-// A collection's vector profile and the inference that produces its vectors: desktop's native index and the
-// browser's index worker (BST-1940) embed through the same owners, each with its own transport.
+// A collection's vector profile and the inference that produces its vectors: desktop's native index embeds
+// through these owners.
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import {

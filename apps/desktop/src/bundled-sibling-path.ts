@@ -5,7 +5,7 @@ import path from 'node:path';
  * of the running bundled main-process module in `dist/` (see
  * `scripts/build-main-config.mjs`'s docblock: `bundle: true` means every
  * main-process entry point — main.js, main-watchdog-worker.js,
- * main-log-transport.js, db-host-entry.js — lands
+ * main-log-transport.js, indexer-host-entry.js — lands
  * directly in `dist/`, one file each, regardless of how Electron was
  * launched).
  *

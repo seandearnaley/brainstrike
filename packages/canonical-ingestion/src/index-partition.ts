@@ -1,6 +1,6 @@
 /**
  * The index's partition follows the saved choice (BST-1988), for desktop's
- * native index and the browser's file index alike (BST-1940). A saved
+ * native index. A saved
  * collection owns the workspace's sources in either mode. With none, TEXT is
  * the TEXT partition: workspace roots only, and sources with no embedding
  * set. Text search needs no model, so no collection is invented for it.

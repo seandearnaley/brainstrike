@@ -8,11 +8,9 @@
  * response payload interpretation, and any host-specific bookkeeping stay in
  * the adapter and reach the channel through the hooks below.
  *
- * Every host manager uses it: db, llm and embedding. The
- * hooks carry their host-specific needs: `onLateResponse` for the DB host's
- * abandoned-request ledger, `onAbort` for the llm host's pre-cancel ledger and
- * cancel-to-host, and `onTimeout`'s `terminate` policy for a transaction whose
- * connection cannot survive an abandoned statement.
+ * The embedding host manager uses it for its query, document, model-cache and
+ * WebGPU-adapter channels. The hooks carry its host-specific needs: `onAbort`
+ * and `onTimeout` send the cancel to the host.
  *
  * This module deliberately never imports Electron: managers are constructed at
  * module scope before `app.whenReady`, so the channel must be safe to build in

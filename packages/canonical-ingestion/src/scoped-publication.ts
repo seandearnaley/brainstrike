@@ -1,5 +1,5 @@
-// The scoped writer's publication receipts, as canonical ingestion earns them: desktop's native index and the
-// browser's index worker (BST-1940) publish through the same owner.
+// The scoped writer's publication receipts, as canonical ingestion earns them: desktop's native index publishes
+// through this owner.
 import type {
   IndexerPort,
   ScopedCoverage,
