@@ -744,7 +744,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const acquire = async (): Promise<IndexerPort & ScopedIndexerPort> => {
     const current = await currentReader(true);
-    await current.sources?.startup;
+    await current.sources?.startup?.catch((error: unknown) => {
+      // A generation its owner replaced or retired answers with that owner's typed reason; its
+      // sources' own rejection (a retired mount's abort) only echoes that retirement.
+      current.controller.signal.throwIfAborted();
+      throw error;
+    });
     assertCurrent(current);
     const state = await (await lifecycle).state();
     if (nativeIndexReadiness(state).kind !== 'ready') {

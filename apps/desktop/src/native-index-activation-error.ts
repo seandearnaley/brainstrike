@@ -1,8 +1,10 @@
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { isHostLeaseClosed, isRetirementRefusal } from './desktop-shutdown-state';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 import { indexConfigCause } from './native-index-boundary-failure';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
+import { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 
 /** An aggregated failure's inner error as the log keeps it, nested errors and cause included. */
 interface InnerError {
@@ -35,6 +37,21 @@ function innerError(error: unknown): InnerError {
   };
 }
 
+/**
+ * A generation a newer one replaced (`transitioning`), or one an owner closed: reset, terminal
+ * retirement, root-data deletion, profile retirement or shutdown (`closed`). Typed only by the
+ * lifecycle owner, so a failure of the current generation or an untyped error never matches.
+ */
+function isReplacedOrRetiredGeneration(error: unknown): boolean {
+  const kind =
+    error instanceof NativeIndexRefusalError
+      ? error.refusal.kind
+      : error instanceof NativeIndexEventRefusedError
+        ? error.cause.kind
+        : undefined;
+  return kind === 'transitioning' || kind === 'closed';
+}
+
 export function reportNativeIndexActivationError(
   message: string,
   error: unknown,
@@ -56,6 +73,13 @@ export function reportNativeIndexActivationError(
     (cause instanceof NativeAuthorityTransitionError || isRetirementRefusal(cause))
   ) {
     logger.info('Native index activation retired during shutdown', {
+      reason: cause instanceof Error ? cause.message : String(cause),
+    });
+    return;
+  }
+  if (isReplacedOrRetiredGeneration(cause)) {
+    // The owner's requested outcome happened; the current generation reports its own state.
+    logger.info('Native index generation replaced or retired', {
       reason: cause instanceof Error ? cause.message : String(cause),
     });
     return;

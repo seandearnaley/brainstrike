@@ -269,6 +269,19 @@ describe('main boot order', () => {
       await expect(applying).resolves.toBeUndefined();
       if (kind === 'none') {
         await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+      } else if (kind === 'typed') {
+        // A Pause its owner superseded is the requested outcome, not a failure.
+        await vi.waitFor(() =>
+          expect(requireMainLogger().info).toHaveBeenCalledWith(
+            'Native index generation replaced or retired',
+            { reason: failure.message }
+          )
+        );
+        expect(requireMainLogger().error).not.toHaveBeenCalledWith(
+          'Saved native index configuration could not activate',
+          expect.anything()
+        );
+        expect(reconfigure).not.toHaveBeenCalled();
       } else {
         await vi.waitFor(() =>
           expect(requireMainLogger().error).toHaveBeenCalledWith(

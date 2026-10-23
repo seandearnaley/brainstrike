@@ -6,6 +6,7 @@ import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
+import { NativeIndexEventRefusedError } from '../native-index-workflow-errors';
 
 it('reports a typed closing catalog refusal as retirement only during shutdown', () => {
   const logger = { error: vi.fn(), info: vi.fn() };
@@ -114,14 +115,48 @@ it('keeps an indexer utility exit outside shutdown a visible failure', () => {
 });
 
 it.each([
+  new NativeAuthorityTransitionError('Native source authority changed.'),
+  new NativeAuthorityTransitionError('Native owner terminal retirement requested.'),
+  new NativeIndexRefusalError(
+    { kind: 'closed', reason: 'reset' },
+    'Native index activation is closed for terminal retirement.'
+  ),
+  new NativeIndexRefusalError(
+    { kind: 'closed', reason: 'root-data-deletion' },
+    'Native index activation is closed for terminal retirement.'
+  ),
+  new NativeIndexEventRefusedError({
+    cause: { kind: 'closed', reason: 'shutdown' },
+    event: 'settings-unreadable',
+  }),
+])(
+  'reports a generation its owner replaced or retired at info, outside shutdown too: $message',
+  (error) => {
+    const logger = { error: vi.fn(), info: vi.fn() };
+    reportNativeIndexActivationError('Native index activation unavailable', error, false, logger);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith('Native index generation replaced or retired', {
+      reason: error.message,
+    });
+  }
+);
+
+it.each([
+  {
+    error: new NativeIndexEventRefusedError({
+      cause: { kind: 'source-failure', message: 'Native workspace scan failed.' },
+      event: 'rebuild',
+    }),
+    shuttingDown: false,
+  },
   {
     error: new NativeIndexRefusalError(
-      { kind: 'closed', reason: 'root-data-deletion' },
-      'Native index activation is closed for terminal retirement.'
+      { kind: 'source-failure', message: 'Native workspace scan failed.' },
+      'Native workspace scan failed.'
     ),
     shuttingDown: false,
   },
-  { error: new NativeAuthorityTransitionError('Native ingestion paused.'), shuttingDown: false },
+  { error: new Error('Native ingestion paused.'), shuttingDown: false },
   { error: new Error('Native ingestion paused.'), shuttingDown: true },
   {
     error: new Error('Indexer startup exceeded its caller-provided deadline.'),

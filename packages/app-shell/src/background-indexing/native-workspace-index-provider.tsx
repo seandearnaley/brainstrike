@@ -238,6 +238,28 @@ function nativeProgressError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Main's lifecycle owner refuses with `native-index-closed` or `native-index-transitioning` while
+ * an owner (a reset, a newer generation) replaces the index: it is preparing, as its status says.
+ * Every other failure, typed or not, is the sync surface's error.
+ */
+function publishNativeFailure(error: unknown): void {
+  if (
+    error instanceof BoundaryFailureError &&
+    error.failure.kind === 'refusal' &&
+    (error.failure.code === 'native-index-closed' ||
+      error.failure.code === 'native-index-transitioning')
+  ) {
+    publishPreparingProgress();
+    return;
+  }
+  useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+    blockedReason: null,
+    lastError: nativeProgressError(error),
+    state: 'error',
+  });
+}
+
 /** Visible UI observes the main-owned producer; closing this view never retires ingestion. */
 export function NativeWorkspaceIndexProvider({
   children,
@@ -259,12 +281,7 @@ export function NativeWorkspaceIndexProvider({
       // The mounted set as a whole: a removed folder is forgotten, so re-adding
       // it under its one id registers it again (BST-1990).
       .then((roots) => (disposed ? undefined : syncMountedRoots(roots)))
-      .catch((error: unknown) =>
-        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          lastError: nativeProgressError(error),
-          state: 'error',
-        })
-      );
+      .catch(publishNativeFailure);
     return () => {
       disposed = true;
     };
@@ -331,11 +348,7 @@ export function NativeWorkspaceIndexProvider({
         );
       } catch (error) {
         if (!disposed) {
-          publish({
-            blockedReason: null,
-            lastError: nativeProgressError(error),
-            state: 'error',
-          });
+          publishNativeFailure(error);
         }
       } finally {
         if (!disposed) {

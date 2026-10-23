@@ -560,3 +560,70 @@ it.each([
     mounted.unmount();
   }
 );
+
+/** What Main sends for its lifecycle owner's typed refusals (`nativeIndexBoundaryFailure`). */
+const CLOSED = refusal({
+  category: 'availability',
+  code: 'native-index-closed',
+  message: 'The search index is closed.',
+  remedy: 'Reopen the workspace to search again.',
+});
+const TRANSITIONING = refusal({
+  category: 'availability',
+  code: 'native-index-transitioning',
+  message: 'The search index is preparing.',
+});
+const SOURCE_FAILURE = refusal({
+  category: 'availability',
+  code: 'native-index-source-failure',
+  message: 'The search index could not prepare its sources.',
+  remedy: 'Review Search and indexing in Settings and retry.',
+});
+
+it.each([
+  { failure: CLOSED, from: 'roots', state: 'waiting' },
+  { failure: TRANSITIONING, from: 'roots', state: 'waiting' },
+  { failure: CLOSED, from: 'status', state: 'waiting' },
+  { failure: TRANSITIONING, from: 'status', state: 'waiting' },
+  { failure: SOURCE_FAILURE, from: 'roots', state: 'error' },
+  { failure: SOURCE_FAILURE, from: 'status', state: 'error' },
+] as const)(
+  'shows $failure.code from $from as sync state $state',
+  async ({ failure, from, state }) => {
+    const refused = new BoundaryFailureError(failure);
+    if (from === 'roots') {
+      reconciliation.syncMountedRoots.mockRejectedValueOnce(refused);
+    }
+    const capability = {
+      ...savedConfig(DEFAULT_INDEX_CONFIG),
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async (): Promise<IndexerStatus> => {
+        if (from === 'status') {
+          throw refused;
+        }
+        return {
+          kind: 'unavailable',
+          phase: 'preparing',
+          reason: 'Native index is transitioning.',
+        };
+      }),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() => expect(capability.status).toHaveBeenCalled());
+    await waitFor(() => expect(reconciliation.syncMountedRoots).toHaveBeenCalled());
+    await act(async () => {});
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: state === 'error' ? describeBoundaryFailure(failure) : null,
+      state,
+    });
+    mounted.unmount();
+  }
+);

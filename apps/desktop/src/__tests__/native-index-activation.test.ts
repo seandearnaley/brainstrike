@@ -21,6 +21,7 @@ import {
   type ScopedIndexerPort,
   vectorProfileHash,
 } from '@brainstrike/indexer';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
@@ -833,4 +834,28 @@ it('joins physical grep disposal before retiring read authority during a genuine
   expect(close).toHaveBeenCalledOnce();
   expect(mocks.close).toHaveBeenCalledOnce();
   await f.activation.close();
+});
+
+it('answers a boot acquisition a newer generation superseded with the typed transition, not its retired mount abort', async () => {
+  const attach = Promise.withResolvers<never>();
+  mocks.manager.attachCanonicalCollection
+    .mockReturnValueOnce(attach.promise)
+    .mockImplementation(async (dependencies: CanonicalCollectionDependencies) =>
+      emptyCollection(dependencies)
+    );
+  mocks.manager.retireCanonicalSources.mockImplementation(async () => {
+    // The utility answers an attach whose mount retired with an AbortError, untyped across its channel.
+    const retired = new Error('Canonical mount retired.');
+    retired.name = 'AbortError';
+    attach.reject(retired);
+  });
+  const { activation } = fixture();
+  const initial = activation.acquire().catch((error: unknown) => error);
+  await vi.waitFor(() => expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce());
+  // A folder registration opens the next generation from the committed roots.
+  await activation.reconfigureRoots();
+  const error = await initial;
+  expect(error).toBeInstanceOf(NativeIndexRefusalError);
+  expect((error as NativeIndexRefusalError).refusal).toEqual({ kind: 'transitioning' });
+  await activation.close();
 });
