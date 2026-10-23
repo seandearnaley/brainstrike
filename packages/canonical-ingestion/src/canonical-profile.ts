@@ -99,9 +99,7 @@ export function resolveNativeCanonicalProfile(
     };
   }
   if (!selection) {
-    throw setupRequired(
-      'Choose how to run the model under Run it on in Settings, Search & Indexing.'
-    );
+    throw setupRequired('In Settings, Search & Indexing, choose a setting for Run it on.');
   }
   if (selection.modelId !== metadata.modelId || selection.dimensions !== metadata.dimensions) {
     throw new Error('Canonical local selection disagrees with saved model or dimensions.');

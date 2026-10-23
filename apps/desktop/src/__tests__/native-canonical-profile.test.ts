@@ -145,7 +145,7 @@ describe('saved canonical profile identity', () => {
     [
       'no local selection',
       undefined,
-      'Choose how to run the model under Run it on in Settings, Search & Indexing.',
+      'In Settings, Search & Indexing, choose a setting for Run it on.',
     ],
     ['no device', { ...selection, device: undefined }, unverifiedPins],
     ['no dtype', { ...selection, dtype: undefined }, unverifiedPins],
