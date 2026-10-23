@@ -107,7 +107,6 @@ export class CanonicalIngestionHost {
   private cleanupFailure: unknown;
   private readonly chunk: CanonicalChunker;
   private readonly inferenceRequests = new Set<string>();
-  private readonly failedAborts = new Set<CanonicalScanTicket>();
 
   constructor(private readonly dependencies: CanonicalIngestionDependencies) {
     if (
@@ -219,17 +218,9 @@ export class CanonicalIngestionHost {
         }
       }
     }
-    for (const ticket of this.failedAborts) {
-      try {
-        await this.dependencies.publication.abortScan(ticket);
-        this.failedAborts.delete(ticket);
-      } catch (error) {
-        errors.push(error);
-      }
-    }
     try {
       await this.dependencies.source.close();
-      if (this.inferenceRequests.size === 0 && this.failedAborts.size === 0) {
+      if (this.inferenceRequests.size === 0) {
         this.cleanupFailure = undefined;
       }
     } catch (error) {
@@ -261,8 +252,6 @@ export class CanonicalIngestionHost {
         .then(() => publication.abortScan(ticket))
         .catch((error: unknown) => {
           abortFailure = error;
-          this.cleanupFailure = error;
-          this.failedAborts.add(ticket);
         });
     };
     context.signal.addEventListener('abort', abort, { once: true });

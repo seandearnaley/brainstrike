@@ -666,6 +666,28 @@ describe('utility canonical retained-source ingestion', () => {
     expect(f.publication.commitTextFile).not.toHaveBeenCalled();
   });
 
+  it('fails the retirement whose abort notice failed once, and not the next close', async () => {
+    const f = await fixture();
+    const admitted = deferred();
+    const commit = deferred();
+    vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
+      admitted.resolve();
+      await commit.promise;
+    });
+    const refused = new Error('Canonical publication ticket is stale or belongs to another store.');
+    vi.mocked(f.publication.abortScan).mockRejectedValue(refused);
+    const scan = f.host.scan(f.request).catch((error: unknown) => error);
+    await admitted.promise;
+    const retirement = f.host.close();
+    commit.resolve();
+    await expect(retirement).rejects.toMatchObject({
+      errors: [expect.objectContaining({ errors: [expect.anything(), refused] })],
+    });
+    expect(await scan).toMatchObject({ errors: [expect.anything(), refused] });
+    await expect(f.host.close()).resolves.toBeUndefined();
+    expect(f.publication.abortScan).toHaveBeenCalledOnce();
+  });
+
   it('keeps admission closed after failed source retirement and permits explicit cleanup retry', async () => {
     const f = await fixture();
     const failure = new Error('Watcher retirement failed');
