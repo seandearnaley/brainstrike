@@ -34,7 +34,6 @@ import {
   deferNativeIndexCatalog,
   observeNativeIndexCatalog,
   settleDeferredNativeIndexCatalog,
-  triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
 import { createNativeIndexContentOperations } from './native-index-content-operations';
 import {
@@ -241,8 +240,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       authorized.scopes
     );
     current.publication = publication;
-    current.observedCatalogRecords = await loadRecords(current);
-    current.observedCatalogFingerprint = catalogFingerprint(current.observedCatalogRecords);
+    current.observedCatalogFingerprint = catalogFingerprint(await loadRecords(current));
     assertCurrent(current);
     if (!settings.paused) {
       admitSources(current, port).then(failures.started, (error: unknown) => {
@@ -575,8 +573,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       );
       return;
     }
-    const changedRoots = observeNativeIndexCatalog(current, records);
-    if (!changedRoots) {
+    if (!observeNativeIndexCatalog(current, records)) {
       if (join) {
         await current.sources?.waitForCollection?.();
       }
@@ -586,9 +583,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       // Reconcile authority only; never start a parser, watcher or inference while paused.
       return;
     }
-    triggerCatalogWorkspaces(changedRoots, current.sources?.workspaceTriggers, (error) =>
-      dependencies.onError('catalog workspace reconciliation', error)
-    );
     if (inventory || !current.sources?.scanCollection) {
       return;
     }

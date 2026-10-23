@@ -33,7 +33,6 @@ export interface NativeIndexActivationGraph {
   readonly generation: number;
   readonly leases: Map<string, CanonicalWorkspaceLease>;
   observedCatalogFingerprint?: string;
-  observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
   publication?: ReturnType<typeof createNativeCanonicalPublication>;
   queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
   /** Applies the queued catalog once the scan that deferred it settles (BST-2012). */

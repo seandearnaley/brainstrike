@@ -7,6 +7,7 @@
 import type {
   CanonicalWorkspaceLease,
   CanonicalWorkspaceRuntimeDependencies,
+  NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, vi } from 'vitest';
@@ -17,6 +18,7 @@ import {
   mocks,
   requestedScope,
   resetActivationFixture,
+  setCatalogRecords,
   setCatalogRoot,
   storeId,
   unused,
@@ -186,6 +188,94 @@ it('routes explicit workspace scans to the existing admitted trigger and refuses
   }
   await expect(activation.requestWorkspaceScan('root')).rejects.toThrow();
   expect(trigger).toHaveBeenCalledOnce();
+});
+
+it('a read neither rescans nor un-readies a folder its own scan just indexed', async () => {
+  setCatalogRoot();
+  const notes = (hash: string): NativeCanonicalCatalogRecord => ({
+    chunksProcessed: true,
+    content: null,
+    contentHash: hash.repeat(64),
+    embeddingSetId: null,
+    fileId: 'notes',
+    fileName: 'notes.txt',
+    path: 'notes.txt',
+    rootId: 'root',
+    stat: { mtimeMs: 1, size: 42 },
+  });
+  let records: NativeCanonicalCatalogRecord[] = [];
+  setCatalogRecords(() => records);
+  mocks.readyPort.mockReturnValue({
+    ...writer(),
+    verifyScopedManifest: async (
+      request: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]
+    ) => ({
+      authorityEpoch: 'b'.repeat(64),
+      authorityRevision: 1,
+      changed: [],
+      complete: true,
+      missing: [],
+      scope: requestedScope(request),
+      storeId,
+      unexpected: [],
+    }),
+  });
+  // The folder's own scan: it commits notes.txt to the source catalog, then its receipt.
+  let scanFolder: ((hash: string) => Promise<void>) | undefined;
+  const rescans = vi.fn(async () => {});
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
+      let scans = 0;
+      scanFolder = async (hash) => {
+        scans += 1;
+        const ticket = await dependencies.publication.beginScan({
+          requestId: `scan-${scans}`,
+          scope: workspace,
+        });
+        records = [notes(hash)];
+        dependencies.onReceipt(
+          await dependencies.publication.finishScan({
+            aborted: false,
+            errors: [],
+            files: [],
+            full: true,
+            ticket,
+            truncatedDirectories: [],
+          })
+        );
+      };
+      await scanFolder('1');
+      return { close: async () => {}, trigger: rescans };
+    }
+  );
+  const indexed = Promise.withResolvers<void>();
+  const activation = createActivation({
+    application: mountedRoot(),
+    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
+    onError: vi.fn(),
+    onReceipt: () => indexed.resolve(),
+    settings: async () => textSettings(),
+    storage: { getItem: unused },
+  });
+  // Status reads the index the way the status IPC does.
+  const status = () => activation.withRead(async (read) => (await read.getAuthority()).readiness);
+  try {
+    // Launch: the first read opens the index, whose first scan indexes the folder.
+    await activation.acquireRead();
+    await indexed.promise;
+    expect(await status()).toEqual([
+      expect.objectContaining({ scanComplete: true, scope: workspace }),
+    ]);
+    // An edit: the folder's watcher scan indexes the new content.
+    await scanFolder?.('2');
+    expect(await status()).toEqual([
+      expect.objectContaining({ scanComplete: true, scope: workspace }),
+    ]);
+    expect(rescans).not.toHaveBeenCalled();
+    expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce();
+  } finally {
+    await activation.close();
+  }
 });
 
 it('refuses explicit workspace scans while source admission is paused', async () => {

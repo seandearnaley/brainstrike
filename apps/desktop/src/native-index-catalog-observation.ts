@@ -10,20 +10,8 @@ export function catalogFingerprint(records: readonly NativeCanonicalCatalogRecor
   );
 }
 
-export function triggerCatalogWorkspaces(
-  rootIds: readonly string[],
-  triggers: ReadonlyMap<string, () => Promise<void>> | undefined,
-  onError: (error: unknown) => void
-): void {
-  for (const rootId of rootIds) {
-    triggers?.get(rootId)?.().catch(onError);
-  }
-}
-
 interface CatalogObservation {
-  readonly leases: ReadonlyMap<string, unknown>;
   observedCatalogFingerprint?: string;
-  observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
   readonly publication?: {
     invalidateScope(scope: CanonicalSourceScope): void;
     getReadiness(): readonly NativeScopeReadiness[];
@@ -86,47 +74,32 @@ export async function settleDeferredNativeIndexCatalog(
     });
 }
 
+/**
+ * A workspace root's records have one writer, its own scan, so its readiness is the
+ * publication's alone; a queued catalog change holds back only the collection.
+ */
 export function catalogReadiness(current: CatalogObservation): readonly NativeScopeReadiness[] {
-  const queued = current.queuedCatalogRecords;
-  const observed = current.observedCatalogRecords ?? [];
-  return (current.publication?.getReadiness() ?? []).map((readiness) => {
-    const scope = readiness.scope;
-    if (!queued) {
-      return readiness;
-    }
-    const changed =
-      scope.kind === 'collection' ||
-      catalogFingerprint(observed.filter((record) => record.rootId === scope.rootId)) !==
-        catalogFingerprint(queued.filter((record) => record.rootId === scope.rootId));
-    return changed ? { ...readiness, scanComplete: false } : readiness;
-  });
+  return (current.publication?.getReadiness() ?? []).map((readiness) =>
+    current.queuedCatalogRecords && readiness.scope.kind === 'collection'
+      ? { ...readiness, scanComplete: false }
+      : readiness
+  );
 }
 
-/** Record invalidation admission, independently of the publication owner's complete proof. */
+/** Whether the catalog changed since last observed; a change invalidates the collection only. */
 export function observeNativeIndexCatalog(
   current: CatalogObservation,
   records: readonly NativeCanonicalCatalogRecord[]
-): readonly string[] | undefined {
+): boolean {
   const fingerprint = catalogFingerprint(records);
+  current.queuedCatalogRecords = undefined;
   if (current.observedCatalogFingerprint === fingerprint) {
-    current.queuedCatalogRecords = undefined;
-    return undefined;
+    return false;
   }
-  const before = current.observedCatalogRecords ?? [];
-  current.observedCatalogRecords = records;
   current.observedCatalogFingerprint = fingerprint;
   const collectionId = current.settings.managedCollectionId;
   if (collectionId !== null) {
     current.publication?.invalidateScope({ embeddingSetId: collectionId, kind: 'collection' });
   }
-  const changedRoots = [...current.leases.keys()].filter(
-    (rootId) =>
-      catalogFingerprint(before.filter((record) => record.rootId === rootId)) !==
-      catalogFingerprint(records.filter((record) => record.rootId === rootId))
-  );
-  for (const rootId of changedRoots) {
-    current.publication?.invalidateScope({ kind: 'workspace', rootId });
-  }
-  current.queuedCatalogRecords = undefined;
-  return changedRoots;
+  return true;
 }
