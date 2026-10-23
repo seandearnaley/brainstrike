@@ -17,18 +17,19 @@ export const IndexChunkingSchema = Schema.TaggedUnion({
 });
 
 /**
- * An embedding model whose dimensions were verified; `local` is how an on-device model runs,
- * limited to the dtypes and pinned commit revisions every local executor accepts.
+ * How an on-device model runs, limited to the dtypes and pinned commit revisions every local
+ * executor accepts.
  */
+export const IndexLocalExecutionSchema = Schema.Struct({
+  device: Schema.Literals(['webgpu', 'wasm']),
+  dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
+  revision: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u))),
+});
+
+/** An embedding model whose dimensions were verified; `local` is how an on-device model runs. */
 export const IndexModelSchema = Schema.Struct({
   dimensions: IntBetween({ maximum: 16_000, minimum: 1 }),
-  local: Schema.NullOr(
-    Schema.Struct({
-      device: Schema.Literals(['webgpu', 'wasm']),
-      dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
-      revision: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u))),
-    })
-  ),
+  local: Schema.NullOr(IndexLocalExecutionSchema),
   modelKey: Schema.String.check(Schema.isPattern(/^[^:\s]+::\S+/)),
 });
 
@@ -64,6 +65,7 @@ export const IndexConfigPatchSchema = Schema.Struct({
 export type IndexChunking = typeof IndexChunkingSchema.Type;
 export type IndexConfig = typeof IndexConfigSchema.Type;
 export type IndexConfigPatch = typeof IndexConfigPatchSchema.Type;
+export type IndexLocalExecution = typeof IndexLocalExecutionSchema.Type;
 export type IndexModel = typeof IndexModelSchema.Type;
 
 /** A fresh profile: text search and automatic chunking, with nothing to download. */
@@ -77,6 +79,11 @@ export const DEFAULT_INDEX_CONFIG: IndexConfig = {
 };
 
 export const decodeIndexConfig = makeThrowingDecoder(IndexConfigSchema, {
+  errors: 'all',
+  onExcessProperty: 'error',
+});
+
+export const decodeIndexLocalExecution = makeThrowingDecoder(IndexLocalExecutionSchema, {
   errors: 'all',
   onExcessProperty: 'error',
 });

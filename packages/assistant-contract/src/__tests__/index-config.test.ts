@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_INDEX_CONFIG,
   decodeIndexConfig,
+  decodeIndexLocalExecution,
   indexModelId,
   indexModelLocalSelection,
   sameIndexChunking,
@@ -83,6 +84,16 @@ describe('index config', () => {
     ['an unknown field', { ...DEFAULT_INDEX_CONFIG, collection: 'x' }, '["collection"]'],
   ])('refuses %s', (_label, input, path) => {
     expect(() => decodeIndexConfig(input)).toThrow(`at ${path}`);
+  });
+
+  it('decodes a local execution plan with the config rule', () => {
+    expect(decodeIndexLocalExecution({ device: 'wasm', dtype: 'q8' })).toEqual({
+      device: 'wasm',
+      dtype: 'q8',
+    });
+    expect(() => decodeIndexLocalExecution({ device: 'wasm', dtype: 'int8' })).toThrow(
+      'at ["dtype"]'
+    );
   });
 
   it('names the on-device execution the index runs a local model with', () => {
