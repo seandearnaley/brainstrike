@@ -1,6 +1,7 @@
 import {
   selectIndexConfig,
   useIndexConfigStore,
+  useIndexModel,
 } from '@brainstrike/app-state/stores/index-config-store';
 import {
   BoundaryFailureError,
@@ -9,6 +10,8 @@ import {
 import {
   type IndexConfig,
   type IndexLocalSelection,
+  type IndexModel,
+  indexModelId,
   indexModelLocalSelection,
 } from '@brainstrike/assistant-contract/index-config';
 import type {
@@ -49,16 +52,28 @@ function matchesSelection(
   );
 }
 
-function matchesSavedChoices(status: ReadyStatus, config: IndexConfig | null): boolean {
-  if (config?.mode === 'text') {
-    return status.embedding.indexMode === 'text-only';
-  }
-  if (!(config?.mode === 'semantic' && config.model !== null)) {
-    return false;
-  }
-  const selection = indexModelLocalSelection(config.model);
+/** Main builds the vector space with the model's id and dimensions; the index must hold it. */
+function holdsModelVectors(status: ReadyStatus, model: IndexModel): boolean {
   return (
     status.embedding.indexMode === 'vector-configured' &&
+    status.embedding.profile.modelId === indexModelId(model) &&
+    status.embedding.profile.dimensions === model.dimensions
+  );
+}
+
+/** The saved choices search reads; Main's other changes (worktrees, policy, chunking) are not. */
+type SavedSearch = Pick<IndexConfig, 'mode' | 'model'>;
+
+function matchesSavedChoices(status: ReadyStatus, saved: SavedSearch | null): boolean {
+  if (saved?.mode === 'text') {
+    return status.embedding.indexMode === 'text-only';
+  }
+  if (!(saved?.mode === 'semantic' && saved.model !== null)) {
+    return false;
+  }
+  const selection = indexModelLocalSelection(saved.model);
+  return (
+    holdsModelVectors(status, saved.model) &&
     status.queryPlan !== undefined &&
     (status.queryPlan.inferencePlan
       ? selection !== null && matchesSelection(selection, status.queryPlan.inferencePlan)
@@ -88,12 +103,18 @@ function nextSearchStatus(prior: NativeSearchStatus, status: IndexerStatus): Nat
     status: unchangedStatus(prior.status, status),
   };
 }
+/** Why search is unavailable under a saved Off choice, and the setting that changes it. */
+const SEARCH_OFF_REASON = 'Search is off. Turn it on in Settings, Search & Indexing.';
+
 async function readMatchingStatus(
   capability: IndexSearchCapability,
-  config: IndexConfig | null
+  saved: SavedSearch | null
 ): Promise<IndexerStatus> {
+  if (saved?.mode === 'off') {
+    return { kind: 'unavailable', reason: SEARCH_OFF_REASON };
+  }
   const next = await capability.status();
-  if (next.kind === 'ready' && !matchesSavedChoices(next, config)) {
+  if (next.kind === 'ready' && !matchesSavedChoices(next, saved)) {
     return {
       kind: 'unavailable',
       reason: 'Native search is activating the saved search mode and model.',
@@ -107,10 +128,10 @@ const SEMANTIC_OFF_REASON =
 
 /** The saved Text choice is the reason over any transient status; otherwise the status's own. */
 function profileUnavailableReason(
-  config: IndexConfig | null,
+  mode: IndexConfig['mode'] | null,
   status: IndexerStatus
 ): string | undefined {
-  if (config?.mode === 'text') {
+  if (mode === 'text') {
     return SEMANTIC_OFF_REASON;
   }
   return status.kind === 'unavailable' ? status.reason : undefined;
@@ -137,8 +158,10 @@ export function NativeSearchProvider({
   });
   const [lifecycle, setLifecycle] = useState<NativeIndexLifecycleObservation | null>(null);
   const { execution } = observation;
-  const config = useIndexConfigStore(selectIndexConfig);
+  const mode = useIndexConfigStore((store) => selectIndexConfig(store)?.mode ?? null);
+  const model = useIndexModel();
   useEffect(() => {
+    const saved = mode === null ? null : { mode, model };
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let revision = 0;
@@ -149,7 +172,7 @@ export function NativeSearchProvider({
       }
       const request = ++revision;
       try {
-        const next = await readMatchingStatus(capability, config);
+        const next = await readMatchingStatus(capability, saved);
         if (!disposed && request === revision) {
           setStatus((prior) => nextSearchStatus(prior, next));
           const observed = latestEvent;
@@ -184,8 +207,8 @@ export function NativeSearchProvider({
         clearTimeout(timer);
       }
     };
-  }, [capability, config]);
-  const semantic = config?.mode === 'semantic';
+  }, [capability, mode, model]);
+  const semantic = mode === 'semantic';
   const vectorExecution = semantic ? execution : null;
   const profile =
     semantic && execution.kind === 'ready' && execution.embedding.indexMode === 'vector-configured'
@@ -201,18 +224,10 @@ export function NativeSearchProvider({
       options.signal.throwIfAborted();
       const current = await capability.status();
       options.signal.throwIfAborted();
-      const saved = selectIndexConfig(useIndexConfigStore.getState());
-      const selection =
-        saved?.mode === 'semantic' && saved.model !== null
-          ? indexModelLocalSelection(saved.model)
-          : undefined;
       if (
-        selection === undefined ||
         !queryPlan ||
-        (queryPlan.inferencePlan
-          ? !(selection && matchesSelection(selection, queryPlan.inferencePlan))
-          : selection !== null) ||
         current.kind !== 'ready' ||
+        !matchesSavedChoices(current, selectIndexConfig(useIndexConfigStore.getState())) ||
         JSON.stringify(executionStatus(current)) !== JSON.stringify(vectorExecution) ||
         current.embedding.indexMode !== 'vector-configured' ||
         JSON.stringify(current.embedding.profile) !== JSON.stringify(requested) ||
@@ -236,7 +251,7 @@ export function NativeSearchProvider({
     [capability, vectorExecution]
   );
   const dependencies = useMemo<NativeWorkspaceSearchDependencies>(() => {
-    const reason = profileUnavailableReason(config, observation.status);
+    const reason = profileUnavailableReason(mode, observation.status);
     return {
       capability,
       embedQuery,
@@ -245,7 +260,7 @@ export function NativeSearchProvider({
       status: observation.status,
       ...(reason === undefined ? {} : { profileUnavailableReason: reason }),
     };
-  }, [capability, config, embedQuery, lifecycle, observation, profile]);
+  }, [capability, embedQuery, lifecycle, mode, observation, profile]);
   return (
     <NativeWorkspaceSearchProvider dependencies={dependencies}>
       {children}

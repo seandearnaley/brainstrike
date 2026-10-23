@@ -1,3 +1,4 @@
+import { useAvailableModels } from '@brainstrike/app-state/hooks/use-available-embedding-models';
 import {
   selectIndexConfig,
   useIndexConfigStore,
@@ -7,6 +8,7 @@ import type {
   IndexingManagedCollectionStatsState,
 } from '@brainstrike/app-state/stores/indexing-activity-store';
 import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
@@ -15,7 +17,7 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
-import type { IndexConfig } from '@brainstrike/assistant-contract/index-config';
+import { type IndexConfig, indexModelId } from '@brainstrike/assistant-contract/index-config';
 import type {
   IndexRetryCapability,
   IndexSearchCapability,
@@ -50,8 +52,6 @@ const selectCollectionSyncStatus = (
   embeddingProgress: state.embeddingProgress,
   importProgress: state.importProgress,
   lastError: state.lastError,
-  managedCollectionId: state.managedCollectionId,
-  managedCollectionName: state.managedCollectionName,
   pauseReasons: state.pauseReasons,
   processedFiles: state.processedFiles,
   queueProgress: state.queueProgress,
@@ -106,8 +106,23 @@ function formatSnapshotActivity(snapshot: IndexingActivitySnapshot): string {
   return 'Active';
 }
 
+/** An index with no work or setup to report: what Main's config and the snapshot say. */
+function settledStatus(enabled: boolean | null, snapshot: IndexingActivitySnapshot): DisplayStatus {
+  if (enabled === null) {
+    return { busy: true, toneClassName: 'text-info', value: 'Preparing' };
+  }
+  if (snapshot.status === 'unavailable') {
+    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };
+  }
+  if (!enabled) {
+    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Off' };
+  }
+  return { busy: false, toneClassName: 'text-success', value: 'Ready' };
+}
+
 function getDisplayStatus(args: {
-  readonly enabled: boolean;
+  /** Null until Main's config is read: unknown is never off. */
+  readonly enabled: boolean | null;
   readonly native: boolean;
   readonly managedStats: IndexingManagedCollectionStatsState;
   readonly paused: boolean;
@@ -168,17 +183,7 @@ function getDisplayStatus(args: {
           : 'No root selected',
     };
   }
-  if (snapshot.status === 'unavailable') {
-    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };
-  }
-  if (!enabled) {
-    return { busy: false, toneClassName: 'text-muted-foreground', value: 'Off' };
-  }
-  return {
-    busy: false,
-    toneClassName: 'text-success',
-    value: 'Ready',
-  };
+  return settledStatus(enabled, snapshot);
 }
 
 function truncateMiddle(value: string, maxLength = 64): string {
@@ -503,7 +508,7 @@ function currentIndexActivity(
 /** What the status item shows from Main's config; nothing is claimed before it is read. */
 function indexConfigFacts(config: IndexConfig | null, native: boolean) {
   return {
-    enabled: config !== null && config.mode !== 'off',
+    enabled: config === null ? null : config.mode !== 'off',
     paused: config?.paused === true,
     policyLabel: config
       ? getBackgroundIndexingPolicyOption(config.policy).label
@@ -511,6 +516,24 @@ function indexConfigFacts(config: IndexConfig | null, native: boolean) {
     // Text search reads the native text index and uses no embeddings (BST-1988).
     textSearch: native && config?.mode === 'text',
   };
+}
+
+/** What the index searches with, as Main's config says; nothing is claimed before it is read. */
+function useSearchIndexLabel(config: IndexConfig | null): string {
+  const models = useAvailableModels(useModelRegistryStore((store) => store.models));
+  // Semantic search always names a model (the config's own rule), so no model is Text search.
+  const model = config?.mode === 'semantic' ? config.model : null;
+  const name = models.find((candidate) => candidate.id === model?.modelKey)?.name;
+  if (config === null) {
+    return EMPTY_METRIC_VALUE;
+  }
+  if (config.mode === 'off') {
+    return 'Off';
+  }
+  if (model === null) {
+    return 'Text search';
+  }
+  return name ?? indexModelId(model);
 }
 
 /**
@@ -553,6 +576,7 @@ export function IndexingStatusItem({
   const managedStats = useIndexingActivityStore((state) => state.managedCollectionStats);
   const config = useIndexConfigStore(selectIndexConfig);
   const pause = usePauseIndexing(config);
+  const searchIndexLabel = useSearchIndexLabel(config);
   const { enabled, paused, policyLabel, textSearch } = indexConfigFacts(
     config,
     Boolean(nativeIndexSearch)
@@ -571,11 +595,6 @@ export function IndexingStatusItem({
   const stats = getVisibleStats(managedStats);
   const coverage = embeddingCoverage(managedStats, textSearch);
   const combinedError = indexingError(syncStatus, managedStats, snapshot);
-  const collectionName =
-    syncStatus.managedCollectionName ??
-    snapshot.background.managedCollectionName ??
-    managedStats.collectionId ??
-    (textSearch ? 'Text search' : 'Not configured');
   const showPauseControl =
     shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state) ||
     shouldShowWorkspaceCollectionSyncPauseControl(snapshot.background.state);
@@ -634,8 +653,12 @@ export function IndexingStatusItem({
               <div className="font-semibold text-sm" id={popoverTitleId}>
                 Workspace Index
               </div>
-              <div className="truncate text-muted-foreground text-xs" title={collectionName}>
-                {collectionName}
+              <div
+                className="truncate text-muted-foreground text-xs"
+                data-testid="indexing-status-subtitle"
+                title={searchIndexLabel}
+              >
+                {searchIndexLabel}
               </div>
             </div>
             <Badge

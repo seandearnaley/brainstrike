@@ -83,25 +83,79 @@ afterEach(() => {
   vi.useRealTimers();
   useWorkspaceSearchStore.getState().reset();
 });
-describe('native query provider cancellation wiring', () => {
-  function mount() {
-    const capability: IndexSearchCapability & IndexLifecycleCapability = {
-      coverage: vi.fn(),
-      coverageBatch: vi.fn(async () => {
-        throw new Error('Unexpected coverage batch');
-      }),
-      grep: vi.fn(),
-      onLifecycleChanged: vi.fn(() => () => {}),
-      rebuild: vi.fn(),
-      search: vi.fn(),
-      status: vi.fn(async () => ready),
-    };
-    function Wrapper({ children }: { children: ReactNode }) {
-      return <NativeSearchProvider capability={capability}>{children}</NativeSearchProvider>;
-    }
-    const mounted = renderHook(useNativeWorkspaceSearchDependencies, { wrapper: Wrapper });
-    return { capability, ...mounted };
+function mount(status: IndexerStatus = ready) {
+  const capability: IndexSearchCapability & IndexLifecycleCapability = {
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(async () => {
+      throw new Error('Unexpected coverage batch');
+    }),
+    grep: vi.fn(),
+    onLifecycleChanged: vi.fn(() => () => {}),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(async () => status),
+  };
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <NativeSearchProvider capability={capability}>{children}</NativeSearchProvider>;
   }
+  const mounted = renderHook(useNativeWorkspaceSearchDependencies, { wrapper: Wrapper });
+  return { capability, ...mounted };
+}
+
+describe('native search follows Main’s saved choices', () => {
+  const hosted = (modelKey: string, dimensions: number): IndexConfig => ({
+    ...DEFAULT_INDEX_CONFIG,
+    mode: 'semantic',
+    model: { dimensions, local: null, modelKey },
+  });
+  const small = {
+    dimensions: 1536,
+    modelId: 'text-embedding-3-small',
+    provider: 'openai' as const,
+  };
+  const hostedReady: IndexerStatus = {
+    ...ready,
+    embedding: { indexMode: 'vector-configured', profile: small, profileHash: 'c'.repeat(64) },
+    queryPlan: { modelKey: 'openai::text-embedding-3-small' },
+  };
+
+  it('serves a hosted model only while the index holds that model’s vectors', async () => {
+    savedConfig(hosted('openai::text-embedding-3-large', 3072));
+    const other = mount(hostedReady);
+    await waitFor(() =>
+      expect(other.result.current?.profileUnavailableReason).toBe(
+        'Native search is activating the saved search mode and model.'
+      )
+    );
+    expect(other.result.current?.profile).toBeNull();
+    other.unmount();
+
+    savedConfig(hosted('openai::text-embedding-3-small', 1536));
+    const { result } = mount(hostedReady);
+    await waitFor(() => expect(result.current?.profile).toEqual(small));
+    const embedQuery = result.current?.embedQuery;
+    // Main saves another model: a query made before the index follows it is refused.
+    act(() => savedConfig(hosted('openai::text-embedding-3-large', 3072)));
+    await expect(
+      embedQuery?.(small, 'needle', { signal: new AbortController().signal })
+    ).rejects.toThrow(
+      'Native query inference no longer matches the explicit saved execution plan.'
+    );
+    expect(queryEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('says search is off when Main’s config turns it off', async () => {
+    savedConfig({ ...DEFAULT_INDEX_CONFIG, mode: 'off' });
+    const { result } = mount();
+    await waitFor(() =>
+      expect(result.current?.profileUnavailableReason).toBe(
+        'Search is off. Turn it on in Settings, Search & Indexing.'
+      )
+    );
+  });
+});
+
+describe('native query provider cancellation wiring', () => {
   it('forwards the exact saved inference plan and signal to the visible cancellation bridge', async () => {
     const { result } = mount();
     await waitFor(() => expect(result.current?.profile).toEqual(profile));
@@ -320,6 +374,32 @@ describe('native provider and search controller observation refresh', () => {
       await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
       await waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledOnce());
       expect(useWorkspaceSearchStore.getState().status).toBe('results');
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  it('reruns a pending search on Ready while Main saves a change search does not read', async () => {
+    vi.useFakeTimers();
+    const mounted = mountController();
+    try {
+      await vi.waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      useWorkspaceSearchStore.getState().setQuery('pending needle');
+      vi.mocked(mounted.capability.grep).mockRejectedValueOnce(
+        Object.assign(new Error('Native index is transitioning.'), {
+          code: 'native-index-transitioning',
+        })
+      );
+      act(() => mounted.result.current.controller.runTextSearch());
+      await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledOnce());
+      const read = Promise.withResolvers<IndexerStatus>();
+      vi.mocked(mounted.capability.status).mockReturnValueOnce(read.promise);
+      await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
+      // Each change Main publishes arrives as a fresh copy of the whole config.
+      act(() => savedConfig(structuredClone({ ...SAVED_SEMANTIC, worktrees: { 'root-b': true } })));
+      await act(async () => read.resolve(structuredClone(ready)));
+      await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
     } finally {
       mounted.unmount();
     }

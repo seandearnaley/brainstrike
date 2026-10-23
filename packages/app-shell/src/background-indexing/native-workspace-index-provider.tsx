@@ -2,6 +2,7 @@ import {
   followIndexConfig,
   selectIndexConfig,
   useIndexConfigStore,
+  useIndexModel,
 } from '@brainstrike/app-state/stores/index-config-store';
 import {
   type IndexingManagedCollectionStatsState,
@@ -269,7 +270,10 @@ export function NativeWorkspaceIndexProvider({
     };
   }, [fileSystemAdapter, syncMountedRoots, rootDirectoryHandles]);
   useEffect(() => followIndexConfig(capability), [capability]);
-  const config = useIndexConfigStore(selectIndexConfig);
+  // Only what the index reads: a worktree, policy or chunking change keeps the poll running.
+  const mode = useIndexConfigStore((store) => selectIndexConfig(store)?.mode ?? null);
+  const paused = useIndexConfigStore((store) => selectIndexConfig(store)?.paused === true);
+  const model = useIndexModel();
   const configFailure = useIndexConfigStore((store) =>
     store.state.kind === 'failed' ? store.state.message : null
   );
@@ -280,12 +284,12 @@ export function NativeWorkspaceIndexProvider({
     const mountedRoots = rootDirectoryHandles
       .map((root) => [root.rootId ?? null, root.path])
       .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-    const selectionIdentity = JSON.stringify([config?.mode, config?.model, mountedRoots]);
+    const selectionIdentity = JSON.stringify([mode, model, mountedRoots]);
     if (retained.current?.selection !== selectionIdentity) {
       resetNativeProgress();
       retained.current = { observation: null, selection: selectionIdentity };
     }
-    if (config === null) {
+    if (mode === null) {
       // Until Main's config is read the index state is unknown, never off; a failed read says why.
       publish({
         blockedReason: null,
@@ -295,16 +299,16 @@ export function NativeWorkspaceIndexProvider({
       });
       return;
     }
-    if (config.mode === 'off' || config.paused) {
+    if (mode === 'off' || paused) {
       publish({
         blockedReason: null,
         lastError: null,
         managedCollectionId: null,
-        state: config.mode === 'off' ? 'disabled' : 'paused',
+        state: mode === 'off' ? 'disabled' : 'paused',
       });
       return;
     }
-    const mode = config.mode === 'semantic' ? 'VECTOR' : 'TEXT';
+    const indexMode = mode === 'semantic' ? 'VECTOR' : 'TEXT';
     const refresh = async (): Promise<void> => {
       try {
         const progress = await readNativeProgress(capability);
@@ -322,7 +326,7 @@ export function NativeWorkspaceIndexProvider({
         publishNativeProgress(
           progress.coverage,
           progress.complete,
-          mode,
+          indexMode,
           nativeRootPath(progress.status, rootDirectoryHandles, dbRootIdByAdapterRootId)
         );
       } catch (error) {
@@ -348,7 +352,15 @@ export function NativeWorkspaceIndexProvider({
         clearTimeout(timer);
       }
     };
-  }, [capability, config, configFailure, rootDirectoryHandles, dbRootIdByAdapterRootId]);
+  }, [
+    capability,
+    configFailure,
+    dbRootIdByAdapterRootId,
+    mode,
+    model,
+    paused,
+    rootDirectoryHandles,
+  ]);
   return (
     <RootIdentityProvider dbRootIdByAdapterRootId={dbRootIdByAdapterRootId}>
       {children}

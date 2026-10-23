@@ -1,9 +1,15 @@
+import {
+  selectIndexConfig,
+  useIndexConfigStore,
+} from '@brainstrike/app-state/stores/index-config-store';
 import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { useEffect, useMemo } from 'react';
 
 export function IndexingActivityCoordinator(): null {
   const setBackgroundSnapshot = useIndexingActivityStore((state) => state.setBackgroundSnapshot);
+  // Only Main's saved Off turns indexing off; a config not yet read is not off.
+  const off = useIndexConfigStore((store) => selectIndexConfig(store)?.mode === 'off');
 
   const backgroundStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
     lastError: state.lastError,
@@ -15,7 +21,7 @@ export function IndexingActivityCoordinator(): null {
 
   const backgroundSnapshot = useMemo(
     () => ({
-      enabled: backgroundStatus.state !== 'disabled',
+      enabled: !off,
       lastError: backgroundStatus.lastError,
       managedCollectionId: backgroundStatus.managedCollectionId,
       managedCollectionName: backgroundStatus.managedCollectionName,
@@ -24,6 +30,7 @@ export function IndexingActivityCoordinator(): null {
       state: backgroundStatus.state,
     }),
     [
+      off,
       backgroundStatus.lastError,
       backgroundStatus.managedCollectionId,
       backgroundStatus.managedCollectionName,

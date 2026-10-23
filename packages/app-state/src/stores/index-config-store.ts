@@ -3,8 +3,10 @@ import type {
   IndexConfig,
   IndexConfigCapability,
   IndexConfigPatch,
+  IndexModel,
 } from '@brainstrike/assistant-contract/index-config';
 import { create } from 'zustand';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
 
 export type IndexConfigView =
   | { readonly kind: 'loading' }
@@ -25,6 +27,20 @@ export const useIndexConfigStore = create<IndexConfigStore>(() => ({
 
 export const selectIndexConfig = (store: IndexConfigStore): IndexConfig | null =>
   store.state.kind === 'ready' ? store.state.config : null;
+
+const selectIndexModel = (store: IndexConfigStore): IndexModel | null =>
+  selectIndexConfig(store)?.model ?? null;
+
+const sameIndexModel = (left: IndexModel | null, right: IndexModel | null): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
+
+/**
+ * The saved model, one value until Main saves a different one: every change Main publishes is a
+ * fresh copy of the whole config, so a worktree, policy or chunking change keeps this identity.
+ */
+export function useIndexModel(): IndexModel | null {
+  return useStoreWithEqualityFn(useIndexConfigStore, selectIndexModel, sameIndexModel);
+}
 
 /** Reads Main's config once and follows every change Main publishes. */
 export function followIndexConfig(capability: IndexConfigCapability): () => void {

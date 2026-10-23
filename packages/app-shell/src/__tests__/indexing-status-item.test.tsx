@@ -6,6 +6,7 @@ import {
   type IndexingManagedCollectionStatsState,
   useIndexingActivityStore,
 } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
@@ -33,6 +34,24 @@ function savedConfig(
 ) {
   useIndexConfigStore.setState({ state: { config, kind: 'ready' }, update });
   return update;
+}
+
+/** The native index capability; these tests read only the stores it feeds. */
+const nativeIndex = {
+  coverage: () => Promise.reject(new Error('unused')),
+  coverageBatch: () => Promise.reject(new Error('unused')),
+  grep: () => Promise.reject(new Error('unused')),
+  rebuild: async () => {},
+  search: () => Promise.reject(new Error('unused')),
+  status: async () => ({ kind: 'unavailable' as const, reason: 'unused' }),
+};
+
+function semanticConfig(modelKey: string, dimensions: number): IndexConfig {
+  return {
+    ...DEFAULT_INDEX_CONFIG,
+    mode: 'semantic',
+    model: { dimensions, local: null, modelKey },
+  };
 }
 
 function setManagedCollectionStats(managedCollectionStats: IndexingManagedCollectionStatsState) {
@@ -118,6 +137,7 @@ describe('IndexingStatusItem', () => {
   beforeEach(() => {
     __resetIndexingActivityStoreForTests();
     savedConfig(DEFAULT_INDEX_CONFIG);
+    useModelRegistryStore.setState({ models: [] });
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     setManagedCollectionStats({
       collectionId: null,
@@ -744,6 +764,54 @@ describe('IndexingStatusItem', () => {
     expect(
       within(popover).queryByRole('button', { name: /workspace index$/ })
     ).not.toBeInTheDocument();
+  });
+
+  it('never reads Off before Main’s config is read', () => {
+    useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null });
+    // The running app reports database work before the index provider publishes anything.
+    useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
+
+    render(<IndexingStatusItem nativeIndexSearch={nativeIndex} />);
+
+    expect(screen.getByTestId('indexing-status-value')).toHaveTextContent('Preparing');
+  });
+
+  it('names what the index searches with, and nothing before Main’s config is read', async () => {
+    useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null });
+    useModelRegistryStore.setState({
+      models: [
+        {
+          bestFor: null,
+          capabilities: { defaultDimension: 1536, type: 'embedding' },
+          description: null,
+          icon: null,
+          id: 'text-embedding-3-small',
+          isEnabled: true,
+          name: 'Text Embedding 3 Small',
+          parameters: null,
+          providerId: 'openai',
+          sortOrder: 0,
+          tagline: null,
+        },
+      ],
+    });
+    render(<IndexingStatusItem nativeIndexSearch={nativeIndex} />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    const subtitle = screen.getByTestId('indexing-status-subtitle');
+    expect(subtitle.textContent).toBe('—');
+
+    for (const [config, label] of [
+      [DEFAULT_INDEX_CONFIG, 'Text search'],
+      [{ ...DEFAULT_INDEX_CONFIG, mode: 'off' }, 'Off'],
+      [semanticConfig('openai::text-embedding-3-small', 1536), 'Text Embedding 3 Small'],
+      // A model the registry does not list is named by its id.
+      [semanticConfig('openai::text-embedding-3-large', 3072), 'text-embedding-3-large'],
+    ] as const) {
+      act(() => {
+        savedConfig(config);
+      });
+      expect(subtitle.textContent).toBe(label);
+    }
   });
 
   describe('popover fixture lifetime', () => {
