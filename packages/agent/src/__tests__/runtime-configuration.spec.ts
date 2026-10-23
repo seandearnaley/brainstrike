@@ -66,16 +66,6 @@ describe('runtime configuration auth input (BST-1352)', () => {
     ).toThrowError(/missing_api_key/);
   });
 
-  it('a custom_fetch auth input passes key resolution on its dummy key', () => {
-    const fakeFetch: typeof globalThis.fetch = () => Promise.reject(new Error('unused'));
-    const resolved = resolveRuntimeConfiguration(
-      { provider: 'anthropic' },
-      { apiKey: 'dummy', fetch: fakeFetch, kind: 'custom_fetch' }
-    );
-    expect(resolved.apiKey).toBe('dummy');
-    expect(resolved.authInput?.kind).toBe('custom_fetch');
-  });
-
   it('an aws auth input without a region fails typed, never missing_api_key', () => {
     expect(() =>
       resolveRuntimeConfiguration({ provider: 'anthropic' }, { kind: 'aws', region: ' ' })

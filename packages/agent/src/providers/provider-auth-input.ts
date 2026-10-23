@@ -4,13 +4,7 @@
  * auth flows plug into the factory without new string side channels:
  *
  * - `api_key` — the existing bearer-key flow, behavior-identical to the old
- *   string argument. Every current caller uses this kind.
- * - `custom_fetch` — an injected `fetch` threaded into the AI SDK `create*`
- *   factories (consumed by BST-1356, e.g. OAuth token refresh in the fetch
- *   closure). The `apiKey` is a dummy the wire never trusts; the fetch closure
- *   owns real authentication. Provider cases whose model config has NO fetch
- *   seam (Mastra descriptor configs: openrouter/ollama/lmstudio, and the local
- *   host client) throw a typed error rather than silently dropping the fetch.
+ *   string argument.
  * - `aws` — Bedrock-shaped input: a region plus EXACTLY ONE credential form,
  *   a bearer key (BST-1350) or an AWS credential-chain provider (BST-1353).
  *   Validated here (region required, bearer XOR chain) and consumed ONLY by
@@ -21,7 +15,7 @@
  * parameters the whole way down (stream options → resolveRuntimeConfiguration
  * → createProvider). They NEVER
  * enter RuntimeData or a Mastra RequestContext — RequestContext.toJSON drops
- * functions, so a fetch closure would vanish silently.
+ * functions, so the AWS credential-provider closure would vanish silently.
  */
 import { isValidAwsRegion } from '@brainstrike/assistant-contract';
 import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
@@ -70,7 +64,6 @@ export const CONFLICTING_AWS_CREDENTIALS_DETAIL =
 
 export type ProviderAuthInput =
   | { kind: 'api_key'; apiKey: string }
-  | { kind: 'custom_fetch'; apiKey: string /* dummy, never sent */; fetch: typeof globalThis.fetch }
   | {
       kind: 'aws';
       region: string;
@@ -102,7 +95,6 @@ export function assertValidProviderAuthInput(auth: ProviderAuthInput | undefined
   }
   switch (auth.kind) {
     case 'api_key':
-    case 'custom_fetch':
       return;
     case 'aws':
       if (!auth.region.trim()) {
@@ -150,12 +142,11 @@ export function assertExactlyOneAwsCredential(
 
 export interface ProviderFetchOptions {
   apiKey?: string;
-  fetch?: typeof globalThis.fetch;
 }
 
 /**
  * Project an auth input onto the AI SDK `create*` factory options
- * (`{ apiKey?, fetch? }`). Generic on purpose: ANY provider case built on an
+ * (`{ apiKey? }`). Generic on purpose: ANY provider case built on an
  * AI SDK factory consumes this helper unchanged. `aws` projects its bearer
  * key ONLY for providers whose registry authType is `'aws'` (bedrock,
  * BST-1350) — on any other provider it throws typed, because silently
@@ -174,8 +165,6 @@ export function providerFetchOptions(
       // Empty string keeps the old `apiKey ? { apiKey } : undefined` behavior:
       // no key option, SDK-side env resolution untouched.
       return auth.apiKey ? { apiKey: auth.apiKey } : {};
-    case 'custom_fetch':
-      return { apiKey: auth.apiKey, fetch: auth.fetch };
     case 'aws':
       if (findProviderDefinition(provider)?.authType === 'aws') {
         return auth.apiKey ? { apiKey: auth.apiKey } : {};
@@ -192,9 +181,9 @@ export function providerFetchOptions(
 /**
  * Narrow an auth input to the bearer-key-only surface for provider cases whose
  * model config is a Mastra DESCRIPTOR (openrouter/ollama/lmstudio) or the
- * local host client — configs with no fetch seam at all. `custom_fetch` and
- * `aws` throw typed here: dropping the fetch (or the AWS credentials) and
- * proceeding on the dummy/absent key would be a silent auth downgrade.
+ * local host client — configs with no fetch seam at all. `aws` throws typed
+ * here: dropping the AWS credentials and proceeding on an absent key would be
+ * a silent auth downgrade.
  */
 export function bearerApiKeyOnly(
   auth: ProviderAuthInput | undefined,
@@ -206,11 +195,6 @@ export function bearerApiKeyOnly(
   switch (auth.kind) {
     case 'api_key':
       return auth.apiKey;
-    case 'custom_fetch':
-      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-        context: { authKind: 'custom_fetch', provider },
-        detail: `Provider "${provider}" has no fetch seam and cannot accept custom_fetch auth input.`,
-      });
     case 'aws':
       throw createMastraAgentError('mastra_agent_runtime_init_failed', {
         context: { authKind: 'aws', provider },
@@ -223,13 +207,9 @@ export function bearerApiKeyOnly(
 
 /**
  * Narrow an auth input to the `aws` kind for the Bedrock provider case
- * (BST-1350). Everything else fails typed:
- *
- * - absent auth and `api_key` both carry NO region, so they get the
- *   actionable missing-region guidance (a bearer key alone cannot build a
- *   Bedrock client — region is mandatory, never defaulted);
- * - `custom_fetch` has no consumer on the Bedrock case and must never be
- *   silently dropped.
+ * (BST-1350). Absent auth and `api_key` both carry NO region, so they fail
+ * typed with the actionable missing-region guidance (a bearer key alone
+ * cannot build a Bedrock client — region is mandatory, never defaulted).
  */
 export function requireAwsAuthInput(
   auth: ProviderAuthInput | undefined,
@@ -248,11 +228,6 @@ export function requireAwsAuthInput(
       throw createMastraAgentError('mastra_agent_runtime_init_failed', {
         context: { authKind: 'api_key', provider },
         detail: MISSING_AWS_REGION_DETAIL,
-      });
-    case 'custom_fetch':
-      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-        context: { authKind: 'custom_fetch', provider },
-        detail: `Provider "${provider}" does not consume custom_fetch auth input.`,
       });
     default:
       return assertNeverAuthInput(auth);

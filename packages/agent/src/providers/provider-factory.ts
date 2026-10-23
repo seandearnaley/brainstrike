@@ -121,7 +121,7 @@ function pickApiKey(
  * when nothing was projected.
  */
 function sdkFactorySettings(options: ProviderFetchOptions): ProviderFetchOptions | undefined {
-  if (options.apiKey === undefined && options.fetch === undefined) {
+  if (options.apiKey === undefined) {
     return;
   }
   return options;
@@ -203,8 +203,8 @@ export function createProvider(
       );
       // BST-587: every hosted Anthropic request carries a tail cache breakpoint
       // so multi-step agent runs cache-read the shared prefix. The wrapper
-      // composes with EVERY auth kind, custom_fetch included — the Proxy
-      // intercepts doStream/doGenerate regardless of how the model was built.
+      // composes with every auth kind — the Proxy intercepts
+      // doStream/doGenerate regardless of how the model was built.
       // BST-1354 made the SELECTION registry-driven; every Anthropic model row
       // declares `promptCaching: 'anthropic'`, so behavior here is unchanged.
       return wrapModelWithDeclaredPromptCaching(
@@ -235,8 +235,8 @@ export function createProvider(
       // (BRAINSTRIKE_* override, vendor env name, or stored keychain key) is
       // threaded into the gateway's getApiKey — never re-derived from a
       // hardcoded env read (BST-1361). The key comes off the BST-1352 auth
-      // seam: descriptor config, no fetch seam, so `bearerApiKeyOnly` throws
-      // typed on custom_fetch/aws instead of silently dropping them.
+      // seam: descriptor config, so `bearerApiKeyOnly` throws typed on aws
+      // instead of silently dropping it.
       const apiKey = bearerApiKeyOnly(auth, validatedProvider);
       return new ModelRouterLanguageModel(
         {
@@ -266,8 +266,7 @@ export function createProvider(
       // this one is the Bedrock case's own contract.
       assertExactlyOneAwsCredential(awsAuth);
       // SDK settings ride the SAME providerFetchOptions seam as every other
-      // AI SDK factory case (PR #2522 review, finding 9) — a future
-      // fetch-carrying auth kind composes without a bespoke branch here. The
+      // AI SDK factory case (PR #2522 review, finding 9). The
       // credential provider is added beside it (it is Bedrock-only, so it
       // stays out of the generic projection); the AI SDK prefers `apiKey`
       // over `credentialProvider` when both are set, which is precisely why
