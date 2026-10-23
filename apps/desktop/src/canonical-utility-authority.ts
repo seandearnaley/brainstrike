@@ -212,8 +212,8 @@ export function capturedAuthority(
     }
   };
   const ownedLease = (): NonNullable<typeof lease> => {
-    if (!lease || (lease.signal.aborted && !cleanup)) {
-      throw new Error('Canonical request has no live mounted lease.');
+    if (!lease) {
+      throw new Error('Canonical request has no mounted lease.');
     }
     return lease;
   };

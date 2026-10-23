@@ -51,6 +51,12 @@ export interface CanonicalCollectionScan {
 export interface CanonicalCollectionOwner extends CanonicalCollectionAttachment {
   startScan(requestId: string): Promise<CanonicalCollectionScan>;
 }
+/** What retires an attachment's work: Main's retirement of the attachment, and its lease's owner. */
+function retirements(session: Session): AbortSignal[] {
+  return session.lease
+    ? [session.retirement.signal, session.lease.signal]
+    : [session.retirement.signal];
+}
 /** Main retains actual capability objects. A child owner token selects only this captured closure. */
 export class CanonicalUtilityParent {
   private readonly sessions = new Map<string, Session>();
@@ -133,13 +139,7 @@ export class CanonicalUtilityParent {
       let terminal: Promise<typeof receiptSchema.Type> | undefined;
       return {
         join: () => {
-          terminal ??= this.request(
-            owner,
-            'join-scan',
-            { requestId },
-            receiptSchema,
-            session.retirement.signal
-          );
+          terminal ??= this.request(owner, 'join-scan', { requestId }, receiptSchema, session);
           return terminal;
         },
       };
@@ -227,30 +227,32 @@ export class CanonicalUtilityParent {
       throw new Error('Canonical utility request is repeated or exceeds its pending bound.');
     }
     session.lastRequestId = frame.id;
-    if (session.retirement.signal.aborted && !isOwnedCleanup(frame)) {
-      this.refuseStoppedRequest(session, frame);
-      return;
-    }
     const controller = new AbortController();
+    // What it runs under: its own signal (the utility's notice, Main's stop) and, unless it is a
+    // retirement's own cleanup, its attachment's retirements.
+    const signals: [AbortSignal, ...AbortSignal[]] = isOwnedCleanup(frame)
+      ? [controller.signal]
+      : [controller.signal, ...retirements(session)];
     const pending = { controller, settled: Promise.resolve() };
     session.pending.set(frame.id, pending);
-    pending.settled = this.invoke(session, frame, controller)
+    pending.settled = this.invoke(session, frame, signals)
       .then(
         (value) => this.respond(frame, true, value),
         (error: unknown) => {
-          // Main revokes the native authority in the same turn that its retirement
-          // stops this request, so admitted work fails on that revocation instead of
-          // the cancellation reason; it is the same cancellation (BST-1955). An
-          // independent failure, and a cleanup the retirement still owns, stay visible.
+          // Work that ended on the retirement of something it runs under is that owner's
+          // cancellation, named by the owner's own reason: a folder lease's typed refusal can be
+          // another bundle's copy of its class. Main also revokes its native authority in the
+          // turn its retirement stops this request, so admitted work failing on that revocation
+          // is the same cancellation (BST-1955). Any other failure, and a cleanup the retirement
+          // still owns, stays visible.
           const revoked =
             controller.signal.aborted &&
             error instanceof NativeAuthorityTransitionError &&
             !isOwnedCleanup(frame);
-          if (revoked || error === controller.signal.reason) {
-            this.respond(frame, false, controller.signal.reason, true);
-            return;
-          }
-          this.respond(frame, false, error);
+          const retired =
+            signals.find((signal) => signal.aborted && error === signal.reason) ??
+            (revoked ? controller.signal : undefined);
+          this.respond(frame, false, retired ? retired.reason : error, retired !== undefined);
         }
       )
       .finally(() => session.pending.delete(frame.id));
@@ -258,18 +260,6 @@ export class CanonicalUtilityParent {
     void pending.settled.catch(() => {});
   }
 
-  private refuseStoppedRequest(
-    session: Session,
-    frame: Extract<CanonicalFrame, { kind: 'call' }>
-  ): void {
-    try {
-      assertCanonicalRequest(session, frame);
-    } catch (error) {
-      this.respond(frame, false, error);
-      return;
-    }
-    this.respond(frame, false, new Error('Canonical source admission is closed.'), true);
-  }
   private respond(
     frame: Extract<CanonicalFrame, { kind: 'call' }>,
     ok: boolean,
@@ -322,22 +312,22 @@ export class CanonicalUtilityParent {
   }
   /**
    * Every answer Main gets from the utility for an attachment. Once Main retired that attachment,
-   * an answer the utility gives as cancelled is that retirement's cancellation, so it settles with
-   * Main's typed reason (BST-1955). Any other answer keeps its own value or error.
+   * or its lease's owner retired the lease, an answer the utility gives as cancelled is that
+   * retirement's cancellation, so it settles with that owner's reason (BST-1955). Any other answer
+   * keeps its own value or error.
    */
   private async request<S extends Schema.ConstraintDecoder<unknown>>(
     owner: string,
     op: string,
     payload: unknown,
     schema: S,
-    retirement = this.sessions.get(owner)?.retirement.signal
+    session = this.sessions.get(owner)
   ): Promise<S['Type']> {
     try {
       return await this.channel.call(owner, op, payload, schema);
     } catch (error) {
-      throw retirement?.aborted && error instanceof CanonicalOperationCancelledError
-        ? retirement.reason
-        : error;
+      const retired = session && retirements(session).find((signal) => signal.aborted);
+      throw retired && error instanceof CanonicalOperationCancelledError ? retired.reason : error;
     }
   }
   private stop(session: Session): void {
@@ -558,14 +548,18 @@ export class CanonicalUtilityParent {
   private async invoke(
     session: Session,
     frame: Extract<CanonicalFrame, { kind: 'call' }>,
-    controller: AbortController
+    signals: readonly [AbortSignal, ...AbortSignal[]]
   ): Promise<unknown> {
     const context: CanonicalOperationContext = {
       requestId: frame.requestId ?? `utility:${frame.id}`,
-      signal: controller.signal,
+      signal: signals[0],
     };
     assertCanonicalRequest(session, frame);
     const authority = capturedAuthority(session, frame);
+    // A request that arrives after what it runs under was retired does no work (BST-2140).
+    for (const signal of signals) {
+      signal.throwIfAborted();
+    }
     const leaseOperations = ['list-dir', 'read-file', 'subscribe', 'unsubscribe', 'retire-lease'];
     const catalogOperations = [
       'load-files',
@@ -590,8 +584,9 @@ export class CanonicalUtilityParent {
             : await this.invokePublication(session, frame, authority);
     if (!isOwnedCleanup(frame)) {
       // stop() aborts every admitted request's signal in the same turn as it retires the session.
-      context.signal.throwIfAborted();
-      authority.lease?.signal.throwIfAborted();
+      for (const signal of signals) {
+        signal.throwIfAborted();
+      }
     }
     recheckCallbackAuthority(session, frame);
     const operation = canonicalOperations[frame.op as keyof typeof canonicalOperations];

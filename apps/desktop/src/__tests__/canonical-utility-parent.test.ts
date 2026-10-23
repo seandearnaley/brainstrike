@@ -190,13 +190,13 @@ describe('captured canonical utility capabilities', () => {
     const { parent, owner, frames } = await attached();
     const close = parent.close();
     call(parent, owner, 200, op, payload);
+    await close;
     const response = frames.find((input) => {
       const frame = decodeCanonicalFrame(input);
       return frame.kind === 'result' && frame.id === 200;
     });
     expect(response).toMatchObject({ ok: false });
     expect(response).not.toHaveProperty('cancelled');
-    await close;
   });
 
   it('marks a valid stopped-owner begin-scan as cancellation without invoking publication', async () => {
@@ -205,13 +205,13 @@ describe('captured canonical utility capabilities', () => {
     const { parent, owner, frames } = await attached(dependencies);
     const close = parent.close();
     call(parent, owner, 200, 'begin-scan', { requestId: 'x', scope });
+    await close;
     const response = frames.find((input) => {
       const frame = decodeCanonicalFrame(input);
       return frame.kind === 'result' && frame.id === 200;
     });
     expect(response).toMatchObject({ cancelled: true, ok: false });
     expect(beginScan).not.toHaveBeenCalled();
-    await close;
   });
 
   it('rejects a foreign captured owner while stopping without a cancellation response', async () => {
@@ -235,6 +235,7 @@ describe('captured canonical utility capabilities', () => {
     Object.assign(dependencies, { catalog: { ...dependencies.catalog } });
     const close = parent.close();
     call(parent, owner, 200, 'load-files', scope);
+    await close;
     const response = frames.find((input) => {
       const frame = decodeCanonicalFrame(input);
       return frame.kind === 'result' && frame.id === 200;
@@ -244,7 +245,6 @@ describe('captured canonical utility capabilities', () => {
       ok: false,
     });
     expect(response).not.toHaveProperty('cancelled');
-    await close;
   });
 
   it('rejects replacement of the actual lease object and retires its original captured borrow', async () => {
