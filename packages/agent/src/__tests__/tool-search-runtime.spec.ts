@@ -495,6 +495,15 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(other.tools.list_available_tools).not.toBe(first.tools.list_available_tools);
   });
 
+  it('accepts an empty prefix as the whole inventory, as a model writing every key sends it', async () => {
+    const first = await createLinearProcessor().processInputStep(createStepArgs());
+    const catalog = first.tools.list_available_tools;
+    const validated = await catalog?.inputSchema?.['~standard'].validate({ offset: 0, prefix: '' });
+    expect(validated).toEqual({ value: { offset: 0, prefix: '' } });
+    const everything = await catalog?.execute?.({});
+    await expect(catalog?.execute?.({ offset: 0, prefix: '' })).resolves.toEqual(everything);
+  });
+
   it('enumerates all eligible Linear tools without loading their schemas', async () => {
     const processor = createLinearProcessor();
     const first = await processor.processInputStep(createStepArgs({ threadId: 'inventory' }));
