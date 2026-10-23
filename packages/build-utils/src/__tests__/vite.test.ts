@@ -184,21 +184,17 @@ describe('assistant vite helpers', () => {
     );
   });
 
-  test('returns lazy-surface entry points for assistant and database surfaces', () => {
+  test('returns lazy-surface entry points for the assistant surfaces', () => {
     const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
     writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
     const entries = getLazySurfaceOptimizeDepsEntries(appDir);
 
     expect(entries).toEqual([
       `${toVitePath(appDir)}/index.html`,
-      expect.stringContaining('/packages/app-shell/src/database-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-chat-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
-      expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
       expect.stringContaining('/packages/assistant-ui/src/assistant-ui-panel.tsx'),
       expect.stringContaining('/packages/assistant-ui/src/markdown-text.tsx'),
-      expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
-      expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
     ]);
   });
 
@@ -209,7 +205,7 @@ describe('assistant vite helpers', () => {
     expect(() =>
       getLazySurfaceOptimizeDepsEntries(
         appDir,
-        (entry) => !entry.includes('/packages/db-explorer/src/database-demo-panel.tsx')
+        (entry) => !entry.includes('/packages/assistant-ui/src/markdown-text.tsx')
       )
     ).toThrow(/Lazy-surface optimizeDeps entry does not exist/);
   });

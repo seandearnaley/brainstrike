@@ -20,7 +20,6 @@ export {
 } from './assistant-ui-panel-wrapper-runtime';
 export * from './connected-prompt-manager';
 export * from './connected-prompt-manager-lazy';
-export * from './database-panel';
 export * from './diagnostics';
 export * from './hooks/use-assistant-availability';
 export { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';

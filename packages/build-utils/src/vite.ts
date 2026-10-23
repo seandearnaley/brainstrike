@@ -216,7 +216,6 @@ const moduleDir =
 // for published/node_modules consumption without reworking the path contract.
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
 const assistantUiDir = path.resolve(moduleDir, '..', '..', 'assistant-ui', 'src');
-const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
 
 export function getAssistantOptimizeDepsInclude(): readonly string[] {
   return ASSISTANT_OPTIMIZE_DEPS_INCLUDE;
@@ -244,14 +243,10 @@ export function getLazySurfaceOptimizeDepsEntries(
 ): readonly string[] {
   const entries = [
     path.resolve(appRoot, 'index.html'),
-    path.resolve(appShellDir, 'database-panel.tsx'),
     path.resolve(appShellDir, 'assistant-chat-panel.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper-lazy.tsx'),
-    path.resolve(appShellDir, 'database-tab.tsx'),
     path.resolve(assistantUiDir, 'assistant-ui-panel.tsx'),
     path.resolve(assistantUiDir, 'markdown-text.tsx'),
-    path.resolve(appShellDir, 'database-tab-chunk.tsx'),
-    path.resolve(dbExplorerDir, 'database-demo-panel.tsx'),
   ].map(toVitePath);
 
   for (const entry of entries) {

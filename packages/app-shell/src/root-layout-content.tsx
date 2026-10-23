@@ -72,7 +72,6 @@ import { useRewindPortFor } from './changes/use-rewind-port-for';
 import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
-import { DatabasePanel } from './database-panel';
 import { DelegatedWorkspaceTabsProvider } from './delegated-workspace-apps';
 import {
   type RendererDiagnosticSurface,
@@ -532,7 +531,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                   assistantContent={<AssistantChatPanel />}
                   sidebarContent={
                     <AgentSidebarPanel
-                      databaseContent={<DatabasePanel />}
                       promptsContent={(isActive) => (
                         <Suspense
                           fallback={
@@ -697,11 +695,6 @@ export function RootLayoutContent({
                 {/* Tab chords (BST-1842): the same structural gating as the palette. */}
                 <TabChordHost />
                 <WorkspaceConnectHost />
-                {/* One shared embedder cache for every semantic-search surface. The
-                machinery is lazy (models load on first embed), so this
-                always-mounted provider is free until the first query. It
-                encloses BOTH the collection browser (sidebar DatabasePanel) and
-                the workspace-search panel (ExplorerSearchTabs) below. */}
                 <SearchEmbedderProvider createLocalEmbedder={createLocalSearchEmbedder}>
                   <IndexingActivityCoordinator />
                   <div
