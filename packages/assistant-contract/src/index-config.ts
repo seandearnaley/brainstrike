@@ -4,6 +4,8 @@ import { Schema } from 'effect';
 /** Custom sizes stay inside the canonical chunker's 4096-token and 1024-overlap safety caps. */
 export const CHUNK_SIZE_TOKENS = { maximum: 2048, minimum: 128 } as const;
 export const CHUNK_OVERLAP_TOKENS = { maximum: 256, minimum: 0 } as const;
+/** Off opens no index to re-chunk, so chunking changes only while search is on. */
+export const INDEX_CHUNKING_OFF_MESSAGE = 'Turn search on before changing chunking.';
 
 const IntBetween = (bounds: { readonly maximum: number; readonly minimum: number }) =>
   Schema.Int.check(Schema.isBetween(bounds));
