@@ -171,8 +171,8 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
         /Search & Indexing/i,
         'search-indexing'
       );
-      await settings.getByRole('button', { name: 'Rebuild search index' }).click();
-      await expect(settings.getByRole('button', { name: 'Rebuild search index' })).toBeEnabled({
+      await settings.getByRole('button', { name: 'Rebuild index' }).click();
+      await expect(settings.getByRole('button', { name: 'Rebuild index' })).toBeEnabled({
         timeout: 120_000,
       });
       await expect(settings.getByRole('alert')).toHaveCount(0);
