@@ -2,7 +2,7 @@
  * Symbol extraction (BST-919 / BST-931).
  *
  * Both suites parse REAL source with the REAL adapters — the Babel adapter for
- * JS/TS (same ESTree shape oxc ships across IPC, so the extractor is proven
+ * JS/TS (same ESTree shape oxc produces, so the extractor is proven
  * engine-agnostic by construction) and the tree-sitter WASM adapter for
  * Python. No hand-built ASTs: a hand-built fixture would just encode the
  * author's assumptions about node shapes, which is exactly the class of

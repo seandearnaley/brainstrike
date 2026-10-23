@@ -23,9 +23,6 @@
  * exactly when they matter most. Now: if a parser throws, the call site's
  * existing strategy fallback (non-AST recursive chunking) takes over,
  * logged at warn level so it's visible.
- *
- * See: docs/prd-chunking-wasm-parser-2026-05.md §4, §9
- * See: docs/prd-chunking-tree-sitter-2026-05.md §9.1
  */
 
 import { babelAdapter } from './babel-adapter';

@@ -79,7 +79,7 @@ export async function parseCanonicalSource(
       jsx: true,
       language: language === 'typescript' ? 'typescript' : 'javascript',
     });
-    // First-parse audit (logs once per worker session). This is the
+    // First-parse audit (logs once per process). This is the
     // operator's confirmation that selectAdapter picked the right adapter
     // AND that the first parse round-trip actually completed — without
     // this, "no errors in the log" is ambiguous between "oxc works" and

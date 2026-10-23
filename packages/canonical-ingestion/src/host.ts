@@ -75,10 +75,7 @@ interface DiscoveryOutcome {
   readonly files: readonly CanonicalManifestFile[];
 }
 interface CanonicalIngestionCommon {
-  /**
-   * The canonical chunker: `createNodeChunker` in a Node host,
-   * `createBrowserChunker` in the browser's index worker.
-   */
+  /** The canonical chunker: `createNodeChunker` in a Node host. */
   readonly chunker: CanonicalChunker;
   /**
    * The partition discovered workspace sources join: the workspace's collection,

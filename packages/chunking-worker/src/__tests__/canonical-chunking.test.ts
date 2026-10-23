@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { createBrowserChunker } from '../canonical';
 import { createNodeChunker } from '../node/index';
 
 const PYTHON = [
@@ -17,7 +16,7 @@ const PYTHON = [
   '',
 ].join('\n');
 
-describe('canonical chunking in the browser', () => {
+describe('canonical chunking with the Babel parser', () => {
   it("chunks the recorded desktop canonical file exactly as desktop's oxc-parsed result", async () => {
     const fixture = JSON.parse(
       await readFile(
@@ -31,7 +30,7 @@ describe('canonical chunking in the browser', () => {
       relativePath: string;
       result: { chunks: unknown[]; symbolRefs: unknown[]; symbols: unknown[]; totalTokens: number };
     };
-    const result = await createBrowserChunker()(fixture.content, {
+    const result = await createNodeChunker({ parser: 'babel' })(fixture.content, {
       filePath: fixture.relativePath,
       maxTokens: 256,
       strategy: 'auto',
@@ -45,12 +44,12 @@ describe('canonical chunking in the browser', () => {
 
   it('parses Python with the vendored tree-sitter grammar, as the desktop chunker does', async () => {
     const options = { fileName: 'greeter.py', maxTokens: 64, strategy: 'auto' as const };
-    const browser = await createBrowserChunker()(PYTHON, options);
-    expect(browser).toEqual(await createNodeChunker({ parser: 'oxc' })(PYTHON, options));
+    const babel = await createNodeChunker({ parser: 'babel' })(PYTHON, options);
+    expect(babel).toEqual(await createNodeChunker({ parser: 'oxc' })(PYTHON, options));
     // The symbols come from the grammar's parse tree; text splitting has none.
-    if (!browser.symbols) {
+    if (!babel.symbols) {
       throw new Error('Expected grammar-derived Python symbols');
     }
-    expect(browser.symbols.map((symbol) => symbol.name)).toEqual(['Greeter', 'main']);
+    expect(babel.symbols.map((symbol) => symbol.name)).toEqual(['Greeter', 'main']);
   });
 });

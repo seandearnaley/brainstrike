@@ -2,8 +2,6 @@
  * Contract tests for the parser adapter selection facade.
  *
  * Phase 2 Cycle 2.3: identity + smoke parse (Babel baseline).
- *
- * See: docs/prd-chunking-wasm-parser-2026-05.md §5 (Phase 5)
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
