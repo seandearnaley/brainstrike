@@ -82,10 +82,10 @@ describe('useDocumentTitle', () => {
     );
 
     act(() => {
-      usePanelLayoutStore.getState().setActiveTab('notes');
+      usePanelLayoutStore.getState().setActiveTab('git');
     });
 
-    expect(readTitles()).toEqual(['Notes - BrainStrike.ai']);
+    expect(readTitles()).toEqual(['Git - BrainStrike.ai']);
     expect(readDescriptions()).toEqual(['Multi-app dashboard']);
   });
 });

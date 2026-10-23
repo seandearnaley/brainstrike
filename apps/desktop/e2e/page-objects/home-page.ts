@@ -49,7 +49,7 @@ export class HomePage {
    * already the active route is a no-op rather than a redundant rail click.
    *
    * Settings is a full nav-rail route (BST-1668), mounted through the same
-   * keep-mounted wrapper as Git/Notes/Browser, so "open" means the
+   * keep-mounted wrapper as Git/Browser, so "open" means the
    * `settings-route` wrapper is visible (it is `display: none` under any
    * other tab). The method ends by asserting the settings navigation is
    * visible on BOTH paths, so a genuine failure to open remains a visible

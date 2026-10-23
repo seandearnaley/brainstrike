@@ -4,7 +4,7 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'git' | 'notes' | 'browser'
+ * - activeTab: 'explorer' | 'settings' | 'git' | 'browser'
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -31,14 +31,14 @@ import {
  * tab INSIDE the workspace panel on the `'explorer'` route instead of its own
  * nav-rail page; it is a workspace app tab (BST-1258, `useWorkspaceTabSelectionStore`).
  */
-export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes' | 'browser';
+export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'browser';
 
 export interface PanelLayoutStoreState {
   // Root tabs
   activeTab: PanelTab;
   /**
    * Navigate to the Settings shell route. Settings is a full nav-rail tab
-   * like git/notes/browser (BST-1668 — the #1626 modal is gone), so this is
+   * like git/browser (BST-1668 — the #1626 modal is gone), so this is
    * `setActiveTab('settings')` under a name every entry point (profile menu,
    * ⌘K, status items, tool menus) can share without knowing the tab id.
    */

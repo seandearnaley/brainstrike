@@ -102,9 +102,6 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
   absWorkingDir: appRoot,
   // Narrow exceptions to packages:'external' (aliases are applied before
   // external classification):
-  // - @brainstrike/notes-vault ships a bundler-target ESM dist with
-  //   EXTENSIONLESS relative imports, which Node's runtime resolver cannot
-  //   load from this CJS bundle. Its one main-process subpath is inlined.
   // - @brainstrike/assistant-data is ESM-only. Main inlines the canonical
   //   history-mapper and memory-resource subpaths from source rather than
   //   requiring an export Node cannot execute from this CJS bundle.
@@ -120,10 +117,6 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
     '@brainstrike/assistant-data/assistant-memory-resource': path.resolve(
       appRoot,
       '../../packages/assistant-data/src/assistant-memory-resource.ts'
-    ),
-    '@brainstrike/notes-vault/core': path.resolve(
-      appRoot,
-      '../../packages/notes-vault/src/core/index.ts'
     ),
     // Shared request parsing is pure and must be bundled into the sandbox preload.
     '@brainstrike/types/catalog-args': path.resolve(

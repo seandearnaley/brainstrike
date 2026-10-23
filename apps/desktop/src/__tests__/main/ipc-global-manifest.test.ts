@@ -412,7 +412,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'index-search.contract.ts',
       'mcp.contract.ts',
       'model-catalog.contract.ts',
-      'notes-vault.contract.ts',
       'prompt-library.contract.ts',
       'skills.contract.ts',
       'source-files.contract.ts',

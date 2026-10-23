@@ -121,7 +121,7 @@ export function createApplicationIpcDomain(
     // Recursive Explorer watcher (batched, ignoreInitial, path-filtered). This
     // concrete MAIN-owned closure is the sole production opt-in to bounded
     // default-filter boundary reporting; the renderer/wire cannot request it.
-    // Notes Vault and git metadata retain their separate legacy policies.
+    // Git metadata retains its separate legacy policy.
     // Health transitions flow back over fs:watch-health (BST-568 slice 3).
     startWatch: async (directoryPath, onChanges, onHealth) => {
       let mounted: MountedWorkspaceRoot | undefined;

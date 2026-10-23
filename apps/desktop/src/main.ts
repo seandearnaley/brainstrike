@@ -149,7 +149,6 @@ import {
   suspendMcpSurfacesForContentClear,
 } from './ipc-mcp';
 import { registerModelCatalogIpc } from './ipc-model-catalog';
-import { registerNotesVaultIpc } from './ipc-notes-vault';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
@@ -362,8 +361,8 @@ let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
-// Forge and Notes Vault retire inside their awaited graceful-shutdown steps;
-// the synchronous ledger must never start their physical cleanup again.
+// Forge retires inside its awaited graceful-shutdown step; the synchronous
+// ledger must never start its physical cleanup again.
 const ipcDisposers = createDisposerStack();
 // Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
 // window (rebound on a macOS dock-reopen), so its handle is kept to retire the
@@ -530,9 +529,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await nativeRetirement;
         await agentHostClientIpc.close();
       },
-      // Fences new vault watches and joins every native subscribe and
-      // unsubscribe, the renderer reapers' included (BST-2244).
-      'notes-vault': () => closeNotesVaultIpc(),
       'parser-host': async () => {
         await parserHostManager.stop();
       },
@@ -1187,7 +1183,6 @@ ipcDisposers.add(
   registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)
 );
 ipcDisposers.add('terminal', registerTerminalIpc(workspaceRootCatalog));
-const closeNotesVaultIpc = registerNotesVaultIpc(storage);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {

@@ -35,7 +35,6 @@ export type DesktopIpcDomain =
   | 'collectionCatalog'
   | 'sourceFiles'
   | 'modelCatalog'
-  | 'notesVault'
   | 'preferences'
   | 'providerAuth'
   | 'runtime'

@@ -1,7 +1,7 @@
 /**
  * The audited, symlink-safe, containment-checked WRITE path for main-process
  * file mutations. Extracted VERBATIM from `assistant-server/assistant-tools.ts`
- * so non-assistant IPC domains (e.g. the notes vault) can reuse the SINGLE
+ * so non-assistant IPC domains can reuse the SINGLE
  * audited write path instead of forking a weaker copy. `assistant-tools.ts`
  * re-exports these symbols, so existing importers are unaffected.
  */
@@ -160,29 +160,8 @@ export async function writeContainedFileBytes(args: {
   resolved: { absolutePath: string; canonicalRootPath: string };
   buffer: Buffer;
   requestedPath: string;
-  /**
-   * Refuse (instead of recreating) a missing parent directory. Overwrite-style
-   * writers (notes-vault autosave) must set this: their parent vanishing means
-   * the entry was renamed or deleted concurrently, and recreating it would
-   * silently resurrect the old directory with stale content.
-   */
-  requireParentDirectory?: boolean;
 }): Promise<{ created: boolean }> {
-  const { resolved, buffer, requestedPath, requireParentDirectory } = args;
-
-  if (requireParentDirectory) {
-    try {
-      await fsPromises.lstat(path.dirname(resolved.absolutePath));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-      throw new Error(
-        `Parent directory of "${requestedPath}" no longer exists; it may have been renamed or deleted.`,
-        { cause: error }
-      );
-    }
-  }
+  const { resolved, buffer, requestedPath } = args;
 
   // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
   // dangling) passes the canonical-ancestor containment check yet writeFile would

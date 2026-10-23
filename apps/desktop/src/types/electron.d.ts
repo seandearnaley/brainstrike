@@ -20,7 +20,6 @@ import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
-import type { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import type { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
 import type { sourceFilesContract } from '../ipc-domains/source-files.contract';
@@ -191,17 +190,6 @@ declare global {
     };
     mcp: McpBridge;
     modelCatalog?: TransportBridge<typeof modelCatalogContract>;
-    /**
-     * Desktop-only notes vault bridge (see
-     * packages/notes-vault/src/desktop/bridge-contract.ts). Absent on web (no
-     * preload) — consumers MUST capability-check `window.notesVault`. Every
-     * path is containment-checked in main against the APPROVED vault roots;
-     * every method resolves to a structured `NotesVaultResult` (never throws
-     * across IPC). `pickDirectory` resolves `{ ok: true, value: null }` when
-     * the user cancels. `onChanged` registers a listener for one-way
-     * `notes-vault:changed` pushes and returns an unsubscribe fn.
-     */
-    notesVault?: TransportBridge<typeof notesVaultContract>;
     /**
      * OS shell integration bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.platform`.

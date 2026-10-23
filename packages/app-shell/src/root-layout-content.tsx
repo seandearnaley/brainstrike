@@ -172,13 +172,6 @@ export interface RootLayoutContentProps {
   readonly nativeIndexRetry?: IndexRetryCapability | null;
   readonly nativeIndexSearch?: IndexSearchCapability | null;
   readonly navigationItems: NavigationItem[];
-  /**
-   * Optional markdown notes vault surface. Supplied by app wrappers when the
-   * File System Access directory picker capability exists (Chromium web,
-   * Electron renderers); Safari/Firefox never construct it (capability
-   * gating, not UA sniffing). When absent, no Notes nav item is rendered.
-   */
-  readonly notesPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
   /** The canonical state store's health and recovery (BST-1880); desktop supplies it. */
   readonly stateHealth?: StateHealthCapability | null;
@@ -209,7 +202,6 @@ export interface RootLayoutContentProps {
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/browser': 'browser',
   '/git': 'git',
-  '/notes': 'notes',
   '/settings': 'settings',
   // '/terminal' intentionally absent (BST-1270): Terminal is a workspace app
   // now. activeTab is SESSION-ONLY (panel-layout-store partializes it away)
@@ -225,7 +217,7 @@ const SETTINGS_NAV_PATH = '/settings';
 
 /**
  * Nav-rail order: every route the wrappers contribute, then Settings last.
- * The wrappers append their capability-gated routes (notes/git/browser) AFTER
+ * The wrappers append their capability-gated routes (git/browser) AFTER
  * the shared `navigationItems` list, which places Settings second; the shell
  * owns the rail, so it owns the rule that Settings closes the list.
  *
@@ -245,7 +237,7 @@ function orderNavigationItems(items: readonly NavigationItem[]): NavigationItem[
 }
 
 /**
- * A shell route (git/notes/browser/settings) that, once first opened, STAYS
+ * A shell route (git/browser/settings) that, once first opened, STAYS
  * mounted and only toggles hidden — so its watchers/scan state/scroll
  * position/in-progress edits survive later tab switches. `content` is
  * `undefined` when the app wrapper never constructed the surface at all
@@ -594,7 +586,6 @@ export function RootLayoutContent({
   changesPageContent,
   settingsPageContent,
   gitPageContent,
-  notesPageContent,
   logsPageContent,
   terminalPageContent,
   threadContextPageContent,
@@ -615,7 +606,7 @@ export function RootLayoutContent({
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
-  // Capability gate mirrors gitPageContent/terminalPageContent/notesPageContent:
+  // Capability gate mirrors gitPageContent/terminalPageContent:
   // the desktop wrapper only passes changesPageContent when the `window.changes`
   // bridge exists, so its presence IS the capability check here — the "→ Review"
   // footer link (packages/ui, gated on this same context) renders null without it.
@@ -689,7 +680,7 @@ export function RootLayoutContent({
         {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
-          gating as the git/notes nav items below. */}
+          gating as the git nav item below. */}
         <ChangesReviewProvider value={changesReviewValue}>
           <ContextMapLinkContext value={contextMapLinkValue}>
             {/* Binds the assistant panel's "Restore to before this message"
@@ -753,12 +744,6 @@ export function RootLayoutContent({
                       mountedTabs={mountedTabs}
                       shellTab={shellTab}
                       tab="git"
-                    />
-                    <KeepMountedRoute
-                      content={notesPageContent}
-                      mountedTabs={mountedTabs}
-                      shellTab={shellTab}
-                      tab="notes"
                     />
                     {/* Embedded browser pane (BST-1174). The native
                     WebContentsView follows this route's show/hide via the

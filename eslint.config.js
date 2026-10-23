@@ -73,7 +73,6 @@ export default [
       'packages/assistant-ui/src/**/*.{js,jsx,ts,tsx}',
       'packages/db/src/**/*.{js,jsx,ts,tsx}',
       'packages/file-import/src/**/*.{js,jsx,ts,tsx}',
-      'packages/notes-vault/src/**/*.{js,jsx,ts,tsx}',
       'packages/app-state/src/**/*.{js,jsx,ts,tsx}',
       'packages/settings-ui/src/**/*.{js,jsx,ts,tsx}',
       'packages/token-cache/src/**/*.{js,jsx,ts,tsx}',
