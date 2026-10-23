@@ -359,7 +359,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
         user('continue'),
       ];
       const prepared = await prepareProviderRequest({ prompt }, client.responses('gpt-6-sol'), {
-        provider: store ? 'openai' : 'openai-codex',
+        provider: 'openai',
         tokenMeasurement: measurement,
       });
       await materializeHostProviderModel(client.responses('gpt-6-sol')).doGenerate(prepared.params);

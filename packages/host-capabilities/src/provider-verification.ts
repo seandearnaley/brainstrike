@@ -151,15 +151,6 @@ interface ProviderVerificationServiceOptions {
   readonly successTtlMs?: number;
   /** AWS profile-chain resolution seam (BST-1353); tests inject verdicts. */
   readonly verifyAwsCredentialChain?: typeof verifyAwsCredentialChain;
-  /**
-   * Subscription-OAuth freshness seam (BST-1356). Wired to the shared
-   * provider-auth engine's single-flight `getFreshAccessToken`. INJECTED, so
-   * a host without the engine (web, headless) cannot verify a subscription
-   * credential and says so — the same fail-closed shape as the AWS chain.
-   */
-  readonly verifySubscriptionSession?: (
-    providerId: string
-  ) => Promise<{ ok: true } | { ok: false; status: 'not_connected' | 'reconnect_required' }>;
 }
 
 interface ProbeRequest {
@@ -436,7 +427,6 @@ export function createProviderVerificationService(
   // Injected like fetchImpl so tests can drive every chain verdict without a
   // real ~/.aws (BST-1353).
   const verifyChain = options.verifyAwsCredentialChain ?? verifyAwsCredentialChain;
-  const verifySubscription = options.verifySubscriptionSession;
 
   const cache = new Map<string, { checkedAtMs: number; result: ProviderVerificationResult }>();
   const flights = createSharedFlights<ProviderVerificationSnapshot>();
@@ -465,50 +455,6 @@ export function createProviderVerificationService(
    * session shows the `aws sso login --profile <name>` command right in the
    * settings row.
    */
-  /**
-   * Subscription-OAuth probe (BST-1356). Refreshing proves the stored refresh
-   * token is still honored by OpenAI — the question a user actually has
-   * ("is my ChatGPT sign-in still good?") — WITHOUT spending subscription
-   * quota on a model call.
-   *
-   * `verified_limited`, never `verified`: module-wide, `verified` means the
-   * provider's API accepted the credential, and this never touches the Codex
-   * backend. Same rung the AWS chain probe earns, for the same reason
-   * (#2525 finding 5).
-   *
-   * NOTE on caching: the cache key hashes the credential, and an oauth
-   * credential's `access`/`expires` rotate on refresh, so a successful probe
-   * is effectively never served from cache. That is deliberate here — a
-   * freshness check the user explicitly asked for should be live.
-   */
-  const runSubscriptionProbe = async (providerId: string): Promise<ProviderVerificationResult> => {
-    const checkedAt = new Date(now()).toISOString();
-    if (!verifySubscription) {
-      // Fail closed: a host without the provider-auth engine cannot answer.
-      throw new UnsupportedVerificationCredentialError(
-        'subscription sign-in can only be verified in the desktop app'
-      );
-    }
-    const outcome = await verifySubscription(providerId);
-    if (outcome.ok) {
-      return {
-        checkedAt,
-        detail: 'Refreshed the subscription sign-in; model access was not exercised.',
-        status: 'verified_limited',
-      };
-    }
-    return {
-      checkedAt,
-      detail:
-        outcome.status === 'reconnect_required'
-          ? 'The subscription sign-in expired or was revoked. Reconnect the account.'
-          : 'No subscription account is connected for this provider.',
-      // Both branches mean "this credential will not authenticate" — invalid,
-      // not unreachable (which reserves "no verdict obtainable").
-      status: 'invalid',
-    };
-  };
-
   const runChainProbe = async (
     profile: string | undefined
   ): Promise<ProviderVerificationResult> => {
@@ -609,15 +555,6 @@ export function createProviderVerificationService(
         };
       }
 
-      if (target.authType === 'oauth_subscription') {
-        // The host's sign-in engine holds this credential and answers from its
-        // one refresher; Main never reads subscription tokens.
-        // The engine owns its one shared refresh: a cancelled caller leaves, the refresh goes on.
-        return {
-          freshness: 'live',
-          result: await leaveOnAbort(() => runSubscriptionProbe(providerId), signal),
-        };
-      }
       const credential = await leaveOnAbort(() => readCredential(providerId), signal);
       if (!credential) {
         throw new MissingProviderCredentialError(providerId);

@@ -238,21 +238,15 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
         'Agent host platform',
         'agent-host-platform-entry.mjs'
       ),
-      platformOptions: async () => {
-        const e2eCodexIssuer = e2e ? process.env['BRAINSTRIKE_E2E_OPENAI_CODEX_ISSUER'] : undefined;
-        return {
-          appPaths: {
-            isPackaged: app.isPackaged,
-            resourcesPath: process.resourcesPath,
-            userDataPath: app.getPath('userData'),
-          },
-          credentialStore,
-          ...(environment.failures.length > 0
-            ? { envFileFailures: [...environment.failures] }
-            : {}),
-          ...(e2eCodexIssuer ? { openAiCodexIssuer: e2eCodexIssuer } : {}),
-        };
-      },
+      platformOptions: async () => ({
+        appPaths: {
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          userDataPath: app.getPath('userData'),
+        },
+        credentialStore,
+        ...(environment.failures.length > 0 ? { envFileFailures: [...environment.failures] } : {}),
+      }),
       root: resolveDesktopDatabaseProfileDirectory(),
     });
     return {

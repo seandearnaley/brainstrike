@@ -195,7 +195,7 @@ const ProviderModelSchema = z.discriminatedUnion('type', [LlmModelSchema, Embedd
 
 const ProviderSchema = z.strictObject({
   _note: NoteSchema.optional(),
-  authType: z.enum(['api_key', 'oauth_subscription', 'aws', 'none']),
+  authType: z.enum(['api_key', 'aws', 'none']),
   capabilities: z.strictObject({
     embeddings: z.boolean(),
     llm: z.boolean(),
@@ -214,7 +214,6 @@ const ProviderSchema = z.strictObject({
     'cohere',
     'voyage',
     'bedrock',
-    'openai-codex',
     'local',
     'ollama',
     'lmstudio',

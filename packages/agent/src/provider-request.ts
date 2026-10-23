@@ -43,7 +43,6 @@ import {
   healInterruptedToolCalls,
   ProviderRequestBoundaryError,
 } from './providers/request-history';
-import { classifySubscriptionQuotaError } from './providers/subscription-quota';
 import type { SupportedProvider } from './providers/types';
 import {
   createPreparedTokenMeasurement,
@@ -69,7 +68,6 @@ export {
   healInterruptedModelMessages,
   ProviderRequestBoundaryError,
 } from './providers/request-history';
-export { SubscriptionQuotaExhaustedError } from './providers/subscription-quota';
 
 export interface ProviderRequestContext {
   /** Host provenance: every item of the aborted step, not a guessed last item. */
@@ -310,7 +308,7 @@ async function applyCanonicalProcessor(
 }
 
 function isOpenAI(provider: SupportedProvider): boolean {
-  return provider === 'openai' || provider === 'openai-codex';
+  return provider === 'openai';
 }
 
 async function compatiblePrompt(
@@ -494,10 +492,8 @@ export function createProviderRequestMiddleware(options: {
   readonly onPrepared?: (prepared: PreparedProviderRequest) => void | Promise<void>;
 }): LanguageModelV4Middleware {
   // Below the SDK request retry: a typed non-retryable error is never re-sent.
-  const classify = (error: unknown, context: ProviderRequestContext): unknown => {
-    const quota = classifySubscriptionQuotaError(error, context.provider);
-    return isOpenAI(context.provider) ? classifyOpenAIStoredItemError(quota) : quota;
-  };
+  const classify = (error: unknown, context: ProviderRequestContext): unknown =>
+    isOpenAI(context.provider) ? classifyOpenAIStoredItemError(error) : error;
   return {
     specificationVersion: 'v4',
     transformParams: async ({ params, model }) => {

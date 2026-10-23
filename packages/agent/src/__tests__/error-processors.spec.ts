@@ -19,7 +19,7 @@ import {
 
 describe('error-processor builders', () => {
   it('builds the three-processor error stack for hosted providers in order', () => {
-    const processors = buildAssistantErrorProcessors('anthropic');
+    const processors = buildAssistantErrorProcessors();
     expect(processors).toBeDefined();
     // ORDER IS LOAD-BEARING: the runner returns at the FIRST processor that
     // requests a retry, so the fixup processors must precede the

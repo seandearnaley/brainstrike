@@ -1,5 +1,4 @@
 import { BEDROCK_RECOMMENDED_MODEL_IDS } from './bedrock-defaults.js';
-import { OPENAI_CODEX_RECOMMENDED_MODEL_IDS } from './openai-codex-defaults.js';
 import { OPENROUTER_RECOMMENDED_CODING_MODEL_IDS } from './openrouter-coding-defaults.js';
 import type { SupportedProvider } from './provider-metadata.js';
 
@@ -43,7 +42,6 @@ export const PROVIDER_MODEL_DEFAULT_POLICIES = {
   local: null,
   ollama: null,
   openai: { kind: 'all' },
-  'openai-codex': { kind: 'seed', modelIds: OPENAI_CODEX_RECOMMENDED_MODEL_IDS },
   openrouter: { kind: 'seed', modelIds: OPENROUTER_RECOMMENDED_CODING_MODEL_IDS },
   voyage: null,
 } as const satisfies Record<SupportedProvider, ProviderModelDefaultPolicy | null>;

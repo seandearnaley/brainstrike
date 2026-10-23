@@ -1,6 +1,7 @@
 # ADR-0014: Provider credentials, OAuth and OpenAI response storage
 
-- **Status:** Accepted
+- **Status:** Accepted. ChatGPT subscription sign-in and the provider OAuth engine were
+  removed on 2026-10-22 by owner decision; the subscription bullets below are history.
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914; OpenAI storage from BST-1918
 

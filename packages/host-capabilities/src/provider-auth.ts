@@ -4,10 +4,7 @@ import {
   type ProviderAuthInput,
 } from '@brainstrike/agent/provider-runtime';
 import { findProviderDefinition, isSupportedProvider } from '@brainstrike/assistant-contract';
-import {
-  type ProviderAuthProjectionOptions,
-  providerAuthInputFromCredential,
-} from '@brainstrike/assistant-service/provider-credential-projection';
+import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import type { HostCredentials } from './credentials.js';
 import { createProviderCredentialReader } from './provider-credentials.js';
 
@@ -22,11 +19,6 @@ export class ProviderCredentialMissingError extends Error {
 export interface HostProviderAuthOptions {
   readonly credentials: HostCredentials;
   readonly env: NodeJS.ProcessEnv;
-  /**
-   * Subscription OAuth fetch. Only the interactive desktop composition installs
-   * it; absent, an `oauth` credential is rejected by the shared projection.
-   */
-  readonly oauthSubscriptionFetch?: ProviderAuthProjectionOptions['oauthSubscriptionFetch'];
 }
 
 /**
@@ -62,9 +54,6 @@ export function createHostProviderAuth(
     return providerAuthInputFromCredential(provider, credential, {
       awsCredentialChain,
       env: options.env,
-      ...(options.oauthSubscriptionFetch
-        ? { oauthSubscriptionFetch: options.oauthSubscriptionFetch }
-        : {}),
     });
   };
 }

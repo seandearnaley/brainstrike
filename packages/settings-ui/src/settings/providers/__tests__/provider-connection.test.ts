@@ -1,9 +1,6 @@
 // @vitest-environment node
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
-import {
-  listProviders,
-  type ProviderDefinition,
-} from '@brainstrike/assistant-contract/provider-metadata';
+import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import { describe, expect, it } from 'vitest';
 import {
   buildProviderRuntimeGroups,
@@ -58,29 +55,6 @@ describe('resolveProviderConnection', () => {
     expect(
       resolveProviderConnection({ authType: 'api_key', source: undefined, sourceState: 'ready' })
     ).toBe('disconnected');
-  });
-
-  it('derives an oauth_subscription provider from its sign-in state, not the key listing', () => {
-    // BST-1356: subscription tokens live in the desktop OAuth engine and never
-    // appear in the `secrets.list()` payload. Reading the key listing for one
-    // would report a signed-in ChatGPT account as "Not connected" forever.
-    const oauth = {
-      authType: 'oauth_subscription',
-      source: undefined,
-      sourceState: 'ready',
-    } as const;
-
-    expect(resolveProviderConnection({ ...oauth, authState: 'connected' })).toBe('connected');
-    expect(resolveProviderConnection({ ...oauth, authState: 'disconnected' })).toBe('disconnected');
-    // An expired session is NOT plain disconnected: the user has an account,
-    // it just needs re-authorising, and the card must say so.
-    expect(resolveProviderConnection({ ...oauth, authState: 'reconnect_required' })).toBe(
-      'reconnect-required'
-    );
-    // Mid-flow states are not yet a verdict.
-    expect(resolveProviderConnection({ ...oauth, authState: 'awaiting_browser' })).toBe('unknown');
-    // No bridge (web) means no verdict is obtainable.
-    expect(resolveProviderConnection({ ...oauth, authState: undefined })).toBe('unknown');
   });
 
   it('reports unknown when the credential listing itself is unavailable', () => {
@@ -183,26 +157,6 @@ describe('listRecommendedProviders', () => {
       'anthropic',
       'google',
     ]);
-  });
-
-  it('never recommends a subscription provider — the panel offers "add a key"', () => {
-    // An oauth provider is connected by signing in, not by pasting a key, so
-    // listing it under "Add a key for any provider below" misdescribes it.
-    const oauthDefinition: ProviderDefinition = {
-      authType: 'oauth_subscription',
-      capabilities: { embeddings: false, llm: true, streaming: true },
-      displayName: 'Subscription Provider',
-      id: 'openai' as ProviderDefinition['id'],
-      models: [],
-      runtime: 'hosted',
-    };
-    const groups = buildProviderRuntimeGroups({
-      definitions: [oauthDefinition],
-      sourceState: 'ready',
-      sourcesBySlotId: NO_SOURCES,
-    });
-
-    expect(listRecommendedProviders(groups)).toEqual([]);
   });
 
   it('never recommends a keyless provider — there is nothing to connect', () => {

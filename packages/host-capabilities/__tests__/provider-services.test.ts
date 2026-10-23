@@ -34,7 +34,7 @@ describe('host provider services', () => {
   it('reports a key from the host credential store as a stored, configured provider', async () => {
     const { credentials } = credentialsWith({ openrouter: { key: 'stored-key', type: 'api_key' } });
     const services = createHostProviderServices({
-      auth: { secrets: credentials.secrets, verify: vi.fn() },
+      auth: { secrets: credentials.secrets },
       env: {},
       envFileFailures: [],
     });
@@ -59,7 +59,7 @@ describe('host provider services', () => {
       message: 'Desktop environment file ".env" is invalid at line 2: expected "=".',
     };
     const services = createHostProviderServices({
-      auth: { secrets: credentials.secrets, verify: vi.fn() },
+      auth: { secrets: credentials.secrets },
       env: {},
       envFileFailures: [failure],
     });
@@ -74,28 +74,6 @@ describe('host provider services', () => {
     expect(secrets.listProviders).not.toHaveBeenCalled();
   });
 
-  it('verifies a subscription only for the desktop client, through the host refresher', async () => {
-    const verify = vi.fn(async () => ({
-      ok: false as const,
-      status: 'reconnect_required' as const,
-    }));
-    const { credentials } = credentialsWith({});
-    const services = createHostProviderServices({
-      auth: { secrets: credentials.secrets, verify },
-      env: {},
-      envFileFailures: [],
-    });
-
-    await expect(services.verify('openai-codex', 'public-socket', open)).rejects.toThrow(
-      'A subscription sign-in can be verified only from the desktop app.'
-    );
-    expect(verify).not.toHaveBeenCalled();
-    await expect(services.verify('openai-codex', 'desktop-ui', open)).resolves.toMatchObject({
-      result: { status: 'invalid' },
-    });
-    expect(verify).toHaveBeenCalledWith('openai-codex');
-  });
-
   it('probes with the stored key and never echoes it', async () => {
     const requests: { authorization: string | null; url: string }[] = [];
     const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -107,7 +85,7 @@ describe('host provider services', () => {
     });
     const { credentials } = credentialsWith({ openrouter: { key: 'stored-key', type: 'api_key' } });
     const services = createHostProviderServices({
-      auth: { secrets: credentials.secrets, verify: vi.fn() },
+      auth: { secrets: credentials.secrets },
       env: {},
       envFileFailures: [],
       fetchImpl: fetchImpl as typeof fetch,
@@ -145,7 +123,6 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
       auth: {
         secrets: credentialsWith({ openai: { key: 'stored-key', type: 'api_key' } }).credentials
           .secrets,
-        verify: vi.fn(),
       },
       env: {},
       envFileFailures: [],
@@ -192,7 +169,6 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
       auth: {
         secrets: credentialsWith({ openrouter: { key: 'stored-key', type: 'api_key' } }).credentials
           .secrets,
-        verify: vi.fn(),
       },
       env: {},
       envFileFailures: [],
@@ -208,36 +184,6 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
     expect(held.signals[0]?.aborted).toBe(true);
   });
 
-  it("leaves the engine's shared subscription refresh running when its desktop caller cancels", async () => {
-    const refreshed = Promise.withResolvers<{ ok: true }>();
-    const refreshes: Promise<{ ok: true }>[] = [];
-    // The auth engine owns this refresh; it takes no caller signal and must not be aborted.
-    const verify = vi.fn((_provider: string) => {
-      refreshes.push(refreshed.promise);
-      return refreshed.promise;
-    });
-    const provider = createHostProviderServices({
-      auth: { secrets: credentialsWith({}).credentials.secrets, verify },
-      env: {},
-      envFileFailures: [],
-    });
-    const leaving = new AbortController();
-    const cancelled = provider.verify('openai-codex', 'desktop-ui', leaving.signal);
-    await vi.waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
-    const reason = new Error('The desktop caller left');
-    leaving.abort(reason);
-
-    await expect(cancelled).rejects.toBe(reason);
-    expect(verify).toHaveBeenCalledWith('openai-codex');
-    refreshed.resolve({ ok: true });
-    await expect(refreshes[0]).resolves.toEqual({ ok: true });
-    // Nothing was classified or cached for the cancelled caller: the next verify asks again.
-    await expect(provider.verify('openai-codex', 'desktop-ui', open)).resolves.toMatchObject({
-      result: { status: 'verified_limited' },
-    });
-    expect(verify).toHaveBeenCalledTimes(2);
-  });
-
   it('releases a caller whose credential read is still held, for both provider reads', async () => {
     const read = Promise.withResolvers<null>();
     const secrets = {
@@ -247,7 +193,7 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
     };
     const held = heldFetch();
     const provider = createHostProviderServices({
-      auth: { secrets: () => secrets as unknown as SecretsService, verify: vi.fn() },
+      auth: { secrets: () => secrets as unknown as SecretsService },
       env: {},
       envFileFailures: [],
       fetchImpl: held.fetchImpl,

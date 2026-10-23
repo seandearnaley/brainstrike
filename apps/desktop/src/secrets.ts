@@ -1,5 +1,4 @@
-import { SecretReadError, type SecretsService } from '@brainstrike/agent-host/credential-contract';
-import type { HostLoginCredential } from '@brainstrike/agent-host/protocol';
+import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import type { ProviderCredential } from '@brainstrike/assistant-contract';
 import {
   createHostCredentials,
@@ -29,14 +28,13 @@ function getDesktopCredentials(): HostCredentials {
 export interface DesktopCredentialWriter {
   clear(): Promise<boolean>;
   deleteCredential(account: string): Promise<boolean>;
-  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
+  setCredential(account: string, credential: ProviderCredential): Promise<void>;
 }
 
 /**
  * Main's read-only view of the profile store (Settings listing, hosted
- * embeddings, tool and MCP keys). Subscription tokens stay with the host's one
- * refresher, so an OAuth entry reads as `credential_type_unsupported`. Writes
- * refuse: Settings changes go through {@link createDesktopSettingsSecrets}.
+ * embeddings, tool and MCP keys). Writes refuse: Settings changes go through
+ * {@link createDesktopSettingsSecrets}.
  */
 export function getSecretsService(): SecretsService {
   const service = getDesktopCredentials().secrets();
@@ -46,13 +44,7 @@ export function getSecretsService(): SecretsService {
   return {
     clearAll: refuseWrite,
     deleteKey: refuseWrite,
-    getCredential: async (provider) => {
-      const credential = await service.getCredential(provider);
-      if (credential?.type === 'oauth') {
-        throw new SecretReadError('credential_type_unsupported', provider);
-      }
-      return credential;
-    },
+    getCredential: (provider) => service.getCredential(provider),
     getKey: (provider) => service.getKey(provider),
     listProviders: () => service.listProviders(),
     saveKey: refuseWrite,
@@ -64,9 +56,6 @@ export function getSecretsService(): SecretsService {
 export function createDesktopSettingsSecrets(writer: DesktopCredentialWriter): SecretsService {
   const reads = getSecretsService();
   const write = async (account: string, credential: ProviderCredential): Promise<boolean> => {
-    if (credential.type === 'oauth') {
-      throw new Error('Subscription sign-in is stored only by the host sign-in flow');
-    }
     await writer.setCredential(account, credential);
     return true;
   };

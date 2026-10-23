@@ -209,7 +209,6 @@ describe('admitted Memory model configuration', () => {
     'openai/',
     'unknown/fixture',
     'bedrock/fixture',
-    'openai-codex/fixture',
     'ollama/fixture',
     'lmstudio/fixture',
     'local/fixture',

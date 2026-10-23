@@ -3,7 +3,11 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { BoundaryFailureError, describeBoundaryFailure } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+  type ProviderCredential,
+} from '@brainstrike/assistant-contract';
 import { launchHost } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
 import { trustCliProjectHooks } from './cli-hooks-trust.js';
@@ -13,7 +17,7 @@ import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
-import { HOST_METHOD_SCHEMAS, type HostLoginCredential, type HostParams } from './protocol.js';
+import { HOST_METHOD_SCHEMAS, type HostParams } from './protocol.js';
 import {
   type CliWorkspaceRunInput,
   CliWorkspaceRunInputSchema,
@@ -274,7 +278,7 @@ async function readCliLogin(
 async function readCliLoginCredential(
   values: HostCliArguments['values'],
   input: NodeJS.ReadableStream
-): Promise<HostLoginCredential> {
+): Promise<ProviderCredential> {
   const region = values.region;
   if (values['aws-profile']) {
     return {

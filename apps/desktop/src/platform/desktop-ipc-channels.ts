@@ -215,15 +215,6 @@ export const DESKTOP_IPC_CHANNELS = {
     settingsClearAll: 'settings:clearAll',
   },
   promptLibrary: { request: 'prompt-library:request' },
-  // Provider OAuth engine (BST-1355). Renderer-visible surface is STATUS
-  // ONLY — token material never crosses these channels (legal gate BST-1351
-  // constraint 3; pinned by provider-auth-ipc tests).
-  providerAuth: {
-    cancel: 'provider-auth:cancel',
-    disconnect: 'provider-auth:disconnect',
-    start: 'provider-auth:start',
-    status: 'provider-auth:status',
-  },
   runtime: {
     listModels: 'runtime:listModels',
     noteReloadIntent: 'app:lifecycle:note-reload-intent',

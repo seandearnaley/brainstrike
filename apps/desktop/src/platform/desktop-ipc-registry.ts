@@ -36,7 +36,6 @@ export type DesktopIpcDomain =
   | 'sourceFiles'
   | 'modelCatalog'
   | 'preferences'
-  | 'providerAuth'
   | 'runtime'
   | 'shell'
   | 'skills'

@@ -194,11 +194,6 @@
       "import": "./dist/tool-telemetry.js",
       "require": "./dist/tool-telemetry.js"
     },
-    "./provider-auth": {
-      "types": "./dist/provider-auth.d.ts",
-      "import": "./dist/provider-auth.js",
-      "require": "./dist/provider-auth.js"
-    },
     "./secrets-bridge": {
       "types": "./dist/secrets-bridge.d.ts",
       "import": "./dist/secrets-bridge.js",

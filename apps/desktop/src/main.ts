@@ -133,7 +133,6 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerCollectionCatalogIpc } from './ipc-collection-catalog';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
-import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -154,7 +153,6 @@ import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
-import { createShellIpcHandlers } from './ipc-shell-handlers';
 import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerSourceFilesIpc } from './ipc-source-files';
 import { registerTerminalIpc } from './ipc-terminal';
@@ -914,20 +912,11 @@ void nativeIndexActivation
 ipcDisposers.add('native-index-lifecycle', () =>
   nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
 );
-// Main's own desktop-origin client: Settings credential writes, provider sign-in
-// and subscription verification reach the host, their single owner, through it.
-// The host's sign-in pages open through the same validated shell path as the
-// shell IPC domain (allow-listed protocols, never an embedded webview).
-const agentHostShellOpener = createShellIpcHandlers({ shell });
+// Main's own desktop-origin client: Settings credential writes reach the host,
+// their single owner, through it.
 const agentHostMainClient = createAgentHostMainClient(
   nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open,
-  async (url) => {
-    const result = await agentHostShellOpener.openExternal(url);
-    if (!result.ok) {
-      throw new Error(result.error ?? 'shell.openExternal failed');
-    }
-  }
+  agentHostPrivateClients.open
 );
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
@@ -1564,24 +1553,6 @@ if (singleInstanceLockAcquired) {
               result: desktopEnvLoadResult,
               userDataPath: app.getPath('userData'),
             }),
-        })
-      );
-      // Provider sign-in (BST-1355/1356) runs in the host's one OAuth engine,
-      // the only refresher; a second engine would replay a rotating refresh
-      // token. Main forwards the visible window's calls over its private client.
-      ipcDisposers.add(
-        'provider-auth',
-        registerProviderAuthIpcHandlers({
-          auth: {
-            cancel: (provider) => agentHostMainClient.request('auth/cancel', { provider }),
-            connect: (provider, method) =>
-              agentHostMainClient.request('auth/connect', {
-                provider,
-                ...(method === undefined ? {} : { method }),
-              }),
-            disconnect: (provider) => agentHostMainClient.request('auth/disconnect', { provider }),
-            status: (provider) => agentHostMainClient.request('auth/status', { provider }),
-          },
         })
       );
       ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getMainMcpHostControl() }));

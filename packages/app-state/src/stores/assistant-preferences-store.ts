@@ -200,10 +200,7 @@ const LOCAL_RUNTIME_PROVIDERS = new Set<SupportedProvider>(
  * Providers that can serve a CHAT turn with NO credential at all.
  *
  * Keyless-ness DERIVES from `authType === 'none'` (BST-1349) — it is never
- * inferred from "declares no env keys". Those differ: BST-1356's
- * `openai-codex` declares no env keys precisely BECAUSE it is interactive
- * OAuth only, and treating that as keyless would advertise it as ready to use
- * before the user has connected an account.
+ * inferred from "declares no env keys".
  *
  * `capabilities.llm` is part of the derivation, not an afterthought: the
  * built-in on-device provider is keyless but EMBEDDINGS-ONLY, and seeding it

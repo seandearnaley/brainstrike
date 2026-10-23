@@ -24,8 +24,8 @@ export type ProviderApiKeyReader = (provider: string) => Promise<string | undefi
 /**
  * A resolved typed credential (BST-1352): the BST-1348 union plus where it
  * came from. `source: 'env'` entries are always `api_key` (environment
- * variables can only express bearer keys); typed `oauth`/`aws` credentials
- * only ever arrive with `source: 'stored'`.
+ * variables can only express bearer keys); typed `aws` credentials only ever
+ * arrive with `source: 'stored'`.
  */
 export type ResolvedProviderCredential = ProviderCredential & { source: 'env' | 'stored' };
 

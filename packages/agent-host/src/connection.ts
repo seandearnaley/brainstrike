@@ -275,7 +275,7 @@ export function bindHostConnection(
       start: record.start,
     };
   });
-  bindHostAuthMethods(handle, connection, auth, origin);
+  bindHostAuthMethods(handle, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
   disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
   disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));

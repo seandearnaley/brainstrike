@@ -75,27 +75,6 @@ describe('parseStoredCredential — round-trips for every credential type', () =
     expect(roundTrip(credential)).toEqual(credential);
   });
 
-  it('round-trips an oauth credential without accountId', () => {
-    const credential: ProviderCredential = {
-      access: 'at-1',
-      expires: 1_755_500_000_000,
-      refresh: 'rt-1',
-      type: 'oauth',
-    };
-    expect(roundTrip(credential)).toEqual(credential);
-  });
-
-  it('round-trips an oauth credential with accountId', () => {
-    const credential: ProviderCredential = {
-      access: 'at-1',
-      accountId: 'acct-9',
-      expires: 1_755_500_000_000,
-      refresh: 'rt-1',
-      type: 'oauth',
-    };
-    expect(roundTrip(credential)).toEqual(credential);
-  });
-
   it('round-trips an aws bearer credential', () => {
     const credential: ProviderCredential = {
       bearerKey: 'bedrock-bearer',
@@ -160,22 +139,6 @@ describe('parseStoredCredential — hard failures (tagged but unrecognizable, ne
   it('throws for api_key with non-string metadata values', () => {
     expectMalformed('{"type":"api_key","key":"sk","metadata":{"a":1}}');
     expectMalformed('{"type":"api_key","key":"sk","metadata":"nope"}');
-  });
-
-  it('throws for oauth missing required fields (the `{"type":"oauth"}` case)', () => {
-    expectMalformed('{"type":"oauth"}');
-    expectMalformed('{"type":"oauth","access":"a","refresh":"r"}');
-    expectMalformed('{"type":"oauth","access":"a","expires":1}');
-    expectMalformed('{"type":"oauth","refresh":"r","expires":1}');
-  });
-
-  it('throws for oauth with invalid field types', () => {
-    expectMalformed('{"type":"oauth","access":"a","refresh":"r","expires":"soon"}');
-    expectMalformed('{"type":"oauth","access":"a","refresh":"r","expires":1,"accountId":7}');
-  });
-
-  it('throws for oauth with a non-finite expires', () => {
-    expectMalformed('{"type":"oauth","access":"a","refresh":"r","expires":null}');
   });
 
   it('throws for aws missing region or with an unrecognized mode', () => {
@@ -259,9 +222,6 @@ describe('parseStoredCredential — hard failures (tagged but unrecognizable, ne
 describe('isProviderCredential', () => {
   it('accepts every valid credential variant', () => {
     expect(isProviderCredential({ key: 'sk', type: 'api_key' })).toBe(true);
-    expect(isProviderCredential({ access: 'a', expires: 1, refresh: 'r', type: 'oauth' })).toBe(
-      true
-    );
     expect(
       isProviderCredential({ bearerKey: 'k', mode: 'bearer', region: 'us-east-1', type: 'aws' })
     ).toBe(true);
@@ -318,7 +278,6 @@ describe('isProviderCredential', () => {
     expect(isProviderCredential(null)).toBe(false);
     expect(isProviderCredential({ key: 'sk' })).toBe(false);
     expect(isProviderCredential({ key: 'sk', type: 'gcp' })).toBe(false);
-    expect(isProviderCredential({ type: 'oauth' })).toBe(false);
     expect(isProviderCredential({ mode: 'iam', region: 'us-east-1', type: 'aws' })).toBe(false);
   });
 });

@@ -50,13 +50,7 @@ export async function createHostCapabilities(
   };
   // Own the credential lane before any capability can start native work.
   await options.startup.register(close);
-  const auth = createHostAuthority({
-    ...(options.launch?.openAiCodexIssuer === undefined
-      ? {}
-      : { codexIssuer: options.launch.openAiCodexIssuer }),
-    credentials,
-    env: options.env,
-  });
+  const auth = createHostAuthority({ credentials, env: options.env });
   return {
     auth,
     close,

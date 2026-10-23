@@ -317,21 +317,6 @@ contextBridge.exposeInMainWorld('envBootstrap', {
   read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.envBootstrap),
 });
 
-// Provider OAuth bridge (BST-1355). Status-only by contract: every method
-// resolves a token-free ProviderAuthStatus; token material NEVER crosses IPC
-// (legal gate BST-1351 constraint 3). Shape defined ONCE in
-// @brainstrike/assistant-contract provider-auth.ts (ProviderAuthBridge).
-contextBridge.exposeInMainWorld('providerAuth', {
-  cancel: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.cancel, provider),
-  disconnect: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.disconnect, provider),
-  start: (provider: string, method?: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.start, provider, method),
-  status: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.status, provider),
-});
-
 // Settings Store API (factory reset support)
 exposeBridge('settings', settingsContract);
 if (shouldExposeBridge('indexSearch')) {

@@ -35,8 +35,7 @@ type Activation = ReturnType<typeof fixture>['activation'];
 async function quitWhileStarting(activation: Activation, fenced: () => void = () => undefined) {
   const mainClient = createAgentHostMainClient(
     () => activation.acquireProfile(),
-    () => undefined,
-    async () => undefined
+    () => undefined
   );
   const maintenanceLog = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   const workspaceRoots = createDesktopWorkspaceRootCatalog(() => activation.acquireProfile());

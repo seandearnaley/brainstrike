@@ -12,8 +12,7 @@ import type {
   McpHostTaskOwner,
   OpenRouterModelMetadataSnapshot,
   PermissionToolGateSnapshot,
-  ProviderAuthStartMethod,
-  ProviderAuthStatus,
+  ProviderCredential,
   ProviderVerificationSnapshot,
   ReferencedFileFailure,
   ToolRiskCategory,
@@ -41,13 +40,11 @@ import type {
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
-import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostApprovalTargetRoot,
   HostEditOp,
   HostEvent,
   HostHookSkip,
-  HostLoginCredential,
   HostLogRow,
   HostMemoryModels,
   HostObservationalMemoryState,
@@ -432,29 +429,14 @@ export interface HostRunAdmission {
   readonly workingMemory?: false;
 }
 
-/**
- * The host's single credential writer, token holder and OAuth refresher.
- * `connect` and subscription use require the private desktop origin.
- */
+/** The host's single credential writer and token holder. */
 export interface HostAuthService {
-  cancel(provider: string): Promise<ProviderAuthStatus>;
   clear(): Promise<boolean>;
-  /** `openExternal` asks the requesting client to open the sign-in page. */
-  connect(
-    provider: string,
-    method: ProviderAuthStartMethod | undefined,
-    origin: HostClientOrigin | undefined,
-    openExternal: (url: string) => Promise<void>
-  ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
-  disconnect(provider: string): Promise<ProviderAuthStatus>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
-  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
-  status(provider: string): Promise<ProviderAuthStatus>;
+  setCredential(account: string, credential: ProviderCredential): Promise<void>;
   /** A provider login, validated against the provider's authentication form. */
-  storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
-  /** Refresh-aware session liveness through the one refresher; never a token. */
-  verify(provider: string): Promise<HostAuthVerdict>;
+  storeProviderCredential(provider: string, credential: ProviderCredential): Promise<void>;
 }
 
 /**

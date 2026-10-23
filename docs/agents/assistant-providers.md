@@ -50,10 +50,9 @@ tool at the SDK edge; a function named `tool_search` is a different tool
 ([vendor identity contract](https://github.com/vercel/ai/pull/19754)). The host
 retains its existing discovery catalog. Drop orphaned reasoning, aborted-step
 items and foreign-provider executed parts from
-requests without rewriting canonical history. API-key OpenAI uses stored
-responses; subscription OpenAI sets unstored mode before request construction
-and carries reasoning inline. Expired stored items are typed, non-retryable
-failures; replaying without them requires the user's decision.
+requests without rewriting canonical history. OpenAI uses stored responses.
+Expired stored items are typed, non-retryable failures; replaying without them
+requires the user's decision.
 
 ## Credentials and privacy
 
@@ -67,9 +66,7 @@ different failures.
 
 Bedrock precedence is environment bearer, stored bearer, environment chain,
 stored chain. Resolve AWS chains only through the injected host capability.
-Subscription OAuth requires its interactive desktop capability; renderer surfaces
-receive account status, not tokens. Refresh has one owner, and disconnect fences
-late work. Anthropic subscription OAuth remains rejected. Environment diagnostics
+No provider authenticates through a subscription sign-in. Environment diagnostics
 contain names, paths and loader messages, never secret values or fingerprints.
 
 Owner: [provider auth](../../packages/host-capabilities/src/provider-auth.ts).

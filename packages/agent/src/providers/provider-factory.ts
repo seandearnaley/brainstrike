@@ -19,12 +19,10 @@ import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { resolveBedrockModelId } from './bedrock-model-id';
-import { resolveCodexModelId } from './codex-model-id';
 import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model';
 import { createOllamaChatModel, type OllamaModelFacts } from './ollama-chat-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
-import { wrapModelWithCallTransform } from './prompt-transform-proxy';
 import {
   apiKeyAuthInput,
   assertExactlyOneAwsCredential,
@@ -34,7 +32,6 @@ import {
   type ProviderFetchOptions,
   providerFetchOptions,
   requireAwsAuthInput,
-  requireCustomFetchAuthInput,
 } from './provider-auth-input';
 import {
   getProviderDefinition,
@@ -198,41 +195,6 @@ export function createProvider(
         sdkFactorySettings(providerFetchOptions(auth, validatedProvider))
       );
       return openaiProvider(modelName);
-    }
-
-    case 'openai-codex': {
-      // BST-1356 (legal gate BST-1351). Same OpenAI Responses SDK surface as
-      // the `openai` case above, but EVERY byte of authentication lives in the
-      // injected fetch closure: it strips the SDK's dummy authorization,
-      // attaches the subscription bearer from the desktop provider-auth
-      // engine, and rewrites the request onto OpenAI's Codex backend.
-      //
-      // The narrow is load-bearing, not defensive: without it an `api_key`
-      // input would reach `createOpenAI` and quietly bill the user's METERED
-      // platform account for traffic they asked to draw on their subscription.
-      const codexAuth = requireCustomFetchAuthInput(auth, validatedProvider);
-      const codexProvider = createOpenAI(
-        sdkFactorySettings(providerFetchOptions(codexAuth, validatedProvider))
-      );
-      // Catalog ids are `codex/`-prefixed (the models table's id is a global
-      // primary key); the Codex backend wants the bare id.
-      //
-      // BST-1918: `store` must be false BEFORE the SDK serializes the request.
-      // The codex-fetch rewrite to `store:false` runs after serialization, too
-      // late: the SDK has already built `item_reference`s for earlier reasoning
-      // that OpenAI never stored and left out its encrypted content. With
-      // `store:false` set here the SDK sends reasoning inline and adds
-      // `include: ['reasoning.encrypted_content']` itself.
-      return wrapModelWithCallTransform(
-        codexProvider(resolveCodexModelId(modelName)),
-        (params) => ({
-          ...params,
-          providerOptions: {
-            ...params.providerOptions,
-            openai: { ...params.providerOptions?.['openai'], store: false },
-          },
-        })
-      );
     }
 
     case 'anthropic': {
@@ -533,10 +495,6 @@ export function createEmbeddingProvider(
     // phase 1 is LLM-only (registry capabilities.embeddings: false) — an
     // explicit throw, never a silent degrade (BST-1350).
     case 'bedrock':
-    // The ChatGPT subscription grants no embeddings endpoint (registry
-    // capabilities.embeddings: false) — explicit throw, never a silent
-    // degrade to the metered platform API (BST-1356).
-    case 'openai-codex':
     case 'ollama':
     case 'lmstudio':
     case 'local':

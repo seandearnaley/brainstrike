@@ -36,7 +36,6 @@ const CONNECTION_LABELS: Record<ProviderConnectionState, string> = {
   connected: 'Connected',
   disconnected: 'Not connected',
   'not-applicable': 'No credential required',
-  'reconnect-required': 'Session expired',
   unknown: 'Status unknown',
 };
 
@@ -44,7 +43,6 @@ const CONNECTION_DOT_CLASSES: Record<ProviderConnectionState, string> = {
   connected: 'bg-emerald-500',
   disconnected: 'bg-muted-foreground/40',
   'not-applicable': 'bg-sky-500/70',
-  'reconnect-required': 'bg-amber-500',
   unknown: 'bg-amber-500/70',
 };
 
@@ -53,7 +51,6 @@ const PRIMARY_ACTION_LABELS: Record<ProviderConnectionState, string> = {
   connected: 'Manage',
   disconnected: 'Connect',
   'not-applicable': 'View models',
-  'reconnect-required': 'Reconnect',
   unknown: 'Manage',
 };
 
@@ -129,12 +126,7 @@ function ConnectionBadge({
   );
 }
 
-/**
- * Names the credential store for the card header. OAuth is the one auth type
- * whose source is a SESSION rather than a key, so it says "Signed in" instead
- * of "Stored" — an auth-TYPE distinction from registry metadata, never a
- * per-provider branch.
- */
+/** Names the credential store for the card header. */
 function ProviderKeySourceBadge({
   card,
   sourceState,
@@ -145,13 +137,6 @@ function ProviderKeySourceBadge({
   const testId = `provider-key-source-${card.definition.id}`;
   if (card.definition.authType === 'none') {
     return null;
-  }
-  if (card.definition.authType === 'oauth_subscription') {
-    return (
-      <Badge data-testid={testId} variant="outline">
-        {card.connection === 'connected' ? 'Signed in' : 'Subscription sign-in'}
-      </Badge>
-    );
   }
   if (sourceState === 'unavailable') {
     // No bridge and no status payload: naming a store would be a guess.
@@ -391,13 +376,7 @@ export function ProviderCard({
             statusProviderKeySources={statusProviderKeySources}
           />
 
-          {/* A subscription provider is signed into, not keyed — its row
-              already links the same docsUrl as "How sign-in works", so
-              offering "Get an API key" here would be both duplicated and
-              wrong about what the provider needs. */}
-          {definition.authType === 'oauth_subscription' ? null : (
-            <ProviderGuidance docsUrl={definition.docsUrl} providerId={providerId} />
-          )}
+          <ProviderGuidance docsUrl={definition.docsUrl} providerId={providerId} />
 
           {definition.authType === 'none' ? null : (
             <ProviderTestConnection
@@ -441,8 +420,7 @@ interface ProviderCredentialSectionProps {
  * The credential surface is the Credential Inventory table filtered to this
  * one provider (BST-1362's `providers` seam). Composing it rather than
  * reimplementing means every editor it grows appears here unchanged — the AWS
- * region/profile modes, and BST-1356's OAuth connect / device-code /
- * disconnect arm with its personal-use notice.
+ * region/profile modes included.
  */
 function ProviderCredentialSection({
   authType,
@@ -468,11 +446,7 @@ function ProviderCredentialSection({
       </p>
     );
   }
-  // An `oauth_subscription` row renders its OWN read-only treatment without a
-  // bridge — the personal-use notice must appear on web too, and the row says
-  // sign-in is desktop-only rather than offering a button that cannot work.
-  // Replacing it with the generic env note would drop that legal copy.
-  if (!(editable || authType === 'oauth_subscription')) {
+  if (!editable) {
     return (
       <p
         className="text-muted-foreground text-xs"

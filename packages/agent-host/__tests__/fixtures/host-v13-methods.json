@@ -1,15 +1,10 @@
 {
-  "version": 12,
+  "version": 13,
   "methods": [
-    "auth/cancel",
     "auth/clear",
-    "auth/connect",
     "auth/credential/delete",
     "auth/credential/set",
-    "auth/disconnect",
     "auth/login",
-    "auth/status",
-    "auth/verify",
     "checkpoint/revert",
     "hooks/trust",
     "hooks/trust/read",

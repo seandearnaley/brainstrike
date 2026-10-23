@@ -108,7 +108,7 @@ describe('resolveProviderError', () => {
   // key, which read as an app regression for a full day. The visible detail
   // must name the provider, say the credential was rejected, and point at the
   // remedy FOR THAT PROVIDER'S AUTH TYPE (PR #2573 review: an api-key remedy
-  // is wrong for a ChatGPT subscription session or a local-runtime token);
+  // is wrong for a local-runtime token);
   // the runError envelope (code/httpStatus — the diagnostics fingerprint and
   // debug-bundle fields) must be byte-identical to before.
   describe('rejected credential (HTTP 401)', () => {
@@ -145,18 +145,6 @@ describe('resolveProviderError', () => {
       expect(resolved.detail).toBe(
         'OpenAI rejected the API key (HTTP 401) — it is invalid or was revoked. Update the key in Settings → Providers, or verify it in the provider dashboard. Provider response: Incorrect API key provided.'
       );
-    });
-
-    it('tells a subscription (oauth_subscription) provider to sign in again, never to edit a key', () => {
-      // openai-codex stores the placeholder `oauth-subscription-no-api-key`;
-      // an expired/revoked session or failed refresh is exactly a 401.
-      const resolved = resolveProviderError({ message: 'Unauthorized', statusCode: 401 }, {
-        provider: 'openai-codex',
-      } as RuntimeData);
-      expect(resolved.detail).toBe(
-        'OpenAI (ChatGPT) rejected the sign-in session (HTTP 401) — it expired or was revoked. Sign in again in Settings → Providers. Provider response: Unauthorized'
-      );
-      expect(resolved.detail).not.toContain('API key');
     });
 
     it('points an aws provider at its Bedrock credential / AWS session', () => {

@@ -67,8 +67,6 @@ guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
   verdicts and cache provenance.
 - The MCP OAuth callback Scope owns listener teardown; each wait uses
   `Effect.ensuring` for timer cleanup, and close joins all active waits.
-  Provider OAuth loopback Scope owns listener cleanup; reject duplicate waits,
-  and close joins its callback timer and both socket cleanup operations.
 - Embedding admission reserves partial permits transactionally; abort only
   capacity waits, never committed grants.
 - Parser host generation Scope joins actual exit and listener cleanup; failed
