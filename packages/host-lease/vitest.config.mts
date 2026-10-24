@@ -10,8 +10,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: ['node_modules', 'dist'],
-    // Isolate competing real-process start orders and termination proofs.
-    fileParallelism: false,
     globals: true,
     hookTimeout: 120_000,
     include: ['__tests__/**/*.test.ts'],

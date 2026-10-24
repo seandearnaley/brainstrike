@@ -2,6 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -326,6 +327,36 @@ export function getCacheDirFromArgs(args, rootDir = REPO_ROOT) {
   return path.resolve(rootDir, cacheDirArg.slice('--cache-dir='.length));
 }
 
+/**
+ * Turbo runs `--concurrency=N` Vitest processes at once and each one sizes its
+ * pool from the whole host, so the cores are split between them through
+ * Vitest's own VITEST_MAX_WORKERS. An explicit value wins.
+ */
+export function resolveVitestMaxWorkers(
+  args,
+  env = process.env,
+  cores = os.availableParallelism()
+) {
+  if (env['VITEST_MAX_WORKERS']) {
+    return;
+  }
+  const flagIndex = args.findIndex(
+    (arg) => arg === '--concurrency' || arg.startsWith('--concurrency=')
+  );
+  if (flagIndex === -1) {
+    return;
+  }
+  const value =
+    args[flagIndex] === '--concurrency'
+      ? args[flagIndex + 1]
+      : args[flagIndex].slice('--concurrency='.length);
+  const tasks = Number(value);
+  if (!Number.isInteger(tasks) || tasks < 1) {
+    return;
+  }
+  return String(Math.max(1, Math.floor(cores / tasks)));
+}
+
 export function runTurboCommand(argv = process.argv, platform = process.platform, options = {}) {
   const {
     env = process.env,
@@ -434,6 +465,9 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
     }
   }
 
+  const vitestMaxWorkers = resolveVitestMaxWorkers(args, env);
+  const taskEnv = vitestMaxWorkers ? { ...env, VITEST_MAX_WORKERS: vitestMaxWorkers } : env;
+
   try {
     args = buildTurboArgs(args, { cwd: process.cwd(), env, platform });
   } catch (error) {
@@ -459,7 +493,7 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
 
   try {
     const result = spawnSyncImpl(process.execPath, [TURBO_ENTRY, ...args], {
-      env: markDevDepsPrepared ? { ...env, [DEV_DEPS_PREPARED_ENV]: '1' } : env,
+      env: markDevDepsPrepared ? { ...taskEnv, [DEV_DEPS_PREPARED_ENV]: '1' } : taskEnv,
       shell: false,
       stdio: 'inherit',
     });

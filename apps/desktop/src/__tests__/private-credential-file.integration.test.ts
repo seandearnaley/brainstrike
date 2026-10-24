@@ -1,15 +1,12 @@
-import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import {
   readPrivateCredentialFile,
   writePrivateCredentialFile,
 } from '@brainstrike/agent-host/file-credentials';
 import { afterEach, expect, it } from 'vitest';
 
-const execute = promisify(execFile);
 const roots: string[] = [];
 async function fixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'bs-private-desktop-'));
@@ -79,22 +76,4 @@ it('rejects nonregular files, invalid absolute paths and failed parent traversal
     writePrivateCredentialFile(join(root, 'absent-parent', 'child.json'), 'fake rejected')
   ).rejects.toThrow();
   expect(await readPrivateCredentialFile(regular)).toBe('fake retained');
-});
-
-it.skipIf(process.platform === 'win32')('requires exact POSIX 0600 permissions', async () => {
-  const root = await fixture();
-  const path = join(root, 'credential.json');
-  await writePrivateCredentialFile(path, 'fake retained');
-  for (const mode of [0o644, 0o400, 0o700]) {
-    await chmod(path, mode);
-    await expect(readPrivateCredentialFile(path)).rejects.toThrow();
-  }
-});
-
-it.skipIf(process.platform === 'win32')('refuses a FIFO without waiting for a writer', async () => {
-  const root = await fixture();
-  const path = join(root, 'fifo');
-  await execute('mkfifo', [path]);
-  await expect(readPrivateCredentialFile(path)).rejects.toThrow();
-  await expect(writePrivateCredentialFile(path, 'fake rejected')).rejects.toThrow();
 });

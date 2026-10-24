@@ -9,8 +9,9 @@ import baseConfig, { resolveDesktopTestProjects } from './vitest.config.mts';
 // mocks, globals and process.env do not cross files. Files share only external
 // state, and the lane keeps that per test: temporary files go in mkdtemp
 // directories and servers bind port 0. The package-write guard fails the run if
-// a test leaves new files in this package. `pnpm test` runs four packages at once,
-// so the lane takes a quarter of the cores, at least two and at most four.
+// a test leaves new files in this package. Desktop is the longest unit task and
+// runs alone once the smaller packages finish, so it takes half the cores (at
+// least two) rather than the per-task share VITEST_MAX_WORKERS gives the others.
 // Windows (cold fork imports, WINDOWS_DESKTOP_TEST_PROJECTS), CI and explicit
 // DESKTOP_TEST_SHARD runs stay serial; integration and coverage keep their own
 // configs.
@@ -22,7 +23,7 @@ export function resolveDesktopUnitWorkers(
   if (platform === 'win32' || environment['CI'] === 'true' || environment['DESKTOP_TEST_SHARD']) {
     return 1;
   }
-  return Math.min(4, Math.max(2, Math.floor(cores / 4)));
+  return Math.max(2, Math.floor(cores / 2));
 }
 
 // vitest.integration.config.mts runs these files.

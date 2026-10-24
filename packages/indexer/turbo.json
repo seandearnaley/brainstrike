@@ -16,8 +16,7 @@
         "topo",
         "build",
         "@brainstrike/agent-host#build"
-      ],
-      "cache": false
+      ]
     }
   }
 }

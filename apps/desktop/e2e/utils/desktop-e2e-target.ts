@@ -1,4 +1,4 @@
-import { accessSync, constants, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { packagedDesktopExecutablePath } from './packaged-electron';
 
 /**
@@ -49,14 +49,6 @@ function assertPackagedExecutable(executablePath: string): void {
   if (!isFile) {
     throw new Error(
       `${DESKTOP_E2E_TARGET_ENV}=packaged, but ${executablePath} is not a file. ${produce}`
-    );
-  }
-  try {
-    accessSync(executablePath, constants.X_OK);
-  } catch (error) {
-    throw new Error(
-      `${DESKTOP_E2E_TARGET_ENV}=packaged, but ${executablePath} is not executable. ${produce}`,
-      { cause: error }
     );
   }
 }

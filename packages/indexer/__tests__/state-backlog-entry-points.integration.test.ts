@@ -10,7 +10,6 @@ import {
   openIndexer,
   STATE_CATCH_UP_STEP_EVENTS,
 } from '@brainstrike/indexer';
-import { openConnection } from '@brainstrike/sqlite-native';
 import { StateStore } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -34,19 +33,12 @@ const backlogs: Readonly<Record<string, number>> = {
   similar: BACKLOG,
 };
 /**
- * A case's request budget is its own backlog projected in one request,
- * measured in this run, divided by this: coverage and a busy runner stretch the
- * work so far that no fixed budget fits every runner. Carrying the backlog in
- * one request misses the budget twice over, while a case's largest request
- * measured about a tenth of that one request, and a sixth at worst, idle and
- * under load (BST-2214). The budget comes from that long request rather than
- * a few short step samples, which load moves apart from it, and each case has
- * its own: one budget for every case had to sit both above a rebuild's
- * overwrite steps (10 to 30 fresh steps) and below the fresh backlog in one
- * request (about 55). Requests have no deadline (lifecycle R2), so the case
- * measures every request's round trip against the budget instead.
+ * Each case proves its backlog is served in bounded steps (BST-2214) by what
+ * the requests carry, not by wall-clock time: no catch-up step asks for more
+ * than STATE_CATCH_UP_STEP_EVENTS, and the backlog takes at least
+ * backlog / STATE_CATCH_UP_STEP_EVENTS steps. A clock budget measured against an
+ * earlier calibration failed whenever parallel lanes loaded the machine.
  */
-const BUDGETS_PER_BACKLOG = 2;
 const deadlines = { closeMs: 5000, exitMs: 5000 };
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
@@ -61,13 +53,13 @@ let root: string;
 /** The index the calibration and every case open. */
 let options: unknown;
 let entry: string;
-/** The fresh backlog, and the rebuild's overwrite, each projected in one request. */
-let oneRequestMs: { readonly fresh: number; readonly rebuild: number };
 
-/** One request to a measured indexer: its order, op and timings. */
+/** One request to a measured indexer: its order, op, step size and timings. */
 interface TimedRequest {
   readonly index: number;
   indexerMs?: number;
+  /** The events a `state-catch-up-step` request asked for. */
+  readonly maxEvents?: number;
   readonly op: string;
   roundTripMs?: number;
   readonly sent: number;
@@ -146,8 +138,14 @@ async function openTimedIndexer() {
     },
     send: (message) => {
       if ('id' in message && typeof message.id === 'number' && 'op' in message) {
+        const payload = 'payload' in message ? message.payload : undefined;
+        const maxEvents =
+          typeof payload === 'object' && payload !== null && 'maxEvents' in payload
+            ? Number(payload.maxEvents)
+            : undefined;
         requests.set(message.id, {
           index: requests.size,
+          ...(maxEvents === undefined ? {} : { maxEvents }),
           op: String(message.op),
           sent: performance.now(),
         });
@@ -175,18 +173,12 @@ async function openTimedIndexer() {
         .join('; ') || 'none'
     );
   };
-  const longestRoundTripMs = (): number =>
-    Math.max(
-      0,
-      ...[...requests.values()].map((request) => request.roundTripMs ?? Number.POSITIVE_INFINITY)
-    );
-  return { longestRoundTripMs, port: await connection.ready, slowest };
-}
-
-async function elapsed(work: () => Promise<unknown>): Promise<number> {
-  const started = performance.now();
-  await work();
-  return performance.now() - started;
+  /** The step size each `state-catch-up-step` request asked for, in order. */
+  const catchUpSteps = (): number[] =>
+    [...requests.values()]
+      .filter((request) => request.op === 'state-catch-up-step')
+      .map((request) => request.maxEvents ?? Number.POSITIVE_INFINITY);
+  return { catchUpSteps, port: await connection.ready, slowest };
 }
 
 beforeAll(async () => {
@@ -212,20 +204,6 @@ beforeAll(async () => {
   for (const [threadId, backlog] of Object.entries(backlogs)) {
     await append(threadId, backlog);
   }
-  await append('whole', BACKLOG);
-  await append('rewrite', REBUILD_BACKLOG);
-  const whole = await elapsed(() => calibration.catchUpStateStep(['whole'], BACKLOG));
-  await calibration.catchUpStateStep(['rewrite'], REBUILD_BACKLOG);
-  // What state-rebuild does to a thread without vectors (state-event-store.ts):
-  // its cursor goes, so the next catch-up overwrites every row.
-  const db = openConnection(dbPath);
-  try {
-    db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run('rewrite');
-  } finally {
-    db.close();
-  }
-  const rewrite = await elapsed(() => calibration.catchUpStateStep(['rewrite'], REBUILD_BACKLOG));
-  oneRequestMs = { fresh: whole, rebuild: rewrite };
   await store.close();
   await calibration.close();
   entry = path.join(root, 'timed-indexer-entry.mjs');
@@ -283,19 +261,19 @@ const entryPoints: readonly [
 ];
 
 it.each(entryPoints)(
-  '%s over a cold backlog is served, every request inside its budget',
+  '%s over a cold backlog is served in bounded steps',
   async (threadId, serve, check) => {
-    const rebuild = threadId === 'rebuild';
-    const oneRequest = rebuild ? oneRequestMs.rebuild : oneRequestMs.fresh;
-    const budgetMs = Math.ceil(oneRequest / BUDGETS_PER_BACKLOG);
-    const { longestRoundTripMs, port, slowest } = await openTimedIndexer();
+    const { catchUpSteps, port, slowest } = await openTimedIndexer();
     const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
     try {
       const served = await serve(port);
+      const steps = catchUpSteps();
+      const backlog = backlogs[threadId] ?? 0;
       expect(
-        longestRoundTripMs(),
-        `budget ${budgetMs} ms (${rebuild ? 'rebuild' : 'backlog'} in one request ${Math.round(oneRequest)} ms); slowest requests: ${slowest()}`
-      ).toBeLessThan(budgetMs);
+        Math.max(...steps),
+        `no catch-up step carries more than ${STATE_CATCH_UP_STEP_EVENTS} events; slowest requests: ${slowest()}`
+      ).toBeLessThanOrEqual(STATE_CATCH_UP_STEP_EVENTS);
+      expect(steps.length).toBeGreaterThanOrEqual(backlog / STATE_CATCH_UP_STEP_EVENTS);
       check(served);
       expect((await port.stateStats(threadId)).cursor).toBe(backlogs[threadId]);
       // The same worker still answers.

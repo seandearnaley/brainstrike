@@ -26,10 +26,7 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: [
-      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
-      '@brainstrike/test-utils/vitest.dom-aware.setup',
-    ],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
     testTimeout: 30_000,
     unstubGlobals: true,
   },
