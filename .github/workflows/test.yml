@@ -259,11 +259,18 @@ jobs:
                   "vitest_shard": ""
                 },
                 {
+                  "shard": "store",
+                  "partition": "store",
+                  "pr_filters": "--filter=\"@brainstrike/assistant-ui\" --filter=\"@brainstrike/state-store\"",
+                  "push_filters": "--filter=\"@brainstrike/assistant-ui\" --filter=\"@brainstrike/state-store\"",
+                  "vitest_shard": ""
+                },
+                {
                   "shard": "rest",
                   "partition": "rest",
-                  "pr_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\"",
+                  "pr_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\" --filter=\"!@brainstrike/assistant-ui\" --filter=\"!@brainstrike/state-store\"",
                   "vitest_shard": "",
-                  "push_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\""
+                  "push_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\" --filter=\"!@brainstrike/assistant-ui\" --filter=\"!@brainstrike/state-store\""
                 }
               ]
             }
@@ -338,8 +345,10 @@ jobs:
     # required `Unit` fan-in below. `.turbo` cache keys include `runner.arch`,
     # so this cannot cross-restore an incompatible ARM cache layer.
     runs-on: ubicloud-standard-4
-    # Desktop has three native Vitest shards and Agent two; the remaining UI
-    # packages keep their own row and Rest owns every other affected package.
+    # Desktop has four native Vitest shards and Agent two; the remaining UI
+    # packages keep their own row, Store takes assistant-ui and state-store
+    # (the two longest lanes Rest used to run), and Rest owns every other
+    # affected package.
     # Unit below remains the required fan-in.
     timeout-minutes: 30
     strategy:
