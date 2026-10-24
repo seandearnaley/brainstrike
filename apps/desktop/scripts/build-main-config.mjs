@@ -16,7 +16,7 @@
  *   one instance of each module, however many entries it loads (Main loads its
  *   bootstrap and runtime; the agent host loads its launcher and platform).
  * - dist/<runtime entry>.js  worker and module entries a workspace package names
- *   beside its own module (`nodeRuntimeEntryPoints`, @brainstrike/config);
+ *   beside its own module (`nodeRuntimeEntryPoints`, @brainstrike/config/node-bundle);
  *   every chunk sits in dist/, so the sibling is the bundled entry.
  * - dist/writer-worker.mjs  the state-store writer worker, self-contained
  * - dist/main-log-transport.js, main-watchdog-worker.js  self-contained ESM,
@@ -34,49 +34,14 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  ESM_REQUIRE_BANNER,
   nodeRuntimeEntryPoints,
   stateStoreWriterWorkerEntry,
-} from '@brainstrike/config/node-runtime-entries';
+  workspaceSourceBundling,
+} from '@brainstrike/config/node-bundle';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packagesRoot = path.resolve(appRoot, '../../packages');
-
-/** node-gyp builds these, and the packaged app unpacks their binaries beside app.asar. */
-const NATIVE_WORKSPACE_PACKAGES = ['@brainstrike/secure-fs-native', '@brainstrike/windows-job-native'];
-
-function isBundledWorkspaceImport(specifier) {
-  return (
-    specifier.startsWith('@brainstrike/') &&
-    !NATIVE_WORKSPACE_PACKAGES.some(
-      (name) => specifier === name || specifier.startsWith(`${name}/`)
-    )
-  );
-}
-
-/**
- * Bundle workspace packages from their source exports; every other bare import
- * (third-party, `electron`, `node:*`, the native add-ons) stays a runtime import.
- * @type {import('esbuild').Plugin}
- */
-export const workspaceSourceBundling = {
-  name: 'workspace-source-bundling',
-  setup(build) {
-    build.onResolve({ filter: /^[^./#]/ }, (args) => {
-      if (path.isAbsolute(args.path) || isBundledWorkspaceImport(args.path)) {
-        return;
-      }
-      return { external: true, path: args.path };
-    });
-  },
-};
-
-/**
- * Workspace source may call `require` (through `createRequire` or a dependency's
- * CommonJS interop); give every ESM output a real one.
- */
-const ESM_REQUIRE_BANNER = {
-  js: "import { createRequire as __bundleCreateRequire } from 'node:module'; const require = __bundleCreateRequire(import.meta.url);",
-};
 
 const shared = {
   absWorkingDir: appRoot,

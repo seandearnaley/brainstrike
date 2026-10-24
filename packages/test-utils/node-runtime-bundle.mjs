@@ -14,26 +14,18 @@ import { isBuiltin } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  ESM_REQUIRE_BANNER,
+  isBundledWorkspaceImport,
   nodeRuntimeEntryPoints,
   stateStoreWriterWorkerEntry,
-} from '@brainstrike/config/node-runtime-entries';
+} from '@brainstrike/config/node-bundle';
 import { build } from 'esbuild';
 
 const packagesRoot = path.resolve(import.meta.dirname, '..');
-const NATIVE_WORKSPACE_PACKAGES = ['@brainstrike/secure-fs-native', '@brainstrike/windows-job-native'];
 const PINNING = Symbol('node-runtime-bundle.pinning');
 const CREATE_REQUIRE_FROM_MODULE = /createRequire\(\s*import\.meta\.url\s*\)/g;
 const SOURCE_FILE = /\.(?:[cm]?ts|tsx|mjs)$/;
 const SOURCE_LOADERS = { '.cts': 'ts', '.mjs': 'js', '.mts': 'ts', '.ts': 'ts', '.tsx': 'tsx' };
-
-function isBundledWorkspaceImport(specifier) {
-  return (
-    specifier.startsWith('@brainstrike/') &&
-    !NATIVE_WORKSPACE_PACKAGES.some(
-      (name) => specifier === name || specifier.startsWith(`${name}/`)
-    )
-  );
-}
 
 /**
  * Workspace packages are bundled from source. Every other import stays
@@ -104,9 +96,7 @@ export async function buildNodeRuntimeBundle({ consumerDir, entries }) {
   const outdir = mkdtempSync(path.join(cacheRoot, 'bundle-'));
   process.once('exit', () => rmSync(outdir, { force: true, recursive: true }));
   const shared = {
-    banner: {
-      js: "import { createRequire as __bundleCreateRequire } from 'node:module'; const require = __bundleCreateRequire(import.meta.url);",
-    },
+    banner: ESM_REQUIRE_BANNER,
     bundle: true,
     format: 'esm',
     logLevel: 'warning',

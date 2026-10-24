@@ -19,7 +19,7 @@
     "./tsconfig/*": "./tsconfig/*.json",
     "./playwright-environment": "./src/playwright-environment.ts",
     "./vitest-browser": "./src/vitest-browser.ts",
-    "./node-runtime-entries": "./src/node-runtime-entries.mts"
+    "./node-bundle": "./src/node-bundle.mts"
   },
   "files": [
     "biome/biome.json",

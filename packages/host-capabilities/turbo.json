@@ -1,0 +1,14 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // The executeCommand suites run the package's Windows command wrapper,
+      // which the CLI bundle's `build` emits.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    },
+    "test:integration": {
+      // The standalone suites spawn the `brainstrike` CLI bundle.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// A tracked bin target lets pnpm install executable links before tsc emits dist.
+// A tracked bin target lets pnpm install executable links before the bundle is built.
 // Both command names delegate to the same parser, client and exit-code owner.
 // The product executable composes the Core CLI with this package's platform.
 import { existsSync } from 'node:fs';
@@ -13,7 +13,7 @@ enableCompileCache();
 
 const platformModule = fileURLToPath(new URL('../dist/platform.js', import.meta.url));
 if (existsSync(platformModule)) {
-  const { runHostCliProcess } = await import('@brainstrike/agent-host/cli');
+  const { runHostCliProcess } = await import('../dist/cli.js');
   await runHostCliProcess(process.argv.slice(2), { platformModule });
 } else {
   process.stderr.write(
