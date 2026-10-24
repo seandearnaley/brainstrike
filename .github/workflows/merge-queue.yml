@@ -63,6 +63,7 @@ jobs:
           RESULT_TEST: ${{ needs.test.result }}
           RESULT_ADMISSION: ${{ needs.test.outputs.admission-result }}
           RESULT_STATIC: ${{ needs.test.outputs.static-result }}
+          RESULT_UNIT_PLAN: ${{ needs.test.outputs.unit-plan-result }}
           RESULT_UNIT_SHARD: ${{ needs.test.outputs.unit-shard-result }}
           RESULT_UNIT: ${{ needs.test.outputs.unit-result }}
           RESULT_BUILD: ${{ needs.test.outputs.build-result }}

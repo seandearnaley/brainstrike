@@ -9,10 +9,12 @@
 # scripts/__tests__/merge-queue-contract.test.mjs pins every key here.
 
 merge_queue:
-  # One batch under test at a time. Each batch is then built on main itself,
-  # the base its affected Unit selection diffs from, and a red batch costs one
-  # run, not a stack of speculative ones.
-  max_parallel_checks: 1
+  # Three batches under test at once: each later batch is built speculatively
+  # on the ones ahead of it, so a queued PR no longer waits out a whole gate
+  # before its own starts. Its affected Unit selection diffs from main's tip
+  # (the merge base), so it also runs the batches ahead's tests: a superset,
+  # never fewer. A red batch reruns only the batches built on it.
+  max_parallel_checks: 3
 
 queue_rules:
   - name: default
