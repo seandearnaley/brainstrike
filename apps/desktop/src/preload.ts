@@ -262,10 +262,12 @@ if (shouldExposeBridge('electronAPI')) {
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
     storage: {
-      clear: () =>
-        DESKTOP_TEST_MODE
-          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e)
-          : storageBridge.clear(),
+      // A factory reset's renderer step clears the product way in E2E too: only Main's
+      // reset barrier erases the root ledgers its live index reads.
+      clear: storageBridge.clear,
+      ...(DESKTOP_TEST_MODE
+        ? { clearAllForE2e: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e) }
+        : {}),
       getAllKeys: storageBridge.getAllKeys,
       getItem: storageBridge.getItem,
       removeItem: storageBridge.removeItem,
