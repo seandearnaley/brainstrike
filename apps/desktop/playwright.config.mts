@@ -65,15 +65,9 @@ const playwrightConfig: PlaywrightTestConfig = {
       : []),
   ],
 
-  // Reporter configuration. The JSON report is each nightly test's verdict for
-  // scripts/notify-linear-nightly.mjs (BST-2189); a nightly step points
-  // PLAYWRIGHT_JSON_OUTPUT_FILE at its results directory, which overrides this path.
+  // Reporter configuration
   reporter: config.isCI
-    ? [
-        ['blob', { outputDir: 'blob-report' }],
-        ['json', { outputFile: 'test-results/results.json' }],
-        ['list'],
-      ]
+    ? [['blob', { outputDir: 'blob-report' }], ['list']]
     : [['html', { open: 'never' }], ['list']],
 
   // Retry strategy based on environment
