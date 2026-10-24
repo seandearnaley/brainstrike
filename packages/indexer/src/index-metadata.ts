@@ -13,8 +13,8 @@ import {
 import { randomHex } from './portable.js';
 
 export const INDEX_SCHEMA_VERSION = 15;
-const supportedSchemaVersion = Schema.Literals([8, 9, 10, 11, 12, 13, 14, INDEX_SCHEMA_VERSION]);
-export type IndexSchemaVersion = typeof supportedSchemaVersion.Type;
+/** Derived data is rebuildable (ADR-0020): any other stored version refuses as rebuild-required. */
+const supportedSchemaVersion = Schema.Literal(INDEX_SCHEMA_VERSION);
 const metadataSchema = Schema.Struct({
   indexMode: Schema.Literals(['text-only', 'vector-configured']),
   profileHash: Schema.NullOr(Schema.String),
@@ -75,8 +75,8 @@ export function decodeIndexIdentityRow(input: unknown): IndexerIdentity {
     );
   }
 }
-/** Common read metadata is compatible; only the acquired writer upgrades known layouts. */
-export function readIndexSchemaVersion(db: Database.Database): IndexSchemaVersion {
+/** Refuses any stored schema but the current one; opening never upgrades or deletes it. */
+export function readIndexSchemaVersion(db: Database.Database): typeof INDEX_SCHEMA_VERSION {
   try {
     return decoder(supportedSchemaVersion)(
       db.prepare('SELECT schema_version FROM index_metadata WHERE singleton=1').pluck().get()

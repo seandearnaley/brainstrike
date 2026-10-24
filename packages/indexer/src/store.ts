@@ -35,7 +35,6 @@ import {
   configuredEmbedding,
   freshIdentity,
   INDEX_SCHEMA_VERSION,
-  type IndexSchemaVersion,
   readIndexIdentity,
   readIndexSchemaVersion,
   validateAcquisition,
@@ -100,24 +99,6 @@ function decodeBlob(blob: Uint8Array): Uint8Array {
   const bytes = Uint8Array.from(blob);
   vectorBlob(Array.from({ length: 384 }, (_, index) => float32At(bytes, index)));
   return bytes;
-}
-
-/** Counts/hashes alone did not qualify retained auxiliary Float32 bytes for a legacy upgrade. */
-function validateLegacyOrdinaryVectors(db: Database.Database, version: IndexSchemaVersion): void {
-  if (version >= 10) {
-    return;
-  }
-  try {
-    for (const blob of db.prepare('SELECT emb FROM vec_chunks').pluck().iterate()) {
-      decodeBlob(decoder(Schema.Uint8Array)(blob));
-    }
-  } catch (error) {
-    throw new IndexerError(
-      'rebuild-required',
-      `Stored ordinary vector bytes are invalid: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error }
-    );
-  }
 }
 
 function requireEmbeddingHash(value: string | null): string {
@@ -199,16 +180,9 @@ export class IndexWriter {
           'SQLite integrity_check refused the existing derived index.'
         );
       }
-      const version = readIndexSchemaVersion(this.db);
-      StateEventStore.validateLayout(this.db, version);
-      StateEventStore.validateRoot(
-        this.db,
-        this.options.stateRoot,
-        this.projection,
-        this.options,
-        version
-      );
-      validateLegacyOrdinaryVectors(this.db, version);
+      readIndexSchemaVersion(this.db);
+      StateEventStore.validateLayout(this.db);
+      StateEventStore.validateRoot(this.db, this.options.stateRoot, this.projection, this.options);
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('foreign_keys = ON');
@@ -248,7 +222,7 @@ export class IndexWriter {
         validate: (syntax, fileId) => this.validateSyntax(syntax, fileId),
       });
       this.scoped.validateStorage();
-      this.state = this.acquireState(version);
+      this.state = this.acquireState();
       this.info = {
         dbPath: this.options.dbPath,
         journalMode: decoder(Schema.String)(this.db.pragma('journal_mode', { simple: true })),
@@ -267,36 +241,29 @@ export class IndexWriter {
   get identity(): IndexerIdentity {
     return readIndexIdentity(this.db);
   }
-  private acquireState(version: IndexSchemaVersion): StateEventStore | undefined {
+  private acquireState(): StateEventStore | undefined {
     let acquiredState: StateEventStore | undefined;
     try {
       return this.db
         .transaction(() => {
           validateAcquisition(this.db, this.options);
-          StateEventStore.validateLayout(this.db, version);
+          StateEventStore.validateLayout(this.db);
           StateEventStore.validateRoot(
             this.db,
             this.options.stateRoot,
             this.projection,
-            this.options,
-            version
+            this.options
           );
           acquiredState = StateEventStore.acquire(
             this.db,
             this.options.stateRoot,
             this.truth,
             this.projection,
-            this.options,
-            version
+            this.options
           );
           this.scoped.beginOwnerEpoch();
+          // Commit the existing owner's retirement fences atomically with acquisition.
           acquiredState?.messages.beginOwnerGeneration();
-          // Last write: commit additions and the existing owner's retirement fences atomically.
-          if (version !== INDEX_SCHEMA_VERSION) {
-            this.db
-              .prepare('UPDATE index_metadata SET schema_version=? WHERE singleton=1')
-              .run(INDEX_SCHEMA_VERSION);
-          }
           return acquiredState;
         })
         .immediate();

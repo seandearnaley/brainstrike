@@ -247,7 +247,7 @@ describe('grep reader over hand-built index metadata', () => {
     const grepPath = join(directory, 'grep.sqlite');
     const writer = new DatabaseSync(grepPath);
     writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
-      INSERT INTO index_metadata VALUES(1,8,'${'a'.repeat(64)}','text-only',NULL,NULL);
+      INSERT INTO index_metadata VALUES(1,15,'${'a'.repeat(64)}','text-only',NULL,NULL);
       CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
     ${NATIVE_TRIGRAM_SCHEMA}
@@ -322,31 +322,20 @@ describe('grep reader over hand-built index metadata', () => {
       expect(emptyScope.identity).toEqual(literal.identity);
       const metadataWriter = new DatabaseSync(grepPath);
       try {
-        // Common reads retain identity across supported historical/current schemas.
-        for (const version of [9, 10]) {
+        // Any schema but the current one is a fatal refusal; derived data is rebuilt.
+        for (const version of [3, 14]) {
           metadataWriter.prepare('UPDATE index_metadata SET schema_version=?').run(version);
-          expect(
-            await grepClient.grep({
+          await expect(
+            grepClient.grep({
               caseSensitive: false,
               isRegex: false,
               maxRows: 100,
-              pattern: 'café',
+              pattern: 'alpha',
               rootIds: ['root-a'],
             })
-          ).toEqual(literal);
+          ).rejects.toThrow('Existing index metadata is invalid:');
         }
-        // Malformed metadata remains a fatal refusal, separate from compatibility.
-        metadataWriter.exec('UPDATE index_metadata SET schema_version=3');
-        await expect(
-          grepClient.grep({
-            caseSensitive: false,
-            isRegex: false,
-            maxRows: 100,
-            pattern: 'alpha',
-            rootIds: ['root-a'],
-          })
-        ).rejects.toThrow('Existing index metadata is invalid:');
-        metadataWriter.exec('UPDATE index_metadata SET schema_version=8');
+        metadataWriter.exec('UPDATE index_metadata SET schema_version=15');
         expect(
           await grepClient.grep({
             caseSensitive: false,
@@ -403,7 +392,7 @@ describe('grep reader over hand-built index metadata', () => {
       // The indexer's own identity rule, never a copy of its formula.
       const profileHash = embeddingProfileHash(profile);
       writer
-        .prepare("INSERT OR REPLACE INTO index_metadata VALUES(1,8,?,'vector-configured',?,?)")
+        .prepare("INSERT OR REPLACE INTO index_metadata VALUES(1,15,?,'vector-configured',?,?)")
         .run('b'.repeat(64), JSON.stringify(profile), profileHash);
     };
     setProfile('qualified-model');
