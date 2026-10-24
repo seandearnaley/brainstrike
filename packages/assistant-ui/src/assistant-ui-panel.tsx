@@ -1,6 +1,4 @@
 import {
-  type AssistantRuntime,
-  AssistantRuntimeProvider,
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
@@ -15,28 +13,21 @@ import {
 import type {
   AssistantRunEvent,
   AssistantToolApprovalRequest,
-  AssistantUiThreadHistoryAdapter,
-  OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
-import { Activity, type ReactNode, use, useEffect, useMemo } from 'react';
+import { Activity, type ReactNode, use, useMemo } from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
 import { AssistantDataRendererRegistration } from './assistant-data-renderer-registration';
-import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
-import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import { useThreadPresentationActivityMode } from './use-thread-presentation-activity-mode';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
-import { cn } from '@brainstrike/ui';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
-import { agentColorStyle } from './agent-color-style';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageError } from './assistant-message-error';
-import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
-import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
+import { AssistantMessageText } from './assistant-message-text';
 import {
   type ThreadMessageComponents,
   ThreadMessagesRegion,
@@ -53,7 +44,6 @@ import {
   readCompactionSummaryPayload,
 } from './compaction-summary-message';
 import { ComposerAttachmentsBar } from './composer-attachments';
-import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
@@ -61,7 +51,6 @@ import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-p
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { EditComposer } from './edit-composer';
 import { RewindComposerBridge } from './message-rewind-action';
-import { MetadataProviders } from './openrouter-model-metadata-context';
 import { ThreadDebugPackButton } from './thread-debug-pack-button';
 import { UserMessage } from './user-message';
 
@@ -71,18 +60,12 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
-import { AssistantRunContextProviders } from './assistant-decision-recovery-provider';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
   type CumulativeUsageDisplay,
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
-import {
-  type AssistantUsage,
-  type PrepareRequestBodyContext,
-  useBrainstrikeDataStreamRuntime,
-} from './data-stream-runtime';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
@@ -93,8 +76,6 @@ import {
   toSlashCommandAdapterOptions,
 } from './slash-commands';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
-import { useWebAssistantRequestSession } from './use-web-assistant-request-session';
-import { WebAssistantRequestStatus } from './web-assistant-request-status';
 
 // Re-export types needed by consumers
 export type { ModelPickerModel, ModelPickerProvider };
@@ -190,226 +171,6 @@ import type {
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
 
-export interface AssistantUiPanelProps
-  extends ComposerDraftCommandBridgeProps,
-    AssistantStreamCallbacks {
-  /** Validated thread identity color; absent threads keep the neutral surface. */
-  agentColor?: string | undefined;
-  /**
-   * Composer image-attachment availability, resolved by the app-shell
-   * wrapper. Absent renders no attachment affordance and registers no
-   * attachment adapter (provider gate: the text-only built-in local
-   * provider); 'disabled' renders a visibly disabled attach button with the
-   * reason (per-model vision gate) while keeping the adapter + preview strip
-   * alive for already-staged attachments; 'enabled' activates attach, paste,
-   * and the preview strip.
-   */
-  attachmentsAvailability?: ComposerAttachmentsAvailability;
-  /** A capability this turn runs WITHOUT; never a reason it cannot run. */
-  capabilityNotice?: string;
-  className?: string;
-  completePreparedRequest?: (
-    requestData: Record<string, unknown> | undefined,
-    status: 'cancelled' | 'completed' | 'failed',
-    error?: string,
-    hostOwnsRun?: boolean
-  ) => Promise<void> | void;
-  /** Full model context window size. Passed to the context meter. */
-  contextWindow?: number | undefined;
-  /** Durable cumulative usage (tokens + cost) for the active thread. Desktop-only. */
-  cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  disabled?: boolean;
-  disabledReason?: string;
-  /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
-  effectiveInputBudget?: number | undefined;
-  historyAdapter?: AssistantUiThreadHistoryAdapter;
-  /**
-   * Re-hydration counter. `historyAdapter.load()` runs ONCE per runtime mount,
-   * so a durable change made OUTSIDE the panel — Conversation Rewind hiding a
-   * suffix of the thread, or its redo putting one back — is invisible to a
-   * mounted runtime. Bumping this remounts the data-stream runtime, which
-   * re-runs hydration against the (now tombstone-filtered) history query.
-   *
-   * SEPARATE FROM `threadKey` ON PURPOSE. `threadKey` identifies the CONVERSATION
-   * and keys per-thread state that must survive a rewind (the follow-up queue,
-   * `ActiveThreadKeyContext`, the viewport store's pinnedness). This keys only
-   * the runtime whose history it invalidates. Defaults to 0; a caller with no
-   * out-of-band mutations never touches it.
-   */
-  historyGeneration?: number;
-  /** Pauses presentation effects while the owning runtime remains mounted. */
-  isVisible?: boolean;
-  omSegment?: OmMeterState | undefined;
-
-  /** Enable a registry-backed model from the picker; resolves true once committed. */
-  onEnableModel?: (providerId: string, modelId: string) => Promise<boolean>;
-  /**
-   * Clear the persisted plan-mode preference. Called when the user APPROVES a
-   * submitted plan so the resume request exits plan mode and the rebuilt server
-   * runtime unlocks the mutation tools. Absent → approving a plan leaves plan
-   * mode unchanged.
-   */
-  onExitPlanMode?: () => void;
-  onModelChange?: (compositeKey: string) => void;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  onProviderSettingsValidationChange?: (reason: string | undefined) => void;
-  /**
-   * Reports a `run.failed` run event exactly once (deduped by event id).
-   * Only ever fires for the Mastra-loop transport (hosted providers / desktop
-   * local-via-data-stream) — the in-renderer local runtime has no run events.
-   */
-  /**
-   * Live, in-run activity that can have changed files on disk — see
-   * `RunLifecycleNotificationCallbacks.onRunEditActivity`.
-   */
-  onRunEditActivity?: (event: AssistantRunEvent) => void;
-  onRunFailed?: (event: AssistantRunEvent) => void;
-  /** Reports a `run.finished` run event exactly once (deduped by event id). */
-  onRunFinished?: (event: AssistantRunEvent) => void;
-  /** Reports `thread.isRunning` for `threadKey`, and `false` on unmount (BST-1844). */
-  onRunningChange?: (threadKey: string, running: boolean) => void;
-  /** Register this runtime with its owning workspace; cleanup follows runtime disposal. */
-  onRuntimeReady?: ((runtime: AssistantRuntime) => undefined | (() => void)) | undefined;
-  /** Mid-run steer transport (BST-588); absent = queue-only (web/local). */
-  onSteerActiveRun?: () => Promise<boolean>;
-  /**
-   * Called with each `run.step.finished` event's billed step usage while a run
-   * streams (BST-953 live tick). The app accumulates steps into the live
-   * thread-total readout and clears the sum once durable usage lands.
-   */
-  onStepUsage?: (step: { inputTokens: number; outputTokens: number }) => void;
-
-  /** Liveness signal fired for each streamed assistant chunk/snapshot. */
-  onStreamActivity?: () => void;
-  onThreadRunStart?: () => void;
-  /** Toggle the persisted plan-mode preference. Absent → no toggle is shown. */
-  onTogglePlanMode?: () => void;
-  /**
-   * Reports a tool-approval-required pause exactly once, deduped by
-   * `runId:toolCallId` (a later re-render of the same pause is not a new
-   * request).
-   */
-  onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
-  /** Called with the provider's exact token counts from a finish-message chunk. */
-  onUsage?: (usage: AssistantUsage) => void;
-  openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
-  pickerModels: ModelPickerModel[];
-  /** Providers for the ModelPicker component */
-  pickerProviders: ModelPickerProvider[];
-  /** Current persisted plan-mode state; drives the composer toggle's pressed look. */
-  planModeEnabled?: boolean;
-  prepareRequestData?: (
-    abortSignal?: AbortSignal,
-    turnAnchorMessageId?: string | null,
-    runConfig?: unknown
-  ) => Promise<Record<string, unknown> | undefined>;
-  providerGroups?: ProviderGroupConfig[];
-  providerSettings?: AssistantProviderSettingsMap | undefined;
-  providers?: ProviderConfig[];
-  /**
-   * Recently selected composite model keys ("provider::model"), newest first.
-   * Already filtered to currently valid options by the app-shell wrapper.
-   */
-  recentModels?: readonly string[];
-  requestBodyLimitBytes?: number;
-  requestData?: Record<string, unknown>;
-  selectedModel?: string;
-  selectedProvider?: string;
-  /**
-   * App commands projected into the composer's "/" slash menu. The panel is
-   * presentational — it never builds the command registry. The app (app-shell)
-   * derives these from its command registry (capability-gated, danger group
-   * excluded) and pre-binds each `execute` to the command's `run(ctx)`. Defaults
-   * to `[]`, so callers/web with no commands simply show nothing.
-   */
-  slashCommands?: readonly SlashCommand[];
-  threadKey?: string;
-  toolMenu?: AssistantToolMenuConfig;
-  /**
-   * Composer workspace bar (folder · branch) SLOT. App-shell renders the bar
-   * host and passes the element; absent = no bar (storybook / bare embeds).
-   *
-   * A ReactNode, deliberately NOT `WorkspaceBarProps`: the bar's state comes
-   * from two live-refresh subscriptions, and composing its props in app-shell's
-   * panel wrapper made every git push re-render that ~1800-line component.
-   * Owning the subscriptions in a small app-shell host and handing this package
-   * the finished element keeps assistant-ui store-free AND keeps the re-render
-   * scoped to the bar. `WorkspaceBar` + its prop types stay exported for the
-   * host to use.
-   */
-  workspaceBar?: ReactNode;
-}
-
-export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
-
-// Stable empty default for the optional slashCommands prop. A literal `[]`
-// default would create a new array each render, breaking memoization in the
-// adapter/icon-map derivations downstream (react-doctor: empty default prop).
-const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
-
-// Shared props for inner chat components
-interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStreamCallbacks {
-  /** Composer image-attachment availability (attach button, paste, previews). */
-  attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
-  capabilityNotice: string | undefined;
-  completePreparedRequest?:
-    | ((
-        requestData: Record<string, unknown> | undefined,
-        status: 'cancelled' | 'completed' | 'failed',
-        error?: string,
-        hostOwnsRun?: boolean
-      ) => Promise<void> | void)
-    | undefined;
-  contextWindow?: number | undefined;
-  cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  disabled: boolean;
-  disabledReason: string | undefined;
-  effectiveInputBudget?: number | undefined;
-  isVisible: boolean;
-  omSegment?: OmMeterState | undefined;
-  onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
-  onModelChange: ((compositeKey: string) => void) | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
-  onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
-  onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
-  onRunningChange?: ((threadKey: string, running: boolean) => void) | undefined;
-  onRuntimeReady?: AssistantUiPanelProps['onRuntimeReady'];
-  /** Mid-run steer transport (BST-588); absent = queue-only composer. */
-  onSteerActiveRun?: (() => Promise<boolean>) | undefined;
-  /** Data-stream transport only (BST-953 live tick); same gating as onContextBreakdown. */
-  onStepUsage?: ((step: { inputTokens: number; outputTokens: number }) => void) | undefined;
-  onStreamActivity?: (() => void) | undefined;
-  onThreadRunStart?: (() => void) | undefined;
-  onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
-  onUsage?: ((usage: AssistantUsage) => void) | undefined;
-  pickerModels: ModelPickerModel[];
-  /** Composer plan-mode toggle; absent → no toggle rendered. */
-  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
-  prepareRequestData?:
-    | ((
-        abortSignal?: AbortSignal,
-        turnAnchorMessageId?: string | null,
-        runConfig?: unknown
-      ) => Promise<Record<string, unknown> | undefined>)
-    | undefined;
-  providerGroups: ProviderGroupConfig[];
-  providerSettings?: AssistantProviderSettingsMap | undefined;
-  recentModels: readonly string[] | undefined;
-  requestBodyLimitBytes?: number | undefined;
-  requestData?: Record<string, unknown> | undefined;
-  selectedModel: string | undefined;
-  selectedProvider: string | undefined;
-  slashCommands: readonly SlashCommand[];
-  toolMenu?: AssistantToolMenuConfig | undefined;
-  /** Composer workspace bar (folder · branch) slot; absent → no bar. */
-  workspaceBar?: ReactNode | undefined;
-}
-
 /**
  * A capability this turn runs WITHOUT — never a reason it cannot run. Lives in
  * the composer shell (a non-scrolling sibling of the viewport) so it stays
@@ -430,194 +191,7 @@ const CapabilityNotice = ({ text }: { text: string | undefined }) =>
     </p>
   ) : null;
 
-/**
- * Inner component for data stream runtime (server-side hosted providers).
- * Uses useDataStreamRuntime for API-based inference.
- */
-const DataStreamRuntimeChat = ({
-  isVisible,
-  onRuntimeReady,
-  composerDraftCommand,
-  contextWindow,
-  cumulativeUsage,
-  omSegment,
-  effectiveInputBudget,
-  providerGroups,
-  pickerModels,
-  providerSettings,
-  recentModels,
-  onProviderSettingsChange,
-  selectedProvider,
-  selectedModel,
-  onEnableModel,
-  onModelChange,
-  onContextBreakdown,
-  onChildRunUsage,
-  onDelegatedConversation,
-  onStepUsage,
-  onRunEditActivity,
-  onRunFailed,
-  onRunFinished,
-  onRunningChange,
-  onStreamActivity,
-  onThreadRunStart,
-  onToolApprovalRequired,
-  onUsage,
-  disabled,
-  disabledReason,
-  capabilityNotice,
-  api,
-  authHeaders,
-  completePreparedRequest,
-  historyAdapter,
-  requestBodyLimitBytes,
-  requestData,
-  prepareRequestData,
-  modelName,
-  slashCommands,
-  onComposerDraftCommandApplied,
-  onComposerTextChange,
-  onSteerActiveRun,
-  workspaceBar,
-  planMode,
-  attachmentsAvailability,
-  toolMenu,
-  threadKey,
-}: ChatThreadProps & {
-  api: string;
-  authHeaders?: (() => Promise<Record<string, string>>) | undefined;
-  completePreparedRequest?:
-    | ((
-        requestData: Record<string, unknown> | undefined,
-        status: 'cancelled' | 'completed' | 'failed',
-        error?: string,
-        hostOwnsRun?: boolean
-      ) => Promise<void> | void)
-    | undefined;
-  historyAdapter: AssistantUiThreadHistoryAdapter | undefined;
-  requestData: Record<string, unknown> | undefined;
-  prepareRequestData?:
-    | ((
-        abortSignal?: AbortSignal,
-        turnAnchorMessageId?: string | null,
-        runConfig?: unknown
-      ) => Promise<Record<string, unknown> | undefined>)
-    | undefined;
-  modelName: string | undefined;
-  threadKey?: string | undefined;
-}) => {
-  const hasGroupedProviders = providerGroups.length > 0;
-  const isComposerDisabled = Boolean(disabled);
-  const serverRunSession = useWebAssistantRequestSession({
-    completePreparedRequest,
-    prepareRequestData,
-  });
-  const recoveryBlocked = serverRunSession.isRecovering || Boolean(serverRunSession.recoveryError);
-
-  const runtimeAdapters = useAssistantThreadRuntimeAdapters(
-    historyAdapter,
-    attachmentsAvailability !== undefined
-  );
-  const runtime = useBrainstrikeDataStreamRuntime({
-    api,
-    ...(authHeaders === undefined ? {} : { headers: authHeaders }),
-    ...runtimeAdapters,
-    ...(requestBodyLimitBytes === undefined ? {} : { requestBodyLimitBytes }),
-    body: async (abortSignal: AbortSignal, context?: PrepareRequestBodyContext) => {
-      const preparedRequestData = await serverRunSession.prepareRequest(
-        abortSignal,
-        // Absent context (a caller predating the BST-1163 signature, incl.
-        // direct test invocation) is an honest "no anchor known", never a
-        // fabricated id.
-        context?.turnAnchorMessageId ?? null,
-        context?.runConfig
-      );
-      return {
-        data: {
-          ...(requestData ?? {}),
-          ...(preparedRequestData ?? {}),
-          model: modelName,
-          provider: selectedProvider,
-        },
-      };
-    },
-    ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
-    onCancel: serverRunSession.onCancel,
-    onError: serverRunSession.onError,
-    onFinish: serverRunSession.onFinish,
-    ...(onContextBreakdown ? { onContextBreakdown } : {}),
-    ...(onChildRunUsage ? { onChildRunUsage } : {}),
-    onDelegatedConversation,
-    ...(onStepUsage ? { onStepUsage } : {}),
-    ...(onUsage ? { onUsage } : {}),
-  });
-
-  useEffect(() => onRuntimeReady?.(runtime), [onRuntimeReady, runtime]);
-
-  return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <AssistantRunContextProviders blocked={recoveryBlocked} onExit={planMode?.onExit}>
-        <AssistantPanelErrorBoundary>
-          <WebAssistantRequestStatus session={serverRunSession} />
-          <ChatThreadUI
-            capabilityNotice={capabilityNotice}
-            composerDraftCommand={composerDraftCommand}
-            contextWindow={contextWindow}
-            cumulativeUsage={cumulativeUsage}
-            disabledReason={disabledReason}
-            effectiveInputBudget={effectiveInputBudget}
-            hasGroupedProviders={hasGroupedProviders}
-            isComposerDisabled={isComposerDisabled || recoveryBlocked}
-            isReattaching={recoveryBlocked}
-            isVisible={isVisible}
-            omSegment={omSegment}
-            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-            onComposerTextChange={onComposerTextChange}
-            onEnableModel={onEnableModel}
-            onModelChange={onModelChange}
-            onProviderSettingsChange={onProviderSettingsChange}
-            onRunEditActivity={onRunEditActivity}
-            onRunFailed={onRunFailed}
-            onRunFinished={onRunFinished}
-            onRunningChange={onRunningChange}
-            onThreadRunStart={onThreadRunStart}
-            onToolApprovalRequired={onToolApprovalRequired}
-            {...(onSteerActiveRun ? { onSteerActiveRun } : {})}
-            {...(workspaceBar ? { workspaceBar } : {})}
-            pickerModels={pickerModels}
-            {...(planMode ? { planMode } : {})}
-            {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-            providerGroups={providerGroups}
-            providerSettings={providerSettings}
-            recentModels={recentModels}
-            selectedModel={selectedModel}
-            selectedProvider={selectedProvider}
-            slashCommands={slashCommands}
-            threadKey={threadKey}
-            toolMenu={toolMenu}
-          />
-        </AssistantPanelErrorBoundary>
-      </AssistantRunContextProviders>
-    </AssistantRuntimeProvider>
-  );
-};
-
-/**
- * The active thread's id (assistant-ui's own `ThreadState` carries no id —
- * see `@assistant-ui/core`'s `store/scopes/thread.ts` — so it is not
- * reachable from `useAuiState` inside a message). `ChatThreadUI` already
- * receives it as `threadKey` (app-shell's `selectedMemoryThreadId`, threaded
- * down as a React prop from `assistant-ui-panel-wrapper.tsx`); this context
- * re-publishes that same value for descendants rendered by assistant-ui
- * itself (e.g. `AssistantMessage`, which the library instantiates with no
- * props of its own) — currently only `ChangesReviewLink`'s
- * `openChangesForRun(runId, threadId)` call needs it.
- */
-
-/**
- * Shared UI component for the chat thread.
- * Extracted to avoid duplication between local and data stream runtimes.
- */
+/** The chat thread surface, rendered inside an owner-supplied runtime. */
 export const ChatThreadUI = ({
   approvalStrip,
   isVisible = true,
@@ -883,154 +457,6 @@ export const ChatThreadUI = ({
   );
 };
 
-// Pure UI layer: state management and data wiring live in app-shell wrapper(s).
-export const AssistantUiPanel = ({
-  isVisible = true,
-  onRuntimeReady,
-  className,
-  agentColor,
-  composerDraftCommand,
-  contextWindow,
-  cumulativeUsage,
-  omSegment,
-  openRouterModelMetadataLookup,
-  completePreparedRequest,
-  effectiveInputBudget,
-  providerGroups,
-  pickerModels,
-  providerSettings,
-  recentModels,
-  onProviderSettingsChange,
-  onProviderSettingsValidationChange: onSettingsValidation,
-  selectedProvider,
-  selectedModel,
-  requestData,
-  requestBodyLimitBytes,
-  prepareRequestData,
-  onEnableModel,
-  onModelChange,
-  onExitPlanMode,
-  onRunEditActivity,
-  onRunFailed,
-  onRunFinished,
-  onRunningChange,
-  onStreamActivity,
-  onThreadRunStart,
-  onTogglePlanMode,
-  onToolApprovalRequired,
-  onContextBreakdown,
-  onChildRunUsage,
-  onDelegatedConversation,
-  onStepUsage,
-  onUsage,
-  attachmentsAvailability,
-  workspaceBar,
-  planModeEnabled,
-  slashCommands = EMPTY_SLASH_COMMANDS,
-  onComposerDraftCommandApplied,
-  onComposerTextChange,
-  onSteerActiveRun,
-  toolMenu,
-  disabled = false,
-  disabledReason,
-  capabilityNotice,
-  historyAdapter,
-  historyGeneration = 0,
-  threadKey,
-}: AssistantUiPanelProps) => {
-  const api = '/api/assistant';
-  useEffect(() => {
-    void preloadMarkdownText();
-  }, []);
-
-  const groupedProviders = providerGroups ?? [];
-
-  // Extract model name from composite key (format: "provider::model")
-  const modelName = useMemo(() => {
-    if (!selectedModel) {
-      return;
-    }
-    const parts = selectedModel.split('::');
-    return parts.length === 2 ? parts[1] : selectedModel;
-  }, [selectedModel]);
-
-  const planMode = onTogglePlanMode
-    ? {
-        enabled: Boolean(planModeEnabled),
-        onToggle: onTogglePlanMode,
-        ...(onExitPlanMode ? { onExit: onExitPlanMode } : {}),
-      }
-    : undefined;
-
-  return (
-    <MetadataProviders onValidation={onSettingsValidation} value={openRouterModelMetadataLookup}>
-      <section
-        aria-label="Assistant chat"
-        className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
-        data-agent-color={agentColor}
-        data-testid="chat-panel"
-        style={agentColorStyle(agentColor)}
-      >
-        <DataStreamRuntimeChat
-          api={api}
-          attachmentsAvailability={attachmentsAvailability}
-          capabilityNotice={capabilityNotice}
-          completePreparedRequest={completePreparedRequest}
-          composerDraftCommand={composerDraftCommand}
-          contextWindow={contextWindow}
-          cumulativeUsage={cumulativeUsage}
-          disabled={disabled}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          historyAdapter={historyAdapter}
-          isVisible={isVisible}
-          // `historyGeneration` and `stopGeneration` are in the key because
-          // hydration runs once per MOUNT: an out-of-band change to this
-          // thread's durable history (Conversation Rewind) or its pauses (a
-          // root Stop cancelling paused work) has no other way to reach a
-          // mounted runtime.
-          key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
-          modelName={modelName}
-          omSegment={omSegment}
-          onChildRunUsage={onChildRunUsage}
-          onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-          onComposerTextChange={onComposerTextChange}
-          onContextBreakdown={onContextBreakdown}
-          onDelegatedConversation={onDelegatedConversation}
-          onEnableModel={onEnableModel}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onRunEditActivity={onRunEditActivity}
-          onRunFailed={onRunFailed}
-          onRunFinished={onRunFinished}
-          onRunningChange={onRunningChange}
-          onRuntimeReady={onRuntimeReady}
-          onSteerActiveRun={onSteerActiveRun}
-          onStepUsage={onStepUsage}
-          onStreamActivity={onStreamActivity}
-          onThreadRunStart={onThreadRunStart}
-          onToolApprovalRequired={onToolApprovalRequired}
-          onUsage={onUsage}
-          pickerModels={pickerModels}
-          planMode={planMode}
-          prepareRequestData={prepareRequestData}
-          providerGroups={groupedProviders}
-          providerSettings={providerSettings}
-          recentModels={recentModels}
-          requestBodyLimitBytes={requestBodyLimitBytes}
-          requestData={requestData}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          slashCommands={slashCommands}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-          workspaceBar={workspaceBar}
-        />
-      </section>
-    </MetadataProviders>
-  );
-};
-
 // ===== Message Components =====
 
 const AssistantMessage = () => {
@@ -1181,5 +607,3 @@ const THREAD_MESSAGE_COMPONENTS: ThreadMessageComponents = {
   /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
   UserMessage,
 };
-
-AssistantUiPanel.displayName = 'AssistantUiPanel';

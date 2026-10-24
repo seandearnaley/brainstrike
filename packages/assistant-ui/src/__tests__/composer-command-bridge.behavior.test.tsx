@@ -11,17 +11,15 @@ const run = vi.fn(async function* () {
 });
 const NOOP_ADAPTER: ChatModelAdapter = { run };
 
-vi.mock('../data-stream-runtime', () => ({
-  useBrainstrikeDataStreamRuntime: () => useLocalRuntime(NOOP_ADAPTER),
-}));
 vi.mock('../assistant-message-text', () => ({
   AssistantMessageText: () => <div data-testid="markdown-text" />,
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
 
-import { AssistantUiPanel, type ComposerDraftCommand } from '../assistant-ui-panel';
+import type { ComposerDraftCommand } from '../assistant-ui-panel';
 import { ComposerDraftCommandBridge } from '../composer-draft-command';
+import { LocalConversationPanel } from './local-conversation-panel';
 
 function renderPanel(
   command: ComposerDraftCommand | undefined,
@@ -31,12 +29,12 @@ function renderPanel(
   }
 ) {
   return render(
-    <AssistantUiPanel
+    <LocalConversationPanel
+      adapter={NOOP_ADAPTER}
       composerDraftCommand={command}
       onComposerDraftCommandApplied={callbacks.onApplied}
       onComposerTextChange={callbacks.onTextChange}
       pickerModels={[]}
-      pickerProviders={[]}
     />,
     { wrapper: TooltipProvider }
   );
@@ -86,12 +84,12 @@ describe('assistant composer command bridge', () => {
     expect(run).not.toHaveBeenCalled();
 
     rerender(
-      <AssistantUiPanel
+      <LocalConversationPanel
+        adapter={NOOP_ADAPTER}
         composerDraftCommand={command}
         onComposerDraftCommandApplied={onApplied}
         onComposerTextChange={onTextChange}
         pickerModels={[]}
-        pickerProviders={[]}
       />
     );
     expect(onApplied).toHaveBeenCalledTimes(1);
@@ -108,12 +106,12 @@ describe('assistant composer command bridge', () => {
     await user.type(input, 'Existing draft');
 
     rerender(
-      <AssistantUiPanel
+      <LocalConversationPanel
+        adapter={NOOP_ADAPTER}
         composerDraftCommand={{ id: 'append-1', mode: 'append', text: 'Cite exact evidence.' }}
         onComposerDraftCommandApplied={onApplied}
         onComposerTextChange={onTextChange}
         pickerModels={[]}
-        pickerProviders={[]}
       />
     );
 

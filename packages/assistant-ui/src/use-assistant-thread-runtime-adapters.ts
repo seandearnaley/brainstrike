@@ -1,12 +1,10 @@
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
+import type { AttachmentAdapter } from '@assistant-ui/react';
 import { useMemo } from 'react';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
-import type { BrainstrikeDataStreamRuntimeOptions } from './data-stream-runtime';
 
 export function useAssistantThreadRuntimeAdapters(
-  historyAdapter: AssistantUiThreadHistoryAdapter | undefined,
   attachmentsPresent: boolean
-): Pick<BrainstrikeDataStreamRuntimeOptions, 'adapters'> {
+): { readonly attachments: AttachmentAdapter } | undefined {
   // Stable adapter instance: recreating it per render would reset composer
   // attachment state. Keyed on availability PRESENCE (not the enabled state,
   // and not the object identity): the adapter must survive an
@@ -23,12 +21,8 @@ export function useAssistantThreadRuntimeAdapters(
     () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
     [attachmentsPresent]
   );
-  return historyAdapter || attachmentsAdapter
-    ? {
-        adapters: {
-          ...(attachmentsAdapter ? { attachments: attachmentsAdapter } : {}),
-          ...(historyAdapter ? { history: historyAdapter } : {}),
-        },
-      }
-    : {};
+  return useMemo(
+    () => (attachmentsAdapter ? { attachments: attachmentsAdapter } : undefined),
+    [attachmentsAdapter]
+  );
 }
