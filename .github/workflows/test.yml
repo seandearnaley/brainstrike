@@ -9,14 +9,14 @@ on:
   workflow_dispatch:
   # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
   # on each Mergify merge-queue batch, so the queue's fast tier is these jobs,
-  # not a copy. With `merge-queue: true`, Native Electron and
-  # Browser tests skip, and the smoke E2E lanes also run on a manual dispatch.
-  # Notify Linear stays schedule-only. Nightly runs pass `merge-queue: false`
+  # not a copy. Every job the nightly runs also gates the queue, so a nightly
+  # failure cannot land (owner decision 2026-10-24); with `merge-queue: true`
+  # the smoke E2E lanes also run on a manual dispatch. Notify Linear stays
+  # schedule-only. Nightly runs pass `merge-queue: false`
   # and manual runs carry no input, so every condition on it reads false for
   # them and they are unchanged. Inside a called run, `github.workflow` and
   # `github.event_name` are the caller's: a batch is the caller's push of a
   # queue branch, which keeps its concurrency group apart from this workflow's.
-  # scripts/__tests__/merge-queue-contract.test.mjs pins the call.
   workflow_call:
     inputs:
       merge-queue:
@@ -715,7 +715,7 @@ jobs:
 
   native-electron:
     name: Native Electron Package
-    if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue
+    if: needs.admission.outputs.admitted == 'true'
     needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
@@ -825,9 +825,7 @@ jobs:
     # and embedding-worker cache concurrency in real Chromium. Before this job
     # existed, `test:browser` ran NOWHERE in CI — only in the local `pnpm
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
-    # Not (yet) a required check: branch protection is Sean's call; this lane
-    # must first prove itself deterministic.
-    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true') && !inputs.merge-queue
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     # Cost-first runner migration (2026-08-28): this lane used 1,928 rounded
     # GitHub Linux minutes in the 7.76-day audit. The same pinned Playwright

@@ -6,7 +6,6 @@
 # .github/workflows/merge-queue.yml, and the batch's PRs are squashed onto main
 # only when its Merge Queue Gate succeeded. The ruleset on main requires the
 # same gate and lets only Mergify bypass it, so nothing lands any other way.
-# scripts/__tests__/merge-queue-contract.test.mjs pins every key here.
 
 merge_queue:
   # Three batches under test at once: each later batch is built speculatively
@@ -31,10 +30,9 @@ queue_rules:
     queue_branch_prefix: mergify/merge-queue/
     # Mergify must not dequeue a batch before GitHub's own job timeouts decide
     # it. The longest chain of job timeouts up to and including the gate is
-    # 65 minutes over 5 jobs: admission 5, Static 20, a Unit shard 30, Unit 5
-    # and Merge Queue Gate 5 (admission, Build, a desktop smoke lane and Desktop
-    # E2E tie it). GitHub documents no runner pickup time, so allow 2 minutes
-    # per job: 65 + 5 x 2 = 75. merge-queue-contract.test.mjs derives this
-    # bound from the workflows. Not `auto`: it applies no timeout until the
-    # queue has about 20 qualifying runs in seven days.
+    # 65 minutes: admission 5, Static 20, a Unit shard 30, Unit 5 and Merge
+    # Queue Gate 5, tied by Desktop Embedding E2E 60 and the gate 5. GitHub
+    # documents no runner pickup time, so allow 2 minutes per job: 65 + 5 x 2 =
+    # 75. Not `auto`: it applies no timeout until the queue has about 20
+    # qualifying runs in seven days.
     checks_timeout: 75 min
