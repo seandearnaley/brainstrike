@@ -42,6 +42,26 @@ function pidFilePath() {
   return candidate;
 }
 
+// libuv writes these into every Windows child environment block that omits them, copying
+// the spawner's own values (src/win/process.c `required_vars`). A Windows child therefore
+// cannot observe whether its spawner passed them; the remaining default keys still can.
+const WINDOWS_SPAWN_REQUIRED_ENV_VARS = new Set([
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'LOGONSERVER',
+  'PATH',
+  'SYSTEMDRIVE',
+  'SYSTEMROOT',
+  'TEMP',
+  'USERDOMAIN',
+  'USERNAME',
+  'USERPROFILE',
+  'WINDIR',
+]);
+const OBSERVABLE_INHERITED_ENV_VARS = DEFAULT_INHERITED_ENV_VARS.filter(
+  (key) => process.platform !== 'win32' || !WINDOWS_SPAWN_REQUIRED_ENV_VARS.has(key)
+);
+
 function expectedInheritedEnvironmentKeys() {
   const prefix = '--brainstrike-expected-inherited-env=';
   const argumentsForExpectation = process.argv.slice(2).filter((value) => value.startsWith(prefix));
@@ -56,7 +76,7 @@ function expectedInheritedEnvironmentKeys() {
   ) {
     throw new Error('MCP lab stdio inherited environment expectation is invalid');
   }
-  return keys.sort();
+  return keys.filter((key) => OBSERVABLE_INHERITED_ENV_VARS.includes(key)).sort();
 }
 
 async function readFaultConfiguration(path) {
@@ -154,7 +174,7 @@ function startFaultControl(configuration) {
   }, 5);
 }
 
-const inheritedEnvironmentKeys = DEFAULT_INHERITED_ENV_VARS.filter(
+const inheritedEnvironmentKeys = OBSERVABLE_INHERITED_ENV_VARS.filter(
   (key) => process.env[key] !== undefined
 ).sort();
 const expectedEnvironmentKeys = expectedInheritedEnvironmentKeys();

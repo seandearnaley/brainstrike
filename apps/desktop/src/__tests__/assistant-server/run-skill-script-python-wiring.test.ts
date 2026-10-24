@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,8 +24,10 @@ vi.mock('../../assistant-server/run-skill-script-tool', () => ({
 }));
 
 const runtimeData = {
-  workspaceRoots: [{ displayName: 'Site A', path: '/tmp/root-a', rootId: 'root-a' }],
+  workspaceRoots: [{ displayName: 'Site A', path: path.resolve('/tmp/root-a'), rootId: 'root-a' }],
 } as RuntimeData;
+// The launching desktop's app paths are native absolute paths.
+const RESOURCES_PATH = path.resolve('/resources');
 
 const input = {
   cwd: '.',
@@ -57,7 +60,11 @@ describe('run_skill_script bundled-Python wiring', () => {
   it("defaults resolvePythonExecutable to the bundled CPython the host's launch app paths name", async () => {
     // Main admitted skills for the run; the launching desktop's facts name the runtime.
     const tools = buildHostNativeTools(runtimeData, {
-      appPaths: { isPackaged: true, resourcesPath: '/resources', userDataPath: '/user-data' },
+      appPaths: {
+        isPackaged: true,
+        resourcesPath: RESOURCES_PATH,
+        userDataPath: path.resolve('/user-data'),
+      },
       ids: [NATIVE_TOOL_ID.runSkillScript],
       native: nativeRuntimeFor(runtimeData, { skills: [] }),
     });
@@ -71,8 +78,8 @@ describe('run_skill_script bundled-Python wiring', () => {
     await expect(resolvePythonExecutable()).resolves.toBe('/bundled/python3');
     // BST-1627: the packaged tree is unpacked at build time beside the manifest.
     expect(bundledResolverMock).toHaveBeenCalledExactlyOnceWith({
-      installDir: '/resources/python-runtime',
-      manifestDir: '/resources/python-runtime',
+      installDir: path.join(RESOURCES_PATH, 'python-runtime'),
+      manifestDir: path.join(RESOURCES_PATH, 'python-runtime'),
       signal: undefined,
     });
   });

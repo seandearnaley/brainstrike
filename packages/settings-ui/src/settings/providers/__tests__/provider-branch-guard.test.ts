@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import { describe, expect, it } from 'vitest';
@@ -149,7 +149,8 @@ describe('provider-id branch guard', () => {
   it('covers both provider trees and a meaningful number of files', () => {
     expect(coveredFiles.length).toBeGreaterThan(10);
     for (const tree of COVERED_TREES) {
-      expect(coveredFiles.some((file) => file.path.includes(`/${tree}/`))).toBe(true);
+      const treeDirectory = `${join(SETTINGS_ROOT, tree)}${sep}`;
+      expect(coveredFiles.some((file) => file.path.startsWith(treeDirectory))).toBe(true);
     }
     // The pure logic modules are explicitly in scope.
     expect(coveredFiles.some((file) => file.path.endsWith('provider-connection.ts'))).toBe(true);

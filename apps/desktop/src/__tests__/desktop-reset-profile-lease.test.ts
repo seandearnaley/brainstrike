@@ -1,6 +1,12 @@
+import path from 'node:path';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResetDesktopApplicationDataOptions } from '../desktop-factory-reset';
+
+const PROFILE = path.resolve('/profile');
+const PROFILE_LOCK = path.join(PROFILE, 'lock');
+const USER_DATA = path.resolve('/userData');
+const SESSION_DATA = path.join(USER_DATA, 'session-data');
 
 const purge = vi.hoisted(() => vi.fn());
 const clearSessions = vi.hoisted(() => vi.fn(async () => undefined));
@@ -27,7 +33,7 @@ describe('desktop reset profile ownership', () => {
         return released;
       },
       release,
-      root: '/profile',
+      root: PROFILE,
     };
     const prepare = vi.fn(async () => guard);
     const storage = vi.fn(async () => undefined);
@@ -49,8 +55,8 @@ describe('desktop reset profile ownership', () => {
       resetPersistentStorageAfterDataDeletion: state.storage,
       runTransition: (work) => work(),
       runtimes: [],
-      sessionDataPath: '/userData/session-data',
-      userDataPath: '/userData',
+      sessionDataPath: SESSION_DATA,
+      userDataPath: USER_DATA,
     }).reset;
   }
 
@@ -58,8 +64,8 @@ describe('desktop reset profile ownership', () => {
     purge.mockImplementation(async (options: ResetDesktopApplicationDataOptions) => {
       await options.stopBackgroundRuntimes();
       await options.resetDatabaseProfile();
-      expect(options.getProtectedPaths?.()).toEqual(['/profile/lock', '/userData/session-data']);
-      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: ['/profile/lock'] };
+      expect(options.getProtectedPaths?.()).toEqual([PROFILE_LOCK, SESSION_DATA]);
+      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [PROFILE_LOCK] };
     });
   }
 

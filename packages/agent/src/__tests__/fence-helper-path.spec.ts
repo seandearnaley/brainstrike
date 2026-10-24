@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { realpath } from 'node:fs';
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { constants, realpath } from 'node:fs';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -145,7 +145,18 @@ describe('trusted Linux seccomp helper injection', () => {
       if (failure === 'missing') {
         await rm(firstPath);
       } else {
-        await chmod(firstPath, 0o600);
+        // Executability is the host's answer to access(X_OK). Windows has no
+        // execute bit (X_OK means F_OK there), so the host's EACCES is given
+        // where the product asks; any other question gets the real answer.
+        const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+        helperAccess.mockImplementationOnce(async (path, mode) => {
+          if (path !== firstPath || mode !== constants.X_OK) {
+            return await actual.access(path, mode);
+          }
+          throw Object.assign(new Error(`EACCES: permission denied, access '${firstPath}'`), {
+            code: 'EACCES',
+          });
+        });
       }
       await expect(
         create({ interpreters, linuxSeccompApplyPath: firstPath })

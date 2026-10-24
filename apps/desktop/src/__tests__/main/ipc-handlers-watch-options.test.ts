@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { startJoinedParcelWatch } from '@brainstrike/file-system/native-watch';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -10,6 +11,8 @@ import {
   rootHandle,
   secureRoot,
 } from '../ipc-domains/workspace-root-registry-test-helpers';
+
+const WORKSPACE = path.resolve('/workspace');
 
 const watcherComposition = vi.hoisted(() => ({
   domain: null as FileSystemIpcDomain | null,
@@ -44,13 +47,13 @@ vi.mock('../../ipc-domains/storage-preferences-ipc', () => ({
 import { createApplicationIpcDomain } from '../../ipc-handlers';
 
 async function fixture() {
-  const root = secureRoot('/workspace');
+  const root = secureRoot(WORKSPACE);
   const createSecureRoot = vi.fn(async () => root);
   const roots = createRegistry({
     createSecureRoot,
     resolveReadPath: async (requested) => requested,
   });
-  const descriptor = await roots.addRoot(rootHandle('/workspace'));
+  const descriptor = await roots.addRoot(rootHandle(WORKSPACE));
   watcherComposition.domain = { close: () => roots.dispose(), roots, unregister: vi.fn() };
   const stop = vi.fn<() => Promise<void>>(async () => undefined);
   vi.mocked(startJoinedParcelWatch).mockResolvedValue(stop);
@@ -80,9 +83,9 @@ describe('Explorer watcher composition', () => {
 
   it('uses the existing pinned mount and enables bounded default-filter reporting', async () => {
     const f = await fixture();
-    const watch = await f.start('/workspace', vi.fn(), vi.fn());
+    const watch = await f.start(WORKSPACE, vi.fn(), vi.fn());
     expect(startJoinedParcelWatch).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ path: '/workspace', platform: 'electron' }),
+      expect.objectContaining({ path: WORKSPACE, platform: 'electron' }),
       expect.any(Function),
       expect.objectContaining({ reportDefaultFilteredChanges: true })
     );
@@ -101,7 +104,7 @@ describe('Explorer watcher composition', () => {
       requestId: 'utility-source-test',
       signal: new AbortController().signal,
     });
-    const visible = await f.start('/workspace', vi.fn(), vi.fn());
+    const visible = await f.start(WORKSPACE, vi.fn(), vi.fn());
     expect(startJoinedParcelWatch).toHaveBeenCalledTimes(1);
     await visible.close();
     expect(f.stop).not.toHaveBeenCalled();
@@ -112,7 +115,7 @@ describe('Explorer watcher composition', () => {
 
   it('joins the actual native watch before application close releases the pinned mount', async () => {
     const f = await fixture();
-    await f.start('/workspace', vi.fn(), vi.fn());
+    await f.start(WORKSPACE, vi.fn(), vi.fn());
     const exit = Promise.withResolvers<void>();
     f.stop.mockReturnValueOnce(exit.promise);
     let closed = false;
@@ -133,7 +136,7 @@ describe('Explorer watcher composition', () => {
       throw failure;
     });
     const f = await fixture();
-    await f.start('/workspace', vi.fn(), vi.fn());
+    await f.start(WORKSPACE, vi.fn(), vi.fn());
 
     await expect(Promise.resolve().then(() => f.domain.close())).rejects.toMatchObject({
       errors: expect.arrayContaining([failure]),

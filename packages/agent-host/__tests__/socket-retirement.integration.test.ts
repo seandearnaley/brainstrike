@@ -13,7 +13,7 @@ import {
   type ProductionHostRunConfiguration,
 } from '../src/production-platform.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
-import { refusesConnections } from './fixtures/host-endpoint.js';
+import { whenServerCloses } from './fixtures/host-endpoint.js';
 import { scriptedModel, scriptedToolSequence } from './fixtures/scripted-model.js';
 
 /**
@@ -159,8 +159,9 @@ test("a run/start held behind a memory settlement is answered host.closing, join
       })
     );
     await dispatched.promise;
+    const transportRetiring = whenServerCloses(host.record.endpoint);
     const { closing, state } = retire(host);
-    await refusesConnections(host.record.endpoint);
+    await transportRetiring;
     // The socket is retiring and its request joins the settlement Core's close joins too.
     expect(next.state.settled).toBe(false);
     expect(state.coreClosed).toBe(false);
@@ -211,8 +212,9 @@ test("a run/stop joining a held owner close answers stopped, joined only as long
     const stop = tracked(client.request('run/stop', { commandId: randomUUID(), runId, threadId }));
     // The Stop is admitted: it aborted the run and now joins its held owner.
     await expect.poll(() => signal?.aborted).toBe(true);
+    const transportRetiring = whenServerCloses(host.record.endpoint);
     const { closing, state } = retire(host);
-    await refusesConnections(host.record.endpoint);
+    await transportRetiring;
     expect(stop.state.settled).toBe(false);
     expect(state.coreClosed).toBe(false);
     release.resolve();
