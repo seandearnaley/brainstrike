@@ -1,7 +1,7 @@
 # MCP conformance
 
-Use this contract when changing the protocol lab, official conformance client,
-runner or evidence validation. The lab verifies protocol behavior; it does not
+Use this contract when changing the protocol lab, runner or evidence
+validation. The lab verifies protocol behavior; it does not
 establish packaged desktop UX or live-provider acceptance. Local validation and
 CI authorization belong to `pnpm check`.
 
@@ -40,32 +40,12 @@ as current acceptance claims.
 
 Owner: [evidence verifier](../../packages/mcp-test-lab/src/evidence.ts).
 
-## Production conformance client
-
-The official client exercises production config loading and the real MCP host's
-list/call operations. Keep one production route rather than constructing a second
-SDK client or issuing an unowned probe. Validate URL, revision and scenario
-applicability before creating the runtime. Auth rejection requires the intended
-resource/metadata exchange and natural process exit; a client that never starts
-cannot prove the rejection.
-
-[The shared descriptor](../../packages/assistant-contract/src/official-auth-conformance.ts)
-owns supported scenarios, profile strategy, budgets and artifact destinations.
-Expected-failure exceptions require explicit owner approval; never disable a
-scenario or reinterpret a failure to obtain green. Raw auth output is captured,
-bounded and sanitized, never inherited or placed in an evidence artifact.
-
-Owner: [official client](../../apps/desktop/src/mcp/official-conformance-client.ts).
-
 ## Cleanup and process ownership
 
-Every path closes its runtime, listener, sockets, OAuth state, its temporary MCP
-Tasks StateStore and subprocesses.
+Every path closes its runtime, listener, sockets, OAuth state and subprocesses.
 Timeouts, failed starts/exits and cleanup failures retain their original errors.
 The runner reserves cleanup inside its existing deadline and emits no success
 without settlement. Windows descendants share the kill-on-close Job Object;
 POSIX groups are gone only when the kernel reports ESRCH. EPERM is inconclusive,
 not proof of retirement. Preserve sibling groups until their wave settles and
 surface unconfirmed cleanup without a process-enumeration fallback.
-
-Owner: [official driver](../../scripts/run-official-mcp-client-conformance.mjs).
