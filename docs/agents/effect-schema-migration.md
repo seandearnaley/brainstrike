@@ -74,11 +74,11 @@ have these owners:
 
 The source census includes TS/JS module imports and excludes generated output and
 tests. One additional JS server (`mcp-test-lab/fixtures/stdio-reference-server.mjs`) is a
-test fixture. The
-26 pure desktop IPC contract modules have no Zod import; they retain pure parsers.
+test fixture. The 26 pure desktop IPC contract modules have no Zod import; they retain
+pure parsers.
 
 The date-time imports supply vendor patterns to Effect-authored grammars, not
-parallel production schemas. Frozen Zod fixtures under tests are parity oracles only.
+parallel production schemas.
 
 `host-conversation` no longer needs Zod in its manifest. Packages with a remaining
 vendor, qualification or test requirement retain their dependency.
