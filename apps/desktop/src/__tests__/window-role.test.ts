@@ -49,10 +49,10 @@ describe('window-role', () => {
   it('removes the role mapping when a window closes after its webContents is destroyed', () => {
     const { emitClosed, window } = createFakeWindow(17);
 
-    assignWindowRole(window as never, 'chunking-host');
+    assignWindowRole(window as never, 'embedding-host');
 
-    expect(getWindowRoleByWebContentsId(17)).toBe('chunking-host');
-    expect(getWindowRole(window as never)).toBe('chunking-host');
+    expect(getWindowRoleByWebContentsId(17)).toBe('embedding-host');
+    expect(getWindowRole(window as never)).toBe('embedding-host');
 
     window.webContents = undefined as never;
 
@@ -63,7 +63,7 @@ describe('window-role', () => {
   it('does not register duplicate closed listeners when assigning the same window twice', () => {
     const { window } = createFakeWindow(23);
 
-    assignWindowRole(window as never, 'chunking-host');
+    assignWindowRole(window as never, 'visible-ui');
     assignWindowRole(window as never, 'embedding-host');
 
     expect(window.onceCallCount).toBe(1);
@@ -99,9 +99,9 @@ describe('window-role', () => {
   describe('resolveSourceWindowRole', () => {
     it('returns the tracked role for a known webContents id', () => {
       const { window } = createFakeWindow(41);
-      assignWindowRole(window as never, 'chunking-host');
+      assignWindowRole(window as never, 'embedding-host');
 
-      expect(resolveSourceWindowRole(41)).toBe('chunking-host');
+      expect(resolveSourceWindowRole(41)).toBe('embedding-host');
 
       clearWindowRoleByWebContentsId(41);
     });

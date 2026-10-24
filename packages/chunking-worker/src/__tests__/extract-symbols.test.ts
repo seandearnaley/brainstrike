@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { extractSymbols } from '../extract-symbols';
-import { babelAdapter } from '../parsers/babel-adapter';
+import { oxcNativeAdapter } from '../parsers/oxc-native-adapter';
 import { treeSitterAdapter } from '../parsers/tree-sitter-adapter';
 
 const TS_FIXTURE = `
@@ -53,12 +53,12 @@ topLevelCall();
 `;
 
 async function parseTs(content: string) {
-  const ast = await babelAdapter.parse(content, {
+  const ast = await oxcNativeAdapter.parse(content, {
     errorRecovery: true,
     jsx: false,
     language: 'typescript',
   });
-  return extractSymbols({ adapterId: 'babel', ast, content });
+  return extractSymbols({ adapterId: 'oxc-native', ast, content });
 }
 
 describe('extractSymbols — JS/TS (ESTree)', () => {
@@ -268,11 +268,15 @@ describe('extractSymbols — decoupled from chunking strategy (via chunkContent)
       '',
     ].join('\n');
 
-    const result = await chunkContent(content, {
-      fileName: 'types.ts',
-      filePath: 'src/types.ts',
-      strategy: 'auto',
-    });
+    const result = await chunkContent(
+      content,
+      {
+        fileName: 'types.ts',
+        filePath: 'src/types.ts',
+        strategy: 'auto',
+      },
+      { selectAdapter: () => oxcNativeAdapter, strict: true }
+    );
 
     expect(result.skipped).toBe(false);
     expect(result.chunks.length).toBeGreaterThan(0);

@@ -311,11 +311,11 @@ it('uses native file-ID lookup for actual workspace and collection counts with i
   expect(writer.db.inTransaction).toBe(false);
 });
 
-it('refuses schema6 unchanged and creates the lookup index only through explicit fresh rebuild', async () => {
+it('refuses an older schema unchanged and creates the lookup index only through explicit fresh rebuild', async () => {
   const { options, reader, writer } = await fixture();
   const storeId = writer.identity.storeId;
   reader.db.close();
-  writer.db.prepare('UPDATE index_metadata SET schema_version=6').run();
+  writer.db.prepare('UPDATE index_metadata SET schema_version=14').run();
   writer.close();
   const previous = await readFile(options.dbPath);
   const reopen = { ...options, embedding: { indexMode: 'open-existing' } };

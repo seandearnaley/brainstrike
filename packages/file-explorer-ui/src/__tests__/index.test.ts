@@ -122,10 +122,7 @@ describe('file-explorer-ui index exports', () => {
 
   it('keeps background token indexer integration tests split under the test-file budget', () => {
     const testsRoot = path.resolve(process.cwd(), 'src', '__tests__');
-    const indexerTestFiles = [
-      'use-background-token-indexer-integration.test.tsx',
-      'use-background-token-indexer-integration-web-resolver.test.tsx',
-    ];
+    const indexerTestFiles = ['use-background-token-indexer-integration.test.tsx'];
 
     for (const fileName of indexerTestFiles) {
       const testSource = readFileSync(path.join(testsRoot, fileName), 'utf8');

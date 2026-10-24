@@ -313,8 +313,6 @@ export default defineConfig({
       '**/dist/**',
       '**/e2e/**', // Exclude Playwright e2e tests
       '**/scripts/**', // Script helper tests use node:test directly.
-      // Qualification owns node:test and Playwright runners (see its README).
-      '**/qualification/**',
       ...(UNDER_ELECTRON ? [] : ELECTRON_RUNTIME_TESTS),
     ],
     // Polls of real processes and the real renderer outlast Vitest's 1 s

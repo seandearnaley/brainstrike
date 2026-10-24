@@ -29,6 +29,17 @@ export interface DiagnosticEvent {
   readonly threadId: string | null;
 }
 
+/** A read over retained diagnostic events; every field narrows it. */
+export interface DiagnosticEventsQueryFilter {
+  readonly fingerprint?: string;
+  readonly limit?: number;
+  readonly runId?: string;
+  readonly severity?: DiagnosticSeverity;
+  readonly sinceMs?: number;
+  readonly threadId?: string;
+  readonly untilMs?: number;
+}
+
 export const DIAGNOSTIC_MESSAGE_MAX_CHARS = 2000;
 export const DIAGNOSTIC_STACK_MAX_CHARS = 8000;
 export const DIAGNOSTIC_CONTEXT_MAX_CHARS = 8000;

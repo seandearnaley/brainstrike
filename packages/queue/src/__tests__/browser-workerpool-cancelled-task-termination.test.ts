@@ -10,7 +10,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return { ...actual, createLogger: vi.fn(() => loggerMock) };
 });
-vi.mock('../telemetry', () => ({ emitQueueTelemetry: vi.fn() }));
 vi.mock('../util', async () => {
   const actual = await vi.importActual<typeof import('../util.js')>('../util');
   return { ...actual, estimateHardwareConcurrency: vi.fn(() => 4) };

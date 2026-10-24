@@ -287,10 +287,10 @@ describe('FactoryResetPanel', () => {
       mockClearPersistentUiState.mockResolvedValue({
         failures: [
           {
-            error: new Error('locked opfs directory'),
-            name: 'app-pg18',
-            operation: 'removeEntry',
-            target: 'opfs-pglite',
+            error: new Error('IndexedDB deletion was blocked for renderer-db'),
+            name: 'renderer-db',
+            operation: 'delete',
+            target: 'indexed-db',
           },
         ],
         success: false,

@@ -1,5 +1,8 @@
-import type { DiagnosticEventsQueryFilter, DiagnosticEventsRepository } from '@brainstrike/db';
-import type { mainDiagnosticEventsReader } from './assistant-server/query-diagnostics-tool';
+import type { DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
+import type {
+  DiagnosticEventsReader,
+  mainDiagnosticEventsReader,
+} from './assistant-server/query-diagnostics-tool';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
 import { promptLibraryContract } from './ipc-domains/prompt-library.contract';
@@ -419,7 +422,7 @@ if (shouldExposeBridge('desktopDiagnostics')) {
     countByFingerprint: (
       fingerprint: string,
       sinceMs: number
-    ): ReturnType<DiagnosticEventsRepository['countByFingerprint']> =>
+    ): ReturnType<DiagnosticEventsReader['countByFingerprint']> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint, {
         fingerprint,
         sinceMs,
@@ -432,7 +435,7 @@ if (shouldExposeBridge('desktopDiagnostics')) {
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts, sinceMs),
     queryEvents: (
       filter: DiagnosticEventsQueryFilter
-    ): ReturnType<DiagnosticEventsRepository['queryEvents']> =>
+    ): ReturnType<DiagnosticEventsReader['queryEvents']> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents, filter),
     readMainLogWindow: (request: MainLogWindowRequest): Promise<IpcResult<MainLogWindowResult>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow, request),
@@ -674,12 +677,6 @@ if (shouldExposeBridge('windowFocus')) {
 if (shouldExposeBridge('agentHostRecovery')) {
   exposeBridge('agentHostRecovery', agentHostRecoveryContract);
 }
-
-// Database integrity state (BST-1870, desktop-only): `getState()` reads the
-// main-owned snapshot and `onChanged` receives every change. `@brainstrike/db`
-// capability-checks `window.databaseIntegrity`; the embedding host gets its own
-// copy from hidden-preload.ts, the other hidden hosts get none, and web has no
-// preload at all.
 
 // File-export save bridge (desktop-only): writes export bytes into the OS
 // Downloads folder from MAIN, bypassing Chromium's blob-download pipeline

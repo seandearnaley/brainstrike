@@ -2,16 +2,15 @@
  * Parser adapter contract for the chunking worker.
  *
  * The chunking worker needs JS/TS AST information to identify function-level
- * boundaries for AST-aware chunking. Historically that was done by importing
- * @babel/parser directly inside portable-chunking.ts. The adapter pattern
- * lets us swap parser implementations (Babel, native oxc-parser, tree-sitter)
- * without touching the consumer.
+ * boundaries for AST-aware chunking. The adapter pattern lets parser
+ * implementations (native oxc-parser, tree-sitter) vary without touching the
+ * consumer.
  *
  * Contract requirements:
  *  - Adapters MUST return an AstNode-shaped tree whose nodes carry `type`,
  *    `start`, and `end` (matching the existing portable-chunking AstNode shape).
  *  - Adapters MUST be safe to call repeatedly; lifetime management is the
- *    adapter's responsibility (e.g., loading babel lazily on first parse).
+ *    adapter's responsibility (e.g., loading a grammar lazily on first parse).
  *  - Adapters SHOULD NOT throw on recoverable syntax errors when
  *    `errorRecovery: true` is requested; they should return a best-effort tree.
  *
@@ -59,7 +58,6 @@ export interface ParseOptions {
  * The single abstraction every parser implementation satisfies.
  *
  * Implementations:
- *  - `babel-adapter` — pure-JS @babel/parser, runs everywhere
  *  - `oxc-native-adapter` — in-process native oxc-parser for Node callers
  *    (`createNodeChunker`)
  *  - `tree-sitter-adapter` — WASM tree-sitter for non-JS/TS languages
@@ -76,7 +74,7 @@ export interface ParseOptions {
  */
 export interface ParserAdapter {
   /** Adapter identity, used for telemetry and routing decisions. */
-  readonly id: 'babel' | 'oxc-native' | 'tree-sitter';
+  readonly id: 'oxc-native' | 'tree-sitter';
 
   /**
    * Parse the given source into an `AstNode` tree.

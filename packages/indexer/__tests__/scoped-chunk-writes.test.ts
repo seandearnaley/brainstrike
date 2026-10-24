@@ -113,7 +113,7 @@ function writer(
             indexMode: 'text-only',
             profileHash: null,
             profileJson: null,
-            schemaVersion: 10,
+            schemaVersion: 15,
             storeId: 'b'.repeat(64),
           };
         }

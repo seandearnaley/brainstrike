@@ -6,10 +6,25 @@
  */
 import { fitItemsToCharBudget, type QueryDiagnosticsInput } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import type { DiagnosticEventsQueryFilter, DiagnosticFingerprintGroup } from '@brainstrike/db';
-import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
+import type {
+  DiagnosticEvent,
+  DiagnosticEventsQueryFilter,
+  DiagnosticSeverity,
+} from '@brainstrike/utils/diagnostics';
 
 const DEFAULT_QUERY_LIMIT = 50;
+
+/** Retained events sharing one fingerprint, with their span and latest message. */
+export interface DiagnosticFingerprintGroup {
+  code: string | null;
+  count: number;
+  fingerprint: string;
+  firstSeenMs: number;
+  lastSeenMs: number;
+  latestMessage: string;
+  severity: DiagnosticSeverity;
+  source: string;
+}
 
 export interface QueryDiagnosticEventItem {
   causeChainJson: string | null;

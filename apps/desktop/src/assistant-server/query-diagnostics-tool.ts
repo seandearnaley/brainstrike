@@ -2,18 +2,15 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import type { QueryDiagnosticsInput } from '@brainstrike/agent';
-import type {
-  DiagnosticEventsQueryFilter,
-  DiagnosticEventsRepository,
-  DiagnosticFingerprintGroup,
-} from '@brainstrike/db';
 import {
   type DiagnosticEvent,
+  type DiagnosticEventsQueryFilter,
   parseDiagnosticEventLine,
   scrubLikelySecretValues,
 } from '@brainstrike/utils/diagnostics';
 import { ERROR_LOG_FILE_NAME, listErrorLogFilePaths } from '../diagnostics/error-log-sink';
 import {
+  type DiagnosticFingerprintGroup,
   type DiagnosticsReader,
   type QueryDiagnosticEventItem,
   type QueryDiagnosticFingerprintItem,
@@ -173,11 +170,19 @@ export const mainDiagnosticsReader: DiagnosticsReader = {
   },
 };
 
+/** The retained-event reads Main serves the renderer. */
+export interface DiagnosticEventsReader {
+  countByFingerprint(
+    fingerprint: string,
+    sinceMs: number
+  ): Promise<{ count: number; firstSeenMs: number | null; lastSeenMs: number | null }>;
+  queryEvents(filter: DiagnosticEventsQueryFilter): Promise<DiagnosticEvent[]>;
+}
+
 /** Full event shape for the user-requested debug bundle; same retained writer and scrubber. */
-export const mainDiagnosticEventsReader: Pick<
-  DiagnosticEventsRepository,
-  'queryEvents' | 'countByFingerprint'
-> & { getUnseenCounts(sinceMs: number): Promise<{ errorCount: number; warningCount: number }> } = {
+export const mainDiagnosticEventsReader: DiagnosticEventsReader & {
+  getUnseenCounts(sinceMs: number): Promise<{ errorCount: number; warningCount: number }>;
+} = {
   countByFingerprint: async (fingerprint, sinceMs) => {
     const groups = await mainDiagnosticsReader.fingerprints({ fingerprint, limit: 1, sinceMs });
     const group = groups[0];

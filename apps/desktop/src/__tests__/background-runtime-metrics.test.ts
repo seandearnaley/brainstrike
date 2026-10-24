@@ -34,7 +34,6 @@ describe('collectBackgroundRuntimeMetrics', () => {
               },
             },
           ];
-        case 'chunking-host':
         case 'llm-host':
           return [];
         default:
@@ -100,7 +99,6 @@ describe('collectBackgroundRuntimeMetrics', () => {
               },
             },
           ];
-        case 'chunking-host':
         case 'llm-host':
           return [];
         default:

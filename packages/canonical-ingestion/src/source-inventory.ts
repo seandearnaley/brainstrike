@@ -1,6 +1,6 @@
 // A scan's source inventory over the canonical catalog: desktop's native index reads a scope's authorized files
 // through this owner.
-import type { VectorProfile } from '@brainstrike/indexer/browser';
+import type { VectorProfile } from '@brainstrike/indexer';
 import type {
   createNativeCanonicalCatalog,
   NativeCanonicalCatalogRecord,

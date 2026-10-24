@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
@@ -17,7 +18,6 @@ import {
   stateObservationUpsertSchema,
 } from './contracts.js';
 import { readIndexIdentity } from './index-metadata.js';
-import { sha256Bytes } from './portable.js';
 import { validateStoredVectorBytes } from './scoped-vector-validation.js';
 import { profileHash, type StateMessageVectors, vectorBytes } from './state-message-vectors.js';
 import type { StateProjection } from './state-projection.js';
@@ -50,7 +50,11 @@ const key = (threadId: string, groupId: string): string => JSON.stringify([threa
  * https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.32.1/packages/memory/src/index.ts
  */
 function nativeId(resourceId: string, threadId: string, groupId: string, ordinal: number): string {
-  const hash = sha256Bytes(JSON.stringify([resourceId, threadId, groupId, ordinal]));
+  const hash = new Uint8Array(
+    createHash('sha256')
+      .update(JSON.stringify([resourceId, threadId, groupId, ordinal]))
+      .digest()
+  );
   hash[6] = ((hash[6] ?? 0) & 15) | 128;
   hash[8] = ((hash[8] ?? 0) & 63) | 128;
   const hex = Array.from(hash.subarray(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join(

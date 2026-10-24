@@ -27,9 +27,6 @@ await storage.removeItem('theme');
   nonblocking. `WebStorageAdapter` also accepts an injected `Storage` instance.
 - `createMemoryStorageAdapter()` / `MemoryStorageAdapter` are explicitly
   ephemeral. They are not a persistence fallback.
-- `createStorageAdapter(platform)` takes an explicit platform. It accepts web,
-  refuses Electron through this entry and rejects unknown platforms. It neither
-  auto-detects the platform nor defaults to memory.
 - Electron main imports `ElectronStorageAdapter` from
   `@brainstrike/storage/electron`. Its constructor takes an optional filename,
   defaulting to `electron-storage.json` under `app.getPath('userData')`.

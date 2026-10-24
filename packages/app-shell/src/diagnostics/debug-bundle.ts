@@ -1,6 +1,5 @@
-import type { DiagnosticEventsQueryFilter } from '@brainstrike/db';
 import { redactSensitiveLogValue } from '@brainstrike/logging';
-import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
+import type { DiagnosticEvent, DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
 import { getDiagnosticSessionId } from './diagnostic-sink-session';
 import { scrubLikelySecretValues } from './secret-scrub';
 

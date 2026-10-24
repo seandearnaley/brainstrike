@@ -17,7 +17,7 @@ import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
-import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
+import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
@@ -63,27 +63,6 @@ const MAX_INDEXABLE_FILE_SIZE = DEFAULT_MAX_FILE_SIZE;
  */
 export type ElectronFileReader = (handle: ElectronFileHandle) => Promise<string>;
 
-/**
- * Resolution returned by the web file resolver. The production web adapter
- * returns `kind: 'handle'` so the indexer worker can read bytes off the main
- * thread; in-memory adapters (e.g. dev-fixture) return `kind: 'content'` with
- * pre-loaded UTF-8 bytes because their handles are not structured-clone-safe
- * across the worker boundary.
- *
- * Re-exported from `@brainstrike/types` so the canonical adapter contract is
- * the single source of truth and a future third variant cannot drift between
- * the type package and the UI package.
- */
-export type WebFileForIndexingResolution = FileForIndexingResolution;
-
-/**
- * Function to resolve the bytes the indexer needs for a `${folderId}/${relativePath}`
- * path. Mirrors the desktop `electronFileReader` fallback so unexpanded subfolder
- * selections can be background-indexed without forcing the whole tree to expand on
- * the main thread.
- */
-export type WebFileHandleResolver = (absolutePath: string) => Promise<WebFileForIndexingResolution>;
-
 export interface UseBackgroundTokenIndexerIntegrationProps {
   /** File reader for Electron handles - required when using Electron file handles */
   electronFileReader?: ElectronFileReader;
@@ -105,12 +84,6 @@ export interface UseBackgroundTokenIndexerIntegrationProps {
    * and the indexed/in-flight de-duplication apply unchanged.
    */
   visibleFiles?: ReadonlySet<string>;
-  /**
-   * Web-only fallback to resolve a real `FileSystemFileHandle` for a selected file path
-   * when neither the FileTreeIndex nor the local handle map has a cached entry.
-   * Only relevant on the web platform; desktop uses `electronFileReader` instead.
-   */
-  webFileHandleResolver?: WebFileHandleResolver;
 }
 
 /** Diagnostic info for debugging indexing issues */
@@ -219,7 +192,6 @@ export function useBackgroundTokenIndexerIntegration({
   onTokenResolved,
   electronFileReader,
   visibleFiles,
-  webFileHandleResolver,
 }: UseBackgroundTokenIndexerIntegrationProps): UseBackgroundTokenIndexerIntegrationReturn {
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
@@ -588,13 +560,6 @@ export function useBackgroundTokenIndexerIntegration({
   const electronFileReaderRef = useRef(electronFileReader);
   electronFileReaderRef.current = electronFileReader;
 
-  // Stable ref for webFileHandleResolver. Mirrors the electronFileReader pattern so the
-  // triggerIndexing callback can stay deps-stable while still calling the latest resolver.
-  // The resolver is only meaningful on the web platform; desktop leaves it undefined and
-  // continues using the synthetic-handle / IPC path.
-  const webFileHandleResolverRef = useRef(webFileHandleResolver);
-  webFileHandleResolverRef.current = webFileHandleResolver;
-
   /**
    * Queue files for indexing using the background worker.
    * For Electron files, reads content via IPC first (async, non-blocking).
@@ -681,7 +646,7 @@ export function useBackgroundTokenIndexerIntegration({
 
         let cachedFileSize: number | undefined;
         if (!handleInfo) {
-          if (electronFileReaderRef.current || webFileHandleResolverRef.current) {
+          if (electronFileReaderRef.current) {
             cachedFileSize = cache.getFileSize(folderId, normalizedFilePath);
           }
           const syntheticElectronHandle =
@@ -708,13 +673,11 @@ export function useBackgroundTokenIndexerIntegration({
           kind: 'file',
           normalizedFilePath,
           selectionPath,
-          ...(cachedFileSize === undefined ? {} : { cachedFileSize }),
         });
       }
 
       const dispatchPlan = planTokenIndexingDispatch({
         candidates: dispatchCandidates,
-        hasWebFileHandleResolver: Boolean(webFileHandleResolverRef.current),
         indexedKeys: indexedFilesRef.current,
         inFlightKeys: inFlightRef.current,
         maxIndexableFileSize: MAX_INDEXABLE_FILE_SIZE,
@@ -756,7 +719,6 @@ export function useBackgroundTokenIndexerIntegration({
         markInFlight(file.compositeKey);
       }
 
-      const webResolverQueue = [...dispatchPlan.webResolverFiles];
       const skippedNoHandle = dispatchPlan.skipped.noHandle;
       const skippedBinary = dispatchPlan.skipped.binary;
       const skippedTooLarge = dispatchPlan.skipped.tooLarge;
@@ -792,7 +754,6 @@ export function useBackgroundTokenIndexerIntegration({
         skippedNoHandle,
         skippedTooLarge,
         webFiles: webFilesToIndex.length,
-        webResolverFiles: webResolverQueue.length,
       });
 
       if (webFilesToIndex.length > 0) {
@@ -805,140 +766,6 @@ export function useBackgroundTokenIndexerIntegration({
           logger.error('triggerIndexing web batch dispatch failed', {
             error: error instanceof Error ? error.message : String(error),
           });
-        }
-      }
-
-      // Resolve missing-handle web files in concurrent windows that match the
-      // electron read concurrency (20 per batch). Each batch fires Promise.all
-      // so the resolver sees all 20 paths simultaneously, mirroring the existing
-      // electron `Promise.all` pattern; resolved handles are then dispatched
-      // through the same `dispatchBatches` path used by the live-handle web flow.
-      if (webResolverQueue.length > 0) {
-        const webResolver = webFileHandleResolverRef.current;
-        if (webResolver) {
-          let webHandlesResolved = 0;
-          let webResolverFailures = 0;
-          let webResolverSkippedTooLarge = 0;
-          let webResolverYieldedBatches = 0;
-          const webResolverStartedAt = Date.now();
-          for (let i = 0; i < webResolverQueue.length; i += TOKEN_INDEXER_IO_BATCH_SIZE) {
-            const batch = webResolverQueue.slice(i, i + TOKEN_INDEXER_IO_BATCH_SIZE);
-            const results = await Promise.all(
-              batch.map(async (item) => {
-                try {
-                  const resolution = await webResolver(item.absolutePath);
-                  return { ...item, error: null as Error | null, resolution };
-                } catch (error) {
-                  const wrapped = error instanceof Error ? error : new Error(String(error));
-                  return {
-                    ...item,
-                    error: wrapped,
-                    resolution: null as WebFileForIndexingResolution | null,
-                  };
-                }
-              })
-            );
-
-            const resolvedBatchToIndex: FileToIndex[] = [];
-            for (const result of results) {
-              if (result.error || !result.resolution) {
-                webResolverFailures += 1;
-                // Park failures for retry on the next FileTreeIndex version bump,
-                // mirroring the no-handle path.
-                pendingNoHandleRef.current.add(result.compositeKey);
-                logger.debug('Web file handle resolver failed; parked for retry', {
-                  absolutePath: result.absolutePath,
-                  compositeKey: result.compositeKey,
-                  error: result.error?.message,
-                });
-                continue;
-              }
-
-              // Authoritative size guard. Both resolution variants now carry
-              // `fileSize` (web `getFile()` metadata or pre-loaded content
-              // length), so this is the single point where the resolver path
-              // enforces MAX_INDEXABLE_FILE_SIZE. Files surfaced by Select All
-              // on unexpanded folders never had their size cached at tree-walk
-              // time; without this check an oversize file would slip past the
-              // pre-resolution `cache.getFileSize` guard above and reach the
-              // worker — inflating token totals and burning CPU on payloads
-              // the worker would otherwise never see.
-              //
-              // Mark the key as terminally indexed (not retryable): the size
-              // came directly from the file system, so a future re-attempt
-              // would hit the same guard and waste another resolver round-trip.
-              if (result.resolution.fileSize > MAX_INDEXABLE_FILE_SIZE) {
-                webResolverSkippedTooLarge += 1;
-                indexedFilesRef.current.add(result.compositeKey);
-                pendingNoHandleRef.current.delete(result.compositeKey);
-                continue;
-              }
-
-              webHandlesResolved += 1;
-              markInFlight(result.compositeKey);
-              // Branch on resolution kind: production web returns a real
-              // (structured-clone-safe) handle that the worker reads on its own
-              // thread; in-memory adapters return pre-loaded content because
-              // their synthetic handles cannot survive postMessage to a Worker.
-              if (result.resolution.kind === 'handle') {
-                resolvedBatchToIndex.push({
-                  compositeKey: result.compositeKey,
-                  fileHandle: result.resolution.fileHandle,
-                  filePath: result.filePath,
-                  folderId: result.folderId,
-                });
-              } else {
-                resolvedBatchToIndex.push({
-                  compositeKey: result.compositeKey,
-                  content: result.resolution.content,
-                  filePath: result.filePath,
-                  fileSize: result.resolution.fileSize,
-                  folderId: result.folderId,
-                });
-              }
-            }
-
-            if (resolvedBatchToIndex.length > 0) {
-              try {
-                await dispatchBatches(resolvedBatchToIndex);
-              } catch (error) {
-                if (ownedCancellation.settledByOwner(error, 'web-resolver')) {
-                  return;
-                }
-                logger.error('triggerIndexing web resolver batch dispatch failed', {
-                  error: error instanceof Error ? error.message : String(error),
-                });
-              }
-            }
-
-            await yieldIfMoreTokenIndexingBatches({
-              nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
-              onYield: () => {
-                webResolverYieldedBatches += 1;
-              },
-              totalCount: webResolverQueue.length,
-            });
-          }
-
-          if (emitLargeSelectionDiagnostics) {
-            logger.info('Background token indexing dispatched web resolver batches', {
-              batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
-              elapsedMs: Date.now() - webResolverStartedAt,
-              queuedFiles: webResolverQueue.length,
-              remainingFiles: 0,
-              webHandlesResolved,
-              webResolverFailures,
-              webResolverSkippedTooLarge,
-              yieldedBatchCount: webResolverYieldedBatches,
-            });
-          }
-        } else {
-          // The queue is only populated when the resolver was present at classify
-          // time, but guard defensively in case the prop was unset between the
-          // classification loop and the dispatch (e.g. component unmount).
-          for (const queued of webResolverQueue) {
-            pendingNoHandleRef.current.add(queued.compositeKey);
-          }
         }
       }
 

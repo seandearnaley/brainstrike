@@ -201,7 +201,7 @@ describe('visible documents', () => {
     const visible = byRole('visible-ui');
     const destroyed = byRole('visible-ui');
     destroyed.destroy();
-    electron.windows = [byRole('embedding-host'), visible, byRole('chunking-host'), destroyed];
+    electron.windows = [byRole('embedding-host'), visible, destroyed];
 
     expect(visibleDocumentWindows()).toEqual([visible]);
   });

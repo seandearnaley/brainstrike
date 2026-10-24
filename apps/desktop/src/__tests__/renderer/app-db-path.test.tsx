@@ -39,31 +39,6 @@ vi.mock('react-dom/client', () => ({
   default: { createRoot: mockCreateRoot },
 }));
 
-const mockDbProvider = vi.fn(
-  ({
-    children,
-    dbPath,
-    useElectronIPC,
-  }: {
-    children: React.ReactNode;
-    dbPath?: string;
-    useElectronIPC?: boolean;
-  }) => (
-    <div data-db-path={dbPath} data-testid="db-provider" data-use-electron-ipc={useElectronIPC}>
-      {children}
-    </div>
-  )
-);
-
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    DbProvider: mockDbProvider,
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  };
-});
-
 vi.mock('../../renderer/components/root-layout-content', () => ({
   default: () => <div>RootLayout</div>,
 }));
@@ -172,13 +147,12 @@ describe('Desktop native-owner renderer bootstrap', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the desktop shell without mounting a PostgreSQL provider', async () => {
+  it('renders the desktop shell without a database bridge', async () => {
     vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
     await import('../../renderer/main.tsx');
     const element = mockRender.mock.calls.at(-1)?.[0];
     expect(element).toBeDefined();
     render(element);
-    expect(mockDbProvider).not.toHaveBeenCalled();
     expect(screen.getByText('RootLayout')).toBeVisible();
     expect(window.electronAPI).not.toHaveProperty('db');
   }, 30_000);
@@ -190,7 +164,6 @@ describe('Desktop native-owner renderer bootstrap', () => {
 
     const gate = screen.getByTestId('app-reload-gate');
     expect(screen.getByTestId('adapters-provider')).toContainElement(gate);
-    expect(mockDbProvider).not.toHaveBeenCalled();
     expect(gate).toHaveAttribute('data-build-id', 'test-build-id');
     expect(gate).toHaveTextContent('RootLayout');
   }, 30_000);

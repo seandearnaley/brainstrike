@@ -1,6 +1,5 @@
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { isBinaryFile } from '@brainstrike/utils/file-utils';
-import { getSlashPathFileName } from './background-token-indexer-handles';
 
 export type TokenIndexingDispatchHandleKind = 'electron' | 'web';
 
@@ -12,13 +11,11 @@ export interface TokenIndexingDispatchHandle {
 }
 
 export interface TokenIndexingFileCandidate {
-  readonly cachedFileSize?: number;
   readonly compositeKey: string;
   readonly folderId: string;
   readonly handle: TokenIndexingDispatchHandle | null;
   readonly kind: 'file';
   readonly normalizedFilePath: string;
-  readonly resolverFileName?: string;
   readonly selectionPath: string;
 }
 
@@ -47,13 +44,6 @@ export interface PlannedTokenIndexingElectronFile {
   readonly folderId: string;
 }
 
-export interface PlannedTokenIndexingWebResolverFile {
-  readonly absolutePath: string;
-  readonly compositeKey: string;
-  readonly filePath: string;
-  readonly folderId: string;
-}
-
 export interface TokenIndexingDispatchSkippedCounts {
   readonly binary: number;
   readonly invalidPath: number;
@@ -77,12 +67,10 @@ export interface TokenIndexingDispatchPlan {
   readonly pendingNoHandleKeysToDelete: readonly string[];
   readonly skipped: TokenIndexingDispatchSkippedCounts;
   readonly webFiles: readonly PlannedTokenIndexingWebFile[];
-  readonly webResolverFiles: readonly PlannedTokenIndexingWebResolverFile[];
 }
 
 export interface PlanTokenIndexingDispatchParams {
   readonly candidates: readonly TokenIndexingDispatchCandidate[];
-  readonly hasWebFileHandleResolver?: boolean;
   readonly indexedKeys: ReadonlySet<string>;
   readonly inFlightKeys: ReadonlySet<string>;
   readonly maxIndexableFileSize?: number;
@@ -114,12 +102,8 @@ export function planTokenIndexingDispatch(
     }
 
     if (!candidate.handle) {
-      planMissingHandleCandidate({
-        builder,
-        candidate,
-        hasWebFileHandleResolver: params.hasWebFileHandleResolver === true,
-        maxIndexableFileSize,
-      });
+      builder.skipped.noHandle += 1;
+      builder.pendingNoHandleKeysToAdd.push(candidate.compositeKey);
       continue;
     }
 
@@ -139,7 +123,6 @@ export function planTokenIndexingDispatch(
     pendingNoHandleKeysToDelete: builder.pendingNoHandleKeysToDelete,
     skipped: builder.skipped,
     webFiles: builder.webFiles,
-    webResolverFiles: builder.webResolverFiles,
   };
 }
 
@@ -157,7 +140,6 @@ interface DispatchPlanBuilder {
     tooLarge: number;
   };
   readonly webFiles: PlannedTokenIndexingWebFile[];
-  readonly webResolverFiles: PlannedTokenIndexingWebResolverFile[];
 }
 
 function createDispatchPlanBuilder(): DispatchPlanBuilder {
@@ -175,7 +157,6 @@ function createDispatchPlanBuilder(): DispatchPlanBuilder {
       tooLarge: 0,
     },
     webFiles: [],
-    webResolverFiles: [],
   };
 }
 
@@ -224,48 +205,4 @@ function planResolvedHandleCandidate(params: {
     fileSize: handle.fileSize,
     folderId: candidate.folderId,
   });
-}
-
-function planMissingHandleCandidate(params: {
-  builder: DispatchPlanBuilder;
-  candidate: TokenIndexingFileCandidate;
-  hasWebFileHandleResolver: boolean;
-  maxIndexableFileSize: number;
-}): void {
-  const { builder, candidate, hasWebFileHandleResolver, maxIndexableFileSize } = params;
-  if (!hasWebFileHandleResolver) {
-    builder.skipped.noHandle += 1;
-    builder.pendingNoHandleKeysToAdd.push(candidate.compositeKey);
-    return;
-  }
-
-  const resolverFileName =
-    candidate.resolverFileName ?? getSlashPathFileName(candidate.normalizedFilePath);
-  if (isBinaryFile(resolverFileName)) {
-    builder.skipped.binary += 1;
-    builder.indexedKeysToAdd.push(candidate.compositeKey);
-    builder.pendingNoHandleKeysToDelete.push(candidate.compositeKey);
-    return;
-  }
-
-  if (candidate.cachedFileSize !== undefined && candidate.cachedFileSize > maxIndexableFileSize) {
-    builder.skipped.tooLarge += 1;
-    builder.pendingNoHandleKeysToAdd.push(candidate.compositeKey);
-    return;
-  }
-
-  builder.webResolverFiles.push({
-    absolutePath: buildWebResolverPath(candidate.folderId, candidate.normalizedFilePath),
-    compositeKey: candidate.compositeKey,
-    filePath: candidate.normalizedFilePath,
-    folderId: candidate.folderId,
-  });
-  builder.pendingNoHandleKeysToDelete.push(candidate.compositeKey);
-}
-
-function buildWebResolverPath(folderId: string, normalizedFilePath: string): string {
-  if (normalizedFilePath.startsWith(`${folderId}/`)) {
-    return normalizedFilePath;
-  }
-  return `${folderId}/${normalizedFilePath}`;
 }

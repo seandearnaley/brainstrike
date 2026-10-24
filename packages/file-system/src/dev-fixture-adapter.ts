@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
+import type { IFileNode } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils';
 import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types.js';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture.js';
@@ -318,11 +318,6 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const originalReadFileByPath = (
     adapter as { readFileByPath?: ((path: string) => Promise<string>) | undefined }
   ).readFileByPath?.bind(adapter);
-  const originalResolveFileForIndexing = (
-    adapter as {
-      resolveFileForIndexing?: ((path: string) => Promise<FileForIndexingResolution>) | undefined;
-    }
-  ).resolveFileForIndexing?.bind(adapter);
   const originalRestoreLastFolder = adapter.restoreLastFolder?.bind(adapter);
   const originalReadDirectoryStreaming = adapter.readDirectoryStreaming?.bind(adapter);
   const originalWatchDirectory = adapter.watchDirectory?.bind(adapter);
@@ -403,28 +398,6 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       throw new Error('Absolute path reads are not supported by this adapter');
     }
     return originalReadFileByAbsolutePath(path, mountedRootPath, rootId);
-  }
-
-  // Mirrors WebFileSystemAdapter.resolveFileForIndexing for the in-memory
-  // fixture. We deliberately return `kind: 'content'` instead of fabricating a
-  // synthetic FileSystemFileHandle: only the browser's real handles have
-  // structured-clone support, so a custom handle's methods would be stripped
-  // when posted to the indexer worker (`async()=>... could not be cloned`).
-  // Returning pre-loaded bytes keeps the worker boundary serializable and
-  // exercises the same FileToIndex.content code path that Electron uses.
-  async function resolveFileForIndexing(path: string): Promise<FileForIndexingResolution> {
-    if (isFixtureActive() && isFixtureOwnedPath(path)) {
-      const entry = findFixtureEntry(path);
-      const record = entry?.state.fileContents.get(entry.lookupPath);
-      if (!record) {
-        throw new Error(`File not found in fixture: ${path}`);
-      }
-      return { content: record.content, fileSize: record.size, kind: 'content' };
-    }
-    if (!originalResolveFileForIndexing) {
-      throw new Error('resolveFileForIndexing is not supported by this adapter');
-    }
-    return originalResolveFileForIndexing(path);
   }
 
   async function readDirectoryStreaming(
@@ -564,24 +537,6 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       }
     ).readFileByPath = readFileByPath;
   }
-  // Wire `resolveFileForIndexing` ONLY when the base adapter has it (same
-  // capability rule as streaming/readFileByPath above): consumers feature-
-  // detect this optional method to pick the web resolver path over the
-  // Electron reader. Unconditionally advertising it made the desktop indexer
-  // route REAL files into a resolver whose base could not serve them (they
-  // parked forever) whenever the dev inline fixture was on. Fixture files on
-  // capability-less adapters still index fine: the Electron reader path reads
-  // through the decorated `readFile`, which serves fixture-owned paths.
-  // On adapters WITH the capability (web), the fixture branch returns
-  // pre-loaded `kind: 'content'` so the worker never calls `.getFile()` on a
-  // structured-clone-stripped handle; foreign paths delegate to the base.
-  if (originalResolveFileForIndexing) {
-    (
-      decorated as T & {
-        resolveFileForIndexing?: (path: string) => Promise<FileForIndexingResolution>;
-      }
-    ).resolveFileForIndexing = resolveFileForIndexing;
-  }
   if (adapter.restoreLastFolder) {
     decorated.restoreLastFolder = restoreLastFolder;
   }
@@ -594,13 +549,6 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   decorated.isInlineFixtureActive = isInlineFixtureActive;
   decorated.canLoadInlineFixture = true;
   decorated.setInlineFixtureOptions = setInlineFixtureOptions;
-
-  // Forward getHandleCache if available (required for web persistence via useRestoreAccess)
-  const adapterWithCache = adapter as { getHandleCache?: () => unknown };
-  if (typeof adapterWithCache.getHandleCache === 'function') {
-    (decorated as { getHandleCache?: () => unknown }).getHandleCache =
-      adapterWithCache.getHandleCache.bind(adapter);
-  }
 
   return decorated;
 }

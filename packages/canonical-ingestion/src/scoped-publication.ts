@@ -8,7 +8,7 @@ import type {
   ScopedManifestFile,
   ScopedManifestResult,
 } from '@brainstrike/indexer';
-import { vectorProfileHash } from '@brainstrike/indexer/browser';
+import { vectorProfileHash } from '@brainstrike/indexer';
 import type {
   CanonicalFileIdentity,
   CanonicalManifestFile,

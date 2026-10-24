@@ -1,5 +1,5 @@
-import type { ThreadSearchCoverage, ThreadSearchResultItem } from '@brainstrike/db';
 import { create } from 'zustand';
+import type { ThreadSearchCoverage, ThreadSearchResultItem } from './thread-search-service';
 
 export type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
 
