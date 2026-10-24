@@ -14,6 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveDesktopTestShard } from '../vitest.config.mts';
@@ -21,8 +22,16 @@ import { resolveDesktopTestShard } from '../vitest.config.mts';
 const desktop = fileURLToPath(new URL('..', import.meta.url));
 const vitest = fileURLToPath(new URL('../../../node_modules/vitest/vitest.mjs', import.meta.url));
 // Config owns the pool: native integrations use forks; Windows coverage also
-// includes the isolated Main boot thread project from the base config.
-const serial = ['--maxWorkers=1', '--no-file-parallelism'];
+// includes the isolated Main boot thread project from the base config. Files
+// run in parallel like every other lane (AGENTS.md): turbo's per-task share
+// (VITEST_MAX_WORKERS) when it runs this, otherwise half the cores. Windows,
+// whose cold fork imports keep every desktop lane serial, runs one at a time.
+const workers =
+  process.platform === 'win32'
+    ? '1'
+    : (process.env.VITEST_MAX_WORKERS ??
+      String(Math.max(2, Math.floor(os.availableParallelism() / 2))));
+const parallelism = [`--maxWorkers=${workers}`];
 
 /** The dedicated cache's single storage origin, if one was provisioned. */
 function dedicatedTransformersCache() {
@@ -71,11 +80,15 @@ export function electronPassEnvironment(environment, electron) {
 }
 
 function run(executable, passArgs, environment, passthrough) {
-  const result = spawnSync(executable, [vitest, 'run', ...passArgs, ...serial, ...passthrough], {
-    cwd: desktop,
-    env: environment,
-    stdio: 'inherit',
-  });
+  const result = spawnSync(
+    executable,
+    [vitest, 'run', ...passArgs, ...parallelism, ...passthrough],
+    {
+      cwd: desktop,
+      env: environment,
+      stdio: 'inherit',
+    }
+  );
   if (result.error) {
     throw result.error;
   }
