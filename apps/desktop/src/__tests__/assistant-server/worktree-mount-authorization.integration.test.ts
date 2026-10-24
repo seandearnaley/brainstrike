@@ -77,8 +77,10 @@ describe('WorktreeService mount authorization (real git + real SQLite)', () => {
     // it while the old managed-directory-only mount rule refused it.
     const worktreePath = path.join(repo, '.claude', 'worktrees', 'adopted-nested');
     git(repo, ['worktree', 'add', '-b', 'bs/adopted-nested', worktreePath, 'HEAD']);
-    const canonicalPath = realpathSync(worktreePath);
-    const canonicalRepo = realpathSync(repo);
+    // The OS canonical spelling the authorizer resolves (fs/promises realpath);
+    // the JavaScript realpathSync keeps Windows 8.3 short names (RUNNER~1).
+    const canonicalPath = realpathSync.native(worktreePath);
+    const canonicalRepo = realpathSync.native(repo);
     const identity = {
       gitCommonDir: path.join(canonicalRepo, '.git'),
       repositoryRoot: canonicalRepo,
@@ -167,8 +169,8 @@ describe('WorktreeService mount authorization (real git + real SQLite)', () => {
     // silent debug-only false (NO SILENT FALLBACKS).
     const worktreePath = path.join(repo, '.claude', 'worktrees', 'inventory-down-nested');
     git(repo, ['worktree', 'add', '-b', 'bs/inventory-down-nested', worktreePath, 'HEAD']);
-    const canonicalPath = realpathSync(worktreePath);
-    const canonicalRepo = realpathSync(repo);
+    const canonicalPath = realpathSync.native(worktreePath);
+    const canonicalRepo = realpathSync.native(repo);
     const healthyInventory = {
       errors: [],
       repositories: [

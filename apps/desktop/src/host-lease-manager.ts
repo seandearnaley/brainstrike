@@ -27,6 +27,7 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
+import { joinProcessExit, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('DesktopHostLease');
 /**
@@ -139,6 +140,8 @@ interface OwnedChild {
   readonly exited: Promise<number>;
   readonly exitListener: (code: number) => void;
   readonly handle: HostLeaseUtilityProcess;
+  /** The OS identity its trusted ready record proved: what joining its real exit waits on. */
+  identity?: ProcessIdentity;
   /** This owner escalated its close to `kill()`: its exit code is the kill's, not a failure. */
   killed: boolean;
   /** It exited before this owner closed it. */
@@ -233,6 +236,7 @@ function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
   if (record.pid !== pid || record.start !== start) {
     throw new Error(`Host utility pid ${pid} reported ready with another process's record`);
   }
+  child.identity = { pid, start };
   return record;
 }
 interface CloseLadder {
@@ -268,9 +272,10 @@ async function escalateUnlessExited(
     logger.error('Could not kill the owned agent host; still waiting for it to exit', { pid });
   }
 }
-/** The child's exit as Main observes it: one shared promise per child. */
+/** The child's exit as Main observes it, joined at the OS: one shared promise per child. */
 function observedExit(child: OwnedChild, ladder: CloseLadder): Promise<number> {
   child.observedExit ??= child.exited.then(async (code) => {
+    await joinProcessExit(child.identity);
     // E2E seam: Main observes the exit this much later, still inside the ladder.
     await ladder.delays?.delay('child-exit');
     return code;

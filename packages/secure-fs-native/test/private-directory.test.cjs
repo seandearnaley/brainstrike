@@ -90,7 +90,13 @@ function freshDirectory() {
  * copy of that token a child process inherits.
  */
 function enabledPrivileges() {
-  const output = execFileSync('whoami', ['/priv', '/fo', 'csv', '/nh'], {
+  // System32's whoami by path: Git for Windows puts its POSIX whoami first on a bash PATH.
+  const systemRoot = process.env.SystemRoot;
+  if (!systemRoot) {
+    throw new Error('SystemRoot is not set; cannot locate whoami.exe');
+  }
+  const whoami = join(systemRoot, 'System32', 'whoami.exe');
+  const output = execFileSync(whoami, ['/priv', '/fo', 'csv', '/nh'], {
     encoding: 'utf8',
     windowsHide: true,
   });

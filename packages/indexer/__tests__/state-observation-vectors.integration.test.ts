@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +10,7 @@ import {
   type StateObservationSource,
 } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
-import { StateStore } from '@brainstrike/state-store';
+import { canonicalRoot, StateStore } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, it, type TestContext, vi } from 'vitest';
@@ -96,7 +96,7 @@ const source = (
 
 async function fixture(owner: ObservationLifecycle, nativeScope: 'thread' | 'resource' = 'thread') {
   let cleanupPort: Awaited<ReturnType<typeof openIndexer>> | undefined;
-  const root = realpathSync(
+  const root = canonicalRoot(
     await owner.acquire(
       () => mkdtemp(join(tmpdir(), 'state-observation-vectors-')),
       async (root) => {

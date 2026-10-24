@@ -1,12 +1,17 @@
 import { execFile } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
-import { largeText, StateStore, type StateStoreHooks } from '@brainstrike/state-store';
+import {
+  canonicalRoot,
+  largeText,
+  StateStore,
+  type StateStoreHooks,
+} from '@brainstrike/state-store';
 import { expect, it } from 'vitest';
 
 const deadlines = { closeMs: 5000, exitMs: 5000 };
@@ -65,7 +70,7 @@ function byteFiles(root: string, needle: string): Promise<string[]> {
 }
 
 async function fixture(hooks: StateStoreHooks = {}) {
-  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-state-purge-')));
+  const root = canonicalRoot(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-state-purge-')));
   const options = {
     dbPath: path.join(root, 'index.sqlite'),
     embedding: { indexMode: 'text-only' },
