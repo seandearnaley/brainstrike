@@ -1,5 +1,5 @@
 name: Setup workspace
-description: pnpm, Node (with pnpm cache), optional .turbo cache, and install deps. Callers MUST check out first.
+description: pnpm, Node, optional .turbo cache, and install deps. Callers MUST check out first.
 # Series C R9a: the pnpm->node->(turbo cache)->install block was duplicated
 # across every CI job that needs a plain `pnpm install --frozen-lockfile`
 # (static/unit/build/native-* in test.yml, coverage.yml, nightly-coverage.yml).
@@ -72,11 +72,14 @@ runs:
   using: composite
   steps:
     - uses: pnpm/action-setup@v6
+    # No pnpm store cache: its key is per lockfile and only the nightly run on
+    # main saves it, so merge-queue batches (which read only main's caches)
+    # missed after every lockfile change and spent 4-22 s per job failing to
+    # save their own copy.
     - id: node
       uses: actions/setup-node@v6
       with:
         node-version-file: .nvmrc
-        cache: 'pnpm'
     - if: ${{ inputs.turbo-cache == 'true' }}
       uses: actions/cache@v5
       with:
