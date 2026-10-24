@@ -10,7 +10,6 @@
     "@commitlint/config-conventional": "^21.2.3",
     "@commitlint/types": "^21.2.3",
     "@jacobwolf/biome-unnecessary-effect": "^0.1.1",
-    "@mermaid-js/mermaid-cli": "^12.0.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@typescript-eslint/parser": "^8.71.2",
@@ -33,8 +32,7 @@
     "ultracite": "8.0.1",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "yaml": "catalog:",
-    "yauzl": "^3.4.0"
+    "yaml": "catalog:"
   },
   "engines": {
     "node": ">=24.20.0 <25 || >=26.8.2 <27"
