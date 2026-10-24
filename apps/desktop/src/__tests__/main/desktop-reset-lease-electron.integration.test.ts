@@ -40,6 +40,8 @@ beforeAll(async () => {
     format: 'cjs',
     nodePaths: [resolve('node_modules')],
     outdir: directory,
+    // apps/desktop is `type: module`; CommonJS output needs `.cjs`.
+    outExtension: { '.js': '.cjs' },
     packages: 'external',
     platform: 'node',
     target: 'node24',
@@ -64,9 +66,9 @@ async function run(mode: string) {
   };
   Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
   const args = [
-    join(directory, 'driver.js'),
+    join(directory, 'driver.cjs'),
     userData,
-    join(directory, 'host-lease-entry.js'),
+    join(directory, 'host-lease-entry.cjs'),
     mode,
   ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {

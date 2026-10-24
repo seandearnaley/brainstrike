@@ -12,7 +12,7 @@ import { singleRootRuntime } from './_tool-test-helpers';
 type OwnerOptions = Parameters<typeof createWindowsCommandProcess>[0];
 const controls = vi.hoisted(() => ({
   create: vi.fn<typeof createWindowsCommandProcess>(),
-  path: vi.fn(() => '/trusted/dist/windows-command-entry.js'),
+  path: vi.fn(() => '/trusted/dist/windows-command-entry.cjs'),
 }));
 vi.mock('@brainstrike/host-capabilities/windows-command-process', () => ({
   createWindowsCommandProcess: controls.create,
@@ -21,7 +21,7 @@ vi.mock('../../bundled-sibling-path', () => ({ resolveBundledSiblingPath: contro
 
 const retained: OwnerOptions[] = [];
 beforeEach(() => {
-  controls.path.mockReset().mockReturnValue('/trusted/dist/windows-command-entry.js');
+  controls.path.mockReset().mockReturnValue('/trusted/dist/windows-command-entry.cjs');
   controls.create.mockReset();
   const simulatedProcess = Object.create(process) as NodeJS.Process;
   Object.defineProperties(simulatedProcess, {
@@ -84,5 +84,5 @@ test('a skill script does not release its real lease when retained retirement re
   expect(await waiter).toBe(failure);
   expect(controls.create).toHaveBeenCalledTimes(1);
   // Desktop's own bundled wrapper, resolved beside the host bundle.
-  expect(controls.path).toHaveBeenCalledWith('Windows command', 'windows-command-entry.js');
+  expect(controls.path).toHaveBeenCalledWith('Windows command', 'windows-command-entry.cjs');
 });
