@@ -1,11 +1,9 @@
-import type { McpLabFaultRuntime } from './fault-runtime.js';
 import type { McpOAuthReferenceStateCounts } from './oauth-reference.js';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;
   readonly oauthRecordsRemaining?: McpOAuthReferenceStateCounts;
   readonly stdioTransportsClosed: number;
-  readonly untriggeredFaultIds: readonly string[];
 }
 
 export interface McpLabCleanupResource {
@@ -21,7 +19,6 @@ export interface McpLabSessionCleanup {
 }
 
 interface McpLabSessionCleanupOptions {
-  readonly faultRuntime: McpLabFaultRuntime | undefined;
   readonly oauthStateCounts: (() => McpOAuthReferenceStateCounts) | undefined;
   readonly resources: readonly McpLabCleanupResource[];
 }
@@ -49,38 +46,7 @@ function createCleanupReport(options: McpLabSessionCleanupOptions): McpLabCleanu
       (resource) =>
         resource.kind === 'stdio-transport' && resource.closed && (resource.counted?.() ?? true)
     ).length,
-    untriggeredFaultIds: options.faultRuntime?.untriggeredIds() ?? Object.freeze([]),
   });
-}
-
-async function applyCleanupFault(runtime: McpLabFaultRuntime | undefined): Promise<void> {
-  if (!runtime) {
-    return;
-  }
-  const correlationId = runtime.reserveCorrelation(undefined, 'shutdown');
-  const applied = runtime.consume('shutdown', 'transport/close', correlationId);
-  if (!applied) {
-    return;
-  }
-  switch (applied.fault.kind) {
-    case 'cleanup_error':
-      throw new Error(`MCP lab fault "${applied.id}" injected a cleanup failure`);
-    case 'delay': {
-      const { delayMs } = applied.fault;
-      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-      return;
-    }
-    case 'child_exit':
-    case 'child_stderr':
-    case 'drop_response':
-    case 'http_status':
-    case 'malformed_json':
-      throw new Error(`MCP lab fault "${applied.id}" is invalid during cleanup`);
-    default: {
-      const unsupported: never = applied.fault;
-      throw new Error(`Unsupported MCP lab cleanup fault: ${String(unsupported)}`);
-    }
-  }
 }
 
 export function createMcpLabSessionCleanup(
@@ -97,7 +63,6 @@ export function createMcpLabSessionCleanup(
         return attempt;
       }
       const currentAttempt = (async () => {
-        await applyCleanupFault(options.faultRuntime);
         const failedResourceKinds: McpLabCleanupResource['kind'][] = [];
         for (const resource of options.resources) {
           if (resource.closed) {

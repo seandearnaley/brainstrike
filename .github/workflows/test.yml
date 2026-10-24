@@ -36,6 +36,8 @@ on:
         value: ${{ jobs.admission.result }}
       static-result:
         value: ${{ jobs.static.result }}
+      type-check-result:
+        value: ${{ jobs.type-check.result }}
       unit-plan-result:
         value: ${{ jobs.unit-plan.result }}
       unit-shard-result:
@@ -145,9 +147,9 @@ jobs:
             core.notice(`PR #${pullNumber} head ${runHead} remained quiet for 120 seconds; releasing the full test graph.`);
             return 'true';
 
-  # Unit selection needs only a checkout and an install, so it runs beside
-  # Static rather than inside it: the shards start minutes earlier instead of
-  # waiting for lint and type-check, which gate nothing they read.
+  # Unit selection needs only a checkout and the turbo CLI, so it runs beside
+  # Static rather than inside it and skips the workspace install: the shards
+  # start minutes earlier instead of waiting for lint, type-check or pnpm.
   unit-plan:
     name: Unit plan
     outputs:
@@ -171,10 +173,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          turbo-cache: 'true'
+          node-version-file: .nvmrc
+
+      # A dry run reads git, the lockfile and package manifests, never
+      # node_modules, so only the CLI at the root package.json's exact pin is
+      # installed, outside the workspace.
+      - name: Install the pinned turbo CLI
+        id: turbo
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').devDependencies.turbo")"
+          npm install --prefix "$RUNNER_TEMP/turbo" --no-save --no-package-lock --no-audit --no-fund "turbo@${version}"
+          echo "entry=$RUNNER_TEMP/turbo/node_modules/turbo/bin/turbo" >> "$GITHUB_OUTPUT"
 
       # BST-2188: a merge-queue batch is a branch Mergify builds on main's tip,
       # one merge per queued PR on top, and pushes. With one batch under test
@@ -190,8 +203,8 @@ jobs:
           echo "sha=$base" >> "$GITHUB_OUTPUT"
 
       # Preview exactly the Unit task/filter selection before allocating any
-      # shard runner. Reuse Static's installation; no additional runner or
-      # package/command registry. Nightly and manual runs retain every row.
+      # shard runner. No additional runner or package/command registry.
+      # Nightly and manual runs retain every row.
       - name: Select affected Unit shards
         id: unit-shards
         env:
@@ -262,9 +275,13 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
+          TURBO_ENTRY: ${{ steps.turbo.outputs.entry }}
         run: node scripts/select-unit-shards.mjs
 
 
+  # Lint and type-check run as two jobs so the queue waits for the longer of
+  # them, not both in turn (run 40084219035: lint 1m33s, then type-check
+  # 2m20s, made Static the last job to finish).
   static:
     name: Static
     if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
@@ -291,22 +308,40 @@ jobs:
       # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
       # action is read off the runner's filesystem, so the repo has to be on
       # disk before it can resolve. See setup-workspace/action.yml's header.
-      # Full history also supplies the exact PR base used by Unit admission.
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
+      # Lint never runs turbo, so it skips the .turbo cache layer.
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'true'
 
       - name: Secret scan
         run: pnpm secrets:scan
 
       - name: Lint
         run: pnpm run lint:ci
+
+  type-check:
+    name: Type check
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    needs: [admission]
+    # Same arm64 runner class as Static; see the note there.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Type check."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
 
       - name: Type check
         env:
@@ -505,6 +540,10 @@ jobs:
       - name: Push and manual integration tests
         if: github.event_name != 'push' || !inputs.merge-queue
         env:
+          # Nightly and manual runs soak the state store: 100 SIGKILLs and a 100 MB
+          # thread. Merge-queue runs keep the 5-kill check (kill-harness default).
+          STATE_STORE_KILL_TRIALS: "100"
+          STATE_STORE_THREAD_MB: "100"
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
@@ -610,27 +649,14 @@ jobs:
         # failure in one run instead of cancelling siblings at the first error
         # — the point of a build gate is to show all of what is broken.
         #
-        # NOT affected-filtered (BST-1005, measured): both E2E smoke jobs run
-        # on EVERY PR (AGENTS.md CI contract, and audit-bolt-readiness.mjs
-        # counts a skipped required check as not-ready), so this job must
-        # always produce the web and desktop bundles they consume. Those two
-        # apps' dependency closure is 46 of 47 workspace packages, so a
+        # NOT affected-filtered (BST-1005, measured): the desktop smoke lanes
+        # run this same command for themselves, and the web and desktop apps'
+        # dependency closure is 46 of 47 workspace packages, so a
         # `...[origin/$BASE_REF]` filter here can skip at most ONE package
         # (@brainstrike/tsconfig) while turbo's cache already replays the rest.
         env:
           TAILWIND_DEBUG: '1'
         run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful
-
-      - name: Upload build artifacts
-        if: github.event_name != 'workflow_dispatch' || inputs.merge-queue
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-artifacts
-          path: |
-            apps/desktop/dist/
-            packages/*/dist/
-          retention-days: 1
-          if-no-files-found: error
 
   native-electron:
     name: Native Electron Package
@@ -769,17 +795,6 @@ jobs:
       # same way the static job does, so the in-job builds and the browser
       # suites don't oversubscribe the runner.
       TURBO_CONCURRENCY: "4"
-      # The root devDependency @mermaid-js/mermaid-cli pulls in puppeteer,
-      # whose postinstall downloads two Chrome builds that nothing in this lane
-      # uses (the suites run Playwright's Chromium from the image). As pwuser
-      # this image has no `unzip`, so @puppeteer/browsers 3.2.5 falls back to
-      # its yauzl extractor, and with the resolved optional yauzl@2.10.0 a
-      # large zip entry never finishes: the promise never settles, Node exits 13
-      # on the unsettled top-level await, and `pnpm install` fails (run
-      # 39029250373; reproduced offline with a 60 MB entry). Puppeteer's
-      # documented PUPPETEER_SKIP_DOWNLOAD skips that unused download. The
-      # dependency defect itself is BST-2078.
-      PUPPETEER_SKIP_DOWNLOAD: "true"
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -875,21 +890,22 @@ jobs:
         needs.admission.result != 'success' ||
         (
           (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
-          needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success'
+          needs.admission.outputs.admitted == 'true'
         )
       )
-    needs: [admission, build]
+    needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
-    # Playwright splits the lane across two runners (--shard), so its tests take
-    # half the wall time; fail-fast stays off so both halves report.
+    # Playwright splits the lane across three runners (--shard); fail-fast stays
+    # off so every part reports. Playwright balances shards by test count, not
+    # time, and this lane's slow cases sit late in file order: on two runners
+    # run 40083132273 took 101 s and 136 s; three split the same cases into
+    # about 77, 83 and 77 s.
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/2', '2/2']
+        shard: ['1/3', '2/3', '3/3']
     env:
-      NODE_ENV: test
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
@@ -906,11 +922,13 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
+      # The lanes build for themselves beside the Build job instead of waiting
+      # for it: Turbo replays whatever the remote cache already holds and builds
+      # the rest, so the tests start about one Build job sooner. The job's env
+      # must hash like Build's: NODE_ENV is a desktop build input, so it is set
+      # on the test step only.
+      - name: Build
+        run: pnpm turbo run build --log-order=grouped
 
       # Desktop E2E drives the app through Playwright's Electron API
       # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
@@ -959,6 +977,8 @@ jobs:
       # on the ubuntu-latest runner.
       - name: Run desktop smoke
         working-directory: apps/desktop
+        env:
+          NODE_ENV: test
         run: dbus-run-session -- pnpm run test:e2e:lane:smoke --shard=${{ matrix.shard }}
 
       - name: Upload desktop smoke traces
@@ -982,11 +1002,10 @@ jobs:
         needs.admission.result != 'success' ||
         (
           (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
-          needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success'
+          needs.admission.outputs.admitted == 'true'
         )
       )
-    needs: [admission, build]
+    needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
     # Playwright splits the lane across two runners (--shard), so its tests take
@@ -996,7 +1015,6 @@ jobs:
       matrix:
         shard: ['1/2', '2/2']
     env:
-      NODE_ENV: test
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
@@ -1013,11 +1031,8 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
+      - name: Build
+        run: pnpm turbo run build --log-order=grouped
 
       - name: Drop unused apt sources
         uses: ./.github/actions/apt-drop-unused-sources
@@ -1043,6 +1058,8 @@ jobs:
 
       - name: Run desktop delegated smoke
         working-directory: apps/desktop
+        env:
+          NODE_ENV: test
         run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated --shard=${{ matrix.shard }}
 
       - name: Upload desktop delegated smoke traces
@@ -1069,11 +1086,10 @@ jobs:
         needs.admission.result != 'success' ||
         (
           (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
-          needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success'
+          needs.admission.outputs.admitted == 'true'
         )
       )
-    needs: [admission, build, desktop-e2e-smoke, desktop-e2e-delegated]
+    needs: [admission, desktop-e2e-smoke, desktop-e2e-delegated]
     # Reads two dependency results and completes in seconds, so it uses the
     # same slim runner as the Unit fan-in.
     runs-on: ubuntu-slim
@@ -1100,13 +1116,13 @@ jobs:
   # one `nightly-alert` issue per red workflow and comments on later nights.
   notify-linear:
     name: Notify Linear
-    needs: [admission, unit-plan, static, unit-shard, unit, build, native-electron, browser-tests, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
+    needs: [admission, unit-plan, static, type-check, unit-shard, unit, build, native-electron, browser-tests, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       # This workflow's own name: in nightly.yml's call, github.workflow is
       # the caller's (BST-2233).
       workflow_name: Test
-      results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
+      results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},static=${{ needs.static.result }},type-check=${{ needs.type-check.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

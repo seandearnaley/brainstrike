@@ -4,7 +4,6 @@ import {
   ExportedMessageRepository,
   type ThreadHistoryAdapter,
   type ThreadMessageLike,
-  useLocalRuntime,
 } from '@assistant-ui/react';
 import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -17,18 +16,13 @@ const run = vi.fn(async function* () {
 });
 const NOOP_ADAPTER: ChatModelAdapter = { run };
 
-vi.mock('../data-stream-runtime', () => ({
-  useBrainstrikeDataStreamRuntime: (options: {
-    adapters?: NonNullable<Parameters<typeof useLocalRuntime>[1]>['adapters'];
-  }) => useLocalRuntime(NOOP_ADAPTER, { adapters: options.adapters }),
-}));
 vi.mock('../assistant-message-text', () => ({
   AssistantMessageText: () => <div data-testid="markdown-text" />,
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
 
-import { AssistantUiPanel } from '../assistant-ui-panel';
+import { LocalConversationPanel } from './local-conversation-panel';
 
 const textMessage = (id: string, role: 'assistant' | 'user', text: string): ThreadMessageLike => {
   const message = {
@@ -64,7 +58,7 @@ describe('assistant composer history hydration', () => {
 
     render(
       <InitialCommitProbe>
-        <AssistantUiPanel historyAdapter={historyAdapter} pickerModels={[]} pickerProviders={[]} />
+        <LocalConversationPanel adapter={NOOP_ADAPTER} history={historyAdapter} />
       </InitialCommitProbe>,
       { wrapper: TooltipProvider }
     );

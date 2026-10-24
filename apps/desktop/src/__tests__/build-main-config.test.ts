@@ -78,7 +78,6 @@ describe('main-process bundle config', () => {
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
       'main-runtime': 'src/main.ts',
       'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
-      'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
       preload: 'src/preload.ts',
       'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
     });
@@ -176,17 +175,6 @@ describe('main-process bundle config', () => {
     // Flat output directory keeps the fork-entry sibling lookups valid.
     expect(MAIN_PROCESS_BUILD_OPTIONS.outdir?.endsWith('dist')).toBe(true);
     expect(MAIN_PROCESS_BUILD_OPTIONS.outbase?.endsWith('src')).toBe(true);
-  });
-
-  it('emits the conformance entry as CJS and executes it without a silent module guard', () => {
-    const entrySource = fs.readFileSync(
-      path.resolve(import.meta.dirname, '../../src/official-conformance-client-entry.ts'),
-      'utf8'
-    );
-
-    expect(MAIN_PROCESS_BUILD_OPTIONS.format).toBe('cjs');
-    expect(entrySource).toContain('void runOfficialConformanceProcess(');
-    expect(entrySource).not.toContain("typeof require !== 'undefined'");
   });
 
   it('ignores the renderer tsconfig paths so workspace packages stay external', () => {

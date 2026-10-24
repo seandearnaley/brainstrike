@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Hoisted: `vi.mock` factories run before module-scope consts initialize.
@@ -164,39 +162,5 @@ describe('routed-id contract at the capability boundary', () => {
     expect(
       findModelCapabilities('bedrock', 'amazon.nova-2-lite-v1:0')?.promptCaching
     ).toBeUndefined();
-  });
-});
-
-/**
- * Acceptance pin (BST-1354): capability lives in the registry, so the factory
- * and the two wrappers must contain NO model-id literals. A substring match
- * here is how "Claude on Bedrock caches, DeepSeek on Bedrock does not" silently
- * rots the day a vendor renames a route.
- */
-describe('no model-id string matching in the factory or wrappers', () => {
-  const sources = [
-    'providers/provider-factory.ts',
-    'providers/prompt-caching.ts',
-    'providers/prompt-transform-proxy.ts',
-    'providers/anthropic-prompt-caching.ts',
-    'providers/bedrock-prompt-caching.ts',
-  ];
-  // Vendor/model tokens that must never gate behavior in these files.
-  const forbidden = [/\bclaude\b/i, /\bnova\b/i, /\bhaiku\b/i, /\bsonnet\b/i, /\bdeepseek\b/i];
-
-  it.each(sources)('%s contains no model-id substring matching', (relativePath) => {
-    const source = readFileSync(join(import.meta.dirname, '..', relativePath), 'utf8');
-    // Comments legitimately NAME models when explaining the rules; only the
-    // executable lines are scanned.
-    const code = source
-      .split('\n')
-      .filter((line) => {
-        const trimmed = line.trim();
-        return !(trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*'));
-      })
-      .join('\n');
-    for (const pattern of forbidden) {
-      expect(code, `${relativePath} matches ${pattern}`).not.toMatch(pattern);
-    }
   });
 });

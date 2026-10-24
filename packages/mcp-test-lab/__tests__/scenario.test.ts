@@ -2,12 +2,9 @@ import { readFileSync } from 'node:fs';
 import { findPackageJSON } from 'node:module';
 import { Client } from '@modelcontextprotocol/client';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type { McpLabFaultPlan } from '../src/faults';
 import { startMcpLabScenario } from '../src/lab';
 import {
   getMcpLabScenario,
-  MCP_LAB_CONFORMANCE_SOURCE,
-  MCP_LAB_CONFORMANCE_VERSION,
   MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE,
   MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
   MCP_LAB_SCENARIO_IDS,
@@ -25,18 +22,6 @@ type AcceptsHttpWithoutExecution = typeof startMcpLabScenario extends (
 type AcceptsStdioExecution = typeof startMcpLabScenario extends (
   id: 'stdio-reference',
   options: { readonly execution: 'loopback' }
-) => unknown
-  ? true
-  : false;
-type AcceptsStdioFaultAndExecution = typeof startMcpLabScenario extends (
-  id: 'stdio-reference',
-  options: { readonly execution: 'loopback'; readonly faultPlan: McpLabFaultPlan }
-) => unknown
-  ? true
-  : false;
-type AcceptsStdioUndefinedExecution = typeof startMcpLabScenario extends (
-  id: 'stdio-reference',
-  options: { readonly execution: undefined; readonly faultPlan: McpLabFaultPlan }
 ) => unknown
   ? true
   : false;
@@ -66,8 +51,6 @@ describe('MCP lab scenario manifest', () => {
     });
     expectTypeOf<AcceptsHttpWithoutExecution>().toEqualTypeOf<false>();
     expectTypeOf<AcceptsStdioExecution>().toEqualTypeOf<false>();
-    expectTypeOf<AcceptsStdioFaultAndExecution>().toEqualTypeOf<false>();
-    expectTypeOf<AcceptsStdioUndefinedExecution>().toEqualTypeOf<false>();
   });
 
   it('declares the pinned official modern fixture and version/tag metadata', () => {
@@ -82,9 +65,6 @@ describe('MCP lab scenario manifest', () => {
       protocol: { era: 'modern', version: '2026-07-28' },
       reference: {
         clientPackage: '@modelcontextprotocol/client',
-        conformancePackage: '@modelcontextprotocol/conformance',
-        conformanceSource: MCP_LAB_CONFORMANCE_SOURCE,
-        conformanceVersion: MCP_LAB_CONFORMANCE_VERSION,
         sdkSource: MCP_LAB_SDK_SOURCE,
         sdkSourceSha: MCP_LAB_SDK_SOURCE_SHA,
         sdkVersion: MCP_LAB_SDK_VERSION,
@@ -95,13 +75,10 @@ describe('MCP lab scenario manifest', () => {
     });
   });
 
-  it('matches the real installed client, server, and conformance package versions', () => {
+  it('matches the real installed client and server package versions', () => {
     expect(typeof Client).toBe('function');
     expect(readInstalledPackageVersion('@modelcontextprotocol/client')).toBe(MCP_LAB_SDK_VERSION);
     expect(readInstalledPackageVersion('@modelcontextprotocol/server')).toBe(MCP_LAB_SDK_VERSION);
-    expect(readInstalledPackageVersion('@modelcontextprotocol/conformance')).toBe(
-      MCP_LAB_CONFORMANCE_VERSION
-    );
   });
 
   it('declares an independently verifiable upstream source tag and peeled commit', () => {
@@ -124,17 +101,6 @@ describe('MCP lab scenario manifest', () => {
       sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
       upstream: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
     });
-    expect(MCP_LAB_CONFORMANCE_SOURCE).toEqual({
-      commitSha: 'f44482ba17df816d3176962a11cdf36aec9bda00',
-      integrity:
-        'sha512-eXtZFgmtZiU5SsvXty+RGXGnyIqEVm3GLU/HZmg1wMjtKOocPZZgD9HQKd30oJhio5UB0wFJmsc6r8u48Q+EYA==',
-      repositoryUrl: 'https://github.com/modelcontextprotocol/conformance.git',
-    });
-    expect(getMcpLabScenario('modern-reference').reference.conformanceSource).toBe(
-      MCP_LAB_CONFORMANCE_SOURCE
-    );
-    const lockfile = readFileSync(new URL('../../../pnpm-lock.yaml', import.meta.url), 'utf8');
-    expect(lockfile).toContain(MCP_LAB_CONFORMANCE_SOURCE.integrity.slice('sha512-'.length));
   });
 
   it('returns a deeply frozen shared manifest', () => {

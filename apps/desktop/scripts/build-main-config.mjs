@@ -60,7 +60,6 @@ export const MAIN_PROCESS_ENTRY_POINTS = {
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
   'main-runtime': 'src/main.ts',
   'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
-  'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
   preload: 'src/preload.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
 };

@@ -338,19 +338,7 @@ export {
 } from './skills/skill-tools';
 export { SKILL_LIMITS, validateSkillMetadata } from './skills/skill-validation';
 export { outputLimitContextFor } from './stream/abnormal-finish';
-export {
-  AssistantDataStreamSession,
-  AssistantDataStreamSessionManager,
-  assistantDataStreamSessions,
-  createRandomId,
-  createStatelessAssistantDataStreamResponse,
-  resolveDataStreamSession,
-} from './stream/data-stream';
-export {
-  cloneJsonSafe,
-  sanitizeStreamChunk,
-  toJsonSafe,
-} from './stream/json';
+export { toJsonSafe } from './stream/json';
 export {
   APPROX_CHARS_PER_TOKEN,
   CEILING_SCALED_TOOL_RESULT_BUDGET,
@@ -366,16 +354,6 @@ export {
   type ScaledToolResultBudget,
   TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
 } from './stream/tool-output-limits';
-export {
-  clearToolRegistry,
-  completeToolCall,
-  createToolRegistry,
-  recordToolProgress,
-  startToolCall,
-  type ToolCallControllerLike,
-  type ToolRegistry,
-  type ToolRegistryEntry,
-} from './stream/tool-registry';
 export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
@@ -625,14 +603,6 @@ export type {
   RuntimeModelSettings,
   RuntimeProviderOptions,
   RuntimeWorkspaceRoot,
-  StreamChunk,
-  StreamChunkFinish,
-  StreamChunkMessageFinish,
-  StreamChunkText,
-  StreamChunkTool,
-  StreamChunkToolApprovalRequired,
-  StreamIterator,
-  TokenEstimateCalibrationSample,
   ToolCallTelemetrySample,
   ToolProjectionRewriteEntry,
 } from './types';

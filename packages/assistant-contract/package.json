@@ -38,16 +38,6 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
-    "./assistant-stream-session": {
-      "types": "./dist/assistant-stream-session.d.ts",
-      "import": "./dist/assistant-stream-session.js",
-      "require": "./dist/assistant-stream-session.js"
-    },
-    "./assistant-request-body-limit": {
-      "types": "./dist/assistant-request-body-limit.d.ts",
-      "import": "./dist/assistant-request-body-limit.js",
-      "require": "./dist/assistant-request-body-limit.js"
-    },
     "./host-run-id": {
       "types": "./dist/host-run-id.d.ts",
       "import": "./dist/host-run-id.js",
@@ -78,11 +68,6 @@
       "types": "./dist/mcp-catalog.d.ts",
       "import": "./dist/mcp-catalog.js",
       "require": "./dist/mcp-catalog.js"
-    },
-    "./official-auth-conformance": {
-      "types": "./dist/official-auth-conformance.d.ts",
-      "import": "./dist/official-auth-conformance.js",
-      "require": "./dist/official-auth-conformance.js"
     },
     "./mcp-task-presentation": {
       "types": "./dist/mcp-task-presentation.d.ts",
@@ -228,11 +213,6 @@
       "types": "./dist/runtime-data.d.ts",
       "import": "./dist/runtime-data.js",
       "require": "./dist/runtime-data.js"
-    },
-    "./approval-action-message": {
-      "types": "./dist/approval-action-message.d.ts",
-      "import": "./dist/approval-action-message.js",
-      "require": "./dist/approval-action-message.js"
     },
     "./credential-child-environment": {
       "types": "./dist/credential-child-environment.d.ts",

@@ -21,7 +21,6 @@ import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } fro
 import { type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
-import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
@@ -201,7 +200,6 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const threadKey = use(ActiveThreadKeyContext);
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const decisionRoute = useDecisionRoute();
-  const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
   const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
   const queued = useFollowUpQueueStore((state) =>
     request
@@ -209,7 +207,6 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
       : false
   );
   const locked =
-    recoveryBlocked ||
     queued ||
     submitted ||
     lockedByRun ||

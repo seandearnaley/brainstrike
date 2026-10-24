@@ -7,8 +7,6 @@ import {
   toWebRequest,
 } from '@modelcontextprotocol/node';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
-import { McpLabCorrelationError, McpLabDroppedResponseError } from './fault-runtime.js';
-import type { McpLabHttpFaultExecutor, McpLabHttpFaultScopes } from './http-fault-handler.js';
 
 export interface McpLabLoopbackHandle {
   close(): Promise<void>;
@@ -17,11 +15,6 @@ export interface McpLabLoopbackHandle {
 }
 
 export type McpLabLoopbackHandlerFactory = (origin: URL) => McpHttpHandler;
-
-export interface McpLabLoopbackOptions {
-  readonly faultExecutor?: McpLabHttpFaultExecutor;
-  readonly faultScopes?: McpLabHttpFaultScopes;
-}
 
 function listenLoopback(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -118,27 +111,11 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-async function rethrowAfterStartupCleanup(
-  startError: unknown,
-  server: Server,
-  faultExecutor: McpLabHttpFaultExecutor | undefined
-): Promise<never> {
-  const cleanupErrors: unknown[] = [];
+async function rethrowAfterStartupCleanup(startError: unknown, server: Server): Promise<never> {
   try {
     await closeServer(server);
-  } catch (error) {
-    cleanupErrors.push(error);
-  }
-  try {
-    await faultExecutor?.close();
-  } catch (error) {
-    cleanupErrors.push(error);
-  }
-  if (cleanupErrors.length > 0) {
-    throw new AggregateError(
-      [startError, ...cleanupErrors],
-      'MCP lab loopback startup cleanup failed'
-    );
+  } catch (cleanupError) {
+    throw new AggregateError([startError, cleanupError], 'MCP lab loopback startup cleanup failed');
   }
   throw startError;
 }
@@ -160,8 +137,7 @@ export function asNodeIncomingMessage(request: IncomingMessage): NodeIncomingMes
 }
 
 export async function createMcpLabLoopback(
-  handlerOrFactory: McpHttpHandler | McpLabLoopbackHandlerFactory,
-  options: McpLabLoopbackOptions = {}
+  handlerOrFactory: McpHttpHandler | McpLabLoopbackHandlerFactory
 ): Promise<McpLabLoopbackHandle> {
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
@@ -199,24 +175,12 @@ export async function createMcpLabLoopback(
         const webRequest = await toWebRequest(asNodeIncomingMessage(request), undefined, {
           signal: abort.signal,
         });
-        const executor = options.faultExecutor;
-        const scopes = options.faultScopes;
         const hasAdvertisedAuthority =
           advertisedOrigin !== undefined &&
           new URL(webRequest.url).origin === advertisedOrigin.origin;
-        let webResponse: Response;
-        if (executor && scopes) {
-          if (hasAdvertisedAuthority) {
-            const prepared = await executor.prepare(webRequest, scopes);
-            webResponse = prepared
-              ? await executor.fetchPrepared(prepared, webRequest, handler, undefined, scopes)
-              : await handler.fetch(webRequest);
-          } else {
-            webResponse = Response.json({ error: 'mcp_lab_invalid_authority' }, { status: 400 });
-          }
-        } else {
-          webResponse = await handler.fetch(webRequest);
-        }
+        const webResponse = hasAdvertisedAuthority
+          ? await handler.fetch(webRequest)
+          : Response.json({ error: 'mcp_lab_invalid_authority' }, { status: 400 });
         await writeNodeResponse(response, webResponse, webRequest.method);
       } finally {
         request.off('aborted', abortRequest);
@@ -224,25 +188,19 @@ export async function createMcpLabLoopback(
       }
     };
     void runDispatch().catch((error: unknown) => {
-      if (error instanceof McpLabDroppedResponseError) {
-        response.destroy(error);
-        return;
-      }
       if (response.headersSent) {
         response.destroy(error instanceof Error ? error : undefined);
         return;
       }
-      const failure =
-        error instanceof McpLabCorrelationError
-          ? Response.json({ error: 'mcp_lab_invalid_correlation_id' }, { status: 400 })
-          : handlerFailureResponse(error);
-      void writeNodeResponse(response, failure, request.method).catch((writeError: unknown) => {
-        response.destroy(writeError instanceof Error ? writeError : undefined);
-      });
+      void writeNodeResponse(response, handlerFailureResponse(error), request.method).catch(
+        (writeError: unknown) => {
+          response.destroy(writeError instanceof Error ? writeError : undefined);
+        }
+      );
     });
   });
   const port = await listenLoopback(server).catch((error: unknown) =>
-    rethrowAfterStartupCleanup(error, server, options.faultExecutor)
+    rethrowAfterStartupCleanup(error, server)
   );
   const origin = new URL(`http://127.0.0.1:${port}/`);
   advertisedOrigin = origin;
@@ -250,14 +208,13 @@ export async function createMcpLabLoopback(
     try {
       return typeof handlerOrFactory === 'function' ? handlerOrFactory(origin) : handlerOrFactory;
     } catch (error) {
-      return rethrowAfterStartupCleanup(error, server, options.faultExecutor);
+      return rethrowAfterStartupCleanup(error, server);
     }
   })();
   activeHandler = handler;
   return Object.freeze({
     async close() {
       await closeServer(server);
-      await options.faultExecutor?.close();
     },
     handler,
     url: new URL('/mcp', origin),

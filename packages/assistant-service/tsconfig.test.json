@@ -24,9 +24,6 @@
       "path": "../assistant-contract"
     },
     {
-      "path": "../assistant-wire"
-    },
-    {
       "path": "../canonical-ingestion"
     },
     {

@@ -3,15 +3,6 @@ import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profil
 import { TASKS_PROFILE_SHA256 } from './tasks-profile.js';
 
 export const MCP_LAB_SDK_VERSION = '2.3.1' as const;
-export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.12' as const;
-
-export const MCP_LAB_CONFORMANCE_SOURCE = Object.freeze({
-  commitSha: 'f44482ba17df816d3176962a11cdf36aec9bda00',
-  integrity:
-    'sha512-eXtZFgmtZiU5SsvXty+RGXGnyIqEVm3GLU/HZmg1wMjtKOocPZZgD9HQKd30oJhio5UB0wFJmsc6r8u48Q+EYA==',
-  repositoryUrl: 'https://github.com/modelcontextprotocol/conformance.git',
-} as const);
-
 export const MCP_LAB_SDK_SOURCE = Object.freeze({
   commitSha: 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac',
   repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
@@ -134,9 +125,6 @@ export interface McpLabScenario {
     | { readonly era: 'modern'; readonly version: '2026-07-28' };
   readonly reference: {
     readonly clientPackage: '@modelcontextprotocol/client';
-    readonly conformancePackage: '@modelcontextprotocol/conformance';
-    readonly conformanceSource: typeof MCP_LAB_CONFORMANCE_SOURCE;
-    readonly conformanceVersion: typeof MCP_LAB_CONFORMANCE_VERSION;
     readonly sdkSource: typeof MCP_LAB_SDK_SOURCE;
     readonly sdkSourceSha: typeof MCP_LAB_SDK_SOURCE_SHA;
     readonly sdkVersion: typeof MCP_LAB_SDK_VERSION;
@@ -148,9 +136,6 @@ export interface McpLabScenario {
 
 const REFERENCE = Object.freeze({
   clientPackage: '@modelcontextprotocol/client',
-  conformancePackage: '@modelcontextprotocol/conformance',
-  conformanceSource: MCP_LAB_CONFORMANCE_SOURCE,
-  conformanceVersion: MCP_LAB_CONFORMANCE_VERSION,
   sdkSource: MCP_LAB_SDK_SOURCE,
   sdkSourceSha: MCP_LAB_SDK_SOURCE_SHA,
   sdkVersion: MCP_LAB_SDK_VERSION,

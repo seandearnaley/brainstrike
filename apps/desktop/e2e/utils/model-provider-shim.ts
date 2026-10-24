@@ -2,11 +2,9 @@
  * A local, throwaway model-provider HTTP server for desktop E2E (BST-1392 W5),
  * and the E2E provider egress boundary (BST-1931, #3543 ruling 6052594658).
  *
- * This is the counterpart to setupAssistantMock for tests that need REAL
- * native-tool execution: setupAssistantMock replaces the app's OWN internal
- * /assistant endpoint, while this shim replaces the TRUE external boundary —
- * the model PROVIDER'S API — through the base-URL knobs the host's vendor SDKs
- * read from the environment:
+ * Tests that need REAL native-tool execution replace the TRUE external
+ * boundary — the model PROVIDER'S API — through the base-URL knobs the host's
+ * vendor SDKs read from the environment:
  *
  * - `OPENROUTER_BASE_URL`: Mastra's models.dev gateway (`ModelsDevGateway.buildUrl`,
  *   `${PROVIDER}_BASE_URL`) and openrouter-strict-content.ts's `buildUrl()`

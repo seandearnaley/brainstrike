@@ -16,6 +16,11 @@ import {
 } from './utils/layout-helpers';
 import { type ModelProviderShim, startModelProviderShim } from './utils/model-provider-shim';
 
+// Each case owns its Electron app, temp workspace and provider port, so
+// Playwright may shard this file per test. As one file-level group, its 105 s
+// all landed on delegated smoke shard 1 (3.5 min against 45 s on shard 2).
+test.describe.configure({ mode: 'parallel' });
+
 // A new, previously absent file is deliberately used: runWriteWorkspaceFile's
 // staleness guard permits new/unobserved files. Existing-file edit acceptance
 // must read first; this case does not manufacture a read failure for a new file.

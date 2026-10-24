@@ -38,12 +38,6 @@
       "@brainstrike/local-runtime/*": [
         "./packages/local-runtime/src/*"
       ],
-      "@brainstrike/assistant-wire": [
-        "./packages/assistant-wire/src"
-      ],
-      "@brainstrike/assistant-wire/*": [
-        "./packages/assistant-wire/src/*"
-      ],
       "@brainstrike/indexing-contract": [
         "./packages/indexing-contract/src"
       ],
@@ -265,9 +259,6 @@
     },
     {
       "path": "./packages/local-runtime"
-    },
-    {
-      "path": "./packages/assistant-wire"
     },
     {
       "path": "./packages/indexing-contract"

@@ -12,6 +12,9 @@
       "passThroughEnv": ["CI", "COVERAGE", "VITEST_MAX_WORKERS"]
     },
     "test:integration": {
+      // The soak sizes reach Vitest only when declared (strict env mode), and are
+      // hashed: nightly's 100-kill, 100 MB run never replays a PR run's result.
+      "env": ["$TURBO_EXTENDS$", "STATE_STORE_KILL_TRIALS", "STATE_STORE_THREAD_MB"],
       // memory-domain imports agent-host's emitted token calculator, and
       // memory-erasure hands that same dist module to the writer worker.
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
