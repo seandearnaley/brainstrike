@@ -1,4 +1,10 @@
-# Runs nightly on main. Per-PR hosted CI is off; main lands through the merge queue.
+# Runs nightly on main. Per-PR hosted CI is off; main lands through the merge
+# queue, which runs every other lane on each batch (owner decision 2026-10-24).
+# The night keeps only what a batch does not: the complete Unit run over every
+# package, not just the affected ones, with the state-store soak (100 kills, a
+# 100 MB thread), so breakage from outside the repo shows on days nothing
+# merges. Its Unit shards also save the Electron and .turbo caches on main,
+# which queue batches can only restore.
 
 name: Nightly
 
@@ -25,35 +31,23 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       merge-queue: false
+      nightly: true
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-  desktop-e2e:
-    name: Desktop E2E
-    if: github.repository == 'seandearnaley/brainstrike'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/desktop-e2e.yml
-    with:
-      suite: full
-    secrets:
-      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-
-  # The night is green only when every call succeeded; a release resolves a
+  # The night is green only when the call succeeded; a release resolves a
   # commit by this run's result.
   verdict:
     name: Nightly verdict
     if: github.repository == 'seandearnaley/brainstrike' && always()
-    needs: [test, desktop-e2e]
+    needs: [test]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Judge every called workflow
         env:
           RESULT_TEST: ${{ needs.test.result }}
-          RESULT_DESKTOP_E2E: ${{ needs.desktop-e2e.result }}
         run: |
           set -euo pipefail
           failed=0

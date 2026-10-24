@@ -1,13 +1,12 @@
-# Runs nightly on main (owner decision 2026-10-17) and on every merge-queue
-# batch (owner decision 2026-10-24), so a nightly failure cannot land.
+# Runs on every merge-queue batch (owner decision 2026-10-24), so no change
+# lands without the full desktop regression and the embedding lane.
 
 name: Desktop E2E
 
 on:
-  # BST-2233: no schedule of its own; nightly.yml calls it each night and
-  # merge-queue.yml on each batch. A called
+  # No schedule of its own; merge-queue.yml calls it on each batch. A called
   # run's `inputs` holds only these inputs and its event is the caller's, so
-  # `suite` keeps a dispatched nightly from skipping the full regression.
+  # `suite` keeps a dispatched caller from skipping the full regression.
   workflow_call:
     inputs:
       suite:
@@ -15,9 +14,6 @@ on:
         required: true
         type: string
     secrets:
-      # Read only by Notify Linear, which runs only in the scheduled nightly.
-      LINEAR_API_KEY:
-        required: false
       TURBO_TOKEN:
         required: true
   workflow_dispatch:
@@ -31,7 +27,7 @@ on:
           - full
 
 # In a called run github.workflow is the caller's name; the file name keeps this
-# group apart from nightly.yml's and its siblings'.
+# group apart from merge-queue.yml's and test.yml's.
 concurrency:
   group: ${{ github.workflow }}-desktop-e2e-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -120,17 +116,10 @@ jobs:
       # Failed to connect to the bus` for every process. dbus-run-session
       # is provided by the `dbus` package (pre-installed on ubuntu-latest).
       # Playwright's own --shard splits the regression project across the
-      # matrix (the total must equal the matrix length and Notify Linear's parts). pnpm
-      # appends the flag to the lane script, which must therefore end in the
-      # playwright command.
-      # Each Playwright run writes its JSON report under
-      # nightly-results/<results job>/<part>/, outside test-results/, which the AI
-      # Tools run below clears (BST-2189). Each shard is its own part, so a red
-      # shard is judged on its own results.
+      # matrix (the total must equal the matrix length). pnpm appends the flag
+      # to the lane script, which must therefore end in the playwright command.
       - name: Run full desktop regression
         working-directory: apps/desktop
-        env:
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/shard-${{ matrix.shard }}/regression.json
         run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/8
 
       # The AI Tools smoke specs are excluded from the regression project, so
@@ -141,30 +130,7 @@ jobs:
       - name: Run desktop AI Tools nightly lane
         if: matrix.shard == 1
         working-directory: apps/desktop
-        env:
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/shard-${{ matrix.shard }}/tools-settings-nightly.json
         run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
-
-      # Every run, green, red or cancelled: a green night's flaky tests and passes
-      # are what Notify Linear files and recovers per test, and a red part with
-      # no failing test is filed from its job status.
-      - name: Record the nightly job status
-        if: ${{ always() }}
-        env:
-          JOB_STATUS: ${{ job.status }}
-          PART_DIR: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/shard-${{ matrix.shard }}
-        run: |
-          mkdir -p "$PART_DIR"
-          printf '%s\n' "$JOB_STATUS" > "$PART_DIR/job.status"
-
-      - name: Upload nightly test results
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: nightly-results--desktop-full-regression-gate--shard-${{ matrix.shard }}
-          path: ${{ runner.temp }}/nightly-results/
-          retention-days: 1
-          if-no-files-found: warn
 
       # test-results/ holds each failed test's raw trace, screenshots, video,
       # error context and spec diagnostics; blob-report/ holds the report zip
@@ -246,8 +212,6 @@ jobs:
       # budget cannot also hold (BST-2090, run 39062126583).
       - name: Run desktop embedding regression
         working-directory: apps/desktop
-        env:
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-embedding-e2e/main/embedding.json
         run: |
           unset NO_COLOR
           BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
@@ -264,24 +228,6 @@ jobs:
             --global-timeout=3000000 \
             --grep="@desktop-embedding-"
 
-      - name: Record the nightly job status
-        if: ${{ always() }}
-        env:
-          JOB_STATUS: ${{ job.status }}
-          PART_DIR: ${{ runner.temp }}/nightly-results/desktop-embedding-e2e/main
-        run: |
-          mkdir -p "$PART_DIR"
-          printf '%s\n' "$JOB_STATUS" > "$PART_DIR/job.status"
-
-      - name: Upload nightly test results
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: nightly-results--desktop-embedding-e2e
-          path: ${{ runner.temp }}/nightly-results/
-          retention-days: 1
-          if-no-files-found: warn
-
       - name: Upload desktop embedding traces
         if: failure()
         uses: actions/upload-artifact@v7
@@ -292,17 +238,3 @@ jobs:
             apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
-
-  notify-linear:
-    name: Notify Linear
-    needs: [desktop-full-regression-gate, desktop-embedding-e2e]
-    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
-    uses: ./.github/workflows/nightly-linear-alert.yml
-    with:
-      # Its own name: in nightly.yml's call, github.workflow is the caller's.
-      workflow_name: Desktop E2E
-      # Each shard is one part of the gate: a red shard needs its own failing test.
-      parts: desktop-full-regression-gate=shard-1 shard-2 shard-3 shard-4 shard-5 shard-6 shard-7 shard-8
-      results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }}
-    secrets:
-      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
