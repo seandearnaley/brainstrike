@@ -1017,12 +1017,15 @@ jobs:
     needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
-    # Playwright splits the lane across two runners (--shard), so its tests take
-    # half the wall time; fail-fast stays off so both halves report.
+    # Playwright splits the lane across three runners (--shard); fail-fast stays
+    # off so every part reports. A slow runner stretches every test it runs
+    # (runs 40084219035 and 40085006964: one shard each ran all its tests 1.3x
+    # and 1.7x slower, so 83 s became 112 s and 144 s). Three runners give each
+    # about 5 tests (~60 s) instead of 7 or 8 (~85 s), so a slow one costs less.
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/2', '2/2']
+        shard: ['1/3', '2/3', '3/3']
     env:
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
