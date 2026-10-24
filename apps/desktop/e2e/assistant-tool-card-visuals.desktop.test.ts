@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -7,6 +7,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
 import { E2E_TIMEOUTS } from './utils/timeouts';
+import { makeUnreadable } from './utils/unreadable-file';
 
 const PROMPT_TEXT = 'find db files';
 // A new thread runs on the agent host, so its tool card comes from a real
@@ -19,7 +20,7 @@ writeFileSync(join(workspace, 'db-files.txt'), 'notes.db\n');
 // since BST-1996), so the card shows the guard's redacted generic error.
 const unreadable = join(workspace, 'unreadable-db-files.txt');
 writeFileSync(unreadable, 'private\n');
-chmodSync(unreadable, 0o000);
+makeUnreadable(unreadable);
 
 test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace } });
 test.afterAll(() => {

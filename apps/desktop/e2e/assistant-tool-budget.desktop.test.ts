@@ -9,6 +9,7 @@ import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+import { nodeCommand } from './utils/node-command';
 
 /**
  * BST-1777: the per-tool execution guard (packages/agent/src/tools/guard-tool-execution.ts,
@@ -63,7 +64,7 @@ test.describe('Assistant tool execution budget (desktop, BST-1777)', () => {
         // real captured `stdout` field, not the args echo above it.
         await expect(toolCard.locator('pre').last()).toContainText('budget-ok');
       },
-      command: 'sleep 8 && echo budget-ok',
+      command: nodeCommand("setTimeout(() => console.log('budget-ok'), 8000)"),
     });
   });
 
@@ -81,7 +82,7 @@ test.describe('Assistant tool execution budget (desktop, BST-1777)', () => {
         await expect(toolCard.getByText('Result:', { exact: true })).toBeVisible();
         await expect(toolCard.locator('pre').last()).toContainText('"timedOut": true');
       },
-      command: 'sleep 8',
+      command: nodeCommand('setTimeout(() => undefined, 8000)'),
       timeoutMs: 2000,
     });
   });
@@ -158,7 +159,7 @@ async function runBudgetCase(
       await root.getByRole('button', { exact: true, name: 'Send' }).click();
 
       const activityGroup = root.getByTestId('assistant-activity-group').first();
-      // sleep 8 plus real app overhead. The shrunk 5s inactivity window does
+      // An 8s command plus real app overhead. The shrunk 5s inactivity window does
       // NOT apply here — that is the whole point: the call runs after its
       // model call ended, bounded only by the tool's own ~7-8s guard budget.
       // Pre-fix it both stalled (5s inactivity) and guard-timed-out (3s).
