@@ -37,13 +37,8 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     reporters: ['default', new LostTestFileReporter()],
     // The timeout-only setup scales waitFor/findBy without shared cleanup
-    // hooks (BST-1299), in files whose environment has a DOM. The watchdog
-    // loads first to capture real timers and name a blocked PGlite worker,
-    // including in full-suite coverage.
-    setupFiles: [
-      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
-      '@brainstrike/test-utils/vitest.dom-aware-timeouts.setup',
-    ],
+    // hooks (BST-1299), in files whose environment has a DOM.
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware-timeouts.setup'],
     testTimeout: 15_000,
   },
 });

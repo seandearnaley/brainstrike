@@ -2,12 +2,20 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "cache": false
+      // Cached like every task (AGENTS.md). The `.node` binary depends on the
+      // OS, CPU architecture and Node ABI: the root config hashes RUNNER_OS,
+      // RUNNER_ARCH, pnpm's user agent (OS and arch) and package.json (which pins
+      // Node through devEngines), so one platform's binary is never replayed on
+      // another (the arm64/x64 failure in PR #1749).
+      "outputs": ["build/Release/**"]
     },
     "test": {
-      "cache": false,
+      // The tests load the compiled addon, so they need this package's own build
+      // first. The edge lives here, not as a `pnpm build &&` prefix, so a
+      // `turbo build test` run never starts two concurrent node-gyp rebuilds.
       "dependsOn": ["$TURBO_EXTENDS$", "build"],
-      "passThroughEnv": ["CI", "COVERAGE"]
+      // Package configs replace array fields; redeclare the root's pass-through.
+      "passThroughEnv": ["CI", "COVERAGE", "VITEST_MAX_WORKERS"]
     }
   }
 }

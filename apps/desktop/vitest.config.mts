@@ -345,7 +345,6 @@ export default defineConfig({
       },
     },
     setupFiles: [
-      require.resolve('@brainstrike/test-utils/vitest.event-loop-watchdog.setup'),
       require.resolve('@brainstrike/test-utils/vitest.setup'),
       path.join(desktopRoot, 'src/__tests__/setup.ts'),
     ],
