@@ -1,10 +1,11 @@
-# Runs nightly on main (owner decision 2026-10-17).
-# Per-PR hosted CI is off; main lands through the merge queue after `pnpm check`.
+# Runs nightly on main (owner decision 2026-10-17) and on every merge-queue
+# batch (owner decision 2026-10-24), so a nightly failure cannot land.
 
 name: Desktop E2E
 
 on:
-  # BST-2233: no schedule of its own; nightly.yml calls it each night. A called
+  # BST-2233: no schedule of its own; nightly.yml calls it each night and
+  # merge-queue.yml on each batch. A called
   # run's `inputs` holds only these inputs and its event is the caller's, so
   # `suite` keeps a dispatched nightly from skipping the full regression.
   workflow_call:
@@ -14,8 +15,9 @@ on:
         required: true
         type: string
     secrets:
+      # Read only by Notify Linear, which runs only in the scheduled nightly.
       LINEAR_API_KEY:
-        required: true
+        required: false
       TURBO_TOKEN:
         required: true
   workflow_dispatch:
@@ -202,7 +204,7 @@ jobs:
 
   desktop-embedding-e2e:
     name: Desktop Embedding E2E
-    if: github.repository == 'seandearnaley/brainstrike' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted
     runs-on: ubicloud-standard-4
     timeout-minutes: 60
     steps:
