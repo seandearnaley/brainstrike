@@ -10,6 +10,7 @@ import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeRootRegistration } from '../native-root-registration';
 import { textSettings, unreadableSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 import {
   fixture,
   mocks,
@@ -102,10 +103,10 @@ function heldWorkspace(beforeAttach?: () => Promise<void>) {
     subscribe: unused,
   };
   const application = {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: async () => lease,
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
   setCatalogRoot();
