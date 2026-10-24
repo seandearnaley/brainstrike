@@ -20,7 +20,6 @@
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"

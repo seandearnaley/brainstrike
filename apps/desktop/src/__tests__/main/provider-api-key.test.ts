@@ -8,8 +8,8 @@ const logger = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-const mockGetAgentProviderEnvKeys = vi.hoisted(() => vi.fn());
-const mockListAgentProviders = vi.hoisted(() => vi.fn());
+const mockProviderEnvKeys = vi.hoisted(() => vi.fn());
+const mockListProviders = vi.hoisted(() => vi.fn());
 const mockGetSecretsService = vi.hoisted(() => vi.fn());
 const mockIsSupportedProvider = vi.hoisted(() => vi.fn());
 
@@ -21,9 +21,10 @@ vi.mock('@brainstrike/agent', () => ({
   isSupportedProvider: (value: string) => mockIsSupportedProvider(value),
 }));
 
-vi.mock('../../agent-client-loader', () => ({
-  getAgentProviderEnvKeys: (provider: string) => mockGetAgentProviderEnvKeys(provider),
-  listAgentProviders: () => mockListAgentProviders(),
+vi.mock('@brainstrike/assistant-contract/provider-metadata', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/assistant-contract/provider-metadata')>()),
+  listProviders: () => mockListProviders().map((id: string) => ({ id })),
+  providerEnvKeys: (provider: string) => mockProviderEnvKeys(provider),
 }));
 
 // This suite substitutes the secret facade; desktop bootstrap is outside that boundary.
@@ -64,7 +65,7 @@ describe('provider-api-key', () => {
   });
 
   it('resolves provider env keys in order', () => {
-    mockGetAgentProviderEnvKeys.mockReturnValue(['KEY_ONE', 'KEY_TWO']);
+    mockProviderEnvKeys.mockReturnValue(['KEY_ONE', 'KEY_TWO']);
     process.env['KEY_TWO'] = '  token  ';
 
     expect(resolveProviderEnvKey('openai')).toBe('token');
@@ -89,7 +90,7 @@ describe('provider-api-key', () => {
   });
 
   it('prefers env key over secrets', async () => {
-    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
+    mockProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
     process.env['OPENAI_KEY'] = 'env-key';
 
     const secrets = {
@@ -102,8 +103,8 @@ describe('provider-api-key', () => {
   });
 
   it('lists configured providers from env and secrets', async () => {
-    mockListAgentProviders.mockReturnValue(['openai', 'anthropic']);
-    mockGetAgentProviderEnvKeys.mockImplementation((provider: string) =>
+    mockListProviders.mockReturnValue(['openai', 'anthropic']);
+    mockProviderEnvKeys.mockImplementation((provider: string) =>
       provider === 'openai' ? ['OPENAI_KEY'] : ['ANTHROPIC_KEY']
     );
     process.env['OPENAI_KEY'] = 'env-openai';
@@ -130,12 +131,11 @@ describe('provider-api-key', () => {
 
   it('marks bedrock configured from AWS_BEARER_TOKEN_BEDROCK (BST-1350 env path)', async () => {
     // The env-name table is registry-derived in production
-    // (agent-client-loader ⇒ provider-registry envKeys, pinned by
-    // agent-client-loader.test.ts); this pins the availability mechanics on
+    // (the provider registry's envKeys); this pins the availability mechanics on
     // the real bedrock names. AWS_REGION deliberately plays no role in
     // AVAILABILITY — it pairs with the key at auth-projection time.
-    mockListAgentProviders.mockReturnValue(['bedrock']);
-    mockGetAgentProviderEnvKeys.mockReturnValue([
+    mockListProviders.mockReturnValue(['bedrock']);
+    mockProviderEnvKeys.mockReturnValue([
       'BRAINSTRIKE_BEDROCK_API_KEY',
       'AWS_BEARER_TOKEN_BEDROCK',
     ]);
@@ -162,8 +162,8 @@ describe('provider-api-key', () => {
   });
 
   it('does not inspect a stale stored key when an env key is authoritative', async () => {
-    mockListAgentProviders.mockReturnValue(['openai']);
-    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
+    mockListProviders.mockReturnValue(['openai']);
+    mockProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
     process.env['OPENAI_KEY'] = 'env-openai';
 
     const secrets = {
@@ -184,8 +184,8 @@ describe('provider-api-key', () => {
     // The status verdict and the wave-3 typed-consumer verdict are unified:
     // a VALID stored credential of ANY type marks the provider configured
     // (source 'stored'); only malformed/unreadable entries stay readFailures.
-    mockListAgentProviders.mockReturnValue(['anthropic', 'openai']);
-    mockGetAgentProviderEnvKeys.mockReturnValue([]);
+    mockListProviders.mockReturnValue(['anthropic', 'openai']);
+    mockProviderEnvKeys.mockReturnValue([]);
     mockIsSupportedProvider.mockReturnValue(true);
 
     const secrets = {
@@ -208,8 +208,8 @@ describe('provider-api-key', () => {
   });
 
   it('keeps a MALFORMED stored credential as a per-provider read failure', async () => {
-    mockListAgentProviders.mockReturnValue(['anthropic', 'openai']);
-    mockGetAgentProviderEnvKeys.mockReturnValue([]);
+    mockListProviders.mockReturnValue(['anthropic', 'openai']);
+    mockProviderEnvKeys.mockReturnValue([]);
     mockIsSupportedProvider.mockReturnValue(true);
 
     const { SecretReadError } = await import('../../secrets');
@@ -231,7 +231,7 @@ describe('provider-api-key', () => {
 
   describe('readProviderCredential (BST-1352 typed reader)', () => {
     it('tags an env hit as an api_key credential with source env and never reads the store', async () => {
-      mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
+      mockProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
       process.env['OPENAI_KEY'] = '  env-key  ';
       const secrets = { getCredential: vi.fn() };
       mockGetSecretsService.mockReturnValue(secrets);
@@ -245,7 +245,7 @@ describe('provider-api-key', () => {
     });
 
     it('tags a stored typed credential with source stored', async () => {
-      mockGetAgentProviderEnvKeys.mockReturnValue(['ANTHROPIC_KEY']);
+      mockProviderEnvKeys.mockReturnValue(['ANTHROPIC_KEY']);
       const aws = { mode: 'profile_chain', region: 'us-east-1', type: 'aws' as const };
       const secrets = { getCredential: vi.fn().mockResolvedValue(aws) };
       mockGetSecretsService.mockReturnValue(secrets);
@@ -257,7 +257,7 @@ describe('provider-api-key', () => {
     });
 
     it('normalizes a stored api_key credential like the legacy string read (trim; blank = unset)', async () => {
-      mockGetAgentProviderEnvKeys.mockReturnValue([]);
+      mockProviderEnvKeys.mockReturnValue([]);
       const secrets = {
         getCredential: vi.fn().mockResolvedValue({ key: '  padded  ', type: 'api_key' }),
       };
@@ -273,14 +273,14 @@ describe('provider-api-key', () => {
     });
 
     it('returns undefined when nothing is configured', async () => {
-      mockGetAgentProviderEnvKeys.mockReturnValue([]);
+      mockProviderEnvKeys.mockReturnValue([]);
       const secrets = { getCredential: vi.fn().mockResolvedValue(null) };
       mockGetSecretsService.mockReturnValue(secrets);
       await expect(readProviderCredential('openai')).resolves.toBeUndefined();
     });
 
     it('rethrows a credential-store read failure (logged, never swallowed)', async () => {
-      mockGetAgentProviderEnvKeys.mockReturnValue([]);
+      mockProviderEnvKeys.mockReturnValue([]);
       const readError = new Error('decrypt boom');
       const secrets = { getCredential: vi.fn().mockRejectedValue(readError) };
       mockGetSecretsService.mockReturnValue(secrets);
@@ -290,8 +290,8 @@ describe('provider-api-key', () => {
   });
 
   it('reports one unreadable-key failure for duplicate stored provider ids', async () => {
-    mockListAgentProviders.mockReturnValue(['openrouter']);
-    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENROUTER_API_KEY']);
+    mockListProviders.mockReturnValue(['openrouter']);
+    mockProviderEnvKeys.mockReturnValue(['OPENROUTER_API_KEY']);
     mockIsSupportedProvider.mockReturnValue(true);
 
     const { SecretReadError } = await import('../../secrets');
@@ -311,7 +311,7 @@ describe('provider-api-key', () => {
   it('resolves an env credential even when the secrets service cannot be constructed (lazy store, BST-1352 review)', async () => {
     // The store must be acquired only INSIDE the stored-read callback: an env
     // hit never touches (or constructs) the keychain-backed service.
-    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
+    mockProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
     process.env['OPENAI_KEY'] = 'env-key';
     mockGetSecretsService.mockImplementation(() => {
       throw new Error('secrets service must not be constructed for an env hit');
@@ -351,8 +351,8 @@ describe('provider-api-key AWS auth precedence (BST-1353)', () => {
     process.env = {};
     vi.clearAllMocks();
     mockIsSupportedProvider.mockReturnValue(true);
-    mockListAgentProviders.mockReturnValue(['bedrock']);
-    mockGetAgentProviderEnvKeys.mockReturnValue(BEDROCK_ENV_KEYS);
+    mockListProviders.mockReturnValue(['bedrock']);
+    mockProviderEnvKeys.mockReturnValue(BEDROCK_ENV_KEYS);
   });
 
   afterEach(() => {
@@ -465,8 +465,8 @@ describe('provider-api-key AWS auth precedence (BST-1353)', () => {
   it('does NOT activate the chain for a non-aws provider', async () => {
     process.env['AWS_REGION'] = 'us-east-1';
     process.env['AWS_PROFILE'] = 'acme-dev';
-    mockListAgentProviders.mockReturnValue(['openai']);
-    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_API_KEY']);
+    mockListProviders.mockReturnValue(['openai']);
+    mockProviderEnvKeys.mockReturnValue(['OPENAI_API_KEY']);
     useStoredCredential(null);
 
     await expect(readProviderCredential('openai')).resolves.toBeUndefined();
