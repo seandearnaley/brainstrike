@@ -155,6 +155,7 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
  * from the package that imports it.
  */
 const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
+  '@brainstrike/assistant-ui > assistant-stream/utils',
   '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop-auto-scroll/element',
   '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/attach-closest-edge',
   '@brainstrike/ui > @atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/extract-closest-edge',
