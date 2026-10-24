@@ -1,8 +1,8 @@
 // @vitest-environment node
 /**
  * BST-1988: text search needs no embedding model. Activation in TEXT mode
- * indexes the workspace roots as the TEXT partition: no collection is invented,
- * looked up or attached.
+ * indexes the workspace roots as the TEXT partition: no collection is invented
+ * or looked up.
  */
 import type {
   CanonicalWorkspaceLease,
@@ -105,7 +105,6 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
     expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ managedCollectionId: null, mode: 'TEXT' })
     );
-    expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
     expect(mocks.catalog.collections).not.toHaveBeenCalled();
     const catalogReads = mocks.catalog.sourceCatalog.mock.calls.map(([request]) => request);
     expect(catalogReads.length).toBeGreaterThan(0);

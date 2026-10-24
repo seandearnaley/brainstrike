@@ -8,13 +8,11 @@ import type {
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import type { NativeIndexLifecycleObservation } from '@brainstrike/indexing-contract/indexer-client';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { textCollectionSettings } from './helpers/native-index-settings';
+import { textSettings } from './helpers/native-index-settings';
 import {
   createActivation,
-  emptyCollection,
   mocks,
   requestedScope,
   resetActivationFixture,
@@ -108,16 +106,13 @@ function startup(syncs: readonly Sync[]) {
       return { close: async () => {}, trigger: unused };
     }
   );
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const observed: NativeIndexLifecycleObservation[] = [];
   const activation = createActivation({
     application,
     embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     reopenDelaysMs: [0, 0, 0],
-    settings: async () => textCollectionSettings(),
+    settings: async () => textSettings(),
     storage: { getItem: unused },
   });
   const observer = new AbortController();

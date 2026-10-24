@@ -1984,6 +1984,9 @@ importers:
       '@brainstrike/config':
         specifier: workspace:*
         version: link:../config
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2

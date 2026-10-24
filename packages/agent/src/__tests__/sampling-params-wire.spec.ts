@@ -110,7 +110,7 @@ async function captureBody(
   }
 }
 
-/** Capturing fetch for the `custom_fetch` auth seam (openai/anthropic/google). */
+/** Capturing global fetch: the SDK default an `api_key` request goes through (openai/anthropic/google). */
 function makeCapturingFetch(bodies: unknown[]): typeof globalThis.fetch {
   return async (input, init) => {
     await captureBody(bodies, input, init);
@@ -131,9 +131,10 @@ describe('BST-1699 default request carries no sampling params', () => {
     ['google', undefined],
   ] as const)('%s adapter', async (provider, model) => {
     const bodies: unknown[] = [];
+    vi.stubGlobal('fetch', makeCapturingFetch(bodies));
     const created = createProvider(
       provider,
-      { apiKey: 'fixture-key', fetch: makeCapturingFetch(bodies), kind: 'custom_fetch' },
+      { apiKey: 'fixture-key', kind: 'api_key' },
       model
     ) as unknown as ModelLike;
 
@@ -194,25 +195,22 @@ describe('BST-1699 default request carries no sampling params', () => {
    */
   it('drops an explicitly-set sampling param and reports it only on warnings', async () => {
     const bodies: unknown[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      await captureBody(bodies, input, init);
+      return Response.json({
+        content: [{ text: 'ok', type: 'text' }],
+        id: 'msg_fixture',
+        model: 'claude-opus-5',
+        role: 'assistant',
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        type: 'message',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    });
     const model = createProvider(
       'anthropic',
-      {
-        apiKey: 'fixture-key',
-        fetch: (async (input: RequestInfo | URL, init: RequestInit | undefined) => {
-          await captureBody(bodies, input, init);
-          return Response.json({
-            content: [{ text: 'ok', type: 'text' }],
-            id: 'msg_fixture',
-            model: 'claude-opus-5',
-            role: 'assistant',
-            stop_reason: 'end_turn',
-            stop_sequence: null,
-            type: 'message',
-            usage: { input_tokens: 1, output_tokens: 1 },
-          });
-        }) as unknown as typeof globalThis.fetch,
-        kind: 'custom_fetch',
-      },
+      { apiKey: 'fixture-key', kind: 'api_key' },
       SAMPLING_REJECTING_ANTHROPIC_MODEL
     ) as unknown as {
       doGenerate: (options: unknown) => Promise<{

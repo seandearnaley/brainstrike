@@ -4,7 +4,10 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import { vectorProfileHash } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
 import { searchNativeAssistantChunks } from '../assistant-server/native-assistant-retrieval';
-import { fixture, profile, progressAuthority } from './native-scoped-search-fixture';
+import { fixture, profile, progressAuthority, rootId } from './native-scoped-search-fixture';
+
+/** The run's one open folder, which the index holds. */
+const workspaceRoots = [{ displayName: 'A', rootId }];
 
 it.each(
   (['semantic', 'hybrid'] as const).flatMap((mode) =>
@@ -71,11 +74,12 @@ it.each(
       },
       embeddingSetId: 'selected',
       mode,
-      query: 'retained marker',
+      query: 'notes marker',
       threshold: 0,
+      workspaceRoots,
     });
     expect(result.hits).toHaveLength(1);
-    expect(result.hits[0]?.hit.content).toBe('retained marker');
+    expect(result.hits[0]?.hit.content).toBe('notes.md marker');
     expect(result.hint).toMatch(/Partial index coverage/);
     expect(queryEmbedding).toHaveBeenCalledOnce();
     expect(f.searchScopes).toHaveBeenCalledTimes(mode === 'hybrid' ? 2 : 1);
@@ -92,7 +96,7 @@ it.each(['profile', 'store'] as const)(
     } else {
       f.replaceAuthority({ ...f.getAuthority(), profile: { ...profile, tokenCap: 512 } });
     }
-    const pending = f.capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }]);
+    const pending = f.capability.coverageBatch([{ rootIds: [rootId] }]);
     await expect(pending).rejects.toBeInstanceOf(Error);
     await expect(pending).rejects.not.toBeInstanceOf(ToolInputError);
     expect(f.searchScopes).not.toHaveBeenCalled();
@@ -137,7 +141,8 @@ it.each(['owner-generation', 'profile', 'store', 'roots'] as const)(
           ...authority,
           ...(change === 'owner-generation' ? { generation: authority.generation + 1 } : {}),
           ...(change === 'profile' ? { profile: { ...profile, tokenCap: 512 } } : {}),
-          ...(change === 'roots' ? { rootIds: ['replacement-root'] } : {}),
+          // The searched folder stays indexed; the index's folder set changes around it.
+          ...(change === 'roots' ? { rootIds: [...authority.rootIds, 'added-root'] } : {}),
         });
       }
       return Array.from({ length: 384 }, () => 0.1);
@@ -154,8 +159,9 @@ it.each(['owner-generation', 'profile', 'store', 'roots'] as const)(
         },
         embeddingSetId: 'selected',
         mode: 'semantic',
-        query: 'retained marker',
+        query: 'notes marker',
         threshold: 0,
+        workspaceRoots,
       })
     ).rejects.toBeInstanceOf(ToolInputError);
     expect(queryEmbedding).toHaveBeenCalledOnce();

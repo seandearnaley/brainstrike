@@ -2,17 +2,10 @@
 
 import { beforeEach, expect, it } from 'vitest';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { admissionCatalogFixture } from './fixtures/admission-catalog';
-import {
-  emptyCollection,
-  fixture,
-  mocks,
-  resetActivationFixture,
-  unused,
-} from './native-index-activation-fixture';
+import { fixture, resetActivationFixture, unused } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
 
@@ -27,9 +20,6 @@ async function settledWithoutRelease(pending: Promise<unknown>): Promise<boolean
 
 it('the admission’s index status read answers preparing during the first open, never waiting for it', async () => {
   // ADR 0026: a run's admission reads this status; the first open after launch is held here.
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const { activation } = fixture({

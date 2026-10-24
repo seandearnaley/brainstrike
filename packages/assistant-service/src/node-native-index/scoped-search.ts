@@ -142,33 +142,19 @@ function completeSourceScopes(
   return scopes.every((scope) =>
     readiness.some(
       (receipt) =>
-        receipt.scanComplete &&
-        (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
-          ? scope.rootId === receipt.scope.rootId
-          : scope.kind === 'collection' &&
-            receipt.scope.kind === 'collection' &&
-            scope.embeddingSetId === receipt.scope.embeddingSetId)
+        receipt.scanComplete && scope.kind === 'workspace' && scope.rootId === receipt.scope.rootId
     )
   );
 }
 function requestedScopes(
   authority: NativeSearchAuthority,
-  request: {
-    readonly rootIds: readonly string[];
-    readonly collectionId?: string;
-  }
+  request: { readonly rootIds: readonly string[] }
 ): readonly IndexScope[] {
   if (
     new Set(request.rootIds).size !== request.rootIds.length ||
     request.rootIds.some((id) => !authority.rootIds.includes(id))
   ) {
     throw new BoundaryFailureError(NATIVE_SEARCH_FOLDER_NOT_INDEXED);
-  }
-  if (request.collectionId !== undefined) {
-    if (request.collectionId !== authority.collectionId) {
-      throw new Error('Native collection search is not authorized by current saved settings.');
-    }
-    return [{ embeddingSetId: request.collectionId, kind: 'collection' }];
   }
   if (request.rootIds.length === 0) {
     throw new BoundaryFailureError(NATIVE_SEARCH_NO_FOLDERS);
@@ -180,11 +166,7 @@ function selectedBindings(
   scopes: readonly IndexScope[]
 ): readonly IndexFileBinding[] {
   return authority.bindings.filter((file) =>
-    scopes.some((scope) =>
-      scope.kind === 'collection'
-        ? file.embeddingSetId === scope.embeddingSetId
-        : file.rootId === scope.rootId
-    )
+    scopes.some((scope) => scope.kind === 'workspace' && file.rootId === scope.rootId)
   );
 }
 function assertHits(
@@ -232,11 +214,9 @@ function assertCoverageBatch(
     if (
       !scope ||
       result.scope.kind !== scope.kind ||
-      (result.scope.kind === 'workspace' && scope.kind === 'workspace'
-        ? result.scope.rootId !== scope.rootId
-        : result.scope.kind === 'collection' &&
-          scope.kind === 'collection' &&
-          result.scope.embeddingSetId !== scope.embeddingSetId)
+      (result.scope.kind === 'workspace' &&
+        scope.kind === 'workspace' &&
+        result.scope.rootId !== scope.rootId)
     ) {
       throw new Error('Native coverage batch returned a different scope.');
     }
@@ -279,11 +259,6 @@ function projectCoverage(
     }
   }
   return {
-    collections: coverage.flatMap((result) =>
-      result.scope.kind === 'collection'
-        ? [{ ...result.counts, embeddingSetId: result.scope.embeddingSetId }]
-        : []
-    ),
     embedding,
     roots: coverage.flatMap((result) =>
       result.scope.kind === 'workspace' ? [{ ...result.counts, rootId: result.scope.rootId }] : []
@@ -313,20 +288,6 @@ function projectStatus(
   return {
     authorizedCollectionIds: collectionId === null ? [] : [collectionId],
     authorizedRootIds: authority.rootIds,
-    collectionReadiness:
-      collectionId === null
-        ? []
-        : [
-            {
-              embeddingSetId: collectionId,
-              scanComplete: authority.readiness.some(
-                (receipt) =>
-                  receipt.scope.kind === 'collection' &&
-                  receipt.scope.embeddingSetId === collectionId &&
-                  receipt.scanComplete
-              ),
-            },
-          ],
     embedding,
     kind: 'ready',
     publicationProgress: authority.readiness.flatMap(
@@ -340,9 +301,7 @@ function projectStatus(
           publication.storeId !== storeId ||
           publication.profileHash !== selectedHash ||
           publication.generation !== scanGeneration ||
-          (scope.kind === 'workspace'
-            ? !authority.rootIds.includes(scope.rootId)
-            : scope.embeddingSetId !== authority.collectionId)
+          !authority.rootIds.includes(scope.rootId)
         ) {
           throw new Error(
             'Native publication progress differs from the current store, profile, generation or scope.'
@@ -363,10 +322,7 @@ function projectStatus(
     rootReadiness: authority.rootIds.map((rootId) => ({
       rootId,
       scanComplete: authority.readiness.some(
-        (receipt) =>
-          receipt.scope.kind === 'workspace' &&
-          receipt.scope.rootId === rootId &&
-          receipt.scanComplete
+        (receipt) => receipt.scope.rootId === rootId && receipt.scanComplete
       ),
     })),
     sourceObservation: projectSourceObservation(authority),

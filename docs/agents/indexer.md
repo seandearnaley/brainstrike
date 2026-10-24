@@ -107,8 +107,8 @@ closes what it owns: handles, watches, mounts, leases, the utility session. It
 fails only when one of those does not close. How the cancelled work ended is not
 part of its result; that work's own caller still learns it. The coordinator, a
 workspace pass's caller, discards a superseded pass's outcome, logged at debug
-with the pass's request id; Main does the same for a retired generation's startup,
-its collection scan included. When a cancelled scan's inference generation failed
+with the pass's request id; Main does the same for a retired generation's startup.
+When a cancelled scan's inference generation failed
 and its cancel and join settled, the scan reports its own cancellation instead and
 logs the generation's error at debug. The next generation redoes the work under a
 live owner, where a real error shows again. Main revokes the native authority in

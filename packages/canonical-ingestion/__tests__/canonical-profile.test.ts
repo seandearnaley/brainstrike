@@ -24,7 +24,7 @@ const hosted = {
   modelId: 'saved-model',
   modelKey: 'openai::saved-model',
 } as const;
-const scope: CanonicalSourceScope = { embeddingSetId: local.id, kind: 'collection' };
+const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' };
 const context = (): CanonicalOperationContext => ({
   requestId: 'resolve',
   signal: new AbortController().signal,

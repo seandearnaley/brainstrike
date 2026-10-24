@@ -1,9 +1,9 @@
 import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type {
-  CanonicalSourceScope,
+  CanonicalWorkspaceLease,
   NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
-import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
+import type { IndexerPort, IndexScope, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type {
   CollectionPort,
@@ -12,13 +12,13 @@ import type {
 } from '@brainstrike/state-store';
 import type { SourceFileRecord } from '@brainstrike/types';
 import { vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
-import { textCollectionSettings } from './helpers/native-index-settings';
+import { textSettings } from './helpers/native-index-settings';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -36,7 +36,6 @@ const mocks = vi.hoisted(() => ({
   /** The current profile owner's `lost`: its ready host exited without Main asking. */
   loseHost: vi.fn(),
   manager: {
-    attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
@@ -95,11 +94,13 @@ vi.mock('../sqlite-query-host-manager', () => ({
 }));
 
 export const storeId = 'a'.repeat(64);
-export const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
+/** The one granted folder the workspace fixtures mount (`mountedRoot`, `setCatalogRoot`). */
+export const workspace = { kind: 'workspace', rootId: 'root' } as const;
 export const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy or inference operation.');
 };
-export function requestedScope(input: unknown): CanonicalSourceScope {
+/** A writer request's scope: a folder, or under VECTOR the vector space that authorizes its rows. */
+export function requestedScope(input: unknown): IndexScope {
   if (!input || typeof input !== 'object') {
     throw new Error('Expected a native scope request.');
   }
@@ -133,7 +134,7 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
       dbPath: '/owned/profile/index.sqlite',
       fileBindings: [],
       rootIds: [],
-      scopes: [scope],
+      scopes: [workspace],
       storeId,
     }),
     coverageBatch: unused,
@@ -159,13 +160,13 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: async () => ({
+    verifyScopedManifest: async (request) => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
       changed: [],
       complete: true,
       missing: [],
-      scope,
+      scope: requestedScope(request),
       storeId,
       unexpected: [],
     }),
@@ -173,7 +174,7 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
 }
 export function fixture(applicationOverride?: ApplicationIpcDomain) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
-  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -225,23 +226,48 @@ export function resetActivationFixture(): void {
   mocks.manager.start.mockResolvedValue(writer());
 }
 
-export function emptyCollection(
-  dependencies: CanonicalCollectionDependencies,
+/** The granted folder `root`'s mount; `setCatalogRoot` saves its live catalog row. */
+export function workspaceLease(
+  change: Partial<CanonicalWorkspaceLease> = {}
+): CanonicalWorkspaceLease {
+  return {
+    canonicalPath: '/actual/root',
+    generation: 'actual-generation',
+    listDir: unused,
+    readFile: unused,
+    retire: async () => {},
+    rootId: 'root',
+    signal: new AbortController().signal,
+    subscribe: unused,
+    ...change,
+  };
+}
+/** Main's application domain with the one granted folder `root`, mounted by `lease`. */
+export function mountedRoot(lease = workspaceLease()): ApplicationIpcDomain {
+  return {
+    roots: {
+      borrowSourceRoot: async () => lease,
+      restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
+    },
+    watches: { subscribe: unused },
+  } as unknown as ApplicationIpcDomain;
+}
+/** A folder attachment whose first scan finds no files and completes. */
+export async function emptyWorkspace(
+  dependencies: CanonicalRemoteWorkspaceDependencies,
   close = async (): Promise<void> => {}
 ) {
-  return {
-    close,
-    scan: async (requestId: string) => {
-      const ticket = await dependencies.publication.beginScan({
-        requestId,
-        scope: dependencies.scope,
-      });
-      return dependencies.publication.finishScan({
-        ...{ aborted: false, errors: [], files: [], full: true, truncatedDirectories: [] },
-        ticket,
-      });
-    },
-  };
+  const ticket = await dependencies.publication.beginScan({
+    requestId: `scan-${dependencies.source.lease.rootId}`,
+    scope: { kind: 'workspace', rootId: dependencies.source.lease.rootId },
+  });
+  dependencies.onReceipt(
+    await dependencies.publication.finishScan({
+      ...{ aborted: false, errors: [], files: [], full: true, truncatedDirectories: [] },
+      ticket,
+    })
+  );
+  return { close, trigger: unused };
 }
 
 /** Current source-catalog wire records, retaining the scenario's canonical identities. */

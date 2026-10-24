@@ -227,7 +227,7 @@ it('parses every batch selector and preserves visible-ui authority and failure p
       },
     })
   );
-  const requests = [{ collectionId: 'collection', rootIds: [] }, { rootIds: ['root'] }];
+  const requests = [{ rootIds: ['root'] }, { rootIds: ['root', 'other'] }];
   expect(indexSearchContract.coverageBatch.parseArgs([requests])).toEqual([requests]);
   expect(() => indexSearchContract.coverageBatch.parseArgs([[]])).toThrow('requires');
   expect(() =>
@@ -305,11 +305,10 @@ it.each([
   'preserves the whole $provider $dimensions $distance profile through the actual IPC parser',
   (profile) => {
     const request = {
-      collectionId: 'existing-set',
       limit: 10,
       mode: 'vector',
       profile,
-      rootIds: [],
+      rootIds: ['root'],
       vector: new Array<number>(profile.dimensions).fill(0.5),
     };
     expect(indexSearchContract.search.parseArgs([request])).toEqual([request]);
@@ -335,11 +334,10 @@ it.each(['cosine', 'l2', 'ip'] as const)(
       tokenCap: 512,
     };
     const request = {
-      collectionId: 'existing-set',
       limit: 10,
       mode: 'vector',
       profile,
-      rootIds: [],
+      rootIds: ['root'],
       vector: new Array<number>(384).fill(0.5),
     };
     expect(indexSearchContract.search.parseArgs([request])).toEqual([request]);

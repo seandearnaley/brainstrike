@@ -31,10 +31,7 @@ export const identifier = Schema.String.check(
   Schema.isPattern(/\S/u)
 );
 export const hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
-export const scopeSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal('workspace'), rootId: identifier }),
-  Schema.Struct({ embeddingSetId: identifier, kind: Schema.Literal('collection') }),
-]);
+export const scopeSchema = Schema.Struct({ kind: Schema.Literal('workspace'), rootId: identifier });
 export const statSchema = Schema.Struct({
   mtimeMs: Schema.NullOr(Schema.Finite),
   size: nonnegative,
@@ -96,7 +93,6 @@ export const manifestResultSchema = Schema.Struct({
   storeId: identifier,
   unexpected: Schema.Array(manifestSchema),
 });
-export const readSchema = Schema.Struct({ content: Schema.String, stat: statSchema });
 export const listSchema = Schema.NullOr(
   Schema.Struct({
     entries: Schema.Array(
@@ -152,10 +148,8 @@ export const healthSchema = Schema.Struct({
 });
 export const configSchema = Schema.Struct({
   indexingPolicyPreset: Schema.Literals(['balanced', 'full-root']),
-  lease: Schema.NullOr(
-    Schema.Struct({ canonicalPath: identifier, generation: identifier, rootId: identifier })
-  ),
-  // Null only for a workspace in the TEXT partition (BST-1988); a collection names itself.
+  lease: Schema.Struct({ canonicalPath: identifier, generation: identifier, rootId: identifier }),
+  // Null for the TEXT partition (BST-1988).
   managedCollectionId: Schema.NullOr(identifier),
   mode: Schema.Literals(['TEXT', 'VECTOR']),
   parser: Schema.Struct({ parser: Schema.Literals(['oxc', 'babel']) }),
@@ -436,10 +430,6 @@ export const canonicalOperations = {
   'read-file': {
     input: Schema.Struct({ maxBytes: positive, relativePath: identifier }),
     output: fileReadSchema,
-  },
-  'read-retained': {
-    input: Schema.Struct({ file: sourceFileSchema, maxFileBytes: positive }),
-    output: readSchema,
   },
   'remove-file': {
     input: Schema.Struct({ file: identitySchema, ticket: ticketSchema }),

@@ -89,20 +89,6 @@ function create(db, collection) {
 export function executeCollectionRequest(db, request) {
   return db.transaction(() => {
     switch (request.operation) {
-      case 'snapshot':
-        return {
-          collections: /** @type {Row[]} */ (
-            db.prepare(`SELECT ${projection} FROM embedding_sets ORDER BY created_at DESC,id`).all()
-          ).map(record),
-          counts:
-            /** @type {NonNullable<import('./collection-types.js').CollectionReply['counts']>} */ (
-              db
-                .prepare(
-                  'SELECT s.id, COUNT(f.id) AS files, COALESCE(SUM(f.chunks_count),0) AS chunks, SUM(CASE WHEN f.id IS NOT NULL AND f.chunks_processed=0 THEN 1 ELSE 0 END) AS unprocessedFiles FROM embedding_sets s LEFT JOIN file_records f ON f.embedding_set_id=s.id GROUP BY s.id ORDER BY s.created_at DESC,s.id'
-                )
-                .all()
-            ),
-        };
       case 'list':
         return {
           collections: /** @type {Row[]} */ (
@@ -113,19 +99,6 @@ export function executeCollectionRequest(db, request) {
         return { collections: read(db, request.id) };
       case 'create':
         return { collections: create(db, request.collection) };
-      case 'update': {
-        const metadata = request.metadata;
-        db.prepare(
-          'UPDATE embedding_sets SET name=COALESCE(?,name),description=COALESCE(?,description),category=COALESCE(?,category),tags=COALESCE(?,tags) WHERE id=?'
-        ).run(
-          metadata.name ?? null,
-          metadata.description ?? null,
-          metadata.category ?? null,
-          metadata.tags ?? null,
-          request.id
-        );
-        return { collections: read(db, request.id) };
-      }
       case 'delete': {
         const collections = read(db, request.id);
         db.prepare('DELETE FROM embedding_sets WHERE id=?').run(request.id);

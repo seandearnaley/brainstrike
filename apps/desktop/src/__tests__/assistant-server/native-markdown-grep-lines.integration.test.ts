@@ -155,7 +155,6 @@ it('reports each markdown hit on its source line, once, through the real index a
             profile: null,
             queryPlan: undefined,
             readiness: [
-              { generation: 1, mutationRevision: 0, scanComplete: true, scope: collection },
               { generation: 1, mutationRevision: 0, scanComplete: true, scope: workspace },
             ],
             rootIds: ['root'],

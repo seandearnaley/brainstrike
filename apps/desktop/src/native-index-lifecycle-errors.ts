@@ -22,17 +22,15 @@ export function nativeIndexStateError(state: NativeIndexState): Error {
     if (refusal.kind === 'embedding-host-unresponsive') {
       return new NativeIndexRefusalError(refusal, refusal.message, { cause: state.cause.error });
     }
-    // An independent cleanup failure remains a failure of that exact operation.
-    if (
-      state.cause.error instanceof AggregateError ||
-      state.cause.error instanceof NativeIndexRefusalError
-    ) {
+    if (state.cause.error instanceof NativeIndexRefusalError) {
       return state.cause.error;
     }
     // A store that refused its file says so in words a person can act on (BST-1878).
     if (refusal.kind === 'rebuild-required') {
       return new NativeIndexRefusalError(refusal, refusal.message, { cause: state.cause.error });
     }
+    // Any other failure, a retirement that left sources owned included, is refused by its kind;
+    // the failure itself rides as the cause, logged where the refusal crosses to the renderer.
     return new NativeIndexRefusalError(
       { kind: state.cause.kind, message: state.cause.message },
       state.cause.message,

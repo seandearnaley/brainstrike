@@ -89,50 +89,6 @@ function assertCollection(db, id) {
     throw new Error('Canonical source collection does not exist');
   }
 }
-/** Imported source identity follows the existing content-hash + collection deduplication rule.
- * @param {import('better-sqlite3').Database} db
- * @param {import('./source-catalog-types.js').SourceCatalogRequest & {operation:'import'}} request
- * @param {Blobs} blobs @returns {import('./source-catalog-types.js').SourceCatalogReply} */
-function importSources(db, request, blobs) {
-  assertBatch(request.files);
-  assertCollection(db, request.embeddingSetId);
-  for (const source of request.files) {
-    assertSource(source);
-  }
-  /** @type {boolean[]} */
-  const imported = [];
-  const files = request.files.map((source) => {
-    const existing = /** @type {{id:string}|undefined} */ (
-      db
-        .prepare(
-          'SELECT id FROM file_records WHERE root_id IS NULL AND content_hash=? AND embedding_set_id IS ? ORDER BY id LIMIT 1'
-        )
-        .get(source.contentHash, request.embeddingSetId)
-    );
-    imported.push(!existing);
-    if (existing) {
-      return read(db, existing.id);
-    }
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    blobs.put(source.contentHash, source.content);
-    db.prepare(
-      'INSERT INTO file_records(id,root_id,embedding_set_id,path,name,content_hash,mtime_ms,size,created_at,updated_at) VALUES (?,NULL,?,?,?,?,?,?,?,?)'
-    ).run(
-      id,
-      request.embeddingSetId,
-      source.path,
-      source.fileName,
-      source.contentHash,
-      source.stat.mtimeMs,
-      source.stat.size,
-      now,
-      now
-    );
-    return read(db, id);
-  });
-  return { files, imported };
-}
 /** @param {import('better-sqlite3').Database} db
  * @param {import('./source-catalog-types.js').SourceCatalogRequest & {operation:'prepare'}} request
  * @param {Blobs} blobs @returns {Record[]} */
@@ -206,11 +162,7 @@ function replaceSources(db, request, blobs) {
   );
   for (const { expected, source } of request.files) {
     assertSource(source);
-    if (
-      expected.path !== source.path ||
-      expected.fileName !== source.fileName ||
-      (expected.rootId === null && expected.contentHash !== source.contentHash)
-    ) {
+    if (expected.path !== source.path || expected.fileName !== source.fileName) {
       throw new Error('Canonical source replacement changes its retained identity');
     }
   }
@@ -265,8 +217,6 @@ export function executeSourceCatalogRequest(db, request, blobs) {
         };
       case 'read':
         return readSources(db, request, blobs);
-      case 'import':
-        return importSources(db, request, blobs);
       case 'prepare':
         return { files: prepare(db, request, blobs) };
       case 'replace':

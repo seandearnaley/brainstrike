@@ -48,7 +48,6 @@ function executionIdentity(status: IndexerStatus): string {
     return JSON.stringify(status);
   }
   const {
-    collectionReadiness: _collections,
     rootReadiness: _roots,
     publicationProgress: _progress,
     sourceObservation,
@@ -220,22 +219,17 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   const { profile } = status.embedding;
   const plan = status.queryPlan;
   assertSelectedQueryIdentity(profile, plan, embeddingSet);
+  // With no folder named, the run's open folders: the index's of them, any other named.
   const { rootIds, unindexedNote } = indexedScope(
-    admitted ?? (request.rootId === undefined ? [] : [request.rootId]),
+    admitted ??
+      (request.rootId === undefined
+        ? (request.workspaceRoots ?? []).map((root) => root.rootId)
+        : [request.rootId]),
     status.authorizedRootIds,
     request.workspaceRoots
   );
-  // Main authorizes only the active collection's bindings. A root scope intersects
-  // those bindings; verify membership again on every returned canonical hit.
-  const scope = {
-    rootIds,
-    // The factory gives collectionId precedence over roots. Use its existing
-    // root query for a CLI subset; retain saved collection validation above and
-    // membership validation on every hit below. Ordinary Desktop stays unchanged.
-    ...(admitted === undefined && request.rootId === undefined
-      ? { collectionId: embeddingSetId }
-      : {}),
-  };
+  // Main authorizes only the active index's bindings; verify membership again on every hit.
+  const scope = { rootIds };
   let coverageHint: string | undefined;
   let scanLimited = false;
   const assertCurrent = async (): Promise<void> => {
@@ -292,7 +286,8 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     for (const hit of pool.hits) {
       if (
         hit.embeddingSetId !== embeddingSetId ||
-        (rootIds.length > 0 && (hit.rootId === null || !rootIds.includes(hit.rootId))) ||
+        hit.rootId === null ||
+        !rootIds.includes(hit.rootId) ||
         !Number.isFinite(hit.score) ||
         hit.chunkIndex === null ||
         hit.chunkIndex < 0 ||

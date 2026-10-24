@@ -5,10 +5,7 @@ import type {
   CanonicalSourceFile,
 } from '../src/ports.js';
 import { CanonicalWorkspaceSource } from '../src/workspace-source.js';
-import type {
-  CanonicalSourceInventoryPort,
-  CanonicalWorkspaceLease,
-} from '../src/workspace-source-ports.js';
+import type { CanonicalWorkspaceLease } from '../src/workspace-source-ports.js';
 
 const request: CanonicalScanRequest = {
   batchSize: 2,
@@ -91,7 +88,6 @@ describe('canonical workspace source', () => {
       indexingPolicyPreset: 'balanced',
       inventory: {
         loadFiles: async () => [file('a.ts', 'actual-a')],
-        readRetained: vi.fn(),
       },
       lease: borrowed,
     });
@@ -121,7 +117,6 @@ describe('canonical workspace source', () => {
       indexingPolicyPreset: 'balanced',
       inventory: {
         loadFiles: vi.fn(async () => [file('a.ts', 'actual-a'), file('gone.ts', 'actual-gone')]),
-        readRetained: vi.fn(),
       },
       lease: borrowed,
     });
@@ -166,7 +161,6 @@ describe('canonical workspace source', () => {
         indexingPolicyPreset: 'balanced',
         inventory: {
           loadFiles: vi.fn(async () => [file('unseen.ts', 'retained')]),
-          readRetained: vi.fn(),
         },
         lease: borrowed,
         resolveScanScope: () =>
@@ -197,7 +191,7 @@ describe('canonical workspace source', () => {
     const borrowed = lease({ readFile: vi.fn(() => held) });
     const source = new CanonicalWorkspaceSource({
       indexingPolicyPreset: 'balanced',
-      inventory: { loadFiles: vi.fn(async () => []), readRetained: vi.fn() },
+      inventory: { loadFiles: vi.fn(async () => []) },
       lease: borrowed,
     });
     const iterator = source.discover(request, context);
@@ -239,7 +233,7 @@ describe('canonical workspace source', () => {
       const borrowed = lease({ readFile: vi.fn(() => held) });
       const source = new CanonicalWorkspaceSource({
         indexingPolicyPreset: 'balanced',
-        inventory: { loadFiles: vi.fn(async () => []), readRetained: vi.fn() },
+        inventory: { loadFiles: vi.fn(async () => []) },
         lease: borrowed,
       });
       const iterator = source.discover(request, context);
@@ -280,7 +274,7 @@ describe('canonical workspace source', () => {
     const loadFiles = vi.fn(async () => []);
     const source = new CanonicalWorkspaceSource({
       indexingPolicyPreset: 'balanced',
-      inventory: { loadFiles, readRetained: vi.fn() },
+      inventory: { loadFiles },
       lease: borrowed,
     });
     const next = source.discover(request, context).next();
@@ -312,7 +306,7 @@ describe('canonical workspace source', () => {
     const borrowed = lease({ subscribe: vi.fn(() => held) });
     const source = new CanonicalWorkspaceSource({
       indexingPolicyPreset: 'balanced',
-      inventory: { loadFiles: vi.fn(async () => []), readRetained: vi.fn() },
+      inventory: { loadFiles: vi.fn(async () => []) },
       lease: borrowed,
     });
     const onBatch = vi.fn();
@@ -344,7 +338,7 @@ describe('canonical workspace source', () => {
     const borrowed = lease();
     const source = new CanonicalWorkspaceSource({
       indexingPolicyPreset: 'balanced',
-      inventory: { loadFiles: vi.fn(async () => []), readRetained: vi.fn() },
+      inventory: { loadFiles: vi.fn(async () => []) },
       lease: borrowed,
     });
     const iterator = source.discover(request, context);
@@ -365,41 +359,6 @@ describe('canonical workspace source', () => {
     await source.close();
   });
 
-  it('uses actual retained content and nullable identity without borrowing a root', async () => {
-    const retained: CanonicalSourceFile = {
-      ...file('retained.ts', 'actual-retained'),
-      relativePath: null,
-      rootId: null,
-      sourcePath: null,
-      stat: { mtimeMs: null, size: 6 },
-    };
-    const readRetained = vi.fn<CanonicalSourceInventoryPort['readRetained']>(async () => ({
-      content: 'ééé',
-      stat: retained.stat,
-    }));
-    const source = new CanonicalWorkspaceSource({
-      indexingPolicyPreset: 'balanced',
-      inventory: { loadFiles: vi.fn(async () => [retained]), readRetained },
-    });
-    const iterator = source.discover(
-      { ...request, scope: { embeddingSetId: 'set', kind: 'collection' } },
-      context
-    );
-    const next = await iterator.next();
-    if (next.done || !next.value.files[0]) {
-      throw new Error('Expected retained row');
-    }
-    expect(await source.read(next.value.files[0], 6, context)).toEqual({
-      content: 'ééé',
-      stat: retained.stat,
-    });
-    await expect(source.read(next.value.files[0], 5, context)).rejects.toThrow(
-      'explicit byte bound'
-    );
-    expect(readRetained.mock.calls[0]?.[0]).toEqual(retained);
-    await source.close();
-  });
-
   it.each(['a\u0000b', '\u0001\u0002\u0003\u0004'])(
     'preserves text gates before canonical publication for %j',
     async (content) => {
@@ -411,7 +370,7 @@ describe('canonical workspace source', () => {
       });
       const source = new CanonicalWorkspaceSource({
         indexingPolicyPreset: 'balanced',
-        inventory: { loadFiles: vi.fn(async () => []), readRetained: vi.fn() },
+        inventory: { loadFiles: vi.fn(async () => []) },
         lease: borrowed,
       });
       const iterator = source.discover(request, context);

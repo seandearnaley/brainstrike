@@ -10,7 +10,6 @@ import {
 import type { CanonicalFileIdentity, CanonicalOperationContext } from '../src/ports.js';
 
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
-const collection = { embeddingSetId: 'set', kind: 'collection' } as const;
 const content = 'export const original = true;\n';
 const hash = createHash('sha256').update(content).digest('hex');
 const file: CanonicalFileIdentity = {
@@ -67,9 +66,8 @@ function fixture(row: SourceCatalogRecord = record) {
         embeddingSetId: loaded.embeddingSetId,
         fileId: loaded.fileId,
         fileName: loaded.fileName,
-        relativePath: loaded.rootId === null ? null : loaded.path,
+        relativePath: loaded.path,
         rootId: loaded.rootId,
-        sourcePath: loaded.rootId === null ? null : file.sourcePath,
       }),
     })),
   };
@@ -86,17 +84,6 @@ function fixture(row: SourceCatalogRecord = record) {
 }
 
 describe('authoritative native canonical catalog', () => {
-  it('preserves nullable rootless metadata and reads original retained content', async () => {
-    const f = fixture({ ...record, path: 'retained import', rootId: null });
-    const rootless = { ...file, relativePath: null, rootId: null, sourcePath: null };
-    expect(
-      await f.catalog.loadAuthorizedBatch({ files: [rootless], scope: collection }, f.context)
-    ).toEqual([{ ...rootless, chunksProcessed: false, contentHash: hash, stat: record.stat }]);
-    expect(await f.catalog.readRetainedSource(rootless, 1000, collection, f.context)).toEqual({
-      content,
-      stat: record.stat,
-    });
-  });
   it.each<[string, SourceCatalogRecord[]]>([
     ['missing', []],
     ['duplicate catalog identity', [record, record]],
@@ -186,15 +173,14 @@ describe('authoritative native canonical catalog', () => {
     await expect(g.catalog.completeFiles(request, g.context)).rejects.toThrow('stale');
   });
   it('joins native removal before catalog invalidation', async () => {
-    const f = fixture({ ...record, rootId: null });
-    const rootless = { ...file, relativePath: null, rootId: null, sourcePath: null };
+    const f = fixture();
     const entered = deferred<void>();
     const removal = deferred<void>();
     vi.mocked(f.dependencies.joinNativeRemoval).mockImplementation(async () => {
       entered.resolve();
       await removal.promise;
     });
-    const operation = f.catalog.removeFiles({ files: [rootless], scope: collection }, f.context);
+    const operation = f.catalog.removeFiles({ files: [file], scope: workspace }, f.context);
     await entered.promise;
     expect(f.sourceCatalog.mock.calls.some(([request]) => request.operation === 'remove')).toBe(
       false
@@ -205,25 +191,8 @@ describe('authoritative native canonical catalog', () => {
       f.sourceCatalog.mock.calls.filter(([request]) => request.operation === 'remove')
     ).toHaveLength(1);
   });
-  it('refuses changed retained source and invalid hashes before mutation', async () => {
-    const f = fixture({ ...record, rootId: null });
-    const rootless = { ...file, relativePath: null, rootId: null, sourcePath: null };
-    await expect(
-      f.catalog.applyManagedCacheBatch(
-        {
-          files: [
-            {
-              ...rootless,
-              content: 'changed',
-              contentHash: createHash('sha256').update('changed').digest('hex'),
-              stat: record.stat,
-            },
-          ],
-          scope: collection,
-        },
-        f.context
-      )
-    ).rejects.toThrow('retained');
+  it('refuses an invalid hash before mutation', async () => {
+    const f = fixture();
     await expect(
       f.catalog.applyManagedCacheBatch(
         {
@@ -257,21 +226,13 @@ describe('authoritative native canonical catalog', () => {
       false
     );
   });
-  it('refuses absent or oversized retained source and malformed catalog records', async () => {
-    const rootless = { ...file, relativePath: null, rootId: null, sourcePath: null };
-    const f = fixture({ ...record, content: null, rootId: null });
-    await expect(f.catalog.readRetainedSource(rootless, 10, collection, f.context)).rejects.toThrow(
-      'absent'
-    );
-    const g = fixture({ ...record, rootId: null });
-    await expect(g.catalog.readRetainedSource(rootless, 1, collection, g.context)).rejects.toThrow(
-      'bound'
-    );
-    g.sourceCatalog.mockResolvedValueOnce({
+  it('refuses malformed catalog records', async () => {
+    const f = fixture();
+    f.sourceCatalog.mockResolvedValueOnce({
       files: [{ ...record, stat: { mtimeMs: 1, size: -1 } }],
     });
     await expect(
-      g.catalog.loadAuthorizedBatch({ files: [file], scope: workspace }, g.context)
+      f.catalog.loadAuthorizedBatch({ files: [file], scope: workspace }, f.context)
     ).rejects.toThrow();
   });
   it('refuses pre-aborted operations and bounded duplicate completion batches before catalog mutation', async () => {
@@ -371,9 +332,9 @@ describe('authoritative native canonical catalog', () => {
   });
   it('resolves the actual profile only under the authorized scope', async () => {
     const f = fixture();
-    expect(await f.catalog.resolveProfile({ scope: collection }, f.context)).toBe('actual-profile');
+    expect(await f.catalog.resolveProfile({ scope: workspace }, f.context)).toBe('actual-profile');
     f.revoke();
-    await expect(f.catalog.resolveProfile({ scope: collection }, f.context)).rejects.toThrow(
+    await expect(f.catalog.resolveProfile({ scope: workspace }, f.context)).rejects.toThrow(
       'stale scope'
     );
   });

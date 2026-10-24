@@ -168,8 +168,8 @@ export async function prepareDiscoveredSources(args: {
   readonly context: CanonicalOperationContext;
   readonly discovered: readonly CanonicalDiscoveredSourceFile[];
   readonly excluded: CanonicalSourceExclusion[];
-  /** The workspace's collection, null for the TEXT partition; absent on a non-discovering host. */
-  readonly membership: string | null | undefined;
+  /** The workspace's collection, null for the TEXT partition. */
+  readonly membership: string | null;
   readonly request: CanonicalScanRequest;
   readonly seenFileIds: Set<string>;
   readonly source: CanonicalSourcePort;
@@ -178,7 +178,7 @@ export async function prepareDiscoveredSources(args: {
     return [];
   }
   const { membership } = args;
-  if (membership === undefined || (membership !== null && !membership.trim())) {
+  if (membership !== null && !membership.trim()) {
     throw new Error('Canonical discovery requires its workspace partition.');
   }
   const scope = validateDiscoveries(args.discovered, args.request);

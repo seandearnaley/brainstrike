@@ -9,10 +9,10 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { NodeWorkspaceServices } from './node-workspace-services.js';
 
-/** Whole-collection search is not a root-subset permission. Forward only workspace scope. */
-export type NodeNativeTextRequest = Omit<
-  Extract<IndexerSearchRequest, { readonly mode: 'bm25' | 'trigram' }>,
-  'collectionId'
+/** A TEXT search over captured workspace roots. */
+export type NodeNativeTextRequest = Extract<
+  IndexerSearchRequest,
+  { readonly mode: 'bm25' | 'trigram' }
 >;
 
 export interface NodeNativeTextBorrow {
@@ -74,7 +74,7 @@ export function createNodeNativeTextServices(
         }
         await borrow.revalidate(context);
         context.signal.throwIfAborted();
-        // Construct the existing request explicitly: extra untyped collection fields cannot broaden it.
+        // Construct the existing request explicitly: extra untyped fields cannot broaden it.
         const result = await borrow.capability.search({
           limit: request.limit,
           mode: request.mode,

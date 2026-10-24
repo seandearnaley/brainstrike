@@ -2,16 +2,11 @@ import { createActivationCatalogFixture } from './native-activation-catalog-fixt
 // @vitest-environment node
 
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
-import type {
-  CanonicalScanReceipt,
-  CanonicalWorkspaceLease,
-  CanonicalWorkspaceRuntimeDependencies,
-  NativeCanonicalCatalogRecord,
-} from '@brainstrike/canonical-ingestion';
+import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopHostLease } from '../host-lease-manager';
@@ -19,11 +14,7 @@ import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
-import {
-  textCollectionSettings,
-  unreadableSettings,
-  vectorSettings,
-} from './helpers/native-index-settings';
+import { textSettings, unreadableSettings, vectorSettings } from './helpers/native-index-settings';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -34,7 +25,6 @@ const mocks = vi.hoisted(() => ({
   closeReaders: vi.fn(),
   destroy: vi.fn(),
   manager: {
-    attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
@@ -70,7 +60,7 @@ vi.mock('../sqlite-query-host-manager', () => ({
 }));
 
 const storeId = 'a'.repeat(64);
-const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
+const workspace = { kind: 'workspace', rootId: 'root' } as const;
 const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy or inference operation.');
 };
@@ -89,7 +79,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
       dbPath: '/owned/profile/index.sqlite',
       fileBindings: [],
       rootIds: [],
-      scopes: [scope],
+      scopes: [workspace],
       storeId,
     }),
     coverageBatch: unused,
@@ -115,7 +105,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: async () => ({
+    verifyScopedManifest: async ({ scope }) => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
       changed: [],
@@ -127,9 +117,29 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     }),
   };
 }
+/** Main's application domain with the one granted folder `root` mounted. */
+function mountedRoot(): ApplicationIpcDomain {
+  const lease: CanonicalWorkspaceLease = {
+    canonicalPath: '/actual/root',
+    generation: 'actual-generation',
+    listDir: unused,
+    readFile: unused,
+    retire: async () => {},
+    rootId: workspace.rootId,
+    signal: new AbortController().signal,
+    subscribe: unused,
+  };
+  return {
+    roots: {
+      borrowSourceRoot: async () => lease,
+      restoreRoots: async () => [{ permissionState: 'granted', rootId: workspace.rootId }],
+    },
+    watches: { subscribe: unused },
+  } as unknown as ApplicationIpcDomain;
+}
 function fixture(applicationOverride?: ApplicationIpcDomain) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
-  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -167,39 +177,22 @@ beforeEach(() => {
   mocks.manager.start.mockResolvedValue(writer());
 });
 
-function catalogRows(count: number): NativeCanonicalCatalogRecord[] {
-  return Array.from({ length: count }, (_, index) => ({
-    chunksProcessed: true,
-    content: null,
-    contentHash: 'c'.repeat(64),
-    embeddingSetId: 'selected',
-    fileId: `retained-${index}`,
-    fileName: `retained-${index}.txt`,
-    path: null,
-    rootId: null,
-    stat: { mtimeMs: 1, size: 1 },
-  }));
-}
-function useCatalogRows(read: () => readonly NativeCanonicalCatalogRecord[]): void {
-  catalogFixture.setRecords(read);
-}
-function emptyCollection(
-  dependencies: CanonicalCollectionDependencies,
+/** A folder attachment whose first scan finds no files and completes. */
+async function emptyWorkspace(
+  dependencies: CanonicalRemoteWorkspaceDependencies,
   close = async (): Promise<void> => {}
 ) {
-  return {
-    close,
-    scan: async (requestId: string) => {
-      const ticket = await dependencies.publication.beginScan({
-        requestId,
-        scope: dependencies.scope,
-      });
-      return dependencies.publication.finishScan({
-        ...{ aborted: false, errors: [], files: [], full: true, truncatedDirectories: [] },
-        ticket,
-      });
-    },
-  };
+  const ticket = await dependencies.publication.beginScan({
+    requestId: 'folder-scan',
+    scope: workspace,
+  });
+  dependencies.onReceipt(
+    await dependencies.publication.finishScan({
+      ...{ aborted: false, errors: [], files: [], full: true, truncatedDirectories: [] },
+      ticket,
+    })
+  );
+  return { close, trigger: unused };
 }
 
 /** Saves Pause or Resume over the current saved settings. */
@@ -213,7 +206,7 @@ async function savePause(
 it('boots cold paused status, coverage and grep with actual authority and no canonical source admission', async () => {
   const native = {
     ...writer(),
-    coverageScope: vi.fn<ScopedIndexerPort['coverageScope']>(async () => ({
+    coverageScope: vi.fn<ScopedIndexerPort['coverageScope']>(async ({ scope }) => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
       counts: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
@@ -227,7 +220,8 @@ it('boots cold paused status, coverage and grep with actual authority and no can
   native.coverageBatch = async (input) =>
     Promise.all((input as readonly unknown[]).map((request) => native.coverageScope(request)));
   mocks.readyPort.mockReturnValue(native);
-  const { activation, settings, transport, onReceipt } = fixture();
+  catalogFixture.setRoot();
+  const { activation, settings, transport, onReceipt } = fixture(mountedRoot());
   await savePause(settings, true);
   const grep = vi.fn(async () => ({
     columns: [
@@ -261,26 +255,24 @@ it('boots cold paused status, coverage and grep with actual authority and no can
   // Boot's reader starts the index; reads never do (BST-2277).
   await activation.acquireRead();
   expect(await search.status()).toMatchObject({
-    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
     kind: 'ready',
+    rootReadiness: [{ rootId: 'root', scanComplete: false }],
     storeId,
   });
-  expect(await search.coverage({ collectionId: 'selected', rootIds: [] })).toMatchObject({
+  expect(await search.coverage({ rootIds: ['root'] })).toMatchObject({
     totals: { chunks: 0, indexedFiles: 0, vectors: 0 },
     vectorCoverageComplete: false,
   });
   expect(
     await search.grep({
       caseSensitive: false,
-      collectionId: 'selected',
       isRegex: false,
       limit: 100,
       pattern: '',
-      rootIds: [],
+      rootIds: ['root'],
     })
   ).toMatchObject({ hits: [], scanLimited: true });
   expect(grep).toHaveBeenCalledOnce();
-  expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
   expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
   expect(transport.documentEmbeddings).not.toHaveBeenCalled();
   expect(onReceipt).not.toHaveBeenCalled();
@@ -289,10 +281,11 @@ it('boots cold paused status, coverage and grep with actual authority and no can
 
 it('retains a completed native reader and original cleanup authority through pause then resumes actual sources', async () => {
   const close = vi.fn(async () => {});
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies, close)
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    (dependencies: CanonicalRemoteWorkspaceDependencies) => emptyWorkspace(dependencies, close)
   );
-  const { activation, settings } = fixture();
+  catalogFixture.setRoot();
+  const { activation, settings } = fixture(mountedRoot());
   const native = await activation.acquire();
   const captured = activation.captureAcknowledgedAuthority();
   const before = await activation.getSearchAuthority();
@@ -311,28 +304,26 @@ it('retains a completed native reader and original cleanup authority through pau
   expect(mocks.acquire).toHaveBeenCalledOnce();
   await savePause(settings, false);
   await activation.reconfigure();
-  expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledTimes(2);
+  expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledTimes(2);
   expect(mocks.acquire).toHaveBeenCalledOnce();
   expect((await activation.getSearchAuthority()).readiness).toContainEqual(
     expect.objectContaining({
       scanComplete: true,
-      scope,
+      scope: workspace,
     })
   );
   await activation.close();
 });
 
 it('joins an admitted physical scan before pause acknowledges and retains the reader afterward', async () => {
-  const scan = Promise.withResolvers<CanonicalScanReceipt>();
   const physical = Promise.withResolvers<void>();
-  const close = vi.fn(async () => {
-    await physical.promise;
-    scan.reject(new Error('Owned pause cancellation.'));
-  });
-  mocks.manager.attachCanonicalCollection.mockResolvedValue({ close, scan: () => scan.promise });
-  const { activation, settings } = fixture();
+  const close = vi.fn(() => physical.promise);
+  // The folder's first scan never reports: only its close ends it.
+  mocks.manager.attachCanonicalWorkspace.mockResolvedValue({ close, trigger: unused });
+  catalogFixture.setRoot();
+  const { activation, settings } = fixture(mountedRoot());
   const starting = activation.acquire().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce());
   const native = await activation.acquireRead();
   await savePause(settings, true);
   let settled = false;
@@ -349,49 +340,20 @@ it('joins an admitted physical scan before pause acknowledges and retains the re
   expect((await activation.getSearchAuthority()).readiness).toContainEqual(
     expect.objectContaining({
       scanComplete: false,
-      scope,
+      scope: workspace,
     })
   );
-  await activation.close();
-});
-
-it('invalidates changed catalog proof and replaces trusted bindings while paused without scheduling ingestion', async () => {
-  let records = catalogRows(0);
-  useCatalogRows(() => records);
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
-  const replaceFileBindings = vi.fn<ScopedIndexerPort['replaceFileBindings']>(async () => {});
-  mocks.readyPort.mockReturnValue({ ...writer(), replaceFileBindings });
-  const { activation, settings } = fixture();
-  await activation.acquire();
-  await savePause(settings, true);
-  await activation.reconfigure();
-  records = catalogRows(1);
-  await activation.acquireRead();
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
-    expect.objectContaining({
-      scanComplete: false,
-      scope,
-    })
-  );
-  expect(replaceFileBindings).toHaveBeenLastCalledWith([
-    expect.objectContaining({ fileId: 'retained-0' }),
-  ]);
-  expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce();
-  await savePause(settings, false);
-  await activation.reconfigure();
-  expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledTimes(2);
   await activation.close();
 });
 
 it('retains failed pause cleanup for explicit retry and keeps reset behind that physical owner', async () => {
   const cause = new Error('Pause attachment still physically owned.');
   const close = vi.fn().mockRejectedValueOnce(cause).mockResolvedValue(undefined);
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies, close)
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    (dependencies: CanonicalRemoteWorkspaceDependencies) => emptyWorkspace(dependencies, close)
   );
-  const { activation, settings } = fixture();
+  catalogFixture.setRoot();
+  const { activation, settings } = fixture(mountedRoot());
   await activation.acquire();
   await savePause(settings, true);
   await expect(activation.reconfigure()).rejects.toMatchObject({ errors: [cause] });
@@ -406,7 +368,8 @@ it('retains failed pause cleanup for explicit retry and keeps reset behind that 
 });
 
 function vectorPauseFixture() {
-  const f = fixture();
+  catalogFixture.setRoot();
+  const f = fixture(mountedRoot());
   const profile = {
     dimensions: 384,
     distance: 'cosine',
@@ -453,9 +416,9 @@ it('opens cold paused VECTOR authority with the exact saved query plan and zero 
       },
       modelKey: `transformers::${profile.modelId}`,
     },
-    readiness: [expect.objectContaining({ scanComplete: false, scope })],
+    readiness: [expect.objectContaining({ scanComplete: false, scope: workspace })],
   });
-  expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
+  expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
   expect(transport.documentEmbeddings).not.toHaveBeenCalled();
   await activation.close();
 });
@@ -470,22 +433,18 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
     await physical.promise;
     throw options?.signal?.reason;
   });
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => {
+  // The folder's first scan embeds its documents; only the actual cancellation ends it.
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
       if (dependencies.mode !== 'VECTOR') {
         throw new Error('Expected explicit VECTOR source.');
       }
-      return {
-        close: async () => {},
-        scan: async () => {
-          await dependencies.inference.generate({
-            chunks: [{ chunkId: 'chunk', content: 'actual canonical text' }],
-            profile,
-            requestId: 'held-documents',
-          });
-          throw new Error('Unexpected completed inference.');
-        },
-      };
+      await dependencies.inference.generate({
+        chunks: [{ chunkId: 'chunk', content: 'actual canonical text' }],
+        profile,
+        requestId: 'held-documents',
+      });
+      throw new Error('Unexpected completed inference.');
     }
   );
   const starting = activation.acquire().catch((error: unknown) => error);
@@ -504,7 +463,7 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
   await activation.acquire();
   expect(await activation.getSearchAuthority()).toMatchObject({
     profile,
-    readiness: [expect.objectContaining({ scanComplete: false, scope })],
+    readiness: [expect.objectContaining({ scanComplete: false, scope: workspace })],
   });
   expect(mocks.acquire).toHaveBeenCalledOnce();
   await activation.close();
@@ -520,22 +479,18 @@ it('starts exact document cancellation before waiting for an admitted native rea
     await physical.promise;
     throw options?.signal?.reason;
   });
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => {
+  // The folder's first scan embeds its documents; only the actual cancellation ends it.
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
       if (dependencies.mode !== 'VECTOR') {
         throw new Error('Expected explicit VECTOR source.');
       }
-      return {
-        close: async () => {},
-        scan: async () => {
-          await dependencies.inference.generate({
-            chunks: [{ chunkId: 'chunk', content: 'actual canonical text' }],
-            profile,
-            requestId: 'held-documents',
-          });
-          throw new Error('Unexpected completed inference.');
-        },
-      };
+      await dependencies.inference.generate({
+        chunks: [{ chunkId: 'chunk', content: 'actual canonical text' }],
+        profile,
+        requestId: 'held-documents',
+      });
+      throw new Error('Unexpected completed inference.');
     }
   );
   const starting = activation.acquire().catch((error: unknown) => error);
@@ -570,8 +525,6 @@ it('starts exact document cancellation before waiting for an admitted native rea
 
 it('retires source borrows on Pause while the original mounted read-authority borrow remains live', async () => {
   const leases: CanonicalWorkspaceLease[] = [];
-  let notifyWorkspace: (() => void) | undefined;
-  let collectionScans = 0;
   const application = {
     roots: {
       borrowSourceRoot: async () => {
@@ -612,37 +565,7 @@ it('retires source borrows on Pause while the original mounted read-authority bo
     ),
   };
   mocks.readyPort.mockReturnValue(native);
-  mocks.manager.attachCanonicalWorkspace.mockImplementation(
-    async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
-      const ticket = await dependencies.publication.beginScan({
-        requestId: 'workspace',
-        scope: { kind: 'workspace', rootId: 'root' },
-      });
-      const receipt = await dependencies.publication.finishScan({
-        aborted: false,
-        errors: [],
-        files: [],
-        full: true,
-        ticket,
-        truncatedDirectories: [],
-      });
-      dependencies.onReceipt(receipt);
-      notifyWorkspace = () => dependencies.onReceipt(receipt);
-      return { close: async () => {}, trigger: unused };
-    }
-  );
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => {
-      const collection = emptyCollection(dependencies);
-      return {
-        ...collection,
-        scan: async (requestId: string) => {
-          collectionScans += 1;
-          return collection.scan(requestId);
-        },
-      };
-    }
-  );
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(emptyWorkspace);
   const { activation, settings } = fixture(application);
   await savePause(settings, true);
   await activation.acquireRead();
@@ -651,18 +574,11 @@ it('retires source borrows on Pause while the original mounted read-authority bo
   await savePause(settings, false);
   await activation.reconfigure();
   expect(leases).toHaveLength(2);
-  if (!notifyWorkspace) {
-    throw new Error('Workspace receipt callback was not acquired.');
-  }
-  notifyWorkspace();
-  await vi.waitFor(() => expect(collectionScans).toBe(2));
   await vi.waitFor(() =>
     expect(activation.getReadiness().every(({ scanComplete }) => scanComplete)).toBe(true)
   );
   await savePause(settings, true);
   await activation.reconfigure();
-  notifyWorkspace();
-  expect(collectionScans).toBe(2);
   expect(leases[0]?.signal.aborted).toBe(false);
   expect(leases[1]?.signal.aborted).toBe(true);
   await activation.acquireRead();
@@ -674,10 +590,11 @@ it('retires source borrows on Pause while the original mounted read-authority bo
 it('joins a held Pause with terminal retirement without reopening the original native owner', async () => {
   const physical = Promise.withResolvers<void>();
   const close = vi.fn(() => physical.promise);
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies, close)
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    (dependencies: CanonicalRemoteWorkspaceDependencies) => emptyWorkspace(dependencies, close)
   );
-  const { activation, settings } = fixture();
+  catalogFixture.setRoot();
+  const { activation, settings } = fixture(mountedRoot());
   await activation.acquire();
   await savePause(settings, true);
   const pausing = activation.reconfigure().catch((error: unknown) => error);
@@ -696,9 +613,6 @@ it('joins a held Pause with terminal retirement without reopening the original n
 });
 
 it('revokes old read authority when the newly saved settings are refused', async () => {
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const { activation, settings } = fixture();
   await activation.acquire();
   const refused = unreadableSettings();
@@ -713,9 +627,6 @@ it('revokes old read authority when the newly saved settings are refused', async
 });
 
 it('fences reads and joins a held settings read before terminal retirement acknowledges', async () => {
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const { activation, settings } = fixture();
   await activation.acquire();
   const saved = await settings();
@@ -737,9 +648,6 @@ it('fences reads and joins a held settings read before terminal retirement ackno
 });
 
 it('refuses reused read ownership when source retirement left the actual manager terminally closed', async () => {
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const { activation, settings } = fixture();
   await activation.acquire();
   await savePause(settings, true);

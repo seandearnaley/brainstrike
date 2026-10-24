@@ -5,24 +5,12 @@
 // admission's index-status read never waits on an open (BST-2277).
 import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { unreadableSettings } from './helpers/native-index-settings';
-import {
-  emptyCollection,
-  fixture,
-  mocks,
-  resetActivationFixture,
-  unused,
-} from './native-index-activation-fixture';
+import { fixture, mocks, resetActivationFixture, unused } from './native-index-activation-fixture';
 
-beforeEach(() => {
-  resetActivationFixture();
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
-});
+beforeEach(resetActivationFixture);
 
 /** The activation with each open's root restore held while `hold` is set. */
 function heldOpens() {

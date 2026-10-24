@@ -1,6 +1,7 @@
 // @vitest-environment node
 import type { CanonicalInferencePort } from '@brainstrike/canonical-ingestion';
 import type { VectorProfile } from '@brainstrike/indexer';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type CanonicalRemoteWorkspaceDependencies,
@@ -77,10 +78,7 @@ function fixture(): CanonicalRemoteWorkspaceDependencies {
     request: { batchSize: 2, chunkingOptions: { strategy: 'recursive' }, maxFileBytes: 1024 },
     source: {
       indexingPolicyPreset: 'balanced',
-      inventory: {
-        loadFiles: async () => [],
-        readRetained: async () => ({ content: '', stat: { mtimeMs: null, size: 0 } }),
-      },
+      inventory: { loadFiles: async () => [] },
       lease: {
         canonicalPath: '/actual/root',
         generation: 'generation',
@@ -705,6 +703,26 @@ async function failAfterRetirement(failure: Error): Promise<object | undefined> 
 it('settles admitted work that fails on the revoked authority as its retirement cancellation', async () => {
   const response = await failAfterRetirement(
     new NativeAuthorityTransitionError('Native source authority changed.')
+  );
+  expect(response).toMatchObject({
+    cancelled: true,
+    error: { message: 'Canonical attachment retired.', name: 'AbortError' },
+    ok: false,
+  });
+});
+
+// The built app loads `NativeAuthorityTransitionError` from two bundles: the folder registry's
+// lease refusals are `node-workspace-services`' copy, this parent's is `node-native-text-services`'.
+// Both extend the one `NativeIndexRefusalError`.
+it("settles admitted work that fails on another bundle's copy of the revocation as its retirement cancellation", async () => {
+  class OtherBundleTransitionError extends NativeIndexRefusalError {
+    constructor(message: string) {
+      super({ kind: 'transitioning' }, message);
+      this.name = 'NativeAuthorityTransitionError';
+    }
+  }
+  const response = await failAfterRetirement(
+    new OtherBundleTransitionError('Mounted source lease was revoked or replaced.')
   );
   expect(response).toMatchObject({
     cancelled: true,
