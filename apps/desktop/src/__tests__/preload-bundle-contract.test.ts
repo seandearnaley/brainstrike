@@ -7,6 +7,7 @@
  * a real (write:false) esbuild bundle of the real preload entry points, so
  * the guard cannot silently pass against a stale `dist/`.
  */
+import path from 'node:path';
 import * as esbuild from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import {
@@ -35,7 +36,7 @@ async function bundlePreloadEntries(): Promise<Record<string, string>> {
     write: false,
   });
   return Object.fromEntries(
-    result.outputFiles.map((file) => [file.path.split('/').pop() ?? file.path, file.text])
+    result.outputFiles.map((file) => [path.basename(file.path), file.text])
   );
 }
 

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
@@ -46,7 +47,7 @@ describe('file system IPC root-granted notification', () => {
   });
 
   it('notifies exactly once with the mounted descriptor path after addRootByPath succeeds', async () => {
-    const grantedPath = '/users/test/workspace';
+    const grantedPath = path.resolve('/users/test/workspace');
     const onWorkspaceRootGranted = vi.fn();
     registerFileSystemIpcHandlers({
       fileSystem: createFileSystem(grantedPath),
@@ -79,7 +80,7 @@ describe('file system IPC root-granted notification', () => {
   });
 
   it('keeps a successful invoke resolved when the notification subscriber throws', async () => {
-    const grantedPath = '/users/test/workspace';
+    const grantedPath = path.resolve('/users/test/workspace');
     const subscriberError = new Error('menu subscriber failed');
     registerFileSystemIpcHandlers({
       fileSystem: createFileSystem(grantedPath),

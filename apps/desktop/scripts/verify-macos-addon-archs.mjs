@@ -66,13 +66,16 @@ export function verifyAddonArchs(app, target, archsOf = machoArchs, exists = exi
       continue;
     }
     checked += 1;
-    const alternate = targetAlternate(file, target, other);
-    if (alternate !== null && exists(alternate)) {
+    // Arch segments are matched in the bundle's own `/`-separated layout, so the
+    // rule reads the same whatever separator the host's paths use.
+    const relative = path.relative(root, file).split(path.sep).join('/');
+    const alternate = targetAlternate(relative, target, other);
+    if (alternate !== null && exists(path.join(root, alternate))) {
       continue;
     }
     failures.push(
-      `${path.relative(root, file)} is ${archs.join(' ')}, not ${want}` +
-        (alternate === null ? '' : `, and ${path.relative(root, alternate)} is missing`)
+      `${relative} is ${archs.join(' ')}, not ${want}` +
+        (alternate === null ? '' : `, and ${alternate} is missing`)
     );
   }
   return { checked, failures };

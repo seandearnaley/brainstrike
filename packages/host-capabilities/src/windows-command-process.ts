@@ -37,6 +37,11 @@ export interface WindowsCommandExit {
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
 }
+/**
+ * A command retired by its owner reports what Node reports for a child it killed
+ * with SIGKILL on Windows and POSIX alike, never the exit code TerminateJobObject left.
+ */
+const KILLED: WindowsCommandExit = { exitCode: null, signal: 'SIGKILL' };
 
 /** The native owner remains in the parent, including after its wrapper has died. */
 export interface WindowsCommandJob {
@@ -66,7 +71,6 @@ export function createWindowsCommandProcess(options: {
   let forced = false;
   let exited = false;
   let completion: WindowsCommandExit | undefined;
-  let wrapperExit: WindowsCommandExit | undefined;
   let failure: unknown;
   let retirement: Promise<void> | undefined;
 
@@ -87,8 +91,11 @@ export function createWindowsCommandProcess(options: {
     }
     let physical: Promise<void>;
     try {
-      if (child && !assigned && !exited && !child.kill('SIGKILL')) {
-        throw new Error('The gated Windows command wrapper could not be terminated.');
+      if (child && !assigned && !exited) {
+        // Outside the Job, the wrapper is retired the Node way: kill, then join
+        // its close. kill() is also false for a child that already died before
+        // Node reported its exit; a failed kill arrives as 'error' (see start).
+        child.kill('SIGKILL');
       }
       physical = job?.terminateAndWait(1) ?? Promise.resolve();
     } catch (error) {
@@ -106,7 +113,7 @@ export function createWindowsCommandProcess(options: {
             result.reject(failure);
             return;
           }
-          const observed = completion ?? (forced ? wrapperExit : undefined);
+          const observed = completion ?? (forced ? KILLED : undefined);
           if (!observed) {
             result.reject(new Error('Windows command exited without a completion receipt.'));
             return;
@@ -202,9 +209,8 @@ export function createWindowsCommandProcess(options: {
           }
           void retire(error);
         });
-        child.on('exit', (exitCode, signal) => {
+        child.on('exit', () => {
           exited = true;
-          wrapperExit = { exitCode, signal };
           if (!retirement) {
             void retire(new Error('Windows command exited without a completion receipt.'));
           }
