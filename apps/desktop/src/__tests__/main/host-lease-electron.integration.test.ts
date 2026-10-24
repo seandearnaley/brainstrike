@@ -14,11 +14,20 @@ import {
   launchHost,
 } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
-import { getTimeoutMultiplier } from '@brainstrike/test-utils/test-timeouts';
+import { getAdjustedTimeout, getTimeoutMultiplier } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { HOST_COOPERATIVE_CLOSE_MS } from '../../host-lease-manager';
 import { electronExecutablePath } from '../helpers/electron-executable';
+
+/**
+ * The fixture's close is its lease's close ladder (R5(b)): the cooperative rung, then a kill
+ * and the exit. The test sets no tighter clock than the product's own; on a hosted Windows
+ * runner a cooperative close has outlived 10 s.
+ */
+const APP_CLOSE_BUDGET_MS = HOST_COOPERATIVE_CLOSE_MS + 5000 * getTimeoutMultiplier();
+const TEST_BUDGET_MS = getAdjustedTimeout('uiComponent') + APP_CLOSE_BUDGET_MS;
 
 const decodeReport = makeThrowingDecoder(
   Schema.Struct({
@@ -235,7 +244,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
           new Error(
             `Electron did not close; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`
           ),
-        timeoutMs: 5000 * getTimeoutMultiplier(),
+        timeoutMs: APP_CLOSE_BUDGET_MS,
       });
       activeApps.delete(app);
       if (reportFailures.length > 0) {
@@ -269,179 +278,183 @@ async function cli(root: string): Promise<HostAttachment> {
   return attachment;
 }
 
-describe('real Electron host lease acquisition', () => {
-  it('M3 utility kernel serves CLI approvals and commits through its acquired SQLite writer', async () => {
-    const root = join(directory, 'm3-app-first');
-    const app = startApp(root, undefined, agentPlatform);
-    const record = await app.attached;
-    expect(app.ownsHost()).toBe(true);
-    // The app-owned host advertises the agent-host protocol its clients speak.
-    expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
-    const client = await attachAgentHost(record);
-    attachments.add(client);
-    const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-    const { runId } = await client.request('run/start', {
-      commandId: randomUUID(),
-      modelId: 'scripted',
-      prompt: 'Use the real utility tool',
-      threadId,
-    });
-    let interactionId: string | undefined;
-    await expect
-      .poll(async () => {
-        const pending = (await client.request('thread/read', { fromSeq: 0, threadId })).rows.find(
-          ({ event }) => event.type === 'interaction.requested'
-        )?.event;
-        interactionId =
-          pending?.type === 'interaction.requested' ? pending.interactionId : undefined;
-        return interactionId !== undefined;
-      })
-      .toBe(true);
-    if (!interactionId) {
-      throw new Error('Expected actual utility approval');
-    }
-    await expect(readFile(join(root, 'utility-permitted.txt'))).rejects.toThrow();
-    await client.request('interaction/respond', {
-      commandId: randomUUID(),
-      decision: 'approve',
-      interactionId,
-      runId,
-      threadId,
-    });
-    await expect
-      .poll(
-        async () =>
-          (await client.request('thread/read', { fromSeq: 0, threadId })).rows.at(-1)?.event.type
-      )
-      .toBe('run.finished');
-    expect(await readFile(join(root, 'utility-permitted.txt'), 'utf8')).toBe(
-      'permitted utility effect'
-    );
-    const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
-    await app.close();
-    await client.closed;
-    await waitGone(record.pid, record.start);
-    expect(RootLock.inspect(root)?.owner.released).toBe(true);
-    const store = await StateStore.open(root);
-    try {
-      expect(
-        await Promise.all((await store.read(threadId)).map((row) => readHostRow(store, row)))
-      ).toEqual(rows);
-    } finally {
-      await store.close();
-    }
-  });
-  it('M3 desktop attaches to the existing plain Node kernel and leaves it owned after desktop close', async () => {
-    const root = join(directory, 'm3-cli-first');
-    const attachment = await launchHost(root, {
-      attach: attachAgentHost,
-      lifetime: 'persistent',
-      // Vitest maps workspace imports to source. Launch the emitted process
-      // entry, as the real CLI does, rather than a nonexistent sibling of .ts.
-      spawn: createNodeHostSpawner({
-        entryArgs: [agentPlatform],
-        entrypoint: resolve('../../packages/agent-host/src/process-entry.ts'),
-        output: 'ignore',
-      }),
-    });
-    cliPids.set(attachment.record.pid, attachment.record.start);
-    attachments.add(attachment);
-    const app = startApp(root, undefined, agentPlatform);
-    expect(await app.attached).toEqual(attachment.record);
-    expect(app.ownsHost()).toBe(false);
-    await app.close();
-    const additional = await attachAgentHost(attachment.record);
-    attachments.add(additional);
-    expect(await additional.request('thread/list', {})).toEqual({ threads: [] });
-    expect(processStartTime(attachment.record.pid)).toBe(attachment.record.start);
-  });
-  it('lets two simultaneous apps attach to one owner and closes only the app that spawned it', async () => {
-    const root = join(directory, 'app-race');
-    const first = startApp(root);
-    const second = startApp(root);
-    const [a, b] = await Promise.all([first.attached, second.attached]);
-    expect(a).toEqual(b);
-    const options: unknown = JSON.parse(await readFile(join(root, 'host.json'), 'utf8'));
-    expect(decodeHostRecord(options)).toEqual(a);
-    expect(Number(first.ownsHost()) + Number(second.ownsHost())).toBe(1);
-    const owned = first.ownsHost() ? first : second;
-    const attached = owned === first ? second : first;
-    await attached.close();
-    expect(processStartTime(a.pid)).toBe(a.start);
-    await owned.close();
-    await waitGone(a.pid, a.start);
-    expect(RootLock.inspect(root)?.owner.released).toBe(true);
-  });
-  it('refuses a live root owner with no reachable discovery and preserves its lock', async () => {
-    const root = join(directory, 'unavailable-owner');
-    await mkdir(root, { mode: 0o700 });
-    const lock = await RootLock.acquire(root);
-    try {
-      const app = startApp(root, 300);
-      await expect(app.attached).rejects.toThrow(`pid ${lock.owner.pid}`);
-      await app.close();
-      expect(RootLock.inspect(root)?.owner).toEqual(lock.owner);
-      expect(processStartTime(lock.owner.pid)).toBe(lock.owner.start);
-    } finally {
-      lock.release();
-    }
-  });
-  it('attaches CLI to the app owner and joins cooperative close before another owner starts', async () => {
-    const root = join(directory, 'app-first');
-    const app = startApp(root);
-    const record = await app.attached;
-    expect(processStartTime(record.pid)).toBe(record.start);
-    const attachment = await cli(root);
-    expect(attachment.record).toEqual(record);
-    await app.close();
-    await attachment.closed;
-    await waitGone(record.pid, record.start);
-    expect(RootLock.inspect(root)?.owner.released).toBe(true);
-    await expect(readFile(join(root, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
-    const replacement = await cli(root);
-    expect(replacement.record.token).not.toBe(record.token);
-  });
-  it('attaches desktop to an existing CLI owner and leaves that owner reachable after desktop close', async () => {
-    const root = join(directory, 'cli-first');
-    const attachment = await cli(root);
-    const app = startApp(root);
-    expect(await app.attached).toEqual(attachment.record);
-    await app.close();
-    expect(processStartTime(attachment.record.pid)).toBe(attachment.record.start);
-    const additional = await attachHost(attachment.record);
-    await additional.close();
-  });
-  for (const kernel of ['plain', 'agent'] as const) {
-    it(`closes the ${kernel} app host and releases its Root once live Main lets its lifetime channel go`, async () => {
-      const root = join(directory, `lifetime-${kernel}`);
-      const app = startApp(root, undefined, kernel === 'agent' ? agentPlatform : undefined);
+describe(
+  'real Electron host lease acquisition',
+  () => {
+    it('M3 utility kernel serves CLI approvals and commits through its acquired SQLite writer', async () => {
+      const root = join(directory, 'm3-app-first');
+      const app = startApp(root, undefined, agentPlatform);
       const record = await app.attached;
       expect(app.ownsHost()).toBe(true);
-      await app.sendControl('release-lifetime');
+      // The app-owned host advertises the agent-host protocol its clients speak.
+      expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
+      const client = await attachAgentHost(record);
+      attachments.add(client);
+      const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+      const { runId } = await client.request('run/start', {
+        commandId: randomUUID(),
+        modelId: 'scripted',
+        prompt: 'Use the real utility tool',
+        threadId,
+      });
+      let interactionId: string | undefined;
+      await expect
+        .poll(async () => {
+          const pending = (await client.request('thread/read', { fromSeq: 0, threadId })).rows.find(
+            ({ event }) => event.type === 'interaction.requested'
+          )?.event;
+          interactionId =
+            pending?.type === 'interaction.requested' ? pending.interactionId : undefined;
+          return interactionId !== undefined;
+        })
+        .toBe(true);
+      if (!interactionId) {
+        throw new Error('Expected actual utility approval');
+      }
+      await expect(readFile(join(root, 'utility-permitted.txt'))).rejects.toThrow();
+      await client.request('interaction/respond', {
+        commandId: randomUUID(),
+        decision: 'approve',
+        interactionId,
+        runId,
+        threadId,
+      });
+      await expect
+        .poll(
+          async () =>
+            (await client.request('thread/read', { fromSeq: 0, threadId })).rows.at(-1)?.event.type
+        )
+        .toBe('run.finished');
+      expect(await readFile(join(root, 'utility-permitted.txt'), 'utf8')).toBe(
+        'permitted utility effect'
+      );
+      const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+      await app.close();
+      await client.closed;
       await waitGone(record.pid, record.start);
       expect(RootLock.inspect(root)?.owner.released).toBe(true);
-      expect(app.process.exitCode).toBeNull();
+      const store = await StateStore.open(root);
+      try {
+        expect(
+          await Promise.all((await store.read(threadId)).map((row) => readHostRow(store, row)))
+        ).toEqual(rows);
+      } finally {
+        await store.close();
+      }
+    });
+    it('M3 desktop attaches to the existing plain Node kernel and leaves it owned after desktop close', async () => {
+      const root = join(directory, 'm3-cli-first');
+      const attachment = await launchHost(root, {
+        attach: attachAgentHost,
+        lifetime: 'persistent',
+        // Vitest maps workspace imports to source. Launch the emitted process
+        // entry, as the real CLI does, rather than a nonexistent sibling of .ts.
+        spawn: createNodeHostSpawner({
+          entryArgs: [agentPlatform],
+          entrypoint: resolve('../../packages/agent-host/src/process-entry.ts'),
+          output: 'ignore',
+        }),
+      });
+      cliPids.set(attachment.record.pid, attachment.record.start);
+      attachments.add(attachment);
+      const app = startApp(root, undefined, agentPlatform);
+      expect(await app.attached).toEqual(attachment.record);
+      expect(app.ownsHost()).toBe(false);
       await app.close();
+      const additional = await attachAgentHost(attachment.record);
+      attachments.add(additional);
+      expect(await additional.request('thread/list', {})).toEqual({ threads: [] });
+      expect(processStartTime(attachment.record.pid)).toBe(attachment.record.start);
     });
-  }
-  it('releases an app-owned host after actual Electron parent death with a CLI still attached', async () => {
-    const root = join(directory, 'parent-death');
-    const app = startApp(root);
-    const record = await app.attached;
-    const attachment = await cli(root);
-    // This synthetic parent has no SIGTERM handler: death bypasses close IPC.
-    app.process.kill('SIGTERM');
-    await runWithTimeout(() => app.exited, {
-      onTimeout: () => new Error('Synthetic Electron parent survived SIGTERM'),
-      timeoutMs: 5000,
+    it('lets two simultaneous apps attach to one owner and closes only the app that spawned it', async () => {
+      const root = join(directory, 'app-race');
+      const first = startApp(root);
+      const second = startApp(root);
+      const [a, b] = await Promise.all([first.attached, second.attached]);
+      expect(a).toEqual(b);
+      const options: unknown = JSON.parse(await readFile(join(root, 'host.json'), 'utf8'));
+      expect(decodeHostRecord(options)).toEqual(a);
+      expect(Number(first.ownsHost()) + Number(second.ownsHost())).toBe(1);
+      const owned = first.ownsHost() ? first : second;
+      const attached = owned === first ? second : first;
+      await attached.close();
+      expect(processStartTime(a.pid)).toBe(a.start);
+      await owned.close();
+      await waitGone(a.pid, a.start);
+      expect(RootLock.inspect(root)?.owner.released).toBe(true);
     });
-    activeApps.delete(app);
-    await attachment.closed;
-    await waitGone(record.pid, record.start);
-    // Electron may terminate its utility before the PID monitor can flush release.
-    // Gone identity is authoritative: a replacement must take over that stale lease.
-    const replacement = await cli(root);
-    expect(replacement.record.pid).not.toBe(record.pid);
-    expect(replacement.record.token).not.toBe(record.token);
-  });
-}, 20_000);
+    it('refuses a live root owner with no reachable discovery and preserves its lock', async () => {
+      const root = join(directory, 'unavailable-owner');
+      await mkdir(root, { mode: 0o700 });
+      const lock = await RootLock.acquire(root);
+      try {
+        const app = startApp(root, 300);
+        await expect(app.attached).rejects.toThrow(`pid ${lock.owner.pid}`);
+        await app.close();
+        expect(RootLock.inspect(root)?.owner).toEqual(lock.owner);
+        expect(processStartTime(lock.owner.pid)).toBe(lock.owner.start);
+      } finally {
+        lock.release();
+      }
+    });
+    it('attaches CLI to the app owner and joins cooperative close before another owner starts', async () => {
+      const root = join(directory, 'app-first');
+      const app = startApp(root);
+      const record = await app.attached;
+      expect(processStartTime(record.pid)).toBe(record.start);
+      const attachment = await cli(root);
+      expect(attachment.record).toEqual(record);
+      await app.close();
+      await attachment.closed;
+      await waitGone(record.pid, record.start);
+      expect(RootLock.inspect(root)?.owner.released).toBe(true);
+      await expect(readFile(join(root, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+      const replacement = await cli(root);
+      expect(replacement.record.token).not.toBe(record.token);
+    });
+    it('attaches desktop to an existing CLI owner and leaves that owner reachable after desktop close', async () => {
+      const root = join(directory, 'cli-first');
+      const attachment = await cli(root);
+      const app = startApp(root);
+      expect(await app.attached).toEqual(attachment.record);
+      await app.close();
+      expect(processStartTime(attachment.record.pid)).toBe(attachment.record.start);
+      const additional = await attachHost(attachment.record);
+      await additional.close();
+    });
+    for (const kernel of ['plain', 'agent'] as const) {
+      it(`closes the ${kernel} app host and releases its Root once live Main lets its lifetime channel go`, async () => {
+        const root = join(directory, `lifetime-${kernel}`);
+        const app = startApp(root, undefined, kernel === 'agent' ? agentPlatform : undefined);
+        const record = await app.attached;
+        expect(app.ownsHost()).toBe(true);
+        await app.sendControl('release-lifetime');
+        await waitGone(record.pid, record.start);
+        expect(RootLock.inspect(root)?.owner.released).toBe(true);
+        expect(app.process.exitCode).toBeNull();
+        await app.close();
+      });
+    }
+    it('releases an app-owned host after actual Electron parent death with a CLI still attached', async () => {
+      const root = join(directory, 'parent-death');
+      const app = startApp(root);
+      const record = await app.attached;
+      const attachment = await cli(root);
+      // This synthetic parent has no SIGTERM handler: death bypasses close IPC.
+      app.process.kill('SIGTERM');
+      await runWithTimeout(() => app.exited, {
+        onTimeout: () => new Error('Synthetic Electron parent survived SIGTERM'),
+        timeoutMs: 5000,
+      });
+      activeApps.delete(app);
+      await attachment.closed;
+      await waitGone(record.pid, record.start);
+      // Electron may terminate its utility before the PID monitor can flush release.
+      // Gone identity is authoritative: a replacement must take over that stale lease.
+      const replacement = await cli(root);
+      expect(replacement.record.pid).not.toBe(record.pid);
+      expect(replacement.record.token).not.toBe(record.token);
+    });
+  },
+  TEST_BUDGET_MS
+);

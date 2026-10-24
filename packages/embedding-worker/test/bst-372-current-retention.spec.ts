@@ -1,3 +1,4 @@
+import { getTimeoutMultiplier } from '@brainstrike/test-utils/test-timeouts';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { expect, it, vi } from 'vitest';
 import { attachStandInTokenizer } from './helpers/stand-in-tokenizer';
@@ -51,9 +52,10 @@ function captureArrayBuffers(): number {
   return process.memoryUsage().arrayBuffers;
 }
 
-// Two full collections per batch, 512 batches: the measurement's own budget.
+// Two full collections per batch, 512 batches: the measurement's own budget. About 6s on
+// Linux, and more than 36s on a 4-vCPU hosted Windows runner beside the shard's other tasks.
 it('keeps 512 current-production maximum-dimension batches physically batch-bounded', {
-  timeout: 30_000,
+  timeout: 60_000 * getTimeoutMultiplier(),
 }, async () => {
   const texts = Array.from({ length: INPUT_COUNT }, (_, index) => `document-${index}`);
   const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();

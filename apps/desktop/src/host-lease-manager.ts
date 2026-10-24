@@ -1,4 +1,3 @@
-import { setTimeout as delay } from 'node:timers/promises';
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import { isPeerReset } from '@brainstrike/agent-host/boundary-wire';
 import { attachAgentHost, attachStartedAgentHost } from '@brainstrike/agent-host/client';
@@ -28,6 +27,7 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
+import { joinProcessExit, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('DesktopHostLease');
 /**
@@ -141,7 +141,7 @@ interface OwnedChild {
   readonly exitListener: (code: number) => void;
   readonly handle: HostLeaseUtilityProcess;
   /** The OS identity its trusted ready record proved: what joining its real exit waits on. */
-  identity?: { readonly pid: number; readonly start: string };
+  identity?: ProcessIdentity;
   /** This owner escalated its close to `kill()`: its exit code is the kill's, not a failure. */
   killed: boolean;
   /** It exited before this owner closed it. */
@@ -239,22 +239,6 @@ function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
   child.identity = { pid, start };
   return record;
 }
-/** How often the exit join re-reads the utility's OS identity, as host-native-children does. */
-const PROCESS_EXIT_JOIN_POLL_MS = 25;
-/**
- * Electron emits a utility's `exit` as soon as its Node service reports `process.exit()`
- * (the pipe's "process_exit_termination" reason), before Node's teardown and the OS exit
- * have run: on a loaded Windows machine the process is measurably still running then.
- * Main never holds the utility's process handle, so the owner joins its real exit by the
- * identity its ready record proved (a POSIX zombie, or a Windows process object whose
- * handle Electron still holds, has no start time).
- */
-async function joinProcessExit(child: OwnedChild): Promise<void> {
-  const identity = child.identity;
-  while (identity && processStartTime(identity.pid) === identity.start) {
-    await delay(PROCESS_EXIT_JOIN_POLL_MS);
-  }
-}
 interface CloseLadder {
   readonly cooperativeMs: number;
   readonly delays: LifecycleDelaySeam | undefined;
@@ -291,7 +275,7 @@ async function escalateUnlessExited(
 /** The child's exit as Main observes it, joined at the OS: one shared promise per child. */
 function observedExit(child: OwnedChild, ladder: CloseLadder): Promise<number> {
   child.observedExit ??= child.exited.then(async (code) => {
-    await joinProcessExit(child);
+    await joinProcessExit(child.identity);
     // E2E seam: Main observes the exit this much later, still inside the ladder.
     await ladder.delays?.delay('child-exit');
     return code;
