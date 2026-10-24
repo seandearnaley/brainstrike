@@ -1,4 +1,6 @@
-// @vitest-environment node
+// The ordinary app-owned host proof, one test per fault. Each fault has its own
+// ordinary-app-owned-host-<fault>.integration.test.ts so Vitest can run them on
+// different workers and native shards instead of one 90 s file.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
@@ -8,13 +10,12 @@ import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stor
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   encodeFileMentionId,
-  parseOpenRouterModelMetadata,
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
-import { _electron, type ElectronApplication } from 'playwright';
+import { _electron } from 'playwright';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { closeElectronApp } from '../../e2e/utils/electron-helpers.mts';
@@ -31,6 +32,7 @@ import {
   liveStdoutSlices,
   watchThreadTelemetry,
 } from './helpers/live-command-output';
+import { routeRecordedModelMetadata } from './helpers/recorded-model-metadata';
 import {
   type OwnedTestProcess,
   retireOwnedTestProcesses,
@@ -42,30 +44,17 @@ const desktop = resolve(import.meta.dirname, '../..');
 const RUN_PROGRESS_POLL = { timeout: 30_000 } as const;
 // The meter leads with the thread's committed total; context occupancy moves to the ring.
 const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% of input budget$/u;
-// Public Models API response recorded without credentials or inference.
-const recordedModelMetadata = parseOpenRouterModelMetadata(
-  JSON.parse(
-    await readFile(
-      new URL('./fixtures/openrouter-sonnet-4-6-model-metadata.json', import.meta.url),
-      'utf8'
-    )
-  ),
-  'anthropic/claude-sonnet-4.6',
-  Date.parse('2026-10-07T05:07:09.516Z')
-);
-async function routeRecordedModelMetadata(application: ElectronApplication): Promise<void> {
-  // Only metadata HTTP is intercepted; tools/IPC/SQLite/view stay real.
-  await application.context().route('**/assistant/openrouter-model?*', async (route) => {
-    await route.fulfill({
-      body: JSON.stringify({ freshness: 'live', metadata: recordedModelMetadata }),
-      contentType: 'application/json',
-    });
-  });
-}
-test.for(['normal', 'normal-om', 'utility-loss', 'human-interactions'] as const)(
-  'ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen (%s)',
-  { timeout: getAdjustedTimeout('e2e') },
-  async (fault, context) => {
+
+export type OrdinaryAppOwnedHostFault =
+  | 'human-interactions'
+  | 'normal'
+  | 'normal-om'
+  | 'utility-loss';
+
+export function testOrdinaryAppOwnedHost(fault: OrdinaryAppOwnedHostFault): void {
+  test(`ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen (${fault})`, {
+    timeout: getAdjustedTimeout('e2e'),
+  }, async (context) => {
     // This native-tail fixture uses POSIX SIGTERM handling; Windows needs its
     // own physical tail fixture rather than treating taskkill as a grace period.
     if (fault === 'utility-loss' && process.platform === 'win32') {
@@ -1001,5 +990,5 @@ setInterval(() => {}, 1000);
     if (failure) {
       throw failure;
     }
-  }
-);
+  });
+}
