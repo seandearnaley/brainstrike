@@ -1,4 +1,4 @@
-import { cp, mkdir, symlink } from 'node:fs/promises';
+import { cp, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { _electron, type ElectronApplication, type Page } from '@playwright/test';
@@ -9,19 +9,24 @@ import {
   resolveProviderEgressEnvironment,
 } from './model-provider-shim';
 
-/** Only credentials differ: bootstrap, storage, picker and host are production. */
-export async function prepareOrdinaryDevApp(directory: string): Promise<string> {
+/**
+ * Only credentials differ: bootstrap, storage, picker and host are production.
+ * `application` must sit inside the desktop package (a test's output folder):
+ * its main then resolves the desktop's own node_modules by Node's ordinary
+ * parent walk, the way `electron .` does, with no link to follow.
+ */
+export async function prepareOrdinaryDevApp(application: string): Promise<string> {
   const desktop = path.resolve(import.meta.dirname, '../..');
-  const application = path.join(directory, 'application');
+  const inside = path.relative(desktop, application);
+  if (inside.startsWith('..') || path.isAbsolute(inside)) {
+    throw new Error(`The ordinary dev app must be built inside ${desktop}: ${application}`);
+  }
   await mkdir(application, { recursive: true });
   await cp(path.join(desktop, 'dist'), path.join(application, 'dist'), { recursive: true });
   await cp(path.join(desktop, 'package.json'), path.join(application, 'package.json'));
-  await symlink(
-    path.join(desktop, 'node_modules'),
-    path.join(application, 'node_modules'),
-    'junction'
-  );
-  await symlink(path.join(desktop, 'resources'), path.join(application, 'resources'), 'junction');
+  await cp(path.join(desktop, 'resources'), path.join(application, 'resources'), {
+    recursive: true,
+  });
   const configuration: Record<
     'MAIN_PROCESS_BUILD_OPTIONS' | 'AGENT_HOST_PLATFORM_BUILD_OPTIONS',
     BuildOptions

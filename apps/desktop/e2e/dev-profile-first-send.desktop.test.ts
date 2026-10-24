@@ -100,7 +100,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A and full 
   const root = path.join(directory, 'brainstrike');
   await mkdir(root);
   await writeFile(path.join(root, 'README.md'), 'Disposable normal development root.\n');
-  const application = await prepareOrdinaryDevApp(directory);
+  const application = await prepareOrdinaryDevApp(info.outputPath('application'));
   const provider = await startModelProviderShim({
     finalText: 'DEV_PROFILE_REPLY',
     verifyOpenRouterKey: true,
