@@ -56,7 +56,6 @@ async function globalSetup(_config: FullConfig) {
         process.execPath,
         [
           path.resolve(appRoot, '../../scripts/run-turbo-command.mjs'),
-          '--windows-concurrency=1',
           '--',
           'run',
           'build',

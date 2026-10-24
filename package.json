@@ -42,7 +42,7 @@
   "main": "index.js",
   "packageManager": "pnpm@12.11.2+sha512.25a51652a196785af5f28bda6dfe8dc582ebefa4ac1d180221ce1390231c5fb76637822ea4b6e4633ce74acdcb0a77f725af11bad38177fdeddaee818a955cb9",
   "scripts": {
-    "build": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --summarize --log-order=grouped",
+    "build": "node scripts/run-turbo-command.mjs -- run build --summarize --log-order=grouped",
     "cassettes:proxy": "node scripts/provider-cassette-proxy.mjs",
     "cassettes:record": "node scripts/record-provider-cassette.mjs",
     "check": "pnpm -s run secrets:scan && pnpm -s run lint:ci && pnpm -s run type-check && pnpm -s run build && pnpm -s run test && pnpm -s run test:browser && pnpm -s run test:e2e:smoke",
@@ -61,15 +61,15 @@
     "secrets:scan": "node scripts/secret-scan.mjs --all",
     "secrets:scan:staged": "node scripts/secret-scan.mjs --staged",
     "setup:headless": "bash scripts/setup-headless-display.sh",
-    "test": "node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped && node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=4 --summarize --log-order=grouped",
-    "test:affected": "node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --affected --concurrency=4 --summarize --log-order=grouped && node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --affected --concurrency=4 --summarize --log-order=grouped",
+    "test": "node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs -- run test --concurrency=4 --summarize --log-order=grouped && node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs -- run test:integration --concurrency=4 --summarize --log-order=grouped",
+    "test:affected": "node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs -- run test --affected --concurrency=4 --summarize --log-order=grouped && node scripts/run-env.mjs TURBO_TEST_MODE=unit TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs -- run test:integration --affected --concurrency=4 --summarize --log-order=grouped",
     "test:browser": "node scripts/run-env.mjs TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs -- run test:browser --concurrency=4 --summarize --log-order=grouped",
     "test:e2e": "node scripts/run-turbo-command.mjs -- run test:e2e --filter=\"./apps/*\"",
     "test:e2e:desktop": "cd apps/desktop && pnpm run test:e2e",
     "test:e2e:desktop:debug": "cd apps/desktop && pnpm run test:e2e:debug",
     "test:e2e:desktop:ui": "cd apps/desktop && pnpm run test:e2e:ui",
     "test:e2e:smoke": "node scripts/run-env.mjs CI=true pnpm_config_ci=false -- node scripts/run-turbo-command.mjs -- run test:e2e:lane:smoke --filter=@brainstrike/desktop --output-logs=new-only",
-    "type-check": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run type-check --summarize --log-order=grouped"
+    "type-check": "node scripts/run-turbo-command.mjs -- run type-check --summarize --log-order=grouped"
   },
   "type": "module",
   "workspaces": [
