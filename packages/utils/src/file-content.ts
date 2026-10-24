@@ -1,7 +1,7 @@
 import {
   isBinaryExtension as checkBinaryExtension,
   isTextExtension as checkTextExtension,
-} from './file-utils.js';
+} from './file-utils.ts';
 
 /**
  * Maximum file size in bytes that we'll attempt to load (1MB)

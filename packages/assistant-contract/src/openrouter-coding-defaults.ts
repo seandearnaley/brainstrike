@@ -1,4 +1,4 @@
-import type { OpenAiReasoningEffort } from './runtime-data.js';
+import type { OpenAiReasoningEffort } from './runtime-data.ts';
 
 /**
  * OpenCode's coding-oriented output ceiling. OpenRouter models with a smaller

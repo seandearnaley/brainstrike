@@ -1,4 +1,4 @@
-import { type BoundaryTransport, callBoundary } from './boundary-result.js';
+import { type BoundaryTransport, callBoundary } from './boundary-result.ts';
 /**
  * Structural typing + capability resolution for the desktop
  * `window.assistantPersonas` subagent persona discovery bridge (Settings →
@@ -13,7 +13,7 @@ import { type BoundaryTransport, callBoundary } from './boundary-result.js';
  */
 
 import { createLogger } from '@brainstrike/logging';
-import type { AssistantPersonasListResult } from './user-personas.js';
+import type { AssistantPersonasListResult } from './user-personas.ts';
 
 const logger = createLogger('AssistantPersonasBridge');
 

@@ -1,10 +1,11 @@
+import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNodeHostSpawner, type HostSpawner } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
 import {
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
-} from './platform-launch-options.js';
+} from './platform-launch-options.ts';
 export function createAgentHostSpawner(
   platformModule: string,
   platformOptions?: HostPlatformLaunchOptions
@@ -24,7 +25,9 @@ export function createAgentHostSpawner(
           ]
         : []),
     ],
-    entrypoint: fileURLToPath(new URL('./host-process-entry.js', import.meta.url)),
+    entrypoint: fileURLToPath(
+      new URL(`./host-process-entry${extname(fileURLToPath(import.meta.url))}`, import.meta.url)
+    ),
     output: 'ignore',
   });
 }

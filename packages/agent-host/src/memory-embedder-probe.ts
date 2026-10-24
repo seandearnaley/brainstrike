@@ -5,13 +5,13 @@ import {
   refusalError,
 } from '@brainstrike/assistant-contract';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
-import { classifyMemoryFailure } from './adapters/memory-failure.js';
-import type { HostPlatform } from './ports.js';
-import type { HostParams } from './protocol.js';
+import { classifyMemoryFailure } from './adapters/memory-failure.ts';
+import type { HostPlatform } from './ports.ts';
+import type { HostParams } from './protocol.ts';
 import {
   HOST_MEMORY_EMBEDDER_PROBE_TEXT,
   type HostMemoryEmbedderProbeResult,
-} from './protocol-memory.js';
+} from './protocol-memory.ts';
 
 /** One provider call, no retries: a retry would hide the failure the probe exists to show. */
 async function embedProbeText(

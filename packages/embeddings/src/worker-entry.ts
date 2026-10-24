@@ -4,9 +4,9 @@ export type {
   ForegroundEmbeddingGateOptions,
   RunCoordinatedQueryEmbeddingOptions,
   WaitForWorkerIdleOptions,
-} from './worker/foreground-embedding-gate.js';
+} from './worker/foreground-embedding-gate.ts';
 export {
   createForegroundEmbeddingGate,
   runCoordinatedQueryEmbedding,
   waitForWorkerIdle,
-} from './worker/foreground-embedding-gate.js';
+} from './worker/foreground-embedding-gate.ts';

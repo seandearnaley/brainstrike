@@ -18,7 +18,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createSanitizedPersistMerge } from './sanitized-persist-merge';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 /** Metadata columns only — `name` is the pinned tree column and never hides. */
 export const EXPLORER_METADATA_COLUMN_IDS = ['thread', 'type', 'tokens', 'size'] as const;

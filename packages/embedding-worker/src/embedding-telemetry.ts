@@ -1,5 +1,5 @@
 import { assertEmbedWorkerPipelineCacheMemoryDiagnostic } from '@brainstrike/indexing-contract';
-import type { EmbedWorkerBatch, EmbedWorkerPipelineCacheDiagnostic } from './shared';
+import type { EmbedWorkerBatch, EmbedWorkerPipelineCacheDiagnostic } from './shared.ts';
 
 type EmbeddingPipelineCacheDiagnosticEntry = NonNullable<
   EmbedWorkerPipelineCacheDiagnostic['entries']

@@ -8,7 +8,7 @@
  * and only two audited ESM subpaths are inlined (`build-main-config.test.ts`);
  * `@brainstrike/types` is already a main-process import.
  */
-import type { WorktreeProvenance } from './changeset.js';
+import type { WorktreeProvenance } from './changeset.ts';
 
 export const WORKTREE_LEDGER_TABLE = 'brainstrike_worktrees';
 

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { createSanitizedPersistMerge } from '../stores/sanitized-persist-merge';
+import { createSanitizedPersistMerge } from '../stores/sanitized-persist-merge.ts';
 
 describe('createSanitizedPersistMerge', () => {
   it('preserves the exact live state when storage has no persisted snapshot', () => {

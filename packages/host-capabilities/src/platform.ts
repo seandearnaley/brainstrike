@@ -41,10 +41,10 @@ import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
-import { createHostCapabilities } from './capabilities.js';
-import { resolveHostDelegation } from './delegation.js';
-import { getGlobalHooksPath } from './hooks/config.js';
-import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.js';
+import { createHostCapabilities } from './capabilities.ts';
+import { resolveHostDelegation } from './delegation.ts';
+import { getGlobalHooksPath } from './hooks/config.ts';
+import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.ts';
 import {
   createSharedNativeHostTools,
   disposeLiveChildProcesses,
@@ -52,9 +52,9 @@ import {
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
-} from './native-tools/index.js';
-import { closeStandaloneOwners } from './standalone-close.js';
-import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
+} from './native-tools/index.ts';
+import { closeStandaloneOwners } from './standalone-close.ts';
+import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.ts';
 
 /** The native tools a standalone host runs over its launch roots: the shared ones and its shell. */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
@@ -289,7 +289,7 @@ export async function createHostPlatform(
   // added ~200 ms to every CLI host start, pushing cold starts past `host start`.
   const mcpConfig = platformOptions?.mcpConfig;
   const mcp = mcpConfig
-    ? await (await import('./mcp/cli-mcp-host.js')).createCliMcpHost({
+    ? await (await import('./mcp/cli-mcp-host.ts')).createCliMcpHost({
         configPath: mcpConfig.path,
         credentials: host.credentials,
         startup,

@@ -20,54 +20,54 @@ import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
 import { type ProcessLLMRequestArgs, type Processor, TokenLimiter } from '@mastra/core/processors';
-import { buildBedrockMessageHygieneInputProcessor } from './mastra-processors/bedrock-message-hygiene';
-import { buildProviderHistoryCompatInputProcessor } from './mastra-processors/error-processors';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from './mastra-processors/openai-duplicate-item-compat';
-import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './mastra-processors/openai-tool-search-history-compat';
-import { ProjectionSafeToolCallFilter } from './mastra-processors/projection-safe-tool-call-filter';
-import { rewriteToolProjectionPrompt } from './mastra-processors/tool-projection-rewrite-processor';
-import { createCanonicalLimiterView } from './providers/canonical-provider-limiter';
+import { buildBedrockMessageHygieneInputProcessor } from './mastra-processors/bedrock-message-hygiene.ts';
+import { buildProviderHistoryCompatInputProcessor } from './mastra-processors/error-processors.ts';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from './mastra-processors/openai-duplicate-item-compat.ts';
+import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './mastra-processors/openai-tool-search-history-compat.ts';
+import { ProjectionSafeToolCallFilter } from './mastra-processors/projection-safe-tool-call-filter.ts';
+import { rewriteToolProjectionPrompt } from './mastra-processors/tool-projection-rewrite-processor.ts';
+import { createCanonicalLimiterView } from './providers/canonical-provider-limiter.ts';
 import {
   collectProviderCallProvenance,
   type ProviderCallProvenance,
-} from './providers/foreign-provider-history';
+} from './providers/foreign-provider-history.ts';
 import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
-} from './providers/generation-settings';
-import type { OllamaModelFacts } from './providers/ollama-chat-model';
-import { classifyOpenAIStoredItemError } from './providers/openai-expired-item';
+} from './providers/generation-settings.ts';
+import type { OllamaModelFacts } from './providers/ollama-chat-model.ts';
+import { classifyOpenAIStoredItemError } from './providers/openai-expired-item.ts';
 import {
   assertProviderRequestBoundaries,
   dropAbortedOpenAIItems,
   healInterruptedToolCalls,
   ProviderRequestBoundaryError,
-} from './providers/request-history';
-import type { SupportedProvider } from './providers/types';
+} from './providers/request-history.ts';
+import type { SupportedProvider } from './providers/types.ts';
 import {
   createPreparedTokenMeasurement,
   type PreparedTokenMeasurement,
   serializeModelOutputForTokenMeasurement,
-} from './token-measurement';
-import type { RuntimeData, ToolProjectionRewriteEntry } from './types';
+} from './token-measurement.ts';
+import type { RuntimeData, ToolProjectionRewriteEntry } from './types.ts';
 
 export {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
-} from './providers/generation-settings';
-export type { OllamaModelFacts } from './providers/ollama-chat-model';
+} from './providers/generation-settings.ts';
+export type { OllamaModelFacts } from './providers/ollama-chat-model.ts';
 export {
   isOpenAIStoredItemExpiredError,
   OpenAIStoredItemExpiredError,
-} from './providers/openai-expired-item';
+} from './providers/openai-expired-item.ts';
 export {
   type CanonicalProviderSchemaLayer,
   prepareProviderToolInputSchema,
-} from './providers/provider-tool-schema';
+} from './providers/provider-tool-schema.ts';
 export {
   healInterruptedModelMessages,
   ProviderRequestBoundaryError,
-} from './providers/request-history';
+} from './providers/request-history.ts';
 
 export interface ProviderRequestContext {
   /** Host provenance: every item of the aborted step, not a guessed last item. */
@@ -253,9 +253,12 @@ export function preparedPromptBreakdown(
 export class ProviderRequestContextOverflowError extends BoundaryFailureError {
   readonly retryable = false;
 
+  readonly accounting: ProviderRequestAccounting;
+  readonly inputTokenLimit: number;
+
   constructor(
-    readonly accounting: ProviderRequestAccounting,
-    readonly inputTokenLimit: number,
+    accounting: ProviderRequestAccounting,
+    inputTokenLimit: number,
     options?: ErrorOptions
   ) {
     super(
@@ -267,6 +270,8 @@ export class ProviderRequestContextOverflowError extends BoundaryFailureError {
       }),
       options
     );
+    this.accounting = accounting;
+    this.inputTokenLimit = inputTokenLimit;
     this.name = 'ProviderRequestContextOverflowError';
   }
 }

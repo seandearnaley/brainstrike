@@ -8,7 +8,7 @@ import { build } from 'esbuild';
 import type { ElectronApplication } from 'playwright';
 import { _electron as electron } from 'playwright';
 
-const bridgeModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/dist/index.js');
+const bridgeModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/src/index.ts');
 
 function appDocument(label: string): string {
   const scriptClose = '</script>';

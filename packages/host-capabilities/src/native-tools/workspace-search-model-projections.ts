@@ -6,14 +6,14 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
-import type { GlobWorkspaceMatch, GlobWorkspaceToolResult } from './glob-workspace-tool.js';
+import type { GlobWorkspaceMatch, GlobWorkspaceToolResult } from './glob-workspace-tool.ts';
 import {
   type GrepFileSummary,
   type GrepToolResult,
   grepProjectionHeaderPrefix,
   type ModelFacingGrepMatch,
   parseGrepToolResult,
-} from './grep-search-result-contract.js';
+} from './grep-search-result-contract.ts';
 import {
   clipProjectionEnd as clipEnd,
   decodedWorkspaceTextModelOutputChars as decodedChars,
@@ -24,7 +24,7 @@ import {
   makeWorkspaceTextModelOutput as makeTextModelOutput,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers.js';
+} from './workspace-model-projection-helpers.ts';
 
 export type WorkspaceSearchTextModelOutput = WorkspaceTextModelOutput;
 

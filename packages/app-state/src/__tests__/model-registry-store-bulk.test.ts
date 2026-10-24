@@ -3,8 +3,8 @@ import {
   __resetModelRegistryStoreForTests,
   type DbModel,
   useModelRegistryStore,
-} from '../stores/model-registry-store';
-import { __resetSettingsTestOverridesForTests } from './settings-test-overrides-test-helper';
+} from '../stores/model-registry-store.ts';
+import { __resetSettingsTestOverridesForTests } from './settings-test-overrides-test-helper.ts';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();

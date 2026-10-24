@@ -1,4 +1,4 @@
-import { expectExactKeys, expectRecord } from './validation.js';
+import { expectExactKeys, expectRecord } from './validation.ts';
 
 export const MCP_APPS_EXTENSION_ID = 'io.modelcontextprotocol/ui' as const;
 export const MCP_APPS_SPEC_VERSION = '2026-01-26' as const;

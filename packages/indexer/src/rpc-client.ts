@@ -1,4 +1,4 @@
-import { decoder, frameSchema, IndexerError } from './contracts.js';
+import { decoder, frameSchema, IndexerError } from './contracts.ts';
 
 interface Pending {
   reject(error: unknown): void;
@@ -14,10 +14,13 @@ export class RpcClient {
     this.readyResolve = resolve;
     this.readyReject = reject;
   });
-  constructor(
-    private readonly send: (message: object) => void,
-    private readonly onFailure: () => void
-  ) {}
+  private readonly send: (message: object) => void;
+  private readonly onFailure: () => void;
+
+  constructor(send: (message: object) => void, onFailure: () => void) {
+    this.send = send;
+    this.onFailure = onFailure;
+  }
   receive(input: unknown): void {
     try {
       const frame = decoder(frameSchema)(input);

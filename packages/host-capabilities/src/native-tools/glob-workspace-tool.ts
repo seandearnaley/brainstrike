@@ -12,7 +12,7 @@ import {
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { processFilter } from '@brainstrike/utils';
 import { Minimatch } from 'minimatch';
-import { walkWorkspaceRoot } from './workspace-file-walk.js';
+import { walkWorkspaceRoot } from './workspace-file-walk.ts';
 
 export const GLOB_WORKSPACE_TOOL_ID = NATIVE_TOOL_ID.globWorkspace;
 

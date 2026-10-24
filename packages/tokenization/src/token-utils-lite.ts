@@ -9,15 +9,15 @@
  * neither worker imports the other worker's graph at runtime.
  */
 
-export { countTokensHeuristic } from './token-counting-heuristics.js';
+export { countTokensHeuristic } from './token-counting-heuristics.ts';
 
-let accurateTokenUtilsPromise: Promise<typeof import('./token-utils-accurate-lite.js')> | null =
+let accurateTokenUtilsPromise: Promise<typeof import('./token-utils-accurate-lite.ts')> | null =
   null;
 let lastAccurateFailureReason: string | null = null;
 
-function getAccurateTokenUtils(): Promise<typeof import('./token-utils-accurate-lite.js')> {
+function getAccurateTokenUtils(): Promise<typeof import('./token-utils-accurate-lite.ts')> {
   if (!accurateTokenUtilsPromise) {
-    accurateTokenUtilsPromise = import('./token-utils-accurate-lite.js').catch((error: unknown) => {
+    accurateTokenUtilsPromise = import('./token-utils-accurate-lite.ts').catch((error: unknown) => {
       accurateTokenUtilsPromise = null;
       throw error;
     });
@@ -46,7 +46,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
 }
 
 export async function getAccurateTokenCounter(): Promise<
-  import('./token-utils-accurate-lite.js').SyncAccurateCounter | null
+  import('./token-utils-accurate-lite.ts').SyncAccurateCounter | null
 > {
   const accurateTokenUtils = await getAccurateTokenUtils();
   try {

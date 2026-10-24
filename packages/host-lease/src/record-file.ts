@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { applyPrivateDirectorySync, SecureRoot } from '@brainstrike/secure-fs-native';
-import { decodeHostRecord, HOST_RECORD_FILE, type HostRecord, tokensEqual } from './record.js';
+import { decodeHostRecord, HOST_RECORD_FILE, type HostRecord, tokensEqual } from './record.ts';
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';

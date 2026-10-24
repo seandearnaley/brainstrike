@@ -7,7 +7,7 @@ import {
   prepareFactoryReset,
   registerFactoryResetPreparation,
   registerFactoryResetSessionStore,
-} from '../factory-reset';
+} from '../factory-reset.ts';
 
 interface FakeRequest {
   error?: DOMException | null;

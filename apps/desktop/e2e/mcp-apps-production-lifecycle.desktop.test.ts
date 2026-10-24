@@ -15,7 +15,7 @@ import {
 } from './helpers/mcp-apps-loopback-tool-server';
 import { installOrdinaryRuntimeAdmission } from './helpers/mcp-apps-ordinary-admission';
 
-const appHostModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/dist/index.js');
+const appHostModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/src/index.ts');
 const appSurfaceModulePath = path.resolve(
   process.cwd(),
   '../../packages/mcp-app-host-ui/src/index.ts'

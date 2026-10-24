@@ -35,7 +35,9 @@ describe('vector-preferences-store hidden embedding host capability', () => {
     const clear = vi.fn(async () => {});
     defineElectronAPI({ db: {}, vectorPreferences: { clear, read, write } });
 
-    const { ensureVectorPreferencesHydrated } = await import('../stores/vector-preferences-store');
+    const { ensureVectorPreferencesHydrated } = await import(
+      '../stores/vector-preferences-store.ts'
+    );
     const state = await ensureVectorPreferencesHydrated({ forceReload: true });
 
     expect(read).toHaveBeenCalled();
@@ -48,7 +50,9 @@ describe('vector-preferences-store hidden embedding host capability', () => {
     // The embedding-host capability manifest as shipped by BST-1235.
     defineElectronAPI({ db: { query: vi.fn() } });
 
-    const { ensureVectorPreferencesHydrated } = await import('../stores/vector-preferences-store');
+    const { ensureVectorPreferencesHydrated } = await import(
+      '../stores/vector-preferences-store.ts'
+    );
 
     await expect(ensureVectorPreferencesHydrated({ forceReload: true })).rejects.toThrow(
       /vector preferences/i
@@ -58,7 +62,9 @@ describe('vector-preferences-store hidden embedding host capability', () => {
   it('still uses browser storage when no Electron bridge exists at all', async () => {
     vi.resetModules();
 
-    const { ensureVectorPreferencesHydrated } = await import('../stores/vector-preferences-store');
+    const { ensureVectorPreferencesHydrated } = await import(
+      '../stores/vector-preferences-store.ts'
+    );
     const state = await ensureVectorPreferencesHydrated({ forceReload: true });
 
     expect(state.devicePref).toBe('webgpu');
@@ -78,7 +84,9 @@ describe('vector-preferences-store hidden embedding host capability', () => {
       vectorPreferences: { clear: vi.fn(async () => {}), read, write: vi.fn(async () => {}) },
     });
 
-    const { ensureVectorPreferencesHydrated } = await import('../stores/vector-preferences-store');
+    const { ensureVectorPreferencesHydrated } = await import(
+      '../stores/vector-preferences-store.ts'
+    );
 
     // Settle a full, successful hydration first so both `hasHydrated` signals
     // are genuinely true before the reload starts failing.

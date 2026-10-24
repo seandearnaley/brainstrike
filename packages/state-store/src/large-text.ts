@@ -3,7 +3,7 @@
  */
 import { createHash } from 'node:crypto';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';
-import type { BlobContent } from './run-log-types.js';
+import type { BlobContent } from './run-log-types.ts';
 
 /** Text of this size or more is stored as a content-addressed blob; the event keeps a preview and the hash. */
 export const BLOB_MIN_BYTES = 12 * 1024;

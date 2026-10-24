@@ -29,34 +29,34 @@ import {
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
-import { assertNotAgentIgnored } from './agent-ignore-guard.js';
-import { looksLikeReadWorkspaceFileGutterOutput } from './gutter-prefix-guard.js';
-import type { EditDiagnosticsResult, FileMutationPorts } from './ports.js';
+import { assertNotAgentIgnored } from './agent-ignore-guard.ts';
+import { looksLikeReadWorkspaceFileGutterOutput } from './gutter-prefix-guard.ts';
+import type { EditDiagnosticsResult, FileMutationPorts } from './ports.ts';
 import {
   ensureContainedDirectory,
   resolveWorkspaceWritePath,
   writeContainedFileBytes,
-} from './secure-file-write.js';
+} from './secure-file-write.ts';
 import {
   EDIT_FAILURE_HINT_MESSAGE,
   editFailureHintApplies,
   recordEditFailure,
   resetEditFailureStreak,
-} from './tool-call-loop-guards.js';
-import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support.js';
+} from './tool-call-loop-guards.ts';
+import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support.ts';
 import {
   assertNoExternalEditSinceObserved,
   assertRenameSourceUnchangedSinceObserved,
   buildStaleFileError,
   readStateScope,
   recordOwnWriteObservation,
-} from './workspace-file-staleness.js';
-import { withWorkspaceMutationLease } from './workspace-mutation-lease.js';
+} from './workspace-file-staleness.ts';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease.ts';
 import {
   resolveWorkspaceLeafMutationPath,
   WorkspacePathRefusal,
-} from './workspace-path-resolution.js';
-import { readWorkspaceTextFile } from './workspace-text-file-reader.js';
+} from './workspace-path-resolution.ts';
+import { readWorkspaceTextFile } from './workspace-text-file-reader.ts';
 
 const logger = createLogger('DesktopAssistantTools');
 

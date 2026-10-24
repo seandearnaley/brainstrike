@@ -1,4 +1,4 @@
-import type { OpenAiReasoningEffort } from './runtime-data.js';
+import type { OpenAiReasoningEffort } from './runtime-data.ts';
 
 export const OPENROUTER_MODEL_METADATA_SOURCE = 'openrouter-models-api' as const;
 

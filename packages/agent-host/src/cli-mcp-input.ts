@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
-import type { HostClient } from './client.js';
-import { HOST_METHOD_SCHEMAS, type HostParams, type HostResults } from './protocol.js';
+import type { HostClient } from './client.ts';
+import { HOST_METHOD_SCHEMAS, type HostParams, type HostResults } from './protocol.ts';
 /** The committed input a CLI command addresses: thread, run and the requested interaction. */
 export interface CliMcpInputAddress {
   readonly interactionId: string;

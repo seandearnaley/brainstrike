@@ -27,10 +27,12 @@ export class MemoryProviderOwnershipFixture implements HostRunOwner {
   private closing?: Promise<void>;
   closeCalls = 0;
 
-  constructor(
-    readonly context: HostRunContext,
-    readonly cleanupFailure?: Error
-  ) {
+  readonly context: HostRunContext;
+  readonly cleanupFailure: Error | undefined;
+
+  constructor(context: HostRunContext, cleanupFailure?: Error) {
+    this.context = context;
+    this.cleanupFailure = cleanupFailure;
     context.signal.addEventListener('abort', () => this.ownerAborted.resolve(), { once: true });
     const source = new ReadableStream<Chunk>({
       cancel: async (reason) => {

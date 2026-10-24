@@ -8,9 +8,9 @@ import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils';
-import { unpinnedEmbeddingDType } from './inference-plan.js';
-import { parseModelSizeEstimateBytes } from './model-size-estimate.js';
-import { getRegisteredEmbeddingQueueFactory } from './runtime-config.js';
+import { unpinnedEmbeddingDType } from './inference-plan.ts';
+import { parseModelSizeEstimateBytes } from './model-size-estimate.ts';
+import { getRegisteredEmbeddingQueueFactory } from './runtime-config.ts';
 import type {
   EmbeddingConfig,
   EmbeddingExecutionOptions,
@@ -20,7 +20,7 @@ import type {
   EmbeddingStreamOptions,
   EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
-} from './types.js';
+} from './types.ts';
 
 const logger = createLogger('TransformersBackend');
 

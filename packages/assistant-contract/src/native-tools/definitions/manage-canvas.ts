@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ManageCanvasInputSchema } from '../schemas/schemas-workspace.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ManageCanvasInputSchema } from '../schemas/schemas-workspace.ts';
 
 // Like manageTaskList, this is DB-backed, versioned, and reversible rather
 // than a workspace-file edit — but its create/update/rewrite actions PERSIST

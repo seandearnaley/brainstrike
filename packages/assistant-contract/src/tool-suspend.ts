@@ -3,7 +3,7 @@ import {
   type DelegatedToolDecisionState,
   hasValidDelegatedDecisionState,
   hasValidDelegatedToolActionTarget,
-} from './delegated-tool-actions.js';
+} from './delegated-tool-actions.ts';
 /**
  * Tool SUSPEND transport contract — the wire vocabulary for the two suspending
  * native tools (`submitPlan`, `askUser`). This PARALLELS the tool-APPROVAL
@@ -22,13 +22,13 @@ import {
  * and forward-compatible with it.
  */
 
-import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
-import type { AssistantRunEventKind } from './run-events.js';
+import { NATIVE_TOOL_ID } from './native-tool-catalog.ts';
+import type { AssistantRunEventKind } from './run-events.ts';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
   type SuspendedApprovalsResponse,
-} from './tool-approval.js';
+} from './tool-approval.ts';
 
 export const TOOL_SUSPEND_DATA_NAME = 'brainstrike.tool-suspend';
 export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
@@ -113,7 +113,7 @@ export interface AssistantToolSuspendRequest {
   delegation?: DelegatedToolActionIdentity;
   /**
    * The DURABLE host leg that streamed this pause — see {@link
-   * import('./tool-approval.js').AssistantToolApprovalRequest.hostRunId}.
+   * import('./tool-approval.ts').AssistantToolApprovalRequest.hostRunId}.
    */
   hostRunId?: string;
   /** Optional JSON-schema echo of the tool's resumeSchema, for UX/debugging. */
@@ -190,7 +190,7 @@ export interface AssistantToolResumeAction {
   /**
    * The DURABLE host leg (`brainstrike_assistant_thread_runs.id`) whose turn
    * surfaced this pause — see {@link
-   * import('./tool-approval.js').AssistantToolApprovalAction.hostRunId}. Never
+   * import('./tool-approval.ts').AssistantToolApprovalAction.hostRunId}. Never
    * `runId`, which is the native Mastra run the resume route addresses.
    */
   hostRunId?: string;

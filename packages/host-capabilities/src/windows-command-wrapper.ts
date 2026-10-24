@@ -1,6 +1,6 @@
 /** Trusted launch gate shared by the desktop bundle and the Node hook entry. */
 import { spawn } from 'node:child_process';
-import { decodeWindowsCommandStart } from './windows-command-process.js';
+import { decodeWindowsCommandStart } from './windows-command-process.ts';
 
 export function runWindowsCommandWrapper(
   getCurrentProcessIdentity: () => { readonly creationTime: string; readonly pid: number }

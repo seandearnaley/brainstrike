@@ -4,7 +4,7 @@ import { Data, Effect, Exit, Scope } from 'effect';
 import {
   reportLoopbackListenerFault,
   reportUnavailableLoopbackPort,
-} from './oauth-client-registration.js';
+} from './oauth-client-registration.ts';
 
 export const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;

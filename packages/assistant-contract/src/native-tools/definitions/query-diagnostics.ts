@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { QueryDiagnosticsInputSchema } from '../schemas/schemas-diagnostics.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { QueryDiagnosticsInputSchema } from '../schemas/schemas-diagnostics.ts';
 
 // Read-only, bounded access to the local diagnostic event store. Explicitly
 // pinned because it reads application-internal failure context rather than

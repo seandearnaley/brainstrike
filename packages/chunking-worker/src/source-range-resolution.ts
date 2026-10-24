@@ -10,11 +10,11 @@
  * between the two modules.
  */
 
-import { CHUNKING_CONFIG } from './chunking-config';
+import { CHUNKING_CONFIG } from './chunking-config.ts';
 import {
   buildLineStartOffsets as buildLineStarts,
   findLineForOffset as lineForOffset,
-} from './line-offsets';
+} from './line-offsets.ts';
 
 export type TokenCounter = (text: string) => number;
 

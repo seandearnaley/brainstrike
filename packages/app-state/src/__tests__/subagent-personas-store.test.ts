@@ -12,7 +12,7 @@ import {
   getSubagentPersonasAvailabilityRequest,
   resetSubagentPersonasStoreToDefaults,
   useSubagentPersonasStore,
-} from '../stores/subagent-personas-store';
+} from '../stores/subagent-personas-store.ts';
 
 const STORE_KEY = 'subagent-personas.v1';
 

@@ -1,5 +1,5 @@
 import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
-import type { StartupMessage } from './startup-message.js';
+import type { StartupMessage } from './startup-message.ts';
 
 /**
  * A starter refused `root-locked` by an owner that no longer holds the root

@@ -1,1 +1,1 @@
-export * from './adapters/electron-storage-adapter.js';
+export * from './adapters/electron-storage-adapter.ts';

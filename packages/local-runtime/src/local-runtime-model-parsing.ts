@@ -3,7 +3,7 @@ import {
   type LocalRuntimeAvailabilityState,
   type LocalRuntimeId,
   resolveRuntimeBaseUrl,
-} from './local-runtime-discovery.js';
+} from './local-runtime-discovery.ts';
 import type {
   LocalRuntimeCapabilitySource,
   LocalRuntimeDimensionsState,
@@ -18,12 +18,12 @@ import type {
   LocalRuntimeOllamaCapabilitiesResolved,
   LocalRuntimeReportedContextLength,
   OllamaModelCapability,
-} from './local-runtime-model-catalog-types.js';
+} from './local-runtime-model-catalog-types.ts';
 import {
   buildRuntimeEndpoint,
   isRecord,
   type LocalRuntimeEndpointConfig,
-} from './local-runtime-utils.js';
+} from './local-runtime-utils.ts';
 
 export const defaultCollator = new Intl.Collator(undefined);
 

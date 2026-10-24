@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { BLOBS_DIR, type LogRow, type StateStore } from '@brainstrike/state-store';
-import { decodeStoredHostEvent, hostEventSpool, storedHostBody } from './host-event-decoding.js';
-import type { HostLogRow } from './protocol.js';
-import { readRunSnapshot, takeRunSnapshotRef } from './run-snapshot-blobs.js';
-import type { HostRowReader } from './thread-catalog.js';
+import { decodeStoredHostEvent, hostEventSpool, storedHostBody } from './host-event-decoding.ts';
+import type { HostLogRow } from './protocol.ts';
+import { readRunSnapshot, takeRunSnapshotRef } from './run-snapshot-blobs.ts';
+import type { HostRowReader } from './thread-catalog.ts';
 
 /** Desktop's row reader for the thread catalog: blobs from the store's data root. */
 export function nodeHostRowReader(store: Pick<StateStore, 'read' | 'root'>): HostRowReader {
@@ -30,7 +30,7 @@ export async function readHostThreadHistory(
   );
 }
 
-export { hydratesHostEvent, storedHostEvent } from './host-event-encoding.js';
+export { hydratesHostEvent, storedHostEvent } from './host-event-encoding.ts';
 export { decodeStoredHostEvent, hostEventSpool, storedHostBody };
 
 export async function readHostRow(

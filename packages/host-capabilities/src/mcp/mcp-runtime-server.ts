@@ -1,7 +1,7 @@
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { MCP_RUNTIME_METHODS, respond } from './mcp-runtime-wire.js';
-import type { McpSettingsAuthority } from './settings-authority.js';
+import { MCP_RUNTIME_METHODS, respond } from './mcp-runtime-wire.ts';
+import type { McpSettingsAuthority } from './settings-authority.ts';
 
 /**
  * Serve Main's requests to the host's MCP settings over the private connection

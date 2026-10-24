@@ -19,12 +19,12 @@ import type {
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import { createLogger } from '@brainstrike/logging';
-import { callMcpAppTool } from './app-tool-call.js';
-import type { McpBearerCredentialAuthority } from './bearer-credential.js';
-import type { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
-import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.js';
-import { McpHostRuntime, type McpHostRuntimeDependencies } from './node-host-runtime.js';
-import type { McpOAuthStore } from './oauth-client-provider.js';
+import { callMcpAppTool } from './app-tool-call.ts';
+import type { McpBearerCredentialAuthority } from './bearer-credential.ts';
+import type { McpElicitationPresenterAuthority } from './elicitation-presenter.ts';
+import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.ts';
+import { McpHostRuntime, type McpHostRuntimeDependencies } from './node-host-runtime.ts';
+import type { McpOAuthStore } from './oauth-client-provider.ts';
 
 const logger = createLogger('McpHostServices');
 

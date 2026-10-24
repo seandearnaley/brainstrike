@@ -18,8 +18,8 @@ import { BLOBS_DIR, type BlobContent, sha256Hex } from '@brainstrike/state-store
 import {
   HOST_EDIT_BASELINE_MAX_BYTES,
   hostEditBaselineUnavailableReason,
-} from './edit-checkpoint-view.js';
-import type { HostPlatform, HostWorkspaceEdit, HostWorkspaceEditTracker } from './ports.js';
+} from './edit-checkpoint-view.ts';
+import type { HostPlatform, HostWorkspaceEdit, HostWorkspaceEditTracker } from './ports.ts';
 import type {
   HostEditBaseline,
   HostEditRevertOutcome,
@@ -27,7 +27,7 @@ import type {
   HostLogRow,
   HostParams,
   HostResults,
-} from './protocol.js';
+} from './protocol.ts';
 
 /**
  * Host-owned edit checkpoints (Codex TurnDiffTracker / Claude Code file-history

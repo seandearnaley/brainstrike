@@ -18,8 +18,8 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
-import { NativeAuthorityTransitionError } from '../node-native-index/errors.js';
-import { projectReadDenialDiagnostic, withReadDenialLogging } from './read-denial-diagnostic.js';
+import { NativeAuthorityTransitionError } from '../node-native-index/errors.ts';
+import { projectReadDenialDiagnostic, withReadDenialLogging } from './read-denial-diagnostic.ts';
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
@@ -27,30 +27,30 @@ import {
   recordRecentRoot,
   recordRestoredRecentRoots,
   resolveGrantedRootHandle,
-} from './workspace-recent-roots.js';
-import { WorkspaceRootAvailability } from './workspace-root-availability.js';
+} from './workspace-recent-roots.ts';
+import { WorkspaceRootAvailability } from './workspace-root-availability.ts';
 import {
   findRecordedWorkspaceRoot,
   markRootsDisconnectedExcept,
   recordRestoredWorkspaceRoots,
   recordWorkspaceRoot,
-} from './workspace-root-catalog.js';
-import { WorkspaceRootMountTable } from './workspace-root-mounts.js';
-import { WorkspaceRootMutationLifetime } from './workspace-root-mutation-lifetime.js';
-import { pathKey, pathsEqual } from './workspace-root-paths.js';
+} from './workspace-root-catalog.ts';
+import { WorkspaceRootMountTable } from './workspace-root-mounts.ts';
+import { WorkspaceRootMutationLifetime } from './workspace-root-mutation-lifetime.ts';
+import { pathKey, pathsEqual } from './workspace-root-paths.ts';
 import {
   assertNativeAbsoluteReadPath,
   type ResolvedWorkspaceRead,
   readResolvedWorkspaceFile,
   resolveReadAgainstMountedRoot,
-} from './workspace-root-read.js';
-import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.js';
+} from './workspace-root-read.ts';
+import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.ts';
 import {
   createNativeSecureRoot,
   resolveCanonicalRootPath,
   resolveValidatedReadPath,
-} from './workspace-root-seams.js';
-import { createWorkspaceRootSourceLease } from './workspace-root-source-lease.js';
+} from './workspace-root-seams.ts';
+import { createWorkspaceRootSourceLease } from './workspace-root-source-lease.ts';
 import {
   clearLastFolderIfMatches,
   clearStoredWorkspaceGrants,
@@ -60,7 +60,7 @@ import {
   writeLastFolder,
   writeLastFolderBestEffort,
   writeStoredRoots,
-} from './workspace-root-store.js';
+} from './workspace-root-store.ts';
 import type {
   MountedWorkspaceRoot,
   RootDataDeletionReservation,
@@ -68,14 +68,14 @@ import type {
   StoredWorkspaceRoot,
   WorkspaceRootRegistryOptions,
   WorkspaceRootStorage,
-} from './workspace-root-types.js';
+} from './workspace-root-types.ts';
 
-export * from './workspace-root-registry-disposed.js';
+export * from './workspace-root-registry-disposed.ts';
 export type {
   SecureWorkspaceRoot,
   StoredWorkspaceRoot,
   WorkspaceRootRegistryOptions,
-} from './workspace-root-types.js';
+} from './workspace-root-types.ts';
 
 export type SubscribeMountedWorkspaceRoot = (
   mounted: MountedWorkspaceRoot,

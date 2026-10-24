@@ -1,7 +1,7 @@
 import {
   resetLocalRuntimeProbeCountsForTests,
   type SettingsE2ETestOverrides,
-} from '../automation-overrides';
+} from '../automation-overrides.ts';
 
 /** Clears every window key the settings test overrides read, between cases. */
 export function __resetSettingsTestOverridesForTests(): void {

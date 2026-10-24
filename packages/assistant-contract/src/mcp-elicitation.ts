@@ -3,9 +3,9 @@ import {
   type ConfiguredMcpServerId,
   type McpHostOperation,
   parseConfiguredMcpServerId,
-} from './mcp-host.js';
-import type { McpConfiguredProtocol, McpStatusTransport } from './mcp-status.js';
-import type { McpTaskHandle } from './mcp-task-presentation.js';
+} from './mcp-host.ts';
+import type { McpConfiguredProtocol, McpStatusTransport } from './mcp-status.ts';
+import type { McpTaskHandle } from './mcp-task-presentation.ts';
 export const MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH = 256;
 export const MCP_ELICITATION_REQUEST_ID_MAX_LENGTH = 256;
 export const MCP_ELICITATION_STRING_FORMATS = ['email', 'uri', 'date', 'date-time'] as const;

@@ -3,8 +3,8 @@ import {
   type GlobWorkspaceInput,
   type GrepSearchInput,
 } from '@brainstrike/agent';
-import type { GlobWorkspaceToolResult } from './glob-workspace-tool.js';
-import type { GrepToolResult } from './grep-search-result-contract.js';
+import type { GlobWorkspaceToolResult } from './glob-workspace-tool.ts';
+import type { GrepToolResult } from './grep-search-result-contract.ts';
 
 /**
  * BST-1247: `truncated` records exactly "model-facing output was clipped".

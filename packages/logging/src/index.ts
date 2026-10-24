@@ -1,11 +1,11 @@
-export * from './console-guard.js';
-export * from './log-buffer.js';
-export * from './log-sampling.js';
-export * from './logger.js';
+export * from './console-guard.ts';
+export * from './log-buffer.ts';
+export * from './log-sampling.ts';
+export * from './logger.ts';
 export {
   installRendererErrorHooks,
   type RendererErrorEventPayload,
   type RendererErrorHooksOptions,
-} from './logging/install-renderer-error-hooks.js';
-export * from './logging-initializer.js';
-export * from './logging-preferences.js';
+} from './logging/install-renderer-error-hooks.ts';
+export * from './logging-initializer.ts';
+export * from './logging-preferences.ts';

@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
@@ -16,8 +16,8 @@ import {
 } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalRoot, type IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
-import { createStateIndexOwner } from './host-state-index-owner.js';
-import type { HostStartupContext } from './runtime.js';
+import { createStateIndexOwner } from './host-state-index-owner.ts';
+import type { HostStartupContext } from './runtime.ts';
 
 const logger = createLogger('AgentHostStateIndex');
 
@@ -51,12 +51,16 @@ export interface HostStateIndex {
   readonly vectors: StateMessageVectorPort & StateObservationVectorPort;
 }
 
-// Worker and producer entry points are emitted JS (BST-1977): resolve them in the
-// package's dist whether this module runs built or from source under Vitest.
-const PACKAGE_DIST = new URL('../dist/', import.meta.url);
+// The worker and producer entry points sit beside this module with its own
+// extension: TypeScript source run by Node, or the desktop bundle's emitted JS.
+const ENTRY_EXTENSION = extname(fileURLToPath(import.meta.url));
 
-function canonicalDistModule(file: string): string {
-  return pathToFileURL(realpathSync(fileURLToPath(new URL(file, PACKAGE_DIST)))).href;
+function siblingEntry(name: string): URL {
+  return new URL(`./${name}${ENTRY_EXTENSION}`, import.meta.url);
+}
+
+function canonicalEntryModule(name: string): string {
+  return pathToFileURL(realpathSync(fileURLToPath(siblingEntry(name)))).href;
 }
 
 /**
@@ -77,7 +81,7 @@ export async function openHostStateIndex(
     dbPath,
     embedding: { indexMode: 'text-only' },
     rootIds: [stateRoot],
-    stateProjection: { mode: 'prod', module: canonicalDistModule('state-projection.js') },
+    stateProjection: { mode: 'prod', module: canonicalEntryModule('state-projection') },
     stateResources: memoryResourceIds.map((resourceId) => ({ resourceId, rootId: stateRoot })),
     stateRoot,
   } as const;
@@ -119,7 +123,7 @@ function startStateIndexWorker(options: { readonly dbPath: string }): IndexerCon
   // Validation is the connection's only synchronous failure: refuse before spawning.
   const validated = validateIndexerOptions(options);
   const deadlines = validateIndexerDeadlines(HOST_STATE_INDEX_DEADLINES);
-  const worker = new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST));
+  const worker = new Worker(siblingEntry('host-state-index-worker'));
   return createIndexerConnection(validated, deadlines, {
     kill: () => {
       void worker.terminate();

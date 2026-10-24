@@ -9,15 +9,15 @@ import {
   fulfillMcpElicitationRequest,
   type McpClientHandlerContext,
   type McpElicitationCapability,
-} from './client-capabilities';
-import type { McpClientExtensionRequestContract } from './client-extension-registry';
+} from './client-capabilities.ts';
+import type { McpClientExtensionRequestContract } from './client-extension-registry.ts';
 import {
   MCP_TASKS_CANCEL_REQUEST_CONTRACT,
   MCP_TASKS_UPDATE_REQUEST_CONTRACT,
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
-} from './tasks-extension';
-import type { McpTaskObservationPort } from './tasks-observation';
+} from './tasks-extension.ts';
+import type { McpTaskObservationPort } from './tasks-observation.ts';
 
 export interface McpTaskInteractionElicitationContext
   extends McpClientHandlerContext,
@@ -68,11 +68,13 @@ export interface McpTaskCancellationResult extends McpTaskIdentity {
 }
 
 export class McpTaskCancellationOutcomeError extends Error {
-  constructor(
-    readonly taskId: string,
-    readonly status: 'completed' | 'failed'
-  ) {
+  readonly taskId: string;
+  readonly status: 'completed' | 'failed';
+
+  constructor(taskId: string, status: 'completed' | 'failed') {
     super(`MCP task "${taskId}" reached "${status}" instead of the permitted cancelled state.`);
+    this.taskId = taskId;
+    this.status = status;
     this.name = 'McpTaskCancellationOutcomeError';
   }
 }
@@ -95,13 +97,15 @@ class McpTaskInputWithdrawnError extends Error {
  * lists the key proves nothing; L379: ignoring an answered key is only a SHOULD).
  */
 export class McpTaskInputDeliveryUnknownError extends Error {
-  constructor(
-    readonly taskId: string,
-    readonly inputKey: string
-  ) {
+  readonly taskId: string;
+  readonly inputKey: string;
+
+  constructor(taskId: string, inputKey: string) {
     super(
       `MCP task "${taskId}" input "${inputKey}" has an unknown delivery outcome; it is not resent.`
     );
+    this.taskId = taskId;
+    this.inputKey = inputKey;
     this.name = 'McpTaskInputDeliveryUnknownError';
   }
 }

@@ -5,7 +5,7 @@ import {
   type ParsedEmbeddingProviderModel,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
-import type { EmbeddingProviderType } from './provider-types.js';
+import type { EmbeddingProviderType } from './provider-types.ts';
 
 export type ParsedProviderModel = ParsedEmbeddingProviderModel;
 

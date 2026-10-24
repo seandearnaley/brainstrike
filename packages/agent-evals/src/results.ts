@@ -5,7 +5,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Schema } from 'effect';
-import { fileDecoder } from './task.js';
+import { fileDecoder } from './task.ts';
 
 export const EVAL_MODES = ['scripted', 'replay', 'live'] as const;
 export type EvalMode = (typeof EVAL_MODES)[number];

@@ -2,7 +2,7 @@ import type {
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalVectorPublicationPort,
-} from './ports.js';
+} from './ports.ts';
 
 /** Promise ownership of each workspace scan on the existing source lifetime. */
 export function createNativeScanAdmission(assertSource: () => void, signal: AbortSignal) {

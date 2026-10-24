@@ -25,7 +25,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createSanitizedPersistMerge } from './sanitized-persist-merge';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 export const NOTIFICATION_EVENT_KINDS = [
   'runFinished',

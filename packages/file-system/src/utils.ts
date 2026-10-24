@@ -1,6 +1,6 @@
 import fsPromises from 'node:fs/promises';
-import { AccessError, PermissionError } from './errors.js';
-import { resolveValidatedPath } from './path-validation.js';
+import { AccessError, PermissionError } from './errors.ts';
+import { resolveValidatedPath } from './path-validation.ts';
 
 /**
  * Validate that a given path exists and is a directory.

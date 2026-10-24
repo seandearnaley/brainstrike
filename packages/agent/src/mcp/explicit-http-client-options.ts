@@ -13,40 +13,40 @@ import {
   composeMcpTransportCapabilities,
   type McpClientCapabilityOptions,
   type McpClientCapabilityRuntime,
-} from './client-capabilities';
-import type { McpClientExtensionRegistry } from './client-extension-registry';
+} from './client-capabilities.ts';
+import type { McpClientExtensionRegistry } from './client-extension-registry.ts';
 import {
   createMcpResponseCacheStore,
   normalizeMcpCachePartition,
   normalizeMcpListMaxPages,
-} from './client-policy';
-import type { McpProtocol } from './config';
+} from './client-policy.ts';
+import type { McpProtocol } from './config.ts';
 import type {
   ExplicitHttpMcpAuthorizationCallbackSource,
   ExplicitHttpMcpFetch,
   ExplicitHttpMcpLifecycle,
   ExplicitHttpMcpTransport,
   ExplicitHttpMcpUnexpectedCloseObserver,
-} from './explicit-http-client-types';
+} from './explicit-http-client-types.ts';
 import {
   type McpClientInfo,
   resolveMcpClientInfo,
   validateNonEmptyMcpOption,
-} from './explicit-mcp-client-core';
+} from './explicit-mcp-client-core.ts';
 import {
   assertOAuthHeaderCompatibility,
   createInteractiveOAuthCompletion,
   type InteractiveOAuthCompletion,
   normalizeOAuthStepUpOptions,
-} from './interactive-oauth-completion';
+} from './interactive-oauth-completion.ts';
 import {
   createHeaderPreservingFetch,
   RegisteredExtensionDispatchLedger,
-} from './registered-extension-dispatch';
+} from './registered-extension-dispatch.ts';
 import {
   type McpServerFeatureEventDiagnosticSink,
   resolveMcpServerFeatureEventDiagnosticSink,
-} from './server-feature-events';
+} from './server-feature-events.ts';
 
 export interface ExplicitHttpMcpClientOptions {
   authorizationCallbackSource?: ExplicitHttpMcpAuthorizationCallbackSource;

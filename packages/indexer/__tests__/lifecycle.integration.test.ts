@@ -8,7 +8,7 @@ import type * as Transport from '../src/transport.js';
 // The transport forks the process entry beside its own module, so this suite
 // drives the built transport; the source owns its type.
 const { createIndexerConnection, IndexerLifecycleError }: typeof Transport = await import(
-  new URL('../dist/transport.js', import.meta.url).href
+  new URL('../src/transport.ts', import.meta.url).href
 );
 
 const profile = {

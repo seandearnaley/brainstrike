@@ -1,5 +1,5 @@
-import { deriveHostInputRunCommandId, type HostRunState } from './core-state.js';
-import type { HostEvent, HostParams } from './protocol.js';
+import { deriveHostInputRunCommandId, type HostRunState } from './core-state.ts';
+import type { HostEvent, HostParams } from './protocol.ts';
 
 type HostRunOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 

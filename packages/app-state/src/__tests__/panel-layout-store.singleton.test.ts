@@ -49,7 +49,7 @@ describe('usePanelLayoutStore singleton fallback', () => {
       };
     });
 
-    const module = await import('../stores/panel-layout-store');
+    const module = await import('../stores/panel-layout-store.ts');
     const persistApi = (
       module.usePanelLayoutStore as unknown as {
         persist?: { rehydrate?: () => Promise<void> };
@@ -81,7 +81,7 @@ describe('usePanelLayoutStore singleton fallback', () => {
 
     vi.stubGlobal('window', undefined);
 
-    const module = await import('../stores/panel-layout-store');
+    const module = await import('../stores/panel-layout-store.ts');
     const store = module.usePanelLayoutStore;
     const persistApi = (
       store as unknown as {

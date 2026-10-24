@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { LspInspectInputSchema } from '../schemas/schemas-search.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { LspInspectInputSchema } from '../schemas/schemas-search.ts';
 
 // Semantic code inspection at a cursor (report R2 Phase B): hover type,
 // line diagnostics, definition, and implementation via a bundled language

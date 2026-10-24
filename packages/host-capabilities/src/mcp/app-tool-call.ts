@@ -1,7 +1,7 @@
 import { readMcpCreatedTaskResult } from '@brainstrike/agent';
 import type { HostMcpAppToolCall } from '@brainstrike/agent-host';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import type { McpHostRuntime } from './node-host-runtime.js';
+import type { McpHostRuntime } from './node-host-runtime.ts';
 
 /**
  * An MCP App's own tool call, once Core has admitted it: one `tools/call` on

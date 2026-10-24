@@ -3,7 +3,7 @@ import type { PromptLibraryReply, PromptLibraryRequest } from '@brainstrike/type
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
-import { sendCatalogRequest } from './request.js';
+import { sendCatalogRequest } from './request.ts';
 export interface PromptLibraryPort {
   promptLibrary(request: PromptLibraryRequest): Promise<PromptLibraryReply>;
 }

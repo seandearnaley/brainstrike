@@ -30,12 +30,12 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type { Tool } from 'ai';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
 import {
   type ProviderAuthInput,
   type ProviderFetchOptions,
   providerFetchOptions,
-} from './provider-auth-input';
+} from './provider-auth-input.ts';
 
 export { WEB_SEARCH_TOOL_ID };
 

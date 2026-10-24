@@ -42,39 +42,6 @@ export function resolveDesktopTestShard(
 export const ELECTRON_RUNTIME_TESTS = [
   'src/__tests__/assistant-server/native-markdown-grep-lines.integration.test.ts',
 ];
-// Shared by integration and coverage so real child entrypoints keep emitted siblings.
-export const NATIVE_PROCESS_ALIASES = [
-  {
-    find: /^@brainstrike\/agent-host$/,
-    replacement: path.resolve(import.meta.dirname, '../../packages/agent-host/dist/index.js'),
-  },
-  {
-    find: /^@brainstrike\/agent-host\/test-fixtures\/scripted-model$/,
-    replacement: path.resolve(
-      import.meta.dirname,
-      '../../packages/agent-host/dist/test-fixtures/scripted-model.js'
-    ),
-  },
-  {
-    find: /^@brainstrike\/indexer$/,
-    replacement: path.resolve(import.meta.dirname, '../../packages/indexer/dist/index.js'),
-  },
-  {
-    find: /^@brainstrike\/indexer\/coverage-reader$/,
-    replacement: path.resolve(
-      import.meta.dirname,
-      '../../packages/indexer/dist/coverage-reader.js'
-    ),
-  },
-  {
-    find: /^@brainstrike\/indexer\/transport$/,
-    replacement: path.resolve(import.meta.dirname, '../../packages/indexer/dist/transport.js'),
-  },
-  {
-    find: /^@brainstrike\/sqlite-query$/,
-    replacement: path.resolve(import.meta.dirname, '../../packages/sqlite-query/dist/index.js'),
-  },
-];
 export const UNDER_ELECTRON = process.versions.electron !== undefined;
 
 const MAIN_IMPORT_TESTS = [
@@ -135,7 +102,6 @@ export default defineConfig({
     // subpath maps, deliberate overrides) come BEFORE the shared registry
     // spread, mirroring the packages/* convention from B3 (#1651).
     alias: [
-      ...(coverageEnabled ? NATIVE_PROCESS_ALIASES : []),
       { find: '@', replacement: path.resolve(import.meta.dirname, './src/renderer') },
       // The real `electron` entrypoint only exports the binary path and throws
       // when the prebuilt binary is absent (e.g. cache-miss CI lanes). Tests

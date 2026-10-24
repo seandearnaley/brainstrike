@@ -1,6 +1,6 @@
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createContextExplorerLayoutStore } from '../stores/context-explorer-layout-store';
+import { createContextExplorerLayoutStore } from '../stores/context-explorer-layout-store.ts';
 
 const STORE_NAME = 'context-explorer-layout-store.v1';
 const GLOBAL_STORE_KEY = '__brainstrike_context_explorer_layout_store__';
@@ -131,7 +131,7 @@ describe('context-explorer-layout-store', () => {
     });
 
     try {
-      const module = await import('../stores/context-explorer-layout-store');
+      const module = await import('../stores/context-explorer-layout-store.ts');
       const singleton = module.useContextExplorerLayoutStore;
 
       singleton.getState().setExplorerActiveTab('search');

@@ -23,7 +23,7 @@ import {
   resolveGlobalStoreSingleton,
   resolveNextSizes,
   type SizeRules,
-} from './persisted-layout-store';
+} from './persisted-layout-store.ts';
 
 /**
  * Top-level shell routes selected from the left nav rail. `'changes'` is NOT

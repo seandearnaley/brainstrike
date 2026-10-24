@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
-import type { HostEvent } from './protocol.js';
+import type { HostEvent } from './protocol.ts';
 
 const logger = createLogger('DesktopRunConfiguration');
 /**

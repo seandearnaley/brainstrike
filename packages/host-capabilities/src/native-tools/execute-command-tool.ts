@@ -22,11 +22,11 @@ import { createLogger } from '@brainstrike/logging';
 import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
-import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.js';
-import { KILL_GRACE_MS } from './kill-grace.js';
-import type { ShellOutputStreamer } from './tool-execute-support.js';
-import { acquireWorkspaceMutationLease } from './workspace-mutation-lease.js';
-import { isWithinRoot } from './workspace-path.js';
+import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.ts';
+import { KILL_GRACE_MS } from './kill-grace.ts';
+import type { ShellOutputStreamer } from './tool-execute-support.ts';
+import { acquireWorkspaceMutationLease } from './workspace-mutation-lease.ts';
+import { isWithinRoot } from './workspace-path.ts';
 
 export const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
 

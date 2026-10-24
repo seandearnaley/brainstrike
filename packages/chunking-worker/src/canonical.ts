@@ -1,9 +1,9 @@
-import { treeSitterAdapter } from './parsers/tree-sitter-adapter';
-import type { ParserAdapter } from './parsers/types';
-import { chunkContent, type PortableChunkingResult } from './portable-chunking';
+import { treeSitterAdapter } from './parsers/tree-sitter-adapter.ts';
+import type { ParserAdapter } from './parsers/types.ts';
+import { chunkContent, type PortableChunkingResult } from './portable-chunking.ts';
 import type { ChunkingRequestOptions } from './shared';
 
-export type { ChunkSkipCode, PortableChunkingResult } from './portable-chunking';
+export type { ChunkSkipCode, PortableChunkingResult } from './portable-chunking.ts';
 export type { ChunkingRequestOptions, PortableChunk } from './shared';
 
 /** Canonical chunking as the ingestion host calls it: one file's content to its chunks. */

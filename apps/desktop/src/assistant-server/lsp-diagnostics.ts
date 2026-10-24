@@ -376,10 +376,12 @@ class LspServerConnection {
   private killChild = (signal: NodeJS.Signals): boolean => this.child.kill(signal);
   private disposed = false;
 
-  constructor(
-    private readonly server: ResolvedServer,
-    private readonly rootPath: string
-  ) {
+  private readonly server: ResolvedServer;
+  private readonly rootPath: string;
+
+  constructor(server: ResolvedServer, rootPath: string) {
+    this.server = server;
+    this.rootPath = rootPath;
     // In the agent host the server inherits the Root's flock (ADR-0017).
     this.child = spawnNativeChild(process.execPath, [server.cliPath, ...server.args], {
       cwd: rootPath,

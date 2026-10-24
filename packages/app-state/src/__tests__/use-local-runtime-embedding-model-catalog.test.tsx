@@ -1,10 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useLocalRuntimeEmbeddingModelCatalog } from '../hooks/use-local-runtime-embedding-model-catalog';
+import { useLocalRuntimeEmbeddingModelCatalog } from '../hooks/use-local-runtime-embedding-model-catalog.ts';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
-} from '../stores/assistant-preferences-store';
+} from '../stores/assistant-preferences-store.ts';
 
 describe('useLocalRuntimeEmbeddingModelCatalog', () => {
   beforeEach(() => {

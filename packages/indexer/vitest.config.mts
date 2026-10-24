@@ -5,18 +5,7 @@ import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-alias
 import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
-    alias: [
-      // Coverage also runs real process cases; their entry needs emitted siblings.
-      ...(process.argv.includes('--coverage')
-        ? [
-            {
-              find: /^@brainstrike\/indexer$/,
-              replacement: resolve(import.meta.dirname, './dist/index.js'),
-            },
-          ]
-        : []),
-      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
-    ],
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {
     coverage: { reportOnFailure: true },

@@ -2,13 +2,16 @@
   "extends": ["//"],
   "tasks": {
     "build": {
+      // The bundles compile every workspace package from source, so `topo`
+      // carries their source hashes into this task's hash; `^build` builds the
+      // native add-ons the app loads.
+      "dependsOn": ["^build", "topo"],
       "env": ["VITE_*", "EMBED_QUEUE_ENABLED", "NODE_ENV"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"]
     },
     "dev": {
-      // Electron loads the native add-ons, and the renderer dev server's config
-      // loads compiled workspace packages under Node; Main bundles workspace
-      // code from source.
+      // Electron loads the native add-ons; Main bundles workspace code from
+      // source.
       "dependsOn": ["^build"]
     },
     "type-check": {
@@ -42,10 +45,10 @@
     "test:integration": {
       // These lanes run built artifacts outside Vitest's source aliases: Electron
       // launches dist/main.js with dist/renderer (`test-built`), spawned processes
-      // load workspace packages' dist, and the MCP proofs start
-      // packages/mcp-test-lab/dist. This package's `build` emits renderer and main
-      // after `^build` (every runtime dependency, build-utils included); the lab
-      // is a test-only prerequisite outside the app's dependency graph.
+      // run workspace packages' source under Node, and the MCP proofs start
+      // packages/mcp-test-lab/dist. This package's `build` emits renderer and
+      // main and builds the native add-ons; the lab is a test-only prerequisite
+      // outside the app's dependency graph.
       "dependsOn": ["$TURBO_EXTENDS$", "build", "@brainstrike/mcp-test-lab#build"],
       "env": [
         "$TURBO_EXTENDS$",

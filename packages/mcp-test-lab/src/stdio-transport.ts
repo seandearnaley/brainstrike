@@ -50,10 +50,13 @@ export class McpLabOwnedStdioTransport implements Transport {
   onerror: ((error: Error) => void) | undefined;
   onmessage: ((message: JSONRPCMessage) => void) | undefined;
 
-  constructor(
-    private readonly parameters: McpLabStdioParameters,
-    private readonly recordStderrBytes: (byteCount: number) => void
-  ) {}
+  private readonly parameters: McpLabStdioParameters;
+  private readonly recordStderrBytes: (byteCount: number) => void;
+
+  constructor(parameters: McpLabStdioParameters, recordStderrBytes: (byteCount: number) => void) {
+    this.parameters = parameters;
+    this.recordStderrBytes = recordStderrBytes;
+  }
 
   get pid(): number | null {
     return this.spawnedPid;

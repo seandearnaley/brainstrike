@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ManageWorktreeInputSchema } from '../schemas/schemas-worktrees.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ManageWorktreeInputSchema } from '../schemas/schemas-worktrees.ts';
 
 // Creates and archives real linked worktrees on disk (spec §6.4: "execute-risk
 // → permission engine"). `create` forks a `git worktree add` and may run the

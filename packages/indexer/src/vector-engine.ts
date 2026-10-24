@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { decoder, IndexerError } from './contracts.js';
+import { decoder, IndexerError } from './contracts.ts';
 
 /** A coarse code table: `id INTEGER PRIMARY KEY`, a partition column, `bin` and an optional auxiliary blob. */
 export interface CoarseTableSpec {

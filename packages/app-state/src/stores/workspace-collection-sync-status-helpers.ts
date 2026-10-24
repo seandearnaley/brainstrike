@@ -1,4 +1,4 @@
-import type { WorkspaceCollectionSyncStatusData } from './workspace-collection-sync-status-store';
+import type { WorkspaceCollectionSyncStatusData } from './workspace-collection-sync-status-store.ts';
 
 export interface WorkspaceCollectionSyncMetricRow {
   label: string;

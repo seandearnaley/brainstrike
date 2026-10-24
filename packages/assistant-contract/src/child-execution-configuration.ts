@@ -1,6 +1,6 @@
 import { OPENAI_REASONING_EFFORT_VALUES } from '@brainstrike/types';
 import { Schema } from 'effect';
-import { findProviderDefinition } from './provider-registry.js';
+import { findProviderDefinition } from './provider-registry.ts';
 
 const id = Schema.String.pipe(Schema.decodeTo(Schema.Trim))
   .check(Schema.isMinCodePoints(1))

@@ -1,7 +1,7 @@
 // Use explicit .js extensions so Node ESM resolution works in tests/runtime.
-export * from './adapters/memory-storage-adapter.js';
-export * from './adapters/web-storage-adapter.js';
-export * from './factory.js';
-export * from './safe-storage.js';
-export * from './types.js';
-export * from './write-behind-writer.js';
+export * from './adapters/memory-storage-adapter.ts';
+export * from './adapters/web-storage-adapter.ts';
+export * from './factory.ts';
+export * from './safe-storage.ts';
+export * from './types.ts';
+export * from './write-behind-writer.ts';

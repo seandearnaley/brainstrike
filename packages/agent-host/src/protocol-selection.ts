@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import type { JsonSchemaFactory } from './json-value.js';
+import type { JsonSchemaFactory } from './json-value.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Command = { commandId: Id };

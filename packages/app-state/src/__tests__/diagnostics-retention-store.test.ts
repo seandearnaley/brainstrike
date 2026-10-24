@@ -6,8 +6,8 @@ import {
   diagnosticsRetentionSelectors,
   resetDiagnosticsRetentionStoreToDefaults,
   useDiagnosticsRetentionStore,
-} from '../stores/diagnostics-retention-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/diagnostics-retention-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useDiagnosticsRetentionStore as PersistApi<
   typeof useDiagnosticsRetentionStore

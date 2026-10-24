@@ -1,20 +1,20 @@
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { createCollectionClient, serveCollectionStore } from './collection-store.js';
+import { createCollectionClient, serveCollectionStore } from './collection-store.ts';
 import {
   createIndexConfigClient,
   type IndexConfigSettings,
   serveIndexConfigStore,
-} from './index-config-store.js';
-import { createModelChoiceClient, serveModelChoiceStore } from './model-choice-store.js';
-import { createPromptLibraryClient, servePromptLibrary } from './prompt-library-store.js';
-import { createSourceCatalogClient, serveSourceCatalogStore } from './source-catalog-store.js';
-import { createThreadGroupsClient, serveThreadGroups } from './thread-groups-store.js';
+} from './index-config-store.ts';
+import { createModelChoiceClient, serveModelChoiceStore } from './model-choice-store.ts';
+import { createPromptLibraryClient, servePromptLibrary } from './prompt-library-store.ts';
+import { createSourceCatalogClient, serveSourceCatalogStore } from './source-catalog-store.ts';
+import { createThreadGroupsClient, serveThreadGroups } from './thread-groups-store.ts';
 import {
   createViewFilterPresetClient,
   serveViewFilterPresets,
-} from './view-filter-preset-store.js';
-import { createWorkspaceRootClient, serveWorkspaceRootStore } from './workspace-root-store.js';
-import { createWorktreeForgeClient, serveWorktreeForgeStore } from './worktree-forge-store.js';
+} from './view-filter-preset-store.ts';
+import { createWorkspaceRootClient, serveWorkspaceRootStore } from './workspace-root-store.ts';
+import { createWorktreeForgeClient, serveWorktreeForgeStore } from './worktree-forge-store.ts';
 
 export function createHostCatalogClient(connection: MessageConnection) {
   return {

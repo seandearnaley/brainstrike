@@ -8,7 +8,7 @@ import {
   type PersistedLayoutStorageValue,
   resolveDefaultPersistStorage,
   resolveGlobalStoreSingleton,
-} from './persisted-layout-store';
+} from './persisted-layout-store.ts';
 
 export type ExplorerActiveTab = 'explorer' | 'search';
 

@@ -199,7 +199,11 @@ export class BFSEngine {
     }
   >();
 
-  constructor(private readonly postMessage: (msg: WorkerToMainMessage) => void) {}
+  private readonly postMessage: (msg: WorkerToMainMessage) => void;
+
+  constructor(postMessage: (msg: WorkerToMainMessage) => void) {
+    this.postMessage = postMessage;
+  }
 
   /**
    * Build path index from tree nodes.

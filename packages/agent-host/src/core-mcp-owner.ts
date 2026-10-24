@@ -1,7 +1,7 @@
 import type { McpHostTaskOwner } from '@brainstrike/assistant-contract';
-import type { HostRunExecutionPorts } from './core-run-execution.js';
-import { retainHostRunWork } from './core-run-lifecycle.js';
-import type { HostMcpExecutionOwner } from './mcp-input-state.js';
+import type { HostRunExecutionPorts } from './core-run-execution.ts';
+import { retainHostRunWork } from './core-run-lifecycle.ts';
+import type { HostMcpExecutionOwner } from './mcp-input-state.ts';
 
 /**
  * Core's ownership of the durable MCP tasks its runs bound (BST-1930 c3), for

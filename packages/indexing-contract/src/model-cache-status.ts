@@ -1,4 +1,4 @@
-import type { EmbeddingDevice, EmbeddingDType } from './embedding-worker-protocol.js';
+import type { EmbeddingDevice, EmbeddingDType } from './embedding-worker-protocol.ts';
 
 /**
  * BST-2241: whether a model's files for one load plan are all in the embedding

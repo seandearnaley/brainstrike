@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import { type EffectToolInputSchema, toEffectInputJsonSchema } from './effect-tool-input.js';
+import { type EffectToolInputSchema, toEffectInputJsonSchema } from './effect-tool-input.ts';
 
 /** Ordinary receiving boundary: preserves its excess-property policy, without provider null normalization. */
 export function standardInputSchema<S extends Schema.ConstraintDecoder<unknown>>(

@@ -29,9 +29,9 @@ import {
   NATIVE_SEARCH_NO_FOLDERS,
   NativeAuthorityTransitionError,
   NativeIndexRefusalError,
-} from './errors.js';
-import { grepSnapshot } from './index-search.js';
-import type { NativeScopeReadiness } from './read-contracts.js';
+} from './errors.ts';
+import { grepSnapshot } from './index-search.ts';
+import type { NativeScopeReadiness } from './read-contracts.ts';
 
 export interface NativeSearchAuthority {
   readonly bindings: readonly IndexFileBinding[];

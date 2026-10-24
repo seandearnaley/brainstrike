@@ -13,98 +13,35 @@
     "node": ">=24.20.0 <25 || >=26.8.2 <27"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./canvas-state": {
-      "types": "./src/native-tools/canvas-state.ts",
-      "default": "./dist/native-tools/canvas-state.js"
-    },
-    "./delegation": {
-      "types": "./src/delegation.ts",
-      "default": "./dist/delegation.js"
-    },
-    "./credentials": {
-      "types": "./src/credentials.ts",
-      "default": "./dist/credentials.js"
-    },
-    "./hooks": {
-      "types": "./src/hooks/index.ts",
-      "default": "./dist/hooks/index.js"
-    },
+    ".": "./src/index.ts",
+    "./canvas-state": "./src/native-tools/canvas-state.ts",
+    "./delegation": "./src/delegation.ts",
+    "./credentials": "./src/credentials.ts",
+    "./hooks": "./src/hooks/index.ts",
     "./windows-command-entry": "./bin/windows-command-entry.mjs",
-    "./windows-command-process": {
-      "types": "./src/windows-command-process.ts",
-      "default": "./dist/windows-command-process.js"
-    },
-    "./windows-command-wrapper": {
-      "types": "./src/windows-command-wrapper.ts",
-      "default": "./dist/windows-command-wrapper.js"
-    },
-    "./native-tools": {
-      "types": "./src/native-tools/index.ts",
-      "default": "./dist/native-tools/index.js"
-    },
-    "./platform": {
-      "types": "./src/platform.ts",
-      "default": "./dist/platform.js"
-    },
-    "./agent-ignore-guard": {
-      "types": "./src/native-tools/agent-ignore-guard.ts",
-      "default": "./dist/native-tools/agent-ignore-guard.js"
-    },
-    "./extract-url-refusal": {
-      "types": "./src/native-tools/extract-url-refusal.ts",
-      "default": "./dist/native-tools/extract-url-refusal.js"
-    },
-    "./grep-search-result-contract": {
-      "types": "./src/native-tools/grep-search-result-contract.ts",
-      "default": "./dist/native-tools/grep-search-result-contract.js"
-    },
-    "./workspace-file-walk": {
-      "types": "./src/native-tools/workspace-file-walk.ts",
-      "default": "./dist/native-tools/workspace-file-walk.js"
-    },
-    "./workspace-path": {
-      "types": "./src/native-tools/workspace-path.ts",
-      "default": "./dist/native-tools/workspace-path.js"
-    },
-    "./workspace-text-file-reader": {
-      "types": "./src/native-tools/workspace-text-file-reader.ts",
-      "default": "./dist/native-tools/workspace-text-file-reader.js"
-    },
-    "./mcp/*": {
-      "types": "./src/mcp/*.ts",
-      "default": "./dist/mcp/*.js"
-    },
-    "./openrouter-model-metadata": {
-      "types": "./src/openrouter-model-metadata.ts",
-      "default": "./dist/openrouter-model-metadata.js"
-    },
-    "./provider-credentials": {
-      "types": "./src/provider-credentials.ts",
-      "default": "./dist/provider-credentials.js"
-    },
-    "./provider-status": {
-      "types": "./src/provider-status.ts",
-      "default": "./dist/provider-status.js"
-    },
-    "./provider-verification": {
-      "types": "./src/provider-verification.ts",
-      "default": "./dist/provider-verification.js"
-    }
+    "./windows-command-process": "./src/windows-command-process.ts",
+    "./windows-command-wrapper": "./src/windows-command-wrapper.ts",
+    "./native-tools": "./src/native-tools/index.ts",
+    "./platform": "./src/platform.ts",
+    "./agent-ignore-guard": "./src/native-tools/agent-ignore-guard.ts",
+    "./extract-url-refusal": "./src/native-tools/extract-url-refusal.ts",
+    "./grep-search-result-contract": "./src/native-tools/grep-search-result-contract.ts",
+    "./workspace-file-walk": "./src/native-tools/workspace-file-walk.ts",
+    "./workspace-path": "./src/native-tools/workspace-path.ts",
+    "./workspace-text-file-reader": "./src/native-tools/workspace-text-file-reader.ts",
+    "./mcp/*": "./src/mcp/*.ts",
+    "./openrouter-model-metadata": "./src/openrouter-model-metadata.ts",
+    "./provider-credentials": "./src/provider-credentials.ts",
+    "./provider-status": "./src/provider-status.ts",
+    "./provider-verification": "./src/provider-verification.ts"
   },
   "files": [
-    "bin",
-    "dist"
+    "bin"
   ],
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo"
+    "test:integration": "vitest run --config vitest.integration.config.mts"
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",

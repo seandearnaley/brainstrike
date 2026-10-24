@@ -5,10 +5,10 @@ import {
   type OpenAiReasoningEffort,
   type OpenAiReasoningSummary,
 } from '@brainstrike/types';
-import type { AssistantTaskItem } from './assistant-task-list.js';
-import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
-import type { SkillsContextRequest } from './skills.js';
-import type { RuntimeSubagentSettings } from './subagent-settings.js';
+import type { AssistantTaskItem } from './assistant-task-list.ts';
+import type { RuntimeAssistantMemorySettings } from './memory-settings.ts';
+import type { SkillsContextRequest } from './skills.ts';
+import type { RuntimeSubagentSettings } from './subagent-settings.ts';
 
 export type RuntimeJsonObject = Record<string, unknown>;
 

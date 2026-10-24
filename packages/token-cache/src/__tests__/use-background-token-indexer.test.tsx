@@ -43,10 +43,10 @@ class MockWorker {
   private readonly listeners = new Map<string, Array<(...args: unknown[]) => void>>();
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(
-    public url: string | URL,
-    _opts?: WorkerOptions
-  ) {
+  public url: string | URL;
+
+  constructor(url: string | URL, _opts?: WorkerOptions) {
+    this.url = url;
     mockWorkers.push(this);
   }
 

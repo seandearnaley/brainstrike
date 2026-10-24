@@ -1,12 +1,12 @@
 import { Schema } from 'effect';
-import { McpExtensionEnablementSchema } from './mcp-extensions.js';
+import { McpExtensionEnablementSchema } from './mcp-extensions.ts';
 import type {
   McpHostCatalogErrors,
   McpHostJsonValue,
   McpHostOperationResult,
   McpHostServerSnapshot,
   McpHostSnapshot,
-} from './mcp-host.js';
+} from './mcp-host.ts';
 import {
   ConfiguredMcpServerIdSchema,
   MCP_HOST_CATALOG_SECTIONS,
@@ -15,7 +15,7 @@ import {
   McpHostErrorSchema,
   McpResourceUriSchema,
   McpToolTimeoutMsSchema,
-} from './mcp-host.js';
+} from './mcp-host.ts';
 
 /**
  * The MCP host's server status at a process boundary (BST-1930 c5b), browser

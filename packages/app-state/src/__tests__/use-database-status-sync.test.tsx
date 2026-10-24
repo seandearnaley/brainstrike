@@ -2,11 +2,11 @@ import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useDatabaseStatusSync } from '../hooks/use-database-status-sync';
+import { useDatabaseStatusSync } from '../hooks/use-database-status-sync.ts';
 import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
-} from '../stores/database-status-store';
+} from '../stores/database-status-store.ts';
 
 describe('useDatabaseStatusSync', () => {
   afterEach(() => vi.unstubAllGlobals());

@@ -5,7 +5,7 @@ import {
   optionsSchema,
   scopedProofIdentitySchema,
   scopeSchema,
-} from './contracts.js';
+} from './contracts.ts';
 export const coverageAuthoritySchema = Schema.Struct({
   ...scopedProofIdentitySchema.fields,
   dbPath: optionsSchema.fields.dbPath,

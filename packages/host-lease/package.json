@@ -25,23 +25,12 @@
     "@vitest/coverage-v8": "catalog:"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./lifecycle-delays": {
-      "types": "./src/lifecycle-delays.ts",
-      "default": "./dist/lifecycle-delays.js"
-    }
+    ".": "./src/index.ts",
+    "./lifecycle-delays": "./src/lifecycle-delays.ts"
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   }
 }

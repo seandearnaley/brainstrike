@@ -46,14 +46,14 @@ import type {
   WatcherFailure,
   WatcherHealthState,
   WatcherHealthTransition,
-} from '../types.js';
-import { createFileSystemChangeBatcher } from './electron-watchers.js';
+} from '../types.ts';
+import { createFileSystemChangeBatcher } from './electron-watchers.ts';
 import {
   loadParcelWatcher,
   type ParcelWatcherModule,
   selectParcelBackend,
-} from './parcel-backend.js';
-import { classifyParcelWatchFailure } from './parcel-watch-failure.js';
+} from './parcel-backend.ts';
+import { classifyParcelWatchFailure } from './parcel-watch-failure.ts';
 
 const logger = createLogger('ParcelWatchers');
 const REPORTABLE_DEFAULT_FILTER_PATTERNS: ReadonlySet<string> = new Set([
@@ -83,11 +83,11 @@ const BOUNDED_NATIVE_DEFAULT_IGNORE_PATTERN_SET: ReadonlySet<string> = new Set(
 
 /** A watch owner's failed retirement of an acquired subscription: still owned, and retryable. */
 export class ParcelWatchRetirementError extends AggregateError {
-  constructor(
-    errors: readonly unknown[],
-    readonly retire: () => Promise<void>
-  ) {
+  readonly retire: () => Promise<void>;
+
+  constructor(errors: readonly unknown[], retire: () => Promise<void>) {
     super(errors, 'Parcel subscribe retirement failed.');
+    this.retire = retire;
     this.name = 'ParcelWatchRetirementError';
   }
 }

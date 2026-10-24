@@ -1,6 +1,6 @@
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createPanelLayoutStore } from '../stores/panel-layout-store';
+import { createPanelLayoutStore } from '../stores/panel-layout-store.ts';
 
 const STORE_NAME = 'panel-layout-store.v1';
 

@@ -1,13 +1,13 @@
 import { Schema } from 'effect';
-import { childExecutionConfigurationSchema } from './child-execution-configuration.js';
+import { childExecutionConfigurationSchema } from './child-execution-configuration.ts';
 import {
   type AssistantPersonaDefinition,
   type AssistantPersonaMode,
   type AssistantPersonaSource,
   assertPersonaToolScope,
-} from './personas.js';
-import { findProviderDefinition } from './provider-registry.js';
-import { SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.js';
+} from './personas.ts';
+import { findProviderDefinition } from './provider-registry.ts';
+import { SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.ts';
 
 /** Fixed, safe remediation at the authenticated child-resume boundary. */
 const ADMITTED_CHILD_FAILURES = {

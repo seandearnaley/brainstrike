@@ -2,7 +2,7 @@ import {
   FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
   type FileSystemChange,
   type FileSystemWatchBatchMetadata,
-} from '../types.js';
+} from '../types.ts';
 
 // Shared change-batching primitive for the watcher service (BST-568). The
 // legacy chokidar / recursive-fs.watch engines that used to live here were

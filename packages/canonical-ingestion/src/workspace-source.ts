@@ -12,14 +12,14 @@ import type {
   CanonicalSourceBatch,
   CanonicalSourceFile,
   CanonicalSourcePort,
-} from './ports.js';
-import { CanonicalSourceContentExcludedError } from './source-content-exclusion.js';
-import { discoverCanonicalWorkspace } from './workspace-source-discovery.js';
+} from './ports.ts';
+import { CanonicalSourceContentExcludedError } from './source-content-exclusion.ts';
+import { discoverCanonicalWorkspace } from './workspace-source-discovery.ts';
 import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
   CanonicalWorkspaceSourceDependencies,
-} from './workspace-source-ports.js';
+} from './workspace-source-ports.ts';
 
 type SourceFile = CanonicalSourceFile | CanonicalDiscoveredSourceFile;
 interface SourceRun {
@@ -44,7 +44,10 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
   private closePromise: Promise<void> | undefined;
   private retired = false;
 
-  constructor(private readonly dependencies: CanonicalWorkspaceSourceDependencies) {
+  private readonly dependencies: CanonicalWorkspaceSourceDependencies;
+
+  constructor(dependencies: CanonicalWorkspaceSourceDependencies) {
+    this.dependencies = dependencies;
     const lease = dependencies.lease;
     lease.signal.throwIfAborted();
     if (!(lease.rootId.trim() && lease.generation.trim() && lease.canonicalPath.trim())) {

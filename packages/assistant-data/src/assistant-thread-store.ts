@@ -7,9 +7,9 @@ import {
   type AssistantThreadCatalogRepository,
   type AssistantThreadMetadata,
   assertBulkThreadMetadataPatch,
-} from './assistant-memory-repository';
-import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
-import { createUpdateThreadAppearance } from './assistant-thread-appearance';
+} from './assistant-memory-repository.ts';
+import { resolveAssistantMemoryResourceId } from './assistant-memory-resource.ts';
+import { createUpdateThreadAppearance } from './assistant-thread-appearance.ts';
 import {
   type AssistantThreadLoadState,
   assertThreadCatalogLoadedAfterFailure,
@@ -17,11 +17,11 @@ import {
   omitRecordKeys,
   restoreThreadCatalog,
   serializeThread,
-} from './assistant-thread-catalog';
+} from './assistant-thread-catalog.ts';
 import {
   mergeAssistantThreadMetadata,
   mergeRefreshedThreadMetadata,
-} from './assistant-thread-metadata-merge';
+} from './assistant-thread-metadata-merge.ts';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
 

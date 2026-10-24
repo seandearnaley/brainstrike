@@ -125,7 +125,7 @@ export async function memoryVectorHost(options: {
   const resourceId = randomUUID();
   const writerOptions = {
     memoryCalculatorModule: fileURLToPath(
-      new URL('../../dist/adapters/memory-storage-calculator.js', import.meta.url)
+      new URL('../../src/adapters/memory-storage-calculator.ts', import.meta.url)
     ),
   };
   const indexerOptions = {
@@ -136,7 +136,7 @@ export async function memoryVectorHost(options: {
       mode: 'dev',
       module:
         options.stateProjectionModule ??
-        new URL('../../dist/state-projection.js', import.meta.url).href,
+        new URL('../../src/state-projection.ts', import.meta.url).href,
     },
     stateResources: [{ resourceId, rootId: root }],
     stateRoot: root,

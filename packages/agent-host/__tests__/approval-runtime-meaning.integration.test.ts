@@ -17,12 +17,19 @@ import {
 import { scriptedToolSequence } from './fixtures/scripted-model.js';
 
 class RuntimeSelection {
-  constructor(readonly text: string) {}
+  readonly text: string;
+
+  constructor(text: string) {
+    this.text = text;
+  }
 }
 
 class ArrayRuntimeSelection extends Array<number> {
-  constructor(readonly selection: string) {
+  readonly selection: string;
+
+  constructor(selection: string) {
     super();
+    this.selection = selection;
     this.push(1);
   }
 }

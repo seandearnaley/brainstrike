@@ -1,12 +1,12 @@
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
-import type { HostMethodHandler } from './auth-connection.js';
-import type { HostClientOrigin } from './ports.js';
+import type { HostMethodHandler } from './auth-connection.ts';
+import type { HostClientOrigin } from './ports.ts';
 import {
   type HostPermissionPolicy,
   HostPermissionPolicySchema,
-} from './protocol-permission-policy.js';
+} from './protocol-permission-policy.ts';
 /** The host's StateStore settings, where it alone keeps the saved permission policy. */
 export type HostPermissionPolicyStore = Pick<
   StateStore,

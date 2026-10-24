@@ -7,7 +7,7 @@ import type {
   IndexerSearchResult,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
-import type { NodeWorkspaceServices } from './node-workspace-services.js';
+import type { NodeWorkspaceServices } from './node-workspace-services.ts';
 
 /** A TEXT search over captured workspace roots. */
 export type NodeNativeTextRequest = Extract<
@@ -102,18 +102,18 @@ export {
   NativeAuthorityTransitionError,
   NativeIndexRefusalError,
   NativeIndexSetupRequiredError,
-} from './node-native-index/errors.js';
+} from './node-native-index/errors.ts';
 export {
   createNativeIndexSearchCapability,
   grepSnapshot,
-} from './node-native-index/index-search.js';
+} from './node-native-index/index-search.ts';
 export type {
   NativeAcknowledgedPublication,
   NativeScopeReadiness,
-} from './node-native-index/read-contracts.js';
+} from './node-native-index/read-contracts.ts';
 export {
   createNativeScopedSearchCapability,
   type NativeScopedRead,
   type NativeScopedSearchDependencies,
   type NativeSearchAuthority,
-} from './node-native-index/scoped-search.js';
+} from './node-native-index/scoped-search.ts';

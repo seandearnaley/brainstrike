@@ -1,7 +1,7 @@
 import type { StateObservationGroup } from '@brainstrike/indexer';
 import type { MemoryObservationRecord } from '@brainstrike/state-store';
 import { parseObservationGroups } from '@mastra/memory/processors';
-import { chunkStateObservationText } from './adapters/state-store-observation-memory.js';
+import { chunkStateObservationText } from './adapters/state-store-observation-memory.ts';
 
 /** Only the existing persisted native record supplies group attribution. */
 function observationSections(

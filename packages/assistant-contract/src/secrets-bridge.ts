@@ -13,10 +13,10 @@
  * {@link SecretsWriteResult} and {@link SecretsCredentialReadResult}.
  */
 
-import type { ProviderCredential } from './provider-credential.js';
-import type { ProviderKeySource } from './provider-key-source.js';
-import type { SupportedProvider } from './provider-metadata.js';
-import type { SecretReadErrorCode } from './secret-read-error.js';
+import type { ProviderCredential } from './provider-credential.ts';
+import type { ProviderKeySource } from './provider-key-source.ts';
+import type { SupportedProvider } from './provider-metadata.ts';
+import type { SecretReadErrorCode } from './secret-read-error.ts';
 
 /** Result of `saveKey` / `saveCredential`: `true` or a typed structured failure. */
 export type SecretsWriteResult =

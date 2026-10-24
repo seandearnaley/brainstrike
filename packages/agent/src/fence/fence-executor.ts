@@ -41,16 +41,16 @@ import {
   type ExecResult,
   type ExecutorCapabilities,
   parseExecInput,
-} from '../code-execution';
-import { buildSandboxRuntimeConfig } from './fence-policy';
+} from '../code-execution.ts';
+import { buildSandboxRuntimeConfig } from './fence-policy.ts';
 import {
   FENCE_READINESS_TIMEOUT_MS,
   fenceReadinessFailure,
   fenceReadinessTimeout,
   probeFenceReadiness,
   withLinuxSeccompApplyPath,
-} from './fence-readiness';
-import { FenceReadinessError } from './fence-readiness-error';
+} from './fence-readiness.ts';
+import { FenceReadinessError } from './fence-readiness-error.ts';
 
 /** Grace period between the SIGTERM and the SIGKILL sent to the process tree. */
 const KILL_GRACE_MS = 500;

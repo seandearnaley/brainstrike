@@ -3,9 +3,9 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   validateImageAttachmentPart,
-} from './assistant-attachments.js';
-import { childNextRunSchema } from './child-execution-configuration.js';
-import { omitUndefinedOptional } from './schema-boundary.js';
+} from './assistant-attachments.ts';
+import { childNextRunSchema } from './child-execution-configuration.ts';
+import { omitUndefinedOptional } from './schema-boundary.ts';
 /** Matches native Mastra FilePart; the root composer currently supports images. */
 export const assistantChildAttachmentSchema = Schema.Struct({
   data: Schema.String,

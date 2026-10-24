@@ -18,17 +18,31 @@ export class ElectronHarness {
   private hasProvidedWindow = false;
   private readonly maxRendererRecoveryAttempts = 1;
 
+  private readonly testInfo: TestInfo;
+  private readonly debugPort: number | undefined;
+  private readonly userDataDir: string | undefined;
+  /** Extra environment for every launch of the app, restarts included (never the harness's own). */
+  private readonly electronEnv: Readonly<Record<string, string>> | undefined;
+  /** Provider egress boundary for every launch, restarts included (BST-1931). */
+  private readonly modelProvider: ModelProviderShim | undefined;
+  /** The real folder every launch's folder picker mounts by default, restarts included. */
+  private readonly workspaceRoot: string | undefined;
+
   constructor(
-    private readonly testInfo: TestInfo,
-    private readonly debugPort?: number,
-    private readonly userDataDir?: string,
-    /** Extra environment for every launch of the app, restarts included (never the harness's own). */
-    private readonly electronEnv?: Readonly<Record<string, string>>,
-    /** Provider egress boundary for every launch, restarts included (BST-1931). */
-    private readonly modelProvider?: ModelProviderShim,
-    /** The real folder every launch's folder picker mounts by default, restarts included. */
-    private readonly workspaceRoot?: string
-  ) {}
+    testInfo: TestInfo,
+    debugPort?: number,
+    userDataDir?: string,
+    electronEnv?: Readonly<Record<string, string>>,
+    modelProvider?: ModelProviderShim,
+    workspaceRoot?: string
+  ) {
+    this.testInfo = testInfo;
+    this.debugPort = debugPort;
+    this.userDataDir = userDataDir;
+    this.electronEnv = electronEnv;
+    this.modelProvider = modelProvider;
+    this.workspaceRoot = workspaceRoot;
+  }
 
   /** The running app's main window, if it has one; the fixture screenshots it before closing. */
   currentWindow(): Page | undefined {

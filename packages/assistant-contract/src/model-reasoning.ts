@@ -17,20 +17,20 @@
  * `contextWindow` on `LlmModelDefinition`.
  */
 import { getGoogleThinkingLevels } from '@brainstrike/types';
-import type { OpenRouterModelMetadata } from './openrouter-model-metadata.js';
+import type { OpenRouterModelMetadata } from './openrouter-model-metadata.ts';
 import {
   getProviderDefinition,
   type LlmModelDefinition,
   listProviderLlmModels,
   listProviders,
   type ProviderId,
-} from './provider-registry.js';
+} from './provider-registry.ts';
 import type {
   AnthropicEffort,
   BedrockReasoningEffort,
   GoogleThinkingLevel,
   OpenAiReasoningEffort,
-} from './runtime-data.js';
+} from './runtime-data.ts';
 
 export type ModelReasoningSupport =
   | { state: 'supported'; source: 'model' | 'provider-default' }

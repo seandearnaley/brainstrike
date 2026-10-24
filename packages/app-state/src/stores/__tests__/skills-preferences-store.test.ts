@@ -5,13 +5,13 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import type { PersistApi } from '../../__tests__/persist-api-test-helper';
+import type { PersistApi } from '../../__tests__/persist-api-test-helper.ts';
 import {
   __resetSkillsPreferencesStoreForTests,
   buildSkillsContextRequest,
   resetSkillsPreferencesStoreToDefaults,
   useSkillsPreferencesStore,
-} from '../skills-preferences-store';
+} from '../skills-preferences-store.ts';
 
 const storeWithPersist = useSkillsPreferencesStore as PersistApi<typeof useSkillsPreferencesStore>;
 

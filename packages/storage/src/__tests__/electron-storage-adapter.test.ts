@@ -7,7 +7,7 @@ import {
   ElectronStorageAdapter,
   InvalidUserDataPathError,
   StorageFileLoadError,
-} from '../adapters/electron-storage-adapter.js';
+} from '../adapters/electron-storage-adapter.ts';
 
 let storageFile: string;
 let userDataDir: string;
@@ -529,7 +529,7 @@ describe('ElectronStorageAdapter', () => {
   describe('path containment', () => {
     it('should reject path traversal attempts with ../', async () => {
       // Import PathTraversalError for this test
-      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.js');
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.ts');
 
       const maliciousPath = '../../../etc/passwd';
       const maliciousAdapter = new ElectronStorageAdapter(maliciousPath);
@@ -540,7 +540,7 @@ describe('ElectronStorageAdapter', () => {
     });
 
     it('should reject absolute path traversal attempts', async () => {
-      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.js');
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.ts');
 
       // This absolute path is outside userDataDir
       const absolutePath = '/etc/passwd';
@@ -551,7 +551,7 @@ describe('ElectronStorageAdapter', () => {
 
     it('should reject path with mixed traversal sequences', async () => {
       // path.resolve handles various traversal patterns
-      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.js');
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.ts');
 
       // These paths, when resolved, should escape the userDataDir
       // Note: Backslash traversal only works on Windows; on Unix backslash is a valid filename char
@@ -568,7 +568,7 @@ describe('ElectronStorageAdapter', () => {
     });
 
     it('should reject paths that escape via symlink-like patterns', async () => {
-      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.js');
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter.ts');
 
       // Paths that might try to escape through various means
       const maliciousPaths = [

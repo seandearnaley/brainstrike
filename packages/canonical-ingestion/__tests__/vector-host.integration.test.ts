@@ -24,7 +24,7 @@ import type {
 
 // This suite drives the built package; the source owns its type.
 const { CanonicalIngestionHost }: typeof CanonicalIngestion = await import(
-  new URL('../dist/index.js', import.meta.url).href
+  new URL('../src/index.ts', import.meta.url).href
 );
 const { openIndexer } = await import('@brainstrike/indexer');
 const profile: VectorProfile = {

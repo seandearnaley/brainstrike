@@ -5,8 +5,8 @@
  * live per-folder state shape (FolderState) that mirrors them.
  */
 
-import type { SelectionModel, SerializedSelectionModel } from './file-explorer-selection-types.js';
-import type { StoredRootDescriptor } from './file-explorer-state-types.js';
+import type { SelectionModel, SerializedSelectionModel } from './file-explorer-selection-types.ts';
+import type { StoredRootDescriptor } from './file-explorer-state-types.ts';
 
 // Helper types for serialization
 export interface SerializedFolderState {

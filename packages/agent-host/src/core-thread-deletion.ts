@@ -1,13 +1,13 @@
 import { BoundaryFailureError, fault, refusalError } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
-import type { HostChildRuns } from './core-child-runs.js';
+import type { HostChildRuns } from './core-child-runs.ts';
 import {
   abortHostThreadRuns,
   assertHostAdmissionCleanup,
   joinHostThreadDeletion,
-} from './core-run-lifecycle.js';
-import type { HostRunState } from './core-state.js';
-import type { HostResults } from './protocol.js';
+} from './core-run-lifecycle.ts';
+import type { HostRunState } from './core-state.ts';
+import type { HostResults } from './protocol.ts';
 
 type Deletion = Promise<HostResults['thread/delete']>;
 

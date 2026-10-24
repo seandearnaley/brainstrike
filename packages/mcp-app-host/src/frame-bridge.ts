@@ -6,17 +6,17 @@ import {
   type McpAppFrameSessionMessageContext,
   type McpAppFrameSessionPhase,
   type McpAppFrameSource,
-} from './frame-session.js';
-import { correlationKey, parsePositiveSafeInteger, toError } from './internal.js';
+} from './frame-session.ts';
+import { correlationKey, parsePositiveSafeInteger, toError } from './internal.ts';
 import {
   McpAppRequestCorrelator,
   type McpAppRequestMethod,
   type McpAppResponse,
   parseMcpAppResponse,
-} from './json-rpc.js';
-import type { McpAppMessage } from './messages.js';
-import { parseMcpAppJsonValue, parseMcpAppMessage } from './messages.js';
-import type { UnknownRecord } from './validation.js';
+} from './json-rpc.ts';
+import type { McpAppMessage } from './messages.ts';
+import { parseMcpAppJsonValue, parseMcpAppMessage } from './messages.ts';
+import type { UnknownRecord } from './validation.ts';
 
 const MAX_PENDING_NOTIFICATIONS = 256;
 

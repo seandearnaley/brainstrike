@@ -214,11 +214,16 @@ export class HostTreeApprovals implements SubagentChildRunSource {
   private running = NOT_RUNNING;
   private closed = false;
 
+  private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
+  readonly threadId: string;
+
   constructor(
-    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
-    readonly threadId: string,
+    client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
+    threadId: string,
     source: CommittedThreadSession
   ) {
+    this.client = client;
+    this.threadId = threadId;
     this.watch(threadId, source, undefined, undefined, undefined);
   }
 

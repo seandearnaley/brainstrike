@@ -8,7 +8,7 @@ import {
   readLocalRuntimeProbeCountsForTests,
   recordLocalRuntimeProbeForTests,
   resetLocalRuntimeProbeCountsForTests,
-} from '../automation-overrides';
+} from '../automation-overrides.ts';
 
 const SELECTED_MODEL = 'local::onnx-community/gemma-4-E2B-it-ONNX';
 

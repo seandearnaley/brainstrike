@@ -10,7 +10,7 @@ import {
   type JsonObject,
   type McpTaskBlockedDiagnostic,
   type McpTaskStatus,
-} from './mcp-task-row-schema.js';
+} from './mcp-task-row-schema.ts';
 
 export const MCP_TASK_METADATA_MAX_BYTES = 65_536;
 const MAX_BLOCKED_DIAGNOSTIC_BYTES = 4096;
@@ -125,13 +125,22 @@ export interface McpTaskStorage {
 }
 
 export class McpTaskMetadataTooLargeError extends TypeError {
+  readonly field: 'inputMetadata' | 'resultMetadata';
+  readonly actualBytes: number;
+  readonly maxBytes: number;
+  readonly sha256: string;
+
   constructor(
-    readonly field: 'inputMetadata' | 'resultMetadata',
-    readonly actualBytes: number,
-    readonly maxBytes: number,
-    readonly sha256: string
+    field: 'inputMetadata' | 'resultMetadata',
+    actualBytes: number,
+    maxBytes: number,
+    sha256: string
   ) {
     super(`MCP task ${field} exceeds ${maxBytes} bytes.`);
+    this.field = field;
+    this.actualBytes = actualBytes;
+    this.maxBytes = maxBytes;
+    this.sha256 = sha256;
     this.name = 'McpTaskMetadataTooLargeError';
   }
 }
@@ -360,10 +369,13 @@ function explainRejectedUpdate(
 
 /** Durable local Tasks handle store. Lifecycle polling is deliberately out of scope. */
 export class McpTaskStore {
-  constructor(
-    private readonly storage: McpTaskStorage,
-    private readonly now: () => Date = () => new Date()
-  ) {}
+  private readonly storage: McpTaskStorage;
+  private readonly now: () => Date;
+
+  constructor(storage: McpTaskStorage, now: () => Date = () => new Date()) {
+    this.storage = storage;
+    this.now = now;
+  }
 
   async openAuthority(input: McpTaskAuthorityInput): Promise<McpTaskAuthorityLease> {
     requireAuthorityInput(input);

@@ -36,8 +36,11 @@ export const PlatformMessagePortSchema = Schema.declare<PlatformMessagePort>(
     typeof value.start === 'function'
 );
 class MainPortReader extends AbstractMessageReader {
-  constructor(private readonly port: PlatformMessagePort) {
+  private readonly port: PlatformMessagePort;
+
+  constructor(port: PlatformMessagePort) {
     super();
+    this.port = port;
   }
   listen(callback: DataCallback): Disposable {
     const receive = (event: { readonly data: unknown }): void => {
@@ -67,8 +70,11 @@ class MainPortReader extends AbstractMessageReader {
   }
 }
 class MainPortWriter extends AbstractMessageWriter {
-  constructor(private readonly port: PlatformMessagePort) {
+  private readonly port: PlatformMessagePort;
+
+  constructor(port: PlatformMessagePort) {
     super();
+    this.port = port;
   }
   write(message: Message): Promise<void> {
     try {

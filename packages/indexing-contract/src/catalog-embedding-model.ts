@@ -1,4 +1,4 @@
-import type { EmbeddingDType, EmbeddingPooling } from './embedding-worker-protocol.js';
+import type { EmbeddingDType, EmbeddingPooling } from './embedding-worker-protocol.ts';
 
 /**
  * The text a model's card says to put before a query and before a document.

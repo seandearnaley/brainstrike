@@ -14,9 +14,9 @@ ALTER TABLE ${TASKS} ADD COLUMN thread_id TEXT REFERENCES threads(id) ON DELETE 
 CREATE INDEX ${TASKS}_thread_idx ON ${TASKS}(thread_id) WHERE thread_id IS NOT NULL;
 `;
 
-/** @typedef {import('./mcp-task-types.js').McpTaskLeaseWire} Lease */
-/** @typedef {import('./mcp-task-types.js').McpTaskIdentityWire} Identity */
-/** @typedef {import('./mcp-task-types.js').McpTaskDomainRow} Row */
+/** @typedef {import('./mcp-task-types.ts').McpTaskLeaseWire} Lease */
+/** @typedef {import('./mcp-task-types.ts').McpTaskIdentityWire} Identity */
+/** @typedef {import('./mcp-task-types.ts').McpTaskDomainRow} Row */
 
 const LIVE_LEASE = `EXISTS (
   SELECT 1 FROM ${AUTHORITIES}
@@ -78,7 +78,7 @@ function leaseIsLive(db, lease) {
  * generation) claims it, retired and replaced when its own runtime advances a
  * generation, and stale when its own runtime presents an older generation.
  * @param {import('better-sqlite3').Database} db
- * @param {Extract<import('./mcp-task-types.js').McpTaskDomainRequest, { operation: 'open-authority' }>} request
+ * @param {Extract<import('./mcp-task-types.ts').McpTaskDomainRequest, { operation: 'open-authority' }>} request
  * @returns {Row[]}
  */
 function openAuthority(db, { at, authorityEpoch, input }) {
@@ -140,7 +140,7 @@ function openAuthority(db, { at, authorityEpoch, input }) {
 
 /**
  * @param {import('better-sqlite3').Database} db
- * @param {Extract<import('./mcp-task-types.js').McpTaskDomainRequest, { operation: 'update' }>} request
+ * @param {Extract<import('./mcp-task-types.ts').McpTaskDomainRequest, { operation: 'update' }>} request
  * @returns {Row[]}
  */
 function update(db, { identity, lease, patch }) {
@@ -199,7 +199,7 @@ function update(db, { identity, lease, patch }) {
 /** The settings key recording that the desktop's PGlite Tasks rows were imported. */
 /**
  * @param {import('better-sqlite3').Database} db
- * @param {import('./mcp-task-types.js').McpTaskDomainRequest} request
+ * @param {import('./mcp-task-types.ts').McpTaskDomainRequest} request
  * @returns {Row[]}
  */
 function execute(db, request) {
@@ -291,8 +291,8 @@ function execute(db, request) {
 
 /**
  * @param {import('better-sqlite3').Database} db
- * @param {import('./mcp-task-types.js').McpTaskDomainRequest} request
- * @returns {import('./mcp-task-types.js').McpTaskDomainReply}
+ * @param {import('./mcp-task-types.ts').McpTaskDomainRequest} request
+ * @returns {import('./mcp-task-types.ts').McpTaskDomainReply}
  */
 export function executeMcpTaskRequest(db, request) {
   return { rows: db.transaction(() => execute(db, request))() };

@@ -2,7 +2,7 @@ import { realpath } from 'node:fs/promises';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { isDurableRootId } from '@brainstrike/file-system';
-import { type DatabaseLocation, joinProfileDirectory } from './node-workspace/database-location.js';
+import { type DatabaseLocation, joinProfileDirectory } from './node-workspace/database-location.ts';
 
 /** Structural borrow of HostStartupContext; it cannot acquire or release Root. */
 export interface NodeWorkspaceServicesStartup {
@@ -76,7 +76,11 @@ class NodeWorkspaceBorrower<TDatabase> implements NodeWorkspaceServices<TDatabas
   private readonly leases = new Set<CanonicalWorkspaceLease>();
   private readonly partialClosers: (() => Promise<void>)[] = [];
 
-  constructor(private readonly startup: NodeWorkspaceServicesStartup) {}
+  private readonly startup: NodeWorkspaceServicesStartup;
+
+  constructor(startup: NodeWorkspaceServicesStartup) {
+    this.startup = startup;
+  }
 
   initialize(
     acquireProfile: (
@@ -234,22 +238,22 @@ class NodeWorkspaceBorrower<TDatabase> implements NodeWorkspaceServices<TDatabas
   }
 }
 
-export * from './node-workspace/database-location.js';
-export * from './node-workspace/db-runtime-env.js';
-export * from './node-workspace/existing-profile-services.js';
-export * from './node-workspace/file-not-found-error.js';
-export { createNodeFsScanDeps } from './node-workspace/node-fs-scan-deps.js';
-export * from './node-workspace/read-denial-diagnostic.js';
-export * from './node-workspace/user-personas-loader.js';
-export * from './node-workspace/user-slash-commands-loader.js';
-export * from './node-workspace/workspace-recent-roots.js';
-export * from './node-workspace/workspace-root-availability.js';
-export * from './node-workspace/workspace-root-mounts.js';
-export * from './node-workspace/workspace-root-paths.js';
-export * from './node-workspace/workspace-root-read.js';
-export * from './node-workspace/workspace-root-registry.js';
-export * from './node-workspace/workspace-root-seams.js';
-export * from './node-workspace/workspace-root-source-lease.js';
-export * from './node-workspace/workspace-root-store.js';
-export * from './node-workspace/workspace-root-types.js';
-export * from './node-workspace/workspace-roots.js';
+export * from './node-workspace/database-location.ts';
+export * from './node-workspace/db-runtime-env.ts';
+export * from './node-workspace/existing-profile-services.ts';
+export * from './node-workspace/file-not-found-error.ts';
+export { createNodeFsScanDeps } from './node-workspace/node-fs-scan-deps.ts';
+export * from './node-workspace/read-denial-diagnostic.ts';
+export * from './node-workspace/user-personas-loader.ts';
+export * from './node-workspace/user-slash-commands-loader.ts';
+export * from './node-workspace/workspace-recent-roots.ts';
+export * from './node-workspace/workspace-root-availability.ts';
+export * from './node-workspace/workspace-root-mounts.ts';
+export * from './node-workspace/workspace-root-paths.ts';
+export * from './node-workspace/workspace-root-read.ts';
+export * from './node-workspace/workspace-root-registry.ts';
+export * from './node-workspace/workspace-root-seams.ts';
+export * from './node-workspace/workspace-root-source-lease.ts';
+export * from './node-workspace/workspace-root-store.ts';
+export * from './node-workspace/workspace-root-types.ts';
+export * from './node-workspace/workspace-roots.ts';

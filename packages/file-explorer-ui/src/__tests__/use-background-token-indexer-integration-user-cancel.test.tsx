@@ -25,10 +25,10 @@ class MockWorker {
   public readonly terminate = vi.fn();
   private readonly listeners = new Map<string, Array<(...args: unknown[]) => void>>();
 
-  constructor(
-    public url: string | URL,
-    _opts?: WorkerOptions
-  ) {
+  public url: string | URL;
+
+  constructor(url: string | URL, _opts?: WorkerOptions) {
+    this.url = url;
     mockWorkers.push(this);
   }
 

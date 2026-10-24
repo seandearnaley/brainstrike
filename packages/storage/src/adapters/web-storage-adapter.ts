@@ -1,4 +1,4 @@
-import type { StorageAdapter } from '../types.js';
+import type { StorageAdapter } from '../types.ts';
 
 export class WebStorageAdapter implements StorageAdapter {
   private readonly storage: Storage;

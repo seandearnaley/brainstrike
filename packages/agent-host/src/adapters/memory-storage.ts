@@ -5,7 +5,7 @@ import type {
 } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { InMemoryStore, MemoryStorage } from '@mastra/core/storage';
-import { decodeMemory, encodeMemory, memoryConfiguration } from './memory-storage-codec.js';
+import { decodeMemory, encodeMemory, memoryConfiguration } from './memory-storage-codec.ts';
 
 export interface CommittedMemoryTranscript {
   /**
@@ -41,13 +41,22 @@ export class StateStoreMemoryStorage extends MemoryStorage {
   private readonly failures: unknown[] = [];
   private closing: Promise<void> | undefined;
 
+  readonly resourceId: string;
+  private readonly writer: MemoryDomainPort;
+  private readonly transcript: CommittedMemoryTranscript;
+  private readonly ownerThreadId: string | undefined;
+
   constructor(
-    readonly resourceId: string,
-    private readonly writer: MemoryDomainPort,
-    private readonly transcript: CommittedMemoryTranscript,
-    private readonly ownerThreadId?: string
+    resourceId: string,
+    writer: MemoryDomainPort,
+    transcript: CommittedMemoryTranscript,
+    ownerThreadId?: string
   ) {
     super();
+    this.resourceId = resourceId;
+    this.writer = writer;
+    this.transcript = transcript;
+    this.ownerThreadId = ownerThreadId;
   }
 
   private admit<Value>(operation: () => Promise<Value>): Promise<Value> {

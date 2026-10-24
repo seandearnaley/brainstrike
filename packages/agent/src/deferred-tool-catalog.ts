@@ -1,8 +1,8 @@
 import { HOST_META_TOOL_ID } from '@brainstrike/assistant-contract';
 import { standardInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { Schema } from 'effect';
-import type { HostToolDefinition } from './host-tool-definition';
-import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
+import type { HostToolDefinition } from './host-tool-definition.ts';
+import { createMastraAgentError } from './mastra-boundary/mastra-agent-error.ts';
 
 export const LIST_AVAILABLE_TOOLS_ID = HOST_META_TOOL_ID.listAvailableTools;
 const PAGE_SIZE = 50;

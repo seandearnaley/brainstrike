@@ -14,15 +14,15 @@ import type { z } from 'zod';
 import type {
   McpElicitationPresentationWire,
   McpElicitationSettlement,
-} from './mcp-elicitation.js';
-import { type McpExtensionEnablement, McpExtensionEnablementSchema } from './mcp-extensions.js';
+} from './mcp-elicitation.ts';
+import { type McpExtensionEnablement, McpExtensionEnablementSchema } from './mcp-extensions.ts';
 import type {
   McpConfiguredProtocol,
   McpConnectionState,
   McpNegotiatedStatus,
   McpStatusTransport,
-} from './mcp-status.js';
-import type { McpTaskHandle } from './mcp-task-presentation.js';
+} from './mcp-status.ts';
+import type { McpTaskHandle } from './mcp-task-presentation.ts';
 export const MCP_CONFIGURED_SERVER_ID_MAX_LENGTH = 128;
 const RESERVED_CONFIGURED_SERVER_IDS = new Set(['__proto__', 'constructor', 'prototype']);
 const UNICODE_CONTROL_OR_FORMAT_PATTERN = /[\p{Cc}\p{Cf}]/u;
@@ -686,4 +686,4 @@ export interface McpHostPort {
   snapshot(): McpHostSnapshot;
   watch(filter: McpHostWatchFilter, listener: (event: McpHostWatchEvent) => void): () => void;
 }
-export { MCP_CONNECTION_STATES, type McpConnectionState } from './mcp-status.js';
+export { MCP_CONNECTION_STATES, type McpConnectionState } from './mcp-status.ts';

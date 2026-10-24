@@ -318,7 +318,11 @@ describe('pipeline cache metadata and dispose', () => {
     });
     const channelMessages: unknown[] = [];
     class MockBroadcastChannel {
-      constructor(readonly name: string) {}
+      readonly name: string;
+
+      constructor(name: string) {
+        this.name = name;
+      }
 
       postMessage(message: unknown): void {
         channelMessages.push(message);
@@ -523,7 +527,11 @@ describe('pipeline cache metadata and dispose', () => {
     });
     const channelMessages: unknown[] = [];
     class MockBroadcastChannel {
-      constructor(readonly name: string) {}
+      readonly name: string;
+
+      constructor(name: string) {
+        this.name = name;
+      }
 
       postMessage(message: unknown): void {
         channelMessages.push(message);

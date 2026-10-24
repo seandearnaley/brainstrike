@@ -14,9 +14,9 @@ import { createRequire } from 'node:module';
 import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { spawnNativeChild } from '@brainstrike/state-store/native-children';
-import { resolveShellInvocation } from '../native-tools/execute-command-tool.js';
-import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.js';
-import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.js';
+import { resolveShellInvocation } from '../native-tools/execute-command-tool.ts';
+import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.ts';
+import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.ts';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
   type HookEventResult,
@@ -24,7 +24,7 @@ import {
   type HookStdin,
   type HookStdout,
   type LoadedHook,
-} from './types.js';
+} from './types.ts';
 
 type HookLogger = Pick<ScopedLogger, 'debug' | 'info' | 'warn' | 'error'>;
 

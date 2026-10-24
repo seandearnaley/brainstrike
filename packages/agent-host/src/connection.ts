@@ -8,18 +8,18 @@ import {
 import type { HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
-import { bindHostAuthMethods } from './auth-connection.js';
-import { toBoundaryResponseError } from './boundary-wire.js';
-import { bindHostBrowserOriginMethods } from './browser-origin-answers.js';
-import type { HostCore } from './core.js';
-import { hostChildStatusChanged } from './core-child-runs.js';
-import { HostRunNotAdmittedError } from './core-run-lifecycle.js';
-import { bindHostHookTrustMethods } from './hook-trust.js';
-import { bindHostMcpContentMethods } from './mcp-content-connection.js';
-import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
-import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
-import { probeHostMemoryEmbedder } from './memory-embedder-probe.js';
-import { bindHostPermissionPolicyMethods } from './permission-policy.js';
+import { bindHostAuthMethods } from './auth-connection.ts';
+import { toBoundaryResponseError } from './boundary-wire.ts';
+import { bindHostBrowserOriginMethods } from './browser-origin-answers.ts';
+import type { HostCore } from './core.ts';
+import { hostChildStatusChanged } from './core-child-runs.ts';
+import { HostRunNotAdmittedError } from './core-run-lifecycle.ts';
+import { bindHostHookTrustMethods } from './hook-trust.ts';
+import { bindHostMcpContentMethods } from './mcp-content-connection.ts';
+import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.ts';
+import { bindHostMcpSettingsMethods } from './mcp-settings-connection.ts';
+import { probeHostMemoryEmbedder } from './memory-embedder-probe.ts';
+import { bindHostPermissionPolicyMethods } from './permission-policy.ts';
 import type {
   HostAuthService,
   HostClientOrigin,
@@ -28,7 +28,7 @@ import type {
   HostMcpSettingsService,
   HostPlatform,
   HostProviderService,
-} from './ports.js';
+} from './ports.ts';
 import {
   HOST_CHILDREN_CHANGED,
   HOST_RUN_NOT_ADMITTED_CODE,
@@ -37,15 +37,15 @@ import {
   type HostMethod,
   type HostParams,
   parseHostParams,
-} from './protocol.js';
-import { bindHostProviderMethods } from './provider-connection.js';
-import { storeRefusal } from './store-refusals.js';
+} from './protocol.ts';
+import { bindHostProviderMethods } from './provider-connection.ts';
+import { storeRefusal } from './store-refusals.ts';
 import {
   coverageHostSearchVectors,
   pendingHostSearchVectors,
   putHostSearchVectors,
   searchHostThreads,
-} from './thread-search.js';
+} from './thread-search.ts';
 
 export interface HostConnectionLifecycle {
   readonly closing: boolean;

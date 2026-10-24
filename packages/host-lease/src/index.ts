@@ -1,21 +1,21 @@
-export { attachHost, attachStartedHost, type HostAttachment } from './client.js';
+export { attachHost, attachStartedHost, type HostAttachment } from './client.ts';
 export {
   type HostLaunchOptions,
   type HostSpawner,
   LiveHostUnavailableError,
   launchHost,
   type StartedHost,
-} from './launcher.js';
-export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.js';
-export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.js';
+} from './launcher.ts';
+export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.ts';
+export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.ts';
 export {
   HOST_LEASE_CLOSING,
   HOST_LEASE_CONNECTION_CLOSED,
   type HostLeaseRefusalCode,
   HostLeaseRefusalError,
-} from './refusal.js';
-export { acquireProfileResetLease, type ProfileResetLease } from './reset-root.js';
-export { ResourceOwner } from './resource-owner.js';
+} from './refusal.ts';
+export { acquireProfileResetLease, type ProfileResetLease } from './reset-root.ts';
+export { ResourceOwner } from './resource-owner.ts';
 export {
   decodeStartOptions,
   type HostLifetime,
@@ -24,6 +24,6 @@ export {
   type HostSocketLifecycle,
   type HostStartOptions,
   startHost,
-} from './runtime.js';
-export { RootContentionError, startupFailure } from './startup-failure.js';
-export { decodeStartupMessage, type StartupMessage } from './startup-message.js';
+} from './runtime.ts';
+export { RootContentionError, startupFailure } from './startup-failure.ts';
+export { decodeStartupMessage, type StartupMessage } from './startup-message.ts';

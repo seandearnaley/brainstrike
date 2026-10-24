@@ -1,12 +1,12 @@
-import { SimpleEmbeddingService } from '../../bge-m3-service.js';
-import type { EmbeddingInput, ILocalEmbeddingProvider } from '../../interfaces/provider.js';
+import { SimpleEmbeddingService } from '../../bge-m3-service.ts';
+import type { EmbeddingInput, ILocalEmbeddingProvider } from '../../interfaces/provider.ts';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   ProviderMetadata,
   Result,
-} from '../../provider-types.js';
-import type { EmbeddingProgress, ModelConfig } from '../../types.js';
+} from '../../provider-types.ts';
+import type { EmbeddingProgress, ModelConfig } from '../../types.ts';
 
 /** Default distance metric for local transformers models */
 const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
@@ -28,16 +28,16 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
   private readonly modelConfig: ModelConfig;
   private expectedDimensions: number | null = null;
 
+  private readonly deviceOverride: 'webgpu' | 'wasm' | undefined;
+
   /**
    * Create a new local embedding provider
    *
    * @param modelConfigOrId - Model configuration from database, or model ID string for backward compatibility
    * @param deviceOverride - Optional device override ('webgpu' | 'wasm')
    */
-  constructor(
-    modelConfigOrId: ModelConfig | string,
-    private readonly deviceOverride?: 'webgpu' | 'wasm'
-  ) {
+  constructor(modelConfigOrId: ModelConfig | string, deviceOverride?: 'webgpu' | 'wasm') {
+    this.deviceOverride = deviceOverride;
     this.service = new SimpleEmbeddingService();
     // Support both ModelConfig object and legacy string modelId
     if (typeof modelConfigOrId === 'string') {

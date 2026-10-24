@@ -13,8 +13,8 @@ import {
   resolveMcpExtensionEnablement,
 } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpServer } from '@brainstrike/assistant-contract/mcp-config';
-import type { ExplicitClient } from './host-connection.js';
-import type { McpTaskConnectionClient } from './task-host.js';
+import type { ExplicitClient } from './host-connection.ts';
+import type { McpTaskConnectionClient } from './task-host.ts';
 
 /**
  * Effective registered-extension state for one connection (BST-1604).

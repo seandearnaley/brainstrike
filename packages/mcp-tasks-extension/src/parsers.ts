@@ -18,9 +18,9 @@ import {
   UpdateTaskParamsSchema,
   type UpdateTaskResult,
   UpdateTaskResultSchema,
-} from './schema.js';
+} from './schema.ts';
 
-export { parseMcpCreateTaskResult } from './task.js';
+export { parseMcpCreateTaskResult } from './task.ts';
 
 export function parseMcpGetTaskParams(value: unknown): GetTaskParams {
   return Schema.decodeUnknownSync(GetTaskParamsSchema)(value);

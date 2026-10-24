@@ -1,8 +1,8 @@
 import { Schema } from 'effect';
 import { z } from 'zod';
-import { assistantChildAttachmentsSchema } from './child-input.js';
-import { type AssistantRunEvent, isAssistantRunEvent } from './run-events.js';
-import { strictWireSchema } from './schema-boundary.js';
+import { assistantChildAttachmentsSchema } from './child-input.ts';
+import { type AssistantRunEvent, isAssistantRunEvent } from './run-events.ts';
+import { strictWireSchema } from './schema-boundary.ts';
 /** Native execution coordinates; ownership is resolved by the authenticated host. */
 export interface DelegatedRunIdentity {
   readonly childRuntimeRunId: string;

@@ -10,12 +10,12 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
-import { readMcpMultimodalOutput } from '../mcp/mcp-multimodal-output';
-import { toJsonSafe } from '../stream/json';
-import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
-import { isGuardedToolError } from '../tools/guard-tool-execution';
-import { readHookResultEnvelope } from '../tools/hook-runner';
-import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
+import { readMcpMultimodalOutput } from '../mcp/mcp-multimodal-output.ts';
+import { toJsonSafe } from '../stream/json.ts';
+import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits.ts';
+import { isGuardedToolError } from '../tools/guard-tool-execution.ts';
+import { readHookResultEnvelope } from '../tools/hook-runner.ts';
+import { projectToolOutputArtifactPage } from './tool-output-artifact-reader.ts';
 
 const APPROX_CHARS_PER_TOKEN = 4;
 const TEXT_ENCODER = new TextEncoder();
@@ -29,15 +29,20 @@ export const TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES = 16 * 1024 * 1024;
 export type ToolOutputArtifactSettlementFailureReason = 'output_too_large' | 'serialization_failed';
 
 export class ToolOutputArtifactSettlementError extends Error {
+  readonly reason: ToolOutputArtifactSettlementFailureReason;
+  readonly toolName: string;
+
   constructor(
-    readonly reason: ToolOutputArtifactSettlementFailureReason,
-    readonly toolName: string,
+    reason: ToolOutputArtifactSettlementFailureReason,
+    toolName: string,
     cause?: unknown
   ) {
     const detail = cause instanceof Error ? `: ${cause.message}` : '';
     super(`Failed to settle oversized output from ${toolName} (${reason})${detail}`, {
       ...(cause === undefined ? {} : { cause }),
     });
+    this.reason = reason;
+    this.toolName = toolName;
     this.name = 'ToolOutputArtifactSettlementError';
   }
 }

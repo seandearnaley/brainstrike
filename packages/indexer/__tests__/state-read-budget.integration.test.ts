@@ -6,11 +6,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { StateStore } from '@brainstrike/state-store';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it } from 'vitest';
 import { IndexerError, STATE_CATCH_UP_STEP_EVENTS } from '../src/contracts.js';
 import { openDesktopIndex } from '../src/desktop-index-connection.js';
 import { loadStateProjection } from '../src/state-projection.js';
 import { IndexWriter } from '../src/store.js';
+
+/** A frame the writer worker posts. */
+interface Frame {
+  readonly id?: number;
+  readonly kind: string;
+  readonly ok?: boolean;
+}
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
@@ -120,21 +127,30 @@ it('the worker thread serves every read op with a one-step budget, and a refusal
     },
   };
   const options = await seeded(Object.keys(ops), budget * 2 + 1);
-  const worker = new Worker(new URL('../dist/writer-worker.js', import.meta.url), {
+  const worker = new Worker(new URL('../src/writer-worker.ts', import.meta.url), {
     workerData: options,
   });
   owned.push(async () => {
     await worker.terminate();
   });
-  const frames: { readonly id?: number; readonly kind: string; readonly ok?: boolean }[] = [];
-  worker.on('message', (frame) => frames.push(frame));
-  await vi.waitFor(() => expect(frames[0]?.kind).toBe('ready'));
+  // Each frame is awaited as the worker posts it, so a cold source start has no poll deadline.
+  const nextFrame = (matches: (frame: Frame) => boolean) =>
+    new Promise<Frame>((resolve) => {
+      const listener = (frame: Frame) => {
+        if (matches(frame)) {
+          worker.off('message', listener);
+          resolve(frame);
+        }
+      };
+      worker.on('message', listener);
+    });
+  await expect(nextFrame(() => true)).resolves.toMatchObject({ kind: 'ready' });
   let id = 0;
-  const send = async (op: string, payload: unknown) => {
+  const send = (op: string, payload: unknown) => {
     const request = ++id;
+    const reply = nextFrame((frame) => frame.id === request);
     worker.postMessage({ id: request, op, payload });
-    await vi.waitFor(() => expect(frames.some((frame) => frame.id === request)).toBe(true));
-    return frames.find((frame) => frame.id === request);
+    return reply;
   };
 
   for (const [op, payload] of Object.entries(ops)) {

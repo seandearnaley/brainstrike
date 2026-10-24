@@ -19,48 +19,48 @@ import {
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { Schema } from 'effect';
-import type { JsonSchemaFactory } from './json-value.js';
-import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
-import { McpToolAuthoritySchema } from './mcp-authority-wire.js';
-import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.js';
+import type { JsonSchemaFactory } from './json-value.ts';
+import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
+import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
+import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.ts';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
   MCP_PRESENTATION_RESULT_SCHEMAS,
-} from './protocol-mcp-presentation.js';
+} from './protocol-mcp-presentation.ts';
 import {
   MCP_SETTINGS_METHOD_SCHEMAS,
   MCP_SETTINGS_RESULT_SCHEMAS,
-} from './protocol-mcp-settings.js';
+} from './protocol-mcp-settings.ts';
 import {
   HostMemoryCycleEventSchema,
   HostMemoryEmbedderProbeParamsSchema,
   HostMemoryEmbedderProbeResultSchema,
   HostMemoryModelsSchema,
   HostObservationalMemoryStateSchema,
-} from './protocol-memory.js';
+} from './protocol-memory.ts';
 import {
   HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
   PERMISSION_POLICY_RESULT_SCHEMAS,
-} from './protocol-permission-policy.js';
+} from './protocol-permission-policy.ts';
 import {
   REWIND_EVENT_SCHEMAS,
   REWIND_METHOD_SCHEMAS,
   REWIND_RESULT_SCHEMAS,
-} from './protocol-rewind.js';
-import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.js';
+} from './protocol-rewind.ts';
+import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.ts';
 import {
   SELECTION_METHOD_SCHEMAS,
   SELECTION_RESULT_SCHEMAS,
   selectionEventSchemas,
-} from './protocol-selection.js';
-import { HostStateHealthSchema } from './protocol-state-health.js';
+} from './protocol-selection.ts';
+import { HostStateHealthSchema } from './protocol-state-health.ts';
 import {
   RunVerdictDetailSchema,
   RunVerdictSchema,
   RunVerdictSourceSchema,
-} from './run-verdict-wire.js';
-import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
+} from './run-verdict-wire.ts';
+import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.ts';
 import {
   HostEditBaselineSchema,
   HostEditRevertOutcomeSchema,
@@ -69,20 +69,20 @@ import {
   HostWorkspaceEditOpSchema,
   Sha256,
   WorkspaceRelativePath,
-} from './workspace-wire.js';
+} from './workspace-wire.ts';
 
-export * from './mcp-authority-wire.js';
-export * from './protocol-mcp-content.js';
-export * from './protocol-mcp-presentation.js';
-export * from './protocol-mcp-settings.js';
-export * from './protocol-memory.js';
-export * from './protocol-permission-policy.js';
-export * from './protocol-rewind.js';
-export * from './protocol-search.js';
-export * from './protocol-selection.js';
-export * from './protocol-state-health.js';
-export * from './run-wire.js';
-export * from './workspace-wire.js';
+export * from './mcp-authority-wire.ts';
+export * from './protocol-mcp-content.ts';
+export * from './protocol-mcp-presentation.ts';
+export * from './protocol-mcp-settings.ts';
+export * from './protocol-memory.ts';
+export * from './protocol-permission-policy.ts';
+export * from './protocol-rewind.ts';
+export * from './protocol-search.ts';
+export * from './protocol-selection.ts';
+export * from './protocol-state-health.ts';
+export * from './run-wire.ts';
+export * from './workspace-wire.ts';
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`, and the explicit
 // branch links they commit on `run.started`), thread presentation (`thread/update`,
 // `thread.updated`: title, colour and icon, also in `thread/list`), withheld observational memory,

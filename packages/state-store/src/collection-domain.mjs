@@ -17,7 +17,7 @@ CREATE UNIQUE INDEX embedding_sets_system_role ON embedding_sets(system_role) WH
 `;
 const projection =
   'id,model_key AS modelKey,model_id AS modelId,dimensions,distance,created_at AS createdAt,name,description,category,tags,system_role AS systemRole';
-/** @typedef {import('./collection-types.js').CollectionRecord} Collection */
+/** @typedef {import('./collection-types.ts').CollectionRecord} Collection */
 /** @typedef {Omit<Collection, 'name'|'description'|'category'|'tags'|'systemRole'> & {name:string|null;description:string|null;category:string|null;tags:string|null;systemRole:'workspace-index'|null}} Row */
 /** @param {Row} row @returns {Collection} */
 function record(row) {
@@ -84,8 +84,8 @@ function create(db, collection) {
   return read(db, collection.id);
 }
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./collection-types.js').CollectionRequest} request
- * @returns {import('./collection-types.js').CollectionReply} */
+ * @param {import('./collection-types.ts').CollectionRequest} request
+ * @returns {import('./collection-types.ts').CollectionReply} */
 export function executeCollectionRequest(db, request) {
   return db.transaction(() => {
     switch (request.operation) {

@@ -6,7 +6,7 @@ export {
   MCP_APPS_SPEC_VERSION,
   type McpAppsClientCapability,
   parseMcpAppsClientCapability,
-} from './capabilities.js';
+} from './capabilities.ts';
 export {
   type McpAppFrameBinding,
   McpAppFrameBridge,
@@ -17,19 +17,19 @@ export {
   type McpAppFrameRequestContext,
   McpAppFrameRpcError,
   type McpAppFrameSource,
-} from './frame-bridge.js';
+} from './frame-bridge.ts';
 export {
   McpAppRequestCorrelator,
   type McpAppRequestMethod,
   type McpAppResponse,
   parseMcpAppResponse,
   parseMcpAppResponseId,
-} from './json-rpc.js';
+} from './json-rpc.ts';
 export {
   type McpAppMessage,
   type McpAppMessageDirection,
   parseMcpAppMessage,
-} from './messages.js';
+} from './messages.ts';
 export {
   type McpAppResourceCsp,
   type McpAppResourceMeta,
@@ -41,7 +41,7 @@ export {
   parseMcpAppResourceMeta,
   parseMcpAppResourceUri,
   parseMcpAppToolMeta,
-} from './metadata.js';
+} from './metadata.ts';
 export {
   type McpAppAudience,
   type McpAppGeneration,
@@ -50,7 +50,7 @@ export {
   type McpAppOwnedToolResult,
   McpAppProvenanceAuthority,
   type McpAppToolCall,
-} from './provenance.js';
+} from './provenance.ts';
 export {
   buildMcpAppSandboxPolicy,
   type McpAppSandboxMount,
@@ -62,7 +62,7 @@ export {
   renderMcpAppResourceDocument,
   renderMcpAppSandboxShell,
   renderMcpAppSandboxShellDocument,
-} from './sandbox.js';
+} from './sandbox.ts';
 export {
   MCP_APPS_PINNED_SCHEMA_UI_METHODS,
   MCP_APPS_SCHEMA_EXCLUSIONS,
@@ -70,7 +70,7 @@ export {
   MCP_APPS_STABLE_STANDARD_METHODS,
   MCP_APPS_STABLE_UI_METHODS,
   type McpAppStableMethod,
-} from './stable-contract.js';
+} from './stable-contract.ts';
 export {
   type McpAppPendingApproval,
   type McpAppPermissionDecision,
@@ -80,4 +80,4 @@ export {
   type McpAppToolCallAuthoritySnapshot,
   type McpAppToolCallPreparationContext,
   type McpAppToolRiskCategory,
-} from './tool-call-authority.js';
+} from './tool-call-authority.ts';

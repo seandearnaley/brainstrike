@@ -1,21 +1,21 @@
 // Re-export IFileNode from types package for convenience
 export type { IFileNode } from '@brainstrike/types';
-export * from './absolute-read-path.js';
+export * from './absolute-read-path.ts';
 // Explicit .js extensions keep Node ESM resolution happy in Vitest/SSR.
-export * from './adapters/mock-file-system-adapter.js';
+export * from './adapters/mock-file-system-adapter.ts';
 // Configuration for file size limits
-export * from './config.js';
-export * from './dev-fixture-adapter.js';
-export * from './dev-fixture-types.js';
-export * from './errors.js';
-export * from './factory.js';
-export * from './file-node-handles.js';
-export * from './file-system-access-types.js';
+export * from './config.ts';
+export * from './dev-fixture-adapter.ts';
+export * from './dev-fixture-types.ts';
+export * from './errors.ts';
+export * from './factory.ts';
+export * from './file-node-handles.ts';
+export * from './file-system-access-types.ts';
 // Metadata cache for Electron adapter (BST-146)
-export * from './metadata-cache.js';
+export * from './metadata-cache.ts';
 // Testing utilities
-export * from './testing/mock-data.js';
-export * from './types.js';
+export * from './testing/mock-data.ts';
+export * from './types.ts';
 // Note: Electron adapters and path-validation are node-only.
 // Import them from '@brainstrike/file-system/electron' and
 // '@brainstrike/file-system/path-validation' so renderer bundles

@@ -18,8 +18,11 @@ import { MainMcpHostControl } from '../../mcp/main-host-control';
 
 /** Real Node ports with the Electron utility port's public MessageEvent shape. */
 export class UtilityPort extends EventEmitter implements PlatformMessagePort {
-  constructor(private readonly port: MessagePort) {
+  private readonly port: MessagePort;
+
+  constructor(port: MessagePort) {
     super();
+    this.port = port;
     port.on('message', (data: unknown) => this.emit('message', { data }));
     port.on('close', () => this.emit('close'));
   }

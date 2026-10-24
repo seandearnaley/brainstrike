@@ -91,7 +91,11 @@ export class FailureArtifactCollector {
     | ((request: import('@playwright/test').Request) => void)
     | undefined;
 
-  constructor(private readonly page: Page) {}
+  private readonly page: Page;
+
+  constructor(page: Page) {
+    this.page = page;
+  }
 
   /**
    * Start collecting diagnostics. Call this at the beginning of each test.

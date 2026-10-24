@@ -1,6 +1,6 @@
 import type { LocalRuntimeId, LocalRuntimeModelCatalogState } from '@brainstrike/local-runtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAssistantPreferencesStore } from '../stores/assistant-preferences-store';
+import { useAssistantPreferencesStore } from '../stores/assistant-preferences-store.ts';
 
 type LocalRuntimeModelCatalogMap = Partial<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
 

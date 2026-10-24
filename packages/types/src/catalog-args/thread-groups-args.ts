@@ -4,8 +4,8 @@ import type {
   AssistantThreadIconId,
   AssistantThreadPlacement,
   ThreadGroupsRequest,
-} from '../index.js';
-import { assertSupportedKeys, parseRecord } from './structural.js';
+} from '../index.ts';
+import { assertSupportedKeys, parseRecord } from './structural.ts';
 
 function text(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0) {

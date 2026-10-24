@@ -1,6 +1,6 @@
-import type { HostRunState } from './core-state.js';
-import type { HostEvent } from './protocol.js';
-import type { HostRunOutcome } from './run-outcome.js';
+import type { HostRunState } from './core-state.ts';
+import type { HostEvent } from './protocol.ts';
+import type { HostRunOutcome } from './run-outcome.ts';
 
 export type HostRunAttemptEvent = Extract<HostEvent, { type: 'run.attempt' }>;
 

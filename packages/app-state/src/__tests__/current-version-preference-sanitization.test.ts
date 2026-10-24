@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { useSubagentPersonasStore } from '../stores/subagent-personas-store';
-import { useTokenPreferencesStore } from '../stores/token-preferences-store';
-import { useVectorPreferencesStore } from '../stores/vector-preferences-store';
-import { useWorkspaceInstructionsPreferencesStore } from '../stores/workspace-instructions-preferences-store';
-import type { PersistApi } from './persist-api-test-helper';
+import { useSubagentPersonasStore } from '../stores/subagent-personas-store.ts';
+import { useTokenPreferencesStore } from '../stores/token-preferences-store.ts';
+import { useVectorPreferencesStore } from '../stores/vector-preferences-store.ts';
+import { useWorkspaceInstructionsPreferencesStore } from '../stores/workspace-instructions-preferences-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 function mergeCurrentVersion<TStore>(
   store: TStore,

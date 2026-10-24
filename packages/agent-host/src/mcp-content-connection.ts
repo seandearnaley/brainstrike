@@ -1,5 +1,5 @@
-import type { HostMethodHandler } from './auth-connection.js';
-import type { HostClientOrigin, HostMcpContentService } from './ports.js';
+import type { HostMethodHandler } from './auth-connection.ts';
+import type { HostClientOrigin, HostMcpContentService } from './ports.ts';
 
 /**
  * The desktop's MCP content browsing on one authenticated connection (BST-1930

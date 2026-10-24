@@ -1,4 +1,4 @@
-import { SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output.js';
+import { SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output.ts';
 
 /**
  * The `type` of the chunk an MCP tool writes through its tool writer's `custom`

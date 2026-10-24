@@ -1,7 +1,7 @@
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
-import type { HostHookTrustStore } from './hook-trust.js';
-import type { HostLogRow, HostResults } from './protocol.js';
+import type { HostHookTrustStore } from './hook-trust.ts';
+import type { HostLogRow, HostResults } from './protocol.ts';
 
 type ListedThread = HostResults['thread/list']['threads'][number];
 

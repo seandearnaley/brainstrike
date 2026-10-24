@@ -2,7 +2,7 @@ import { isProxy } from 'node:util/types';
 import type { MemoryComponent } from '@brainstrike/assistant-contract';
 import type { MastraEmbeddingModel, MastraVector } from '@mastra/core/vector';
 import { type LanguageModelUsage, wrapLanguageModel } from 'ai';
-import { memoryFailureCauses } from './memory-failure.js';
+import { memoryFailureCauses } from './memory-failure.ts';
 
 export type MemoryLanguageModel = Parameters<typeof wrapLanguageModel>[0]['model'];
 type Model = ReturnType<typeof wrapLanguageModel>;
@@ -50,16 +50,28 @@ export class MemoryProviderLifetime {
     }
   };
 
+  private readonly signal: AbortSignal;
+  private readonly recordUsage: (receipt: {
+    readonly kind: Kind;
+    readonly modelId: string;
+    readonly usage: LanguageModelUsage;
+  }) => Promise<void>;
+  /** An embed call whose provider reported no tokens, so its spend is not recorded. */
+  private readonly unreported: () => void;
+
   constructor(
-    private readonly signal: AbortSignal,
-    private readonly recordUsage: (receipt: {
+    signal: AbortSignal,
+    recordUsage: (receipt: {
       readonly kind: Kind;
       readonly modelId: string;
       readonly usage: LanguageModelUsage;
     }) => Promise<void>,
-    /** An embed call whose provider reported no tokens, so its spend is not recorded. */
-    private readonly unreported: () => void = () => undefined
-  ) {}
+    unreported: () => void = () => undefined
+  ) {
+    this.signal = signal;
+    this.recordUsage = recordUsage;
+    this.unreported = unreported;
+  }
 
   private observeAbort(): void {
     if (!this.observing) {

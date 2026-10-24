@@ -8,8 +8,8 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry } from '@brainstrike/types';
-import { pathsEqual } from './workspace-root-paths.js';
-import type { StoredWorkspaceRoot, WorkspaceRootStorage } from './workspace-root-types.js';
+import { pathsEqual } from './workspace-root-paths.ts';
+import type { StoredWorkspaceRoot, WorkspaceRootStorage } from './workspace-root-types.ts';
 
 /**
  * Storage hygiene, not authorization intent: the cap bounds how much of this

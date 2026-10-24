@@ -61,7 +61,11 @@ class MountedRootWatchOwner implements WorkspaceRootWatchOwner {
   private closed = false;
   private closing: Promise<void> | undefined;
 
-  constructor(private readonly dependencies: Dependencies) {}
+  private readonly dependencies: Dependencies;
+
+  constructor(dependencies: Dependencies) {
+    this.dependencies = dependencies;
+  }
 
   async subscribe(
     mounted: MountedWorkspaceRoot,

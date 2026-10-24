@@ -13,7 +13,7 @@
 // at runtime, so this edge must stay `import type` (erased under
 // verbatimModuleSyntax) — importing a runtime value from `./index` here would
 // create a real circular import.
-import type { Platform } from './index.js';
+import type { Platform } from './index.ts';
 
 export type CspEnvironment = 'development' | 'production';
 

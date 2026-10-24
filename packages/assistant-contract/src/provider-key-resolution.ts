@@ -22,7 +22,7 @@
  * decides whether to throw or degrade. This function therefore never throws.
  */
 
-import type { ProviderCredential } from './provider-credential.js';
+import type { ProviderCredential } from './provider-credential.ts';
 
 export interface HostedKeyResolution {
   readonly key?: string;

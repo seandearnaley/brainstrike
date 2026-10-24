@@ -3,7 +3,7 @@ import { AGENT_SEMANTIC_COLOR_IDS, ASSISTANT_THREAD_ICON_IDS } from '@brainstrik
 import { parseThreadGroupsRequest } from '@brainstrike/types/catalog-args';
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { sendCatalogRequest } from './request.js';
+import { sendCatalogRequest } from './request.ts';
 
 const Text = Schema.String.check(Schema.isMinCodePoints(1));
 const ThreadGroup = Schema.Struct({
