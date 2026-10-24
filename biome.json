@@ -38,7 +38,6 @@
       "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
       "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}",
       "**/e2e/**/*.{ts,tsx}",
-      "!!spikes/m0-a1-qualification/original",
       "!!.muse/worktrees",
       "!**/node_modules",
       "!**/dist",
@@ -171,12 +170,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "apps/desktop/e2e/**",
-        "apps/web/e2e/**",
-        "apps/desktop/qualification/m2-native/**",
-        "apps/desktop/qualification/retrieval/**"
-      ],
+      "includes": ["apps/desktop/e2e/**", "apps/web/e2e/**"],
       "linter": {
         "rules": {
           "correctness": {

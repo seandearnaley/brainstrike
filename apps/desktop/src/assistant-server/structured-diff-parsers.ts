@@ -9,8 +9,7 @@
  * empty-field filter — the changeset-discovery spike's `parseNumstat` used
  * `.filter(Boolean)` before positional indexing, which silently drops an
  * unexpected empty field and shifts every subsequent record's positional
- * read (spikes/changeset-discovery/RECOMMENDATION.md, Task 4 "known spike
- * shortcuts"). An unexpected empty field here throws instead.
+ * read. An unexpected empty field here throws instead.
  */
 
 import type { StructuredDiffHunk } from '@brainstrike/types';

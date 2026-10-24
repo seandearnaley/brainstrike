@@ -8,8 +8,6 @@ import {
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
-import { createBenchmarkProgress } from '../../qualification/m2-native/benchmark-progress';
-import { nativeBuildComplete } from '../../qualification/m2-native/native-benchmark';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
@@ -132,60 +130,6 @@ it('withholds old progress while a new scan starts during status capture', async
     publicationProgress: [],
     rootReadiness: [{ rootId, scanComplete: false }],
   });
-});
-
-it('keeps scan-start status interleaving nonterminal in the actual benchmark progress seam without credit', async () => {
-  const f = fixture(profile);
-  f.replaceAuthority({
-    ...f.getAuthority(),
-    readiness: [{ generation: 0, mutationRevision: 0, scanComplete: false, scope }],
-  });
-  const baseline = await f.capability.status();
-  if (baseline.kind !== 'ready') {
-    throw new Error('Expected the cold ready status');
-  }
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  const info = f.port.info;
-  let calls = 0;
-  f.port.info = async () => {
-    if (++calls === 1) {
-      entered.resolve();
-      await release.promise;
-    }
-    return info();
-  };
-  const reading = f.capability.status();
-  await entered.promise;
-  f.replaceAuthority({
-    ...f.getAuthority(),
-    readiness: f
-      .getAuthority()
-      .readiness.map((receipt) => ({ ...receipt, generation: 1, mutationRevision: 1 })),
-  });
-  release.resolve();
-  const status = await reading;
-  expect(status).toMatchObject({
-    kind: 'ready',
-    publicationProgress: [],
-    rootReadiness: [{ scanComplete: false }],
-  });
-  let now = 0;
-  const record = vi.fn(async (_phase: string, _value: unknown) => {});
-  const progress = createBenchmarkProgress({
-    baseline,
-    now: () => now,
-    readCoverage: async () => null,
-    readStatus: async () => status,
-    record,
-    startedAt: 0,
-  });
-  expect(await progress.observe()).toBeNull();
-  expect(record).toHaveBeenCalledOnce();
-  expect(record.mock.calls[0]?.[0]).toBe('benchmark-progress-baseline');
-  expect(await f.capability.status()).toMatchObject({ kind: 'ready', publicationProgress: [] });
-  now = 200_001;
-  expect(progress.assertLive).toThrow(/200-second stall window/);
 });
 
 it('withholds captured completion and ACK when publication advances during status capture', async () => {
@@ -734,33 +678,6 @@ it.each([
     kind: 'invalidated',
   });
 });
-it('does not pair an earlier successful status with full counters after readiness invalidation', async () => {
-  const f = fixture(profile);
-  const staleStatus = await f.capability.status();
-  expect(staleStatus).toMatchObject({ rootReadiness: [{ rootId, scanComplete: true }] });
-  f.replaceAuthority({
-    ...f.getAuthority(),
-    generation: 2,
-    readiness: [{ generation: 2, mutationRevision: 1, scanComplete: false, scope }],
-  });
-  const result = await f.capability.coverageBatch([{ rootIds: [rootId] }]);
-  if (result.kind !== 'current') {
-    throw new Error('Expected a current fenced batch.');
-  }
-  expect(result.coverage.every((entry) => entry.vectorCoverageComplete)).toBe(true);
-  expect(result.status).toMatchObject({ rootReadiness: [{ rootId, scanComplete: false }] });
-  const { provider: _provider, distance: _distance, ...queryProfile } = profile;
-  const completionScope = {
-    files: 1,
-    mode: 'vector' as const,
-    profile: queryProfile,
-    rootId,
-    storeId,
-  };
-  expect(nativeBuildComplete(staleStatus, result.coverage[0]!, completionScope)).toBe(true);
-  expect(nativeBuildComplete(result.status, result.coverage[0]!, completionScope)).toBe(false);
-});
-
 it.each(['status', 'coverageBatch'] as const)(
   'keeps %s acquisition and cleanup failures fatal',
   async (method) => {
