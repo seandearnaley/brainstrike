@@ -110,10 +110,11 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
     await expect(handler('mcp:config:selectPath')(event(2))).rejects.toThrow(
       'MCP config path selection is already active for another window'
     );
-    pending.resolve({ canceled: false, filePaths: ['/picked/mcp.json'] });
+    const picked = path.resolve('/picked/mcp.json');
+    pending.resolve({ canceled: false, filePaths: [picked] });
 
-    await expect(first).resolves.toBe('/picked/mcp.json');
-    await expect(again).resolves.toBe('/picked/mcp.json');
+    await expect(first).resolves.toBe(picked);
+    await expect(again).resolves.toBe(picked);
     expect(dialog.showOpenDialog).toHaveBeenCalledTimes(1);
     expect(runtime.pickConfigPath).toHaveBeenCalledTimes(1);
   });

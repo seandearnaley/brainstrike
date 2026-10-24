@@ -11,7 +11,11 @@
  * exact executors and ports a host thread runs, without the HostTool binding
  * (guard + projection pipeline), which `agent-host-desktop-host-tools.test.ts`
  * covers through `desktopHostSharedTools`.
+ *
+ * The fold's command executors spawn Desktop's bundled Windows wrapper, which
+ * a source test has only as the built `dist` entry: the fixture points them there.
  */
+import './_windows-command-fixture';
 import {
   getActiveToolResultBudget,
   type RuntimeData,

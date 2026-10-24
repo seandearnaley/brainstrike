@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,6 +11,13 @@ import {
 } from '../fence/fence-policy';
 
 const scratchDir = join(homedir(), 'scratch-does-not-need-to-exist');
+
+/**
+ * A host-native absolute path under `/opt`. The mapping normalizes with the
+ * host's `node:path`, so a POSIX literal like `/opt/out` would come back as
+ * `\opt\out` on Windows; fixtures are spelled the way the host spells paths.
+ */
+const opt = (...segments: string[]): string => resolve('/opt', ...segments);
 
 /**
  * Stands in for `fs.realpath`. Paths resolve to themselves unless `links` says
@@ -60,17 +67,17 @@ describe('buildSandboxRuntimeConfig', () => {
   it('maps allowWrite, allowedDomains, allowRead and denyRead onto SandboxRuntimeConfig', async () => {
     const config = await build({
       allowedDomains: ['api.github.com'],
-      allowRead: ['/opt/data'],
-      allowWrite: ['/opt/out'],
-      denyRead: ['/opt/data/secret'],
+      allowRead: [opt('data')],
+      allowWrite: [opt('out')],
+      denyRead: [opt('data', 'secret')],
     });
 
     expect(config.network.allowedDomains).toEqual(['api.github.com']);
     expect(config.network.deniedDomains).toEqual([]);
-    expect(config.filesystem.allowWrite).toEqual([scratchDir, '/opt/out']);
+    expect(config.filesystem.allowWrite).toEqual([scratchDir, opt('out')]);
     expect(config.filesystem.denyWrite).toEqual([]);
-    expect(config.filesystem.allowRead).toEqual(['/opt/data']);
-    expect(config.filesystem.denyRead).toEqual([...ALWAYS_DENY_READ_PATHS, '/opt/data/secret']);
+    expect(config.filesystem.allowRead).toEqual([opt('data')]);
+    expect(config.filesystem.denyRead).toEqual([...ALWAYS_DENY_READ_PATHS, opt('data', 'secret')]);
   });
 
   it('keeps an empty allowedDomains list verbatim — that IS the no-network state', async () => {
@@ -84,7 +91,7 @@ describe('buildSandboxRuntimeConfig', () => {
   });
 
   it('always makes the scratch dir writable, and lists it first', async () => {
-    const config = await build({ allowedDomains: [], allowWrite: ['/opt/out'] });
+    const config = await build({ allowedDomains: [], allowWrite: [opt('out')] });
     expect(config.filesystem.allowWrite[0]).toBe(scratchDir);
   });
 
@@ -161,9 +168,9 @@ describe('buildSandboxRuntimeConfig', () => {
     await expect(
       build({
         allowedDomains: [],
-        allowRead: ['/opt/data'],
+        allowRead: [opt('data')],
         allowWrite: [],
-        denyRead: ['/opt/data'],
+        denyRead: [opt('data')],
       })
     ).rejects.toThrow(/denyRead/);
   });
@@ -171,25 +178,25 @@ describe('buildSandboxRuntimeConfig', () => {
   it('still allows a denyRead NESTED inside an allowRead — srt re-emits that one', async () => {
     const config = await build({
       allowedDomains: [],
-      allowRead: ['/opt/data'],
+      allowRead: [opt('data')],
       allowWrite: [],
-      denyRead: ['/opt/data/secret'],
+      denyRead: [opt('data', 'secret')],
     });
-    expect(config.filesystem.denyRead).toContain('/opt/data/secret');
+    expect(config.filesystem.denyRead).toContain(opt('data', 'secret'));
   });
 
   it('still allows an allowRead one level BELOW the root', async () => {
     // The refusal is the root specifically, not "broad grants" in general —
     // every ancestor short of it re-emits the nested deny correctly.
     await expect(
-      build({ allowedDomains: [], allowRead: ['/opt'], allowWrite: [] })
+      build({ allowedDomains: [], allowRead: [opt()], allowWrite: [] })
     ).resolves.toBeDefined();
   });
 
   it('catches a re-open that only a RESOLVED path reveals (symlink into the store)', async () => {
     // The written path is innocent; realpath is what exposes it. A textual
     // comparison would have permitted this.
-    const decoy = '/opt/looks-innocent';
+    const decoy = opt('looks-innocent');
     await expect(
       build(
         { allowedDomains: [], allowRead: [decoy], allowWrite: [] },
@@ -266,9 +273,9 @@ describe('buildSandboxRuntimeConfig', () => {
     let caught: unknown;
     try {
       await build(
-        { allowedDomains: [], allowWrite: ['/opt/not-created-yet'] },
+        { allowedDomains: [], allowWrite: [opt('not-created-yet')] },
         scratchDir,
-        fakeResolver({ missing: ['/opt/not-created-yet'] })
+        fakeResolver({ missing: [opt('not-created-yet')] })
       );
     } catch (error) {
       caught = error;
@@ -294,11 +301,11 @@ describe('buildSandboxRuntimeConfig', () => {
     // Deny rules are the one place absence is normal: most hosts lack several
     // of the always-denied stores. The literal still reaches srt.
     const config = await build(
-      { allowedDomains: [], allowWrite: [], denyRead: ['/opt/never-existed'] },
+      { allowedDomains: [], allowWrite: [], denyRead: [opt('never-existed')] },
       scratchDir,
-      fakeResolver({ missing: ['/opt/never-existed', ...ALWAYS_DENY_READ_PATHS] })
+      fakeResolver({ missing: [opt('never-existed'), ...ALWAYS_DENY_READ_PATHS] })
     );
-    expect(config.filesystem.denyRead).toEqual([...ALWAYS_DENY_READ_PATHS, '/opt/never-existed']);
+    expect(config.filesystem.denyRead).toEqual([...ALWAYS_DENY_READ_PATHS, opt('never-existed')]);
   });
 
   it('rejects a relative scratch dir instead of resolving it against an implicit cwd', async () => {

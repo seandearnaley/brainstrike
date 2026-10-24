@@ -45,8 +45,11 @@ test enforces:
 
 ## Decision
 
-1. **Git runs through `execFile` on every platform**, with its `timeout` and abort
+1. **Git runs as a plain Node child on every platform**, with its `timeout` and abort
    `signal`. Windows agent commands keep their wrapper and Job. Only git changed (#4125).
+   Output past the capture ceiling closes the pipe so git ends itself; the runner never
+   kills git for size, because on Windows a kill stops only the `cmd\git.exe` launcher
+   (BST-2295).
 2. **Quit is plain ordered awaits** in `desktop-graceful-shutdown.ts`. Each step runs
    until it settles. A failure is recorded and the next step still runs. The database
    closes after the steps, and the durable error log closes last. One

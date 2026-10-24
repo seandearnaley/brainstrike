@@ -115,8 +115,11 @@ once and rejects visibly if it fails again (BST-2248).
 The Git inventory service retains its watcher generation through failed stop and
 refuses restart until retirement succeeds.
 
-Git runs through `execFile` on every platform (ADR-0027), so there is no per-command
-native Job for quit to join. Windows agent commands keep their wrapper and Job.
+Git runs as a plain Node child on every platform (ADR-0027), so there is no
+per-command native Job for quit to join. Windows agent commands keep their wrapper and
+Job. The git runner settles at the child's `close`; output past its capture ceiling
+closes the pipe instead of killing git, since a kill on Windows reaches only the
+`cmd\git.exe` launcher and leaves the real git running in the repository.
 
 The E2E harness joins the app's exit under the test timeout and requires exit code
 0. A SIGTERM from the harness is cleanup after a failed close, and the test fails.

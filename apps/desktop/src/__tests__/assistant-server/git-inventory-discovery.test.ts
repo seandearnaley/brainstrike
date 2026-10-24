@@ -6,6 +6,7 @@
  * FAKE in-memory `InventoryFs` — no real filesystem, no git spawn (this
  * module never spawns git).
  */
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   createWalkSemaphore,
@@ -18,6 +19,15 @@ import {
   resolveGitEntryAtWorktree,
   walkForGitEntries,
 } from '../../assistant-server/git-inventory-discovery';
+
+/**
+ * The native absolute path for a POSIX-spelled fixture path. The walk and the
+ * resolvers build paths with `path.join`/`path.resolve`, so the fake keys and
+ * every expectation use the same native spelling.
+ */
+function nativePath(fixturePath: string): string {
+  return path.resolve(fixturePath);
+}
 
 type FakeNode =
   | { readonly children: readonly string[]; readonly type: 'dir' }
@@ -65,7 +75,7 @@ class FakeFs implements InventoryFs {
       throw enoent(dirPath);
     }
     return node.children.map((name) => {
-      const childPath = `${dirPath}/${name}`;
+      const childPath = path.join(dirPath, name);
       const childNode = this.nodes.get(childPath);
       return {
         isDirectory: () => childNode?.type === 'dir',
@@ -113,40 +123,57 @@ function findEntry(
 describe('walkForGitEntries', () => {
   it('finds a `.git` directory at the root without descending into it', async () => {
     const fs = new FakeFs();
-    fs.addDir('/root', ['.git', 'src']);
-    fs.addDir('/root/.git', ['HEAD', 'objects']);
-    fs.addDir('/root/src', []);
+    fs.addDir(nativePath('/root'), ['.git', 'src']);
+    fs.addDir(nativePath('/root/.git'), ['HEAD', 'objects']);
+    fs.addDir(nativePath('/root/src'), []);
 
-    const result = await walkForGitEntries({ fs, rootLabel: 'root-1', rootPath: '/root' });
+    const result = await walkForGitEntries({
+      fs,
+      rootLabel: 'root-1',
+      rootPath: nativePath('/root'),
+    });
 
     expect(result.errors).toEqual([]);
-    expect(result.gitEntries).toEqual([{ kind: 'dir', path: '/root/.git' }]);
-    expect(fs.readdirCalls).not.toContain('/root/.git');
+    expect(result.gitEntries).toEqual([{ kind: 'dir', path: nativePath('/root/.git') }]);
+    expect(fs.readdirCalls).not.toContain(nativePath('/root/.git'));
   });
 
   it('finds a `.git` FILE (linked worktree / submodule gitfile) without treating it as a directory', async () => {
     const fs = new FakeFs();
-    fs.addDir('/root', ['.git']);
-    fs.addFile('/root/.git', 'gitdir: /elsewhere/.git/worktrees/linked\n');
+    fs.addDir(nativePath('/root'), ['.git']);
+    fs.addFile(
+      nativePath('/root/.git'),
+      `gitdir: ${nativePath('/elsewhere/.git/worktrees/linked')}\n`
+    );
 
-    const result = await walkForGitEntries({ fs, rootLabel: 'root-1', rootPath: '/root' });
+    const result = await walkForGitEntries({
+      fs,
+      rootLabel: 'root-1',
+      rootPath: nativePath('/root'),
+    });
 
-    expect(result.gitEntries).toEqual([{ kind: 'file', path: '/root/.git' }]);
+    expect(result.gitEntries).toEqual([{ kind: 'file', path: nativePath('/root/.git') }]);
   });
 
   it('skips ignored directory names but keeps descending into ordinary ones (repos nested below other repos)', async () => {
     const fs = new FakeFs();
-    fs.addDir('/root', ['node_modules', 'src']);
-    fs.addDir('/root/node_modules', ['.git']); // must NOT be found
-    fs.addDir('/root/node_modules/.git', []);
-    fs.addDir('/root/src', ['nested-worktree']);
-    fs.addDir('/root/src/nested-worktree', ['.git']); // nested agent worktree — must be found
-    fs.addDir('/root/src/nested-worktree/.git', []);
+    fs.addDir(nativePath('/root'), ['node_modules', 'src']);
+    fs.addDir(nativePath('/root/node_modules'), ['.git']); // must NOT be found
+    fs.addDir(nativePath('/root/node_modules/.git'), []);
+    fs.addDir(nativePath('/root/src'), ['nested-worktree']);
+    fs.addDir(nativePath('/root/src/nested-worktree'), ['.git']); // nested agent worktree — must be found
+    fs.addDir(nativePath('/root/src/nested-worktree/.git'), []);
 
-    const result = await walkForGitEntries({ fs, rootLabel: 'root-1', rootPath: '/root' });
+    const result = await walkForGitEntries({
+      fs,
+      rootLabel: 'root-1',
+      rootPath: nativePath('/root'),
+    });
 
-    expect(result.gitEntries).toEqual([{ kind: 'dir', path: '/root/src/nested-worktree/.git' }]);
-    expect(fs.readdirCalls).not.toContain('/root/node_modules');
+    expect(result.gitEntries).toEqual([
+      { kind: 'dir', path: nativePath('/root/src/nested-worktree/.git') },
+    ]);
+    expect(fs.readdirCalls).not.toContain(nativePath('/root/node_modules'));
   });
 
   it('bounds descent to maxDepth levels below the root (default 6)', async () => {
@@ -154,24 +181,32 @@ describe('walkForGitEntries', () => {
     // Build a single-branch NESTED chain root -> d1 -> d2 -> ... -> d9 (each
     // `dN` lives INSIDE the previous one), each level holding a `.git`
     // DIRECTORY marker at that depth plus the next level down.
-    const dirPathsByDepth: string[] = ['/root'];
+    const dirPathsByDepth: string[] = [nativePath('/root')];
     for (let depth = 1; depth <= 9; depth += 1) {
-      dirPathsByDepth.push(`${dirPathsByDepth[depth - 1]}/d${depth}`);
+      dirPathsByDepth.push(path.join(dirPathsByDepth[depth - 1] as string, `d${depth}`));
     }
     for (let depth = 0; depth <= 9; depth += 1) {
       const dirPath = dirPathsByDepth[depth] as string;
       const nextChildName = depth < 9 ? [`d${depth + 1}`] : [];
       fs.addDir(dirPath, ['.git', ...nextChildName]);
-      fs.addDir(`${dirPath}/.git`, []);
+      fs.addDir(path.join(dirPath, '.git'), []);
     }
 
-    const result = await walkForGitEntries({ fs, rootLabel: 'root-1', rootPath: '/root' });
+    const result = await walkForGitEntries({
+      fs,
+      rootLabel: 'root-1',
+      rootPath: nativePath('/root'),
+    });
 
     expect(DEFAULT_WALK_MAX_DEPTH).toBe(6);
     // depths 0..6 => root + d1..d6 = 7 `.git` markers found.
     expect(result.gitEntries).toHaveLength(7);
-    expect(findEntry(result.gitEntries, `${dirPathsByDepth[6]}/.git`)).toBeDefined();
-    expect(findEntry(result.gitEntries, `${dirPathsByDepth[7]}/.git`)).toBeUndefined();
+    expect(
+      findEntry(result.gitEntries, path.join(dirPathsByDepth[6] as string, '.git'))
+    ).toBeDefined();
+    expect(
+      findEntry(result.gitEntries, path.join(dirPathsByDepth[7] as string, '.git'))
+    ).toBeUndefined();
     // d7 itself was never even listed — the walk stopped BEFORE descending.
     expect(fs.readdirCalls).not.toContain(dirPathsByDepth[7]);
   });
@@ -179,9 +214,9 @@ describe('walkForGitEntries', () => {
   it('bounds concurrent readdir calls to maxConcurrency', async () => {
     const fs = new FakeFs();
     const siblingNames = Array.from({ length: 40 }, (_, index) => `sib${index}`);
-    fs.addDir('/root', siblingNames);
+    fs.addDir(nativePath('/root'), siblingNames);
     for (const name of siblingNames) {
-      fs.addDir(`/root/${name}`, []);
+      fs.addDir(path.join(nativePath('/root'), name), []);
     }
 
     let inFlight = 0;
@@ -204,7 +239,7 @@ describe('walkForGitEntries', () => {
       fs,
       maxConcurrency: 4,
       rootLabel: 'root-1',
-      rootPath: '/root',
+      rootPath: nativePath('/root'),
     });
 
     expect(result.errors).toEqual([]);
@@ -221,9 +256,9 @@ describe('walkForGitEntries', () => {
     function makeSiblingFs(prefix: string): FakeFs {
       const fs = new FakeFs();
       const names = Array.from({ length: 20 }, (_, index) => `${prefix}${index}`);
-      fs.addDir(`/${prefix}root`, names);
+      fs.addDir(nativePath(`/${prefix}root`), names);
       for (const name of names) {
-        fs.addDir(`/${prefix}root/${name}`, []);
+        fs.addDir(path.join(nativePath(`/${prefix}root`), name), []);
       }
       return fs;
     }
@@ -258,14 +293,14 @@ describe('walkForGitEntries', () => {
         fs: fsA,
         maxConcurrency: 4,
         rootLabel: 'root-a',
-        rootPath: '/aroot',
+        rootPath: nativePath('/aroot'),
         semaphore,
       }),
       walkForGitEntries({
         fs: fsB,
         maxConcurrency: 4,
         rootLabel: 'root-b',
-        rootPath: '/broot',
+        rootPath: nativePath('/broot'),
         semaphore,
       }),
     ]);
@@ -280,9 +315,9 @@ describe('walkForGitEntries', () => {
   it('drops readdirs still waiting for a permit once the walk is aborted, without recording errors', async () => {
     const fs = new FakeFs();
     const names = Array.from({ length: 10 }, (_, index) => `d${index}`);
-    fs.addDir('/root', names);
+    fs.addDir(nativePath('/root'), names);
     for (const name of names) {
-      fs.addDir(`/root/${name}`, []);
+      fs.addDir(path.join(nativePath('/root'), name), []);
     }
     const controller = new AbortController();
     const started: string[] = [];
@@ -291,7 +326,7 @@ describe('walkForGitEntries', () => {
     const originalReaddir = fs.readdir.bind(fs);
     fs.readdir = async (dirPath: string) => {
       started.push(dirPath);
-      if (dirPath !== '/root') {
+      if (dirPath !== nativePath('/root')) {
         // The first child holds the only permit until the walk is aborted.
         markChildHolding();
         await childReleased;
@@ -303,7 +338,7 @@ describe('walkForGitEntries', () => {
       fs,
       maxConcurrency: 1,
       rootLabel: 'root-1',
-      rootPath: '/root',
+      rootPath: nativePath('/root'),
       signal: controller.signal,
     });
     await childHolding;
@@ -313,34 +348,38 @@ describe('walkForGitEntries', () => {
 
     // The nine siblings queued behind the held permit never issue a readdir,
     // and an abort is not reported as a directory failure.
-    expect(started).toEqual(['/root', '/root/d0']);
+    expect(started).toEqual([nativePath('/root'), nativePath('/root/d0')]);
     expect(result.errors).toEqual([]);
   });
 
   it('contains a per-entry readdir failure to that entry — sibling directories are still walked', async () => {
     const fs = new FakeFs();
-    fs.addDir('/root', ['broken', 'ok']);
+    fs.addDir(nativePath('/root'), ['broken', 'ok']);
     // 'broken' is listed as a child of /root but has NO registered node, so
-    // readdir('/root/broken') throws ENOENT.
-    fs.addDir('/root/ok', ['.git']);
-    fs.addDir('/root/ok/.git', []);
-    // Force readdir('/root/broken') to look like a directory to its parent by
+    // readdir(nativePath('/root/broken')) throws ENOENT.
+    fs.addDir(nativePath('/root/ok'), ['.git']);
+    fs.addDir(nativePath('/root/ok/.git'), []);
+    // Force readdir(nativePath('/root/broken')) to look like a directory to its parent by
     // registering it, then delete its own listing to simulate a race/permission failure.
-    fs.addDir('/root/broken', []);
+    fs.addDir(nativePath('/root/broken'), []);
     const originalReaddir = fs.readdir.bind(fs);
     fs.readdir = async (dirPath: string) => {
-      if (dirPath === '/root/broken') {
+      if (dirPath === nativePath('/root/broken')) {
         throw new Error('EACCES: permission denied');
       }
       return await originalReaddir(dirPath);
     };
 
-    const result = await walkForGitEntries({ fs, rootLabel: 'root-1', rootPath: '/root' });
+    const result = await walkForGitEntries({
+      fs,
+      rootLabel: 'root-1',
+      rootPath: nativePath('/root'),
+    });
 
-    expect(result.gitEntries).toEqual([{ kind: 'dir', path: '/root/ok/.git' }]);
+    expect(result.gitEntries).toEqual([{ kind: 'dir', path: nativePath('/root/ok/.git') }]);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain('root-1');
-    expect(result.errors[0]).toContain('/root/broken');
+    expect(result.errors[0]).toContain(nativePath('/root/broken'));
     expect(result.errors[0]).toContain('permission denied');
   });
 });
@@ -348,82 +387,112 @@ describe('walkForGitEntries', () => {
 describe('resolveCommonDir', () => {
   it('resolves a `.git` DIRECTORY entry to its own realpath', async () => {
     const fs = new FakeFs();
-    fs.addDir('/repo/.git', []);
-    fs.setRealpath('/repo/.git', '/real/repo/.git');
+    fs.addDir(nativePath('/repo/.git'), []);
+    fs.setRealpath(nativePath('/repo/.git'), nativePath('/real/repo/.git'));
 
-    const result = await resolveCommonDir({ fs, gitEntryKind: 'dir', gitEntryPath: '/repo/.git' });
+    const result = await resolveCommonDir({
+      fs,
+      gitEntryKind: 'dir',
+      gitEntryPath: nativePath('/repo/.git'),
+    });
 
-    expect(result).toEqual({ ok: true, value: '/real/repo/.git' });
+    expect(result).toEqual({ ok: true, value: nativePath('/real/repo/.git') });
   });
 
   it('resolves a linked-worktree gitfile through its gitdir pointer AND commondir file', async () => {
     const fs = new FakeFs();
-    fs.addFile('/repo-linked/.git', 'gitdir: /main-repo/.git/worktrees/linked\n');
-    fs.addDir('/main-repo/.git/worktrees/linked', ['commondir']);
-    fs.addFile('/main-repo/.git/worktrees/linked/commondir', '../..\n');
-    fs.setRealpath('/main-repo/.git/worktrees/linked', '/main-repo/.git/worktrees/linked');
-    fs.setRealpath('/main-repo/.git', '/main-repo/.git');
+    fs.addFile(
+      nativePath('/repo-linked/.git'),
+      `gitdir: ${nativePath('/main-repo/.git/worktrees/linked')}\n`
+    );
+    fs.addDir(nativePath('/main-repo/.git/worktrees/linked'), ['commondir']);
+    fs.addFile(nativePath('/main-repo/.git/worktrees/linked/commondir'), '../..\n');
+    fs.setRealpath(
+      nativePath('/main-repo/.git/worktrees/linked'),
+      nativePath('/main-repo/.git/worktrees/linked')
+    );
+    fs.setRealpath(nativePath('/main-repo/.git'), nativePath('/main-repo/.git'));
 
     const result = await resolveCommonDir({
       fs,
       gitEntryKind: 'file',
-      gitEntryPath: '/repo-linked/.git',
+      gitEntryPath: nativePath('/repo-linked/.git'),
     });
 
-    expect(result).toEqual({ ok: true, value: '/main-repo/.git' });
+    expect(result).toEqual({ ok: true, value: nativePath('/main-repo/.git') });
   });
 
   it('resolves a submodule gitfile (no commondir file) to its own gitdir — not a fallback guess', async () => {
     const fs = new FakeFs();
-    fs.addFile('/superproject/sub/.git', 'gitdir: ../.git/modules/sub\n');
-    fs.addDir('/superproject/.git/modules/sub', ['HEAD']);
-    fs.setRealpath('/superproject/.git/modules/sub', '/superproject/.git/modules/sub');
+    fs.addFile(nativePath('/superproject/sub/.git'), 'gitdir: ../.git/modules/sub\n');
+    fs.addDir(nativePath('/superproject/.git/modules/sub'), ['HEAD']);
+    fs.setRealpath(
+      nativePath('/superproject/.git/modules/sub'),
+      nativePath('/superproject/.git/modules/sub')
+    );
 
     const result = await resolveCommonDir({
       fs,
       gitEntryKind: 'file',
-      gitEntryPath: '/superproject/sub/.git',
+      gitEntryPath: nativePath('/superproject/sub/.git'),
     });
 
-    expect(result).toEqual({ ok: true, value: '/superproject/.git/modules/sub' });
+    expect(result).toEqual({ ok: true, value: nativePath('/superproject/.git/modules/sub') });
   });
 
   it('errors on a gitfile with no recognizable "gitdir:" pointer', async () => {
     const fs = new FakeFs();
-    fs.addFile('/repo/.git', 'not-a-gitdir-pointer\n');
+    fs.addFile(nativePath('/repo/.git'), 'not-a-gitdir-pointer\n');
 
-    const result = await resolveCommonDir({ fs, gitEntryKind: 'file', gitEntryPath: '/repo/.git' });
+    const result = await resolveCommonDir({
+      fs,
+      gitEntryKind: 'file',
+      gitEntryPath: nativePath('/repo/.git'),
+    });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain('/repo/.git');
+      expect(result.error).toContain(nativePath('/repo/.git'));
       expect(result.error).toContain('gitdir:');
     }
   });
 
   it('errors when the gitdir pointer target does not resolve', async () => {
     const fs = new FakeFs();
-    fs.addFile('/repo/.git', 'gitdir: /nowhere/.git/worktrees/x\n');
+    fs.addFile(nativePath('/repo/.git'), `gitdir: ${nativePath('/nowhere/.git/worktrees/x')}\n`);
 
-    const result = await resolveCommonDir({ fs, gitEntryKind: 'file', gitEntryPath: '/repo/.git' });
+    const result = await resolveCommonDir({
+      fs,
+      gitEntryKind: 'file',
+      gitEntryPath: nativePath('/repo/.git'),
+    });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain('/repo/.git');
+      expect(result.error).toContain(nativePath('/repo/.git'));
     }
   });
 
   it('errors when a present commondir file does not resolve', async () => {
     const fs = new FakeFs();
-    fs.addFile('/repo-linked/.git', 'gitdir: /main-repo/.git/worktrees/linked\n');
-    fs.addDir('/main-repo/.git/worktrees/linked', ['commondir']);
-    fs.addFile('/main-repo/.git/worktrees/linked/commondir', '/does/not/exist\n');
-    fs.setRealpath('/main-repo/.git/worktrees/linked', '/main-repo/.git/worktrees/linked');
+    fs.addFile(
+      nativePath('/repo-linked/.git'),
+      `gitdir: ${nativePath('/main-repo/.git/worktrees/linked')}\n`
+    );
+    fs.addDir(nativePath('/main-repo/.git/worktrees/linked'), ['commondir']);
+    fs.addFile(
+      nativePath('/main-repo/.git/worktrees/linked/commondir'),
+      `${nativePath('/does/not/exist')}\n`
+    );
+    fs.setRealpath(
+      nativePath('/main-repo/.git/worktrees/linked'),
+      nativePath('/main-repo/.git/worktrees/linked')
+    );
 
     const result = await resolveCommonDir({
       fs,
       gitEntryKind: 'file',
-      gitEntryPath: '/repo-linked/.git',
+      gitEntryPath: nativePath('/repo-linked/.git'),
     });
 
     expect(result.ok).toBe(false);
@@ -436,15 +505,24 @@ describe('resolveCommonDir', () => {
 describe('resolveGitEntryAtWorktree (bidirectional trust check)', () => {
   it('resolves a genuine linked worktree back to its common dir', async () => {
     const fs = new FakeFs();
-    fs.addFile('/linked-worktree/.git', 'gitdir: /main-repo/.git/worktrees/linked\n');
-    fs.addDir('/main-repo/.git/worktrees/linked', ['commondir']);
-    fs.addFile('/main-repo/.git/worktrees/linked/commondir', '../..\n');
-    fs.setRealpath('/main-repo/.git/worktrees/linked', '/main-repo/.git/worktrees/linked');
-    fs.setRealpath('/main-repo/.git', '/main-repo/.git');
+    fs.addFile(
+      nativePath('/linked-worktree/.git'),
+      `gitdir: ${nativePath('/main-repo/.git/worktrees/linked')}\n`
+    );
+    fs.addDir(nativePath('/main-repo/.git/worktrees/linked'), ['commondir']);
+    fs.addFile(nativePath('/main-repo/.git/worktrees/linked/commondir'), '../..\n');
+    fs.setRealpath(
+      nativePath('/main-repo/.git/worktrees/linked'),
+      nativePath('/main-repo/.git/worktrees/linked')
+    );
+    fs.setRealpath(nativePath('/main-repo/.git'), nativePath('/main-repo/.git'));
 
-    const result = await resolveGitEntryAtWorktree({ fs, worktreePath: '/linked-worktree' });
+    const result = await resolveGitEntryAtWorktree({
+      fs,
+      worktreePath: nativePath('/linked-worktree'),
+    });
 
-    expect(result).toEqual({ ok: true, value: '/main-repo/.git' });
+    expect(result).toEqual({ ok: true, value: nativePath('/main-repo/.git') });
   });
 
   it('fails validation for a fabricated-gitdir target whose ".git" does not exist at all — and reads NOTHING else under the target', async () => {
@@ -457,34 +535,40 @@ describe('resolveGitEntryAtWorktree (bidirectional trust check)', () => {
     // sweep) would sail through silently if that content happened to be
     // registered, so relying on an incidental unhandled ENOENT rejection
     // (the previous version of this comment's claim) is not proof.
-    fs.addDir('/attack-target', ['some-file.txt']);
-    fs.addFile('/attack-target/some-file.txt', 'should never be read');
+    fs.addDir(nativePath('/attack-target'), ['some-file.txt']);
+    fs.addFile(nativePath('/attack-target/some-file.txt'), 'should never be read');
 
-    const result = await resolveGitEntryAtWorktree({ fs, worktreePath: '/attack-target' });
+    const result = await resolveGitEntryAtWorktree({
+      fs,
+      worktreePath: nativePath('/attack-target'),
+    });
 
+    const gitPath = nativePath('/attack-target/.git');
     expect(result).toEqual({
-      error:
-        'could not stat "/attack-target/.git": ENOENT: no such file or directory \'/attack-target/.git\'',
+      error: `could not stat "${gitPath}": ENOENT: no such file or directory '${gitPath}'`,
       ok: false,
     });
-    expect(fs.readdirCalls).not.toContain('/attack-target');
+    expect(fs.readdirCalls).not.toContain(nativePath('/attack-target'));
     expect(fs.readFileCalls).toEqual([]);
   });
 
   it('fails validation for a fabricated-gitdir target whose ".git" points at an unrelated repo', async () => {
     const fs = new FakeFs();
-    fs.addDir('/attack-target/.git', []);
-    fs.setRealpath('/attack-target/.git', '/attack-target/.git');
+    fs.addDir(nativePath('/attack-target/.git'), []);
+    fs.setRealpath(nativePath('/attack-target/.git'), nativePath('/attack-target/.git'));
 
-    const result = await resolveGitEntryAtWorktree({ fs, worktreePath: '/attack-target' });
+    const result = await resolveGitEntryAtWorktree({
+      fs,
+      worktreePath: nativePath('/attack-target'),
+    });
 
     // Resolves successfully to ITS OWN common dir, which the caller compares
     // against the expected one and finds a mismatch — proven at the service
     // layer (git-inventory.integration.test.ts). Here we only prove discovery
     // reports the target's own true common dir without touching more than
     // its `.git`.
-    expect(result).toEqual({ ok: true, value: '/attack-target/.git' });
-    expect(fs.readdirCalls).not.toContain('/attack-target');
+    expect(result).toEqual({ ok: true, value: nativePath('/attack-target/.git') });
+    expect(fs.readdirCalls).not.toContain(nativePath('/attack-target'));
     expect(fs.readFileCalls).toEqual([]);
   });
 });

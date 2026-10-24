@@ -66,7 +66,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
-    "test:webgpu-memory": "VITEST_RUN_WEBGPU_MEMORY=true vitest run --project browser test/webgpu-memory-growth.browser.test.ts",
+    "test:webgpu-memory": "node ../../scripts/run-env.mjs VITEST_RUN_WEBGPU_MEMORY=true -- vitest run --project browser test/webgpu-memory-growth.browser.test.ts",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

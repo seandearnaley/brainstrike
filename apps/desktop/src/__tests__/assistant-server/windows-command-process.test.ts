@@ -9,6 +9,8 @@ import {
 import { expect, test, vi } from 'vitest';
 
 const identity = { creationTime: '134050464000000001', pid: 31_001 };
+/** ExecuteCommandToolResult's contract for a command the tool killed, on every platform. */
+const KILLED = { exitCode: null, signal: 'SIGKILL' };
 
 function harness(onSettlement?: () => void, stdin?: string) {
   const physical = Promise.withResolvers<void>();
@@ -142,21 +144,34 @@ test('cancellation before READY never opens the launch gate and joins the truste
   expect(h.send).not.toHaveBeenCalled();
   h.close(23);
   await retirement;
-  await expect(result).resolves.toEqual({ exitCode: 23, signal: null });
+  await expect(result).resolves.toEqual(KILLED);
 });
 
-test('forced completion reports the observed wrapper exit rather than the requested Job exit code', async () => {
+test('a retired command reports the kill, as on POSIX, not the exit code its Job termination left', async () => {
   const h = harness();
   const result = h.owner.start();
   h.ready();
   const first = h.owner.retire();
   const second = h.owner.retire();
-  h.close(23);
+  // TerminateJobObject(1) leaves the wrapper exit code 1.
+  h.close(1);
   h.physical.resolve();
   await Promise.all([first, second]);
-  await expect(result).resolves.toEqual({ exitCode: 23, signal: null });
+  await expect(result).resolves.toEqual(KILLED);
   expect(h.job.terminateAndWait).toHaveBeenCalledTimes(1);
   expect(h.onSettled).toHaveBeenCalledTimes(1);
+});
+
+test('a completion receipt that precedes retirement still reports the command exit', async () => {
+  const h = harness();
+  const result = h.owner.start();
+  h.ready();
+  h.child.emit('message', { exitCode: 3, signal: null, type: 'completed' });
+  const retirement = h.owner.retire();
+  h.close(1);
+  h.physical.resolve();
+  await retirement;
+  await expect(result).resolves.toEqual({ exitCode: 3, signal: null });
 });
 
 test('wrapper death still joins its parent-owned Job and never invents a successful command receipt', async () => {
@@ -171,6 +186,22 @@ test('wrapper death still joins its parent-owned Job and never invents a success
     message: expect.stringMatching(/completion receipt/),
   });
   expect(h.onSettled).toHaveBeenCalledTimes(1);
+});
+
+test('a wrapper that dies before READY joins its close even when kill finds it already gone', async () => {
+  const h = harness();
+  // Node returns false, without an error event, for a child that already exited.
+  h.kill.mockReturnValue(false);
+  const result = h.owner.start().catch((error: unknown) => error);
+  // The private channel's end can arrive before Node reports the exit.
+  h.child.emit('disconnect');
+  expect(h.kill).toHaveBeenCalledExactlyOnceWith('SIGKILL');
+  h.physical.resolve();
+  h.close();
+  expect(await result).toMatchObject({ message: expect.stringMatching(/disconnected/) });
+  expect(h.onSettled).toHaveBeenCalledTimes(1);
+  expect(h.job.close).toHaveBeenCalledTimes(1);
+  await expect(h.owner.retire()).resolves.toBeUndefined();
 });
 
 test('denied physical retirement retains the entry and lease callback despite wrapper closure', async () => {
@@ -245,7 +276,7 @@ test('cancellation during identity assignment never sends START after the fence'
   expect(h.send).not.toHaveBeenCalled();
   h.physical.resolve();
   h.close(23);
-  await expect(result).resolves.toEqual({ exitCode: 23, signal: null });
+  await expect(result).resolves.toEqual(KILLED);
 });
 
 test('a failed START send remains visible and still joins the private Job', async () => {

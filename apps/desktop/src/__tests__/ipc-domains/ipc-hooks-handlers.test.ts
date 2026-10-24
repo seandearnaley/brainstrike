@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { MAX_HOOKS_CONFIG_BYTES, sha256OfFile } from '@brainstrike/host-capabilities/hooks';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -15,6 +15,12 @@ function sha256(content: string): string {
 }
 
 let tmpRoot: string;
+
+const ROOT = resolve('/abs/root');
+const HOOKS = join(ROOT, '.brainstrike', 'hooks.json');
+const HOOKS_REAL = join(ROOT, '.brainstrike', 'hooks.real.json');
+const WS_A = resolve('/ws/a');
+const WS_B = resolve('/ws/b');
 
 function writeProjectHooksBytes(rootAbsPath: string, bytes: Buffer): string {
   const dir = join(rootAbsPath, '.brainstrike');
@@ -67,26 +73,26 @@ describe('getProjectHooksForReview', () => {
   });
 
   it('surfaces a visible error when an existing hooks file cannot be read', () => {
-    const result = getProjectHooksForReview('r1', '/abs/root', {
+    const result = getProjectHooksForReview('r1', ROOT, {
       readFile: () => {
         throw new Error('ENOENT');
       },
       realpath: (p) => p,
-      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+      resolveDbRoot: resolveTo('db-root', ROOT),
     });
     expect(result.exists).toBe(true);
     expect(result.error).toMatch(/could not be read/);
-    expect(result.path).toBe('/abs/root/.brainstrike/hooks.json');
+    expect(result.path).toBe(HOOKS);
     expect(result.dbRootId).toBe('db-root');
     expect(result.content).toBeUndefined();
   });
 
   it('returns content + sha256 + the resolved DB root id for a valid file', () => {
     const content = '{"PreToolUse":[]}';
-    const result = getProjectHooksForReview('r1', '/abs/root', {
+    const result = getProjectHooksForReview('r1', ROOT, {
       readFile: () => Buffer.from(content, 'utf8'),
       realpath: (p) => p,
-      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+      resolveDbRoot: resolveTo('db-root', ROOT),
     });
     expect(result.exists).toBe(true);
     expect(result.content).toBe(content);
@@ -108,11 +114,11 @@ describe('getProjectHooksForReview', () => {
   });
 
   it('refuses a hooks file that symlinks out of its root (info-disclosure guard)', () => {
-    const result = getProjectHooksForReview('r1', '/abs/root', {
+    const result = getProjectHooksForReview('r1', ROOT, {
       readFile: () => Buffer.from('{"PreToolUse":[]}', 'utf8'),
       // The hooks file realpaths OUTSIDE the root (symlink escape).
-      realpath: (p) => (p === '/abs/root/.brainstrike/hooks.json' ? '/etc/passwd' : p),
-      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+      realpath: (p) => (p === HOOKS ? resolve('/etc/passwd') : p),
+      resolveDbRoot: resolveTo('db-root', ROOT),
     });
     expect(result.error).toMatch(/outside the workspace root/);
     expect(result.exists).toBe(false);
@@ -124,13 +130,13 @@ describe('getProjectHooksForReview', () => {
     // that symlinks OUT of its root would otherwise let main read (and return)
     // an arbitrary/large file's bytes before the later check refuses it.
     let readCount = 0;
-    const result = getProjectHooksForReview('r1', '/abs/root', {
+    const result = getProjectHooksForReview('r1', ROOT, {
       readFile: () => {
         readCount += 1;
         throw new Error('the escaped target must never be read');
       },
-      realpath: (p) => (p === '/abs/root/.brainstrike/hooks.json' ? '/etc/passwd' : p),
-      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+      realpath: (p) => (p === HOOKS ? resolve('/etc/passwd') : p),
+      resolveDbRoot: resolveTo('db-root', ROOT),
     });
     expect(result.error).toMatch(/outside the workspace root/);
     expect(result.exists).toBe(false);
@@ -144,28 +150,27 @@ describe('getProjectHooksForReview', () => {
     // still disclose escaped bytes.
     const content = '{"PreToolUse":[]}';
     const readTargets: string[] = [];
-    const result = getProjectHooksForReview('r1', '/abs/root', {
+    const result = getProjectHooksForReview('r1', ROOT, {
       readFile: (p) => {
         readTargets.push(p);
         return Buffer.from(content, 'utf8');
       },
-      realpath: (p) =>
-        p === '/abs/root/.brainstrike/hooks.json' ? '/abs/root/.brainstrike/hooks.real.json' : p,
-      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+      realpath: (p) => (p === HOOKS ? HOOKS_REAL : p),
+      resolveDbRoot: resolveTo('db-root', ROOT),
     });
     expect(result.exists).toBe(true);
     expect(result.content).toBe(content);
-    expect(readTargets).toEqual(['/abs/root/.brainstrike/hooks.real.json']);
+    expect(readTargets).toEqual([HOOKS_REAL]);
     // The reported path stays the canonical hooks location (display contract).
-    expect(result.path).toBe('/abs/root/.brainstrike/hooks.json');
+    expect(result.path).toBe(HOOKS);
   });
 
   it('surfaces a parseError for malformed JSON but still returns content + hash', () => {
     const content = '{ not json';
-    const result = getProjectHooksForReview('r1', '/abs/root', {
+    const result = getProjectHooksForReview('r1', ROOT, {
       readFile: () => Buffer.from(content, 'utf8'),
       realpath: (p) => p,
-      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+      resolveDbRoot: resolveTo('db-root', ROOT),
     });
     expect(result.exists).toBe(true);
     expect(result.content).toBe(content);
@@ -198,33 +203,33 @@ describe('getProjectHooksForReview', () => {
 
 describe('resolveDbRootForPath (containment)', () => {
   const roots: DbRootLite[] = [
-    { id: 'db-a', path: '/ws/a' },
-    { id: 'db-b', path: '/ws/b' },
+    { id: 'db-a', path: WS_A },
+    { id: 'db-b', path: WS_B },
   ];
   const identity = (p: string): string => p;
 
   it('resolves an exact root path to its DB id', () => {
-    expect(resolveDbRootForPath('/ws/a', roots, identity)?.id).toBe('db-a');
+    expect(resolveDbRootForPath(WS_A, roots, identity)?.id).toBe('db-a');
   });
 
   it('resolves a nested path to its containing root', () => {
-    expect(resolveDbRootForPath('/ws/b/nested/file', roots, identity)?.id).toBe('db-b');
+    expect(resolveDbRootForPath(join(WS_B, 'nested', 'file'), roots, identity)?.id).toBe('db-b');
   });
 
   it('returns null for a path outside every root', () => {
-    expect(resolveDbRootForPath('/etc/passwd', roots, identity)).toBeNull();
+    expect(resolveDbRootForPath(resolve('/etc/passwd'), roots, identity)).toBeNull();
   });
 
   it('does not match a sibling with a shared path prefix', () => {
     // `/ws/ab` must NOT be treated as inside `/ws/a`.
-    expect(resolveDbRootForPath('/ws/ab', roots, identity)).toBeNull();
+    expect(resolveDbRootForPath(resolve('/ws/ab'), roots, identity)).toBeNull();
   });
 
   it('picks the most specific (longest) root for nested roots', () => {
     const nested: DbRootLite[] = [
-      { id: 'outer', path: '/ws' },
-      { id: 'inner', path: '/ws/a' },
+      { id: 'outer', path: resolve('/ws') },
+      { id: 'inner', path: WS_A },
     ];
-    expect(resolveDbRootForPath('/ws/a/x', nested, identity)?.id).toBe('inner');
+    expect(resolveDbRootForPath(join(WS_A, 'x'), nested, identity)?.id).toBe('inner');
   });
 });
