@@ -217,21 +217,28 @@ jobs:
                   "partition": "desktop",
                   "pr_filters": "--filter=\"@brainstrike/desktop\"",
                   "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "1/3"
+                  "vitest_shard": "1/4"
                 },
                 {
                   "shard": "desktop-2",
                   "partition": "desktop",
                   "pr_filters": "--filter=\"@brainstrike/desktop\"",
                   "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "2/3"
+                  "vitest_shard": "2/4"
                 },
                 {
                   "shard": "desktop-3",
                   "partition": "desktop",
                   "pr_filters": "--filter=\"@brainstrike/desktop\"",
                   "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "3/3"
+                  "vitest_shard": "3/4"
+                },
+                {
+                  "shard": "desktop-4",
+                  "partition": "desktop",
+                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
+                  "push_filters": "--filter=\"@brainstrike/desktop\"",
+                  "vitest_shard": "4/4"
                 },
                 {
                   "shard": "heavy",
@@ -875,6 +882,12 @@ jobs:
     needs: [admission, build]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
+    # Playwright splits the lane across two runners (--shard), so its tests take
+    # half the wall time; fail-fast stays off so both halves report.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
     env:
       NODE_ENV: test
       CI: "true"
@@ -946,13 +959,13 @@ jobs:
       # on the ubuntu-latest runner.
       - name: Run desktop smoke
         working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:smoke
+        run: dbus-run-session -- pnpm run test:e2e:lane:smoke --shard=${{ matrix.shard }}
 
       - name: Upload desktop smoke traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-smoke-main-test-results
+          name: desktop-smoke-main-test-results-${{ strategy.job-index }}
           path: |
             apps/desktop/test-results/
             apps/desktop/blob-report/
@@ -976,6 +989,12 @@ jobs:
     needs: [admission, build]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
+    # Playwright splits the lane across two runners (--shard), so its tests take
+    # half the wall time; fail-fast stays off so both halves report.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
     env:
       NODE_ENV: test
       CI: "true"
@@ -1024,13 +1043,13 @@ jobs:
 
       - name: Run desktop delegated smoke
         working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated
+        run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated --shard=${{ matrix.shard }}
 
       - name: Upload desktop delegated smoke traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-smoke-delegated-test-results
+          name: desktop-smoke-delegated-test-results-${{ strategy.job-index }}
           path: |
             apps/desktop/test-results/
             apps/desktop/blob-report/
