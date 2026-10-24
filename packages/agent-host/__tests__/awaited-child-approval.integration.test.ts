@@ -158,15 +158,20 @@ test('a root awaiting a child that keeps working past every parent window comple
   });
   const rootRunId = await harness.start('Delegate.');
   await expect.poll(async () => (await childThreads(harness)).length).toBe(1);
-  for (let index = 0; index <= deltas; index += 1) {
-    await vi.advanceTimersByTimeAsync(gapMs);
-  }
-  const rows = await rowsUntil(
-    harness,
-    harness.threadId,
-    finished(rootRunId),
-    getAdjustedTimeout('integration')
-  );
+  // Advance model time until the root finishes, not a fixed number of gaps: a
+  // child that starts its stream late (a busy runner) would otherwise leave
+  // gap timers scheduled after a fixed loop ends, and never finish.
+  let rows: Awaited<ReturnType<typeof rowsUntil>> = [];
+  await expect
+    .poll(
+      async () => {
+        await vi.advanceTimersByTimeAsync(gapMs);
+        rows = await harness.core().read(harness.threadId, 0);
+        return rows.some(finished(rootRunId));
+      },
+      { timeout: getAdjustedTimeout('integration') }
+    )
+    .toBe(true);
   const [childThreadId = ''] = await childThreads(harness);
   const childRows = await harness.core().read(childThreadId, 0);
   expect(childRows.find((row) => row.event.type === 'run.finished')?.event).toMatchObject({
