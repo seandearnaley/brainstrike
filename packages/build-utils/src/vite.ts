@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HmrContext, Plugin, Rolldown } from 'vite';
-import { isCompilerHotspot } from './compiler-hotspots.js';
+import { isCompilerHotspot } from './compiler-hotspots.ts';
 
 const CSP_QUALIFIED_EVAL_MODULES = [
   // Python grammar path requalified under the production CSP (BST-2033).

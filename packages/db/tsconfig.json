@@ -1,11 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
-    "declaration": true,
-    "declarationMap": true,
-    "declarationDir": "dist",
     "module": "ESNext",
     "target": "ESNext",
     "esModuleInterop": true,
@@ -32,7 +27,8 @@
           "unstableApiUsage": "error"
         }
       }
-    ]
+    ],
+    "noEmit": true
   },
   "include": [
     "src/**/*.ts",
@@ -40,7 +36,6 @@
     "src/**/*.json"
   ],
   "exclude": [
-    "dist",
     "node_modules"
   ]
 }

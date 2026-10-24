@@ -48,8 +48,9 @@ that work stopped or vectors committed.
 
 ## Development
 
-[`package.json`](package.json) owns exports and scripts. Use `pnpm build`,
-`pnpm type-check` and `pnpm test` from this package. Local consumers declare
+[`package.json`](package.json) owns exports and scripts. The package has no
+build: its exports are its source. Use `pnpm type-check` and `pnpm test` from
+this package. Local consumers declare
 `"@brainstrike/queue": "workspace:*"`.
 **CI is disabled due to cost; validation must run locally.** See
 `pnpm check`.

@@ -72,9 +72,7 @@ function stylesShimViolations(target: unknown): string[] {
   return [];
 }
 
-function exportedSourceViolations(packageJson: {
-  exports?: Record<string, { import?: string; types?: string } | string>;
-}): string[] {
+function exportedSourceViolations(packageJson: { exports?: Record<string, unknown> }): string[] {
   const violations: string[] = [];
   for (const [subpath, target] of Object.entries(packageJson.exports ?? {})) {
     if (subpath === '.' || subpath.includes('*')) {
@@ -85,17 +83,12 @@ function exportedSourceViolations(packageJson: {
       violations.push(...stylesShimViolations(target));
       continue;
     }
-    if (typeof target === 'string') {
-      violations.push(`${subpath}: only ${STYLES_SHIM_SUBPATH} may map to a bare file path`);
+    if (typeof target !== 'string' || !target.startsWith('./src/')) {
+      violations.push(`${subpath}: must map to its source module`);
       continue;
     }
-    const sourceTarget = target.types;
-    if (!sourceTarget?.startsWith('./src/')) {
-      violations.push(`${subpath}: the types target must be its source module`);
-      continue;
-    }
-    if (!existsSync(path.join(SETTINGS_UI_PACKAGE_ROOT, sourceTarget))) {
-      violations.push(`${subpath}: ${sourceTarget} has no source module`);
+    if (!existsSync(path.join(SETTINGS_UI_PACKAGE_ROOT, target))) {
+      violations.push(`${subpath}: ${target} has no source module`);
     }
   }
   return violations;
@@ -103,11 +96,11 @@ function exportedSourceViolations(packageJson: {
 
 function readPackageJson(): {
   dependencies?: Record<string, string>;
-  exports?: Record<string, { import?: string; types?: string } | string>;
+  exports?: Record<string, unknown>;
 } {
   return JSON.parse(readFileSync(path.join(SETTINGS_UI_PACKAGE_ROOT, 'package.json'), 'utf8')) as {
     dependencies?: Record<string, string>;
-    exports?: Record<string, { import?: string; types?: string } | string>;
+    exports?: Record<string, unknown>;
   };
 }
 
@@ -141,26 +134,21 @@ describe('settings-ui package boundary', () => {
 
     const packageJson = readPackageJson();
     // Explicitly a MODULE export, not merely the first entry: `./styles.css` is
-    // a bare file path with no source module, so mutating it would exercise a
+    // a stylesheet with no source module, so mutating it would exercise a
     // different branch than the one this control is meant to prove.
-    const moduleExport = Object.entries(packageJson.exports ?? {}).find(
-      (entry): entry is [string, { import?: string; types?: string }] =>
-        typeof entry[1] === 'object'
+    const moduleExport = Object.keys(packageJson.exports ?? {}).find(
+      (subpath) => subpath !== STYLES_SHIM_SUBPATH
     );
     expect(moduleExport).toBeDefined();
     if (!moduleExport) {
       throw new Error('Settings UI export control requires at least one real module export');
     }
-    const [subpath, target] = moduleExport;
     const mutatedPackageJson = {
       ...packageJson,
-      exports: {
-        ...packageJson.exports,
-        [subpath]: { ...target, types: './src/control-missing.ts' },
-      },
+      exports: { ...packageJson.exports, [moduleExport]: './src/control-missing.ts' },
     };
     expect(exportedSourceViolations(mutatedPackageJson)).toContain(
-      `${subpath}: ./src/control-missing.ts has no source module`
+      `${moduleExport}: ./src/control-missing.ts has no source module`
     );
   });
 });

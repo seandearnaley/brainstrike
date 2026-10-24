@@ -28,33 +28,18 @@
     "vitest": "catalog:"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js"
-    },
-    "./core": {
-      "types": "./src/core/index.ts",
-      "import": "./dist/core/index.js"
-    },
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
     "./styles.css": "./styles.css",
-    "./workspace-search-store": {
-      "types": "./src/core/workspace-search-store.ts",
-      "import": "./dist/core/workspace-search-store.js"
-    }
+    "./workspace-search-store": "./src/core/workspace-search-store.ts"
   },
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
   "peerDependencies": {
     "react": "^19.2.4"
   },
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "type": "module",
-  "types": "./src/index.ts"
+  "type": "module"
 }
