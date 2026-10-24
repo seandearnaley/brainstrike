@@ -98,7 +98,7 @@ describe('durable record push', () => {
     hiddenContents = createMockWebContents(9102);
     setMockWebContents([visibleContents, hiddenContents]);
     assignWindowRole(createFakeWindow(visibleContents) as never, 'visible-ui');
-    assignWindowRole(createFakeWindow(hiddenContents) as never, 'chunking-host');
+    assignWindowRole(createFakeWindow(hiddenContents) as never, 'embedding-host');
   });
 
   afterEach(() => {
@@ -137,7 +137,7 @@ describe('durable record push', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]?.[1]).toEqual(
       expect.objectContaining({
-        bindings: expect.objectContaining({ sourceWindowRole: 'chunking-host' }),
+        bindings: expect.objectContaining({ sourceWindowRole: 'embedding-host' }),
         level: LogLevel.ERROR,
       })
     );
@@ -206,7 +206,7 @@ describe('recordDurableLog handler', () => {
     hiddenContents = createMockWebContents(9202);
     setMockWebContents([visibleContents, hiddenContents]);
     assignWindowRole(createFakeWindow(visibleContents) as never, 'visible-ui');
-    assignWindowRole(createFakeWindow(hiddenContents) as never, 'chunking-host');
+    assignWindowRole(createFakeWindow(hiddenContents) as never, 'embedding-host');
   });
 
   afterEach(() => {
@@ -243,7 +243,7 @@ describe('recordDurableLog handler', () => {
     expect(recordDurableLog).toHaveBeenCalledTimes(1);
     expect(recordDurableLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        bindings: expect.objectContaining({ sourceWindowRole: 'chunking-host' }),
+        bindings: expect.objectContaining({ sourceWindowRole: 'embedding-host' }),
         level: LogLevel.ERROR,
       })
     );

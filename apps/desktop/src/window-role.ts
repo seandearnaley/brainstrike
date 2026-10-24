@@ -1,11 +1,10 @@
 import type { BrowserWindow } from 'electron';
 
-export type DesktopWindowRole = 'chunking-host' | 'embedding-host' | 'visible-ui';
+export type DesktopWindowRole = 'embedding-host' | 'visible-ui';
 
 const roleByWebContentsId = new Map<number, DesktopWindowRole>();
 const windowByWebContentsId = new Map<number, BrowserWindow>();
 const webContentsIdsByRole = new Map<DesktopWindowRole, Set<number>>([
-  ['chunking-host', new Set<number>()],
   ['embedding-host', new Set<number>()],
   ['visible-ui', new Set<number>()],
 ]);

@@ -1,24 +1,11 @@
-import os from 'node:os';
 import { type ElectronApplication, expect, type Page } from '@playwright/test';
 import { setVectorDevicePreference } from '../embedding-worker-renderer.shared';
-import {
-  type LatencySummary,
-  type MainPhaseSamples,
-  type RendererWindowSamples,
-  summarize,
-} from './foreground-latency-probes';
 import { updateIndexConfig } from './index-config';
 import { loadElectronHelpers } from './load-electron-helpers';
 
-/**
- * The loaded foreground-latency benchmarks' shared setup and reporting
- * (docs/performance/foreground-latency-under-index-build.md). Each benchmark
- * owns its load; these steps and metrics are the same for all of them.
- */
+/** Shared setup for the desktop index E2E tests: the device, a paused workspace, the host reading. */
 
 export type BenchDevice = 'wasm' | 'webgpu';
-
-const LONG_FRAME_MS = 50;
 
 export function readBenchDevice(env: string): BenchDevice {
   const raw = process.env[env]?.trim() || 'webgpu';
@@ -26,22 +13,6 @@ export function readBenchDevice(env: string): BenchDevice {
     throw new Error(`${env} must be "wasm" or "webgpu", got "${raw}".`);
   }
   return raw;
-}
-
-/**
- * Desktop E2E never shows the app window. A never-shown window on Linux runs
- * rAF at about 1 Hz, so frame gaps would describe the harness, not the app; a
- * user's window is visible. Shown inactive, so it takes no focus.
- */
-export async function showAppWindow(app: ElectronApplication, page: Page): Promise<void> {
-  const browserWindow = await app.browserWindow(page);
-  const visible = await browserWindow.evaluate((win) => {
-    win.showInactive();
-    return win.isVisible();
-  });
-  if (!visible) {
-    throw new Error('The app window did not become visible.');
-  }
 }
 
 export interface SeededRoot {
@@ -87,25 +58,6 @@ export async function seedPausedWorkspace(
   await reloadRenderer(page, reloadReason);
   await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused', {
     timeout: 60_000,
-  });
-}
-
-/**
- * The host thread the chat-path probe commits to, started through main's host
- * client (`src/e2e-foreground-latency-probes.ts`), as the composer's first
- * Send starts one.
- */
-export async function startProbeThread(app: ElectronApplication): Promise<string> {
-  return await app.evaluate(async () => {
-    const seam = (globalThis as Record<string, unknown>)[
-      '__brainstrike_e2e_foreground_latency_probes__'
-    ] as { readonly startProbeThread?: () => Promise<string> } | undefined;
-    if (!seam?.startProbeThread) {
-      throw new Error(
-        'The main process exposes no foreground latency probes; is it running in E2E test mode?'
-      );
-    }
-    return await seam.startProbeThread();
   });
 }
 
@@ -161,65 +113,4 @@ export async function readEmbeddingHost(
       workingSetMb: mb(metric.memory.workingSetSize),
     };
   });
-}
-
-/** The embedding host readings of a loaded window, summarized for the evidence. */
-export function embeddingHostMetrics(readings: readonly EmbeddingHostReading[]) {
-  const last = readings.at(-1);
-  return {
-    cpuPercent: summarize(readings.map((reading) => reading.cpuPercent)),
-    crossOriginIsolated: last?.crossOriginIsolated ?? null,
-    hardwareConcurrency: last?.hardwareConcurrency ?? null,
-    peakWorkingSetMb:
-      readings.length === 0
-        ? null
-        : Math.max(...readings.map((reading) => reading.peakWorkingSetMb)),
-  };
-}
-
-export function rendererMetrics(samples: RendererWindowSamples) {
-  return {
-    frameGapMs: summarize(samples.frameGapsMs),
-    framesOver50Ms: samples.frameGapsMs.filter((gap) => gap > LONG_FRAME_MS).length,
-    longTasks: {
-      count: samples.longTaskDurationsMs.length,
-      maxMs:
-        samples.longTaskDurationsMs.length === 0 ? 0 : summarize(samples.longTaskDurationsMs).max,
-      totalMs: Math.round(samples.longTaskDurationsMs.reduce((total, ms) => total + ms, 0)),
-    },
-  };
-}
-
-export function round3(value: number): number {
-  return Math.round(value * 1000) / 1000;
-}
-
-export function mainMetrics(samples: MainPhaseSamples) {
-  return {
-    chatPathOpMs: summarize(samples.chatPathOpMs),
-    eventLoopLagMs: samples.eventLoopLagMs,
-    toolFileReadMs: summarize(samples.toolFileReadMs),
-    toolGrepMs: summarize(samples.toolGrepMs),
-    toolReadMs: summarize(samples.toolReadMs),
-  };
-}
-
-export function describeEnvironment(electronVersion: string, loadAverage: readonly number[]) {
-  const cpus = os.cpus();
-  return {
-    arch: process.arch,
-    ci: process.env['CI'] === 'true',
-    cpuCount: cpus.length,
-    cpuModel: cpus[0]?.model.trim() ?? 'unknown',
-    electronVersion,
-    loadAverageAtStart: loadAverage.map((value) => Math.round(value * 100) / 100),
-    osRelease: os.release(),
-    platform: process.platform,
-    runner: process.env['RUNNER_NAME'] ?? null,
-    totalMemoryGb: Math.round(os.totalmem() / 1024 ** 3),
-  };
-}
-
-export function formatSummary(label: string, summary: LatencySummary): string {
-  return `${label}: n=${summary.n} p50=${summary.p50} p95=${summary.p95} max=${summary.max}`;
 }
