@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,7 +12,7 @@ import {
   vectorProfileHash,
 } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
-import { StateStore, type StateStoreHooks } from '@brainstrike/state-store';
+import { canonicalRoot, StateStore, type StateStoreHooks } from '@brainstrike/state-store';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
   type: 'json',
 };
@@ -38,7 +38,7 @@ const message = (threadId: string, seq: number) => ({
 });
 
 async function fixture(hooks: StateStoreHooks = {}) {
-  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'state-message-vectors-')));
+  const root = canonicalRoot(await mkdtemp(path.join(os.tmpdir(), 'state-message-vectors-')));
   const options = {
     dbPath: path.join(root, 'index.sqlite'),
     embedding: { indexMode: 'text-only' },
@@ -636,7 +636,7 @@ it('refuses a stored vector that does not record its own source row', async () =
 });
 
 it('accepts null text from real Core metadata across SQLite/vector reopen without rewriting unversioned truth', async () => {
-  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'core-message-vectors-')));
+  const root = canonicalRoot(await mkdtemp(path.join(os.tmpdir(), 'core-message-vectors-')));
   const captured: unknown = recording;
   const rows = decoder(
     Schema.Array(

@@ -18,12 +18,15 @@ vi.mock('@brainstrike/host-lease', async (original) => ({
   ...(await original<typeof import('@brainstrike/host-lease')>()),
   launchHost: launch,
 }));
-// The fake utility's pid 123 names no real process: its start time is the one its record carries.
+// The fake utility's pid 123 names no real process: its start time is the one its record
+// carries, and it has none once the fake exited, so the owner's exit join completes.
+const fake = vi.hoisted(() => ({ live: true }));
 vi.mock('@brainstrike/state-store', async (original) => {
   const actual = await original<typeof import('@brainstrike/state-store')>();
   return {
     ...actual,
-    processStartTime: (pid: number) => (pid === 123 ? 'child' : actual.processStartTime(pid)),
+    processStartTime: (pid: number) =>
+      pid === 123 ? (fake.live ? 'child' : null) : actual.processStartTime(pid),
   };
 });
 
@@ -37,6 +40,7 @@ class Child extends EventEmitter {
     if (JSON.stringify(message) === '{"method":"close"}') {
       queueMicrotask(() => {
         this.pid = undefined;
+        fake.live = false;
         this.emit('exit', 0);
       });
     }

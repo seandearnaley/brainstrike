@@ -67,6 +67,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",

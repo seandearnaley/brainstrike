@@ -76,6 +76,9 @@ export default defineConfig({
           },
           environment: 'node',
           exclude: ['dist', 'node_modules', '**/*.browser.test.*'],
+          // The BST-372 retention regression forces collection to measure
+          // physical ArrayBuffer retention in its own isolated worker process.
+          execArgv: ['--expose-gc'],
           globals: true,
           include: ['test/**/*.spec.ts'],
           name: 'unit',

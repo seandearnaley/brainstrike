@@ -13,6 +13,7 @@ import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utili
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
+import { endExitedProcess, liveProcessIdentity, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('IndexerHostManager');
 
@@ -111,6 +112,10 @@ export class IndexerHostManager {
       serviceName: 'brainstrike-indexer',
     });
     this.#kill = () => child.kill();
+    let identity: ProcessIdentity | undefined;
+    child.once('spawn', () => {
+      identity = liveProcessIdentity(child.pid);
+    });
     const protocolErrors = new Set<(error: unknown) => void>();
     const canonical = new CanonicalUtilityParent(
       (message) => {
@@ -141,13 +146,20 @@ export class IndexerHostManager {
         };
       },
       onExit: (listener) => {
-        const exit = (): void => {
-          this.#closed = true;
+        const exited = (): void => {
           this.#exitCleanup ??= canonical.exited(new IndexerUtilityExitedError());
           void this.#exitCleanup.catch(() => {
             this.#exitCleanupFailed = true;
           });
           listener();
+        };
+        // Electron's `exit` precedes the OS exit; the utility has exited once that is joined.
+        const exit = (): void => {
+          this.#closed = true;
+          void endExitedProcess(identity).then(exited, (cause: unknown) => {
+            logger.error('Could not end the indexer utility after its exit', { cause });
+            exited();
+          });
         };
         child.on('exit', exit);
         return () => child.off('exit', exit);

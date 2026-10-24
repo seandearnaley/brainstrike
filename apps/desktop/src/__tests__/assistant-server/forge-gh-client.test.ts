@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createPinnedGhEnvironment,
@@ -20,7 +21,7 @@ describe('execFileGhRunner', () => {
     await expect(
       execFileGhRunner({
         args: ['--version'],
-        cwd: '/tmp',
+        cwd: tmpdir(),
         host: 'github.com',
         signal: controller.signal,
         timeoutMs: 20_000,
