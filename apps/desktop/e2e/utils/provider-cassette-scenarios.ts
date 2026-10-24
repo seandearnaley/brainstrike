@@ -1,7 +1,7 @@
 /**
  * The recorded provider scenarios: what each asks a real model, and what its
  * cassette must show for the scenario to mean anything. The host-level lane
- * (src/__tests__/provider-cassettes.integration.test.ts) records and replays
+ * (src/__tests__/provider-cassettes-fixture.ts) records and replays
  * every scenario on the standalone host, except one recorded in the desktop
  * app; the desktop E2E replays the ones it names through the real app. Prompts
  * name workspace-relative paths and no root, so a recording never carries the
