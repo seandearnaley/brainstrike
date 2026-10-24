@@ -79,6 +79,8 @@ export default defineConfig({
   },
   // Cast mitigates TS2769 type identity noise in some editors
   test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     ...testBase,
     // Default to happy-dom for speed; jsdom-only suites should annotate at file top
     environment: 'happy-dom',

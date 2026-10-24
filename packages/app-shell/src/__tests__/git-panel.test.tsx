@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { Changeset, ChangesetView } from '@brainstrike/types';
 import type { DiffViewSource } from '@brainstrike/ui';
 import { act, render, screen, waitFor, within } from '@testing-library/react';

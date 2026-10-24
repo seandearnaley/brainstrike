@@ -9,4 +9,8 @@ export default defineConfig({
     // test never depends on another package having been built first.
     alias: workspaceSrcAliases(resolve(import.meta.dirname, '..')),
   },
+  test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
+  },
 });
