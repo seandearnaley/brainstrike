@@ -1,8 +1,4 @@
 import { resolve } from 'node:path';
-import {
-  resolveThroughAliases,
-  workspaceSrcAliases,
-} from '@brainstrike/test-utils/workspace-src-aliases';
 import { build } from 'esbuild';
 import { expect, it } from 'vitest';
 
@@ -13,7 +9,6 @@ import { expect, it } from 'vitest';
  * resolve to their sources, as the test lanes do.
  */
 it('bundles the browser entry for the browser, with no Node module and no native SQLite', async () => {
-  const aliases = workspaceSrcAliases(resolve(import.meta.dirname, '../..'));
   const result = await build({
     bundle: true,
     entryPoints: [resolve(import.meta.dirname, '../src/browser.ts')],
@@ -21,17 +16,6 @@ it('bundles the browser entry for the browser, with no Node module and no native
     logLevel: 'silent',
     metafile: true,
     platform: 'browser',
-    plugins: [
-      {
-        name: 'workspace-sources',
-        setup(builder) {
-          builder.onResolve({ filter: /^@brainstrike\// }, (args) => {
-            const target = resolveThroughAliases(args.path, aliases);
-            return target ? { path: target } : undefined;
-          });
-        },
-      },
-    ],
     write: false,
   });
   const inputs = Object.keys(result.metafile.inputs);

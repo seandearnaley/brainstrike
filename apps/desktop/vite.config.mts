@@ -19,7 +19,6 @@ import {
   preserveWorkerEntryPlugin,
   transformersOnnxRuntimeWasmUrlsPlugin,
 } from '@brainstrike/build-utils';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
@@ -178,18 +177,11 @@ export default defineConfig({
   ],
   publicDir: 'public',
   resolve: {
-    // Array form: first match wins, so deliberate overrides/exceptions come
-    // BEFORE the shared registry spread (B3/B4 convention, #1651/#1658). Every
-    // root/subpath alias the registry emits is an EXACT specifier match
-    // (derived from each package's own `exports` map), so — unlike the old
-    // hand-maintained list's mix of exact AND blanket string-prefix roots
-    // (e.g. the `@brainstrike/utils` exact+prefix pair this replaces) —
-    // subpath vs. root ordering can no longer shadow anything; only the
-    // exceptions below need to precede it.
+    // Workspace packages export their source, so they need no alias; these
+    // are the deliberate exceptions. Array form: first match wins.
     alias: [
       { find: '@', replacement: path.resolve(__dirname, './src') },
-      // Stylesheet/asset imports: the registry deliberately excludes non-code
-      // exports (css/json/icons), so these stay explicit.
+      // Stylesheet/asset imports.
       {
         find: '@brainstrike/app-shell/styles.css',
         replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
@@ -214,17 +206,15 @@ export default defineConfig({
         find: '@brainstrike/ui/globals.css',
         replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
       },
-      // @brainstrike/file-tree-worker's root `exports['.']` targets a
-      // Node-worker_threads entry (dist/index.js); the registry would derive
-      // that same Node-targeted src/index.ts. vite.ts is the deliberate
-      // browser-adapted implementation (Vite Worker URL syntax) this app
-      // needs instead, so it must precede the spread.
+      // @brainstrike/file-tree-worker's root export is the Node-worker_threads
+      // src/index.ts. vite.ts is the deliberate browser-adapted implementation
+      // (Vite Worker URL syntax) this app needs instead.
       {
         find: '@brainstrike/file-tree-worker',
         replacement: path.resolve(__dirname, '../../packages/file-tree-worker/src/vite.ts'),
       },
       // @brainstrike/workers has no `src/` dir (worker files live at the
-      // package root), so the registry skips it — alias explicitly.
+      // package root) — alias explicitly.
       {
         find: '@brainstrike/workers',
         replacement: path.resolve(__dirname, '../../packages/workers'),
@@ -242,17 +232,9 @@ export default defineConfig({
         find: 'pino/browser.js',
         replacement: pinoBrowserPath,
       },
-      // Agent browser-safe subpath exports (no Mastra dependencies). The
-      // registry EXCLUDES @brainstrike/agent's root by default
-      // (DEFAULT_SRC_ALIAS_EXCLUSIONS) — this app's renderer bundle only ever
-      // needs these browser-safe subpaths, so no root override is added here.
+      // Agent browser-safe subpath exports (no Mastra dependencies) — this
+      // app's renderer bundle only ever needs these browser-safe subpaths.
       ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
-      // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
-      // the hand-maintained map this file used to carry — every entry it
-      // listed besides the exceptions above (including the chunk-init-TDZ
-      // motivated commands/context-actions entries) is an exact match for what
-      // this registry derives from each package's own `exports` map.
-      ...workspaceSrcAliases(path.resolve(__dirname, '../../packages')),
     ],
     dedupe: ['react', 'react-dom'],
   },

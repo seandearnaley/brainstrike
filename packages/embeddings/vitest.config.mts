@@ -1,7 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 const coverageEnabled =
@@ -12,13 +11,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export default defineConfig({
-  resolve: {
-    // Resolve workspace deps from SOURCE, not built dist — including
-    // TRANSITIVE ones reached through the src-resolved graph (e.g.
-    // @brainstrike/worker-runtime via embedding-worker src).
-    // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
-    alias: [...workspaceSrcAliases(resolve(__dirname, '..'))],
-  },
   test: {
     coverage: {
       enabled: coverageEnabled,

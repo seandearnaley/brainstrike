@@ -11,7 +11,7 @@
  * pinned by src/__tests__/build-main-config.test.ts).
  */
 import { existsSync } from 'node:fs';
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { cp, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -58,6 +58,18 @@ async function assertPreloadBundlesAreSandboxSafe() {
   }
 }
 
+/**
+ * The indexer host chunks code in Node, where the bundled tree-sitter loader
+ * reads its vendored grammars from `grammars/` beside itself.
+ */
+async function copyNodeGrammars() {
+  await cp(
+    path.resolve(appRoot, '../../packages/chunking-worker/grammars'),
+    path.join(appRoot, 'dist', 'grammars'),
+    { recursive: true }
+  );
+}
+
 await cleanMainProcessOutputs();
 // Every Node-side entry Main, a utility process, a worker or the Windows command
 // path loads. None may reach Transformers.js or onnxruntime-node, which the
@@ -66,5 +78,6 @@ const builds = [];
 for (const options of NODE_BUILDS) {
   builds.push((await build({ ...options, metafile: true })).metafile);
 }
+await copyNodeGrammars();
 await assertPreloadBundlesAreSandboxSafe();
 assertNoNodeInferenceImports(await findNodeInferenceImports({ absWorkingDir: appRoot, builds }));

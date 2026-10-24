@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
+import { windowsCommandEntry } from '../fixtures/windows-command-entry.js';
 import { createHostRunHooks, loadHostRunHooks } from '../../src/hooks/host-run-hooks.js';
 
 const roots: string[] = [];
@@ -28,6 +29,7 @@ test('a run’s hooks say which tools a PreToolUse hook would run for', () => {
     maxHookTimeoutMs: 30_000,
     roots: [],
     sessionId: 'thread-1',
+    windowsCommandEntry,
   });
   expect(hooks?.matchesPreToolUse('brainstrike.webSearch')).toBe(true);
   expect(hooks?.matchesPreToolUse('brainstrike.readWorkspaceFile')).toBe(false);
@@ -44,6 +46,7 @@ test('a run whose only project hooks file is untrusted runs no hooks, and names 
     maxHookTimeoutMs: 30_000,
     roots: [{ absPath: root, rootId: 'root-1' }],
     sessionId: 'thread-1',
+    windowsCommandEntry,
   });
   expect(loaded.hooks).toBeUndefined();
   expect(loaded.skipped).toEqual([

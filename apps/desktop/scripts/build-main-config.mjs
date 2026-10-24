@@ -14,9 +14,8 @@
  * - dist/<chunk>-<hash>.js  modules shared by those entries. One process loads
  *   one instance of each module, however many entries it loads (Main loads its
  *   bootstrap and runtime; the agent host loads its launcher and platform).
- * - dist/writer-worker.js, host-state-index-worker.js, keyring-native-entry.js,
- *   memory-storage-calculator.js  worker and module entries a workspace package
- *   names beside its own module (`new URL('./writer-worker.js', import.meta.url)`);
+ * - dist/<runtime entry>.js  worker and module entries a workspace package names
+ *   beside its own module (`nodeRuntimeEntryPoints`, @brainstrike/config);
  *   every chunk sits in dist/, so the sibling is the bundled entry.
  * - dist/writer-worker.mjs  the state-store writer worker, self-contained
  * - dist/main-log-transport.js, main-watchdog-worker.js  self-contained ESM,
@@ -33,6 +32,10 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  nodeRuntimeEntryPoints,
+  stateStoreWriterWorkerEntry,
+} from '@brainstrike/config/node-runtime-entries';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packagesRoot = path.resolve(appRoot, '../../packages');
@@ -97,17 +100,11 @@ export const NODE_PROCESS_ENTRY_POINTS = {
   // The app-close integration proof loads it by path before Main.
   'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
   'host-lease-entry': 'src/host-lease-entry.ts',
-  'host-state-index-worker': path.join(packagesRoot, 'agent-host/src/host-state-index-worker.ts'),
   'indexer-host-entry': 'src/indexer-host-entry.ts',
-  'keyring-native-entry': path.join(packagesRoot, 'agent-host/src/adapters/keyring-native-entry.ts'),
   main: 'src/main-bootstrap.ts',
-  'memory-storage-calculator': path.join(
-    packagesRoot,
-    'agent-host/src/adapters/memory-storage-calculator.ts'
-  ),
   'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
-  'writer-worker': path.join(packagesRoot, 'indexer/src/writer-worker.ts'),
+  ...nodeRuntimeEntryPoints(packagesRoot),
 };
 
 /**
@@ -137,7 +134,7 @@ export const NODE_PROCESS_BUILD_OPTIONS = {
 export const STATE_STORE_WRITER_BUILD_OPTIONS = {
   ...shared,
   banner: ESM_REQUIRE_BANNER,
-  entryPoints: { 'writer-worker': path.join(packagesRoot, 'state-store/src/writer-worker.mjs') },
+  entryPoints: { 'writer-worker': stateStoreWriterWorkerEntry(packagesRoot) },
   format: 'esm',
   outExtension: { '.js': '.mjs' },
   plugins: [workspaceSourceBundling],

@@ -1,13 +1,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { listProviders, providerEnvKeys } from '@brainstrike/agent/client';
 import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import {
-  clearCachedAgentClient,
-  getAgentProviderEnvKeys,
-  listAgentProviders,
-} from '../../agent-client-loader';
 import type { DesktopEnvLoadFailure } from '../../desktop-env';
 import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 import {
@@ -44,7 +40,7 @@ const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const PROVIDER_ENV_KEYS = [
   ...new Set([
-    ...listAgentProviders().flatMap((provider) => getAgentProviderEnvKeys(provider)),
+    ...listProviders().flatMap(({ id }) => providerEnvKeys(id)),
     ...TAVILY_ENV_KEYS,
     // BST-1353: not provider CREDENTIAL names (so the registry does not
     // produce them), but they DO decide whether an aws row appears in this
@@ -96,7 +92,6 @@ describe('registerSecretsIpcHandlers', () => {
     vi.resetModules();
     await reconfigureTestRendererTargetAfterModuleReset();
     vi.clearAllMocks();
-    clearCachedAgentClient();
     getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
 
     restoreEnvVar('NODE_ENV', ORIGINAL_NODE_ENV);
@@ -106,7 +101,6 @@ describe('registerSecretsIpcHandlers', () => {
 
   afterEach(() => {
     restoreProviderEnv();
-    clearCachedAgentClient();
   });
 
   function skippedEnvBootstrapReport(): EnvBootstrapReport {

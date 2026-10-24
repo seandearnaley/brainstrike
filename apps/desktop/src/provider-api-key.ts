@@ -1,4 +1,4 @@
-import type { SupportedProvider } from '@brainstrike/agent/client';
+import { listProviders, providerEnvKeys, type SupportedProvider } from '@brainstrike/agent/client';
 import {
   createProviderCredentialReader,
   normalizeSecretValue,
@@ -9,7 +9,6 @@ import {
   type ProviderKeyInspection,
 } from '@brainstrike/host-capabilities/provider-status';
 import { createLogger } from '@brainstrike/logging';
-import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
 import { getSecretsService } from './secrets';
 
 export {
@@ -27,7 +26,7 @@ export interface ResolvedProviderEnvCredential {
 export function resolveProviderEnvCredential(
   provider: SupportedProvider
 ): ResolvedProviderEnvCredential | undefined {
-  const envKeys = getAgentProviderEnvKeys(provider);
+  const envKeys = providerEnvKeys(provider);
   for (const envKey of envKeys) {
     const value = normalizeSecretValue(process.env[envKey]);
     if (value) {
@@ -69,7 +68,7 @@ export async function readProviderCredential(
   return createProviderCredentialReader(
     { getCredential: (id) => getSecretsService().getCredential(id) },
     process.env,
-    getAgentProviderEnvKeys
+    providerEnvKeys
   )(provider);
 }
 
@@ -82,8 +81,8 @@ export {
 export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
   return await inspectStoredProviderKeys({
     env: process.env,
-    envKeys: getAgentProviderEnvKeys,
-    providers: listAgentProviders(),
+    envKeys: providerEnvKeys,
+    providers: listProviders().map((definition) => definition.id),
     secrets: getSecretsService,
   });
 }

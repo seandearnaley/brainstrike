@@ -3,7 +3,6 @@ import path from 'node:path';
 import { transformersOnnxRuntimeWasmUrlsPlugin } from '@brainstrike/build-utils';
 import { getAdjustedTimeout, getExpectPollTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type TestProjectConfiguration } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
@@ -263,17 +262,6 @@ export default defineConfig({
           '../../packages/workers/file-content-worker.ts'
         ),
       },
-      // B4: shared workspace source-alias registry (#1651), so every other
-      // `@brainstrike/*` runtime import in this app's test lanes executes
-      // SOURCE instead of resolving to built dist via package `exports`. These
-      // tests previously leaned on `test.dependsOn: ["^build"]` to guarantee
-      // that dist existed; B4 replaced that edge with the no-build `topo`
-      // transit node, which made every unaliased dist fallback fail loudly
-      // from a clean state (utils/logger, db, worker-runtime, file-system,
-      // assistant-contract, assistant-data/cost-tracking, storage, queue, ui, …).
-      // The registry closes them all at once, exactly like the packages/*
-      // lanes in B3.
-      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '../../packages')),
     ],
   },
   // Vitest 5 routes uncovered-file transforms by project root. Desktop also

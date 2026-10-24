@@ -51,12 +51,10 @@ export interface HostStateIndex {
   readonly vectors: StateMessageVectorPort & StateObservationVectorPort;
 }
 
-// Worker and producer entry points are emitted JS (BST-1977): resolve them in the
-// package's dist whether this module runs built or from source under Vitest.
-const PACKAGE_DIST = new URL('../dist/', import.meta.url);
-
-function canonicalDistModule(file: string): string {
-  return pathToFileURL(realpathSync(fileURLToPath(new URL(file, PACKAGE_DIST)))).href;
+// The worker and the producer module run as emitted JS (BST-1977) beside this
+// module: the bundle that runs this host emits them as entries next to it.
+function siblingModule(file: string): string {
+  return pathToFileURL(realpathSync(fileURLToPath(new URL(file, import.meta.url)))).href;
 }
 
 /**
@@ -77,7 +75,7 @@ export async function openHostStateIndex(
     dbPath,
     embedding: { indexMode: 'text-only' },
     rootIds: [stateRoot],
-    stateProjection: { mode: 'prod', module: canonicalDistModule('state-projection.js') },
+    stateProjection: { mode: 'prod', module: siblingModule('./state-projection.js') },
     stateResources: memoryResourceIds.map((resourceId) => ({ resourceId, rootId: stateRoot })),
     stateRoot,
   } as const;
@@ -119,7 +117,7 @@ function startStateIndexWorker(options: { readonly dbPath: string }): IndexerCon
   // Validation is the connection's only synchronous failure: refuse before spawning.
   const validated = validateIndexerOptions(options);
   const deadlines = validateIndexerDeadlines(HOST_STATE_INDEX_DEADLINES);
-  const worker = new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST));
+  const worker = new Worker(new URL('./host-state-index-worker.js', import.meta.url));
   return createIndexerConnection(validated, deadlines, {
     kill: () => {
       void worker.terminate();

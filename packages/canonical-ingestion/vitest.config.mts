@@ -1,6 +1,5 @@
 import path from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 const aliases = [
@@ -13,7 +12,6 @@ const aliases = [
         },
       ]
     : []),
-  ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
 ];
 
 /** One project, `unit`, which runs in Node. */

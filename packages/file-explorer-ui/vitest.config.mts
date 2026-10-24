@@ -1,7 +1,6 @@
 import { resolve } from 'node:path';
 import { testBase } from '@brainstrike/test-utils/vitest.base';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import type { InlineConfig } from 'vitest';
 import { defineConfig } from 'vitest/config';
 // NOTE: TypeScript can get confused about Vitest type identities under pnpm workspaces.
@@ -70,11 +69,6 @@ export default defineConfig({
         find: '@brainstrike/workers/file-content-worker',
         replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
       },
-      // Registry fills the remaining workspace deps (file-system,
-      // token-cache, file-tree-worker, workers, platform-utils transitively, …)
-      // from SOURCE. Hand-rolled entries above win by first-match ordering.
-      // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
-      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },
   // Cast mitigates TS2769 type identity noise in some editors

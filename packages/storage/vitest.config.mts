@@ -2,18 +2,12 @@
 
 import path from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 import {
   resolveVisualBaselinePath,
   withBoundedTraceChunkNames,
 } from '../config/src/vitest-browser.ts';
-
-// Resolve workspace deps (platform-utils, utils) from SOURCE, not built dist.
-// Applied per-project (vitest 4 does not inherit the root-level resolve into
-// `test.projects`). See workspace-src-aliases (incident #1066/#1207).
-const srcAliases = workspaceSrcAliases(path.resolve(import.meta.dirname, '..'));
 
 /**
  * Vitest 4 configuration for @brainstrike/storage
@@ -36,7 +30,6 @@ export default defineConfig({
               find: 'electron',
               replacement: path.resolve(import.meta.dirname, '__mocks__/electron.ts'),
             },
-            ...srcAliases,
           ],
         },
         test: {
@@ -54,7 +47,6 @@ export default defineConfig({
         },
       },
       {
-        resolve: { alias: srcAliases },
         test: {
           browser: {
             enabled: true,

@@ -1,7 +1,6 @@
 import { resolve } from 'node:path';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
@@ -43,7 +42,6 @@ const workspaceAliases = [
     find: /^@brainstrike\/ui\/globals\.css$/,
     replacement: resolve(import.meta.dirname, '../ui/src/globals.css'),
   },
-  ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
 ];
 
 export default defineConfig({

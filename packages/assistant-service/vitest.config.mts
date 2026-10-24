@@ -1,6 +1,5 @@
 import { resolve } from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
@@ -15,9 +14,6 @@ export default defineConfig({
       // subpaths to source is safe; first-match wins over the spread below.
       { find: /^@brainstrike\/agent$/, replacement: resolve(agentDir, 'src/index.ts') },
       ...createAgentBrowserSafeAliasEntries(agentDir),
-      // Resolve remaining workspace deps from SOURCE, not dist.
-      // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
-      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },
   test: {

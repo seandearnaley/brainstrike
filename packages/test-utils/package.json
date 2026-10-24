@@ -49,11 +49,11 @@
       "default": "./vitest.base.mjs"
     },
     "./vitest-lost-file-reporter": "./vitest-lost-file-reporter.mjs",
-    "./workspace-src-aliases": "./workspace-src-aliases.mjs",
     "./electron": "./src/index.ts",
     "./worker": "./src/index.ts",
     "./playwright": "./src/playwright/failure-artifacts.ts",
-    "./provider-cassette": "./src/provider-cassette.ts"
+    "./provider-cassette": "./src/provider-cassette.ts",
+    "./node-runtime-bundle": "./node-runtime-bundle.mjs"
   },
   "license": "MIT",
   "peerDependencies": {
@@ -70,5 +70,9 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@brainstrike/config": "workspace:*",
+    "esbuild": "catalog:"
+  }
 }

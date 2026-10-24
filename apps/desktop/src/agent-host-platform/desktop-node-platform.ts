@@ -67,6 +67,7 @@ import {
   PlatformWorkspaceAcquireResultSchema,
 } from './platform-wire';
 import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
+import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 
 const logger = createLogger('DesktopNodePlatform');
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
@@ -406,6 +407,9 @@ export async function createDesktopHostConfiguration(
         // The run's admitted roots, bound or live: the roots its tools use.
         roots: await trustedHookRoots(startup.store, selected.nativeRuntime.workspaceRoots),
         sessionId: admission.threadId,
+        // Desktop's own bundled wrapper, as for executeCommand.
+        windowsCommandEntry: () =>
+          resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),
       });
       return {
         // Main's shadow-git owner brackets each run's turn for its Changes
