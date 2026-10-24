@@ -218,7 +218,8 @@ function getStatsStatusText(managedStats: IndexingManagedCollectionStatsState): 
     case 'loading':
       return 'Statistics are loading';
     case 'pending':
-      return 'Statistics are preparing';
+      // Main reads counts when a scan starts and settles, so a running scan shows its start.
+      return 'Counts are from before this scan';
     case 'error':
       return 'Statistics need attention';
     case 'ready':
@@ -239,7 +240,7 @@ function formatCoverageStatus(
     return `${coveragePercent}% · stale`;
   }
   if (managedStats.stats?.dirty) {
-    return `${coveragePercent}% · updating`;
+    return `${coveragePercent}% · before this scan`;
   }
   return `${coveragePercent}%`;
 }
@@ -498,11 +499,9 @@ function currentIndexActivity(
   if (!(native && syncStatus.state === 'scanning')) {
     return getWorkspaceCollectionSyncCurrentActivity(syncStatus);
   }
+  // A running scan has no live count: Main reads counts when it starts and when it settles.
   const root = syncStatus.activeRootPath ? ` · ${syncStatus.activeRootPath}` : '';
-  return {
-    label: 'Scanning',
-    value: `${syncStatus.processedFiles.toLocaleString()} files indexed${root}`,
-  };
+  return { label: 'Scanning', value: `Indexing…${root}` };
 }
 
 /** What the status item shows from Main's config; nothing is claimed before it is read. */

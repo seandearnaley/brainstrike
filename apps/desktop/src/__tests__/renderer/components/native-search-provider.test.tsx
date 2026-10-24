@@ -11,6 +11,7 @@ import type {
   IndexerStatus,
   IndexLifecycleCapability,
   IndexSearchCapability,
+  NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import {
   useNativeWorkspaceSearchDependencies,
@@ -98,14 +99,17 @@ afterEach(() => {
   vi.useRealTimers();
   useWorkspaceSearchStore.getState().reset();
 });
-function mount(status: IndexerStatus = ready) {
+function mount(
+  status: IndexerStatus = ready,
+  onLifecycleChanged: IndexLifecycleCapability['onLifecycleChanged'] = () => () => {}
+) {
   const capability: IndexSearchCapability & IndexLifecycleCapability = {
     coverage: vi.fn(),
     coverageBatch: vi.fn(async () => {
       throw new Error('Unexpected coverage batch');
     }),
     grep: vi.fn(),
-    onLifecycleChanged: vi.fn(() => () => {}),
+    onLifecycleChanged: vi.fn(onLifecycleChanged),
     rebuild: vi.fn(),
     search: vi.fn(),
     status: vi.fn(async () => status),
@@ -191,6 +195,38 @@ describe('native search follows Main’s saved choices', () => {
         'Search is off. Turn it on in Settings, Search & Indexing.'
       )
     );
+  });
+});
+
+describe('native search follows Main’s index observations', () => {
+  it('shows the status Main pushes, and nothing new until it pushes again', async () => {
+    vi.useFakeTimers();
+    let push: (observation: NativeIndexObservation) => void = () => {};
+    const { capability, result } = mount(ready, (listener) => {
+      push = listener;
+      return () => {};
+    });
+    await vi.waitFor(() => expect(result.current?.profile).toEqual(profile));
+    // The index starts preparing, but Main has not said so: search keeps what it was told.
+    const preparing: IndexerStatus = {
+      cause: { kind: 'transitioning' },
+      kind: 'unavailable',
+      phase: 'preparing',
+      reason: 'Native index is transitioning.',
+    };
+    vi.mocked(capability.status).mockResolvedValue(preparing);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(result.current?.profile).toEqual(profile);
+    act(() =>
+      push({
+        lifecycle: { cause: { kind: 'transitioning' }, generation: 2, kind: 'preparing' },
+        progress: { kind: 'read', status: preparing },
+      })
+    );
+    expect(result.current?.profile).toBeNull();
+    expect(result.current?.profileUnavailableReason).toBe('Native index is transitioning.');
   });
 });
 
@@ -448,12 +484,9 @@ describe('native provider and search controller observation refresh', () => {
     savedConfig(DEFAULT_INDEX_CONFIG);
     const mounted = mountController();
     try {
-      // The saved Text choice reaches the index on its next status poll.
+      // Main pushes once the index follows the saved Text choice.
       mounted.refresh({ ...ready, embedding: { indexMode: 'text-only' }, queryPlan: undefined });
-      await waitFor(
-        () => expect(vi.mocked(mounted.capability.status).mock.calls.length).toBeGreaterThan(1),
-        { timeout: 5000 }
-      );
+      await act(async () => mounted.publish());
       await waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability).toEqual({
           available: false,
@@ -480,17 +513,13 @@ describe('native provider and search controller observation refresh', () => {
         kind: 'invalidated',
       });
       mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       expect(mounted.result.current.controller.semanticAvailability).toEqual({
         available: false,
         reason: 'Native vector availability is being verified.',
       });
       expect(mounted.capability.coverage).not.toHaveBeenCalled();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await vi.waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
           available: true,
@@ -503,7 +532,7 @@ describe('native provider and search controller observation refresh', () => {
     }
   });
 
-  it('publishes slow availability across multiple progress polls and then refreshes current readiness', async () => {
+  it('publishes slow availability across several observations and then refreshes current readiness', async () => {
     vi.useFakeTimers();
     const { pending, observedCoverage: coverage, ...mounted } = holdAvailability();
     try {
@@ -527,9 +556,7 @@ describe('native provider and search controller observation refresh', () => {
           ],
           rootReadiness: [{ rootId: 'root-a', scanComplete: false }],
         });
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
+        await act(async () => mounted.publish());
       }
       await act(async () => {
         pending[0]?.resolve(coverage);
@@ -590,9 +617,7 @@ describe('native provider and search controller observation refresh', () => {
           },
         ],
       });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await vi.waitFor(() => expect(mounted.result.current.dependencies).not.toBe(prior));
       expect(cancelQueryEmbedding).not.toHaveBeenCalled();
       expect(useWorkspaceSearchStore.getState().status).toBe('searching');
@@ -628,9 +653,7 @@ describe('native provider and search controller observation refresh', () => {
       await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
       const generation = useWorkspaceSearchStore.getState().generation;
       mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await vi.waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability?.hint).toContain(
           'Source scan incomplete'
@@ -640,9 +663,7 @@ describe('native provider and search controller observation refresh', () => {
       expect(cancelQueryEmbedding).not.toHaveBeenCalled();
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       mounted.refresh(structuredClone(ready));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await vi.waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability?.hint).toBeUndefined()
       );
@@ -716,9 +737,7 @@ describe('native provider and search controller observation refresh', () => {
     try {
       await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
       mounted.refresh(next);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await act(async () => {
         mounted.pending[0]?.resolve(mounted.observedCoverage);
       });
@@ -801,9 +820,7 @@ describe('native provider and search controller observation refresh', () => {
     try {
       await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
       mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await act(async () => {
         mounted.pending[0]?.reject(new Error('Native coverage target unavailable.'));
       });
@@ -843,9 +860,7 @@ describe('native provider and search controller observation refresh', () => {
         const generation = useWorkspaceSearchStore.getState().generation;
         const token = queryEmbedding.mock.calls[0]?.[1] as { requestId: string };
         mounted.refresh(next);
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
+        await act(async () => mounted.publish());
         await vi.waitFor(() =>
           expect(cancelQueryEmbedding).toHaveBeenCalledExactlyOnceWith(token.requestId)
         );

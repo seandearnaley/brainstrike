@@ -31,6 +31,7 @@ import {
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type {
+  IndexLifecycleCapability,
   IndexRetryCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -103,7 +104,9 @@ function FileTreeWrapper({
   nativeIndexSearch,
 }: {
   children: ReactNode;
-  nativeIndexSearch: (IndexSearchCapability & IndexConfigCapability) | null;
+  nativeIndexSearch:
+    | (IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability)
+    | null;
 }): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
@@ -169,7 +172,9 @@ export interface RootLayoutContentProps {
   readonly logsPageContent?: ReactNode;
   /** Retry indexing after the embedding host stopped responding (BST-2104); desktop only. */
   readonly nativeIndexRetry?: IndexRetryCapability | null;
-  readonly nativeIndexSearch?: (IndexSearchCapability & IndexConfigCapability) | null;
+  readonly nativeIndexSearch?:
+    | (IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability)
+    | null;
   readonly navigationItems: NavigationItem[];
   readonly settingsPageContent: ReactNode;
   /** The canonical state store's health and recovery (BST-1880); desktop supplies it. */
@@ -470,7 +475,9 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly threadContextPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
-  readonly nativeIndexSearch: (IndexSearchCapability & IndexConfigCapability) | null;
+  readonly nativeIndexSearch:
+    | (IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability)
+    | null;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
   // resolution). Detected by the `window.platform` bridge (capability presence,
