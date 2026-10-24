@@ -37,6 +37,7 @@ import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
+import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import {
@@ -67,7 +68,6 @@ import {
   PlatformWorkspaceAcquireResultSchema,
 } from './platform-wire';
 import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
-import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 
 const logger = createLogger('DesktopNodePlatform');
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {

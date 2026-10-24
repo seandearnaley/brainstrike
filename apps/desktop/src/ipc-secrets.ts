@@ -60,7 +60,8 @@ function isTestMode(): boolean {
 
 function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
   return (
-    value === TAVILY_SECRET_PROVIDER || listProviders().some((definition) => definition.id === value)
+    value === TAVILY_SECRET_PROVIDER ||
+    listProviders().some((definition) => definition.id === value)
   );
 }
 

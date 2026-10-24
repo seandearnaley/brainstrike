@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import LostTestFileReporter from './vitest-lost-file-reporter.mjs';
 

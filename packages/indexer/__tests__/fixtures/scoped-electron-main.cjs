@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const { DatabaseSync } = require('node:sqlite');
 // The suite's node runtime bundle (vitest.integration.config.mts) holds the modules this proof loads.
 const bundled = (file) =>
-  require('node:url').pathToFileURL(path.join(process.env.BRAINSTRIKE_NODE_RUNTIME_BUNDLE, file)).href;
+  require('node:url').pathToFileURL(path.join(process.env.BRAINSTRIKE_NODE_RUNTIME_BUNDLE, file))
+    .href;
 const userData = process.env.BRAINSTRIKE_SCOPED_PROOF_USER_DATA;
 assert.ok(userData && path.isAbsolute(userData), 'Disposable Electron userData is required');
 app.setPath('userData', userData);

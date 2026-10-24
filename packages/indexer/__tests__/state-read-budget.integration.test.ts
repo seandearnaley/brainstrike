@@ -6,12 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { StateStore } from '@brainstrike/state-store';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 import { afterEach, expect, it, vi } from 'vitest';
 import { IndexerError, STATE_CATCH_UP_STEP_EVENTS } from '../src/contracts.js';
 import { openDesktopIndex } from '../src/desktop-index-connection.js';
 import { loadStateProjection } from '../src/state-projection.js';
 import { IndexWriter } from '../src/store.js';
-import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {

@@ -1,4 +1,3 @@
-import { pathToFileURL } from 'node:url';
 // Every entry point that catches the state index up, over a cold backlog far
 // past one catch-up step: each is served, the worker lives, and no request it
 // sends takes half as long as that backlog's projection in one request.
@@ -6,17 +5,17 @@ import { fork } from 'node:child_process';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   createStateStoreIndexer,
   openIndexer,
   STATE_CATCH_UP_STEP_EVENTS,
 } from '@brainstrike/indexer';
+import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { StateStore } from '@brainstrike/state-store';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { createIndexerConnection } from '@brainstrike/indexer/transport';
-import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
-
 
 type Port = Awaited<ReturnType<typeof openIndexer>>;
 

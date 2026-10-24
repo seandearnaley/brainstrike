@@ -5,7 +5,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { defineConfig } from 'vitest/config';
-import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -84,7 +83,6 @@ export default defineConfig({
         find: '@brainstrike/embeddings/worker',
         replacement: resolve(__dirname, '../embeddings/src/worker-entry.ts'),
       },
-      ...createAgentBrowserSafeAliasEntries(resolve(__dirname, '../agent')),
     ],
   },
   test: {

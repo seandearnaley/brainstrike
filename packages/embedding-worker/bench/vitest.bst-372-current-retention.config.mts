@@ -1,9 +1,7 @@
-import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  resolve: {
-  },
+  resolve: {},
   test: {
     clearMocks: true,
     coverage: { enabled: false },

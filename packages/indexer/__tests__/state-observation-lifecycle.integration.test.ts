@@ -1,17 +1,16 @@
-import { pathToFileURL } from 'node:url';
 import { fork, spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { openIndexer } from '@brainstrike/indexer';
+import { createIndexerConnection, IndexerLifecycleError } from '@brainstrike/indexer/transport';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { afterEach, expect, it, type TestContext } from 'vitest';
 import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js';
-import { createIndexerConnection, IndexerLifecycleError } from '@brainstrike/indexer/transport';
-import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
-
 
 const deadlines = { closeMs: 5000, exitMs: 5000 };
 const owners = new WeakMap<TestContext['task'], ObservationLifecycle>();

@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import { windowsCommandEntry } from '../fixtures/windows-command-entry.js';
 import { createHostRunHooks, loadHostRunHooks } from '../../src/hooks/host-run-hooks.js';
+import { windowsCommandEntry } from '../fixtures/windows-command-entry.js';
 
 const roots: string[] = [];
 afterEach(() => {

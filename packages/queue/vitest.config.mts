@@ -1,4 +1,4 @@
-import { dirname, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { defineConfig } from 'vitest/config';

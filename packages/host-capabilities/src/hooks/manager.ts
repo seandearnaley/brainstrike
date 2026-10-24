@@ -168,7 +168,11 @@ export class HookManager {
         tool_name: input.toolName,
         tool_output: input.toolOutput,
       }),
-      { blocking: false, logger: this.ctx.logger, windowsCommandEntry: this.ctx.windowsCommandEntry }
+      {
+        blocking: false,
+        logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
+      }
     );
     this.surfaceOutcome('PostToolUse', result);
     return result;
@@ -232,7 +236,11 @@ export class HookManager {
         hook_event_name: event,
         session_id: this.ctx.sessionId,
       }),
-      { blocking: isBlockingEvent(event), logger: this.ctx.logger, windowsCommandEntry: this.ctx.windowsCommandEntry }
+      {
+        blocking: isBlockingEvent(event),
+        logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
+      }
     );
   }
 
@@ -255,7 +263,11 @@ export class HookManager {
         session_id: this.ctx.sessionId,
         ...(message === undefined ? {} : { message }),
       }),
-      { blocking: false, logger: this.ctx.logger, windowsCommandEntry: this.ctx.windowsCommandEntry }
+      {
+        blocking: false,
+        logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
+      }
     );
   }
 }

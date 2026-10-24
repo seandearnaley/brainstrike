@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import { testBase } from '@brainstrike/test-utils/vitest.base';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import type { InlineConfig } from 'vitest';

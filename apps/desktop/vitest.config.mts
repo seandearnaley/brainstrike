@@ -5,7 +5,6 @@ import { getAdjustedTimeout, getExpectPollTimeout } from '@brainstrike/test-util
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type TestProjectConfiguration } from 'vitest/config';
-import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 
 // Native file sharding keeps each integration runner serialized. Local runs
 // omit the shard and still execute the complete suite.
@@ -130,9 +129,7 @@ export default defineConfig({
     ]),
   ],
   resolve: {
-    // Array form: first match wins, so config-local entries (mocks, curated
-    // subpath maps, deliberate overrides) come BEFORE the shared registry
-    // spread, mirroring the packages/* convention from B3 (#1651).
+    // Workspace packages export their source, so they need no alias.
     alias: [
       ...(coverageEnabled ? NATIVE_PROCESS_ALIASES : []),
       { find: '@', replacement: path.resolve(import.meta.dirname, './src/renderer') },
@@ -144,123 +141,6 @@ export default defineConfig({
       {
         find: 'electron',
         replacement: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
-      },
-      // Browser-safe agent subpath entries first (exact specifiers), then the
-      // agent ROOT as a plain prefix so `@brainstrike/agent` and its remaining
-      // node-only subpaths (`/mcp-client`, …) resolve
-      // to SOURCE. The shared registry deliberately EXCLUDES agent (its root
-      // pulls Mastra/Node-only deps that cannot load in browser-only test
-      // lanes), but this app's assistant-server tests exercise real agent code
-      // and previously consumed its built dist — a guarantee that vanished
-      // when B4 dropped `test.dependsOn: ["^build"]`. Aliasing the root to src
-      // keeps those lanes green
-      // without re-adding a build edge.
-      ...Object.entries(
-        createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent'))
-      ).map(([find, replacement]) => ({ find, replacement })),
-      {
-        find: '@brainstrike/agent',
-        replacement: path.resolve(import.meta.dirname, '../../packages/agent/src'),
-      },
-      // Curated local subpath overrides (kept from the pre-B4 hand-maintained
-      // map; they pin renamed entry files and stay first so a registry change
-      // cannot silently retarget them).
-      {
-        find: '@brainstrike/embeddings/backend',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/backend-entry.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/factory',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/factory-entry.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/provider-core',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/provider-core.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/runtime-config',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/runtime-config.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/service',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/service-entry.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/worker',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/worker-entry.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/file-explorer-ui/indexing',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/file-explorer-ui/src/indexing'
-        ),
-      },
-      {
-        find: '@brainstrike/file-explorer-ui/shell',
-        replacement: path.resolve(import.meta.dirname, '../../packages/file-explorer-ui/src/shell'),
-      },
-      {
-        find: '@brainstrike/platform-utils',
-        replacement: path.resolve(import.meta.dirname, '../../packages/platform-utils/src'),
-      },
-      {
-        find: '@brainstrike/queue/browser',
-        replacement: path.resolve(import.meta.dirname, '../../packages/queue/src/browser.ts'),
-      },
-      // NOTE: no explicit @brainstrike/test-utils entry — it was a blanket
-      // STRING prefix (`find: '@brainstrike/test-utils'`, not an anchored
-      // regex), which shadowed EVERY subpath under it, including ones that do
-      // NOT live under src/ (e.g. `/workspace-src-aliases` -> the package
-      // ROOT's workspace-src-aliases.mjs, `/electron` and `/worker` ->
-      // deliberately DIST). The registry already source-aliases the ROOT
-      // specifier correctly (exact match); subpaths now correctly fall
-      // through to test-utils' own `exports` map, which src-points or
-      // dist-points each one appropriately. Found via a real broken
-      // resolution while adding apps/*/src/__tests__/vite-config.test.ts's
-      // `@brainstrike/test-utils/workspace-src-aliases` import (Series C R6
-      // task 5).
-      {
-        find: '@brainstrike/text-splitter/chunking-core',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/text-splitter/src/chunking-core.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter',
-        replacement: path.resolve(import.meta.dirname, '../../packages/text-splitter/src/index.ts'),
-      },
-      // @brainstrike/workers has no `src/` dir (worker files live at the
-      // package root), so the registry skips it — alias its subpaths
-      // explicitly. Surfaced by extending the workspace-src-alias guard to
-      // apps/* (Series C R6 task 5): file-explorer-hooks and
-      // file-explorer-ui/indexing (both src-aliased above/via the registry)
-      // import these transitively, and neither was previously aliased here.
-      {
-        find: '@brainstrike/workers/file-content-worker',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/workers/file-content-worker.ts'
-        ),
       },
     ],
   },

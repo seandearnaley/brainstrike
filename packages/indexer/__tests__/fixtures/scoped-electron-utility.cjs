@@ -7,7 +7,9 @@ if (!parentPort || process.type !== 'utility') {
 }
 parentPort.once('message', (event) => {
   // The suite's node runtime bundle (vitest.integration.config.mts) holds the indexer host.
-  const host = pathToFileURL(path.join(process.env.BRAINSTRIKE_NODE_RUNTIME_BUNDLE, 'host.js')).href;
+  const host = pathToFileURL(
+    path.join(process.env.BRAINSTRIKE_NODE_RUNTIME_BUNDLE, 'host.js')
+  ).href;
   void import(host).then(({ runIndexerProcess }) =>
     runIndexerProcess(event.data, {
       finish: () => setImmediate(() => process.exit()),

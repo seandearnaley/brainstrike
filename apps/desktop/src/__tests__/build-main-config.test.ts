@@ -82,8 +82,9 @@ describe('Node-side bundle config', () => {
     const ownerFirst = Object.entries(NODE_PROCESS_ENTRY_POINTS).filter(
       ([, source]) =>
         !path.isAbsolute(source) &&
-        firstImport.exec(fs.readFileSync(path.resolve(import.meta.dirname, '../..', source), 'utf8'))?.[1] ===
-          '@brainstrike/secure-fs-native/default-owner'
+        firstImport.exec(
+          fs.readFileSync(path.resolve(import.meta.dirname, '../..', source), 'utf8')
+        )?.[1] === '@brainstrike/secure-fs-native/default-owner'
     );
 
     expect(ownerFirst.map(([name]) => name).sort()).toEqual([

@@ -1,10 +1,10 @@
 import { resolve } from 'node:path';
-import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import {
   buildNodeRuntimeBundle,
   NODE_RUNTIME_BUNDLE_ENV,
   nodeRuntimeBundleAliases,
 } from '@brainstrike/test-utils/node-runtime-bundle';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { defineConfig } from 'vitest/config';
 

@@ -265,11 +265,7 @@ export function resolveVitestMaxWorkers(
 }
 
 export function runTurboCommand(argv = process.argv, platform = process.platform, options = {}) {
-  const {
-    env = process.env,
-    logError = console.error,
-    spawnSyncImpl = spawnSync,
-  } = options;
+  const { env = process.env, logError = console.error, spawnSyncImpl = spawnSync } = options;
   const separatorIndex = argv.indexOf('--');
 
   if (separatorIndex === -1 || separatorIndex === argv.length - 1) {

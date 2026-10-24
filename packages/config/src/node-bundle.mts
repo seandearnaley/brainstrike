@@ -56,11 +56,15 @@ export const workspaceSourceBundling = {
  */
 export function nodeRuntimeEntryPoints(packagesRoot: string): Record<string, string> {
   return {
-    'host-state-index-worker': path.join(packagesRoot, 'agent-host/src/host-state-index-worker.ts'),
-    'keyring-native-entry': path.join(packagesRoot, 'agent-host/src/adapters/keyring-native-entry.ts'),
-    'memory-storage-calculator': path.join(
+    // Named at its source path relative to the agent-host module that names it.
+    'adapters/memory-storage-calculator': path.join(
       packagesRoot,
       'agent-host/src/adapters/memory-storage-calculator.ts'
+    ),
+    'host-state-index-worker': path.join(packagesRoot, 'agent-host/src/host-state-index-worker.ts'),
+    'keyring-native-entry': path.join(
+      packagesRoot,
+      'agent-host/src/adapters/keyring-native-entry.ts'
     ),
     'state-projection': path.join(packagesRoot, 'agent-host/src/state-projection.ts'),
     'writer-worker': path.join(packagesRoot, 'indexer/src/writer-worker.ts'),

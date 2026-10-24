@@ -1,5 +1,3 @@
-/// <reference types="vitest" />
-import { resolve } from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { defineConfig } from 'vitest/config';
 

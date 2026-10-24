@@ -48,7 +48,10 @@ describe('Node process bundle', () => {
     await esbuild.build({
       ...nodeProcessBuild,
       entryPoints: {
-        'configure-entry': path.join(import.meta.dirname, 'fixtures/split-bundle/configure-entry.ts'),
+        'configure-entry': path.join(
+          import.meta.dirname,
+          'fixtures/split-bundle/configure-entry.ts'
+        ),
         'report-entry': path.join(import.meta.dirname, 'fixtures/split-bundle/report-entry.ts'),
       },
       logLevel: 'silent',

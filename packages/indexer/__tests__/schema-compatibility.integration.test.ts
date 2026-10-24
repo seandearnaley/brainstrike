@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { crc32 } from 'node:zlib';
 import { openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { openDesktopIndexReader } from '../src/desktop-index-connection.js';
 import { IndexReader } from '../src/store.js';
@@ -14,7 +15,6 @@ import {
   retained,
   truthHash,
 } from './fixtures/schema-compatibility.js';
-import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
 beforeEach(() => {
   vi.stubGlobal(

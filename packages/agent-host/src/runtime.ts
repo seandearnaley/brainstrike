@@ -278,7 +278,7 @@ export async function startAgentHost(
               // The writer worker imports this module itself, outside any
               // transform: the bundle that runs this host emits it beside this module.
               memoryCalculatorModule: fileURLToPath(
-                new URL('./memory-storage-calculator.js', import.meta.url)
+                new URL('./adapters/memory-storage-calculator.js', import.meta.url)
               ),
               // ADR-0017: the native processes this host starts inherit its Root.
               shareWithNativeChildren: true,

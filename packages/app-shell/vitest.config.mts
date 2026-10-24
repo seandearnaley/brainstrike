@@ -4,7 +4,6 @@
 import path from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { defineConfig } from 'vitest/config';
-import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 export default defineConfig({
   // Preserve real module URLs: source-boundary tests read files relative to them.
@@ -95,7 +94,6 @@ export default defineConfig({
         find: '@brainstrike/embeddings',
         replacement: path.resolve(import.meta.dirname, '__mocks__/embeddings.ts'),
       },
-      ...createAgentBrowserSafeAliasEntries(path.resolve(import.meta.dirname, '../agent')),
       {
         find: '@brainstrike/text-splitter/chunking-core',
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/chunking-core.ts'),

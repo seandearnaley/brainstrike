@@ -24,7 +24,6 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import wasm from 'vite-plugin-wasm';
-import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 import { rendererIsolationHeaders } from './src/desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_PORT } from './src/desktop-renderer-url';
@@ -232,9 +231,6 @@ export default defineConfig({
         find: 'pino/browser.js',
         replacement: pinoBrowserPath,
       },
-      // Agent browser-safe subpath exports (no Mastra dependencies) — this
-      // app's renderer bundle only ever needs these browser-safe subpaths.
-      ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
     ],
     dedupe: ['react', 'react-dom'],
   },

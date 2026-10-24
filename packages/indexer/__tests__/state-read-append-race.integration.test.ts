@@ -8,9 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { STATE_CATCH_UP_STEP_EVENTS } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createIndexerConnection } from '../src/transport.js';
-import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
