@@ -5,13 +5,7 @@
       "vitest/globals",
       "node"
     ],
-    "lib": [
-      "ES2022",
-      "WebWorker"
-    ],
-    "noEmit": true,
-    "composite": false,
-    "incremental": false
+    "noEmit": true
   },
   "include": [
     "src/**/*"

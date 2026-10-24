@@ -6,14 +6,16 @@ with a second build system.
 
 ## Select the existing profile
 
-The TypeScript profiles live in [`tsconfig`](tsconfig/). `base.json` supplies the
-shared strict checks. Node libraries use `node-library.json` for NodeNext output
-and `.js` relative source specifiers; browser/bundled consumers use their existing
-appropriate profile. Native-addon builds retain their native build boundary.
+The TypeScript profile lives in [`tsconfig`](tsconfig/). `base.json` supplies the
+shared strict checks and resolves modules the way the bundlers that consume
+workspace packages do. Workspace packages export their source as types, so a
+consumer type-checks its dependencies' source under its own options. A package
+whose emitted output Node runs directly states NodeNext in its own tsconfig.
+Native-addon builds retain their native build boundary.
 
 Choose a profile by the actual runtime/output, not by copying a compiler-options
-list. Build references, include/exclude patterns and declaration emission belong
-to the consuming package configuration. Do not add experimental decorator options
+list. Include/exclude patterns and emission belong to the consuming package
+configuration. Do not add experimental decorator options
 or a bundler just because an obsolete example listed them.
 
 The Biome entries are declared in [`package.json`](package.json).

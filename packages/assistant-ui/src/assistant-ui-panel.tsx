@@ -1,3 +1,4 @@
+/// <reference path="./vite-env.d.ts" />
 import {
   type AssistantRuntime,
   AssistantRuntimeProvider,

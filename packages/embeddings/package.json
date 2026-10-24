@@ -30,39 +30,39 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
     "./inference-plan": {
-      "types": "./dist/inference-plan.d.ts",
+      "types": "./src/inference-plan.ts",
       "default": "./dist/inference-plan.js"
     },
     "./pinned-plan": {
-      "types": "./dist/pinned-plan.d.ts",
+      "types": "./src/pinned-plan.ts",
       "default": "./dist/pinned-plan.js"
     },
     "./runtime-config": {
-      "types": "./dist/runtime-config.d.ts",
+      "types": "./src/runtime-config.ts",
       "default": "./dist/runtime-config.js"
     },
     "./provider-core": {
-      "types": "./dist/provider-core.d.ts",
+      "types": "./src/provider-core.ts",
       "default": "./dist/provider-core.js"
     },
     "./backend": {
-      "types": "./dist/backend-entry.d.ts",
+      "types": "./src/backend-entry.ts",
       "default": "./dist/backend-entry.js"
     },
     "./factory": {
-      "types": "./dist/factory-entry.d.ts",
+      "types": "./src/factory-entry.ts",
       "default": "./dist/factory-entry.js"
     },
     "./service": {
-      "types": "./dist/service-entry.d.ts",
+      "types": "./src/service-entry.ts",
       "default": "./dist/service-entry.js"
     },
     "./worker": {
-      "types": "./dist/worker-entry.d.ts",
+      "types": "./src/worker-entry.ts",
       "default": "./dist/worker-entry.js"
     }
   },
@@ -77,9 +77,9 @@
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
@@ -87,6 +87,6 @@
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
-  "types": "dist/index.d.ts",
+  "types": "./src/index.ts",
   "type": "module"
 }

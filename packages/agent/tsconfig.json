@@ -1,31 +1,11 @@
 {
   "extends": "../config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
     "declarationMap": true,
     "emitDeclarationOnly": true,
-    "paths": {
-      "@brainstrike/assistant-contract": [
-        "../assistant-contract/dist/index.d.ts"
-      ],
-      "@brainstrike/assistant-contract/*": [
-        "../assistant-contract/dist/*.d.ts"
-      ],
-      "@brainstrike/mcp-tasks-extension": [
-        "../mcp-tasks-extension/dist/index.d.ts"
-      ],
-      "@brainstrike/tokenization": [
-        "../tokenization/dist/index.d.ts"
-      ],
-      "@brainstrike/tokenization/token-utils-accurate-lite": [
-        "../tokenization/dist/token-utils-accurate-lite.d.ts"
-      ]
-    },
     "strictNullChecks": true,
     "plugins": [
       {
@@ -56,28 +36,5 @@
     "node_modules",
     "src/**/*.test.ts",
     "src/**/__tests__/**"
-  ],
-  "references": [
-    {
-      "path": "../assistant-contract"
-    },
-    {
-      "path": "../tokenization"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../mcp-tasks-extension"
-    },
-    {
-      "path": "../state-store"
-    },
-    {
-      "path": "../utils"
-    },
-    {
-      "path": "../types"
-    }
   ]
 }

@@ -24,8 +24,5 @@ declare global {
           getSnapshot: () => FileExplorerTestSnapshot;
         }
       | undefined;
-    desktopLifecycle?: {
-      isTestMode?: boolean;
-    };
   }
 }
