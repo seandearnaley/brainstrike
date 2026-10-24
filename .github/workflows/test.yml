@@ -36,6 +36,8 @@ on:
         value: ${{ jobs.admission.result }}
       static-result:
         value: ${{ jobs.static.result }}
+      unit-plan-result:
+        value: ${{ jobs.unit-plan.result }}
       unit-shard-result:
         value: ${{ jobs.unit-shard.result }}
       unit-result:
@@ -55,7 +57,7 @@ on:
       notify-linear-result:
         value: ${{ jobs.notify-linear.result }}
       unit-shard-count:
-        value: ${{ jobs.static.outputs.unit-shard-count }}
+        value: ${{ jobs.unit-plan.outputs.unit-shard-count }}
 
 # In a called run github.workflow is the caller's name; the file name keeps this
 # group apart from the caller's and, in nightly.yml, from the five siblings'.
@@ -143,37 +145,27 @@ jobs:
             core.notice(`PR #${pullNumber} head ${runHead} remained quiet for 120 seconds; releasing the full test graph.`);
             return 'true';
 
-  static:
-    name: Static
+  # Unit selection needs only a checkout and an install, so it runs beside
+  # Static rather than inside it: the shards start minutes earlier instead of
+  # waiting for lint and type-check, which gate nothing they read.
+  unit-plan:
+    name: Unit plan
     outputs:
       affected-base: ${{ steps.affected-base.outputs.sha }}
       unit-matrix: ${{ steps.unit-shards.outputs.matrix }}
       unit-shard-count: ${{ steps.unit-shards.outputs.count }}
     if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
-    # Series C R9b: arm64 runners became available for private repos on
-    # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
-    # Probe P1 measured this job's full step suite (install, secret scan,
-    # script tests, lane-manifest checks, lint, type-check) GENUINELY
-    # RUNNING and PASSING on ubuntu-24.04-arm, with wall-clock parity to x64
-    # (~3.0m either arch — arm64 is NOT faster, only cheaper per minute).
-    # See docs/agents/ci-quality.md / the Series C design doc for the probe
-    # results. `.turbo` cache key (setup-workspace/action.yml) already
-    # includes `runner.arch`, so this move cannot cross-restore an
-    # incompatible cache layer.
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
         run: |
-          echo "::error::Quiet-head admission failed; refusing to skip the required Static check."
+          echo "::error::Quiet-head admission failed; refusing to skip the required Unit plan."
           exit 1
 
-      # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
-      # action is read off the runner's filesystem, so the repo has to be on
-      # disk before it can resolve. See setup-workspace/action.yml's header.
-      # Full history also supplies the exact PR base used by Unit admission.
+      # Full history supplies the exact base the affected selection diffs from.
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -265,6 +257,44 @@ jobs:
           TURBO_TEST_MODE: unit
         run: node scripts/select-unit-shards.mjs
 
+
+  static:
+    name: Static
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    needs: [admission]
+    # Series C R9b: arm64 runners became available for private repos on
+    # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
+    # Probe P1 measured this job's full step suite (install, secret scan,
+    # script tests, lane-manifest checks, lint, type-check) GENUINELY
+    # RUNNING and PASSING on ubuntu-24.04-arm, with wall-clock parity to x64
+    # (~3.0m either arch — arm64 is NOT faster, only cheaper per minute).
+    # See docs/agents/ci-quality.md / the Series C design doc for the probe
+    # results. `.turbo` cache key (setup-workspace/action.yml) already
+    # includes `runner.arch`, so this move cannot cross-restore an
+    # incompatible cache layer.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Static check."
+          exit 1
+
+      # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
+      # action is read off the runner's filesystem, so the repo has to be on
+      # disk before it can resolve. See setup-workspace/action.yml's header.
+      # Full history also supplies the exact PR base used by Unit admission.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
       - name: Secret scan
         run: pnpm secrets:scan
 
@@ -278,8 +308,8 @@ jobs:
 
   unit-shard:
     name: Unit (${{ matrix.shard }})
-    if: needs.admission.outputs.admitted == 'true' && needs.static.outputs.unit-shard-count != '0'
-    needs: [admission, static]
+    if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0'
+    needs: [admission, unit-plan]
     # The Unit matrix runs on the same explicit 4-vCPU/16-GB Ubicloud class as
     # the other Linux x64 jobs. GitHub's hosted ARM pool terminated the `rest`
     # shard without a test assertion on five consecutive attempts across two
@@ -295,7 +325,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.static.outputs.unit-matrix) }}
+      matrix: ${{ fromJSON(needs.unit-plan.outputs.unit-matrix) }}
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -320,7 +350,7 @@ jobs:
       # (.github/actions/linux-desktop-test-host): the real OS-fence
       # dependencies (BST-1071), an X server for desktop's real-app proofs, and
       # the desktop model cache. Every shard gets it, not only the ones that
-      # own agent or desktop: shard membership is a filter list in Static, and a
+      # own agent or desktop: shard membership is a filter list in Unit plan, and a
       # dependency that silently stops being installed when a package moves
       # shards is the failure this step exists to end. It follows Setup
       # workspace because a desktop package script provisions the model cache.
@@ -394,7 +424,7 @@ jobs:
       - name: Affected unit tests
         if: inputs.merge-queue && github.event_name == 'push'
         env:
-          TURBO_SCM_BASE: ${{ needs.static.outputs.affected-base }}
+          TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
           TURBO_SCM_HEAD: ${{ github.sha }}
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
@@ -409,7 +439,7 @@ jobs:
       - name: Affected integration tests
         if: inputs.merge-queue && github.event_name == 'push'
         env:
-          TURBO_SCM_BASE: ${{ needs.static.outputs.affected-base }}
+          TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
           TURBO_SCM_HEAD: ${{ github.sha }}
           # The desktop test host above installed bubblewrap/socat/ripgrep, so
           # the real-fence suites must RUN here. Set, a missing dependency is a
@@ -490,7 +520,7 @@ jobs:
   unit:
     name: Unit
     if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission, static, unit-shard]
+    needs: [admission, unit-plan, unit-shard]
     # This fan-in only checks one dependency result and completes in ~3s. Use
     # GitHub's 1-core slim runner so per-job minute rounding does not charge the
     # ARM compute rate for a job that performs no build or test work.
@@ -505,13 +535,13 @@ jobs:
 
       - name: Check shard results
         env:
-          STATIC_RESULT: ${{ needs.static.result }}
-          SHARD_COUNT: ${{ needs.static.outputs.unit-shard-count }}
+          PLAN_RESULT: ${{ needs.unit-plan.result }}
+          SHARD_COUNT: ${{ needs.unit-plan.outputs.unit-shard-count }}
           SHARD_RESULT: ${{ needs.unit-shard.result }}
         run: |
           set -euo pipefail
-          if [ "$STATIC_RESULT" != "success" ]; then
-            echo "::error::Static or affected selection failed; Unit cannot pass."
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "::error::Affected Unit selection failed; Unit cannot pass."
             exit 1
           fi
           case "$SHARD_COUNT" in
@@ -1051,13 +1081,13 @@ jobs:
   # one `nightly-alert` issue per red workflow and comments on later nights.
   notify-linear:
     name: Notify Linear
-    needs: [admission, static, unit-shard, unit, build, native-electron, browser-tests, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
+    needs: [admission, unit-plan, static, unit-shard, unit, build, native-electron, browser-tests, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       # This workflow's own name: in nightly.yml's call, github.workflow is
       # the caller's (BST-2233).
       workflow_name: Test
-      results: admission=${{ needs.admission.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
+      results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

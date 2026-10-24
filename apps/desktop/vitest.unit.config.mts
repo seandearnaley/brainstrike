@@ -12,15 +12,14 @@ import baseConfig, { resolveDesktopTestProjects } from './vitest.config.mts';
 // a test leaves new files in this package. Desktop is the longest unit task and
 // runs alone once the smaller packages finish, so it takes half the cores (at
 // least two) rather than the per-task share VITEST_MAX_WORKERS gives the others.
-// Windows (cold fork imports, WINDOWS_DESKTOP_TEST_PROJECTS), CI and explicit
-// DESKTOP_TEST_SHARD runs stay serial; integration and coverage keep their own
-// configs.
+// CI shards (DESKTOP_TEST_SHARD) use the same rule, so a 4-vCPU runner runs two
+// workers. Windows (cold fork imports, WINDOWS_DESKTOP_TEST_PROJECTS) stays
+// serial; integration and coverage keep their own configs.
 export function resolveDesktopUnitWorkers(
-  environment: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   cores: number = os.availableParallelism()
 ): number {
-  if (platform === 'win32' || environment['CI'] === 'true' || environment['DESKTOP_TEST_SHARD']) {
+  if (platform === 'win32') {
     return 1;
   }
   return Math.max(2, Math.floor(cores / 2));
@@ -73,17 +72,15 @@ function parallelUnitProjects(workers: number): TestProjectConfiguration[] {
 
 export interface DesktopUnitConfigOptions {
   readonly cores?: number;
-  readonly environment?: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
 }
 
-/** The unit lane as `platform` and `environment` select it; defaults to this process. */
+/** The unit lane as `platform` selects it; defaults to this process. */
 export function createDesktopUnitConfig({
   cores,
-  environment,
   platform = process.platform,
 }: DesktopUnitConfigOptions = {}): ViteUserConfig {
-  const workers = resolveDesktopUnitWorkers(environment, platform, cores);
+  const workers = resolveDesktopUnitWorkers(platform, cores);
   return defineConfig({
     ...baseConfig,
     test: {
