@@ -18,7 +18,7 @@
     },
     {
       "relativePath": "packages/utils/src/path-ancestors.ts",
-      "sha256": "339525e0634d08c2778b620b68ca9857b12e5784b5c4d598d95b73943f39b439"
+      "sha256": "3e4d9727f5b56d260e61f150749a35a46be723c3a3e52a1921c839ac09fc3e08"
     },
     {
       "relativePath": "packages/chunking-worker/src/chunking-config.ts",
@@ -379,8 +379,8 @@
         {
           "id": "repo-019-answer-1",
           "relativePath": "packages/utils/src/path-ancestors.ts",
-          "startLine": 77,
-          "endLine": 77,
+          "startLine": 148,
+          "endLine": 148,
           "evidence": "export function getAncestorDirectoryPaths(",
           "rationale": "The exported helper returns parent directory chains for a file path."
         }
@@ -395,8 +395,8 @@
         {
           "id": "repo-020-answer-1",
           "relativePath": "packages/utils/src/path-ancestors.ts",
-          "startLine": 103,
-          "endLine": 103,
+          "startLine": 174,
+          "endLine": 174,
           "evidence": "counts.delete(directoryPath);",
           "rationale": "Nonpositive aggregate counts are deleted."
         }
@@ -411,8 +411,8 @@
         {
           "id": "repo-021-answer-1",
           "relativePath": "packages/utils/src/path-ancestors.ts",
-          "startLine": 63,
-          "endLine": 63,
+          "startLine": 134,
+          "endLine": 134,
           "evidence": "const chain = cachedParentChain ? [...cachedParentChain] : [];",
           "rationale": "Ancestor chains are constructed iteratively and reuse cached parents."
         }
@@ -427,9 +427,9 @@
         {
           "id": "repo-022-answer-1",
           "relativePath": "packages/utils/src/path-ancestors.ts",
-          "startLine": 67,
-          "endLine": 67,
-          "evidence": "if (path !== '/' || options.includeRoot) {",
+          "startLine": 138,
+          "endLine": 138,
+          "evidence": "if (!isRootPath(path) || options.includeRoot) {",
           "rationale": "Root inclusion is controlled explicitly."
         }
       ]

@@ -1,11 +1,13 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FileExplorerState } from '@brainstrike/types';
+import { pathBasename } from '@brainstrike/utils/path-ancestors';
 import type { FileTab } from '../hooks/use-tab-manager';
 import type { WorkspaceTabSelection } from '../stores/workspace-tab-selection-store';
 
+/** A file tab's title: its last path segment, by the path's own grammar. */
 export function getFileName(path: string): string {
-  const last = path.split('/').pop();
-  return last && last.length > 0 ? last : path;
+  const name = pathBasename(path);
+  return name.length > 0 ? name : path;
 }
 
 export function getTabRootPath(

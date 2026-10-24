@@ -35,6 +35,7 @@ import {
   PermissionRequiredScreen,
 } from './file-tab-status-screens';
 import { MarkdownPreviewErrorBoundary } from './markdown-preview-error-boundary';
+import { getFileName } from './workspace-tab-utils';
 
 const MarkdownSurfaceLazy = lazy(() =>
   import('@brainstrike/ui/markdown-surface').then((m) => ({ default: m.MarkdownSurface }))
@@ -377,7 +378,7 @@ export function FileTabBody({
       );
   }
 
-  const fileName = path.split('/').pop() ?? path;
+  const fileName = getFileName(path);
   const directory = path.slice(0, Math.max(0, path.length - fileName.length - 1));
 
   return (

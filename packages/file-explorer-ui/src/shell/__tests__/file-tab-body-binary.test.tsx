@@ -2,7 +2,7 @@ import { type ActionServices, createTestActionRegistry } from '@brainstrike/cont
 import { buildInaccessibleContent } from '@brainstrike/file-explorer-hooks';
 import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { ActionRegistryProvider } from '@brainstrike/ui';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { openFileInTab, toastFn } = vi.hoisted(() => ({
@@ -108,6 +108,17 @@ describe('FileTabBody binary file preview', () => {
     expect(screen.queryByTestId('file-code-surface')).not.toBeInTheDocument();
     // The raw sentinel string must never be dumped as if it were file text.
     expect(within(preview).queryByText(BINARY_CONTENT_MESSAGE)).not.toBeInTheDocument();
+  });
+
+  it('titles a Windows file by its name, in its preview and in its header', () => {
+    const binary = encodeFileSelection('folder-1', 'C:\\root\\assets\\logo.png');
+    renderBinaryBody({ compositeKey: binary, rootPath: 'C:\\root' });
+    expect(within(screen.getByTestId('binary-file-preview')).getByText('logo.png')).toBeVisible();
+    cleanup();
+
+    const text = encodeFileSelection('folder-1', 'C:\\root\\src\\index.ts');
+    renderBinaryBody({ compositeKey: text, content: 'export {};', rootPath: 'C:\\root' });
+    expect(screen.getByRole('button', { name: 'Copy index.ts' })).toBeInTheDocument();
   });
 
   it('does not hijack contents that merely mention binary files', () => {

@@ -5,12 +5,13 @@ import { TOOL_CALL_BLOCKED_MESSAGE } from '@brainstrike/assistant-contract/tool-
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { homeEnvironment, nodeCommand, nodeText } from './utils/node-command';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const REASON = 'Workspace reads are disabled by a global hook';
 
-// The global hooks file is `$HOME/.brainstrike/hooks.json`; this spec's app
-// (Main and its host) gets a private HOME holding one PreToolUse hook.
+// The global hooks file is `~/.brainstrike/hooks.json`; this spec's app
+// (Main and its host) gets a private home holding one PreToolUse hook.
 const home = mkdtempSync(join(tmpdir(), 'bs-e2e-host-hooks-home-'));
 // A real workspace root: global hooks run in the main root, so it must exist on disk.
 const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-host-hooks-root-'));
@@ -20,7 +21,9 @@ writeFileSync(
   JSON.stringify({
     PreToolUse: [
       {
-        command: `echo '{"decision":"block","reason":"${REASON}"}'; exit 2`,
+        command: nodeCommand(
+          `console.log(${nodeText(JSON.stringify({ decision: 'block', reason: REASON }))}); process.exitCode = 2`
+        ),
         matcher: { tool_name: '^brainstrike\\.readWorkspaceFile$' },
         type: 'command',
       },
@@ -28,7 +31,7 @@ writeFileSync(
   })
 );
 
-test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace, HOME: home } });
+test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace, ...homeEnvironment(home) } });
 test.afterAll(() => {
   rmSync(home, { force: true, recursive: true });
   rmSync(workspace, { force: true, recursive: true });

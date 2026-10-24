@@ -230,6 +230,26 @@ function disposeSubscriptions(entry: SessionEntry): void {
   }
 }
 
+/**
+ * node-pty re-quotes array arguments on Windows with `\"` escapes, which
+ * cmd.exe does not read, so a command with quotes reached its program mangled.
+ * A string is node-pty's command line as written: Node's own `shell: true`
+ * line, `/d /s /c "command"`, as agent commands run.
+ */
+function resolvePtyShellInvocation(command: string): {
+  readonly args: string | string[];
+  readonly shell: string;
+} {
+  const invocation = resolveShellInvocation(command);
+  if (process.platform !== 'win32') {
+    return invocation;
+  }
+  return {
+    args: `${invocation.args.slice(0, -1).join(' ')} "${command}"`,
+    shell: invocation.shell,
+  };
+}
+
 function killCommandSessionProcessGroup(entry: SessionEntry): void {
   if (process.platform === 'win32') {
     return;
@@ -623,7 +643,7 @@ export function createCommandSessionManager({
     if (sessions.has(id)) {
       throw new CommandSessionError('session-id-collision', 'Command session id collision.');
     }
-    const invocation = resolveShellInvocation(input.command);
+    const invocation = resolvePtyShellInvocation(input.command);
 
     let releaseWorkspaceLease: (() => void) | undefined;
     let processHandle: IPty;

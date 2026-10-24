@@ -548,6 +548,16 @@ export async function getExpandedDirectoryCount(page: Page): Promise<number> {
 }
 
 /**
+ * An absolute path for a Main-served mock root, in the host's own grammar: a
+ * desktop tree's paths are native (Main joins them with `path.join`), so on
+ * Windows a mock root is `C:\mock\<name>` and its children are joined with
+ * `\`, exactly as a real Windows folder's would be.
+ */
+export function mockRootPath(name: string): string {
+  return path.resolve('/mock', name);
+}
+
+/**
  * Fixed RootId used by every seeded selection fixture (storage v5).
  *
  * The app now keys `currentFolderId` / `folderStates` by a durable RootId UUID,
@@ -867,21 +877,21 @@ export async function seedLive3dmolRestoreState(args: {
   const { rootPath } = args;
   const manifestSnapshotId = 'e9330985-3968-40d6-99ea-76f24eef3a71';
   const materializedPaths = [
-    `${rootPath}/src/App.tsx`,
-    `${rootPath}/src/main.tsx`,
-    `${rootPath}/src/vite-env.d.ts`,
-    `${rootPath}/src/hooks/use-molecule-sdf.test.ts`,
-    `${rootPath}/src/hooks/use-molecule-sdf.ts`,
-    `${rootPath}/src/hooks/use-resize-draw.ts`,
-    `${rootPath}/src/hooks/use-viewer.ts`,
-    `${rootPath}/src/types/3dmol-build.d.ts`,
-    `${rootPath}/src/types/molstar-viewer.d.ts`,
-    `${rootPath}/src/utils/3dmol-loader.ts`,
-    `${rootPath}/src/components/molecule-viewer.test.tsx`,
-    `${rootPath}/src/components/molecule-viewer.tsx`,
-    `${rootPath}/src/components/molstar-viewer.test.tsx`,
-    `${rootPath}/src/components/molstar-viewer.tsx`,
-    `${rootPath}/src/components/viewer-shell.tsx`,
+    path.join(rootPath, 'src/App.tsx'),
+    path.join(rootPath, 'src/main.tsx'),
+    path.join(rootPath, 'src/vite-env.d.ts'),
+    path.join(rootPath, 'src/hooks/use-molecule-sdf.test.ts'),
+    path.join(rootPath, 'src/hooks/use-molecule-sdf.ts'),
+    path.join(rootPath, 'src/hooks/use-resize-draw.ts'),
+    path.join(rootPath, 'src/hooks/use-viewer.ts'),
+    path.join(rootPath, 'src/types/3dmol-build.d.ts'),
+    path.join(rootPath, 'src/types/molstar-viewer.d.ts'),
+    path.join(rootPath, 'src/utils/3dmol-loader.ts'),
+    path.join(rootPath, 'src/components/molecule-viewer.test.tsx'),
+    path.join(rootPath, 'src/components/molecule-viewer.tsx'),
+    path.join(rootPath, 'src/components/molstar-viewer.test.tsx'),
+    path.join(rootPath, 'src/components/molstar-viewer.tsx'),
+    path.join(rootPath, 'src/components/viewer-shell.tsx'),
   ];
 
   await writeLive3dmolRestoreFixture({ filePaths: materializedPaths, rootPath });
@@ -893,11 +903,11 @@ export async function seedLive3dmolRestoreState(args: {
       '/Users/seandearnaley/Documents',
       '/Users/seandearnaley/Documents/GitHub',
       rootPath,
-      `${rootPath}/src`,
-      `${rootPath}/src/components`,
-      `${rootPath}/src/hooks`,
-      `${rootPath}/src/types`,
-      `${rootPath}/src/utils`,
+      path.join(rootPath, 'src'),
+      path.join(rootPath, 'src/components'),
+      path.join(rootPath, 'src/hooks'),
+      path.join(rootPath, 'src/types'),
+      path.join(rootPath, 'src/utils'),
     ],
     electronHarness: args.electronHarness,
     excludeFilters: [
@@ -914,13 +924,13 @@ export async function seedLive3dmolRestoreState(args: {
       '/Users/seandearnaley/Documents',
       '/Users/seandearnaley/Documents/GitHub',
       rootPath,
-      `${rootPath}/src`,
+      path.join(rootPath, 'src'),
     ],
     includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
     manifestSnapshotId,
     materializedPaths,
     rootPath,
-    selectionRootPath: `${rootPath}/src`,
+    selectionRootPath: path.join(rootPath, 'src'),
   });
 }
 
@@ -936,12 +946,12 @@ export async function installNestedFolderFixture(
           handle: {
             kind: 'file' as const,
             name: 'mock-file1.ts',
-            path: `${rootPath}/mock-file1.ts`,
+            path: path.join(rootPath, 'mock-file1.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'mock-file1.ts',
-          path: `${rootPath}/mock-file1.ts`,
+          path: path.join(rootPath, 'mock-file1.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 100,
@@ -953,29 +963,29 @@ export async function installNestedFolderFixture(
           handle: {
             kind: 'directory' as const,
             name: 'src',
-            path: `${rootPath}/src`,
+            path: path.join(rootPath, 'src'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'src',
-          path: `${rootPath}/src`,
+          path: path.join(rootPath, 'src'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/src`]: [
+      [path.join(rootPath, 'src')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'index.ts',
-            path: `${rootPath}/src/index.ts`,
+            path: path.join(rootPath, 'src/index.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'index.ts',
-          path: `${rootPath}/src/index.ts`,
+          path: path.join(rootPath, 'src/index.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 120,
@@ -986,12 +996,12 @@ export async function installNestedFolderFixture(
           handle: {
             kind: 'file' as const,
             name: 'extra.ts',
-            path: `${rootPath}/src/extra.ts`,
+            path: path.join(rootPath, 'src/extra.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'extra.ts',
-          path: `${rootPath}/src/extra.ts`,
+          path: path.join(rootPath, 'src/extra.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 140,
@@ -1000,9 +1010,9 @@ export async function installNestedFolderFixture(
       ],
     },
     fileContentsByPath: {
-      [`${rootPath}/mock-file1.ts`]: 'export const rootValue = 1;',
-      [`${rootPath}/src/index.ts`]: 'export const value = 1;',
-      [`${rootPath}/src/extra.ts`]: 'export const extra = 2;',
+      [path.join(rootPath, 'mock-file1.ts')]: 'export const rootValue = 1;',
+      [path.join(rootPath, 'src/index.ts')]: 'export const value = 1;',
+      [path.join(rootPath, 'src/extra.ts')]: 'export const extra = 2;',
     },
     readDirectoryCalls: [],
     readFileByPathCalls: [],
@@ -1111,27 +1121,27 @@ export async function installWideExpandAllFixture(
       createDirectoryEntry({
         depth: 0,
         name: `folder-${rootIndex}`,
-        path: `${rootPath}/folder-${rootIndex}`,
+        path: path.join(rootPath, `folder-${rootIndex}`),
         rootFolderId: rootPath,
       })
   );
 
   for (let rootIndex = 0; rootIndex < WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT; rootIndex += 1) {
-    const directoryPath = `${rootPath}/folder-${rootIndex}`;
+    const directoryPath = path.join(rootPath, `folder-${rootIndex}`);
     directoriesByPath[directoryPath] = Array.from(
       { length: WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT },
       (_, childIndex) =>
         createDirectoryEntry({
           depth: 1,
           name: `child-${rootIndex}-${childIndex}`,
-          path: `${directoryPath}/child-${rootIndex}-${childIndex}`,
+          path: path.join(directoryPath, `child-${rootIndex}-${childIndex}`),
           rootFolderId: rootPath,
         })
     );
 
     for (let childIndex = 0; childIndex < WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT; childIndex += 1) {
-      const childDirectoryPath = `${directoryPath}/child-${rootIndex}-${childIndex}`;
-      const filePath = `${childDirectoryPath}/file-${rootIndex}-${childIndex}.ts`;
+      const childDirectoryPath = path.join(directoryPath, `child-${rootIndex}-${childIndex}`);
+      const filePath = path.join(childDirectoryPath, `file-${rootIndex}-${childIndex}.ts`);
       directoriesByPath[childDirectoryPath] = [
         createFileEntry({
           depth: 2,
@@ -1186,12 +1196,12 @@ export async function installNestedPackagesFixture(
           handle: {
             kind: 'directory' as const,
             name: 'docs',
-            path: `${rootPath}/docs`,
+            path: path.join(rootPath, 'docs'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'docs',
-          path: `${rootPath}/docs`,
+          path: path.join(rootPath, 'docs'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
@@ -1203,49 +1213,49 @@ export async function installNestedPackagesFixture(
           handle: {
             kind: 'directory' as const,
             name: 'packages',
-            path: `${rootPath}/packages`,
+            path: path.join(rootPath, 'packages'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'packages',
-          path: `${rootPath}/packages`,
+          path: path.join(rootPath, 'packages'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/docs`]: [
+      [path.join(rootPath, 'docs')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'readme.md',
-            path: `${rootPath}/docs/readme.md`,
+            path: path.join(rootPath, 'docs/readme.md'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'readme.md',
-          path: `${rootPath}/docs/readme.md`,
+          path: path.join(rootPath, 'docs/readme.md'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 50,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/packages`]: [
+      [path.join(rootPath, 'packages')]: [
         {
           children: [],
           depth: 0,
           handle: {
             kind: 'directory' as const,
             name: 'agent',
-            path: `${rootPath}/packages/agent`,
+            path: path.join(rootPath, 'packages/agent'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'agent',
-          path: `${rootPath}/packages/agent`,
+          path: path.join(rootPath, 'packages/agent'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
@@ -1257,48 +1267,48 @@ export async function installNestedPackagesFixture(
           handle: {
             kind: 'directory' as const,
             name: 'app-shell',
-            path: `${rootPath}/packages/app-shell`,
+            path: path.join(rootPath, 'packages/app-shell'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'app-shell',
-          path: `${rootPath}/packages/app-shell`,
+          path: path.join(rootPath, 'packages/app-shell'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/packages/agent`]: [
+      [path.join(rootPath, 'packages/agent')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'index.ts',
-            path: `${rootPath}/packages/agent/index.ts`,
+            path: path.join(rootPath, 'packages/agent/index.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'index.ts',
-          path: `${rootPath}/packages/agent/index.ts`,
+          path: path.join(rootPath, 'packages/agent/index.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 100,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/packages/app-shell`]: [
+      [path.join(rootPath, 'packages/app-shell')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'main.ts',
-            path: `${rootPath}/packages/app-shell/main.ts`,
+            path: path.join(rootPath, 'packages/app-shell/main.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'main.ts',
-          path: `${rootPath}/packages/app-shell/main.ts`,
+          path: path.join(rootPath, 'packages/app-shell/main.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 120,
@@ -1307,9 +1317,9 @@ export async function installNestedPackagesFixture(
       ],
     },
     fileContentsByPath: {
-      [`${rootPath}/docs/readme.md`]: '# docs',
-      [`${rootPath}/packages/agent/index.ts`]: 'export const agent = 1;',
-      [`${rootPath}/packages/app-shell/main.ts`]: 'export const appShell = 1;',
+      [path.join(rootPath, 'docs/readme.md')]: '# docs',
+      [path.join(rootPath, 'packages/agent/index.ts')]: 'export const agent = 1;',
+      [path.join(rootPath, 'packages/app-shell/main.ts')]: 'export const appShell = 1;',
     },
     readDirectoryCalls: [],
     readFileByPathCalls: [],
@@ -1348,31 +1358,31 @@ export async function installIncrementalFolderSelectionFixture(
           handle: {
             kind: 'directory' as const,
             name: 'e2e',
-            path: `${rootPath}/e2e`,
+            path: path.join(rootPath, 'e2e'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'e2e',
-          path: `${rootPath}/e2e`,
+          path: path.join(rootPath, 'e2e'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/e2e`]: [
+      [path.join(rootPath, 'e2e')]: [
         {
           children: [],
           depth: 0,
           handle: {
             kind: 'directory' as const,
             name: 'page-objects',
-            path: `${rootPath}/e2e/page-objects`,
+            path: path.join(rootPath, 'e2e/page-objects'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'page-objects',
-          path: `${rootPath}/e2e/page-objects`,
+          path: path.join(rootPath, 'e2e/page-objects'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
@@ -1384,12 +1394,12 @@ export async function installIncrementalFolderSelectionFixture(
           handle: {
             kind: 'directory' as const,
             name: 'types',
-            path: `${rootPath}/e2e/types`,
+            path: path.join(rootPath, 'e2e/types'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'types',
-          path: `${rootPath}/e2e/types`,
+          path: path.join(rootPath, 'e2e/types'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
@@ -1401,30 +1411,30 @@ export async function installIncrementalFolderSelectionFixture(
           handle: {
             kind: 'directory' as const,
             name: 'utils',
-            path: `${rootPath}/e2e/utils`,
+            path: path.join(rootPath, 'e2e/utils'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'utils',
-          path: `${rootPath}/e2e/utils`,
+          path: path.join(rootPath, 'e2e/utils'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/e2e/page-objects`]: [
+      [path.join(rootPath, 'e2e/page-objects')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'file-explorer-page.ts',
-            path: `${rootPath}/e2e/page-objects/file-explorer-page.ts`,
+            path: path.join(rootPath, 'e2e/page-objects/file-explorer-page.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'file-explorer-page.ts',
-          path: `${rootPath}/e2e/page-objects/file-explorer-page.ts`,
+          path: path.join(rootPath, 'e2e/page-objects/file-explorer-page.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 100,
@@ -1435,48 +1445,48 @@ export async function installIncrementalFolderSelectionFixture(
           handle: {
             kind: 'file' as const,
             name: 'home-page.ts',
-            path: `${rootPath}/e2e/page-objects/home-page.ts`,
+            path: path.join(rootPath, 'e2e/page-objects/home-page.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'home-page.ts',
-          path: `${rootPath}/e2e/page-objects/home-page.ts`,
+          path: path.join(rootPath, 'e2e/page-objects/home-page.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 120,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/e2e/types`]: [
+      [path.join(rootPath, 'e2e/types')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'performance.ts',
-            path: `${rootPath}/e2e/types/performance.ts`,
+            path: path.join(rootPath, 'e2e/types/performance.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'performance.ts',
-          path: `${rootPath}/e2e/types/performance.ts`,
+          path: path.join(rootPath, 'e2e/types/performance.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 80,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/e2e/utils`]: [
+      [path.join(rootPath, 'e2e/utils')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'layout-helpers.ts',
-            path: `${rootPath}/e2e/utils/layout-helpers.ts`,
+            path: path.join(rootPath, 'e2e/utils/layout-helpers.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'layout-helpers.ts',
-          path: `${rootPath}/e2e/utils/layout-helpers.ts`,
+          path: path.join(rootPath, 'e2e/utils/layout-helpers.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 90,
@@ -1487,12 +1497,12 @@ export async function installIncrementalFolderSelectionFixture(
           handle: {
             kind: 'file' as const,
             name: 'performance-helpers.ts',
-            path: `${rootPath}/e2e/utils/performance-helpers.ts`,
+            path: path.join(rootPath, 'e2e/utils/performance-helpers.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'performance-helpers.ts',
-          path: `${rootPath}/e2e/utils/performance-helpers.ts`,
+          path: path.join(rootPath, 'e2e/utils/performance-helpers.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 90,
@@ -1501,11 +1511,13 @@ export async function installIncrementalFolderSelectionFixture(
       ],
     },
     fileContentsByPath: {
-      [`${rootPath}/e2e/page-objects/file-explorer-page.ts`]: 'export const fileExplorerPage = 1;',
-      [`${rootPath}/e2e/page-objects/home-page.ts`]: 'export const homePage = 1;',
-      [`${rootPath}/e2e/types/performance.ts`]: 'export const performance = 1;',
-      [`${rootPath}/e2e/utils/layout-helpers.ts`]: 'export const layoutHelpers = 1;',
-      [`${rootPath}/e2e/utils/performance-helpers.ts`]: 'export const performanceHelpers = 1;',
+      [path.join(rootPath, 'e2e/page-objects/file-explorer-page.ts')]:
+        'export const fileExplorerPage = 1;',
+      [path.join(rootPath, 'e2e/page-objects/home-page.ts')]: 'export const homePage = 1;',
+      [path.join(rootPath, 'e2e/types/performance.ts')]: 'export const performance = 1;',
+      [path.join(rootPath, 'e2e/utils/layout-helpers.ts')]: 'export const layoutHelpers = 1;',
+      [path.join(rootPath, 'e2e/utils/performance-helpers.ts')]:
+        'export const performanceHelpers = 1;',
     },
     readDirectoryCalls: [],
     readFileByPathCalls: [],
@@ -1544,31 +1556,31 @@ export async function installMixedHookSelectionFixture(
           handle: {
             kind: 'directory' as const,
             name: 'hooks',
-            path: `${rootPath}/hooks`,
+            path: path.join(rootPath, 'hooks'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'hooks',
-          path: `${rootPath}/hooks`,
+          path: path.join(rootPath, 'hooks'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/hooks`]: [
+      [path.join(rootPath, 'hooks')]: [
         {
           children: [],
           depth: 0,
           handle: {
             kind: 'directory' as const,
             name: 'src',
-            path: `${rootPath}/hooks/src`,
+            path: path.join(rootPath, 'hooks/src'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'src',
-          path: `${rootPath}/hooks/src`,
+          path: path.join(rootPath, 'hooks/src'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
@@ -1579,12 +1591,12 @@ export async function installMixedHookSelectionFixture(
           handle: {
             kind: 'file' as const,
             name: 'package.json',
-            path: `${rootPath}/hooks/package.json`,
+            path: path.join(rootPath, 'hooks/package.json'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'package.json',
-          path: `${rootPath}/hooks/package.json`,
+          path: path.join(rootPath, 'hooks/package.json'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 80,
@@ -1595,31 +1607,31 @@ export async function installMixedHookSelectionFixture(
           handle: {
             kind: 'file' as const,
             name: 'tsconfig.json',
-            path: `${rootPath}/hooks/tsconfig.json`,
+            path: path.join(rootPath, 'hooks/tsconfig.json'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'tsconfig.json',
-          path: `${rootPath}/hooks/tsconfig.json`,
+          path: path.join(rootPath, 'hooks/tsconfig.json'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 80,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/hooks/src`]: [
+      [path.join(rootPath, 'hooks/src')]: [
         {
           children: [],
           depth: 0,
           handle: {
             kind: 'directory' as const,
             name: '__tests__',
-            path: `${rootPath}/hooks/src/__tests__`,
+            path: path.join(rootPath, 'hooks/src/__tests__'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: '__tests__',
-          path: `${rootPath}/hooks/src/__tests__`,
+          path: path.join(rootPath, 'hooks/src/__tests__'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 0,
@@ -1630,12 +1642,12 @@ export async function installMixedHookSelectionFixture(
           handle: {
             kind: 'file' as const,
             name: 'create-debounce.ts',
-            path: `${rootPath}/hooks/src/create-debounce.ts`,
+            path: path.join(rootPath, 'hooks/src/create-debounce.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'create-debounce.ts',
-          path: `${rootPath}/hooks/src/create-debounce.ts`,
+          path: path.join(rootPath, 'hooks/src/create-debounce.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 100,
@@ -1646,30 +1658,30 @@ export async function installMixedHookSelectionFixture(
           handle: {
             kind: 'file' as const,
             name: 'index.ts',
-            path: `${rootPath}/hooks/src/index.ts`,
+            path: path.join(rootPath, 'hooks/src/index.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'index.ts',
-          path: `${rootPath}/hooks/src/index.ts`,
+          path: path.join(rootPath, 'hooks/src/index.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 120,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/hooks/src/__tests__`]: [
+      [path.join(rootPath, 'hooks/src/__tests__')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'use-file-filters.test.ts',
-            path: `${rootPath}/hooks/src/__tests__/use-file-filters.test.ts`,
+            path: path.join(rootPath, 'hooks/src/__tests__/use-file-filters.test.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'use-file-filters.test.ts',
-          path: `${rootPath}/hooks/src/__tests__/use-file-filters.test.ts`,
+          path: path.join(rootPath, 'hooks/src/__tests__/use-file-filters.test.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 90,
@@ -1678,11 +1690,12 @@ export async function installMixedHookSelectionFixture(
       ],
     },
     fileContentsByPath: {
-      [`${rootPath}/hooks/package.json`]: '{"name":"hooks"}',
-      [`${rootPath}/hooks/tsconfig.json`]: '{"extends":"../../tsconfig.base.json"}',
-      [`${rootPath}/hooks/src/create-debounce.ts`]: 'export const createDebounce = () => 1;',
-      [`${rootPath}/hooks/src/index.ts`]: 'export const indexValue = 1;',
-      [`${rootPath}/hooks/src/__tests__/use-file-filters.test.ts`]:
+      [path.join(rootPath, 'hooks/package.json')]: '{"name":"hooks"}',
+      [path.join(rootPath, 'hooks/tsconfig.json')]: '{"extends":"../../tsconfig.base.json"}',
+      [path.join(rootPath, 'hooks/src/create-debounce.ts')]:
+        'export const createDebounce = () => 1;',
+      [path.join(rootPath, 'hooks/src/index.ts')]: 'export const indexValue = 1;',
+      [path.join(rootPath, 'hooks/src/__tests__/use-file-filters.test.ts')]:
         'export const useFileFiltersTest = 1;',
     },
     readDirectoryCalls: [],
