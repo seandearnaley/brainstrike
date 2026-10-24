@@ -863,11 +863,11 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
+      # No pnpm store cache, for the reason in setup-workspace/action.yml.
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: 'pnpm'
 
       # `test:browser` dependsOn build, so the pure-TS db/ui/assistant-ui/storage/
       # embedding-worker closure builds in-job. The remote Turbo cache carries
