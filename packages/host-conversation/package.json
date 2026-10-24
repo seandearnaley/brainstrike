@@ -26,14 +26,8 @@
     "@effect/tsgo": "catalog:"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js"
-    }
+    ".": "./src/index.ts"
   },
-  "files": [
-    "dist"
-  ],
   "license": "MIT",
   "peerDependencies": {
     "react": "^19.2.4",
@@ -41,19 +35,11 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
-  "turbo": {
-    "outputs": [
-      "dist/**"
-    ]
-  },
-  "type": "module",
-  "types": "./src/index.ts"
+  "type": "module"
 }

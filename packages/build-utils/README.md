@@ -25,6 +25,11 @@ Build IDs and other exports are defined in [`index.ts`](src/index.ts) and
 
 ## Development
 
+There is no build. Vite and Vitest config files import this package, and Vite's
+config loader hands it to Node, which strips the types and runs the source
+directly. Keep the source erasable TypeScript (`erasableSyntaxOnly`) with `.ts`
+relative specifiers.
+
 Use the package's existing scripts, including integration checks for emitted
 build boundaries when relevant. Local consumers use `workspace:*`.
 Select checks with
