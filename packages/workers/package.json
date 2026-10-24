@@ -17,7 +17,7 @@
   },
   "exports": {
     "./file-content-worker": {
-      "types": "./dist/file-content-worker.d.ts",
+      "types": "./file-content-worker.ts",
       "import": "./dist/file-content-worker.js",
       "require": "./dist/file-content-worker.js"
     }
@@ -28,7 +28,7 @@
   ],
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b .",
+    "build": "pnpm run clean && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",

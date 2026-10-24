@@ -1,17 +1,6 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
-    "paths": {
-      "@brainstrike/assistant-contract": [
-        "../assistant-contract/dist/index.d.ts"
-      ],
-      "@brainstrike/assistant-contract/*": [
-        "../assistant-contract/dist/*.d.ts"
-      ]
-    },
     "strictNullChecks": true
   }
 }

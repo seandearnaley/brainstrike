@@ -42,44 +42,56 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./context-actions": {
-      "types": "./dist/context-actions/index.d.ts",
+      "types": "./src/context-actions/index.ts",
       "import": "./dist/context-actions/index.js"
     },
     "./indexing": {
-      "types": "./dist/indexing/index.d.ts",
+      "types": "./src/indexing/index.ts",
       "import": "./dist/indexing/index.js"
     },
     "./thread-folder-scope-store": {
-      "types": "./dist/thread-folder-scope-store.d.ts",
+      "types": "./src/thread-folder-scope-store.ts",
       "import": "./dist/thread-folder-scope-store.js"
     },
     "./workspace-tab-selection-store": {
-      "types": "./dist/workspace-tab-selection-store.d.ts",
+      "types": "./src/workspace-tab-selection-store.ts",
       "import": "./dist/workspace-tab-selection-store.js"
     },
     "./tab-manager-store": {
-      "types": "./dist/tab-manager-store.d.ts",
+      "types": "./src/tab-manager-store.ts",
       "import": "./dist/tab-manager-store.js"
     },
     "./shell": {
-      "types": "./dist/shell/index.d.ts",
+      "types": "./src/shell/index.ts",
       "import": "./dist/shell/index.js"
+    },
+    "./shell/file-explorer-provider": {
+      "types": "./src/shell/file-explorer-provider.tsx",
+      "import": "./dist/shell/file-explorer-provider.js"
+    },
+    "./shell/file-system-provider": {
+      "types": "./src/shell/file-system-provider.tsx",
+      "import": "./dist/shell/file-system-provider.js"
+    },
+    "./shell/root-data-deletion-context": {
+      "types": "./src/shell/root-data-deletion-context.tsx",
+      "import": "./dist/shell/root-data-deletion-context.js"
     },
     "./styles.css": "./styles.css",
     "./tree": {
-      "types": "./dist/tree/index.d.ts",
+      "types": "./src/tree/index.ts",
       "import": "./dist/tree/index.js"
     },
     "./editor-view-state-store": {
-      "types": "./dist/editor-view-state-store.d.ts",
+      "types": "./src/editor-view-state-store.ts",
       "import": "./dist/editor-view-state-store.js"
     },
     "./file-tab-pane-store": {
-      "types": "./dist/file-tab-pane-store.d.ts",
+      "types": "./src/file-tab-pane-store.ts",
       "import": "./dist/file-tab-pane-store.js"
     }
   },
@@ -96,13 +108,13 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "types": "dist/index.d.ts"
+  "types": "./src/index.ts"
 }

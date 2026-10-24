@@ -1,5 +1,5 @@
 {
-  "extends": "../../packages/config/tsconfig/node-library.json",
+  "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
     "plugins": [
       {
@@ -19,9 +19,6 @@
         }
       }
     ],
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "src",
@@ -29,17 +26,6 @@
     "types": [
       "node"
     ],
-    "paths": {
-      "@/*": [
-        "./src/*"
-      ],
-      "@brainstrike/assistant-contract": [
-        "../assistant-contract/dist/index.d.ts"
-      ],
-      "@brainstrike/assistant-contract/*": [
-        "../assistant-contract/dist/*.d.ts"
-      ]
-    },
     "skipLibCheck": true,
     "strictNullChecks": true
   },
@@ -51,31 +37,5 @@
     "node_modules",
     "**/*.test.*",
     "**/__tests__/**"
-  ],
-  "references": [
-    {
-      "path": "../types"
-    },
-    {
-      "path": "../effect-kit"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../utils"
-    },
-    {
-      "path": "../indexing-contract"
-    },
-    {
-      "path": "../platform-utils"
-    },
-    {
-      "path": "../embedding-worker"
-    },
-    {
-      "path": "../assistant-contract"
-    }
   ]
 }

@@ -7,8 +7,14 @@ import { openIndexer } from '@brainstrike/indexer';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { afterEach, expect, it, type TestContext } from 'vitest';
-import { createIndexerConnection, IndexerLifecycleError } from '../dist/transport.js';
+import type * as Transport from '../src/transport.js';
 import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js';
+
+// The transport forks the process entry beside its own module, so this suite
+// drives the built transport; the source owns its type.
+const { createIndexerConnection, IndexerLifecycleError }: typeof Transport = await import(
+  new URL('../dist/transport.js', import.meta.url).href
+);
 
 const deadlines = { closeMs: 5000, exitMs: 5000 };
 const owners = new WeakMap<TestContext['task'], ObservationLifecycle>();

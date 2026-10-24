@@ -7,7 +7,7 @@ export type {
   IndexerResult,
   WorkerMessage,
   WorkerResponse,
-} from './background-indexer.worker';
+} from './background-indexer-protocol';
 export type {
   ElectronFileHandle,
   FileToIndex,

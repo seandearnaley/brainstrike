@@ -7,15 +7,20 @@ import { DatabaseSync } from 'node:sqlite';
 import { embeddingProfileHash } from '@brainstrike/indexer';
 import { planGrepTrigramCandidates } from '@brainstrike/utils/grep-trigram-plan';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  type QueryProcess,
-  type SqliteGrepOptions,
+import type * as SqliteQuery from '../index.js';
+import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
+
+// spawnQueryProcess forks the utility host beside its own module, so this suite
+// drives the built package; the source owns its type.
+const {
   SqliteQueryClient,
   SqliteQueryDeadlineError,
   SqliteQueryProcessExitedError,
   spawnQueryProcess,
-} from '../../dist/index.js';
-import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
+}: typeof SqliteQuery = await import(new URL('../../dist/index.js', import.meta.url).href);
+type SqliteQueryClient = SqliteQuery.SqliteQueryClient;
+type QueryProcess = SqliteQuery.QueryProcess;
+type SqliteGrepOptions = SqliteQuery.SqliteGrepOptions;
 
 const directory = mkdtempSync(join(tmpdir(), 'brainstrike-sqlite-query-'));
 const executable = process.env['SQLITE_QUERY_TEST_EXEC_PATH'];
