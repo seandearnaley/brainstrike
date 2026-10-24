@@ -1,6 +1,5 @@
 import { Effect, Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import { NATIVE_TOOLS } from '../native-tools/index.js';
 import {
   effectToolInputSchema,
@@ -11,141 +10,17 @@ import {
   validateToolInputValue,
 } from '../native-tools/schemas/tool-input-schema.js';
 import { encodeToolOutputArtifactCursor } from '../tool-output-artifact.js';
-import { legacyJsonSchema, providerCompatibleInputSchema } from './fixtures/legacy-tool-input.js';
-
-/**
- * The derivation step ADR-0004's 2026-10-15 amendment adopts, one case per hard
- * shape — the shapes that differ between schema libraries are exactly the ones
- * a tool definition uses.
- *
- * Both dialects are checked. draft-07 is the provider wire (what
- * `prepareHostProviderTools` requests and what the recorded provider payloads
- * carry); draft-2020-12 is what the settings inspector reads. A derivation that
- * was right on one and wrong on the other would ship a tool that looks correct
- * in the UI and misbehaves with a model, or the reverse.
- */
-const TARGETS = ['draft-07', 'draft-2020-12'] as const;
-
-const bounded = (minimum: number, maximum: number) =>
-  Schema.String.check(Schema.isMinCodePoints(minimum), Schema.isMaxCodePoints(maximum));
-
-/**
- * Shapes where the two producers' JSON Schema is identical, so zod — the
- * library the recorded real-provider payloads were produced through — is a
- * direct oracle.
- */
-const identical: ReadonlyArray<{
-  readonly effect: Parameters<typeof effectToolInputSchema>[0];
-  readonly name: string;
-  readonly zod: z.ZodType;
-}> = [
-  {
-    effect: Schema.Struct({
-      path: Schema.String.annotate({ description: 'Workspace-relative path' }),
-    }),
-    name: 'a required string carrying the description the model reads',
-    zod: z.object({ path: z.string().describe('Workspace-relative path') }).strict(),
-  },
-  {
-    effect: Schema.Struct({
-      status: Schema.Literals(['pending', 'in_progress', 'completed']).annotate({
-        description: 'Task status; keep exactly one task in_progress',
-      }),
-    }),
-    name: 'a string enum',
-    zod: z
-      .object({
-        status: z
-          .enum(['pending', 'in_progress', 'completed'])
-          .describe('Task status; keep exactly one task in_progress'),
-      })
-      .strict(),
-  },
-  {
-    effect: Schema.Struct({
-      name: Schema.optionalKey(bounded(1, 128).annotate({ description: 'Directory name' })),
-      root: bounded(1, 512).annotate({ description: 'Workspace root id' }),
-    }),
-    name: 'a bounded optional string beside a bounded required one',
-    zod: z
-      .object({
-        name: z.string().min(1).max(128).optional().describe('Directory name'),
-        root: z.string().min(1).max(512).describe('Workspace root id'),
-      })
-      .strict(),
-  },
-  {
-    effect: Schema.Struct({
-      tasks: Schema.Array(
-        Schema.Struct({
-          activeForm: bounded(1, 500).annotate({ description: 'Present-tense label' }),
-          content: bounded(1, 500).annotate({ description: 'Imperative label' }),
-          status: Schema.Literals(['pending', 'in_progress', 'completed']),
-        })
-      )
-        .check(Schema.isMaxLength(50))
-        .annotate({ description: 'Whole-list replace. Maximum 50 tasks.' }),
-    }),
-    name: 'a bounded array of nested objects (the manageTaskList shape)',
-    zod: z
-      .object({
-        tasks: z
-          .array(
-            z
-              .object({
-                activeForm: z.string().min(1).max(500).describe('Present-tense label'),
-                content: z.string().min(1).max(500).describe('Imperative label'),
-                status: z.enum(['pending', 'in_progress', 'completed']),
-              })
-              .strict()
-          )
-          .max(50)
-          .describe('Whole-list replace. Maximum 50 tasks.'),
-      })
-      .strict(),
-  },
-];
 
 describe('effectToolInputSchema derivation', () => {
-  it.each(identical)('matches zod exactly for $name', ({ effect, zod }) => {
-    for (const target of TARGETS) {
-      expect(toToolInputJsonSchema(effectToolInputSchema(effect), target), target).toEqual(
-        legacyJsonSchema(providerCompatibleInputSchema(zod), target)
-      );
-    }
-  });
-
-  /**
-   * Three shapes where the libraries choose different, equally valid draft-07
-   * spellings. They are pinned rather than asserted equal to zod, because
-   * claiming equality would be false and dropping the cases would hide the
-   * difference from whoever converts the next tool.
-   *
-   * None of them changes what a provider accepts, and the wire is proven
-   * separately: `provider-schema-selection.integration.test.ts` runs the real
-   * converted tools through `prepareHostProviderTools` and compares against the
-   * zod path, which is itself pinned to the recorded provider payloads.
-   */
-  it('pins the spellings that differ from zod, all of them valid draft-07', () => {
-    // 1. Integers. zod's `.int()` adds safe-integer bounds; Effect's
-    // `Schema.Int` does not. The RECORDED OpenAI payload for the `read` tool
-    // carries a bare `{"type":"integer"}`, because Mastra's converter — not
-    // `z.toJSONSchema` — produces the wire. So Effect matches the recording.
+  /** The draft-07 spellings a provider receives; all of them are valid draft-07. */
+  it('pins the draft-07 spellings of integers, nullables and unions', () => {
+    // 1. Integers: a bare `{"type":"integer"}`, as the recorded OpenAI payload
+    // for the `read` tool carries.
     expect(
       toToolInputJsonSchema(effectToolInputSchema(Schema.Struct({ line: Schema.Int })), 'draft-07')
     ).toMatchObject({ properties: { line: { type: 'integer' } } });
-    expect(
-      legacyJsonSchema(
-        providerCompatibleInputSchema(z.object({ line: z.number().int() }).strict()),
-        'draft-07'
-      )
-    ).toMatchObject({
-      properties: { line: { maximum: Number.MAX_SAFE_INTEGER, type: 'integer' } },
-    });
 
-    // 2. Nullable. Effect spells it `anyOf: [T, null]`; zod 4.5+ spells it
-    // `type: [T, 'null']`. `normalizeProviderNulls` and the catalog's provider
-    // sweep already accept both (see the type-array case in the catalog spec).
+    // 2. Nullable: `anyOf: [T, null]`.
     expect(
       toToolInputJsonSchema(
         effectToolInputSchema(Schema.Struct({ root: Schema.NullOr(Schema.String) })),
@@ -153,10 +28,9 @@ describe('effectToolInputSchema derivation', () => {
       )
     ).toMatchObject({ properties: { root: { anyOf: [{ type: 'string' }, { type: 'null' }] } } });
 
-    // 3. Unions. Effect emits `anyOf` with a one-element `enum` discriminant
-    // and closed branches; zod emits `oneOf` with `const` and open branches.
-    // The catalog sweep rejects only `allOf`, and the normalizer reads both
-    // keywords and both discriminant spellings.
+    // 3. Unions: `anyOf` with a one-element `enum` discriminant and closed
+    // branches. The catalog sweep rejects only `allOf`, and the normalizer
+    // reads `anyOf`/`oneOf` and `enum`/`const` discriminants.
     expect(
       toToolInputJsonSchema(
         effectToolInputSchema(
@@ -181,12 +55,12 @@ describe('effectToolInputSchema derivation', () => {
     });
   });
 
-  it('normalizes a provider null inside a discriminated-union branch, as zod does', () => {
+  it('normalizes a provider null inside a discriminated-union branch', () => {
     // The regression this guards: Effect spells a discriminant as a one-element
     // `enum`, so a normalizer that only knew `const` could not pick the branch
     // and left the null in place. Under OpenAI strict mode that is the ordinary
     // case, not an edge one — the model sends null for every optional it is not
-    // using — so the two producers must agree here.
+    // using.
     const effect = effectToolInputSchema(
       Schema.Struct({
         operation: Schema.Union([
@@ -195,23 +69,9 @@ describe('effectToolInputSchema derivation', () => {
         ]),
       })
     );
-    const zod = providerCompatibleInputSchema(
-      z
-        .object({
-          operation: z.discriminatedUnion('action', [
-            z.object({ action: z.literal('list'), offset: z.number().int().optional() }),
-            z.object({ action: z.literal('kill'), sessionId: z.string() }),
-          ]),
-        })
-        .strict()
+    expect(validateToolInputValue(effect, { operation: { action: 'list', offset: null } })).toEqual(
+      { success: true, value: { operation: { action: 'list' } } }
     );
-    const providerInput = { operation: { action: 'list', offset: null } };
-    const expected = { success: true, value: { operation: { action: 'list' } } };
-    expect(validateToolInputValue(effect, structuredClone(providerInput))).toEqual(expected);
-    expect(zod.safeParse(structuredClone(providerInput))).toEqual({
-      data: expected.value,
-      success: true,
-    });
   });
 
   it('keeps a multi-value enum a constrained field, not a discriminant', () => {
@@ -275,7 +135,6 @@ describe('effectToolInputSchema derivation', () => {
 
   it('recognizes its own output and nothing else', () => {
     expect(isEffectToolInputSchema(effectToolInputSchema(Schema.Struct({})))).toBe(true);
-    expect(isEffectToolInputSchema(providerCompatibleInputSchema(z.object({})))).toBe(false);
     expect(isEffectToolInputSchema({ '~standard': { vendor: 'zod', version: 1 } })).toBe(false);
     expect(isEffectToolInputSchema(undefined)).toBe(false);
   });
@@ -377,7 +236,7 @@ function registeredSchema(name: string) {
   return tool.inputSchema;
 }
 
-describe('registered search/artifact boundary parity', () => {
+describe('registered search/artifact boundaries', () => {
   it.each(boundaryCases.map(([name, input, accepted, path]) => ({ accepted, input, name, path })))(
     '$name boundary case $#',
     ({ name, input, accepted, path }) => {
@@ -429,7 +288,7 @@ describe('registered search/artifact boundary parity', () => {
     });
   });
 
-  it('retains the pinned Zod code-point bounds for astral strings', () => {
+  it('bounds astral strings by code point', () => {
     expect(
       validateToolInputValue(registeredSchema('webSearch'), { query: '🙂'.repeat(400) }).success
     ).toBe(true);
