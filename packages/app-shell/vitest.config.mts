@@ -172,7 +172,7 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'jsdom',
+    environment: 'happy-dom',
     // `*.compiled.test.*` suites run in vitest.compiled.config.mts.
     exclude: ['**/node_modules/**', '**/dist/**', '**/*.compiled.test.{ts,tsx}'],
     // One module cache per package, so parallel lanes never clear a shared one.
