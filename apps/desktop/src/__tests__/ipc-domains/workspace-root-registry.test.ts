@@ -354,7 +354,7 @@ describe('WorkspaceRootRegistry', () => {
     storage = createStorage({ rootsList: '{not json' });
     const registry = createTestRegistry({ storage });
 
-    await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
+    await expect(registry.removeRoot('root-a')).resolves.toBe(false);
     expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
     expect(await storage.getItem('rootsList')).toBeNull();
   });
@@ -374,7 +374,7 @@ describe('WorkspaceRootRegistry', () => {
     await storage.setItem('rootsList', '{not json');
     catalogRequest.mockClear();
 
-    await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
+    await expect(registry.removeRoot('root-a')).resolves.toBe(true);
     await expect(
       registry.readDirectory({
         kind: 'directory',
@@ -499,7 +499,7 @@ describe('WorkspaceRootRegistry', () => {
       return key === 'rootsList' ? '[]' : null;
     });
 
-    await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
+    await expect(registry.removeRoot('root-a')).resolves.toBe(true);
     expect(mounted.close).toHaveBeenCalledOnce();
   });
 

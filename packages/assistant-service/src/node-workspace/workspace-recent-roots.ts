@@ -6,9 +6,10 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry } from '@brainstrike/types';
 import { pathsEqual } from './workspace-root-paths.js';
-import type { WorkspaceRootStorage } from './workspace-root-types.js';
+import type { StoredWorkspaceRoot, WorkspaceRootStorage } from './workspace-root-types.js';
 
 /**
  * Storage hygiene, not authorization intent: the cap bounds how much of this
@@ -191,6 +192,50 @@ export async function recordRecentRoot(
   } catch (error) {
     logger.warn('Failed to record a recently granted workspace folder', { error });
   }
+}
+
+/**
+ * BST-1400 item 4: records restored folders in Recents with one shared read and at most one
+ * shared write for the whole batch, instead of up to two ledger reads per restored root. A
+ * managed worktree stays out of Recents.
+ */
+export async function recordRestoredRecentRoots(
+  storage: WorkspaceRootStorage,
+  getRootsCatalog: () => Promise<WorkspaceRootPort>,
+  entries: readonly StoredWorkspaceRoot[]
+): Promise<void> {
+  const kindByRootId = await loadRecordedRootKinds(getRootsCatalog, entries);
+  await recordRecentRootsIfNew(
+    storage,
+    entries.flatMap((entry) =>
+      kindByRootId.get(entry.rootId) === 'worktree'
+        ? []
+        : [{ lastGrantedAt: entry.addedAt, path: entry.path }]
+    )
+  );
+}
+
+async function loadRecordedRootKinds(
+  getRootsCatalog: () => Promise<WorkspaceRootPort>,
+  entries: readonly StoredWorkspaceRoot[]
+): Promise<ReadonlyMap<string, string | null>> {
+  const kindByRootId = new Map<string, string | null>();
+  if (entries.length === 0) {
+    return kindByRootId;
+  }
+  try {
+    const db = await getRootsCatalog();
+    const { roots } = await db.workspaceRoots({ operation: 'list' });
+    const selected = new Set(entries.map((entry) => entry.rootId));
+    for (const row of roots.filter((root) => selected.has(root.id))) {
+      kindByRootId.set(row.id, row.kind);
+    }
+  } catch (error) {
+    logger.warn('Could not read persisted workspace root kinds; restoring Recents as before', {
+      error,
+    });
+  }
+  return kindByRootId;
 }
 
 /**

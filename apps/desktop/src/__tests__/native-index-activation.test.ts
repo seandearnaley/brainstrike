@@ -30,6 +30,7 @@ import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { observeNativeReaderStartup } from '../native-index-startup-window';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { textSettings, vectorSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 import {
   createActivation,
   emptyWorkspace,
@@ -388,7 +389,7 @@ it('keeps captured cleanup authority through expected source abort and refuses i
 it('joins retained rooted-row convergence before admitting the replacement writer to reads', async () => {
   const lease = workspaceLease({ retire: vi.fn(async () => {}) });
   const application = {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: vi
         .fn()
         .mockResolvedValueOnce(lease)
@@ -398,7 +399,7 @@ it('joins retained rooted-row convergence before admitting the replacement write
           retire: async () => {},
         })),
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
   // The folder's semantic-search row: once text search is saved, no binding owns it.

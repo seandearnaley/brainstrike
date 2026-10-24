@@ -25,7 +25,7 @@ import {
   type ManagedWorktreeAuthorizer,
   readRecentRootsOrQuarantine,
   recordRecentRoot,
-  recordRecentRootsIfNew,
+  recordRestoredRecentRoots,
   resolveGrantedRootHandle,
 } from './workspace-recent-roots.js';
 import { WorkspaceRootAvailability } from './workspace-root-availability.js';
@@ -263,14 +263,25 @@ export class WorkspaceRootRegistry {
     rootId: string,
     subscribe: SubscribeMountedWorkspaceRoot
   ): Promise<CanonicalWorkspaceLease> {
+    this.assertSourceBorrow(rootId);
+    await this.mutations.settled;
+    this.assertActive();
+    return this.borrowMountedRoot(rootId, subscribe);
+  }
+
+  private assertSourceBorrow(rootId: string): void {
     if (!isDurableRootId(rootId)) {
       throw new Error('A mounted source borrow requires a durable rootId.');
     }
     if (this.rootDataDeletion) {
       throw new Error('Root data deletion owns workspace read admission.');
     }
-    await this.mutations.settled;
-    this.assertActive();
+  }
+
+  private borrowMountedRoot(
+    rootId: string,
+    subscribe: SubscribeMountedWorkspaceRoot
+  ): CanonicalWorkspaceLease {
     const mounted = this.mounts.get(rootId);
     if (!mounted) {
       throw new Error('Canonical source rootId is not mounted.');
@@ -580,11 +591,12 @@ export class WorkspaceRootRegistry {
     });
   }
 
-  removeRoot(rootId: string): Promise<void> {
+  /** Resolves whether the removal retired a mounted folder, which its borrowers then re-read. */
+  removeRoot(rootId: string): Promise<boolean> {
     return this.serializeMutation(() => this.removeRootOwned(rootId));
   }
 
-  private async removeRootOwned(rootId: string, resourcesRetired = false): Promise<void> {
+  private async removeRootOwned(rootId: string, resourcesRetired = false): Promise<boolean> {
     const entries = await readStoredRootsOrQuarantine(this.storage);
     const removed = entries.find((entry) => entry.rootId === rootId);
     const mounted = this.mounts.get(rootId);
@@ -597,7 +609,7 @@ export class WorkspaceRootRegistry {
       await this.retireMount(rootId);
       await this.convergeDatabase();
       this.availability.forget(rootId);
-      return;
+      return mounted !== undefined;
     }
 
     const remaining = entries.filter((entry) => entry.rootId !== rootId);
@@ -625,12 +637,13 @@ export class WorkspaceRootRegistry {
       await clearLastFolderIfMatches(this.storage, removed.path);
       await this.unmountSourceRoot(rootId);
       this.availability.forget(rootId);
-      return;
+      return mounted !== undefined;
     }
     await this.unmountSourceRoot(rootId);
     await this.cleanupRootResources(disconnected.map((row) => row.id));
     await clearLastFolderIfMatches(this.storage, removed.path);
     this.availability.forget(rootId);
+    return mounted !== undefined;
   }
 
   restoreLastFolder(): Promise<DirectoryHandle | null> {
@@ -659,88 +672,74 @@ export class WorkspaceRootRegistry {
   }: {
     readonly persistPreferences?: boolean;
   } = {}): Promise<RootDescriptor[]> {
-    return this.serializeMutation(async () => {
-      const entries = await readStoredRoots(this.storage);
-      this.availability.retain(entries);
-      const descriptors: RootDescriptor[] = [];
-      const retainedRootIds = this.mounts.sessionMountIds();
-      const retainedCanonicalPaths = new Set<string>();
-      const storedSurvivors: StoredWorkspaceRoot[] = [];
-      const recentRootCandidates: StoredWorkspaceRoot[] = [];
-
-      for (const entry of entries) {
-        // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
-        const mountResult = await this.availability.tryMount(entry, this.pathExists, (stored) =>
-          this.mount(stored)
-        );
-        if (!mountResult.ok) {
-          descriptors.push(descriptorFor(entry, 'unknown'));
-          storedSurvivors.push(entry);
-          continue;
-        }
-        const { canonicalPath } = mountResult;
-        if (retainedCanonicalPaths.has(pathKey(canonicalPath))) {
-          logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
-            rootId: entry.rootId,
-          });
-          await this.unmountSourceRoot(entry.rootId);
-          continue;
-        }
-        // A session mint of the same canonical path is superseded by the persisted identity.
-        await this.supersedeSessionMountsFor(entry, canonicalPath, retainedRootIds);
-        retainedCanonicalPaths.add(pathKey(canonicalPath));
-        retainedRootIds.add(entry.rootId);
-        storedSurvivors.push(entry);
-        recentRootCandidates.push(entry);
-        descriptors.push(descriptorFor(entry, 'granted'));
-      }
-
-      for (const mountedRootId of this.mounts.ids()) {
-        if (!retainedRootIds.has(mountedRootId)) {
-          await this.unmountSourceRoot(mountedRootId);
-        }
-      }
-      if (persistPreferences && storedSurvivors.length !== entries.length) {
-        await writeStoredRoots(this.storage, storedSurvivors);
-      }
-      if (persistPreferences) {
-        const kindByRootId = await this.loadPersistedRootKinds(recentRootCandidates);
-        // BST-1400 item 4: one shared read + at most one shared write for the
-        // whole restored batch, instead of up to two ledger reads PER restored
-        // root (recordRecentRootIfNew's own read plus recordRecentRoot's).
-        const newRecentCandidates = recentRootCandidates.flatMap((entry) =>
-          kindByRootId.get(entry.rootId) === 'worktree'
-            ? []
-            : [{ lastGrantedAt: entry.addedAt, path: entry.path }]
-        );
-        await recordRecentRootsIfNew(this.storage, newRecentCandidates);
-      }
-      await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
-      await this.convergeDatabase();
-      return descriptors;
-    });
+    return this.serializeMutation(() => this.restoreRootsOwned(persistPreferences));
   }
 
-  private async loadPersistedRootKinds(
-    entries: readonly StoredWorkspaceRoot[]
-  ): Promise<ReadonlyMap<string, string | null>> {
-    const kindByRootId = new Map<string, string | null>();
-    if (entries.length === 0) {
-      return kindByRootId;
-    }
-    try {
-      const db = await this.getRootsCatalog();
-      const { roots } = await db.workspaceRoots({ operation: 'list' });
-      const selected = new Set(entries.map((entry) => entry.rootId));
-      for (const row of roots.filter((root) => selected.has(root.id))) {
-        kindByRootId.set(row.id, row.kind);
+  /** Restores the stored roots, then runs `work` in that mutation: no removal falls inside. */
+  borrowRestoredRoots<T>(
+    work: (
+      descriptors: readonly RootDescriptor[],
+      borrow: WorkspaceRootRegistry['borrowSourceRoot']
+    ) => Promise<T>
+  ): Promise<T> {
+    return this.serializeMutation(async () =>
+      work(await this.restoreRootsOwned(true), async (rootId, subscribe) => {
+        this.assertSourceBorrow(rootId);
+        return this.borrowMountedRoot(rootId, subscribe);
+      })
+    );
+  }
+
+  private async restoreRootsOwned(persistPreferences: boolean): Promise<RootDescriptor[]> {
+    const entries = await readStoredRoots(this.storage);
+    this.availability.retain(entries);
+    const descriptors: RootDescriptor[] = [];
+    const retainedRootIds = this.mounts.sessionMountIds();
+    const retainedCanonicalPaths = new Set<string>();
+    const storedSurvivors: StoredWorkspaceRoot[] = [];
+    const recentRootCandidates: StoredWorkspaceRoot[] = [];
+
+    for (const entry of entries) {
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
+      const mountResult = await this.availability.tryMount(entry, this.pathExists, (stored) =>
+        this.mount(stored)
+      );
+      if (!mountResult.ok) {
+        descriptors.push(descriptorFor(entry, 'unknown'));
+        storedSurvivors.push(entry);
+        continue;
       }
-    } catch (error) {
-      logger.warn('Could not read persisted workspace root kinds; restoring Recents as before', {
-        error,
-      });
+      const { canonicalPath } = mountResult;
+      if (retainedCanonicalPaths.has(pathKey(canonicalPath))) {
+        logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
+          rootId: entry.rootId,
+        });
+        await this.unmountSourceRoot(entry.rootId);
+        continue;
+      }
+      // A session mint of the same canonical path is superseded by the persisted identity.
+      await this.supersedeSessionMountsFor(entry, canonicalPath, retainedRootIds);
+      retainedCanonicalPaths.add(pathKey(canonicalPath));
+      retainedRootIds.add(entry.rootId);
+      storedSurvivors.push(entry);
+      recentRootCandidates.push(entry);
+      descriptors.push(descriptorFor(entry, 'granted'));
     }
-    return kindByRootId;
+
+    for (const mountedRootId of this.mounts.ids()) {
+      if (!retainedRootIds.has(mountedRootId)) {
+        await this.unmountSourceRoot(mountedRootId);
+      }
+    }
+    if (persistPreferences && storedSurvivors.length !== entries.length) {
+      await writeStoredRoots(this.storage, storedSurvivors);
+    }
+    if (persistPreferences) {
+      await recordRestoredRecentRoots(this.storage, this.getRootsCatalog, recentRootCandidates);
+    }
+    await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
+    await this.convergeDatabase();
+    return descriptors;
   }
 
   setLastFolder(folderPath: string): Promise<void> {

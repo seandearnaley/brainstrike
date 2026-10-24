@@ -23,6 +23,7 @@ import {
   settleNativeIndexSources,
 } from '../native-index-source-retirement';
 import { textSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
 
 const catalogFixture = createActivationCatalogFixture();
@@ -128,7 +129,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
 }
 function fixture(applicationOverride?: ApplicationIpcDomain) {
   const application = {
-    roots: { restoreRoots: async () => [] },
+    roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
   const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
@@ -247,7 +248,7 @@ it.each([
     });
     const retire = vi.fn(async () => {});
     const application = {
-      roots: {
+      roots: restoredRoots({
         borrowSourceRoot: async (): Promise<CanonicalWorkspaceLease> => ({
           canonicalPath: '/actual/root',
           generation: 'generation',
@@ -259,7 +260,7 @@ it.each([
           subscribe: async () => ({ close: unsubscribe }),
         }),
         restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-      },
+      }),
       watches: { subscribe: unused },
     } as unknown as ApplicationIpcDomain;
     const native = writer();
