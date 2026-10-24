@@ -55,8 +55,9 @@ describe('ElectronFileSystemAdapter', () => {
       },
     }));
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-adapter-'));
-    // Resolve the real path to handle symlinks (e.g., /tmp -> /private/tmp on macOS)
-    tempDir = fs.realpathSync(tempDir);
+    // The OS canonical path, as validation resolves the root: symlinks (/tmp -> /private/tmp on
+    // macOS) and Windows 8.3 short names (RUNNER~1), which the JavaScript realpathSync keeps.
+    tempDir = fs.realpathSync.native(tempDir);
     processWithChdir.chdir(tempDir);
     adapter = new ElectronFileSystemAdapter();
   });

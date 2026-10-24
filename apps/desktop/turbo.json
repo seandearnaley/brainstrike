@@ -26,9 +26,11 @@
       // Windows. Each add-on's uncached `node-gyp rebuild` first removes build/,
       // so without these edges a run that schedules it beside this task fails
       // with "Could not locate the bindings file" (BST-2243). This is the same
-      // edge as state-store's `test`.
+      // edge as state-store's `test`. On Windows the suites run commands through
+      // the built dist/windows-command-entry.cjs, so they also need `build`.
       "dependsOn": [
         "$TURBO_EXTENDS$",
+        "build",
         "@brainstrike/secure-fs-native#build",
         "@brainstrike/windows-job-native#build"
       ],

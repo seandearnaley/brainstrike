@@ -1,6 +1,12 @@
 {
   "extends": ["//"],
   "tasks": {
+    "test": {
+      // Every test process loads @brainstrike/secure-fs-native/default-owner as
+      // its first setup file (BST-2246). The add-on's uncached `node-gyp rebuild`
+      // first removes build/, so the suites need that build first.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build"]
+    },
     "test:integration": {
       // Spawned CLI proofs run the bin from source under Node; it loads the
       // native add-ons (`^build`).
