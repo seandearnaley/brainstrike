@@ -296,11 +296,18 @@ jobs:
                   "vitest_shard": ""
                 },
                 {
+                  "shard": "host",
+                  "partition": "host",
+                  "pr_filters": "--filter=\"@brainstrike/app-state\" --filter=\"@brainstrike/agent-host\" --filter=\"@brainstrike/host-capabilities\" --filter=\"@brainstrike/indexer\"",
+                  "push_filters": "--filter=\"@brainstrike/app-state\" --filter=\"@brainstrike/agent-host\" --filter=\"@brainstrike/host-capabilities\" --filter=\"@brainstrike/indexer\"",
+                  "vitest_shard": ""
+                },
+                {
                   "shard": "rest",
                   "partition": "rest",
-                  "pr_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\" --filter=\"!@brainstrike/assistant-ui\" --filter=\"!@brainstrike/settings-ui\" --filter=\"!@brainstrike/state-store\"",
+                  "pr_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\" --filter=\"!@brainstrike/assistant-ui\" --filter=\"!@brainstrike/settings-ui\" --filter=\"!@brainstrike/state-store\" --filter=\"!@brainstrike/app-state\" --filter=\"!@brainstrike/agent-host\" --filter=\"!@brainstrike/host-capabilities\" --filter=\"!@brainstrike/indexer\"",
                   "vitest_shard": "",
-                  "push_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\" --filter=\"!@brainstrike/assistant-ui\" --filter=\"!@brainstrike/settings-ui\" --filter=\"!@brainstrike/state-store\""
+                  "push_filters": "--filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\" --filter=\"!@brainstrike/assistant-ui\" --filter=\"!@brainstrike/settings-ui\" --filter=\"!@brainstrike/state-store\" --filter=\"!@brainstrike/app-state\" --filter=\"!@brainstrike/agent-host\" --filter=\"!@brainstrike/host-capabilities\" --filter=\"!@brainstrike/indexer\""
                 }
               ]
             }
@@ -398,8 +405,9 @@ jobs:
     runs-on: ubicloud-standard-4
     # Desktop has six native Vitest shards, Agent and App Shell two each;
     # Heavy runs ui and file-explorer-ui, Store takes assistant-ui, settings-ui and
-    # state-store (long lanes that otherwise run last in Rest), and Rest owns
-    # every other affected package.
+    # state-store, Host takes app-state, agent-host, host-capabilities and
+    # indexer (long lanes that otherwise run last in Rest), and Rest owns every
+    # other affected package.
     # Unit below remains the required fan-in.
     timeout-minutes: 30
     strategy:
