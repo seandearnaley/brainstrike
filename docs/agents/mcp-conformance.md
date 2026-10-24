@@ -1,17 +1,16 @@
 # MCP conformance
 
-Use this contract when changing the protocol lab, runner or evidence
-validation. The lab verifies protocol behavior; it does not
-establish packaged desktop UX or live-provider acceptance. Local validation and
-CI authorization belong to `pnpm check`.
+Use this contract when changing the MCP test lab. The lab serves deterministic
+protocol fixtures to tests; it does not establish packaged desktop UX,
+live-provider acceptance or upstream conformance. Local validation and CI
+authorization belong to `pnpm check`.
 
 ## Verification boundaries
 
 [The MCP test lab](../../packages/mcp-test-lab/src/) is Node-only and independent
 of production clients. It reaches shared protocol shapes through the Tasks
-extension package and must not enter an application dependency graph. Expose a
-verifier capability only when its executable implementation exists; a declaration
-or upstream CLI listing is not proof that it ran.
+extension package and must not enter an application dependency graph. Desktop
+tests load its built `dist/`.
 
 The scenario manifest owns executable fixtures, transports, negotiated revisions,
 capabilities and upstream provenance. Profiles derived from upstream examples
@@ -20,32 +19,17 @@ conformance. Unknown scenarios or mismatched provenance fail visibly. Use
 explicit isolated environments and lab-owned loopback listeners or subprocesses,
 not ambient credentials or an owner's configured servers.
 
-Owners: [scenarios](../../packages/mcp-test-lab/src/scenario.ts),
-[runner manifest](../../packages/mcp-test-lab/src/runner-manifest.ts).
+The repository runs no official conformance suite and records no conformance
+evidence. A passing lab fixture is not a claim about the upstream suite.
 
-## Evidence integrity
-
-Treat supplied evidence as untrusted. Validate its closed schema and sanitize
-metadata before dependency I/O. Independently scan referenced artifact content;
-a claimed sanitization flag is not proof. Read each unique reference within an
-explicit byte bound, hash copied bytes, decode text strictly, and return only a
-detached immutable bundle. Diagnostics contain bounded codes rather than secret
-artifact content.
-
-Evidence distinguishes protocol-lab applicability from desktop-required proof.
-Bind results to the actual workspace, installed runtime, selected fixture and
-executed scenario. Missing cleanup proof blocks successful evidence. Historical
-pins and run links stay in the owning manifest or archived evidence, not duplicated
-as current acceptance claims.
-
-Owner: [evidence verifier](../../packages/mcp-test-lab/src/evidence.ts).
+Owner: [scenarios](../../packages/mcp-test-lab/src/scenario.ts).
 
 ## Cleanup and process ownership
 
-Every path closes its runtime, listener, sockets, OAuth state and subprocesses.
-Timeouts, failed starts/exits and cleanup failures retain their original errors.
-The runner reserves cleanup inside its existing deadline and emits no success
-without settlement. Windows descendants share the kill-on-close Job Object;
-POSIX groups are gone only when the kernel reports ESRCH. EPERM is inconclusive,
-not proof of retirement. Preserve sibling groups until their wave settles and
-surface unconfirmed cleanup without a process-enumeration fallback.
+Every session closes its listener, handler, sockets, OAuth state and
+subprocesses. Its cleanup report counts what closed and what OAuth state
+remains. A failed start keeps its original error; a failed close names only the
+resource kinds that failed, because resource errors can carry credentials, env
+or argv.
+
+Owner: [session cleanup](../../packages/mcp-test-lab/src/session-cleanup.ts).

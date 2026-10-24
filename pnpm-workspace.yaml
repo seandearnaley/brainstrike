@@ -280,9 +280,6 @@ overrides:
   # pins 6.15.1 exactly, so keep that exception scoped to its current owner.
   'qs@': 6.16.0
   'typed-rest-client@2.3.1>qs': 6.16.0
-  # Test-only conformance alpha.12 still declares SDK ^1.29.0. Keep its OAuth
-  # issuer-binding fix; first-party code continues to use only the split SDK 2.
-  '@modelcontextprotocol/conformance@0.2.0-alpha.12>@modelcontextprotocol/sdk': 1.32.1
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
