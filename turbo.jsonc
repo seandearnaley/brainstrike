@@ -205,7 +205,8 @@
       // point of this change (PR and push runs sharing cache entries). passThroughEnv
       // exposes COVERAGE at runtime while keeping the hash identical across both paths.
       "passThroughEnv": [
-        "COVERAGE"
+        "COVERAGE",
+        "VITEST_MAX_WORKERS"
       ],
       // Plain unit tests do not produce stable artifacts. Coverage is handled by
       // the separate test:coverage task so coverage CLI args don't hash build tasks.
@@ -277,7 +278,8 @@
         "TURBO_TEST_MODE"
       ],
       "passThroughEnv": [
-        "COVERAGE"
+        "COVERAGE",
+        "VITEST_MAX_WORKERS"
       ],
       "outputs": [],
       "cache": false,

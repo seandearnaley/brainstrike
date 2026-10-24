@@ -181,7 +181,7 @@ export default defineConfig({
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup', './vitest.setup.ts'],
+    setupFiles: ['./vitest.setup.ts'],
     testTimeout: 30_000,
     unstubGlobals: true,
     // Coverage consolidated at root vitest.config.mts
