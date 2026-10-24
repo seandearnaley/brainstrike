@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { createNodeChunker } from '../node/index';
+import { oxcNativeAdapter } from '../parsers/oxc-native-adapter';
 import { chunkContent } from '../portable-chunking';
 
 /** A chunk with no letter, digit or identifier character carries nothing of its own. */
@@ -54,7 +55,7 @@ describe('canonical Node chunking', () => {
   ])('matches the current canonical algorithm for $fileName', async ({ content, fileName }) => {
     const options = { fileName, maxTokens: 256, strategy: 'auto' as const, tokenTrueSizing: true };
     expect(await createNodeChunker({ parser: 'oxc' })(content, options)).toEqual(
-      await chunkContent(content, options)
+      await chunkContent(content, options, { selectAdapter: () => oxcNativeAdapter, strict: true })
     );
   });
 
@@ -135,7 +136,7 @@ describe('canonical declaration chunks', () => {
     expect(chunks.at(-1)?.content.endsWith('\n  }\n}')).toBe(true);
   });
 
-  it.each(['oxc', 'babel'] as const)(
+  it.each(['oxc'] as const)(
     'never emits a chunk that is only a modifier or punctuation (%s)',
     async (parser) => {
       const chunk = createNodeChunker({ parser });

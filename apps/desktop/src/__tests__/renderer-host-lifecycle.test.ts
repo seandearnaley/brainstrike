@@ -274,12 +274,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'chunking-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'chunking-host',
-      role: 'chunking-host',
-      statusEventName: 'chunking-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 
@@ -294,7 +294,7 @@ describe('RendererHostLifecycle', () => {
   it('assigns the host role before beginning renderer load', async () => {
     const hostWindow = createFakeWindow(41);
     hostWindow.loadURL.mockImplementation(async () => {
-      expect(getWindowRoleByWebContentsId(41)).toBe('chunking-host');
+      expect(getWindowRoleByWebContentsId(41)).toBe('embedding-host');
       expectDeniedWindowOpenHandler(hostWindow);
     });
 
@@ -312,12 +312,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'chunking-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'chunking-host',
-      role: 'chunking-host',
-      statusEventName: 'chunking-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 
@@ -327,7 +327,7 @@ describe('RendererHostLifecycle', () => {
     expect(hostWindow.loadURL).toHaveBeenCalledWith(
       expect.stringMatching(
         new RegExp(
-          `^http://localhost:${DESKTOP_DEV_RENDERER_PORT}/\\?mode=chunking-host&runtimeId=chunking-host%3A`
+          `^http://localhost:${DESKTOP_DEV_RENDERER_PORT}/\\?mode=embedding-host&runtimeId=embedding-host%3A`
         )
       )
     );
@@ -432,7 +432,7 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
-  it.each(['chunking-host', 'embedding-host'] as const)(
+  it.each(['embedding-host'] as const)(
     'pins the %s window to the narrow hidden-host preload manifest',
     async (role) => {
       const hostWindow = createFakeWindow(411);
@@ -1044,12 +1044,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'chunking-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'chunking-host',
-      role: 'chunking-host',
-      statusEventName: 'chunking-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 
@@ -1084,12 +1084,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'chunking-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'chunking-host',
-      role: 'chunking-host',
-      statusEventName: 'chunking-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 
@@ -1102,7 +1102,7 @@ describe('RendererHostLifecycle', () => {
       createStatus({
         active: true,
         lastError: null,
-        runtimeId: 'chunking-host:runtime',
+        runtimeId: 'embedding-host:runtime',
         state: 'running',
       })
     );
@@ -1113,7 +1113,7 @@ describe('RendererHostLifecycle', () => {
         lifecycle as unknown as {
           events: EventEmitter;
         }
-      ).events.listenerCount('chunking-host:status')
+      ).events.listenerCount('embedding-host:status')
     ).toBe(0);
   });
 
@@ -1287,12 +1287,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'chunking-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'chunking-host',
-      role: 'chunking-host',
-      statusEventName: 'chunking-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 
@@ -1305,7 +1305,7 @@ describe('RendererHostLifecycle', () => {
 
     await expect(startupPromise).resolves.toEqual(
       expect.objectContaining({
-        runtimeId: 'chunking-host:stopped',
+        runtimeId: 'embedding-host:stopped',
         state: 'stopped',
       })
     );
@@ -1591,12 +1591,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'chunking-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'chunking-host',
-      role: 'chunking-host',
-      statusEventName: 'chunking-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 
@@ -1636,12 +1636,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'chunking-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'chunking-host',
-      role: 'chunking-host',
-      statusEventName: 'chunking-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 

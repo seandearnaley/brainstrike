@@ -23,12 +23,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "apps/desktop/e2e/**",
-        "apps/web/e2e/**",
-        "apps/desktop/qualification/m2-native/**",
-        "apps/desktop/qualification/retrieval/**"
-      ],
+      "includes": ["apps/desktop/e2e/**", "apps/web/e2e/**"],
       "linter": {
         "rules": {
           "correctness": {

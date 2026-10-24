@@ -19,7 +19,6 @@ import {
   assertWorkerpoolEmbeddingTelemetrySink,
   type WorkerpoolAdapterOptions,
 } from '../browser-workerpool-options.js';
-import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry.js';
 import {
   type QueueAdapter,
   type QueueAddBulkOptions,
@@ -769,20 +768,6 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     );
     const promise = Promise.race([telemetryFailure, checkedExecution]);
 
-    const pendingTasks = readPendingTasks();
-    const statsMetadata = readStatsMetadata();
-    const telemetry: QueueTelemetryEvent = {
-      activeBefore: activeTasks,
-      adapter: 'workerpool',
-      event: 'enqueue',
-      model: task.model,
-      taskId: task.id,
-      timestamp: Date.now(),
-      ...(pendingTasks === undefined ? {} : { pending: pendingTasks }),
-      ...(statsMetadata === undefined ? {} : { metadata: statsMetadata }),
-    };
-    emitQueueTelemetry(telemetry);
-
     return {
       cancelable,
       isTerminalCancellation: (error: unknown): boolean =>
@@ -800,20 +785,6 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
 
   const onTaskComplete = (task: TaskPayload, startedAt: number) => {
     const pendingTasks = readPendingTasks();
-    const statsMetadata = readStatsMetadata();
-    const telemetry: QueueTelemetryEvent = {
-      activeAfter: Math.max(activeTasks - 1, 0),
-      activeBefore: activeTasks,
-      adapter: 'workerpool',
-      elapsedMs: calculateElapsed(startedAt),
-      event: 'complete',
-      model: task.model,
-      taskId: task.id,
-      timestamp: Date.now(),
-      ...(pendingTasks === undefined ? {} : { pending: pendingTasks }),
-      ...(statsMetadata === undefined ? {} : { metadata: statsMetadata }),
-    };
-    emitQueueTelemetry(telemetry);
     // Use debug level for per-task completion to reduce log noise during bulk operations
     logger.debug('Workerpool embedding task complete', {
       activeAfterRelease: Math.max(activeTasks - 1, 0),
@@ -848,18 +819,6 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       errorMessage = String(error);
     }
 
-    const telemetry: QueueTelemetryEvent = {
-      activeAfter: Math.max(activeTasks - 1, 0),
-      activeBefore: activeTasks,
-      adapter: 'workerpool',
-      elapsedMs: calculateElapsed(startedAt),
-      errorMessage,
-      event: 'error',
-      model: task.model,
-      taskId: task.id,
-      timestamp: Date.now(),
-    };
-    emitQueueTelemetry(telemetry);
     logger.debug('Workerpool embedding task failed', {
       activeAfterRelease: Math.max(activeTasks - 1, 0),
       activeBeforeRelease: activeTasks,
@@ -876,11 +835,6 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const readPendingTasks = () => {
     const stats = typeof pool.stats === 'function' ? pool.stats() : null;
     return stats?.pendingTasks;
-  };
-
-  const readStatsMetadata = () => {
-    const stats = typeof pool.stats === 'function' ? pool.stats() : null;
-    return stats ? { pendingTasks: stats.pendingTasks } : undefined;
   };
 
   const assertAcceptingWork = (): void => {

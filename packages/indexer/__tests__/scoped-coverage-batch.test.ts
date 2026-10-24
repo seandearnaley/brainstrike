@@ -91,7 +91,7 @@ function fixture(secondProfile: VectorProfile = profile) {
             indexMode: 'text-only',
             profileHash: null,
             profileJson: null,
-            schemaVersion: 10,
+            schemaVersion: 15,
             storeId: 'a'.repeat(64),
           };
         }

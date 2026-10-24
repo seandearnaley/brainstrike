@@ -15,7 +15,6 @@ import type {
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import type { ThreadContextRecord } from '@brainstrike/assistant-ui/thread-context-store';
-import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
 import type { RewindPort } from './changes/rewind-port';
@@ -24,6 +23,7 @@ import type {
   HostThreadSearchVectors,
   ThreadSearchVectorProfile,
 } from './host-thread-search-vectors';
+import type { ThreadSearchExtraArms } from './thread-search-service';
 
 /** The semantic arm of a host search: the query vector, its embedder identity and minimum cosine. */
 export interface AssistantThreadSearchSemantic {

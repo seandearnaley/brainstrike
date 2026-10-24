@@ -28,7 +28,7 @@ afterEach(() => {
 });
 function invoke(
   channel: string,
-  role: 'visible-ui' | 'chunking-host' = 'visible-ui',
+  role: 'visible-ui' | 'embedding-host' = 'visible-ui',
   ...args: unknown[]
 ) {
   const handler = handlers.get(channel);
@@ -62,7 +62,7 @@ describe('current profile reset and path IPC', () => {
   it('refuses hidden callers and malformed reset arguments before mutation', async () => {
     const reset = vi.fn(async () => ({ success: true }));
     const close = registerFactoryResetIpcHandlers(reset);
-    await expect(invoke('db:resetLocal', 'chunking-host')).rejects.toThrow();
+    await expect(invoke('db:resetLocal', 'embedding-host')).rejects.toThrow();
     await expect(invoke('db:resetLocal', 'visible-ui', 'extra')).rejects.toThrow();
     expect(reset).not.toHaveBeenCalled();
     close();
@@ -82,7 +82,7 @@ it('content clear uses the existing host owner only after visible confirmation',
   try {
     await expect(invoke('db:clearAll', 'visible-ui', 'wrong')).rejects.toThrow();
     await expect(
-      invoke('db:clearAll', 'chunking-host', 'CONFIRM_CLEAR_DATABASE')
+      invoke('db:clearAll', 'embedding-host', 'CONFIRM_CLEAR_DATABASE')
     ).rejects.toThrow();
     expect(clear).not.toHaveBeenCalled();
     await expect(invoke('db:clearAll', 'visible-ui', 'CONFIRM_CLEAR_DATABASE')).resolves.toEqual({

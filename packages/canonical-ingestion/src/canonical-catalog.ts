@@ -1,9 +1,9 @@
 // The canonical catalog over the authoritative source catalog (SourceCatalogPort): desktop's native index scans
 // through this owner.
 
+import { createHash } from 'node:crypto';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
-import { sha256Hex } from '@brainstrike/utils/crypto';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import { Schema } from 'effect';
 import type {
@@ -120,7 +120,7 @@ function assertDiscoveryBatch(
   }
 }
 function assertHash(content: string, contentHash: string): void {
-  if (sha256Hex(content) !== contentHash) {
+  if (createHash('sha256').update(content).digest('hex') !== contentHash) {
     throw new Error('Canonical source hash does not match original content.');
   }
 }

@@ -3,7 +3,7 @@ import type { StateTruthReader } from '@brainstrike/state-store/state-truth-read
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
-import { sha256 } from './chunks.js';
+import { float32Bytes, sha256 } from './chunks.js';
 import {
   authorize,
   decoder,
@@ -25,7 +25,6 @@ import {
   vectorProfileSchema,
 } from './contracts.js';
 import { readIndexIdentity } from './index-metadata.js';
-import { float32Bytes } from './portable.js';
 import { vectorProfileHash } from './scope-authority.js';
 import { validateStoredVectorBytes } from './scoped-vector-validation.js';
 import type { StateMessageEvent, StateProjection } from './state-projection.js';
@@ -151,7 +150,6 @@ export function vectorBytes(vector: readonly number[], dimensions: number): Uint
 
 /** Derived leaf on the existing writer connection; no inference or transcript writer. */
 export class StateMessageVectors {
-  /** The actual writer definitions also qualify the legacy migration frontier. */
   static readonly definitions = [
     {
       name: 'state_message_generation',
@@ -258,44 +256,6 @@ export class StateMessageVectors {
     ) {
       throw new IndexerError('rebuild-required', 'Stored message vector has no recorded source.');
     }
-  }
-
-  /**
-   * Schema 15: an upgraded vector gains the rows its identity is read from. A
-   * vector whose message is no longer canonical, or whose truth changed, could
-   * never be authorized again, so it is retired. Damaged truth fails the upgrade.
-   */
-  static backfillSources(
-    db: Database.Database,
-    truth: StateTruthReader,
-    projection: StateProjection
-  ): void {
-    const threads = decoder(Schema.Array(Schema.String))(
-      db.prepare('SELECT DISTINCT thread_id FROM state_message_vectors ORDER BY 1').pluck().all()
-    );
-    const insert = db.prepare('INSERT INTO state_message_sources VALUES(?,?,?)');
-    truth.snapshot(() => {
-      for (const threadId of threads) {
-        const canonical = canonicalMessages(truth, projection, threadId);
-        const rows = decoder(Schema.Array(rowSchema))(
-          db.prepare(`SELECT ${columns} FROM state_message_vectors WHERE thread_id=?`).all(threadId)
-        );
-        for (const row of rows) {
-          const message = canonical.messages.find(
-            (current) => current.messageId === row.messageId && current.seq === row.seq
-          );
-          const sources = message && sourceRows(canonical, message);
-          const own = sources?.find(([seq]) => seq === row.seq);
-          if (!(sources && own && sha256(own[1]) === row.sourceHash)) {
-            db.prepare('DELETE FROM state_message_vectors WHERE pk=?').run(row.pk);
-            continue;
-          }
-          for (const [seq, raw] of sources) {
-            insert.run(row.pk, seq, sha256(raw));
-          }
-        }
-      }
-    });
   }
 
   grant(scope: Pick<StateMessageScope, 'rootId' | 'resourceId'>): void {

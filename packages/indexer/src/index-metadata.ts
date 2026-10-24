@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { embeddingProfileHash, sha256 } from './chunks.js';
@@ -10,11 +11,10 @@ import {
   profileSchema,
   scopedProofIdentitySchema,
 } from './contracts.js';
-import { randomHex } from './portable.js';
 
 export const INDEX_SCHEMA_VERSION = 15;
-const supportedSchemaVersion = Schema.Literals([8, 9, 10, 11, 12, 13, 14, INDEX_SCHEMA_VERSION]);
-export type IndexSchemaVersion = typeof supportedSchemaVersion.Type;
+/** Derived data is rebuildable (ADR-0020): any other stored version refuses as rebuild-required. */
+const supportedSchemaVersion = Schema.Literal(INDEX_SCHEMA_VERSION);
 const metadataSchema = Schema.Struct({
   indexMode: Schema.Literals(['text-only', 'vector-configured']),
   profileHash: Schema.NullOr(Schema.String),
@@ -46,7 +46,7 @@ export function freshIdentity(options: IndexerOptions): IndexerIdentity {
       options.embedding.indexMode === 'text-only'
         ? { indexMode: 'text-only' }
         : configuredEmbedding(options.embedding.profile),
-    storeId: randomHex(32),
+    storeId: randomBytes(32).toString('hex'),
   };
 }
 /** Driver-neutral row boundary; the supplied metadata must come from the caller's owned snapshot. */
@@ -75,8 +75,8 @@ export function decodeIndexIdentityRow(input: unknown): IndexerIdentity {
     );
   }
 }
-/** Common read metadata is compatible; only the acquired writer upgrades known layouts. */
-export function readIndexSchemaVersion(db: Database.Database): IndexSchemaVersion {
+/** Refuses any stored schema but the current one; opening never upgrades or deletes it. */
+export function readIndexSchemaVersion(db: Database.Database): typeof INDEX_SCHEMA_VERSION {
   try {
     return decoder(supportedSchemaVersion)(
       db.prepare('SELECT schema_version FROM index_metadata WHERE singleton=1').pluck().get()

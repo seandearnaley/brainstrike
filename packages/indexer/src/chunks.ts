@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import path from 'node:path';
 import {
   buildLineStartOffsets,
   findLineForOffset,
@@ -15,10 +17,22 @@ import {
   scopedSnapshotSchema,
   snapshotSchema,
 } from './contracts.js';
-import { float32Bytes, isAbsolutePosix, sha256Hex } from './portable.js';
 
 export function sha256(value: string): string {
-  return sha256Hex(value);
+  return createHash('sha256').update(value).digest('hex');
+}
+/** The float32 little-endian bytes of `values`. */
+export function float32Bytes(values: ArrayLike<number>): Uint8Array {
+  const bytes = new Uint8Array(values.length * 4);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < values.length; index++) {
+    view.setFloat32(index * 4, values[index] as number, true);
+  }
+  return bytes;
+}
+/** The float32 value at `index` of little-endian `bytes`. */
+export function float32At(bytes: Uint8Array, index: number): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat32(index * 4, true);
 }
 /**
  * The one rule for pooling in a profile identity: absent means 'mean', and the
@@ -167,7 +181,7 @@ export function validateSnapshot(snapshot: FileSnapshot | ScopedFileSnapshot): v
     throw new TypeError('Workspace files require a normalized relative path.');
   }
   if (
-    isAbsolutePosix(snapshot.relativePath) ||
+    path.posix.isAbsolute(snapshot.relativePath) ||
     snapshot.relativePath.includes('\\') ||
     snapshot.relativePath.split('/').some((part) => part === '..' || part === '' || part === '.')
   ) {

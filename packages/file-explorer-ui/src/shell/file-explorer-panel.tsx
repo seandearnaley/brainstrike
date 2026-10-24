@@ -1,28 +1,13 @@
 /// <reference path="../types/window.d.ts" />
 import type { AnyContextAction } from '@brainstrike/context-actions';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { cn, LoadingFallback, SELECTION_BAR_SCROLL_PADDING } from '@brainstrike/ui';
-import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
-import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
 const logger = createLogger('FileExplorerPanel');
-
-/**
- * Type for Zustand store with persist middleware.
- * The persist middleware adds a `.persist` property with hydration methods.
- */
-interface ZustandPersistApi {
-  hasHydrated: () => boolean;
-  onFinishHydration: (cb: () => void) => () => void;
-}
-
-type StoreWithPersist<T> = UseBoundStoreWithEqualityFn<StoreApi<T>> & {
-  persist: ZustandPersistApi;
-};
 
 import * as React from 'react';
 import {
@@ -36,7 +21,6 @@ import {
 } from 'react';
 import ActionButtons from '../action-buttons-array-facade';
 import { ExpandAllConfirmDialog } from '../components/expand-all-confirm-dialog';
-import { RestoreAccessModal } from '../components/restore-access-modal';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
@@ -238,7 +222,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
   const previousRootFolderIdRef = useRef<string | null>(null);
   const restorationLimitNoticeKeyRef = useRef<string | null>(null);
 
@@ -259,7 +242,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     cancelOperation,
     isCancelling,
     clearRootDirectory: _clearRootDirectory,
-    setRootDirectoryHandle,
     loadingPaths,
     loadChildren,
     cancelChildLoading,
@@ -269,7 +251,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     expandAllProgress,
     isRestoringExpandedPaths,
     restorationProgress,
-    setAccessLoading,
     selectFolderRecursively,
     isLoadingForSelection,
     loadingPathForSelection,
@@ -277,44 +258,11 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     cancelSelectAll,
     isLoadingForSelectAll,
     addRootDirectory,
-    registerRestoredHandles,
     removeRootDirectory,
     setFocusedRoot,
     rootIdByPath,
     unfilteredFileTree,
   } = useFileExplorer();
-
-  const {
-    isCheckingStoredHandles,
-    pendingRestore,
-    showDeniedBanner,
-    showStaleBanner,
-    storedFolders,
-    beginRestore,
-    dismissRestore,
-  } = useRestoreAccess();
-
-  // CRITICAL: Block stale clearing effect as soon as restore modal becomes visible.
-  // The stale clearing effect runs after 1500ms if no rootDirectoryHandle exists.
-  // If we wait until the user clicks "Restore Access" to set isAccessLoading,
-  // the expanded paths will already have been cleared by then. Also block stale
-  // clearing while we are still checking IndexedDB for stored handles.
-  useEffect(() => {
-    if (isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner) {
-      setAccessLoading(true);
-      return;
-    }
-    if (!rootDirectoryHandle) {
-      setAccessLoading(false);
-    }
-  }, [
-    isCheckingStoredHandles,
-    pendingRestore,
-    showDeniedBanner,
-    showStaleBanner,
-    rootDirectoryHandle,
-    setAccessLoading,
-  ]);
 
   const {
     showToast,
@@ -456,25 +404,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     [fileSystemAdapter]
   );
 
-  // Web file resolver - mirrors the desktop synthetic-handle path so the
-  // background indexer can index files inside lazy/unexpanded subfolders (e.g.
-  // after Select All) without forcing the whole tree to expand on the main
-  // thread. Only wired when the active adapter implements the optional
-  // resolveFileForIndexing capability (web today; electron leaves it undefined
-  // and continues using electronFileReader). The union return value lets
-  // production return a real `FileSystemFileHandle` (worker-side read) while
-  // in-memory adapters return pre-loaded `kind: 'content'` because their
-  // synthetic handles cannot survive structured clone to the worker.
-  const adapterResolveFileForIndexing = fileSystemAdapter.resolveFileForIndexing;
-  const webFileHandleResolver = useMemo(
-    () =>
-      adapterResolveFileForIndexing
-        ? (absolutePath: string) =>
-            adapterResolveFileForIndexing.call(fileSystemAdapter, absolutePath)
-        : undefined,
-    [adapterResolveFileForIndexing, fileSystemAdapter]
-  );
-
   const [quickFilter, setQuickFilter, clearQuickFilter] = useFileExplorerStoreSelector(
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const
   );
@@ -510,16 +439,13 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   const rowMetadata = useExplorerRowMetadata();
 
   // This hook automatically indexes selected AND visible files when a
-  // TokenCacheProvider is present. Only pass `webFileHandleResolver` when the
-  // active adapter advertises it so we don't trip `exactOptionalPropertyTypes`
-  // with an explicit-`undefined` value.
+  // TokenCacheProvider is present.
   useBackgroundTokenIndexerIntegration({
     electronFileReader,
     fileTree: stableFileTree,
     onTokenResolved: rowMetadata.onTokenResolved,
     selectedFiles: selectedFilePaths,
     visibleFiles: rowMetadata.visibleFileKeys,
-    ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
   // Forest sections own their tree enumeration and provide the quick-filter
@@ -694,14 +620,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     showToast,
   ]);
 
-  const handleChooseDifferentFolderFromRestore = useCallback(async () => {
-    const handle = await handleDirectorySelect();
-    if (handle === null) {
-      return;
-    }
-    dismissRestore();
-  }, [dismissRestore, handleDirectorySelect]);
-
   const handleToolbarDirectorySelect = useCallback(async (): Promise<void> => {
     // When roots already exist, use addRootDirectory (multi-root Add Folder).
     // Otherwise fall back to the standard single-root select flow.
@@ -754,19 +672,11 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       }
     } else {
       previousRootFolderIdRef.current = null;
-      // CRITICAL: Don't clear currentFolderId if we're waiting for restore access.
-      // When the page loads with stored handles but no permission yet, we need to
-      // preserve the currentFolderId so that the per-folder expandedDirectoryPaths
-      // remain intact. Calling setCurrentFolderId(null) triggers buildResetState()
-      // which clears expandedDirectoryPaths.
-      //
-      // isCheckingStoredHandles: true during the initial 500ms while useRestoreAccess
-      // checks IndexedDB for stored handles. Don't clear during this time.
-      const isWaitingForRestore =
-        isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner;
+      // Calling setCurrentFolderId(null) triggers buildResetState(), which clears
+      // expandedDirectoryPaths, so a persisted folder state is kept for its root.
       const hasRecoverablePersistedFolder =
         currentFolderId !== null && Boolean(store.getState().folderStates[currentFolderId]);
-      if (!(isWaitingForRestore || hasRecoverablePersistedFolder)) {
+      if (!hasRecoverablePersistedFolder) {
         setCurrentFolderId(null);
       }
     }
@@ -779,10 +689,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     setCurrentFolderId,
     hydrateFolderState,
     store,
-    isCheckingStoredHandles,
-    pendingRestore,
-    showDeniedBanner,
-    showStaleBanner,
   ]);
 
   // Forest mode: Expand All must run inside EACH root section's own tree
@@ -1163,166 +1069,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
             onConfirm={forestExpandConfirm.confirm}
             open={forestExpandConfirm.isOpen}
             rootCount={rootDirectoryHandles.length}
-          />
-
-          {/* Restore Access Modal - shown when stored handles exist but need permission */}
-          <RestoreAccessModal
-            folderNames={
-              storedFolders.length > 0
-                ? storedFolders.map((f) => f.name)
-                : pendingRestore?.name
-                  ? [pendingRestore.name]
-                  : ['previous folder']
-            }
-            isOpen={
-              !rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)
-            }
-            isRestoring={isRestoring}
-            onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
-            onDismiss={dismissRestore}
-            onRestore={() => {
-              // CRITICAL: Chrome requires requestPermission() to be called as the ABSOLUTE
-              // FIRST operation in the click handler. Even console.log can break gesture context.
-              // See: https://developer.chrome.com/blog/user-activation
-              const rawHandle = pendingRestore?.rawHandle;
-
-              // Helper to complete restore after permission and hydration
-              const completeRestore = (handle: FileSystemDirectoryHandle) => {
-                // CRITICAL: Wait for Zustand store hydration before setting folder ID.
-                // The store may not have loaded folderStates from localStorage yet.
-                // If we call setCurrentFolderId before hydration, it won't find any
-                // existing folder state and will create a new empty one instead.
-
-                const doRestore = () => {
-                  const directoryHandle = {
-                    _internal: handle,
-                    kind: 'directory' as const,
-                    name: handle.name,
-                    path: handle.name,
-                    platform: 'web' as const,
-                    // Stamp the durable rootId (pendingRestore.folderId IS the rootId,
-                    // keyed in the handle cache) so the eager setRootDirectoryHandle and
-                    // the registerRestoredHandles burst below reconcile to ONE root by
-                    // rootKey — identity is rootId-only, no path fallback. Conditional
-                    // spread keeps the field absent (not undefined) under
-                    // exactOptionalPropertyTypes; ensureStamped is the loud backstop.
-                    ...(pendingRestore?.folderId ? { rootId: pendingRestore.folderId } : {}),
-                  };
-                  // beginRestore's burst seeds its result with already-granted
-                  // handles (incl. this one), so registering its FULL return is
-                  // the multi-root-complete path; the eager single-handle set
-                  // keeps the focused tree responsive while the burst settles.
-                  setRootDirectoryHandle(directoryHandle);
-                  beginRestore()
-                    .then((restoredHandles) =>
-                      restoredHandles.length > 0
-                        ? registerRestoredHandles(restoredHandles)
-                        : undefined
-                    )
-                    .catch(() => {})
-                    .finally(() => {
-                      setIsRestoring(false);
-                      setAccessLoading(false);
-                    });
-                };
-
-                // Type guard to check if store has persist middleware using safe property access
-                const hasPersistApi = (s: unknown): s is StoreWithPersist<unknown> => {
-                  if (typeof s !== 'function' || !('persist' in s)) {
-                    return false;
-                  }
-                  const persistObj = (s as Record<string, unknown>)['persist'];
-                  if (typeof persistObj !== 'object' || persistObj === null) {
-                    return false;
-                  }
-                  const persist = persistObj as Record<string, unknown>;
-                  return (
-                    typeof persist['hasHydrated'] === 'function' &&
-                    typeof persist['onFinishHydration'] === 'function'
-                  );
-                };
-
-                // Track subscription for cleanup if component unmounts during hydration
-                let unsubscribeRef: (() => void) | null = null;
-                let isCancelled = false;
-
-                // Check if store has hydrated
-                if (hasPersistApi(store)) {
-                  if (store.persist.hasHydrated()) {
-                    doRestore();
-                  } else {
-                    unsubscribeRef = store.persist.onFinishHydration(() => {
-                      if (!isCancelled) {
-                        unsubscribeRef?.();
-                        unsubscribeRef = null;
-                        doRestore();
-                      }
-                    });
-                  }
-                } else {
-                  // No persist API available, proceed without waiting
-                  doRestore();
-                }
-
-                // Return cleanup function to prevent memory leaks
-                // Note: This is captured in closure but the click handler is synchronous,
-                // so we just need the flags for the hydration callback case
-                return () => {
-                  isCancelled = true;
-                  unsubscribeRef?.();
-                };
-              };
-
-              // If we have a raw handle, call requestPermission IMMEDIATELY - no other code first
-              if (rawHandle && typeof rawHandle.requestPermission === 'function') {
-                rawHandle.requestPermission({ mode: 'read' }).then(
-                  (permissionResult) => {
-                    if (permissionResult === 'granted') {
-                      setAccessLoading(true);
-                      setIsRestoring(true);
-                      completeRestore(rawHandle);
-                    } else {
-                      // Permission denied - use beginRestore to update UI state
-                      setAccessLoading(true);
-                      setIsRestoring(true);
-                      beginRestore()
-                        .then((restoredHandles) => registerRestoredHandles(restoredHandles))
-                        .catch(() => {})
-                        .finally(() => {
-                          setIsRestoring(false);
-                          setAccessLoading(false);
-                        });
-                    }
-                  },
-                  (err) => {
-                    logger.warn('requestPermission threw, falling back to legacy path', { err });
-                    // Fall back to legacy path
-                    setAccessLoading(true);
-                    setIsRestoring(true);
-                    beginRestore()
-                      .then((restoredHandles) => registerRestoredHandles(restoredHandles))
-                      .catch(() => {})
-                      .finally(() => {
-                        setIsRestoring(false);
-                        setAccessLoading(false);
-                      });
-                  }
-                );
-                return;
-              }
-
-              // No raw handle - fall back to legacy async path
-              setAccessLoading(true);
-              setIsRestoring(true);
-              beginRestore()
-                .then((restoredHandles) => registerRestoredHandles(restoredHandles))
-                .catch(() => {})
-                .finally(() => {
-                  setIsRestoring(false);
-                  setAccessLoading(false);
-                });
-            }}
-            variant={showStaleBanner ? 'stale' : showDeniedBanner ? 'denied' : 'pending'}
           />
         </div>
       </MeasuredExplorerColumnsProvider>

@@ -1,9 +1,9 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import type { ThreadSearchResultItem } from '@brainstrike/db';
 import { Button } from '@brainstrike/ui';
 import { Loader2, Search, TriangleAlert, X } from 'lucide-react';
 import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
 import { renderMarkedText } from './thread-search-headline';
+import type { ThreadSearchResultItem } from './thread-search-service';
 import { useThreadSearchStore } from './thread-search-store';
 
 function formatMatchDate(date: Date): string {

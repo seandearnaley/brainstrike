@@ -64,7 +64,7 @@ export interface ExtractedSymbols {
 }
 
 interface ExtractArgs {
-  adapterId: 'babel' | 'oxc-native' | 'tree-sitter';
+  adapterId: 'oxc-native' | 'tree-sitter';
   ast: AstNode;
   content: string;
 }

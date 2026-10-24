@@ -1,9 +1,9 @@
-import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { renderHook } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantThreadSearchSemantic } from '../assistant-thread-host-context';
 import type { HostThreadSearchVectors } from '../host-thread-search-vectors';
+import type { ThreadSearchExtraArms } from '../thread-search-service';
 import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
 import {
   THREAD_SEARCH_DEBOUNCE_MS,

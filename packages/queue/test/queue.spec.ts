@@ -2,12 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWorkerpoolAdapter as createWorkerpoolAdapterBase } from '../src/adapters/browser-workerpool.js';
 import { createBrowserEmbeddingQueue } from '../src/browser.js';
 import type { WorkerpoolAdapterOptions } from '../src/browser-workerpool-options.js';
-import {
-  addQueueTelemetryListener,
-  createQueueTelemetryAggregator,
-  emitQueueTelemetry,
-  type QueueTelemetryEvent,
-} from '../src/telemetry.js';
 
 const TEST_WORKER_URL = 'https://example.invalid/embedding.worker.js';
 const TEST_TELEMETRY_SINK = {
@@ -564,80 +558,6 @@ describe('createWorkerpoolAdapter', () => {
     expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
     expect(adapter.isPaused).toBe(true);
     expect(adapter.isProcessing).toBe(false);
-  });
-});
-
-describe('queue telemetry', () => {
-  it('emits telemetry events for the workerpool adapter', async () => {
-    setWorkerSupport();
-    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
-    const events: QueueTelemetryEvent[] = [];
-    const unsubscribe = addQueueTelemetryListener((event) => {
-      if (event.taskId === 'telemetry-workerpool') {
-        events.push(event);
-      }
-    });
-    try {
-      await adapter.add({ ...minimalTask, id: 'telemetry-workerpool' });
-    } finally {
-      unsubscribe();
-    }
-
-    expect(events.some((event) => event.event === 'enqueue')).toBe(true);
-    expect(events.some((event) => event.event === 'complete')).toBe(true);
-  });
-
-  it('includes workerpool pending-task metadata when pool stats are available', async () => {
-    setWorkerSupport();
-    workerpoolMocks.setStatsImplementation(() => ({ pendingTasks: 7 }));
-    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
-    const events: QueueTelemetryEvent[] = [];
-
-    const unsubscribe = addQueueTelemetryListener((event) => {
-      if (event.taskId === 'telemetry-stats') {
-        events.push(event);
-      }
-    });
-    try {
-      await adapter.add({ ...minimalTask, id: 'telemetry-stats' });
-    } finally {
-      unsubscribe();
-    }
-
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ event: 'enqueue', metadata: { pendingTasks: 7 }, pending: 7 }),
-        expect.objectContaining({ event: 'complete', metadata: { pendingTasks: 7 }, pending: 7 }),
-      ])
-    );
-  });
-
-  it('aggregates throughput and latency over a sliding window', () => {
-    const aggregator = createQueueTelemetryAggregator(60_000);
-    const base = Date.now();
-    emitQueueTelemetry({
-      adapter: 'workerpool',
-      event: 'enqueue',
-      taskId: 'aggregation-task',
-      timestamp: base,
-    });
-    emitQueueTelemetry({
-      adapter: 'workerpool',
-      elapsedMs: 10,
-      event: 'complete',
-      taskId: 'aggregation-task',
-      timestamp: base + 10,
-    });
-
-    const snapshot = aggregator.snapshot(base + 20);
-    aggregator.dispose();
-
-    expect(snapshot.events).toHaveLength(2);
-    expect(snapshot.throughputPerMinute).toBeCloseTo(1, 5);
-    expect(snapshot.averageLatencyMs).toBe(10);
-    expect(snapshot.latencyP50Ms).toBe(10);
-    expect(snapshot.latencyP95Ms).toBe(10);
-    expect(snapshot.errorCount).toBe(0);
   });
 });
 

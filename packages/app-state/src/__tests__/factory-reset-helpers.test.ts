@@ -1,11 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ClearPersistentUiStateResult } from '../factory-reset';
 import {
   ClearPersistentUiStateIncompleteError,
   clearPersistentUiState,
   clearPersistentUiStateWithResult,
-  FALLBACK_INDEXED_DB_NAMES,
   prepareFactoryReset,
   registerFactoryResetPreparation,
   registerFactoryResetSessionStore,
@@ -17,6 +15,8 @@ interface FakeRequest {
   onerror: ((event: Event) => void) | null;
   onsuccess: ((event: Event) => void) | null;
 }
+
+const RENDERER_DATABASE = 'renderer-db';
 
 const globalWindow = window as Window &
   typeof globalThis & {
@@ -100,32 +100,6 @@ describe('registerFactoryResetSessionStore', () => {
   });
 });
 
-describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
-  it('includes the PG18 engine-versioned database names so Safari/Firefox fallback wipes them', () => {
-    // The persistent browser data dirs were versioned to idb://app-pg18 / idb://web-pg18
-    // when PGlite upgraded to Postgres 18. The fallback wipe list (used when
-    // indexedDB.databases() is unavailable) must target the versioned names.
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('app-pg18');
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('web-pg18');
-  });
-
-  it('retains the legacy unversioned names to clean up stale PG17 installs', () => {
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('app');
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('web');
-  });
-
-  it('targets the real /pglite/-prefixed IndexedDB names PGlite actually creates', () => {
-    // PGlite's idb backend (Emscripten IDBFS) names the IndexedDB database
-    // `/pglite/<dataDir>`, NOT the bare data-dir name — so a fallback list of bare
-    // names matches nothing against pglite stores. The list must include the
-    // prefixed names for the non-enumerating (Safari/Firefox) wipe to work.
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/app-pg18');
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/web-pg18');
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/app');
-    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/web');
-  });
-});
-
 function createDeleteDatabaseMock() {
   return vi.fn((_name: string) => {
     const request: FakeRequest = {
@@ -162,6 +136,7 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     Object.defineProperty(globalWindow, 'indexedDB', {
       configurable: true,
       value: {
+        databases: vi.fn(async () => [{ name: RENDERER_DATABASE }]),
         deleteDatabase: deleteDatabaseMock,
       } as unknown as IDBFactory,
     });
@@ -192,30 +167,42 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     }
   });
 
-  it('falls back to known databases when IndexedDB enumeration is unavailable', async () => {
-    await clearPersistentUiState();
+  it('reports an incomplete reset when IndexedDB cannot enumerate its databases', async () => {
+    Object.defineProperty(globalWindow, 'indexedDB', {
+      configurable: true,
+      value: { deleteDatabase: deleteDatabaseMock } as unknown as IDBFactory,
+    });
 
-    expect(deleteDatabaseMock).toHaveBeenCalledTimes(FALLBACK_INDEXED_DB_NAMES.length);
-    const deletedNames = deleteDatabaseMock.mock.calls.map(([name]) => name);
-    expect(deletedNames).toEqual(expect.arrayContaining([...FALLBACK_INDEXED_DB_NAMES]));
+    const result = await clearPersistentUiStateWithResult();
+
+    expect(result.success).toBe(false);
+    expect(result.failures).toEqual([
+      expect.objectContaining({ operation: 'enumerate', target: 'indexed-db' }),
+    ]);
+    expect(deleteDatabaseMock).not.toHaveBeenCalled();
   });
 
-  it('uses fallback names when enumeration throws', async () => {
-    const databasesMock = vi.fn(async () => {
-      throw new Error('no enumeration');
-    });
+  it('reports an incomplete reset when IndexedDB enumeration throws', async () => {
+    const enumerationFailure = new Error('no enumeration');
     Object.defineProperty(globalWindow, 'indexedDB', {
       configurable: true,
       value: {
-        databases: databasesMock,
+        databases: vi.fn(async () => {
+          throw enumerationFailure;
+        }),
         deleteDatabase: deleteDatabaseMock,
       } as unknown as IDBFactory,
     });
 
-    await clearPersistentUiState();
+    const result = await clearPersistentUiStateWithResult();
 
-    expect(databasesMock).toHaveBeenCalled();
-    expect(deleteDatabaseMock).toHaveBeenCalledTimes(FALLBACK_INDEXED_DB_NAMES.length);
+    expect(result.failures).toEqual([
+      { error: enumerationFailure, operation: 'enumerate', target: 'indexed-db' },
+    ]);
+    await expect(clearPersistentUiState()).rejects.toBeInstanceOf(
+      ClearPersistentUiStateIncompleteError
+    );
+    expect(deleteDatabaseMock).not.toHaveBeenCalled();
   });
 
   it('deletes enumerated databases when available', async () => {
@@ -277,7 +264,7 @@ describe('clearPersistentUiState IndexedDB handling', () => {
       expect(result.success).toBe(false);
       expect(result.failures).toEqual([
         expect.objectContaining({
-          name: FALLBACK_INDEXED_DB_NAMES[0],
+          name: RENDERER_DATABASE,
           operation: 'delete',
           target: 'indexed-db',
         }),
@@ -295,10 +282,10 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     const result = await clearPersistentUiStateWithResult();
 
     expect(result.success).toBe(false);
-    expect(result.failures).toHaveLength(FALLBACK_INDEXED_DB_NAMES.length);
+    expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toMatchObject({
       error: deletionFailure,
-      name: FALLBACK_INDEXED_DB_NAMES[0],
+      name: RENDERER_DATABASE,
       operation: 'delete',
       target: 'indexed-db',
     });
@@ -448,183 +435,5 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     });
 
     await expect(clearPersistentUiState({ skipIndexedDb: true })).resolves.toBeUndefined();
-  });
-});
-
-describe('clearPersistentUiState OPFS-AHP handling', () => {
-  const nav = globalThis.navigator as Navigator & {
-    storage?: { getDirectory?: () => Promise<unknown> };
-  };
-  let originalStorageDescriptor: PropertyDescriptor | undefined;
-  let originalIndexedDB: IDBFactory | undefined;
-  let originalCaches: CacheStorage | undefined;
-  let removeEntry: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    originalIndexedDB = globalWindow.indexedDB;
-    originalCaches = globalWindow.caches;
-    originalStorageDescriptor = Object.getOwnPropertyDescriptor(nav, 'storage');
-
-    // Minimal IndexedDB + CacheStorage so the sibling reset tasks complete cleanly.
-    Object.defineProperty(globalWindow, 'indexedDB', {
-      configurable: true,
-      value: { deleteDatabase: createDeleteDatabaseMock() } as unknown as IDBFactory,
-    });
-    Object.defineProperty(globalWindow, 'caches', {
-      configurable: true,
-      value: {
-        delete: vi.fn(async () => true),
-        keys: vi.fn(async () => []),
-      } as unknown as CacheStorage,
-    });
-
-    removeEntry = vi.fn(async () => undefined);
-    async function* keys(): AsyncGenerator<string> {
-      yield 'app-pg18'; // current versioned
-      yield 'app'; // legacy unversioned
-      yield 'app-pg17'; // older major
-      yield 'web-pg18';
-      yield 'brainstrike-web-state-default'; // browser state DB pools
-      yield 'brainstrike-web-state-web-e2e-1';
-      yield 'brainstrike-web-state-default--files'; // the file index's own pool
-      yield 'some-other-lib'; // unrelated OPFS consumer → must NOT be removed
-    }
-    Object.defineProperty(nav, 'storage', {
-      configurable: true,
-      value: { getDirectory: vi.fn(async () => ({ keys, removeEntry })) },
-    });
-  });
-
-  afterEach(() => {
-    if (originalIndexedDB) {
-      Object.defineProperty(globalWindow, 'indexedDB', {
-        configurable: true,
-        value: originalIndexedDB,
-      });
-    } else {
-      Reflect.deleteProperty(globalWindow, 'indexedDB');
-    }
-    if (originalCaches) {
-      Object.defineProperty(globalWindow, 'caches', { configurable: true, value: originalCaches });
-    } else {
-      Reflect.deleteProperty(globalWindow, 'caches');
-    }
-    if (originalStorageDescriptor) {
-      Object.defineProperty(nav, 'storage', originalStorageDescriptor);
-    } else {
-      Reflect.deleteProperty(nav, 'storage');
-    }
-  });
-
-  it('removes the pglite OPFS-AHP root dirs (versioned + legacy + older majors), never unrelated entries', async () => {
-    await clearPersistentUiState();
-
-    const removed = removeEntry.mock.calls.map(([name]) => name);
-    expect(removed).toEqual(expect.arrayContaining(['app-pg18', 'app', 'app-pg17', 'web-pg18']));
-    // A non-pglite OPFS consumer's root dir must never be swept by factory reset.
-    expect(removed).not.toContain('some-other-lib');
-  });
-
-  it('removes every browser state DB pool', async () => {
-    await clearPersistentUiState();
-
-    expect(removeEntry.mock.calls.map(([name]) => name)).toEqual(
-      expect.arrayContaining([
-        'brainstrike-web-state-default',
-        'brainstrike-web-state-web-e2e-1',
-        'brainstrike-web-state-default--files',
-      ])
-    );
-  });
-
-  it("removes the default store's pools, its file index's too, where OPFS cannot list its entries", async () => {
-    Object.defineProperty(nav, 'storage', {
-      configurable: true,
-      value: { getDirectory: vi.fn(async () => ({ removeEntry })) },
-    });
-
-    await clearPersistentUiState();
-
-    expect(removeEntry.mock.calls.map(([name]) => name)).toEqual(
-      expect.arrayContaining([
-        'brainstrike-web-state-default',
-        'brainstrike-web-state-default--files',
-      ])
-    );
-  });
-
-  it('reports incomplete reset results when an OPFS pglite directory cannot be removed', async () => {
-    const resetFailure = new Error('locked opfs directory');
-    removeEntry.mockImplementation(async (name: string) => {
-      if (name === 'app-pg18') {
-        throw resetFailure;
-      }
-    });
-
-    const result: ClearPersistentUiStateResult = await clearPersistentUiStateWithResult();
-
-    expect(result.success).toBe(false);
-    expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]).toMatchObject({
-      error: resetFailure,
-      name: 'app-pg18',
-      operation: 'removeEntry',
-      target: 'opfs-pglite',
-    });
-  });
-
-  it('reports incomplete reset results when OPFS pglite directory enumeration fails', async () => {
-    const enumerateFailure = new Error('opfs enumeration failed');
-    async function* keys(): AsyncGenerator<string> {
-      yield 'app-pg18';
-      throw enumerateFailure;
-    }
-    Object.defineProperty(nav, 'storage', {
-      configurable: true,
-      value: { getDirectory: vi.fn(async () => ({ keys, removeEntry })) },
-    });
-
-    const result: ClearPersistentUiStateResult = await clearPersistentUiStateWithResult();
-
-    expect(removeEntry).toHaveBeenCalledWith('app-pg18', { recursive: true });
-    expect(result.success).toBe(false);
-    expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]).toMatchObject({
-      error: enumerateFailure,
-      operation: 'enumerate',
-      target: 'opfs-pglite',
-    });
-  });
-
-  it('rejects the void reset API when OPFS cleanup is incomplete', async () => {
-    const resetFailure = new Error('locked opfs directory');
-    removeEntry.mockImplementation(async (name: string) => {
-      if (name === 'app-pg18') {
-        throw resetFailure;
-      }
-    });
-
-    let thrown: unknown;
-    try {
-      await clearPersistentUiState();
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({
-      result: {
-        failures: [
-          expect.objectContaining({
-            error: resetFailure,
-            name: 'app-pg18',
-            operation: 'removeEntry',
-            target: 'opfs-pglite',
-          }),
-        ],
-        success: false,
-      },
-    });
   });
 });

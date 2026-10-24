@@ -286,7 +286,7 @@ async function handleThreadGroupsRequest(input: {
   };
 }
 
-vi.mock('@brainstrike/db', () => ({
+vi.mock('../thread-search-service', () => ({
   // Search returns no matches; the real controller still drives the host search.
   createThreadSearchService: () => ({
     searchThreads: () =>

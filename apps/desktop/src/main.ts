@@ -49,7 +49,6 @@ import { isPathWithin } from './assistant-server/worktree-paths';
 import type { createWorktreeService } from './assistant-server/worktree-service';
 import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
-import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
 import {
   clearActiveBrowserPaneHost,
@@ -118,7 +117,6 @@ import {
   reloadDocument,
   visibleDocumentWindows,
 } from './document-unload';
-import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
@@ -1197,12 +1195,6 @@ const singleInstanceLockAcquired = desktopBootstrap.singleInstanceLockAcquired;
 
 if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
-  if (e2eTestMode) {
-    // The loaded foreground-latency benchmark times main-process operations (BST-1925).
-    installE2eForegroundLatencyProbes({
-      hostRequest: (method, params) => agentHostMainClient.request(method, params),
-    });
-  }
 
   const workspaceOpenQueue = desktopBootstrap.workspaceOpenQueue;
 
@@ -1322,9 +1314,6 @@ if (singleInstanceLockAcquired) {
     }
     registerShutdownSignalHandlers();
     try {
-      emitBootMeasurementMark('app-ready', app.isPackaged);
-      // Validated up front so a malformed value fails loudly and clearly here.
-      const quitAfterBootMeasurement = shouldQuitAfterBootMeasurement(app.isPackaged);
       logger.debug('App ready, starting initialization...');
 
       const launchMode = resolveDesktopRendererLaunchMode({
@@ -1358,7 +1347,6 @@ if (singleInstanceLockAcquired) {
       // its existing owner before catalog discovery and renderer hydration.
       void nativeIndexActivation
         .acquireProfile()
-        .then(() => emitBootMeasurementMark('agent-host-ready', app.isPackaged))
         .catch((error: unknown) =>
           reportNativeIndexActivationError('Agent host profile unavailable', error)
         );
@@ -1780,13 +1768,6 @@ if (singleInstanceLockAcquired) {
       };
 
       await rebuildApplicationMenu();
-
-      if (quitAfterBootMeasurement) {
-        // The boot-measurement harness stops at agent-host ready, before any window work.
-        await nativeIndexActivation.acquireProfile();
-        app.quit();
-        return;
-      }
 
       ipcDisposers.add(
         'main-platform',

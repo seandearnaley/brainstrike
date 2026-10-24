@@ -28,7 +28,6 @@
     "ai": "catalog:",
     "effect": "catalog:",
     "fastest-levenshtein": "^1.0.16",
-    "minimatch": "catalog:",
     "ollama-ai-provider-v2": "catalog:",
     "pino": "catalog:",
     "tiktoken": "catalog:",

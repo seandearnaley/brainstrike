@@ -1,5 +1,5 @@
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import type { DiagnosticEventsQueryFilter } from '@brainstrike/db';
+import type { DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
 import { Schema } from 'effect';
 
 const identifier = Schema.String.check(Schema.isMinCodePoints(1));

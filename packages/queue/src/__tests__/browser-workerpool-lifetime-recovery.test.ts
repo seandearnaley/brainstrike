@@ -22,7 +22,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 vi.mock('workerpool', () => ({ default: { pool: poolFactoryMock } }));
-vi.mock('../telemetry', () => ({ emitQueueTelemetry: vi.fn() }));
 vi.mock('../util', async () => {
   const actual = await vi.importActual<typeof import('../util.js')>('../util');
   return { ...actual, estimateHardwareConcurrency: vi.fn(() => 4) };

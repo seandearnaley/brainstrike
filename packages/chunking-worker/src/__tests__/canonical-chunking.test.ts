@@ -30,7 +30,7 @@ describe('canonical chunking with the Babel parser', () => {
       relativePath: string;
       result: { chunks: unknown[]; symbolRefs: unknown[]; symbols: unknown[]; totalTokens: number };
     };
-    const result = await createNodeChunker({ parser: 'babel' })(fixture.content, {
+    const result = await createNodeChunker({ parser: 'oxc' })(fixture.content, {
       filePath: fixture.relativePath,
       maxTokens: 256,
       strategy: 'auto',
@@ -44,12 +44,11 @@ describe('canonical chunking with the Babel parser', () => {
 
   it('parses Python with the vendored tree-sitter grammar, as the desktop chunker does', async () => {
     const options = { fileName: 'greeter.py', maxTokens: 64, strategy: 'auto' as const };
-    const babel = await createNodeChunker({ parser: 'babel' })(PYTHON, options);
-    expect(babel).toEqual(await createNodeChunker({ parser: 'oxc' })(PYTHON, options));
+    const result = await createNodeChunker({ parser: 'oxc' })(PYTHON, options);
     // The symbols come from the grammar's parse tree; text splitting has none.
-    if (!babel.symbols) {
+    if (!result.symbols) {
       throw new Error('Expected grammar-derived Python symbols');
     }
-    expect(babel.symbols.map((symbol) => symbol.name)).toEqual(['Greeter', 'main']);
+    expect(result.symbols.map((symbol) => symbol.name)).toEqual(['Greeter', 'main']);
   });
 });

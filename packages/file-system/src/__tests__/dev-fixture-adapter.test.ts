@@ -256,55 +256,10 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     await expect(adapter.readFileByPath('outside.txt')).resolves.toBe('base:outside.txt');
   });
 
-  it('resolves fixture files for indexing through the stamped rootId alias', async () => {
-    // The wrapper only exists when the BASE adapter has the capability (web).
-    const base = createBaseAdapter() as ReturnType<typeof createBaseAdapter> & {
-      resolveFileForIndexing: ReturnType<typeof vi.fn>;
-    };
-    base.resolveFileForIndexing = vi.fn(async (path: string) => ({
-      content: `base:${path}`,
-      fileSize: 0,
-      kind: 'content' as const,
-    }));
-    const adapter = createFixtureCapableAdapter(base, {
-      platform: 'web',
-    });
-    const root = await adapter.loadInlineFixture(FIXTURE);
-
-    if (!root.rootId) {
-      throw new Error('Expected fixture root to be stamped with a rootId');
-    }
-
-    await expect(adapter.resolveFileForIndexing?.(`${root.rootId}/src/a.ts`)).resolves.toEqual({
-      content: 'export const a = 1;',
-      fileSize: 'export const a = 1;'.length,
-      kind: 'content',
-    });
-    await expect(
-      adapter.resolveFileForIndexing?.(`${root.rootId}/${root.path}/src/a.ts`)
-    ).resolves.toEqual({
-      content: 'export const a = 1;',
-      fileSize: 'export const a = 1;'.length,
-      kind: 'content',
-    });
-    // Foreign paths delegate to the base resolver.
-    await expect(adapter.resolveFileForIndexing?.('/real/main.ts')).resolves.toEqual({
-      content: 'base:/real/main.ts',
-      fileSize: 0,
-      kind: 'content',
-    });
-  });
-
-  it('does NOT advertise resolveFileForIndexing when the base adapter lacks it', async () => {
-    // Capability rule (mirrors streaming/readFileByPath): consumers feature-
-    // detect this method to choose the web resolver over the Electron reader.
-    // Advertising it on a capability-less base (desktop) routed REAL files
-    // into a resolver that could not serve them while a fixture was active.
+  it('reads fixture files through the universal readFile path', async () => {
     const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'electron' });
     await adapter.loadInlineFixture(FIXTURE);
 
-    expect(adapter.resolveFileForIndexing).toBeUndefined();
-    // Fixture files still readable through the universal readFile path.
     await expect(
       adapter.readFile({
         kind: 'file',
@@ -622,18 +577,6 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     const base = createBaseAdapter({ includeStreaming: false });
     const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
     expect(adapter.readDirectoryStreaming).toBeUndefined();
-  });
-
-  it('forwards getHandleCache when present on the base adapter', () => {
-    const base = createBaseAdapter() as FileSystemAdapter & { getHandleCache?: () => string };
-    const getHandleCache = vi.fn(() => 'cache');
-    base.getHandleCache = getHandleCache;
-
-    const adapter = createFixtureCapableAdapter(base, { platform: 'web' }) as FileSystemAdapter &
-      FixtureControls & { getHandleCache?: () => string };
-
-    expect(adapter.getHandleCache?.()).toBe('cache');
-    expect(getHandleCache).toHaveBeenCalledTimes(1);
   });
 
   it('forwards the explicit absolute-path read capability only when the base has it', async () => {
