@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
@@ -22,7 +22,6 @@ test.each(['live', 'reopened pending approval'] as const)(
     let store = await StateStore.open(root);
     const dates = ['2026-10-06T00:00:00.000Z', '2026-10-07T00:00:00.000Z'] as const;
     const providerPrompts: unknown[] = [];
-    const executed: unknown[] = [];
     const dateSchema = z.object({ at: z.iso.datetime().transform((value) => new Date(value)) });
     const capabilities: HostPlatform = {
       close: async () => undefined,
@@ -47,7 +46,6 @@ test.each(['live', 'reopened pending approval'] as const)(
         runtime_date: {
           description: 'Recorded Date runtime input',
           execute: async (input) => {
-            executed.push(input);
             if (
               !(input && typeof input === 'object' && 'at' in input && input.at instanceof Date)
             ) {
@@ -141,12 +139,6 @@ test.each(['live', 'reopened pending approval'] as const)(
               .map((part) => ({ input: part.input, toolCallId: part.toolCallId }))
           : [];
       });
-      await writeFile(
-        mode === 'live'
-          ? '/tmp/brainstrike-m3-approval-history-repro.json'
-          : '/tmp/brainstrike-m3-approval-history-reopened-repro.json',
-        JSON.stringify({ committedCalls, executed, modelPrompt, promptCalls }, null, 2)
-      );
       expect(committedCalls).toEqual(
         dates.map((at) => ({ input: { at }, toolCallId: 'recorded-call-1' }))
       );

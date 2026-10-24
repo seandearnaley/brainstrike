@@ -9,12 +9,15 @@ vi.mock('@brainstrike/host-lease', async (original) => ({
   launchHost: launch,
 }));
 // The fake utility's pid 123 names no real process: the start time its ready
-// record is checked against is the one that record carries (BST-2176).
+// record is checked against is the one that record carries (BST-2176), and it
+// has none once every fake utility exited, so the owner's exit join completes.
+const liveFakes = vi.hoisted(() => new Set<object>());
 vi.mock('@brainstrike/state-store', async (original) => {
   const actual = await original<typeof import('@brainstrike/state-store')>();
   return {
     ...actual,
-    processStartTime: (pid: number) => (pid === 123 ? 'child' : actual.processStartTime(pid)),
+    processStartTime: (pid: number) =>
+      pid === 123 ? (liveFakes.size > 0 ? 'child' : null) : actual.processStartTime(pid),
   };
 });
 
@@ -30,6 +33,10 @@ class Child extends EventEmitter {
   });
   exitOnClose = true;
   exitOnKill = true;
+  constructor() {
+    super();
+    liveFakes.add(this);
+  }
   postMessage(message: unknown): void {
     this.posts.push(message);
     // Only the close control ends the utility; the lifetime port arrives at spawn.
@@ -39,6 +46,7 @@ class Child extends EventEmitter {
   }
   exit(code: number): void {
     this.pid = undefined;
+    liveFakes.delete(this);
     this.emit('exit', code);
   }
 }
@@ -56,6 +64,7 @@ const start: HostStartOptions = { lifetime: 'app', parent: { pid: 42, start: 'pa
 let attachment: HostAttachment;
 beforeEach(() => {
   launch.mockReset();
+  liveFakes.clear();
   attachment = {
     close: vi.fn(async () => undefined),
     closed: new Promise<void>(() => undefined),

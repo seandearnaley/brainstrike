@@ -99,7 +99,7 @@ describe('ipc-handlers filesystem composition', () => {
     const content = await handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), {
       kind: 'file',
       name: 'file.txt',
-      path: '/mock/test/directory/file.txt',
+      path: path.join(handle.path, 'file.txt'),
       platform: 'electron',
       ...(handle.rootId === undefined ? {} : { rootId: handle.rootId }),
     } satisfies FileHandle);

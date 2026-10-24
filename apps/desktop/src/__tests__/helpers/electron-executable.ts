@@ -41,6 +41,18 @@ export function installedElectronVersion(): string {
   return version;
 }
 
+/**
+ * Chromium switches that schedule a test-mode window like a user's foreground
+ * one, as the E2E harness launches it. The test-mode window stays hidden, and
+ * Chromium backgrounds a hidden or occluded renderer's process priority; on a
+ * saturated Windows runner a backgrounded renderer starves behind the app's
+ * other processes, so a page never finishes loading or rendering.
+ */
+export const FOREGROUND_RENDERER_SWITCHES = [
+  '--disable-background-timer-throttling',
+  '--disable-renderer-backgrounding',
+] as const;
+
 /** Linux's X11/Wayland session, and an explicit sandbox opt-out the machine set. */
 const SESSION_VARIABLES = [
   'DISPLAY',
