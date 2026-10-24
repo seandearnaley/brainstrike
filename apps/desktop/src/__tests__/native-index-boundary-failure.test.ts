@@ -73,7 +73,7 @@ describe('native missing-key outcome (BST-2008)', () => {
           workerPlan: null,
         }),
       },
-      scope: { embeddingSetId: 'recorded-collection', kind: 'collection' },
+      scope: { kind: 'workspace', rootId: 'recorded-root' },
       transport: { documentEmbeddings: vi.fn() },
     });
     const generationFailure = await inference
@@ -183,7 +183,7 @@ it.each([
           workerPlan: null,
         }),
       },
-      scope: { embeddingSetId: 'recorded-collection', kind: 'collection' },
+      scope: { kind: 'workspace', rootId: 'recorded-root' },
       transport: { documentEmbeddings: vi.fn() },
     });
     const generated: unknown = await inference

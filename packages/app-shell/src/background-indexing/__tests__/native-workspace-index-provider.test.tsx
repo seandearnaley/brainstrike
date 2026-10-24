@@ -70,7 +70,8 @@ const SOURCE_FAILURE = refusal({
   category: 'availability',
   code: 'native-index-source-failure',
   message: 'The search index could not prepare its sources.',
-  remedy: 'Review Search and indexing in Settings and retry.',
+  remedy:
+    'Rebuild the search index in Settings, Search & Indexing. Chats, folders and settings are kept.',
 });
 
 /** Main's side of the config: one read, then every change it publishes. */
@@ -184,7 +185,6 @@ it.each([
     const status: IndexerStatus = {
       authorizedCollectionIds: [],
       authorizedRootIds: [],
-      collectionReadiness: [],
       embedding: { indexMode: 'text-only' },
       kind: 'ready',
       rootReadiness: [],
@@ -198,7 +198,6 @@ it.each([
         async (): Promise<IndexerCoverageBatch> => ({
           coverage: [
             {
-              collections: [],
               embedding: status.embedding,
               roots: [],
               storeId: 'store',
@@ -244,7 +243,6 @@ it('observes an atomic batch and preserves acknowledged counters across ordinary
   const status = {
     authorizedCollectionIds: ['selected'],
     authorizedRootIds: ['root'],
-    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
     embedding: { indexMode: 'text-only' as const },
     kind: 'ready' as const,
     rootReadiness: [{ rootId: 'root', scanComplete: false }],
@@ -252,7 +250,6 @@ it('observes an atomic batch and preserves acknowledged counters across ordinary
   };
   const counts = { chunks: 251, indexedFiles: 54, missingVectors: 0, vectors: 251 };
   const coverage = {
-    collections: [{ embeddingSetId: 'selected', ...counts }],
     embedding: status.embedding,
     roots: [{ rootId: 'root', ...counts }],
     storeId: 'store',
@@ -344,7 +341,6 @@ it.each(['roots', 'profile', 'store'] as const)(
         async (): Promise<IndexerCoverageBatch> => ({
           coverage: [
             {
-              collections: [{ embeddingSetId: 'selected', ...counts }],
               embedding: status.embedding,
               roots: [{ rootId: 'root', ...counts }],
               storeId: status.storeId,
@@ -424,7 +420,6 @@ it.each(['status', 'batch'] as const)(
             : {
                 authorizedCollectionIds: ['selected'],
                 authorizedRootIds: ['root'],
-                collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
                 embedding: { indexMode: 'text-only' },
                 kind: 'ready',
                 rootReadiness: [{ rootId: 'root', scanComplete: false }],
@@ -494,7 +489,6 @@ it.each(['status', 'batch'] as const)(
             : {
                 authorizedCollectionIds: ['selected'],
                 authorizedRootIds: ['root'],
-                collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
                 embedding: { indexMode: 'text-only' },
                 kind: 'ready',
                 rootReadiness: [{ rootId: 'root', scanComplete: false }],
@@ -539,7 +533,6 @@ it.each([
     const status = {
       authorizedCollectionIds: [],
       authorizedRootIds: rootIds,
-      collectionReadiness: [],
       embedding: { indexMode: 'text-only' as const },
       kind: 'ready' as const,
       rootReadiness: rootIds.map((rootId) => ({ rootId, scanComplete: true })),
@@ -559,7 +552,7 @@ it.each([
       coverageBatch: vi.fn(
         async (requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch> => {
           // As the native capability does: an empty workspace scope is refused.
-          if (requests.some((request) => request.rootIds.length === 0 && !request.collectionId)) {
+          if (requests.some((request) => request.rootIds.length === 0)) {
             throw new Error('Native workspace search requires connected roots.');
           }
           return { coverage: [coverage], kind: 'current', status };
@@ -578,7 +571,7 @@ it.each([
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('idle')
     );
-    // With no folder and no collection there is nothing to cover, so nothing is asked.
+    // With no folder there is nothing to cover, so nothing is asked.
     expect(capability.coverageBatch).toHaveBeenCalledTimes(rootIds.length === 0 ? 0 : 1);
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
       lastError: null,

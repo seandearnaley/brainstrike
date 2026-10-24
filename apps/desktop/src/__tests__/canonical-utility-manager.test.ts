@@ -1,9 +1,7 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
-  type CanonicalCollectionDependencies,
   type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
@@ -23,21 +21,11 @@ const engine = vi.hoisted(() => ({
   exited: false,
 }));
 let child: EventEmitter & { postMessage: (message: unknown) => void; kill: () => boolean };
-let heldScan: (() => void) | undefined;
-let heldStart: (() => void) | undefined;
-let heldCancel: (() => void) | undefined;
+/** The answer to the one canonical call `answering` holds. */
+let held: (() => void) | undefined;
 /** When set, the indexer connection becomes ready only when the test resolves it. */
 let heldReady: Promise<unknown> | undefined;
 let owner = '';
-const file = {
-  embeddingSetId: 'set',
-  fileId: 'file',
-  fileName: 'x.ts',
-  relativePath: null,
-  rootId: null,
-  sourcePath: null,
-};
-const scope = { embeddingSetId: 'set', kind: 'collection' as const };
 
 vi.mock('electron', () => ({
   app: { isReady: () => true },
@@ -71,7 +59,17 @@ vi.mock('@brainstrike/indexer/transport', async (importOriginal) => {
   };
 });
 
-function dependencies(read: () => Promise<void>): CanonicalCollectionDependencies {
+/** A workspace owner on `rootId`; `read` gates its lease's reads, `retire` is its lease's retirement. */
+function workspace({
+  read = async () => {},
+  retire = async () => {},
+  rootId = 'root',
+}: {
+  read?: () => Promise<void>;
+  retire?: (() => Promise<void>) | undefined;
+  rootId?: string;
+} = {}): CanonicalRemoteWorkspaceDependencies {
+  const scope = { kind: 'workspace' as const, rootId };
   return {
     catalog: {
       applyManagedCacheBatch: async () => {},
@@ -83,6 +81,10 @@ function dependencies(read: () => Promise<void>): CanonicalCollectionDependencie
         throw new Error('TEXT profile resolved');
       },
     },
+    managedCollectionId: 'set',
+    onError: vi.fn(),
+    onReceipt: vi.fn(),
+    onWatchHealth: vi.fn(),
     parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
@@ -99,47 +101,80 @@ function dependencies(read: () => Promise<void>): CanonicalCollectionDependencie
       }),
     },
     request: { batchSize: 1, chunkingOptions: { strategy: 'recursive' }, maxFileBytes: 1024 },
-    scope,
     source: {
       indexingPolicyPreset: 'balanced',
-      inventory: {
-        loadFiles: async () => [
-          { ...file, chunksProcessed: false, contentHash: null, stat: { mtimeMs: null, size: 0 } },
-        ],
-        readRetained: async () => {
-          await read();
-          return { content: '', stat: { mtimeMs: null, size: 0 } };
-        },
-      },
-    },
-  };
-}
-/** A workspace owner on `root` reading what `collection` reads; `retire` is its lease's retirement. */
-function workspace(
-  collection: CanonicalCollectionDependencies,
-  retire: () => Promise<void> = async () => {}
-): CanonicalRemoteWorkspaceDependencies {
-  return {
-    ...collection,
-    managedCollectionId: 'set',
-    onError: vi.fn(),
-    onReceipt: vi.fn(),
-    onWatchHealth: vi.fn(),
-    source: {
-      indexingPolicyPreset: 'balanced',
-      inventory: collection.source.inventory,
+      inventory: { loadFiles: async () => [] },
       lease: {
-        canonicalPath: '/actual/root',
+        canonicalPath: `/actual/${rootId}`,
         generation: 'generation',
         listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
-        readFile: vi.fn(async () => ({ status: 'not-found' as const })),
+        readFile: vi.fn(async () => {
+          await read();
+          return { status: 'not-found' as const };
+        }),
         retire: vi.fn(retire),
-        rootId: 'root',
+        rootId,
         signal: new AbortController().signal,
         subscribe: vi.fn(async () => ({ close: async () => {} })),
       },
     },
   };
+}
+function host(closeMs = 100): Promise<IndexerHostManager> {
+  return IndexerHostManager.create(
+    {
+      dbPath: '/explicit/derived.sqlite',
+      embedding: { indexMode: 'text-only' },
+      fileBindings: [],
+      rootIds: ['root', 'other'],
+      scopes: [
+        { kind: 'workspace', rootId: 'root' },
+        { kind: 'workspace', rootId: 'other' },
+      ],
+    },
+    { closeMs, exitMs: closeMs },
+    '/explicit/entry.js'
+  );
+}
+/** A utility that answers every canonical call at once, except a `hold` call: `held` answers it. */
+function answering(hold?: string): void {
+  child = Object.assign(new EventEmitter(), {
+    kill: () => true,
+    postMessage: (input: unknown): void => {
+      const frame = decodeCanonicalFrame(input);
+      if (frame.kind !== 'call') {
+        return;
+      }
+      owner = frame.owner;
+      const respond = (): void => {
+        child.emit('message', {
+          channel: CANONICAL_CHANNEL,
+          id: frame.id,
+          kind: 'result',
+          ok: true,
+          owner: frame.owner,
+          value: null,
+        });
+      };
+      if (frame.op === hold) {
+        held = respond;
+      } else {
+        queueMicrotask(respond);
+      }
+    },
+  });
+}
+/** The utility asks Main to read `x.ts` through the attachment's lease. */
+function readFromUtility(): void {
+  child.emit('message', {
+    channel: CANONICAL_CHANNEL,
+    id: 10,
+    kind: 'call',
+    op: 'read-file',
+    owner,
+    payload: { maxBytes: 10, relativePath: 'x.ts' },
+    requestId: 'pass',
+  });
 }
 async function flush(): Promise<void> {
   for (let i = 0; i < 12; i += 1) {
@@ -149,129 +184,45 @@ async function flush(): Promise<void> {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
-  heldScan = undefined;
-  heldCancel = undefined;
-  heldStart = undefined;
+  held = undefined;
   heldReady = undefined;
   engine.exited = false;
 });
 
 // BST-2140 (Codex P1): the shutdown fence races an attachment still awaiting the host's start.
-it.each(['workspace', 'collection'] as const)(
-  'refuses a %s attachment the fence overtook in start, with the typed retirement and no session',
-  async (kind) => {
-    const frames: unknown[] = [];
-    child = Object.assign(new EventEmitter(), {
-      kill: () => true,
-      postMessage: (input: unknown): void => {
-        frames.push(input);
-      },
-    });
-    const ready = Promise.withResolvers<unknown>();
-    heldReady = ready.promise;
-    const manager = await IndexerHostManager.create(
-      {
-        dbPath: '/explicit/derived.sqlite',
-        embedding: { indexMode: 'text-only' },
-        fileBindings: [],
-        rootIds: [],
-        scopes: [scope],
-      },
-      { closeMs: 100, exitMs: 100 },
-      '/explicit/entry.js'
-    );
-    const read = vi.fn(async () => {});
-    const collection = dependencies(read);
-    const acquiring = (
-      kind === 'collection'
-        ? manager.attachCanonicalCollection(collection)
-        : manager.attachCanonicalWorkspace(workspace(collection))
-    ).catch((error: unknown) => error);
-    await flush();
-    manager.fenceCanonicalSources();
-    ready.resolve(engine);
-    expect(await acquiring).toBeInstanceOf(NativeAuthorityTransitionError);
-    // No session: the utility never received an attach, so no callback or scan can start.
-    expect(frames).toEqual([]);
-    expect(read).not.toHaveBeenCalled();
-    await manager.close();
-  }
-);
-
-it('joins a slow cancellation control without closing admission, and joins admitted scan and main IO before engine close', async () => {
-  vi.useFakeTimers();
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+it('refuses an attachment the fence overtook in start, with the typed retirement and no session', async () => {
+  const frames: unknown[] = [];
   child = Object.assign(new EventEmitter(), {
     kill: () => true,
     postMessage: (input: unknown): void => {
-      const frame = decodeCanonicalFrame(input);
-      if (frame.kind !== 'call') {
-        return;
-      }
-      owner = frame.owner;
-      const respond = (): void => {
-        child.emit('message', {
-          channel: CANONICAL_CHANNEL,
-          id: frame.id,
-          kind: 'result',
-          ok: true,
-          owner,
-          value:
-            frame.op === 'join-scan'
-              ? {
-                  reason: 'aborted',
-                  scanComplete: false,
-                  ticket: { generation: 1, requestId: 'scan', scope, storeId: 'store' },
-                }
-              : null,
-        });
-      };
-      if (frame.op === 'join-scan') {
-        heldScan = respond;
-      } else if (frame.op === 'cancel') {
-        heldCancel = respond;
-      } else {
-        queueMicrotask(respond);
-      }
+      frames.push(input);
     },
   });
-  const manager = await IndexerHostManager.create(
-    {
-      dbPath: '/explicit/derived.sqlite',
-      embedding: { indexMode: 'text-only' },
-      fileBindings: [],
-      rootIds: [],
-      scopes: [scope],
-    },
-    { closeMs: 100, exitMs: 100 },
-    '/explicit/entry.js'
-  );
-  const read = vi.fn(() => held);
-  const attachment = await manager.attachCanonicalCollection(dependencies(read));
-  const call = (id: number, op: string, payload: unknown): void => {
-    child.emit('message', {
-      channel: CANONICAL_CHANNEL,
-      id,
-      kind: 'call',
-      op,
-      owner,
-      payload,
-      requestId: 'scan',
-    });
-  };
-  call(10, 'load-files', scope);
+  const ready = Promise.withResolvers<unknown>();
+  heldReady = ready.promise;
+  const manager = await host();
+  const dependencies = workspace();
+  const acquiring = manager.attachCanonicalWorkspace(dependencies).catch((error: unknown) => error);
   await flush();
-  call(11, 'read-retained', {
-    file: { ...file, stat: { mtimeMs: null, size: 0 } },
-    maxFileBytes: 10,
-  });
+  manager.fenceCanonicalSources();
+  ready.resolve(engine);
+  expect(await acquiring).toBeInstanceOf(NativeAuthorityTransitionError);
+  // No session: the utility never received an attach, so no callback or scan can start.
+  expect(frames).toEqual([]);
+  expect(dependencies.source.lease.readFile).not.toHaveBeenCalled();
+  await manager.close();
+});
+
+it('joins a slow cancellation control without closing admission, and joins admitted main IO before engine close', async () => {
+  vi.useFakeTimers();
+  answering('cancel');
+  const manager = await host();
+  const read = Promise.withResolvers<void>();
+  const dependencies = workspace({ read: () => read.promise });
+  const attachment = await manager.attachCanonicalWorkspace(dependencies);
+  readFromUtility();
   await flush();
-  expect(read).toHaveBeenCalledOnce();
-  const scan = attachment.scan('scan');
-  const outcome = scan.catch((error: unknown) => error);
+  expect(dependencies.source.lease.readFile).toHaveBeenCalledOnce();
   let cancelled = false;
   const cancel = attachment.cancel().then(() => {
     cancelled = true;
@@ -280,263 +231,26 @@ it('joins a slow cancellation control without closing admission, and joins admit
   await vi.advanceTimersByTimeAsync(60_000);
   expect(cancelled).toBe(false);
   await expect(manager.start()).resolves.toBeDefined();
-  heldCancel?.();
+  held?.();
   await cancel;
   const close = manager.close();
   await flush();
   expect(engine.close).not.toHaveBeenCalled();
-  release();
-  expect(heldScan).toBeDefined();
-  if (!heldScan) {
-    throw new Error('Scan was never admitted.');
-  }
-  releaseScan();
-  await outcome;
+  read.resolve();
   await close;
   expect(engine.close).toHaveBeenCalledOnce();
 });
 
-function heldCollection(holdAdmission = false): {
-  manager: Promise<IndexerHostManager>;
-  calls: string[];
-} {
-  const calls: string[] = [];
-  child = Object.assign(new EventEmitter(), {
-    kill: () => true,
-    postMessage: (input: unknown): void => {
-      const frame = decodeCanonicalFrame(input);
-      if (frame.kind !== 'call') {
-        return;
-      }
-      owner = frame.owner;
-      calls.push(frame.op);
-      const respond = (): void => {
-        child.emit('message', {
-          channel: CANONICAL_CHANNEL,
-          id: frame.id,
-          kind: 'result',
-          ok: true,
-          owner: frame.owner,
-          value:
-            frame.op === 'join-scan'
-              ? {
-                  reason: 'complete',
-                  scanComplete: true,
-                  ticket: { generation: 1, requestId: 'scan', scope, storeId: 'store' },
-                }
-              : null,
-        });
-      };
-      if (frame.op === 'join-scan') {
-        heldScan = respond;
-      } else if (frame.op === 'start-scan' && holdAdmission) {
-        heldStart = respond;
-      } else {
-        queueMicrotask(respond);
-      }
-    },
-  });
-  return {
-    calls,
-    manager: IndexerHostManager.create(
-      {
-        dbPath: '/explicit/derived.sqlite',
-        embedding: { indexMode: 'text-only' },
-        fileBindings: [],
-        rootIds: [],
-        scopes: [scope],
-      },
-      { closeMs: 100, exitMs: 100 },
-      '/explicit/entry.js'
-    ),
-  };
-}
-
-function releaseScan(): void {
-  const release = heldScan;
-  heldScan = undefined;
-  release?.();
-}
-
-function releaseStart(): void {
-  const release = heldStart;
-  heldStart = undefined;
-  release?.();
-}
-
-// Lifecycle R2: a slow scan admission ACK is load. Nothing expires it, and admission stays open.
-it('joins a slow child admission acknowledgement and keeps admission open', async () => {
-  vi.useFakeTimers();
-  const fixture = heldCollection(true);
-  const manager = await fixture.manager;
-  const attachment = await manager.attachCanonicalCollection(dependencies(async () => {}));
-  let settled = false;
-  const scan = attachment.scan('scan').finally(() => {
-    settled = true;
-  });
-  await vi.advanceTimersByTimeAsync(60_000);
-  expect(settled).toBe(false);
-  await expect(manager.start()).resolves.toBeDefined();
-  expect(fixture.calls).not.toContain('join-scan');
-  releaseStart();
+it('fences an attachment at physical utility exit and rejects its pending control only after admitted main IO joins', async () => {
+  answering('trigger');
+  const manager = await host();
+  const read = Promise.withResolvers<void>();
+  const dependencies = workspace({ read: () => read.promise });
+  const attachment = await manager.attachCanonicalWorkspace(dependencies);
+  readFromUtility();
   await flush();
-  expect(fixture.calls).toContain('join-scan');
-  releaseScan();
-  await expect(scan).resolves.toMatchObject({ reason: 'complete', scanComplete: true });
-  await manager.close();
-});
-
-it('delivers a real child failure behind a slow admission ACK to its scan, then releases the engine on close', async () => {
-  vi.useFakeTimers();
-  let startId: number | undefined;
-  let finished!: () => void;
-  const terminal = new Promise<void>((resolve) => {
-    finished = resolve;
-  });
-  const runtime = new CanonicalUtilityChild((input) => {
-    const frame = decodeCanonicalFrame(input);
-    const deliver = (): void => {
-      child.emit('message', frame);
-    };
-    if (frame.kind === 'result' && frame.id === startId) {
-      heldStart = deliver;
-    } else {
-      queueMicrotask(deliver);
-    }
-  });
-  child = Object.assign(new EventEmitter(), {
-    kill: () => true,
-    postMessage: (input: unknown): void => {
-      const frame = decodeCanonicalFrame(input);
-      if (frame.kind === 'call' && frame.op === 'start-scan') {
-        startId = frame.id;
-      }
-      queueMicrotask(() => runtime.receive(frame));
-    },
-  });
-  const manager = await IndexerHostManager.create(
-    {
-      dbPath: '/explicit/derived.sqlite',
-      embedding: { indexMode: 'text-only' },
-      fileBindings: [],
-      rootIds: [],
-      scopes: [scope],
-    },
-    { closeMs: 100, exitMs: 100 },
-    '/explicit/entry.js'
-  );
-  const source = dependencies(async () => {});
-  source.catalog.loadAuthorizedBatch = async ({ files }) =>
-    files.map(() => ({
-      ...file,
-      chunksProcessed: false,
-      contentHash: null,
-      stat: { mtimeMs: null, size: 0 },
-    }));
-  source.publication.finishScan = async () => {
-    finished();
-    throw new Error('independent fast publication failure');
-  };
-  const attachment = await manager.attachCanonicalCollection(source);
-  const result = attachment.scan('scan').catch((error: unknown) => error);
-  try {
-    await terminal;
-    await flush();
-    expect(heldStart).toBeDefined();
-    await vi.advanceTimersByTimeAsync(60_000);
-    await expect(manager.start()).resolves.toBeDefined();
-    releaseStart();
-    await flush();
-    expect(await result).toMatchObject({
-      message: expect.stringContaining('independent fast publication failure'),
-    });
-  } finally {
-    releaseStart();
-    await flush();
-    await manager.close();
-    await runtime.close();
-  }
-  expect(engine.close).toHaveBeenCalledOnce();
-});
-
-it('owns an admitted full scan until the exact receipt arrives', async () => {
-  vi.useFakeTimers();
-  const fixture = heldCollection();
-  const manager = await fixture.manager;
-  const attachment = await manager.attachCanonicalCollection(dependencies(async () => {}));
-  const scan = attachment.scan('scan');
-  const outcomes: string[] = [];
-  void scan.then(
-    () => outcomes.push('receipt'),
-    () => outcomes.push('error')
-  );
-  try {
-    await vi.advanceTimersByTimeAsync(21);
-    expect(outcomes).toEqual([]);
-    expect(fixture.calls).toEqual(['attach', 'start-scan', 'join-scan']);
-    await expect(manager.start()).resolves.toBeDefined();
-    releaseScan();
-    await expect(scan).resolves.toMatchObject({ reason: 'complete', scanComplete: true });
-  } finally {
-    releaseScan();
-    await manager.close();
-  }
-});
-
-it('keeps the engine owned after an early close acknowledgement until the scan terminal joins', async () => {
-  const fixture = heldCollection();
-  const manager = await fixture.manager;
-  const attachment = await manager.attachCanonicalCollection(dependencies(async () => {}));
-  const scan = attachment.scan('scan');
-  const outcome = scan.catch((error: unknown) => error);
-  await flush();
-  const close = manager.close();
-  try {
-    await flush();
-    expect(fixture.calls).toContain('close');
-    expect(engine.close).not.toHaveBeenCalled();
-    await expect(attachment.scan('late')).rejects.toThrow(/closed|admission/);
-  } finally {
-    releaseScan();
-    await outcome;
-    await close;
-  }
-  expect(engine.close).toHaveBeenCalledOnce();
-});
-
-it('fences scans at physical utility exit and rejects pending work only after admitted main IO joins', async () => {
-  const fixture = heldCollection();
-  const manager = await fixture.manager;
-  let release!: () => void;
-  const read = vi.fn(
-    () =>
-      new Promise<void>((resolve) => {
-        release = resolve;
-      })
-  );
-  const attachment = await manager.attachCanonicalCollection(dependencies(read));
-  for (const [id, op, payload] of [
-    [10, 'load-files', scope],
-    [
-      11,
-      'read-retained',
-      { file: { ...file, stat: { mtimeMs: null, size: 0 } }, maxFileBytes: 10 },
-    ],
-  ] as const) {
-    child.emit('message', {
-      channel: CANONICAL_CHANNEL,
-      id,
-      kind: 'call',
-      op,
-      owner,
-      payload,
-      requestId: 'scan',
-    });
-    await flush();
-  }
-  expect(read).toHaveBeenCalledOnce();
-  const scan = attachment.scan('scan');
-  const result = scan.catch((error: unknown) => error);
+  expect(dependencies.source.lease.readFile).toHaveBeenCalledOnce();
+  const result = attachment.trigger().catch((error: unknown) => error);
   let settled = false;
   void result.then(() => {
     settled = true;
@@ -548,9 +262,8 @@ it('fences scans at physical utility exit and rejects pending work only after ad
     await flush();
     expect(settled).toBe(false);
     await expect(manager.start()).rejects.toThrow(/closed/);
-    await expect(attachment.scan('late')).rejects.toThrow(/closed|admission/);
   } finally {
-    release();
+    read.resolve();
     // Typed, so source retirement can settle the exit as its own outcome (BST-2135).
     await expect(result).resolves.toBeInstanceOf(IndexerUtilityExitedError);
     await manager.close();
@@ -559,43 +272,15 @@ it('fences scans at physical utility exit and rejects pending work only after ad
 });
 
 it('retires canonical sources without closing the engine and permits a fresh source attachment', async () => {
-  child = Object.assign(new EventEmitter(), {
-    kill: () => true,
-    postMessage: (input: unknown): void => {
-      const frame = decodeCanonicalFrame(input);
-      if (frame.kind !== 'call') {
-        return;
-      }
-      queueMicrotask(() =>
-        child.emit('message', {
-          channel: CANONICAL_CHANNEL,
-          id: frame.id,
-          kind: 'result',
-          ok: true,
-          owner: frame.owner,
-          value: null,
-        })
-      );
-    },
-  });
-  const manager = await IndexerHostManager.create(
-    {
-      dbPath: '/explicit/derived.sqlite',
-      embedding: { indexMode: 'text-only' },
-      fileBindings: [],
-      rootIds: [],
-      scopes: [scope],
-    },
-    { closeMs: 100, exitMs: 100 },
-    '/explicit/entry.js'
-  );
+  answering();
+  const manager = await host();
   const original = await manager.start();
-  await manager.attachCanonicalCollection(dependencies(async () => {}));
+  await manager.attachCanonicalWorkspace(workspace());
   await manager.retireCanonicalSources();
   expect(await manager.start()).toBe(original);
   expect(engine.close).not.toHaveBeenCalled();
   expect(engine.destroy).not.toHaveBeenCalled();
-  await manager.attachCanonicalCollection(dependencies(async () => {}));
+  await manager.attachCanonicalWorkspace(workspace());
   await manager.close();
   expect(engine.close).toHaveBeenCalledOnce();
 });
@@ -637,25 +322,14 @@ function dyingOnClose(owners: number): Promise<void> {
   return asked.promise;
 }
 
-/** A started host with the workspace and collection owners the hosted run retired. */
+/** A started host with the two folder owners the hosted run retired. */
 async function attachedSources(
   retireLease?: () => Promise<void>
 ): Promise<{ manager: IndexerHostManager; sources: NativeIndexSources }> {
-  const manager = await IndexerHostManager.create(
-    {
-      dbPath: '/explicit/derived.sqlite',
-      embedding: { indexMode: 'text-only' },
-      fileBindings: [],
-      rootIds: [],
-      scopes: [scope],
-    },
-    { closeMs: 1000, exitMs: 1000 },
-    '/explicit/entry.js'
-  );
-  const collection = dependencies(async () => {});
+  const manager = await host(1000);
   const attachments = new Set([
-    await manager.attachCanonicalWorkspace(workspace(collection, retireLease)),
-    await manager.attachCanonicalCollection(collection),
+    await manager.attachCanonicalWorkspace(workspace({ retire: retireLease })),
+    await manager.attachCanonicalWorkspace(workspace({ rootId: 'other' })),
   ]);
   const sources: NativeIndexSources = {
     attachments,
@@ -741,17 +415,17 @@ it('keeps retirement the exit overtook beside an independent Main failure owned'
   const retired = await retiring?.catch((error: unknown) => error);
   expect(retired).toBeInstanceOf(AggregateError);
   expect(retired).toMatchObject({ message: 'Canonical utility attachments remain owned.' });
-  const [workspaceOwner, collectionOwner] = (retired as AggregateError).errors as unknown[];
-  expect(workspaceOwner).toMatchObject({
+  const [failedOwner, exitedOwner] = (retired as AggregateError).errors as unknown[];
+  expect(failedOwner).toMatchObject({
     message: 'Canonical attachment retirement remains owned.',
   });
-  expect(collectionOwner).toBeInstanceOf(IndexerUtilityExitedError);
+  expect(exitedOwner).toBeInstanceOf(IndexerUtilityExitedError);
   // Retained: once the lease retires, the close joins what Main still owned.
   retireLease.mockImplementation(async () => {});
   await manager.close();
 });
 
-/** Two collection owners whose utility then dies: no later frame is ever answered. */
+/** Two folder owners whose utility then dies: no later frame is ever answered. */
 async function ownersUntilExit(): Promise<{ owners: string[]; parent: CanonicalUtilityParent }> {
   let alive = true;
   const owners: string[] = [];
@@ -772,11 +446,8 @@ async function ownersUntilExit(): Promise<{ owners: string[]; parent: CanonicalU
       })
     );
   }, vi.fn());
-  await parent.attachCollection(dependencies(async () => {}));
-  await parent.attachCollection({
-    ...dependencies(async () => {}),
-    scope: { embeddingSetId: 'other', kind: 'collection' },
-  });
+  await parent.attachWorkspace(workspace());
+  await parent.attachWorkspace(workspace({ rootId: 'other' }));
   alive = false;
   return { owners, parent };
 }

@@ -214,16 +214,7 @@ export function createNativeIndexRuntime<Attachment>(
       }
       bindingRemovalPending = true;
       invalidateFile(file);
-      if (file.rootId === null && file.embeddingSetId === null) {
-        throw new Error('Deleted canonical binding has no original removal scope.');
-      }
-      await writer.removeScopedFile({
-        fileId: file.fileId,
-        scope:
-          file.rootId === null
-            ? { embeddingSetId: file.embeddingSetId, kind: 'collection' }
-            : workspaceRemoval(file).scope,
-      });
+      await writer.removeScopedFile(workspaceRemoval(file));
       await assertAuthorityCurrent();
     }
   };

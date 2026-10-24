@@ -16,7 +16,6 @@ import {
 import { nativeBuildComplete } from './native-benchmark';
 
 export interface NativeSnapshot {
-  readonly collectionCoverage: Awaited<ReturnType<IndexSearchCapability['coverage']>> | null;
   readonly coverage: Awaited<ReturnType<IndexSearchCapability['coverage']>> | null;
   readonly inference: EmbeddingHostStatus;
   readonly status: Awaited<ReturnType<IndexSearchCapability['status']>>;
@@ -68,22 +67,6 @@ export async function readNativeObservation(
       throw new Error('Native index and embedding status capabilities are required.');
     }
     const indexSearch = api.__brainstrikeTestHooks__?.indexSearch;
-    const requestsFor = (
-      initialStatus: Extract<NativeSnapshot['status'], { kind: 'ready' }>
-    ): Parameters<IndexSearchCapability['coverageBatch']>[0] => {
-      const requests: Parameters<IndexSearchCapability['coverageBatch']>[0][number][] = [];
-      if (initialStatus.authorizedCollectionIds?.length === 1) {
-        const collectionId = initialStatus.authorizedCollectionIds[0];
-        if (!collectionId) {
-          throw new Error('Canonical collection identity is missing.');
-        }
-        requests.push({ collectionId, rootIds: [] });
-      }
-      if (initialStatus.authorizedRootIds.length > 0) {
-        requests.push({ rootIds: initialStatus.authorizedRootIds });
-      }
-      return requests;
-    };
     type CoverageBatch = Awaited<ReturnType<IndexSearchCapability['coverageBatch']>>;
     const requireUnblockedCoverage = (
       batch: CoverageBatch
@@ -95,40 +78,27 @@ export async function readNativeObservation(
     };
     const readCoverage = async (
       initialStatus: Extract<NativeSnapshot['status'], { kind: 'ready' }>
-    ): Promise<
-      CoverageObservation<Pick<NativeSnapshot, 'status' | 'coverage' | 'collectionCoverage'>>
-    > => {
-      const requests = requestsFor(initialStatus);
-      if (requests.length === 0) {
-        return {
-          kind: 'current',
-          value: { collectionCoverage: null, coverage: null, status: initialStatus },
-        };
+    ): Promise<CoverageObservation<Pick<NativeSnapshot, 'status' | 'coverage'>>> => {
+      if (initialStatus.authorizedRootIds.length === 0) {
+        return { kind: 'current', value: { coverage: null, status: initialStatus } };
       }
-      const batch = requireUnblockedCoverage(await indexSearch.coverageBatch(requests));
+      const batch = requireUnblockedCoverage(
+        await indexSearch.coverageBatch([{ rootIds: initialStatus.authorizedRootIds }])
+      );
       if (batch.kind === 'invalidated') {
         return batch;
       }
-      let collectionCoverage: NativeSnapshot['collectionCoverage'] = null;
-      let coverage: NativeSnapshot['coverage'] = null;
-      for (const [index, request] of requests.entries()) {
-        const result = batch.coverage[index];
-        if (!result) {
-          throw new Error('Canonical coverage batch is incomplete.');
-        }
-        if (request.collectionId === undefined) {
-          coverage = result;
-        } else {
-          collectionCoverage = result;
-        }
+      const [coverage] = batch.coverage;
+      if (batch.coverage.length !== 1 || !coverage) {
+        throw new Error('Canonical coverage batch is incomplete.');
       }
-      return { kind: 'current', value: { collectionCoverage, coverage, status: batch.status } };
+      return { kind: 'current', value: { coverage, status: batch.status } };
     };
     const status = await indexSearch.status();
     const observation =
       status.kind === 'ready'
         ? await readCoverage(status)
-        : { kind: 'current' as const, value: { collectionCoverage: null, coverage: null, status } };
+        : { kind: 'current' as const, value: { coverage: null, status } };
     if (observation.kind === 'invalidated') {
       return observation;
     }

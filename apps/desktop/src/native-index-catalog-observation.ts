@@ -1,8 +1,4 @@
-import type {
-  CanonicalSourceScope,
-  NativeCanonicalCatalogRecord,
-  NativeScopeReadiness,
-} from '@brainstrike/canonical-ingestion';
+import type { NativeCanonicalCatalogRecord } from '@brainstrike/canonical-ingestion';
 
 export function catalogFingerprint(records: readonly NativeCanonicalCatalogRecord[]): string {
   return JSON.stringify(
@@ -12,13 +8,7 @@ export function catalogFingerprint(records: readonly NativeCanonicalCatalogRecor
 
 interface CatalogObservation {
   observedCatalogFingerprint?: string;
-  readonly publication?: {
-    invalidateScope(scope: CanonicalSourceScope): void;
-    getReadiness(): readonly NativeScopeReadiness[];
-  };
   queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
-  /** Null for the TEXT partition, which has workspace scopes and no collection scope. */
-  readonly settings: { readonly managedCollectionId: string | null };
 }
 
 /** A read cannot replace bindings while the previous canonical scan still owns completion. */
@@ -74,32 +64,11 @@ export async function settleDeferredNativeIndexCatalog(
     });
 }
 
-/**
- * A workspace root's records have one writer, its own scan, so its readiness is the
- * publication's alone; a queued catalog change holds back only the collection.
- */
-export function catalogReadiness(current: CatalogObservation): readonly NativeScopeReadiness[] {
-  return (current.publication?.getReadiness() ?? []).map((readiness) =>
-    current.queuedCatalogRecords && readiness.scope.kind === 'collection'
-      ? { ...readiness, scanComplete: false }
-      : readiness
-  );
-}
-
-/** Whether the catalog changed since last observed; a change invalidates the collection only. */
+/** Records the catalog a refresh read; a later change waits for a running scan. */
 export function observeNativeIndexCatalog(
   current: CatalogObservation,
   records: readonly NativeCanonicalCatalogRecord[]
-): boolean {
-  const fingerprint = catalogFingerprint(records);
+): void {
   current.queuedCatalogRecords = undefined;
-  if (current.observedCatalogFingerprint === fingerprint) {
-    return false;
-  }
-  current.observedCatalogFingerprint = fingerprint;
-  const collectionId = current.settings.managedCollectionId;
-  if (collectionId !== null) {
-    current.publication?.invalidateScope({ embeddingSetId: collectionId, kind: 'collection' });
-  }
-  return true;
+  current.observedCatalogFingerprint = catalogFingerprint(records);
 }

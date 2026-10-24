@@ -15,28 +15,16 @@ interface Dependencies {
 
 type ReadyStatus = Extract<IndexerStatus, { kind: 'ready' }>;
 function scopeKey(scope: IndexerPublicationProgress['scope']): string {
-  return JSON.stringify([
-    scope.kind,
-    scope.kind === 'workspace' ? scope.rootId : scope.embeddingSetId,
-  ]);
+  return JSON.stringify([scope.kind, scope.rootId]);
 }
 interface Receipt {
   readonly complete: boolean;
-  readonly scope:
-    | { readonly kind: 'workspace'; readonly rootId: string }
-    | { readonly embeddingSetId: string; readonly kind: 'collection' };
+  readonly scope: IndexerPublicationProgress['scope'];
 }
 
-function scopeReceipt(
-  kind: 'workspace' | 'collection',
+function workspaceReceipt(
   ids: readonly string[] | undefined,
-  receipts:
-    | readonly {
-        readonly embeddingSetId?: string;
-        readonly rootId?: string;
-        readonly scanComplete: boolean;
-      }[]
-    | undefined
+  receipts: readonly { readonly rootId: string; readonly scanComplete: boolean }[] | undefined
 ): Receipt {
   const id = ids?.[0];
   const receipt = receipts?.[0];
@@ -49,14 +37,11 @@ function scopeReceipt(
     receipts.length !== 1 ||
     !receipt ||
     typeof receipt.scanComplete !== 'boolean' ||
-    (kind === 'workspace' ? receipt.rootId : receipt.embeddingSetId) !== id
+    receipt.rootId !== id
   ) {
     throw new Error('Benchmark publication scope inventory changed or is incomplete.');
   }
-  return {
-    complete: receipt.scanComplete,
-    scope: kind === 'workspace' ? { kind, rootId: id } : { embeddingSetId: id, kind },
-  };
+  return { complete: receipt.scanComplete, scope: { kind: 'workspace', rootId: id } };
 }
 
 function embeddingIdentity(embedding: ReadyStatus['embedding']): readonly unknown[] {
@@ -99,10 +84,7 @@ function inspectStatus(status: ReadyStatus): {
   readonly identity: string;
   readonly publications: readonly IndexerPublicationProgress[];
 } {
-  const receipts = [
-    scopeReceipt('workspace', status.authorizedRootIds, status.rootReadiness),
-    scopeReceipt('collection', status.authorizedCollectionIds, status.collectionReadiness),
-  ];
+  const receipts = [workspaceReceipt(status.authorizedRootIds, status.rootReadiness)];
   const embedding = embeddingIdentity(status.embedding);
   const queryPlan = queryIdentity(status.queryPlan);
   const publications = status.publicationProgress;
@@ -146,7 +128,6 @@ function inspectStatus(status: ReadyStatus): {
     identity: JSON.stringify({
       authorizedCollectionIds: status.authorizedCollectionIds,
       authorizedRootIds: status.authorizedRootIds,
-      collectionReadinessIds: status.collectionReadiness?.map((receipt) => receipt.embeddingSetId),
       embedding,
       queryPlan,
       rootReadinessIds: status.rootReadiness.map((receipt) => receipt.rootId),
@@ -234,13 +215,10 @@ export function createBenchmarkProgress(dependencies: Dependencies): {
       const observation = await dependencies.readCoverage();
       if (observation?.status.kind === 'ready') {
         await acceptStatus(observation.status);
-        if (!(observation.coverage && observation.collectionCoverage)) {
+        if (!observation.coverage) {
           throw new Error('Benchmark current coverage scope inventory is incomplete.');
         }
-        const counts = JSON.stringify([
-          observation.coverage.totals,
-          observation.collectionCoverage.totals,
-        ]);
+        const counts = JSON.stringify([observation.coverage.totals]);
         if (counts !== previousCounts) {
           previousCounts = counts;
           lastProvedAt = dependencies.now();

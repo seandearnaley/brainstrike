@@ -6,7 +6,7 @@ import type {
   ScopedFilePlan,
   ScopedIndexerPort,
   ScopedManifestFile,
-  VectorProfile,
+  ScopedManifestResult,
 } from '@brainstrike/indexer';
 import { vectorProfileHash } from '@brainstrike/indexer/browser';
 import type {
@@ -79,7 +79,7 @@ export function manifestVectorsComplete(coverage: ScopedCoverage): boolean {
     (coverage.profile !== null && coverage.counts.chunks === 0 && coverage.counts.vectors === 0)
   );
 }
-const scopeKey = (scope: CanonicalSourceScope): string =>
+const scopeKey = (scope: ScopedManifestResult['scope']): string =>
   JSON.stringify(
     scope.kind === 'workspace' ? [scope.kind, scope.rootId] : [scope.kind, scope.embeddingSetId]
   );
@@ -130,7 +130,6 @@ export function createNativeCanonicalPublication(
 ): CanonicalVectorPublicationPort & {
   invalidateFile(file: Pick<CanonicalFileIdentity, 'fileId' | 'rootId' | 'embeddingSetId'>): void;
   invalidateScope(scope: CanonicalSourceScope): void;
-  reverifyScope(scope: CanonicalSourceScope, profile: VectorProfile | null): Promise<boolean>;
   getReadiness(): readonly NativeScopeReadiness[];
 } {
   const states = new Map<string, ScanState>();
@@ -180,11 +179,7 @@ export function createNativeCanonicalPublication(
     work: (assertFileCurrent: () => void) => Promise<T>
   ): Promise<T> => {
     const state = stateForTicket(ticket);
-    if (
-      ticket.scope.kind === 'workspace'
-        ? file.rootId !== ticket.scope.rootId
-        : file.embeddingSetId !== ticket.scope.embeddingSetId
-    ) {
+    if (file.rootId !== ticket.scope.rootId) {
       throw new Error('Canonical publication file differs from its ticket scope.');
     }
     if (state.aborted || state.finishing !== undefined) {
@@ -197,11 +192,7 @@ export function createNativeCanonicalPublication(
     };
     assertFileCurrent();
     for (const scope of ownedScopes) {
-      if (
-        scope.kind === 'workspace'
-          ? file.rootId === scope.rootId
-          : file.embeddingSetId === scope.embeddingSetId
-      ) {
+      if (file.rootId === scope.rootId) {
         const affected = stateFor(scope);
         affected.scanComplete = false;
         affected.mutationRevision += 1;
@@ -414,11 +405,7 @@ export function createNativeCanonicalPublication(
     invalidateFile: (file) => {
       const acknowledgedPlan = published.delete(file.fileId);
       for (const scope of ownedScopes) {
-        if (
-          scope.kind === 'workspace'
-            ? scope.rootId !== file.rootId
-            : scope.embeddingSetId !== file.embeddingSetId
-        ) {
+        if (scope.rootId !== file.rootId) {
           continue;
         }
         const state = stateFor(scope);
@@ -451,31 +438,6 @@ export function createNativeCanonicalPublication(
         await writer.removeScopedFile({ fileId: file.fileId, scope: ticket.scope });
         published.delete(file.fileId);
       }),
-    reverifyScope: async (scope, profile) => {
-      const state = stateFor(scope);
-      const proof = state.sourceProof;
-      if (!proof || state.ticket || state.finishing || state.aborted || state.writeFailed) {
-        return false;
-      }
-      state.scanComplete = false;
-      const revision = state.mutationRevision;
-      await Promise.allSettled([...states.values()].flatMap((other) => [...other.pending]));
-      const result = await writer.verifyScopedManifest({ files: proof.files, scope });
-      if (result.storeId !== proof.storeId || scopeKey(result.scope) !== scopeKey(scope)) {
-        throw new Error('Reverified native manifest differs from its complete source proof.');
-      }
-      const covered =
-        profile === null || (await reverifiedCoverage(writer, result, scope, profile));
-      const current =
-        state.sourceProof === proof &&
-        !state.ticket &&
-        !state.finishing &&
-        !state.aborted &&
-        !state.writeFailed &&
-        state.mutationRevision === revision;
-      state.scanComplete = current && result.complete && covered;
-      return state.scanComplete;
-    },
     vectorCoverage: ({ profile, scope }) => {
       stateFor(scope);
       return writer.coverageScope({ profile, scope });
@@ -529,23 +491,4 @@ function incompleteScanReason(
     return 'partial';
   }
   return null;
-}
-
-async function reverifiedCoverage(
-  writer: PublicationWriter,
-  manifestResult: Awaited<ReturnType<ScopedIndexerPort['verifyScopedManifest']>>,
-  scope: CanonicalSourceScope,
-  profile: VectorProfile
-): Promise<boolean> {
-  const coverage = await writer.coverageScope({ profile, scope });
-  if (
-    coverage.storeId !== manifestResult.storeId ||
-    scopeKey(coverage.scope) !== scopeKey(scope) ||
-    coverage.authorityEpoch !== manifestResult.authorityEpoch ||
-    coverage.authorityRevision !== manifestResult.authorityRevision ||
-    coverage.profileHash !== vectorProfileHash(profile)
-  ) {
-    throw new Error('Reverified native coverage changed scope, profile or authority.');
-  }
-  return manifestVectorsComplete(coverage);
 }

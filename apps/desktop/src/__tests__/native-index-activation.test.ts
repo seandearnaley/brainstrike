@@ -2,11 +2,8 @@
 
 import { join } from 'node:path';
 import type {
-  CanonicalIngestionDependencies,
   CanonicalScanReceipt,
-  CanonicalSourceScope,
   CanonicalVectorPublicationPort,
-  CanonicalWorkspaceLease,
   CanonicalWorkspaceRuntimeDependencies,
   NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
@@ -25,40 +22,59 @@ import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
-  type CanonicalCollectionDependencies,
+  type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { observeNativeReaderStartup } from '../native-index-startup-window';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
-import {
-  textCollectionSettings,
-  textSettings,
-  vectorSettings,
-} from './helpers/native-index-settings';
+import { textSettings, vectorSettings } from './helpers/native-index-settings';
 import {
   createActivation,
-  emptyCollection,
+  emptyWorkspace,
   fixture,
   mocks,
+  mountedRoot,
   requestedScope,
   resetActivationFixture,
-  scope,
   setCatalogRecords,
   setCatalogRoot,
   storeId,
   unused,
+  workspace,
+  workspaceLease,
   writer,
 } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
 afterEach(resetFileSizeConfig);
 
-it('acquires the workspace index.sqlite with no state truth root or projection', async () => {
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+/** The profile the saved `selected` space resolves to: MiniLM run locally at its pinned revision. */
+const miniLm = {
+  dimensions: 384,
+  distance: 'cosine',
+  dtype: 'q8',
+  modelId: 'Xenova/all-MiniLM-L6-v2',
+  // The catalog row states MiniLM's prompts (none), so the resolved profile carries them.
+  prompts: { document: '', query: '' },
+  provider: 'transformers',
+  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+} as const;
+/** Semantic search saved over the `selected` space with the model its catalog row names. */
+const semanticSettings = () =>
+  vectorSettings(
+    {
+      model: {
+        dimensions: miniLm.dimensions,
+        local: { device: 'wasm', dtype: miniLm.dtype, revision: miniLm.revision },
+        modelKey: `local::${miniLm.modelId}`,
+      },
+    },
+    'selected'
   );
+
+it('acquires the workspace index.sqlite with no state truth root or projection', async () => {
   const { activation } = fixture();
   try {
     await activation.acquire();
@@ -82,10 +98,10 @@ it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
       content: Buffer.from('ordinary source'),
       status: 'ok' as const,
     }));
-    mocks.manager.attachCanonicalCollection.mockImplementation(
-      async (dependencies: CanonicalCollectionDependencies) => {
+    mocks.manager.attachCanonicalWorkspace.mockImplementation(
+      async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
         const content = await readResolvedWorkspaceFile(
-          '/workspace/ordinary.txt',
+          '/actual/root/ordinary.txt',
           {
             mounted: { root: { readFile } },
             relativePath: 'ordinary.txt',
@@ -94,10 +110,11 @@ it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
           dependencies.request.maxFileBytes
         );
         expect(content).toBe('ordinary source');
-        return emptyCollection(dependencies);
+        return emptyWorkspace(dependencies);
       }
     );
-    const { activation, onReceipt, transport } = fixture();
+    setCatalogRoot();
+    const { activation, onReceipt, transport } = fixture(mountedRoot());
     try {
       await activation.acquire();
       expect(readFile).toHaveBeenCalledExactlyOnceWith('ordinary.txt', maxFileSize);
@@ -128,11 +145,19 @@ it('joins real late source cancellation before closing the native engine and pro
     }
     queueMicrotask(() => parent.receive(structuredClone(input)));
   });
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    (dependencies: CanonicalCollectionDependencies) => parent.attachCollection(dependencies)
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    (dependencies: CanonicalRemoteWorkspaceDependencies) => parent.attachWorkspace(dependencies)
   );
   mocks.manager.retireCanonicalSources.mockImplementation(() => parent.retireAttachments());
-  const { activation } = fixture();
+  setCatalogRoot();
+  const { activation } = fixture(
+    mountedRoot(
+      workspaceLease({
+        listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+        subscribe: async () => ({ close: async () => {} }),
+      })
+    )
+  );
   const initial = activation.acquire().catch((error: unknown) => error);
   const held = await request.promise;
   const retirement = activation.close();
@@ -150,17 +175,15 @@ it('joins real late source cancellation before closing the native engine and pro
   await parent.close();
 });
 
-it('closes an admitted initial collection scan before joining startup, and joins physical retirement', async () => {
-  const scan = Promise.withResolvers<CanonicalScanReceipt>();
+it('closes an admitted initial folder scan before joining startup, and joins physical retirement', async () => {
   const physical = Promise.withResolvers<void>();
-  const close = vi.fn(async () => {
-    await physical.promise;
-    scan.reject(new Error('Owned scan retired.'));
-  });
-  mocks.manager.attachCanonicalCollection.mockResolvedValue({ close, scan: () => scan.promise });
-  const { activation } = fixture();
+  const close = vi.fn(() => physical.promise);
+  // The folder's first scan never reports: only its close ends it.
+  mocks.manager.attachCanonicalWorkspace.mockResolvedValue({ close, trigger: unused });
+  setCatalogRoot();
+  const { activation } = fixture(mountedRoot());
   const initial = activation.acquire().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce());
   let settled = false;
   const retiring = activation.destroyAndRetireProfile().then(() => {
     settled = true;
@@ -176,29 +199,17 @@ it('closes an admitted initial collection scan before joining startup, and joins
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
-it('rebuilds only the derived writer with the saved collection and no inference or application deletion', async () => {
+it('rebuilds only the derived writer with the saved settings and no inference or application deletion', async () => {
   const close = vi.fn(async () => {});
-  const modes: CanonicalIngestionDependencies['mode'][] = [];
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalIngestionDependencies) => {
+  const modes: CanonicalRemoteWorkspaceDependencies['mode'][] = [];
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
       modes.push(dependencies.mode);
-      return {
-        close,
-        scan: async (requestId: string) => {
-          const ticket = await dependencies.publication.beginScan({ requestId, scope });
-          return dependencies.publication.finishScan({
-            aborted: false,
-            errors: [],
-            files: [],
-            full: true,
-            ticket,
-            truncatedDirectories: [],
-          });
-        },
-      };
+      return emptyWorkspace(dependencies, close);
     }
   );
-  const { activation, settings, transport, onReceipt } = fixture();
+  setCatalogRoot();
+  const { activation, settings, transport, onReceipt } = fixture(mountedRoot());
   await activation.acquire();
   await activation.rebuild();
   expect(modes).toEqual(['TEXT', 'TEXT']);
@@ -219,23 +230,11 @@ it('rebuilds only the derived writer with the saved collection and no inference 
 it('retains a failed source close and refuses derived deletion until explicit retirement retry', async () => {
   const cause = new Error('Source remains physically owned.');
   const close = vi.fn().mockRejectedValueOnce(cause).mockResolvedValue(undefined);
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalIngestionDependencies) => ({
-      close,
-      scan: async (requestId: string) => {
-        const ticket = await dependencies.publication.beginScan({ requestId, scope });
-        return dependencies.publication.finishScan({
-          aborted: false,
-          errors: [],
-          files: [],
-          full: true,
-          ticket,
-          truncatedDirectories: [],
-        });
-      },
-    })
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    (dependencies: CanonicalRemoteWorkspaceDependencies) => emptyWorkspace(dependencies, close)
   );
-  const { activation } = fixture();
+  setCatalogRoot();
+  const { activation } = fixture(mountedRoot());
   await activation.acquire();
   await expect(activation.destroyAndRetireProfile()).rejects.toMatchObject({ errors: [cause] });
   expect(mocks.destroy).not.toHaveBeenCalled();
@@ -246,17 +245,15 @@ it('retains a failed source close and refuses derived deletion until explicit re
   expect(mocks.destroy).toHaveBeenCalledOnce();
 });
 
-it('exposes actual native progress while the initial owned collection scan is still running', async () => {
-  const held = Promise.withResolvers<CanonicalScanReceipt>();
-  mocks.manager.attachCanonicalCollection.mockResolvedValue({
-    close: async () => {
-      held.reject(new Error('Owned scan closed.'));
-    },
-    scan: () => held.promise,
+it('exposes actual native progress while the initial folder scan is still running', async () => {
+  mocks.manager.attachCanonicalWorkspace.mockResolvedValue({
+    close: async () => {},
+    trigger: unused,
   });
-  const { activation } = fixture();
+  setCatalogRoot();
+  const { activation } = fixture(mountedRoot());
   const initial = activation.acquire().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce());
   const scanSettled = vi.fn();
   void initial.then(scanSettled);
   await expect(observeNativeReaderStartup(activation.acquireRead(), vi.fn())).resolves.toEqual({
@@ -265,36 +262,30 @@ it('exposes actual native progress while the initial owned collection scan is st
   expect(scanSettled).not.toHaveBeenCalled();
   expect((await activation.acquireRead()).info).toBeTypeOf('function');
   expect(await activation.getSearchAuthority()).toMatchObject({
-    collectionId: 'selected',
-    readiness: [expect.objectContaining({ scanComplete: false, scope })],
-    rootIds: [],
+    readiness: [expect.objectContaining({ scanComplete: false, scope: workspace })],
+    rootIds: ['root'],
   });
   await activation.close();
   expect(await initial).toBeInstanceOf(Error);
 });
 
+/** The folder's text-search source rows. */
 function catalogRows(count: number): NativeCanonicalCatalogRecord[] {
   return Array.from({ length: count }, (_, index) => ({
     chunksProcessed: true,
     content: null,
     contentHash: 'c'.repeat(64),
-    embeddingSetId: 'selected',
+    embeddingSetId: null,
     fileId: `retained-${index}`,
     fileName: `retained-${index}.txt`,
-    path: null,
-    rootId: null,
+    path: `retained-${index}.txt`,
+    rootId: 'root',
     stat: { mtimeMs: 1, size: 1 },
   }));
-}
-function useCatalogRows(read: () => readonly NativeCanonicalCatalogRecord[]): void {
-  setCatalogRecords(read);
 }
 it.each(['close', 'destroyAndRetireProfile'] as const)(
   'fences and joins held reconfiguration before %s acknowledges terminal retirement',
   async (operation) => {
-    mocks.manager.attachCanonicalCollection.mockImplementation(
-      async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-    );
     const { activation, settings } = fixture();
     await activation.acquire();
     const writerExit = Promise.withResolvers<void>();
@@ -307,7 +298,7 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
       destroyed.resolve();
     });
     mocks.close.mockReturnValueOnce(writerExit.promise);
-    settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
+    settings.mockResolvedValue(textSettings({ policy: 'full-root' }));
     const changing = activation.reconfigure().catch((error: unknown) => error);
     await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
     expect(mocks.closeProfile).not.toHaveBeenCalled();
@@ -341,16 +332,15 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
   }
 );
 
-it('refuses a nonexistent saved TEXT collection before opening a writer or completing a receipt', async () => {
+it('refuses a nonexistent saved vector space before opening a writer or completing a receipt', async () => {
   mocks.catalog.collections.mockResolvedValue({ collections: [] });
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
-  const { activation, onReceipt } = fixture();
+  setCatalogRoot();
+  const { activation, onReceipt, settings } = fixture(mountedRoot());
+  settings.mockResolvedValue(semanticSettings());
   await expect(activation.acquire()).rejects.toThrow('saved native collection is missing');
   expect(mocks.acquire).not.toHaveBeenCalled();
   expect(onReceipt).not.toHaveBeenCalled();
-  expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
+  expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
   await activation.close();
 });
 
@@ -358,24 +348,19 @@ it.each([251, 1501])(
   'loads the entire %i-file inventory through bounded actual catalog batches',
   async (count) => {
     const records = catalogRows(count);
-    useCatalogRows(() => records);
+    setCatalogRecords(() => records);
     let inventory: readonly { readonly fileId: string }[] = [];
-    mocks.manager.attachCanonicalCollection.mockImplementation(
-      async (dependencies: CanonicalCollectionDependencies) => {
-        const host = emptyCollection(dependencies);
-        return {
-          ...host,
-          scan: async (requestId: string) => {
-            inventory = await dependencies.source.inventory.loadFiles(dependencies.scope, {
-              requestId,
-              signal: new AbortController().signal,
-            });
-            return host.scan(requestId);
-          },
-        };
+    mocks.manager.attachCanonicalWorkspace.mockImplementation(
+      async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
+        inventory = await dependencies.source.inventory.loadFiles(workspace, {
+          requestId: 'inventory',
+          signal: new AbortController().signal,
+        });
+        return emptyWorkspace(dependencies);
       }
     );
-    const { activation } = fixture();
+    setCatalogRoot();
+    const { activation } = fixture(mountedRoot());
     await activation.acquire();
     expect(inventory.map((file) => file.fileId)).toEqual(records.map((record) => record.fileId));
     const batches = mocks.catalog.sourceCatalog.mock.calls
@@ -387,53 +372,7 @@ it.each([251, 1501])(
   }
 );
 
-it('invalidates actual read-path readiness and starts canonical refresh without waiting for its full scan', async () => {
-  let records = catalogRows(0);
-  useCatalogRows(() => records);
-  const refresh = Promise.withResolvers<void>();
-  let scans = 0;
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => {
-      const host = emptyCollection(dependencies);
-      return {
-        ...host,
-        scan: async (requestId: string) => {
-          scans += 1;
-          if (scans > 1) {
-            await refresh.promise;
-          }
-          return host.scan(requestId);
-        },
-      };
-    }
-  );
-  const { activation } = fixture();
-  await activation.acquire();
-  records = catalogRows(1);
-  await activation.acquireRead();
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
-    expect.objectContaining({
-      scanComplete: false,
-      scope,
-    })
-  );
-  await vi.waitFor(() => expect(scans).toBe(2));
-  refresh.resolve();
-  await activation.acquire();
-  expect(mocks.readyPort().verifyScopedManifest).toBeTypeOf('function');
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
-    expect.objectContaining({
-      scanComplete: true,
-      scope,
-    })
-  );
-  await activation.close();
-});
-
 it('keeps captured cleanup authority through expected source abort and refuses it after writer retirement', async () => {
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const { activation } = fixture();
   await activation.acquire();
   const captured = activation.captureAcknowledgedAuthority();
@@ -447,16 +386,7 @@ it('keeps captured cleanup authority through expected source abort and refuses i
 });
 
 it('joins retained rooted-row convergence before admitting the replacement writer to reads', async () => {
-  const lease: CanonicalWorkspaceLease = {
-    canonicalPath: '/actual/root',
-    generation: 'actual-generation',
-    listDir: unused,
-    readFile: unused,
-    retire: vi.fn(async () => {}),
-    rootId: 'root',
-    signal: new AbortController().signal,
-    subscribe: unused,
-  };
+  const lease = workspaceLease({ retire: vi.fn(async () => {}) });
   const application = {
     roots: {
       borrowSourceRoot: vi
@@ -471,9 +401,20 @@ it('joins retained rooted-row convergence before admitting the replacement write
     },
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
-  const records = catalogRows(2).map((record, index) =>
-    index === 0 ? { ...record, path: 'file.txt', rootId: 'root' } : record
-  );
+  // The folder's semantic-search row: once text search is saved, no binding owns it.
+  const records: NativeCanonicalCatalogRecord[] = [
+    {
+      chunksProcessed: true,
+      content: null,
+      contentHash: 'c'.repeat(64),
+      embeddingSetId: 'selected',
+      fileId: 'retained-0',
+      fileName: 'file.txt',
+      path: 'file.txt',
+      rootId: 'root',
+      stat: { mtimeMs: 1, size: 1 },
+    },
+  ];
   setCatalogRoot();
   setCatalogRecords(() => records);
   const removal = Promise.withResolvers<boolean>();
@@ -514,48 +455,14 @@ it('joins retained rooted-row convergence before admitting the replacement write
     ),
   };
   mocks.readyPort.mockReturnValue(native);
-  mocks.manager.attachCanonicalWorkspace.mockImplementation(
-    async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
-      const ticket = await dependencies.publication.beginScan({
-        requestId: 'workspace',
-        scope: { kind: 'workspace', rootId: 'root' },
-      });
-      dependencies.onReceipt(
-        await dependencies.publication.finishScan({
-          aborted: false,
-          errors: [],
-          files: [],
-          full: true,
-          ticket,
-          truncatedDirectories: [],
-        })
-      );
-      return { close: async () => {}, trigger: unused };
-    }
-  );
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(emptyWorkspace);
   const { activation, settings } = fixture(application);
+  settings.mockResolvedValue(semanticSettings());
   await activation.acquire();
-  const selected = (await mocks.catalog.collections({ id: 'selected', operation: 'get' }))
-    .collections[0];
-  if (!selected) {
-    throw new Error('Expected selected collection');
-  }
-  mocks.catalog.collections.mockImplementation(async (request) => ({
-    collections:
-      request.operation === 'get' && request.id === 'next'
-        ? [{ ...selected, id: 'next' }]
-        : [selected],
-  }));
-  settings.mockResolvedValue(textCollectionSettings({}, 'next'));
+  settings.mockResolvedValue(textSettings());
   const changing = activation.reconfigure();
   await vi.waitFor(() => expect(native.removeScopedFile).toHaveBeenCalledOnce());
-  expect(native.removeScopedFile).toHaveBeenCalledWith({
-    fileId: 'retained-0',
-    scope: { kind: 'workspace', rootId: 'root' },
-  });
+  expect(native.removeScopedFile).toHaveBeenCalledWith({ fileId: 'retained-0', scope: workspace });
   expect(lease.retire).toHaveBeenCalledOnce();
   expect(mocks.close).toHaveBeenCalledOnce();
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
@@ -564,23 +471,12 @@ it('joins retained rooted-row convergence before admitting the replacement write
   await changing;
   expect(mocks.close).toHaveBeenCalledOnce();
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
-  expect((await activation.getSearchAuthority()).collectionId).toBe('next');
+  expect((await activation.getSearchAuthority()).collectionId).toBeNull();
   await activation.close();
 });
 
-it('finishes root plus collection VECTOR startup with reverified receipts and no missing-vector inference', async () => {
-  const profile = {
-    dimensions: 384,
-    distance: 'cosine',
-    dtype: 'q8',
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    // The catalog row states MiniLM's prompts (none), so the resolved profile carries them.
-    prompts: { document: '', query: '' },
-    provider: 'transformers',
-    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  } as const;
+it('finishes folder VECTOR startup with its verified receipt and no missing-vector inference', async () => {
   const record = {
-    ...catalogRows(1)[0],
     chunksProcessed: true,
     content: null,
     contentHash: 'c'.repeat(64),
@@ -593,16 +489,6 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
   };
   setCatalogRoot();
   setCatalogRecords(() => [record]);
-  const lease: CanonicalWorkspaceLease = {
-    canonicalPath: '/actual/root',
-    generation: 'actual-generation',
-    listDir: unused,
-    readFile: unused,
-    retire: async () => {},
-    rootId: 'root',
-    signal: new AbortController().signal,
-    subscribe: unused,
-  };
   const identity = {
     embeddingSetId: 'selected',
     fileId: 'rooted-file',
@@ -639,8 +525,8 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     contentHash: record.contentHash,
     embeddingChunkIds: [],
     previousSnapshotHash: null,
-    profile,
-    profileHash: vectorProfileHash(profile),
+    profile: miniLm,
+    profileHash: vectorProfileHash(miniLm),
     snapshot: { ...identity, content: 'canonical', providedChunks },
     storeId,
   };
@@ -654,50 +540,25 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
       writtenRefs: 0,
       writtenSymbols: 0,
     })),
-    coverageScope: vi.fn(async (input: Parameters<ScopedIndexerPort['coverageScope']>[0]) => ({
-      authorityEpoch: 'b'.repeat(64),
-      authorityRevision: 1,
-      counts: { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 },
-      profile,
-      profileHash: vectorProfileHash(profile),
-      scope: requestedScope(input),
-      storeId,
-      vectorCoverageComplete: true,
-    })),
     prepareScopedFile: vi.fn(async () => plan),
-    verifyScopedManifest: vi.fn(
-      async (input: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]) => ({
-        authorityEpoch: 'b'.repeat(64),
-        authorityRevision: 1,
-        changed: [],
-        complete: true,
-        missing: [],
-        scope: requestedScope(input),
-        storeId,
-        unexpected: [],
-      })
-    ),
+    verifyScopedManifest: vi.fn(writer().verifyScopedManifest),
   };
   mocks.readyPort.mockReturnValue(native);
   const publish = async (
-    publication: CanonicalVectorPublicationPort,
-    target: CanonicalSourceScope
+    publication: CanonicalVectorPublicationPort
   ): Promise<CanonicalScanReceipt> => {
-    const ticket = await publication.beginScan({
-      requestId: JSON.stringify(target),
-      scope: target,
-    });
+    const ticket = await publication.beginScan({ requestId: 'folder-scan', scope: workspace });
     const prepared = await publication.prepareVectorFile({
       file: identity,
       payload: { content: 'canonical', fileId: identity.fileId, providedChunks },
-      profile,
+      profile: miniLm,
       ticket,
     });
     await publication.commitVectorFile({
       embeddings: [],
       file: identity,
       plan: prepared,
-      profile,
+      profile: miniLm,
       ticket,
     });
     return publication.finishScan({
@@ -714,66 +575,36 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
       if (dependencies.mode !== 'VECTOR') {
         throw new Error('Expected explicit VECTOR workspace.');
       }
-      dependencies.onReceipt(
-        await publish(dependencies.publication, { kind: 'workspace', rootId: 'root' })
-      );
+      dependencies.onReceipt(await publish(dependencies.publication));
       return { close: async () => {}, trigger: unused };
     }
   );
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => {
-      if (dependencies.mode !== 'VECTOR') {
-        throw new Error('Expected explicit VECTOR collection.');
-      }
-      return { close: async () => {}, scan: async () => publish(dependencies.publication, scope) };
-    }
-  );
-  const application = {
-    roots: {
-      borrowSourceRoot: async () => lease,
-      restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-    },
-    watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain;
   const documentEmbeddings = vi.fn(unused);
   const activation = createActivation({
-    application,
+    application: mountedRoot(),
     embedding: { destroyAndRestart: vi.fn(), documentEmbeddings },
     onError: vi.fn(),
-    settings: async () =>
-      vectorSettings(
-        {
-          model: {
-            dimensions: 384,
-            local: { device: 'wasm', dtype: 'q8', revision: profile.revision },
-            modelKey: `local::${profile.modelId}`,
-          },
-        },
-        'selected'
-      ),
+    settings: async () => semanticSettings(),
     storage: { getItem: unused },
   });
   await activation.acquire();
-  expect(activation.getReadiness()).toMatchObject([
-    { scanComplete: true, scope: { kind: 'workspace', rootId: 'root' } },
-    { scanComplete: true, scope },
-  ]);
+  expect(activation.getReadiness()).toMatchObject([{ scanComplete: true, scope: workspace }]);
   expect(documentEmbeddings).not.toHaveBeenCalled();
-  expect(native.commitScopedFile).toHaveBeenCalledTimes(2);
-  // The opened writer lists the stored rows of its folder and its collection once
-  // each (no files declared, BST-1988/BST-2011), then the startup proves three.
+  expect(native.commitScopedFile).toHaveBeenCalledOnce();
+  // The opened writer lists the stored rows of its folder and of its vector space once
+  // each (no files declared, BST-1988/BST-2011), then the folder's scan proves its file.
   const manifests = vi
     .mocked(native.verifyScopedManifest)
     .mock.calls.map(([input]) => (input as { readonly files: readonly unknown[] }).files.length);
   expect(manifests.filter((declared) => declared === 0)).toHaveLength(2);
-  expect(manifests.filter((declared) => declared > 0)).toHaveLength(3);
-  expect(native.coverageScope).toHaveBeenCalledTimes(1);
+  expect(manifests.filter((declared) => declared > 0)).toHaveLength(1);
   await activation.close();
 });
 
 it('joins physical grep disposal before retiring read authority during a genuine settings replacement', async () => {
-  const f = fixture();
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+  setCatalogRoot();
+  const f = fixture(mountedRoot());
+  f.settings.mockResolvedValue(textSettings({ paused: true }));
   const disposing = Promise.withResolvers<void>();
   const disposed = Promise.withResolvers<void>();
   const close = vi.fn(async () => {
@@ -816,15 +647,14 @@ it('joins physical grep disposal before retiring read authority during a genuine
   const pending = capability
     .grep({
       caseSensitive: false,
-      collectionId: 'selected',
       isRegex: false,
       limit: 10,
       pattern: 'marker',
-      rootIds: [],
+      rootIds: ['root'],
     })
     .catch((error: unknown) => error);
   await disposing.promise;
-  f.settings.mockResolvedValue(textCollectionSettings({ mode: 'off', paused: true }));
+  f.settings.mockResolvedValue(textSettings({ mode: 'off', paused: true }));
   const replacing = f.activation.reconfigure().catch((error: unknown) => error);
   // Turning search off retires the live generation's authority with that typed choice.
   await vi.waitFor(() =>
@@ -856,20 +686,19 @@ it('opens no writer under a saved Off and answers reads with that choice, report
 
 it('answers a boot acquisition a newer generation superseded with the typed transition, not its retired mount abort', async () => {
   const attach = Promise.withResolvers<never>();
-  mocks.manager.attachCanonicalCollection
+  mocks.manager.attachCanonicalWorkspace
     .mockReturnValueOnce(attach.promise)
-    .mockImplementation(async (dependencies: CanonicalCollectionDependencies) =>
-      emptyCollection(dependencies)
-    );
+    .mockImplementation(emptyWorkspace);
   mocks.manager.retireCanonicalSources.mockImplementation(async () => {
     // The utility answers an attach whose mount retired with an AbortError, untyped across its channel.
     const retired = new Error('Canonical mount retired.');
     retired.name = 'AbortError';
     attach.reject(retired);
   });
-  const { activation } = fixture();
+  setCatalogRoot();
+  const { activation } = fixture(mountedRoot());
   const initial = activation.acquire().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce());
   // A folder registration opens the next generation from the committed roots.
   await activation.reconfigureRoots();
   const error = await initial;

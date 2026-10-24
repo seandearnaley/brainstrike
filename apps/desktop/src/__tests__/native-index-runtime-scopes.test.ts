@@ -16,14 +16,17 @@ interface Authority {
   readonly scopes: readonly IndexScope[];
 }
 
+const workspace: IndexScope = { kind: 'workspace', rootId: 'root' };
 const collection: IndexScope = { embeddingSetId: 'collection', kind: 'collection' };
+// A VECTOR partition: the folder's scope and its vector space's.
+const scopes: readonly IndexScope[] = [workspace, collection];
 const binding: IndexFileBinding = {
   embeddingSetId: 'collection',
-  fileId: 'retained-file',
+  fileId: 'bound-file',
   profile: null,
-  relativePath: null,
-  rootId: null,
-  sourcePath: null,
+  relativePath: 'file.txt',
+  rootId: 'root',
+  sourcePath: '/actual/root/file.txt',
 };
 
 function fixture(initial: Authority) {
@@ -172,17 +175,11 @@ it('acquires an empty authority: Text search with no collection and no folder (B
 });
 
 it('joins opening-writer convergence before closing a replacement writer', async () => {
-  const rooted = {
-    ...binding,
-    fileId: 'workspace-file',
-    relativePath: 'file.txt',
-    rootId: 'root',
-    sourcePath: '/actual/root/file.txt',
-  };
+  const rooted = { ...binding, fileId: 'workspace-file' };
   const f = fixture({
     fileBindings: [binding],
     rootIds: ['root'],
-    scopes: [collection, { kind: 'workspace', rootId: 'root' }],
+    scopes,
   });
   f.setStored([rooted, binding]);
   const held = Promise.withResolvers<boolean>();
@@ -191,7 +188,7 @@ it('joins opening-writer convergence before closing a replacement writer', async
   await vi.waitFor(() =>
     expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
       fileId: rooted.fileId,
-      scope: { kind: 'workspace', rootId: 'root' },
+      scope: workspace,
     })
   );
   expect(f.installQueryTarget).not.toHaveBeenCalled();
@@ -205,18 +202,12 @@ it('joins opening-writer convergence before closing a replacement writer', async
   expect(f.closeWriter).toHaveBeenCalledTimes(1);
 });
 
-it('retains failed opening convergence for explicit retry without erasing owned rootless rows', async () => {
-  const rooted = {
-    ...binding,
-    fileId: 'workspace-file',
-    relativePath: 'file.txt',
-    rootId: 'root',
-    sourcePath: '/actual/root/file.txt',
-  };
+it('retains failed opening convergence for explicit retry without erasing owned rows', async () => {
+  const rooted = { ...binding, fileId: 'workspace-file' };
   const f = fixture({
     fileBindings: [binding],
     rootIds: ['root'],
-    scopes: [collection, { kind: 'workspace', rootId: 'root' }],
+    scopes,
   });
   f.setStored([rooted, binding]);
   const cause = new Error('Native opening removal did not settle.');
@@ -230,8 +221,8 @@ it('retains failed opening convergence for explicit retry without erasing owned 
   await f.runtime.acquire();
   expect(f.removeScopedFile).toHaveBeenCalledTimes(2);
   expect(f.removeScopedFile.mock.calls.map(([request]) => request)).toEqual([
-    { fileId: rooted.fileId, scope: { kind: 'workspace', rootId: 'root' } },
-    { fileId: rooted.fileId, scope: { kind: 'workspace', rootId: 'root' } },
+    { fileId: rooted.fileId, scope: workspace },
+    { fileId: rooted.fileId, scope: workspace },
   ]);
   expect(f.installQueryTarget).toHaveBeenCalledOnce();
   await f.runtime.closeIndex();
@@ -241,15 +232,9 @@ it('removes a file it acknowledged when the authority drops it again during the 
   const initial = {
     fileBindings: [],
     rootIds: ['root'],
-    scopes: [collection, { kind: 'workspace', rootId: 'root' } as const],
+    scopes,
   };
-  const rooted = {
-    ...binding,
-    fileId: 'acknowledged-file',
-    relativePath: 'file.txt',
-    rootId: 'root',
-    sourcePath: '/actual/root/file.txt',
-  };
+  const rooted = { ...binding, fileId: 'acknowledged-file' };
   const f = fixture(initial);
   await f.runtime.acquire();
   f.replaceFileBindings.mockImplementationOnce(async () => {
@@ -260,7 +245,7 @@ it('removes a file it acknowledged when the authority drops it again during the 
   // The writer acknowledged the file, so the next attempt retires it before rebinding.
   expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
     fileId: rooted.fileId,
-    scope: { kind: 'workspace', rootId: 'root' },
+    scope: workspace,
   });
   expect(f.replaceFileBindings).toHaveBeenLastCalledWith([]);
   expect(f.runtime.captureAcknowledgedAuthority().readAuthority().fileBindings).toEqual([]);
@@ -268,7 +253,7 @@ it('removes a file it acknowledged when the authority drops it again during the 
 });
 
 it('restores the live inventory after a replacement ACK and authority drift, then reuses it', async () => {
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   const captured = f.runtime.captureAcknowledgedAuthority();
@@ -292,7 +277,7 @@ it('restores the live inventory after a replacement ACK and authority drift, the
 });
 
 it('preserves the previous ACK but revalidates retired reader readiness after failed binding replacement', async () => {
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   const captured = f.runtime.captureAcknowledgedAuthority();
@@ -326,9 +311,9 @@ it('preserves the previous ACK but revalidates retired reader readiness after fa
   await f.runtime.closeIndex();
 });
 
-it('joins absent retained files under the original ACK before revoking their native binding', async () => {
-  const preserved = { ...binding, fileId: 'preserved-retained' };
-  const initial = { fileBindings: [binding, preserved], rootIds: [], scopes: [collection] };
+it('joins absent files under the original ACK before revoking their native binding', async () => {
+  const preserved = { ...binding, fileId: 'preserved-file' };
+  const initial = { fileBindings: [binding, preserved], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   // The open lists its stored rows with no binding held (BST-1988); count from here.
@@ -341,7 +326,7 @@ it('joins absent retained files under the original ACK before revoking their nat
   await vi.waitFor(() =>
     expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
       fileId: binding.fileId,
-      scope: collection,
+      scope: workspace,
     })
   );
   expect(f.replaceFileBindings).not.toHaveBeenCalled();
@@ -354,7 +339,7 @@ it('joins absent retained files under the original ACK before revoking their nat
 });
 
 it('retains failed absent-file removal and its ACK for explicit retry before binding replacement', async () => {
-  const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
+  const initial = { fileBindings: [binding], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   // The open lists its stored rows with no binding held (BST-1988); count from here.
@@ -374,7 +359,7 @@ it('retains failed absent-file removal and its ACK for explicit retry before bin
 });
 
 it('rebinds a file whose authority returns during its absent-file removal', async () => {
-  const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
+  const initial = { fileBindings: [binding], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   // The open lists its stored rows with no binding held (BST-1988); count from here.
@@ -396,15 +381,9 @@ it('captures one actual writer and reads its complete latest acknowledged invent
   const initial = {
     fileBindings: [],
     rootIds: ['root'],
-    scopes: [collection, { kind: 'workspace', rootId: 'root' } as const],
+    scopes,
   };
-  const rooted = {
-    ...binding,
-    fileId: 'late-admitted-file',
-    relativePath: 'file.txt',
-    rootId: 'root',
-    sourcePath: '/actual/root/file.txt',
-  };
+  const rooted = { ...binding, fileId: 'late-admitted-file' };
   const f = fixture(initial);
   await f.runtime.acquire();
   const captured = f.runtime.captureAcknowledgedAuthority();
@@ -423,28 +402,13 @@ it('captures one actual writer and reads its complete latest acknowledged invent
   expect(() => captured.readAuthority()).toThrow('retired or replaced');
 });
 
-it('opens a retained rootless collection using its real scope and binding', async () => {
-  const authority = { fileBindings: [binding], rootIds: [], scopes: [collection] };
-  const f = fixture(authority);
-  await expect(f.runtime.acquire()).resolves.toBe(f.port);
-  expect(f.createIndexOwner).toHaveBeenCalledWith(authority);
-  // The open lists its collection's stored rows with no binding held, then restores it.
-  expect(f.events).toEqual([
-    'readers-exited',
-    'writer-ready',
-    'bindings-ack',
-    'bindings-ack',
-    'reader-installed',
-  ]);
-});
-
 it('waits for full binding replacement acknowledgment before returning the owner', async () => {
-  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   f.events.length = 0;
   const acknowledgment = Promise.withResolvers<void>();
   f.replaceFileBindings.mockReturnValueOnce(acknowledgment.promise);
-  f.setAuthority({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
+  f.setAuthority({ fileBindings: [binding], rootIds: ['root'], scopes });
   let returned = false;
   const updating = f.runtime.acquire().then(() => {
     returned = true;
@@ -459,14 +423,14 @@ it('waits for full binding replacement acknowledgment before returning the owner
 });
 
 it('joins an admitted reader before acknowledging same-scope membership revocation', async () => {
-  const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   // The open lists its stored rows with no binding held (BST-1988); count from here.
   f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);
-  f.setAuthority({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  f.setAuthority({ fileBindings: [], rootIds: ['root'], scopes });
   const first = f.runtime.acquire();
   const second = f.runtime.acquire();
   await vi.waitFor(() => expect(f.closeQueries).toHaveBeenCalledTimes(2));
@@ -480,14 +444,14 @@ it('joins an admitted reader before acknowledging same-scope membership revocati
 });
 
 it('keeps failed same-scope reader retirement retryable before replacing bindings', async () => {
-  const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   // The open lists its stored rows with no binding held (BST-1988); count from here.
   f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const failure = new Error('old membership reader has not exited');
   f.closeQueries.mockRejectedValueOnce(failure);
-  f.setAuthority({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  f.setAuthority({ fileBindings: [], rootIds: ['root'], scopes });
   await expect(f.runtime.acquire()).rejects.toBe(failure);
   expect(f.replaceFileBindings).not.toHaveBeenCalled();
   expect(f.events).toEqual([]);
@@ -515,7 +479,7 @@ it('keeps failed same-scope reader retirement retryable before replacing binding
   expect(f.createIndexOwner).toHaveBeenLastCalledWith({
     fileBindings: [],
     rootIds: ['root'],
-    scopes: [collection],
+    scopes,
   });
   expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
   expect(f.events).toEqual([
@@ -529,13 +493,13 @@ it('keeps failed same-scope reader retirement retryable before replacing binding
 });
 
 it('joins the old query reader and writer before changing collection authority', async () => {
-  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   f.events.length = 0;
   const next = {
     fileBindings: [],
     rootIds: ['root'],
-    scopes: [{ embeddingSetId: 'other-collection', kind: 'collection' } as const],
+    scopes: [workspace, { embeddingSetId: 'other-collection', kind: 'collection' } as const],
   };
   f.setAuthority(next);
   await f.runtime.acquire();
@@ -545,14 +509,14 @@ it('joins the old query reader and writer before changing collection authority',
 });
 
 it('retains the old owner after failed retirement and retries it before replacement', async () => {
-  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   const failure = new Error('reader still owns a snapshot');
   f.closeQueries.mockRejectedValueOnce(failure);
   f.setAuthority({
     fileBindings: [],
     rootIds: ['root'],
-    scopes: [{ embeddingSetId: 'other-collection', kind: 'collection' }],
+    scopes: [workspace, { embeddingSetId: 'other-collection', kind: 'collection' }],
   });
   await expect(f.runtime.acquire()).rejects.toBe(failure);
   expect(f.closeWriter).not.toHaveBeenCalled();
@@ -576,14 +540,14 @@ it('retains the old owner after failed retirement and retries it before replacem
   expect(f.createIndexOwner).toHaveBeenLastCalledWith({
     fileBindings: [],
     rootIds: ['root'],
-    scopes: [{ embeddingSetId: 'other-collection', kind: 'collection' }],
+    scopes: [workspace, { embeddingSetId: 'other-collection', kind: 'collection' }],
   });
   expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
   await f.runtime.closeIndex();
 });
 
 it('installs the authority that moved during reader retirement, never the drifted snapshot (BST-2055)', async () => {
-  const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [binding], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   // The open lists its stored rows with no binding held (BST-1988); count from here.
@@ -605,7 +569,7 @@ it('installs the authority that moved during reader retirement, never the drifte
 });
 
 it('exposes a query target only for the authority that moved during binding acknowledgment', async () => {
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   f.events.length = 0;
@@ -620,7 +584,7 @@ it('exposes a query target only for the authority that moved during binding ackn
   // The writer acknowledged the drifted file, so it is removed before the moved authority binds.
   expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
     fileId: binding.fileId,
-    scope: collection,
+    scope: workspace,
   });
   expect(f.replaceFileBindings).toHaveBeenLastCalledWith([{ ...binding, fileId: 'new-file' }]);
   expect(f.events.filter((event) => event === 'reader-installed')).toHaveLength(1);
@@ -628,7 +592,7 @@ it('exposes a query target only for the authority that moved during binding ackn
 });
 
 it('closes a started owner whose authority moved during startup before opening its replacement', async () => {
-  const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [binding], rootIds: ['root'], scopes };
   const f = fixture(initial);
   const started = Promise.withResolvers<IndexerPort & ScopedIndexerPort>();
   f.createIndexOwner.mockResolvedValueOnce({
@@ -654,7 +618,7 @@ const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve,
 it("joins a scan's writer read before another root's bindings retire its reader (BST-2055)", async () => {
   // A finishing root's coverage read lost its query client to a sibling root's
   // first binding replacement, and the whole index stayed blocked.
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   f.events.length = 0;
@@ -677,7 +641,7 @@ it("joins a scan's writer read before another root's bindings retire its reader 
 });
 
 it('starts a writer read only after an acquisition in flight installs its reader', async () => {
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   f.events.length = 0;
@@ -698,7 +662,7 @@ it('starts a writer read only after an acquisition in flight installs its reader
 });
 
 it('starts a writer read after a source removal settles and its readers are reinstalled', async () => {
-  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   f.events.length = 0;
   const removed = Promise.withResolvers<void>();
@@ -727,7 +691,7 @@ it('starts a writer read after a source removal settles and its readers are rein
 });
 
 it('reinstalls retired readers before a writer read that follows a settled source removal', async () => {
-  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   await f.runtime.mutateAuthority(f.port, async () => undefined);
   expect(f.installQueryTarget).toHaveBeenCalledOnce();
@@ -740,7 +704,7 @@ it('reinstalls retired readers before a writer read that follows a settled sourc
 it('runs a writer read beside an acquisition that finds its bindings current (BST-2055)', async () => {
   // Readers validate the writer on every poll; a proof waiting for no acquisition
   // at all never ran, and the scans hung with every vector committed.
-  const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [binding], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   const validation = Promise.withResolvers<Authority>();
@@ -756,7 +720,7 @@ it('runs a writer read beside an acquisition that finds its bindings current (BS
 });
 
 it('refuses a writer read for a replaced writer or once admission closes', async () => {
-  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   const work = vi.fn(async () => undefined);
   await expect(f.runtime.withWriterRead({ ...f.port }, work)).rejects.toThrow(
@@ -768,7 +732,7 @@ it('refuses a writer read for a replaced writer or once admission closes', async
 });
 
 it('reads the authority again for a caller that joins after the acquisition last read it (BST-2055)', async () => {
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const second = { ...binding, fileId: 'second-file' };
   const f = fixture(initial);
   await f.runtime.acquire();
@@ -794,7 +758,7 @@ it('reads the authority again for a caller that joins after the acquisition last
 it('settles readers that validate in turn instead of re-acquiring for each other (BST-2055)', async () => {
   // A reader's own catalog refresh runs before it acquires, so each poll joined
   // the other's validation late; a fresh acquisition per late joiner spun forever.
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   // The catalog read takes longer than a reader's own refresh before it acquires.
@@ -816,7 +780,7 @@ it('settles readers that validate in turn instead of re-acquiring for each other
 });
 
 it('fails only the caller still unobserved after the last acquisition attempt', async () => {
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   // Every authority read admits another caller just after it begins.
@@ -835,7 +799,7 @@ it('fails only the caller still unobserved after the last acquisition attempt', 
 });
 
 it('fails visibly when the authority moves during every acquisition attempt', async () => {
-  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const initial = { fileBindings: [], rootIds: ['root'], scopes };
   const f = fixture(initial);
   await f.runtime.acquire();
   f.events.length = 0;

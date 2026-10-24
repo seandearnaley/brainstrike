@@ -32,7 +32,7 @@ export function deferred(): {
 export async function fixture(
   scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' },
   /** A workspace's partition; null is the TEXT partition (BST-1988). */
-  membership: string | null = scope.kind === 'collection' ? scope.embeddingSetId : 'managed-set'
+  membership: string | null = 'managed-set'
 ) {
   const recorded = JSON.parse(
     await readFile(
@@ -52,9 +52,9 @@ export async function fixture(
     embeddingSetId: membership,
     fileId: recorded.fileId,
     fileName: 'artifact-reader-model-projection.ts',
-    relativePath: scope.kind === 'workspace' ? recorded.relativePath : null,
-    rootId: scope.kind === 'workspace' ? scope.rootId : null,
-    sourcePath: scope.kind === 'workspace' ? recorded.relativePath : null,
+    relativePath: recorded.relativePath,
+    rootId: scope.rootId,
+    sourcePath: recorded.relativePath,
     stat: { mtimeMs: 123, size: Buffer.byteLength(recorded.content) },
   };
   const catalogFile: CanonicalCatalogFile = {

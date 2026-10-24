@@ -101,9 +101,7 @@ export async function loadPartitionRecords(
   }
   // Retained rows of disconnected or ungranted folders remain outside this
   // leased authority until that same canonical root is connected again (BST-1990).
-  return records.filter((record) =>
-    record.rootId === null ? managedCollectionId !== null : hasRoot(record.rootId)
-  );
+  return records.filter((record) => record.rootId !== null && hasRoot(record.rootId));
 }
 
 export interface PartitionAuthority {

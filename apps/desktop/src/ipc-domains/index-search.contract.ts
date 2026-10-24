@@ -33,16 +33,6 @@ import {
   requireStringType,
 } from './contract-args';
 
-function collectionScope(record: ParamsRecord): { collectionId?: string } {
-  if (record['collectionId'] === undefined) {
-    return {};
-  }
-  const collectionId = requireStringType(record, 'collectionId', 'native index');
-  if (!collectionId.trim()) {
-    throw new TypeError('Native collection ID must be nonempty.');
-  }
-  return { collectionId };
-}
 function roots(record: ParamsRecord): readonly string[] {
   const value = record['rootIds'];
   if (
@@ -67,8 +57,8 @@ function one(raw: readonly unknown[]): ParamsRecord {
 }
 function parseCoverage(raw: readonly unknown[]): [IndexerCoverageRequest] {
   const record = one(raw);
-  assertSupportedKeys(record, ['rootIds', 'collectionId'], 'native index coverage');
-  return [{ ...collectionScope(record), rootIds: roots(record) }];
+  assertSupportedKeys(record, ['rootIds'], 'native index coverage');
+  return [{ rootIds: roots(record) }];
 }
 function parseCoverageBatch(raw: readonly unknown[]): [readonly IndexerCoverageRequest[]] {
   assertArgCount(raw, 1, 'native index coverage batch');
@@ -100,14 +90,9 @@ function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   const rootIds = roots(record);
   const cap = limit(record);
   if (record['mode'] === 'bm25' || record['mode'] === 'trigram') {
-    assertSupportedKeys(
-      record,
-      ['rootIds', 'collectionId', 'limit', 'mode', 'text'],
-      'native text search'
-    );
+    assertSupportedKeys(record, ['rootIds', 'limit', 'mode', 'text'], 'native text search');
     return [
       {
-        ...collectionScope(record),
         limit: cap,
         mode: record['mode'],
         rootIds,
@@ -120,7 +105,7 @@ function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   }
   assertSupportedKeys(
     record,
-    ['rootIds', 'collectionId', 'limit', 'mode', 'profile', 'vector'],
+    ['rootIds', 'limit', 'mode', 'profile', 'vector'],
     'native vector search'
   );
   const profile = decodeNativeEmbeddingProfile(record['profile']);
@@ -136,7 +121,6 @@ function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   }
   return [
     {
-      ...collectionScope(record),
       limit: cap,
       mode: 'vector',
       profile,
@@ -149,7 +133,7 @@ function parseGrep(raw: readonly unknown[]): [IndexerGrepRequest] {
   const record = one(raw);
   assertSupportedKeys(
     record,
-    ['rootIds', 'collectionId', 'filePaths', 'pattern', 'isRegex', 'caseSensitive', 'limit'],
+    ['rootIds', 'filePaths', 'pattern', 'isRegex', 'caseSensitive', 'limit'],
     'native grep'
   );
   const filePaths = record['filePaths'];
@@ -166,7 +150,6 @@ function parseGrep(raw: readonly unknown[]): [IndexerGrepRequest] {
   }
   return [
     {
-      ...collectionScope(record),
       ...(filePaths === undefined ? {} : { filePaths: filePaths as string[] }),
       caseSensitive: record['caseSensitive'],
       isRegex: record['isRegex'],

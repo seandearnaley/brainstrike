@@ -25,14 +25,6 @@ function fixture() {
         sourcePath: '/owned/owned.ts',
       },
       {
-        embeddingSetId: 'collection',
-        fileId: 'retained',
-        profile: null,
-        relativePath: null,
-        rootId: null,
-        sourcePath: null,
-      },
-      {
         embeddingSetId: 'other-collection',
         fileId: 'foreign',
         profile: null,

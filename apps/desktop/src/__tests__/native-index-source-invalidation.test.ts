@@ -5,14 +5,12 @@ import type {
 } from '@brainstrike/canonical-ingestion';
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeRootRegistration } from '../native-root-registration';
-import { textCollectionSettings, unreadableSettings } from './helpers/native-index-settings';
+import { textSettings, unreadableSettings } from './helpers/native-index-settings';
 import {
-  emptyCollection,
   fixture,
   mocks,
   requestedScope,
@@ -29,7 +27,7 @@ it.each(['acquire', 'acquireRead'] as const)(
   'captures the initial saved-settings read before %s returns',
   async (method) => {
     const f = fixture();
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+    f.settings.mockResolvedValue(textSettings({ paused: true }));
     const acquired = f.activation[method]();
     onTestFinished(async () => {
       await acquired.catch(() => undefined);
@@ -42,11 +40,11 @@ it.each(['acquire', 'acquireRead'] as const)(
 
 it('concurrent acquire and acquireRead share the first captured startup input', async () => {
   const f = fixture();
-  const captured = textCollectionSettings({ paused: true });
+  const captured = textSettings({ paused: true });
   const held = Promise.withResolvers<NativeIndexSettings>();
   f.settings.mockReturnValueOnce(held.promise);
   const strict = f.activation.acquire();
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+  f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
   const reader = f.activation.acquireRead();
   onTestFinished(async () => {
     held.resolve(captured);
@@ -58,12 +56,11 @@ it('concurrent acquire and acquireRead share the first captured startup input', 
   await expect(reader).resolves.toBeDefined();
   expect(mocks.acquire).toHaveBeenCalledOnce();
   expect(mocks.close).not.toHaveBeenCalled();
-  expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
 });
 
 it('a terminal command supersedes captured startup input before it can open', async () => {
   const f = fixture();
-  const captured = textCollectionSettings();
+  const captured = textSettings();
   const held = Promise.withResolvers<NativeIndexSettings>();
   f.settings.mockReturnValueOnce(held.promise);
   const initial = f.activation.acquire().catch((error: unknown) => error);
@@ -153,9 +150,6 @@ function heldWorkspace(beforeAttach?: () => Promise<void>) {
       return { close: async () => {}, trigger: unused };
     }
   );
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const f = fixture(application);
   return { ...f, application, attached, close, physicallyClosed };
 }
@@ -164,9 +158,9 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
   'cancels the held source receipt at graph invalidation before joining %s',
   async (operation) => {
     const f = heldWorkspace();
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+    f.settings.mockResolvedValue(textSettings({ paused: true }));
     await f.activation.acquire();
-    f.settings.mockResolvedValue(textCollectionSettings());
+    f.settings.mockResolvedValue(textSettings());
     let initialSettled = false;
     const initial = f.activation.reconfigure().catch((error: unknown) => {
       initialSettled = true;
@@ -186,7 +180,7 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
       f.settings.mockRejectedValue(unreadable);
     }
     if (operation === 'reconfigure') {
-      f.settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
+      f.settings.mockResolvedValue(textSettings({ policy: 'full-root' }));
     }
     next = Promise.resolve(
       operation === 'terminal' ? f.activation.fenceTerminal() : f.activation.reconfigure()
@@ -215,9 +209,9 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
 it('retains an independent physical source-close failure after graph invalidation', async () => {
   const f = heldWorkspace();
   const failure = new Error('Owned source failed to close');
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+  f.settings.mockResolvedValue(textSettings({ paused: true }));
   await f.activation.acquire();
-  f.settings.mockResolvedValue(textCollectionSettings());
+  f.settings.mockResolvedValue(textSettings());
   const initial = f.activation.reconfigure().catch((error: unknown) => error);
   let replacing: Promise<unknown> | undefined;
   onTestFinished(async () => {
@@ -229,7 +223,7 @@ it('retains an independent physical source-close failure after graph invalidatio
   await f.attached.promise;
   await new Promise<void>((resolve) => setImmediate(resolve));
   f.close.mockRejectedValueOnce(failure);
-  f.settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
+  f.settings.mockResolvedValue(textSettings({ policy: 'full-root' }));
   replacing = f.activation.reconfigure().catch((error: unknown) => error);
   await vi.waitFor(() => expect(f.close).toHaveBeenCalledOnce());
   expect(await initial).toMatchObject({ code: 'native-index-transitioning' });
@@ -240,7 +234,7 @@ it('retains an independent physical source-close failure after graph invalidatio
 
 it('starts saved Pause cancellation while root registration owns an incomplete first receipt', async () => {
   const f = heldWorkspace();
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+  f.settings.mockResolvedValue(textSettings({ paused: true }));
   const reader = await f.activation.acquire();
   const captured = f.activation.captureAcknowledgedAuthority();
   const transitions = createNativeRootDataDeletion({
@@ -260,7 +254,7 @@ it('starts saved Pause cancellation while root registration owns an incomplete f
     reportError: vi.fn(),
     transition: transitions.transition,
   });
-  f.settings.mockResolvedValue(textCollectionSettings());
+  f.settings.mockResolvedValue(textSettings());
   const registered = registration.rootsRegistered().catch((error: unknown) => error);
   let paused: Promise<unknown> | undefined;
   onTestFinished(async () => {
@@ -269,7 +263,7 @@ it('starts saved Pause cancellation while root registration owns an incomplete f
     await Promise.allSettled([registered, paused]);
   });
   await f.attached.promise;
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+  f.settings.mockResolvedValue(textSettings({ paused: true }));
   // Main's config owner applies a saved change through this FIFO, so the entire
   // reconfiguration waits behind the registration's first-receipt join.
   paused = transitions
@@ -295,7 +289,7 @@ it.each(['settings', 'graph', 'attachment'] as const)(
     const gate = Promise.withResolvers<void>();
     const f = heldWorkspace(phase === 'attachment' ? () => gate.promise : undefined);
     if (phase === 'settings') {
-      f.settings.mockReturnValueOnce(gate.promise.then(() => textCollectionSettings()));
+      f.settings.mockReturnValueOnce(gate.promise.then(() => textSettings()));
     }
     if (phase === 'graph') {
       const restore = f.application.roots.restoreRoots;
@@ -308,7 +302,7 @@ it.each(['settings', 'graph', 'attachment'] as const)(
     if (phase === 'attachment') {
       await f.attached.promise;
     }
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+    f.settings.mockResolvedValue(textSettings({ paused: true }));
     let prepared = false;
     const preparation = f.activation.prepareSavedPause().then((value) => {
       prepared = true;
@@ -353,9 +347,9 @@ it.each(['invalid-settings', 'physical-failure'] as const)(
   'retains prepared %s admission closure and its actual failure through later reads',
   async (kind) => {
     const f = heldWorkspace();
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+    f.settings.mockResolvedValue(textSettings({ paused: true }));
     await f.activation.acquire();
-    f.settings.mockResolvedValue(textCollectionSettings());
+    f.settings.mockResolvedValue(textSettings());
     const initial = f.activation.reconfigure().catch((error: unknown) => error);
     onTestFinished(async () => {
       f.close.mockResolvedValue(undefined);
@@ -368,7 +362,7 @@ it.each(['invalid-settings', 'physical-failure'] as const)(
     if (kind === 'invalid-settings') {
       f.settings.mockRejectedValue(unreadableSettings());
     } else {
-      f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+      f.settings.mockResolvedValue(textSettings({ paused: true }));
       f.close.mockRejectedValueOnce(failure);
     }
     const prepared = await f.activation.prepareSavedPause();
@@ -386,7 +380,10 @@ it.each(['invalid-settings', 'physical-failure'] as const)(
       });
     } else {
       expect(error).toMatchObject({ errors: [failure] });
-      await expect(f.activation.acquireRead()).rejects.toBe(error);
+      await expect(f.activation.acquireRead()).rejects.toMatchObject({
+        cause: error,
+        refusal: { kind: 'source-failure' },
+      });
     }
   }
 );

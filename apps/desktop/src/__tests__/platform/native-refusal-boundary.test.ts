@@ -17,7 +17,11 @@ import {
 } from '../../desktop-shutdown-state';
 import { HostedEmbeddingError } from '../../hosted-embedding-error';
 import { IndexConfigApplyFailed } from '../../index-config';
+import type { NativeIndexState } from '../../native-index-lifecycle';
+import { nativeIndexStateError } from '../../native-index-lifecycle-errors';
+import { createNativeScopedSearchCapability } from '../../native-scoped-search';
 import { settleIpcResult } from '../../platform/desktop-ipc-registry';
+import { textSettings } from '../helpers/native-index-settings';
 
 const log = vi.hoisted(() => vi.fn());
 const info = vi.hoisted(() => vi.fn());
@@ -144,10 +148,90 @@ it('keeps a closed refusal during quit, with its cause logged at info (ADR-0015)
   });
 });
 
+/**
+ * The folder-add wedge (bug-folder-add-wedge-report): a generation whose sources did not retire
+ * stays failed holding the retirement's AggregateError, as the utility nested it.
+ */
+function sourcesDidNotRetire(): AggregateError {
+  return [
+    'Canonical source retirement failed.',
+    'Canonical ingestion retirement failed.',
+    'Workspace runtime retirement failed.',
+    'Canonical attachment retirement remains owned.',
+    'Canonical utility attachments remain owned.',
+    'Canonical utility attachments did not retire.',
+  ].reduce<Error>(
+    (inner, message) => new AggregateError([inner], message),
+    new Error('Canonical request has no live mounted lease.')
+  ) as AggregateError;
+}
+
+function failedWith(error: Error): NativeIndexState {
+  return {
+    cause: { error, kind: 'source-failure', message: error.message },
+    generation: 2,
+    kind: 'failed',
+    settings: textSettings(),
+  };
+}
+
+it('shows an index whose sources did not retire as blocked, never as a fault', async () => {
+  const failed = failedWith(sourcesDidNotRetire());
+  const unused = async (): Promise<never> => {
+    throw new Error('Unexpected index operation');
+  };
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: unused,
+    withRead: async () => {
+      throw nativeIndexStateError(failed);
+    },
+  });
+  const wire = await settleIpcResult(
+    { category: 'native-index', code: 'native-index-failed' },
+    () => capability.status()
+  );
+
+  expect(wire).toMatchObject({
+    ok: true,
+    value: { cause: { kind: 'source-failure' }, kind: 'unavailable', phase: 'blocked' },
+  });
+  expect(log).not.toHaveBeenCalled();
+});
+
+it('refuses a search of an index whose sources did not retire with the Rebuild remedy, logging the failure once', async () => {
+  const retirement = sourcesDidNotRetire();
+  const wire = await settleIpcResult(
+    { category: 'native-index', code: 'native-index-failed' },
+    () => {
+      throw nativeIndexStateError(failedWith(retirement));
+    }
+  );
+
+  expect(wire).toEqual({
+    error: {
+      category: 'availability',
+      code: 'native-index-source-failure',
+      correlationId: expect.any(String),
+      kind: 'refusal',
+      message: 'The search index could not prepare its sources.',
+      remedy:
+        'Rebuild the search index in Settings, Search & Indexing. Chats, folders and settings are kept.',
+    },
+    ok: false,
+  });
+  expect(JSON.stringify(wire)).not.toContain('mounted lease');
+  expect(log).toHaveBeenCalledExactlyOnceWith('Native index refusal retained its original cause', {
+    cause: retirement,
+    code: 'native-index-source-failure',
+    correlationId: wire.ok ? undefined : wire.error.correlationId,
+  });
+});
+
 // Hosted run 39174635723: a signal to Main's process group ended the indexer under
 // a renderer's in-flight index call, and its typed exit was logged at error.
 it.each([false, true])(
-  'logs an indexer exit under an index call at error, or at info while quitting (quitting=%s)',
+  'reports an indexer exit under an index call as the lost index process, logged at error or at info while quitting (quitting=%s)',
   async (quitting) => {
     if (quitting) {
       markDesktopShuttingDown();
@@ -159,15 +243,25 @@ it.each([false, true])(
         throw exited;
       }
     );
-    expect(wire).toMatchObject({ error: { code: 'boundary.internal' }, ok: false });
-    const fields = {
-      correlationId: expect.any(String),
-      error: exited,
-      operation: { category: 'native-index', code: 'native-index-failed' },
-    };
+    expect(wire).toEqual({
+      error: {
+        category: 'availability',
+        code: 'process.lost',
+        correlationId: expect.any(String),
+        kind: 'fault',
+        message: 'The index process stopped unexpectedly.',
+        process: { child: 'index-utility' },
+      },
+      ok: false,
+    });
     expect(quitting ? info : log).toHaveBeenCalledExactlyOnceWith(
-      'Untyped failure crossed a process boundary',
-      fields
+      'A typed fault crossed a process boundary',
+      {
+        cause: exited,
+        code: 'process.lost',
+        correlationId: wire.ok ? undefined : wire.error.correlationId,
+        operation: { category: 'native-index', code: 'native-index-failed' },
+      }
     );
     expect(quitting ? log : info).not.toHaveBeenCalled();
   }
@@ -247,33 +341,42 @@ async function sqliteExitUnderRead(): Promise<unknown> {
 }
 
 // Hosted run 39314780076: a signal to Main's process group ended the SQLite query process
-// under a renderer's in-flight index read. The spec excused that record by its message; its
-// typed exit is now the expected outcome while quitting, and stays a failure otherwise.
+// under a renderer's in-flight index read. Its typed exit is the expected outcome while
+// quitting, and stays a failure otherwise.
 it.each([false, true])(
-  'logs a SQLite query exit under an index read at error, or at info while quitting (quitting=%s)',
+  'reports a SQLite query exit under an index read as the lost query process, logged at error or at info while quitting (quitting=%s)',
   async (quitting) => {
     if (quitting) {
       markDesktopShuttingDown();
     }
     const exited = await sqliteExitUnderRead();
-    // The record the spec's message matcher excused: DesktopIpcRegistry, this message, this error.
-    expect(exited).toMatchObject({ message: 'SQLite query process exited.' });
+    expect(exited).toBeInstanceOf(SqliteQueryProcessExitedError);
     const wire = await settleIpcResult(
       { category: 'native-index', code: 'native-index-failed' },
       () => {
         throw exited;
       }
     );
-    expect(wire).toMatchObject({ error: { code: 'boundary.internal' }, ok: false });
-    expect(quitting ? info : log).toHaveBeenCalledExactlyOnceWith(
-      'Untyped failure crossed a process boundary',
-      {
+    expect(wire).toEqual({
+      error: {
+        category: 'availability',
+        code: 'process.lost',
         correlationId: expect.any(String),
-        error: exited,
+        kind: 'fault',
+        message: 'The index query process stopped unexpectedly.',
+        process: { child: 'index-query' },
+      },
+      ok: false,
+    });
+    expect(quitting ? info : log).toHaveBeenCalledExactlyOnceWith(
+      'A typed fault crossed a process boundary',
+      {
+        cause: exited,
+        code: 'process.lost',
+        correlationId: wire.ok ? undefined : wire.error.correlationId,
         operation: { category: 'native-index', code: 'native-index-failed' },
       }
     );
     expect(quitting ? log : info).not.toHaveBeenCalled();
-    expect(exited).toBeInstanceOf(SqliteQueryProcessExitedError);
   }
 );

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { CanonicalOperationContext } from '@brainstrike/canonical-ingestion';
 import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { Schema } from 'effect';
 import {
   assertDiscoveredSource,
   assertMode,
   assertVectorManifestAuthority,
-  type CanonicalCollectionDependencies,
   type CanonicalRemoteWorkspaceDependencies,
   capturedAuthority,
   isOwnedCleanup,
@@ -31,7 +31,6 @@ import { assertCanonicalRequest } from './canonical-utility-request-authority';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export type {
-  CanonicalCollectionDependencies,
   CanonicalRemoteIngestion,
   CanonicalRemoteWorkspaceDependencies,
 } from './canonical-utility-authority';
@@ -40,22 +39,9 @@ export interface CanonicalWorkspaceAttachment {
   close(): Promise<void>;
   trigger(): Promise<void>;
 }
-export interface CanonicalCollectionAttachment {
-  cancel(): Promise<void>;
-  close(): Promise<void>;
-  scan(requestId: string): Promise<typeof receiptSchema.Type>;
-}
-export interface CanonicalCollectionScan {
-  join(): Promise<typeof receiptSchema.Type>;
-}
-export interface CanonicalCollectionOwner extends CanonicalCollectionAttachment {
-  startScan(requestId: string): Promise<CanonicalCollectionScan>;
-}
 /** What retires an attachment's work: Main's retirement of the attachment, and its lease's owner. */
 function retirements(session: Session): AbortSignal[] {
-  return session.lease
-    ? [session.retirement.signal, session.lease.signal]
-    : [session.retirement.signal];
+  return [session.retirement.signal, session.lease.signal];
 }
 /** Main retains actual capability objects. A child owner token selects only this captured closure. */
 export class CanonicalUtilityParent {
@@ -114,47 +100,9 @@ export class CanonicalUtilityParent {
     };
   }
 
-  async attachCollection(
-    dependencies: CanonicalCollectionDependencies
-  ): Promise<CanonicalCollectionOwner> {
-    assertMode(dependencies);
-    const config = decode(configSchema)({
-      indexingPolicyPreset: dependencies.source.indexingPolicyPreset,
-      lease: null,
-      managedCollectionId: dependencies.scope.embeddingSetId,
-      mode: dependencies.mode ?? 'TEXT',
-      parser: dependencies.parser,
-      request: dependencies.request,
-      scope: dependencies.scope,
-    });
-    const owner = await this.attach(config, dependencies);
-    const startScan = async (requestId: string): Promise<CanonicalCollectionScan> => {
-      const session = this.sessions.get(owner);
-      if (this.closed || this.retiringAttachments || !session) {
-        throw new Error('Canonical utility scan admission is closed.');
-      }
-      // Fenced or closing: Main retired this attachment, so no scan starts (BST-2140).
-      session.retirement.signal.throwIfAborted();
-      await this.request(owner, 'start-scan', { requestId }, Schema.Null);
-      let terminal: Promise<typeof receiptSchema.Type> | undefined;
-      return {
-        join: () => {
-          terminal ??= this.request(owner, 'join-scan', { requestId }, receiptSchema, session);
-          return terminal;
-        },
-      };
-    };
-    return {
-      cancel: () => this.control(owner, 'cancel'),
-      close: () => this.closeOwner(owner),
-      scan: async (requestId) => (await startScan(requestId)).join(),
-      startScan,
-    };
-  }
-
   private async attach(
     config: CanonicalUtilityConfig,
-    dependencies: Session['dependencies']
+    dependencies: CanonicalRemoteWorkspaceDependencies
   ): Promise<string> {
     if (this.closed) {
       throw new Error('Canonical utility admission is closed.');
@@ -179,7 +127,7 @@ export class CanonicalUtilityParent {
       inferenceRequests: new Set(),
       inventory: dependencies.source.inventory,
       lastRequestId: 0,
-      lease: 'lease' in dependencies.source ? dependencies.source.lease : undefined,
+      lease: dependencies.source.lease,
       pending: new Map(),
       publication: dependencies.publication,
       retirement,
@@ -243,11 +191,13 @@ export class CanonicalUtilityParent {
           // cancellation, named by the owner's own reason: a folder lease's typed refusal can be
           // another bundle's copy of its class. Main also revokes its native authority in the
           // turn its retirement stops this request, so admitted work failing on that revocation
-          // is the same cancellation (BST-1955). Any other failure, and a cleanup the retirement
-          // still owns, stays visible.
+          // is the same cancellation (BST-1955); the revocation is known by its refusal kind,
+          // since its class can be either bundle's copy. Any other failure, and a cleanup the
+          // retirement still owns, stays visible.
           const revoked =
             controller.signal.aborted &&
-            error instanceof NativeAuthorityTransitionError &&
+            error instanceof NativeIndexRefusalError &&
+            error.refusal.kind === 'transitioning' &&
             !isOwnedCleanup(frame);
           const retired =
             signals.find((signal) => signal.aborted && error === signal.reason) ??
@@ -474,7 +424,7 @@ export class CanonicalUtilityParent {
       errors.push(error);
     }
     try {
-      await session.lease?.retire();
+      await session.lease.retire();
     } catch (error) {
       errors.push(error);
     }
@@ -510,9 +460,6 @@ export class CanonicalUtilityParent {
   }
 
   private event(session: Session, frame: Extract<CanonicalFrame, { kind: 'event' }>): void {
-    if (!('onReceipt' in session.dependencies)) {
-      throw new Error('Rootless host cannot emit workspace events.');
-    }
     if (session.retirement.signal.aborted) {
       return;
     }
@@ -563,7 +510,6 @@ export class CanonicalUtilityParent {
     const leaseOperations = ['list-dir', 'read-file', 'subscribe', 'unsubscribe', 'retire-lease'];
     const catalogOperations = [
       'load-files',
-      'read-retained',
       'load-authorized',
       'prepare-sources',
       'apply-cache',
@@ -600,17 +546,17 @@ export class CanonicalUtilityParent {
     authority: ReturnType<typeof capturedAuthority>
   ): Promise<unknown> {
     const { dependencies: deps } = session;
-    const { ownedLease, lease } = authority;
+    const { lease } = authority;
     let value: unknown;
     switch (frame.op) {
       case 'list-dir': {
         const input = decode(canonicalOperations['list-dir'].input)(frame.payload);
-        value = await ownedLease().listDir(input.relativePath, input.maxEntries, context);
+        value = await lease.listDir(input.relativePath, input.maxEntries, context);
         break;
       }
       case 'read-file': {
         const input = decode(canonicalOperations['read-file'].input)(frame.payload);
-        const read = await ownedLease().readFile(input.relativePath, input.maxBytes, context);
+        const read = await lease.readFile(input.relativePath, input.maxBytes, context);
         if (read.status === 'ok' && read.content.byteLength > input.maxBytes) {
           throw new Error('Mounted read exceeded its captured byte bound.');
         }
@@ -634,7 +580,7 @@ export class CanonicalUtilityParent {
             });
           }
         };
-        session.subscription = await ownedLease().subscribe(
+        session.subscription = await lease.subscribe(
           (changes, metadata) =>
             event('watch-batch', { changes, ...(metadata ? { metadata } : {}) }),
           (signal) => event('watch-signal', signal),
@@ -657,7 +603,7 @@ export class CanonicalUtilityParent {
         break;
       case 'retire-lease':
         decode(Schema.Null)(frame.payload);
-        await lease?.retire();
+        await lease.retire();
         value = null;
         break;
       default:
@@ -682,12 +628,6 @@ export class CanonicalUtilityParent {
         const result = await session.inventory.loadFiles(config.scope, context);
         remember(result);
         value = result;
-        break;
-      }
-      case 'read-retained': {
-        const input = decode(canonicalOperations['read-retained'].input)(frame.payload);
-        files([input.file]);
-        value = await session.inventory.readRetained(input.file, input.maxFileBytes, context);
         break;
       }
       case 'load-authorized': {
