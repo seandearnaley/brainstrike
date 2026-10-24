@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { describe, expect, it } from 'vitest';
 import {
+  createMcpOAuthAuthorizationHold,
   createMcpOAuthAuthorizationResponseVerifier,
   createMcpOAuthReferenceEndpoint,
   createMcpOAuthReferenceHandler,
@@ -376,45 +377,33 @@ describe('MCP OAuth reference core', () => {
     expect(downstreamClosed).toBe(true);
   });
 
-  it('serializes OAuth mutations while metadata remains directly available', async () => {
-    let blockedMethod: 'oauth/authorize' | 'oauth/token' | undefined;
-    let enterBlocked: (() => void) | undefined;
-    let releaseBlocked: (() => void) | undefined;
-    const armBlock = (method: 'oauth/authorize' | 'oauth/token') => {
-      blockedMethod = method;
-      const entered = new Promise<void>((resolve) => {
-        enterBlocked = resolve;
-      });
-      const released = new Promise<void>((resolve) => {
-        releaseBlocked = resolve;
-      });
-      return { entered, release: () => releaseBlocked?.(), released };
-    };
-    let activeBlock: ReturnType<typeof armBlock> | undefined;
+  it('serializes OAuth mutations behind a held authorization while metadata stays available', async () => {
+    const hold = createMcpOAuthAuthorizationHold();
+    const entered = Promise.withResolvers<void>();
     const { handler } = createFixture({
-      async beforeAuthorizationMutation(_request, method) {
-        if (method !== blockedMethod || !activeBlock) {
-          return;
-        }
-        blockedMethod = undefined;
-        enterBlocked?.();
-        await activeBlock.released;
+      authorizationHold: {
+        ...hold,
+        hold(signal) {
+          entered.resolve();
+          return hold.hold(signal);
+        },
       },
     });
     const clientId = await register(handler);
 
-    activeBlock = armBlock('oauth/authorize');
     const firstAuthorization = authorize(handler, clientId);
-    await activeBlock.entered;
+    await entered.promise;
+    expect(hold.state()).toBe('held');
     const secondAuthorization = authorize(handler, clientId);
     expect(
       (await handler.fetch(new Request(handler.endpoint.authorizationServerMetadataUrl))).status
     ).toBe(200);
-    activeBlock.release();
+    hold.release();
     const callbacks = await Promise.all([firstAuthorization, secondAuthorization]).then(
       (responses) =>
         responses.map((response) => new URL(response.headers.get('location') ?? 'missing:'))
     );
+    expect(hold.state()).toBe('settled');
     expect(callbacks.filter((callback) => callback.searchParams.has('code'))).toHaveLength(1);
     expect(
       callbacks.filter((callback) => callback.searchParams.get('error') === 'invalid_request')
@@ -439,15 +428,42 @@ describe('MCP OAuth reference core', () => {
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         method: 'POST',
       });
-    activeBlock = armBlock('oauth/token');
-    const firstToken = handler.fetch(tokenRequest());
-    await activeBlock.entered;
-    const secondToken = handler.fetch(tokenRequest());
-    activeBlock.release();
-    const tokenResponses = await Promise.all([firstToken, secondToken]);
+    const tokenResponses = await Promise.all([
+      handler.fetch(tokenRequest()),
+      handler.fetch(tokenRequest()),
+    ]);
     expect(tokenResponses.map((response) => response.status).sort()).toEqual([200, 400]);
     const rejected = tokenResponses.find((response) => response.status === 400);
     await expect(rejected?.json()).resolves.toMatchObject({ error: 'invalid_grant' });
+    await handler.close();
+  });
+
+  it('grants no code to a held authorization whose request aborts', async () => {
+    const hold = createMcpOAuthAuthorizationHold();
+    const { handler } = createFixture({ authorizationHold: hold });
+    const clientId = await register(handler);
+    const url = new URL(handler.endpoint.authorizationUrl);
+    url.search = new URLSearchParams({
+      client_id: clientId,
+      code_challenge: CHALLENGE,
+      code_challenge_method: 'S256',
+      redirect_uri: REDIRECT_URI,
+      resource: handler.endpoint.url.href,
+      response_type: 'code',
+      scope: 'mcp',
+      state: 'state-1',
+    }).toString();
+    const cancel = new AbortController();
+    const held = handler.fetch(new Request(url, { signal: cancel.signal }));
+    cancel.abort();
+
+    await expect(held).rejects.toMatchObject({ name: 'AbortError' });
+    expect(hold.state()).toBe('aborted');
+    expect(handler.stateCounts()).toMatchObject({ codes: 0, states: 0 });
+    const retried = await authorize(handler, clientId);
+    expect(new URL(retried.headers.get('location') ?? 'missing:').searchParams.has('code')).toBe(
+      true
+    );
     await handler.close();
   });
 });

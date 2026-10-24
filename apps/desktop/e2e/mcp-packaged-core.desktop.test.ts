@@ -33,8 +33,8 @@ import {
 } from './utils/packaged-electron';
 
 interface PackagedFixture {
-  authorizationDelayObserved(): boolean;
-  authorizationDelaySettled(): boolean;
+  authorizationObserved(): boolean;
+  authorizationSettled(): boolean;
   close(): Promise<{
     readonly clean: boolean;
     readonly httpListenersClosed: number;
@@ -46,7 +46,7 @@ interface PackagedFixture {
 interface PackagedFixtureModule {
   startPackagedCoreFixture(
     id: 'legacy-reference' | 'modern-reference' | 'oauth-reference',
-    options?: { readonly authorizationDelayMs?: number; readonly holdAuthorization?: boolean }
+    options?: { readonly holdAuthorization?: boolean }
   ): Promise<PackagedFixture>;
 }
 type PackagedContext = Awaited<ReturnType<typeof launchPackagedDesktop>>;
@@ -310,7 +310,7 @@ async function connectOAuthThroughNativeBrowser(
   await expect
     .poll(
       async () =>
-        cancellationFixture.authorizationDelayObserved()
+        cancellationFixture.authorizationObserved()
           ? 'authorization-observed'
           : ((await serverRow(page, 'oauth').textContent()) ?? 'missing-server-row'),
       { timeout: 30_000 }
@@ -319,7 +319,7 @@ async function connectOAuthThroughNativeBrowser(
   await page.getByRole('button', { exact: true, name: 'Cancel oauth' }).click();
   await waitForServerState(page, 'oauth', /authentication-required|disconnected/i);
   cancellationFixture.releaseAuthorization();
-  await expect.poll(() => cancellationFixture.authorizationDelaySettled()).toBe(true);
+  await expect.poll(() => cancellationFixture.authorizationSettled()).toBe(true);
   await page.getByRole('button', { exact: true, name: 'Connect oauth' }).click();
   await waitForServerState(page, 'oauth', /Connected/i);
   await expect(serverRow(page, 'oauth')).toContainText('2026-07-28');
@@ -690,10 +690,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const modern = await ownFixture(fixtureModule.startPackagedCoreFixture('modern-reference'));
     const legacy = await ownFixture(fixtureModule.startPackagedCoreFixture('legacy-reference'));
     const oauth = await ownFixture(
-      fixtureModule.startPackagedCoreFixture('oauth-reference', {
-        authorizationDelayMs: 1000,
-        holdAuthorization: true,
-      }),
+      fixtureModule.startPackagedCoreFixture('oauth-reference', { holdAuthorization: true }),
       true
     );
     const diagnosticControlDirectory = path.join(fixtureStateDir, 'diagnostic-control');

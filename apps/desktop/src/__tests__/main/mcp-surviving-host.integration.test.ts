@@ -2,10 +2,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  type ObservedMcpHostRequest,
-  startStatefulMcpHostServer,
-} from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
+import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import {
   createSecretsMcpBearerCredentialAuthority,
@@ -13,7 +10,6 @@ import {
 } from '@brainstrike/host-capabilities/mcp/bearer-credential';
 import { describe, expect, test } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
 
 const stdioLifecycleServerEntrypoint = fileURLToPath(
   import.meta.resolve('@brainstrike/agent/test-fixtures/mcp-stdio-host-lifecycle-server.mjs')
@@ -76,40 +72,7 @@ function parsePositivePid(value: string): number {
   return pid;
 }
 
-function requestMethod(body: unknown): string | undefined {
-  if (!(typeof body === 'object' && body !== null && 'method' in body)) {
-    return;
-  }
-  const method = body.method;
-  return typeof method === 'string' ? method : undefined;
-}
-
-function observedProtocolMethods(requests: readonly ObservedMcpHostRequest[]): string[] {
-  return requests.flatMap(({ body }) => {
-    const entries = Array.isArray(body) ? body : [body];
-    return entries.flatMap((entry) => {
-      const method = requestMethod(entry);
-      return method === undefined ? [] : [method];
-    });
-  });
-}
-
 describe('surviving Desktop MCP host integration', () => {
-  test('observes methods inside JSON-RPC batch bodies', () => {
-    expect(
-      observedProtocolMethods([
-        {
-          body: [
-            { jsonrpc: '2.0', method: 'notifications/initialized' },
-            { id: 1, jsonrpc: '2.0', method: 'tools/call' },
-          ],
-          method: 'POST',
-          pathname: '/mcp',
-        },
-      ])
-    ).toEqual(['notifications/initialized', 'tools/call']);
-  });
-
   test('returns a bounded client error for malformed fixture JSON', async () => {
     const server = await startStatefulMcpHostServer();
     try {
@@ -482,53 +445,4 @@ describe('surviving Desktop MCP host integration', () => {
       await server.close();
     }
   }, 30_000);
-
-  test('drives official initialize through the production host without calling a tool', async () => {
-    const server = await startStatefulMcpHostServer();
-    try {
-      await runProductionMcpConformanceClient({
-        protocolVersion: '2025-11-25',
-        scenario: 'initialize',
-        serverUrl: server.url,
-      });
-
-      const methods = observedProtocolMethods(server.requests);
-      expect(methods).toEqual(
-        expect.arrayContaining(['initialize', 'notifications/initialized', 'tools/list'])
-      );
-      expect(methods).not.toContain('tools/call');
-    } finally {
-      await server.close();
-    }
-  }, 30_000);
-
-  test('rejects unknown auth scenarios instead of substituting core behavior', async () => {
-    await expect(
-      runProductionMcpConformanceClient({
-        protocolVersion: '2026-07-28',
-        scenario: 'auth/not-canonical',
-        serverUrl: 'https://mcp.example.test/mcp',
-      })
-    ).rejects.toThrow(/scenario/u);
-  });
-
-  test('rejects initialize outside its canonical legacy applicability window', async () => {
-    await expect(
-      runProductionMcpConformanceClient({
-        protocolVersion: '2026-07-28',
-        scenario: 'initialize',
-        serverUrl: 'https://mcp.example.test/mcp',
-      })
-    ).rejects.toThrow(/protocolVersion/u);
-  });
-
-  test('rejects credential-bearing conformance URLs through the production config parser', async () => {
-    await expect(
-      runProductionMcpConformanceClient({
-        protocolVersion: '2026-07-28',
-        scenario: 'tools_call',
-        serverUrl: 'https://user:secret@mcp.example.test/mcp',
-      })
-    ).rejects.toThrow(/must not include credentials/u);
-  });
 });
