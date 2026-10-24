@@ -1,7 +1,8 @@
 // Refuse a data root inside a file-sync provider's folder (M0-A2 src/sync-roots.ts, item 6). Sync clients copy -wal/-shm
-// independently, make conflict copies and evict files: the single-writer assumptions break there. Path rules only:
-// macOS iCloud Drive and File Provider (CloudStorage), Dropbox, OneDrive; Windows OneDrive roots via the OneDrive*
-// environment variables, which also cover Known Folder Move (Desktop/Documents redirected into OneDrive).
+// independently, make conflict copies and evict files: the single-writer assumptions break there. Path rules, applied
+// to the real path on every OS: macOS iCloud Drive and File Provider (CloudStorage), Dropbox, OneDrive; Windows
+// OneDrive roots via the OneDrive* environment variables, which also cover Known Folder Move (Desktop/Documents
+// redirected into OneDrive).
 import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -24,19 +25,22 @@ export interface SyncEnv {
   readonly platform?: NodeJS.Platform;
 }
 
-/** Realpath of the nearest existing ancestor, plus the not-yet-existing tail (POSIX). */
-function resolveReal(p: string): string {
-  let cur = path.resolve(p);
+/**
+ * Realpath of the nearest existing ancestor, plus the not-yet-existing tail, so a symlink or junction into a synced
+ * folder is judged by where it leads. A path with no existing ancestor (an unmounted drive) contains no link.
+ */
+function resolveReal(p: string, paths: path.PlatformPath = path): string {
+  let cur = paths.resolve(p);
   const tail: string[] = [];
   while (!existsSync(cur)) {
-    const parent = path.dirname(cur);
+    const parent = paths.dirname(cur);
     if (parent === cur) {
-      break;
+      return paths.resolve(p);
     }
-    tail.unshift(path.basename(cur));
+    tail.unshift(paths.basename(cur));
     cur = parent;
   }
-  return path.join(realpathSync(cur), ...tail);
+  return paths.join(realpathSync(cur), ...tail);
 }
 
 export function assertNotSyncedRoot(root: string, e: SyncEnv = {}): void {
@@ -87,9 +91,10 @@ function assertWin(
   env: Readonly<Record<string, string | undefined>>
 ): void {
   const w = path.win32;
-  const real = w.resolve(root).toLowerCase();
+  const resolvedRoot = resolveReal(root, w);
+  const real = resolvedRoot.toLowerCase();
   const under = (base: string): boolean => {
-    const b = w.resolve(base).toLowerCase();
+    const b = resolveReal(base, w).toLowerCase();
     return real === b || real.startsWith(`${b}\\`);
   };
   for (const k of ['OneDrive', 'OneDriveCommercial', 'OneDriveConsumer']) {
@@ -99,7 +104,7 @@ function assertWin(
     }
   }
   if (userProfile && under(userProfile)) {
-    const first = w.relative(w.resolve(userProfile), w.resolve(root)).split('\\')[0] ?? '';
+    const first = w.relative(resolveReal(userProfile, w), resolvedRoot).split('\\')[0] ?? '';
     if (/^onedrive( - .+)?$/i.test(first)) {
       throw new SyncedRootError(root, 'OneDrive', w.join(userProfile, first));
     }

@@ -57,17 +57,16 @@ describe('item 6 · synced data roots', () => {
     }
   });
 
-  test.skipIf(process.platform === 'win32')(
-    'a symlink into a synced folder is resolved and refused (POSIX path rules)',
-    () => {
-      const fakeHome = freshDir('i6home');
-      const cloud = join(fakeHome, 'Library', 'CloudStorage', 'OneDrive-Personal');
-      mkdirSync(cloud, { recursive: true });
-      const link = join(freshDir('i6link'), 'data');
-      symlinkSync(cloud, link);
-      refuses(join(link, 'brainstrike'), /File Provider/, { home: fakeHome, platform: 'darwin' });
-    }
-  );
+  // This OS's own rules: a home Dropbox folder is refused on every OS, and the link is a symlink on POSIX and a
+  // junction on Windows (`symlink` ignores the type elsewhere).
+  test('a link into a synced folder is resolved and refused, even before the root exists', () => {
+    const fakeHome = freshDir('i6home');
+    const dropbox = join(fakeHome, 'Dropbox');
+    mkdirSync(dropbox);
+    const link = join(freshDir('i6link'), 'data');
+    symlinkSync(dropbox, link, 'junction');
+    refuses(join(link, 'brainstrike'), /Dropbox/, { env: {}, home: fakeHome });
+  });
 
   test('local folders are accepted', () => {
     expect(() =>
@@ -114,16 +113,6 @@ describe('item 6 · synced data roots', () => {
 });
 
 describe('item 6 · StateStore.open refuses a synced root', () => {
-  test.skipIf(process.platform !== 'darwin')(
-    'the refusal happens before anything is created (macOS iCloud path)',
-    async () => {
-      const fakeHome = freshDir('i6open');
-      const root = join(fakeHome, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'bs');
-      await expect(StateStore.open(root, { home: fakeHome })).rejects.toThrow(SyncedRootError);
-      expect(readdirSync(fakeHome)).toEqual([]);
-    }
-  );
-
   test('the refusal happens before anything is created (Dropbox in the home)', async () => {
     const fakeHome = freshDir('i6open2');
     const root = join(fakeHome, 'Dropbox', 'bs');
