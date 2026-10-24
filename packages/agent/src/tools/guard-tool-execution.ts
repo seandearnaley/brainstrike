@@ -149,6 +149,22 @@ function timeoutMessage(
 }
 
 /**
+ * The one log of a failed call. A refused input is the model's to correct and
+ * is answered to it, and the thread log keeps the call; only a fault is the
+ * app's error.
+ */
+function logToolFailure(logger: ToolLogger | undefined, error: unknown, toolName: string): void {
+  const refused =
+    error instanceof ToolInputError ||
+    (error instanceof BoundaryFailureError && error.failure.kind === 'refusal');
+  if (refused) {
+    logger?.debug('Tool refused its input', { error, toolName });
+    return;
+  }
+  logger?.error('Tool execution failed', { error, toolName });
+}
+
+/**
  * Wrap a Mastra-compatible tool so its `execute` can never freeze or crash the
  * run: on timeout or throw it resolves to a structured {@link GuardedToolError}.
  * Non-executable tools are returned unchanged.
@@ -269,17 +285,16 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       });
 
       const run = (async () => Reflect.apply(original, cloned, executionArgs))();
-      // If the timeout already won the race, the original may still reject later.
-      // Log it instead of letting it become an unhandled rejection (no silent swallow).
+      // Once the timeout has answered, a later rejection has no caller left: log
+      // it rather than let it go unhandled. Before that, the catch below owns it.
       run.catch((error) => {
-        logger?.error('Tool execution rejected (possibly after guard timeout)', {
-          error,
-          toolName,
-        });
+        if (deadline.signal.aborted) {
+          logger?.error('Tool execution rejected after its guard timeout', { error, toolName });
+        }
       });
       return await Promise.race([run, timeout]);
     } catch (error) {
-      logger?.error('Tool execution failed', { error, toolName });
+      logToolFailure(logger, error, toolName);
       if (error instanceof ToolInputError) {
         return {
           error: {

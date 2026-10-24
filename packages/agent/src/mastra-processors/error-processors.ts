@@ -1,4 +1,3 @@
-import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import {
   type ErrorProcessor,
   PrefillErrorHandler,
@@ -22,10 +21,6 @@ const STREAM_ERROR_MAX_RETRIES = 2;
  */
 const STREAM_ERROR_BACKOFF_CAP_MS = 30_000;
 
-function normalizeProvider(provider: string): string {
-  return provider.trim().toLowerCase();
-}
-
 /**
  * Matches ECONNRESET-class transient stream errors so StreamErrorRetry waits
  * (rather than immediately re-failing) before retrying. Deliberately narrow —
@@ -42,97 +37,6 @@ export function isEconnResetStreamError(error: unknown): boolean {
   }
   const message = error instanceof Error ? error.message : undefined;
   return typeof message === 'string' && /econnreset|socket hang up/i.test(message);
-}
-
-/** Codes that mean "you are out of subscription quota", not "try again". */
-const SUBSCRIPTION_RATE_LIMIT_CODES = ['rate_limit', 'insufficient_quota', 'quota_exceeded'];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function readString(source: Record<string, unknown>, key: string): string | undefined {
-  const value = source[key];
-  return typeof value === 'string' ? value : undefined;
-}
-
-/**
- * Rate-limit / quota-exhaustion detection for subscription providers
- * (BST-1356, legal gate constraint 6).
- *
- * Walks the error, its `cause` chain, and the OpenAI stream-error envelope
- * (`{ type: 'error', error: {...} }`) that Mastra's own matcher parses, so the
- * two agree on what a 429 looks like. `WeakSet`-guarded against the
- * self-referential cause chains real SDK errors sometimes carry.
- */
-export function isSubscriptionRateLimitError(error: unknown): boolean {
-  const visited = new WeakSet<object>();
-
-  function visit(candidate: unknown): boolean {
-    if (!isRecord(candidate) || visited.has(candidate)) {
-      return false;
-    }
-    visited.add(candidate);
-
-    const status = candidate['statusCode'] ?? candidate['status'];
-    if (status === 429) {
-      return true;
-    }
-    const code = readString(candidate, 'code') ?? readString(candidate, 'type');
-    if (
-      code !== undefined &&
-      SUBSCRIPTION_RATE_LIMIT_CODES.some((needle) => code.toLowerCase().includes(needle))
-    ) {
-      return true;
-    }
-    // The OpenAI stream envelope nests the real payload, and SDK errors nest
-    // the transport failure under `cause`.
-    return visit(candidate['error']) || visit(candidate['cause']);
-  }
-
-  return visit(error);
-}
-
-/**
- * Wraps the shared retry processor so subscription quota is TERMINAL
- * (BST-1356, gate constraint 6).
- *
- * Ordering cannot express this: Mastra's ProcessorRunner only stops at a
- * processor that REQUESTS a retry, so an earlier "don't retry" processor
- * would simply be skipped over. And the retry processor's own matcher list is
- * ADDITIVE — `[...defaultEntries, ...options.matchers]` — so the built-in
- * `rate_limit` entry cannot be removed through configuration. Wrapping is the
- * only seam that actually holds the constraint.
- *
- * Everything that is NOT quota (socket resets, 5xx, unknown errors) keeps the
- * ordinary bounded retry behavior — making all failures terminal here would be
- * a silent reliability downgrade, not a legal safeguard.
- */
-class SubscriptionQuotaTerminalRetryProcessor implements ErrorProcessor {
-  readonly id = 'subscription-quota-terminal-retry-processor';
-  readonly name = 'Subscription Quota Terminal Retry Processor';
-  readonly #inner: StreamErrorRetryProcessor;
-
-  constructor(inner: StreamErrorRetryProcessor) {
-    this.#inner = inner;
-  }
-
-  processAPIError(
-    ...args: Parameters<NonNullable<ErrorProcessor['processAPIError']>>
-  ): ReturnType<NonNullable<ErrorProcessor['processAPIError']>> {
-    const [options] = args;
-    if (isSubscriptionRateLimitError(options.error)) {
-      // Return WITHOUT retrying and without sleeping: the provider's own
-      // quota message reaches the user immediately and verbatim (bounded by
-      // the shared run-error envelope).
-      return;
-    }
-    return this.#inner.processAPIError(...args);
-  }
-}
-
-export function isSubscriptionAuthProvider(provider: string): boolean {
-  return findProviderDefinition(normalizeProvider(provider))?.authType === 'oauth_subscription';
 }
 
 /**
@@ -161,8 +65,8 @@ export function isSubscriptionAuthProvider(provider: string): boolean {
  *    the bounded ~3s retry budget before surfacing — accepted for the
  *    transient-error recovery the option buys.
  */
-/** @internal Test seam: error-processors.spec.ts and subscription-rate-limit.spec.ts exercise vendor processor ordering and the live subscription quota classifier. */
-export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[] | undefined {
+/** @internal Test seam: error-processors.spec.ts exercises vendor processor ordering. */
+export function buildAssistantErrorProcessors(): ErrorProcessor[] | undefined {
   const retryProcessor = new StreamErrorRetryProcessor({
     delayMs: ({ retryCount }) => Math.min(1000 * 2 ** retryCount, STREAM_ERROR_BACKOFF_CAP_MS),
     matchers: [isEconnResetStreamError],
@@ -173,16 +77,7 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
     maxRetryAfterMs: STREAM_ERROR_BACKOFF_CAP_MS,
     retryUnknownErrors: true,
   });
-  return [
-    new PrefillErrorHandler(),
-    new ProviderHistoryCompat(),
-    // Subscription providers get the quota-terminal wrapper (gate constraint
-    // 6): retrying a 429 would spend the user's personal quota on their behalf
-    // and bury the message the gate requires them to see.
-    isSubscriptionAuthProvider(provider)
-      ? new SubscriptionQuotaTerminalRetryProcessor(retryProcessor)
-      : retryProcessor,
-  ];
+  return [new PrefillErrorHandler(), new ProviderHistoryCompat(), retryProcessor];
 }
 
 /**

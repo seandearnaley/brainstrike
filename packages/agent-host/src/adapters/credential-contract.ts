@@ -176,9 +176,6 @@ export function credentialToApiKey(provider: string, credential: ProviderCredent
 export function credentialStoredKeyFingerprint(
   credential: ProviderCredential
 ): StoredKeyFingerprint | undefined {
-  if (credential.type === 'oauth') {
-    return;
-  }
   const metadata = credential.metadata;
   if (!metadata) {
     return;

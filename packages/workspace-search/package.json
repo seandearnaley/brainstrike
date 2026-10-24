@@ -3,16 +3,13 @@
   "description": "Workspace search result model and session-lived search store",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/app-state": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/vector-management": "workspace:*",
     "lucide-react": "catalog:",
     "zustand": "catalog:"
   },

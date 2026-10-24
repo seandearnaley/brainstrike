@@ -1,6 +1,7 @@
-import type {
-  NativeIndexLifecycleObservation,
-  NativeIndexRefusalCause,
+import {
+  NATIVE_INDEX_OFF_MESSAGE,
+  type NativeIndexLifecycleObservation,
+  type NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { findEmbeddingHostUnresponsive } from './embedding-host-unresponsive';
 import {
@@ -34,6 +35,8 @@ export type NativeIndexCause =
   | { readonly kind: 'setup-required'; readonly message: string; readonly error?: unknown }
   /** Saved settings cannot be read; the message is the decode error. */
   | { readonly kind: 'settings-invalid'; readonly message: string; readonly error?: unknown }
+  /** The saved choice turned search off: a choice, never a failure, so it carries no error. */
+  | { readonly kind: 'off'; readonly message: string; readonly error?: never }
   /** A generation is opening or replacing the previous one. */
   | { readonly kind: 'transitioning' }
   /** A generation's sources failed: a scan, a watch, or startup. */
@@ -64,7 +67,7 @@ export type NativeIndexState =
     }
   | {
       readonly kind: 'unconfigured';
-      readonly cause: NativeIndexSettingsCause;
+      readonly cause: NativeIndexSettingsCause | Extract<NativeIndexCause, { kind: 'off' }>;
       readonly generation: number;
     }
   | {
@@ -191,6 +194,17 @@ function open(
   destroy = false
 ): NativeIndexTransition {
   const generation = state.generation + 1;
+  if (!settings.enabled) {
+    // Off opens no generation; what was live closes, as an unreadable save closes it.
+    return {
+      actions: state.kind === 'unconfigured' ? [] : [{ kind: 'close' }],
+      state: {
+        cause: { kind: 'off', message: NATIVE_INDEX_OFF_MESSAGE },
+        generation,
+        kind: 'unconfigured',
+      },
+    };
+  }
   return {
     actions: [{ destroy, generation, kind: 'open' }],
     state: isLive(state)
@@ -310,6 +324,16 @@ function rebuild(state: NativeIndexState): NativeIndexTransition {
   };
 }
 
+/** Off opens no index to rebuild; the person's request is refused in the Off words. */
+function rebuildSettings(
+  state: NativeIndexState,
+  settings: NativeIndexSettings
+): NativeIndexTransition {
+  return settings.enabled
+    ? open(state, settings, true)
+    : { ...unchanged(state), refused: { kind: 'off', message: NATIVE_INDEX_OFF_MESSAGE } };
+}
+
 function terminal(
   state: NativeIndexState,
   reason: NativeIndexCloseReason,
@@ -412,7 +436,7 @@ export function reduceNativeIndex(
         ? { actions: [], state: { generation: state.generation, kind: 'idle' } }
         : unchanged(state);
     case 'rebuild-settings':
-      return open(state, event.settings, true);
+      return rebuildSettings(state, event.settings);
     case 'profile-resume':
       return { actions: [], state: { generation: state.generation + 1, kind: 'resuming' } };
     case 'fence':

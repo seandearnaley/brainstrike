@@ -330,9 +330,11 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
     usable: true,
   } satisfies WorktreeListEntry;
   const listed: GitResult<readonly WorktreeListEntry[]> = { ok: true, value: [primary] };
-  const created: GitResult<WorktreeCreateResult> = {
+  const worktreeRoot = { displayName: 'fox', path: '/managed/fox', rootId: 'wt-root' };
+  const created: GitResult<WorktreeCreateResult & { root: typeof worktreeRoot }> = {
     ok: true,
     value: {
+      root: worktreeRoot,
       setup: {
         copiedPaths: [],
         output: '',
@@ -402,14 +404,26 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
       },
     ],
   });
+  const enterWorktree = vi.fn(async () => undefined);
   await expect(
-    manage.execute({ action: 'create', branch: 'bs/fox', root: 'root-a' }, execution())
+    manage.execute(
+      { action: 'create', branch: 'bs/fox', root: 'root-a' },
+      { ...execution(), enterWorktree }
+    )
   ).resolves.toEqual({
     action: 'create',
     branch: 'bs/fox',
+    entered: true,
     path: '/managed/fox',
     setupReason: null,
     setupStatus: 'none',
+    worktreeId: 'wt-9',
+  });
+  // The thread moves into the folder Main opened, from the checkout it was created in.
+  expect(enterWorktree).toHaveBeenCalledExactlyOnceWith({
+    branch: 'bs/fox',
+    localRootId: 'root-a',
+    root: worktreeRoot,
     worktreeId: 'wt-9',
   });
   // The run identity is the host run's, never tool input; Main stamps it on the ledger row.

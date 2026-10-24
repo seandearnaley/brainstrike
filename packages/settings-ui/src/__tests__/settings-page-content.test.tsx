@@ -23,8 +23,8 @@ vi.mock('../settings/system/factory-reset-settings-section', () => ({
   ),
 }));
 
-vi.mock('../settings/system/search-indexing-settings-section', () => ({
-  SearchIndexingSettingsSection: () => (
+vi.mock('../settings/system/search-index-settings-section', () => ({
+  SearchIndexSettingsSection: () => (
     <div data-testid="search-indexing-settings-section">Search Indexing Settings</div>
   ),
 }));
@@ -308,14 +308,14 @@ describe('createSearchIndexingSettingsCategory', () => {
 
     expect(category.id).toBe('search-indexing');
     expect(category.title).toBe('Search & Indexing');
-    expect(category.description).toMatch(/managed cache collection/i);
+    expect(category.description).toMatch(/how your folders are searched/i);
     expect(category.keywords).toEqual([
       'search',
       'indexing',
-      'background',
-      'cache',
-      'collection',
+      'semantic',
       'embeddings',
+      'chunking',
+      'model',
     ]);
 
     const { container } = render(category.content as React.ReactElement);

@@ -25,6 +25,7 @@ import {
   freshRepo as createFreshRepo,
   createTempDirTracker,
 } from './utils/git-fixtures';
+import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedRoot } from './utils/seed-root';
 import { WINDOWS_SMOKE_EXCLUSIONS } from './utils/windows-smoke-exclusions';
@@ -60,7 +61,7 @@ test.describe('Add Folder to Workspace (smoke)', () => {
   }) => {
     test.setTimeout(90_000);
 
-    // Seed one already-open root with background indexing OFF (smoke-fast).
+    // Seed one already-open root with indexing paused (smoke-fast).
     await page.evaluate(
       async ({ rootOne }) => {
         const storage = (
@@ -76,22 +77,10 @@ test.describe('Add Folder to Workspace (smoke)', () => {
           'rootsList',
           JSON.stringify([{ addedAt: 1_800_000_000_000, path: rootOne, rootId: 'smoke-root-1' }])
         );
-        localStorage.setItem(
-          'background-indexing-preferences.v1',
-          JSON.stringify({
-            state: {
-              enabled: false,
-              indexingPolicyPreset: 'full-root',
-              managedCollectionId: null,
-              mode: 'root-folder-cache',
-              paused: true,
-            },
-            version: 4,
-          })
-        );
       },
       { rootOne: ROOT_ONE_DIR }
     );
+    await updateIndexConfig(page, { paused: true });
 
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'add-root-smoke-seeded');

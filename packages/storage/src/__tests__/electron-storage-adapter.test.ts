@@ -81,15 +81,15 @@ describe('ElectronStorageAdapter', () => {
   it('should atomically clear every key except an explicit preserved set', async () => {
     await adapter.setItem('renderer-preference', 'value');
     await adapter.setItem('rootsList', 'main-owned');
-    await adapter.setItem('notesVaultRoots', 'main-owned');
+    await adapter.setItem('lastFolderPath', 'main-owned');
 
-    await adapter.clearExcept(['rootsList', 'notesVaultRoots']);
+    await adapter.clearExcept(['rootsList', 'lastFolderPath']);
 
     expect(await adapter.getItem('renderer-preference')).toBeNull();
     expect(await adapter.getItem('rootsList')).toBe('main-owned');
-    expect(await adapter.getItem('notesVaultRoots')).toBe('main-owned');
+    expect(await adapter.getItem('lastFolderPath')).toBe('main-owned');
     expect(JSON.parse(await fsPromises.readFile(storageFile, 'utf8'))).toEqual({
-      notesVaultRoots: 'main-owned',
+      lastFolderPath: 'main-owned',
       rootsList: 'main-owned',
     });
   });

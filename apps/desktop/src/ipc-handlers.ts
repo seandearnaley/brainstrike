@@ -8,7 +8,6 @@ import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
 import type ElectronStore from 'electron-store';
-import type { ChunkingHostManager } from './chunking-host-manager';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
@@ -29,7 +28,6 @@ import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 interface RegisterIpcHandlerOptions {
-  readonly chunkingHostManager?: ChunkingHostManager;
   readonly embeddingHostManager?: EmbeddingHostManager;
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   readonly getUserDataPath?: () => string;
@@ -121,7 +119,7 @@ export function createApplicationIpcDomain(
     // Recursive Explorer watcher (batched, ignoreInitial, path-filtered). This
     // concrete MAIN-owned closure is the sole production opt-in to bounded
     // default-filter boundary reporting; the renderer/wire cannot request it.
-    // Notes Vault and git metadata retain their separate legacy policies.
+    // Git metadata retains its separate legacy policy.
     // Health transitions flow back over fs:watch-health (BST-568 slice 3).
     startWatch: async (directoryPath, onChanges, onHealth) => {
       let mounted: MountedWorkspaceRoot | undefined;

@@ -517,39 +517,53 @@ describe('createDesktopFactoryResetHandler', () => {
     expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('ends a reset whose deletion completed, but whose resume quit refused, as complete (BST-2278)', async () => {
-    const { nativeIndexClosedError } = await import('../native-index-lifecycle-errors');
-    // Quit fences profile admission before its factory-reset step runs: the resume that
-    // reopens the index after the deletion borrows through that admission and is refused.
-    const quitRefusal = nativeIndexClosedError('shutdown');
-    const resumeAfterReset = vi.fn(async () => {
-      throw quitRefusal;
-    });
-    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
-    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
-    const handleReset = createDesktopFactoryResetHandler({
-      completeSuccessfulReset: completeSuccessfulResetMock,
-      logger,
-      prepareDatabaseProfileReset,
-      resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
-      resumeAfterReset,
-      runTransition: (work) => work(),
-      runtimes: [],
+  it.each([
+    ['the index reopen', false],
+    ["the reopened profile's config read", true],
+  ] as const)(
+    'ends a reset whose deletion completed, but whose resume quit refused at %s, as complete (BST-2278)',
+    async (_step, configRead) => {
+      const { nativeIndexClosedError } = await import('../native-index-lifecycle-errors');
+      const { IndexConfigStoreFailed } = await import('../index-config');
+      // Quit fences profile admission before its factory-reset step runs: the resume that
+      // reopens the index after the deletion borrows through that admission and is refused.
+      // The config read borrows the same admission; its owner wraps the refusal it got.
+      const refusal = nativeIndexClosedError('shutdown');
+      const quitRefusal = configRead
+        ? new IndexConfigStoreFailed({
+            cause: refusal,
+            message: 'The search index settings could not be read.',
+          })
+        : refusal;
+      const resumeAfterReset = vi.fn(async () => {
+        throw quitRefusal;
+      });
+      const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
+      const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+      const handleReset = createDesktopFactoryResetHandler({
+        completeSuccessfulReset: completeSuccessfulResetMock,
+        logger,
+        prepareDatabaseProfileReset,
+        resetLocalDatabase: vi.fn(async () => undefined),
+        resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+        resumeAfterReset,
+        runTransition: (work) => work(),
+        runtimes: [],
 
-      sessionDataPath: '/mock/userData/session-data',
-      userDataPath: '/mock/userData',
-    });
+        sessionDataPath: '/mock/userData/session-data',
+        userDataPath: '/mock/userData',
+      });
 
-    await expect(handleReset.reset()).resolves.toEqual({ success: true });
-    expect(resumeAfterReset).toHaveBeenCalledWith('succeeded', expect.any(AbortSignal));
-    expect(logger.error).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(
-      'Factory reset complete; resume skipped because the app is quitting',
-      quitRefusal
-    );
-    expect(logger.info).toHaveBeenCalledWith('Desktop factory reset completed');
-  });
+      await expect(handleReset.reset()).resolves.toEqual({ success: true });
+      expect(resumeAfterReset).toHaveBeenCalledWith('succeeded', expect.any(AbortSignal));
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        'Factory reset complete; resume skipped because the app is quitting',
+        quitRefusal
+      );
+      expect(logger.info).toHaveBeenCalledWith('Desktop factory reset completed');
+    }
+  );
 
   it.each([
     ['a native index closed for another reason', 'profile-retired'],

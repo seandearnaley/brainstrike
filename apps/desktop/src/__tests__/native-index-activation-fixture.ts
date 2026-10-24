@@ -17,6 +17,8 @@ import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
+import type { NativeIndexSettings } from '../native-index-settings';
+import { textCollectionSettings } from './helpers/native-index-settings';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -169,33 +171,9 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
     }),
   };
 }
-/** A genuine settings change: the next settings read returns the saved state with `changes`. */
-export async function saveSettingsChange(
-  storage: ReturnType<typeof fixture>['storage'],
-  changes: Record<string, unknown>
-): Promise<void> {
-  const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
-  storage.getItem.mockResolvedValue(
-    JSON.stringify({ ...saved, state: { ...saved.state, ...changes } })
-  );
-}
-
 export function fixture(applicationOverride?: ApplicationIpcDomain) {
-  const storage = {
-    getItem: vi.fn(async () =>
-      JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: 'balanced',
-          managedCollectionId: 'selected',
-          nativeIndexMode: 'TEXT',
-          nativeLocalSelection: null,
-          paused: false,
-          worktreeRootIndexingOptInById: {},
-        },
-      })
-    ),
-  };
+  /** Main's config owner; a test saves a change by resolving the next read with it. */
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -214,9 +192,10 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
       mocks.loseHost.mockImplementation(lost);
       return createDesktopHostLease({ root: '/owned/profile' });
     }),
-    storage,
+    settings,
+    storage: { getItem: unused },
   });
-  return { activation, onError, onReceipt, storage, transport };
+  return { activation, onError, onReceipt, settings, transport };
 }
 export function resetActivationFixture(): void {
   vi.resetAllMocks();

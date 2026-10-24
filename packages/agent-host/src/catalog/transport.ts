@@ -1,5 +1,10 @@
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { createCollectionClient, serveCollectionStore } from './collection-store.js';
+import {
+  createIndexConfigClient,
+  type IndexConfigSettings,
+  serveIndexConfigStore,
+} from './index-config-store.js';
 import { createModelChoiceClient, serveModelChoiceStore } from './model-choice-store.js';
 import { createPromptLibraryClient, servePromptLibrary } from './prompt-library-store.js';
 import { createSourceCatalogClient, serveSourceCatalogStore } from './source-catalog-store.js';
@@ -14,6 +19,7 @@ import { createWorktreeForgeClient, serveWorktreeForgeStore } from './worktree-f
 export function createHostCatalogClient(connection: MessageConnection) {
   return {
     ...createCollectionClient(connection),
+    ...createIndexConfigClient(connection),
     ...createModelChoiceClient(connection),
     ...createPromptLibraryClient(connection),
     ...createSourceCatalogClient(connection),
@@ -24,14 +30,17 @@ export function createHostCatalogClient(connection: MessageConnection) {
   };
 }
 export type HostCatalog = ReturnType<typeof createHostCatalogClient>;
+/** What serves the catalog: the acquired writer's domains and its settings. */
+export type HostCatalogStore = Omit<HostCatalog, 'indexConfig'> & IndexConfigSettings;
 
 /** These are borrowed endpoints of the acquired writer, never a second store. */
 export function serveHostCatalog(
   connection: Pick<MessageConnection, 'onRequest'>,
-  store: HostCatalog
+  store: HostCatalogStore
 ) {
   const endpoints = [
     serveCollectionStore(connection, store),
+    serveIndexConfigStore(connection, store),
     serveModelChoiceStore(connection, store),
     servePromptLibrary(connection, store),
     serveSourceCatalogStore(connection, store),

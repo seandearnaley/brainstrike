@@ -99,10 +99,8 @@ const REJECTED_CREDENTIAL_HTTP_STATUS = 401;
  * The remedy half of the 401 copy, keyed by the provider's registry
  * `authType` (PR #2573 review). The remedy MUST match how that provider
  * actually authenticates — an "update the API key" instruction is a dead end
- * for a ChatGPT subscription session (`oauth_subscription`; its stored key is
- * the `oauth-subscription-no-api-key` placeholder and a 401 means the session
- * expired or was revoked), for Bedrock (`aws`; bearer key OR an AWS profile
- * chain whose SSO session can expire), and for a local runtime (`none`; the
+ * for Bedrock (`aws`; bearer key OR an AWS profile
+ * chain whose SSO session can expire) and for a local runtime (`none`; the
  * optional bearer is `providerOptions.apiToken`, configured under Local
  * Runtimes — there is no Settings key to edit). Settings surface names are the
  * CURRENT category titles ("Providers" replaced "API Keys" in #2529).
@@ -115,8 +113,6 @@ function rejectedCredentialRemedy(authType: ProviderAuthType, subject: string): 
       return `${subject} rejected the AWS credentials (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — they are invalid or expired. Update the Bedrock credential in Settings → Providers, or refresh the AWS profile session (for example \`aws sso login\`).`;
     case 'none':
       return `${subject} rejected the request as unauthorized (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}). Check the runtime’s API token under Settings → Local Runtimes.`;
-    case 'oauth_subscription':
-      return `${subject} rejected the sign-in session (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — it expired or was revoked. Sign in again in Settings → Providers.`;
     default: {
       // Exhaustive: a new registry authType must choose its remedy here.
       const exhaustive: never = authType;

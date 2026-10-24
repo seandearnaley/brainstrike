@@ -11,6 +11,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
+import { textCollectionSettings } from './helpers/native-index-settings';
 import {
   createActivation,
   emptyCollection,
@@ -116,20 +117,8 @@ function startup(syncs: readonly Sync[]) {
     embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     reopenDelaysMs: [0, 0, 0],
-    storage: {
-      getItem: async () =>
-        JSON.stringify({
-          state: {
-            enabled: true,
-            indexingPolicyPreset: 'balanced',
-            managedCollectionId: 'selected',
-            nativeIndexMode: 'TEXT',
-            nativeLocalSelection: null,
-            paused: false,
-            worktreeRootIndexingOptInById: {},
-          },
-        }),
-    },
+    settings: async () => textCollectionSettings(),
+    storage: { getItem: unused },
   });
   const observer = new AbortController();
   void activation

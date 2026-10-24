@@ -11,7 +11,7 @@ import {
 } from './embedding-worker-renderer.shared';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
+import { updateIndexConfig } from './utils/index-config';
 
 /**
  * Lifecycle redesign PR D (§6.1): a slow machine never causes a worker error. The E2E seam holds
@@ -111,7 +111,6 @@ test('@desktop-slow-machine-workers slow workers are waited for, never retired o
   );
   try {
     const { app, window } = await electron.ensureContext();
-    const homePage = new HomePage(window);
 
     // The hidden embedding host reports ready 35 s late, past its former 30 s ready timer: it is
     // waited for, in one window. Timing this first start also proves the seam is live.
@@ -134,20 +133,6 @@ test('@desktop-slow-machine-workers slow workers are waited for, never retired o
 
     // Text indexing of the folder: its canonical attach and the utility's first request each
     // answer 7 s late, past the former 5 s deadlines that closed admission or killed the utility.
-    await homePage.openSettings();
-    await window.getByRole('button', { name: 'Search & Indexing' }).click();
-    await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible({
-      timeout: 60_000,
-    });
-    await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-    await window.getByRole('option', { name: /BGE Small/ }).click();
-    await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-    await expect(window.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-      'Workspace Index (BGE Small)',
-      { timeout: 60_000 }
-    );
-    await window.getByRole('combobox', { name: 'Search mode' }).click();
-    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
     await expect
       .poll(() => readIndexDigest(window), { intervals: [1000], timeout: 180_000 })
       .toEqual({
@@ -162,14 +147,15 @@ test('@desktop-slow-machine-workers slow workers are waited for, never retired o
 
     // Paused semantic setup reaches a VECTOR profile without inference
     // (workspace-index-bootstrap "completes paused semantic setup", smoke45's test).
-    await window.getByRole('button', { name: 'Pause workspace index' }).click();
-    await window.getByRole('combobox', { name: 'Search mode' }).click();
-    await window.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
-    await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-    await window.getByRole('option', { name: /BGE Small/ }).click();
-    await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-    await window.getByRole('combobox', { name: 'Local model execution' }).click();
-    await window.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
+    await updateIndexConfig(window, { paused: true });
+    await updateIndexConfig(window, {
+      mode: 'semantic',
+      model: {
+        dimensions: 384,
+        local: { device: 'wasm', dtype: 'q8' },
+        modelKey: 'local::Xenova/bge-small-en-v1.5',
+      },
+    });
     await expect
       .poll(() => readIndexDigest(window).then((digest) => digest.indexMode), {
         intervals: [1000],

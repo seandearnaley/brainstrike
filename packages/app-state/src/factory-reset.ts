@@ -1,7 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assistant-budget-preferences-store';
 import { resetAssistantSubagentPreferencesStoreToDefaults } from './stores/assistant-subagent-preferences-store';
-import { resetBackgroundIndexingPreferencesStoreToDefaults } from './stores/background-indexing-preferences-store';
 import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store';
 import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
 import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store';
@@ -43,7 +42,6 @@ export const FALLBACK_INDEXED_DB_NAMES = [
   // Non-PGlite IndexedDB stores (named bare, not via Emscripten IDBFS).
   'brainstrike-desktop', // Desktop renderer queue/embeddings database
   'brainstrike-file-handles', // Web File System Access handle cache (IndexedDB)
-  'brainstrike-notes-vault', // Notes vault directory handles (@brainstrike/notes-vault handle-store.ts)
   // NOTE: `brainstrike-web` was a PGlite store (idb://brainstrike-web) → its real
   // database name is `/pglite/brainstrike-web` (listed above), so there is no bare
   // `brainstrike-web` entry here.
@@ -145,7 +143,7 @@ async function clearElectronStorage(): Promise<ClearPersistentUiStateFailure[]> 
 
   // Clear renderer-owned records in electron-storage.json. Desktop main's
   // resetLocal handler owns the full userData wipe, including main-owned root
-  // and vault ledgers; the renderer storage bridge deliberately preserves
+  // ledgers; the renderer storage bridge deliberately preserves
   // those authority keys outside that main-owned reset (BST-1401).
   if (w.electronAPI?.storage?.clear) {
     try {
@@ -263,7 +261,6 @@ export const FALLBACK_OPFS_DIR_NAMES = [
   'web-pg18',
   'app',
   'web',
-  'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
   'brainstrike-web-state-default', // The browser state DB's default store (@brainstrike/web-state-store)
   'brainstrike-web-state-default--files', // Its file index's own pool (webStateExtensionPool)
 ] as const;
@@ -271,13 +268,6 @@ export const FALLBACK_OPFS_DIR_NAMES = [
 // Matches the pglite OPFS-AHP root dirs for our db names (`app`/`web`), versioned
 // or not, so enumeration-based clearing never touches an unrelated OPFS consumer.
 const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
-
-// Non-pglite Brainstrike OPFS dirs that a reset must also wipe when enumerating.
-// (The fallback list alone is NOT enough: it only applies when enumeration
-// finds nothing, so a matching pglite dir would otherwise shield these.)
-const OPFS_NON_PGLITE_RESET_DIRS: ReadonlySet<string> = new Set([
-  'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
-]);
 
 // Every browser state DB pool: `WEB_STATE_POOL_PREFIX` plus the store's name
 // (@brainstrike/web-state-store protocol.ts `webStateNames`), and the pools its
@@ -320,11 +310,7 @@ async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]>
   if (typeof root.keys === 'function') {
     try {
       for await (const name of root.keys()) {
-        if (
-          OPFS_PGLITE_DIR_RE.test(name) ||
-          OPFS_NON_PGLITE_RESET_DIRS.has(name) ||
-          OPFS_WEB_STATE_POOL_RE.test(name)
-        ) {
+        if (OPFS_PGLITE_DIR_RE.test(name) || OPFS_WEB_STATE_POOL_RE.test(name)) {
           names.push(name);
         }
       }
@@ -475,14 +461,6 @@ function clearBrowserStorage(): void {
   resetLiveStoreSafely(
     'workspace instructions preferences store',
     resetWorkspaceInstructionsPreferencesStoreToDefaults
-  );
-
-  // Same rationale as the workspace instructions store above: the per-root
-  // `worktreeRootIndexingOptInById` opt-in map is live in-memory state a reset
-  // without a reload (web path) would otherwise leave in place.
-  resetLiveStoreSafely(
-    'background indexing preferences store',
-    resetBackgroundIndexingPreferencesStoreToDefaults
   );
 
   // Budget guardrail caps are persisted preferences; reset the live store too

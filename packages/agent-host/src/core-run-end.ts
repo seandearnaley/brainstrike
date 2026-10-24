@@ -7,6 +7,7 @@ import type { HostClientOrigin } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
 import { endHostRunTurn } from './run-admission.js';
+import { enteredWorktreeRunParams } from './run-continuation.js';
 import type { HostThreadPresentationState } from './thread-presentation-state.js';
 
 type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
@@ -78,6 +79,13 @@ export class HostRunEnds {
           // The input's run, or its refusal, is committed: the report now waits on that run.
           settleHostChildInput(run, ports.runs());
         }
+      }
+      // ADR-0028 step 3: the task goes on in the worktree the run entered.
+      if (!next && open && outcome === 'completed' && run.enteredWorktree) {
+        next = await ports.startNextRun(
+          enteredWorktreeRunParams(run, run.enteredWorktree),
+          run.input?.origin
+        );
       }
       if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
         this.wake(parent);

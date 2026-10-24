@@ -22,7 +22,8 @@ import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { generateHostedEmbeddings } from '../hosted-embeddings';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { nativeIndexClosedError, nativeIndexStateError } from '../native-index-lifecycle-errors';
-import { readNativeIndexSettings } from '../native-index-settings';
+import { NativeIndexEventRefusedError } from '../native-index-workflow-errors';
+import { textSettings } from './helpers/native-index-settings';
 
 vi.mock('../secrets', () => ({
   getSecretsService: () => ({ getKey: async () => 'fake-boundary-test' }),
@@ -299,9 +300,7 @@ it('names the rebuild as the remedy for a store that refused its index file', ()
       },
       generation: 3,
       kind: 'failed',
-      settings: readNativeIndexSettings(
-        '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-      ),
+      settings: textSettings(),
     }),
     log
   );
@@ -319,6 +318,22 @@ it('names the rebuild as the remedy for a store that refused its index file', ()
     'Native index refusal retained its original cause',
     expect.objectContaining({ code: 'native-index-rebuild-required' })
   );
+});
+
+// A folder added while a reset deletes root data: the event the closed index refuses reaches the
+// renderer as the lifecycle's own refusal, which it shows as preparing, not as a sync error.
+it.each([
+  [{ kind: 'closed', reason: 'root-data-deletion' }, 'native-index-closed'],
+  [{ kind: 'transitioning' }, 'native-index-transitioning'],
+] as const)('sends a roots-changed event refused as %o as the typed %s refusal', (cause, code) => {
+  const log = vi.fn();
+  const failure = nativeIndexBoundaryFailure(
+    new NativeIndexEventRefusedError({ cause, event: 'roots-changed' }),
+    log
+  );
+
+  expect(failure).toMatchObject({ category: 'availability', code, kind: 'refusal' });
+  expect(log).not.toHaveBeenCalled();
 });
 
 // ADR-0026: quit's one terminal reason keeps its typed kind across the boundary,

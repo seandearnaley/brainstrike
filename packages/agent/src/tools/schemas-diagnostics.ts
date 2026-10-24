@@ -1,6 +1,4 @@
 export {
-  type CreateEmbeddingSetInput,
-  CreateEmbeddingSetInputSchema,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type QueryDiagnosticsInput,

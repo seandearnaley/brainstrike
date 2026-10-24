@@ -27,7 +27,6 @@ export {
   deriveNativeToolRegistries,
   describeAvailableDeferredCapabilityFamilies,
   InvalidNativeToolDefinitionError,
-  MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS,
   NATIVE_TOOL_EXECUTION_BUDGETS,
   NATIVE_TOOL_REGISTRIES,
   NATIVE_TOOLS,

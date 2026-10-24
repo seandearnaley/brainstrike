@@ -105,18 +105,13 @@ into a dead JS context and aborts Main (BST-2244). An owner keeps a subscription
 whose unsubscribe failed until a retry succeeds; each terminal dispose retries it
 once and rejects visibly if it fails again (BST-2248).
 The Git inventory service retains its watcher generation through failed stop and
-refuses restart until retirement succeeds. Notes Vault cleanup runs only in its
-awaited graceful step; the synchronous `will-quit` ledger never launches a retry.
+refuses restart until retirement succeeds.
 
 Git runs as a plain Node child on every platform (ADR-0027), so there is no
 per-command native Job for quit to join. Windows agent commands keep their wrapper and
 Job. The git runner settles at the child's `close`; output past its capture ceiling
 closes the pipe instead of killing git, since a kill on Windows reaches only the
 `cmd\git.exe` launcher and leaves the real git running in the repository.
-
-Parser host Stop joins every owned generation’s exit and listeners; there is no
-caller-side wait to give up on it. A failed kill remains visible and retryable,
-blocks parsing on that generation, and never acknowledges successful cleanup.
 
 The E2E harness joins the app's exit under the test timeout and requires exit code
 0. A SIGTERM from the harness is cleanup after a failed close, and the test fails.

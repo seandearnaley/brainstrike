@@ -358,26 +358,18 @@ describe('provider projection over the shared credential authority', () => {
     return { backend, secrets, store, values };
   }
 
-  it('exports the exact shared error constructor and preserves typed OAuth and AWS envelopes', async () => {
+  it('exports the exact shared error constructor and preserves typed AWS envelopes', async () => {
     const { secrets, store } = providerFixture();
     expect(PublicSecretReadError).toBe(SecretReadError);
-    const oauth = {
-      access: 'fixture-access',
-      expires: 123,
-      refresh: 'fixture-refresh',
-      type: 'oauth',
-    } as const;
     const aws = {
       mode: 'profile_chain',
       profile: 'fixture-profile',
       region: 'us-east-1',
       type: 'aws',
     } as const;
-    await secrets.setCredential('subscription', oauth);
     await secrets.setCredential('bedrock', aws);
-    await expect(secrets.getCredential('subscription')).resolves.toEqual(oauth);
     await expect(secrets.getCredential('bedrock')).resolves.toEqual(aws);
-    await expect(secrets.getKey('subscription')).rejects.toBeInstanceOf(SecretReadError);
+    await expect(secrets.getKey('bedrock')).rejects.toBeInstanceOf(SecretReadError);
     await expect(secrets.getKey('bedrock')).rejects.toMatchObject({
       code: 'credential_type_unsupported',
     });
@@ -387,7 +379,7 @@ describe('provider projection over the shared credential authority', () => {
   it('keeps a malformed tagged credential and unavailable storage distinguishable from missing', async () => {
     const { backend, secrets, store, values } = providerFixture();
     await expect(secrets.getCredential('absent')).resolves.toBeNull();
-    values.set('fixture-provider:malformed', '{"type":"oauth","access":"fixture-access"}');
+    values.set('fixture-provider:malformed', '{"type":"aws","mode":"bearer"}');
     await expect(secrets.getCredential('malformed')).rejects.toMatchObject({
       code: 'malformed_credential',
     });

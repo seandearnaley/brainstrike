@@ -42,7 +42,7 @@ export function desktopAdmission(
     ...createDesktopRunAdmission(
       capabilities.admission,
       async () => await savedPolicy?.(),
-      (provider, origin) => auth.resolveProviderAuth(provider, origin)
+      (provider) => auth.resolveProviderAuth(provider)
     ),
   };
 }

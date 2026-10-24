@@ -135,9 +135,6 @@
       "@brainstrike/file-import": [
         "../../packages/file-import/src"
       ],
-      "@brainstrike/file-import/chunking-worker-context": [
-        "../../packages/file-import/src/chunking-worker-context.tsx"
-      ],
       "@brainstrike/app-shell": [
         "../../packages/app-shell/src"
       ],
@@ -170,9 +167,6 @@
       ],
       "@brainstrike/app-shell/worktrees/availability": [
         "../../packages/app-shell/src/worktrees/availability.ts"
-      ],
-      "@brainstrike/notes-vault/desktop-contract": [
-        "../../packages/notes-vault/src/desktop/bridge-contract.ts"
       ],
       "@brainstrike/platform-utils": [
         "../../packages/platform-utils/src"

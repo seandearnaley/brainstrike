@@ -1,7 +1,10 @@
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { isHostLeaseClosed, isRetirementRefusal } from './desktop-shutdown-state';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
+import { indexConfigCause } from './native-index-boundary-failure';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
+import { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 
 /** An aggregated failure's inner error as the log keeps it, nested errors and cause included. */
 interface InnerError {
@@ -34,31 +37,64 @@ function innerError(error: unknown): InnerError {
   };
 }
 
+/**
+ * A generation a newer one replaced (`transitioning`), or one an owner closed: reset, terminal
+ * retirement, root-data deletion, profile retirement or shutdown (`closed`). Typed only by the
+ * lifecycle owner; an untyped error or a `source-failure` refusal never matches.
+ *
+ * A generation re-opening after a failure is `transitioning` too ("Native index is re-opening
+ * after a failure: …"), so it matches. The failure it retries was logged when it happened: by
+ * the caller that awaited the failed startup (the boot `acquire`, `reconfigure`, a rebuild or a
+ * resumed open) and, for an automatic re-open, by the re-open scheduler's warning.
+ */
+function isReplacedOrRetiredGeneration(error: unknown): boolean {
+  const kind =
+    error instanceof NativeIndexRefusalError
+      ? error.refusal.kind
+      : error instanceof NativeIndexEventRefusedError
+        ? error.cause.kind
+        : undefined;
+  return kind === 'transitioning' || kind === 'closed';
+}
+
 export function reportNativeIndexActivationError(
   message: string,
   error: unknown,
   shuttingDown: boolean,
   logger: ActivationLogger
 ): void {
-  if (shuttingDown && error instanceof IndexerUtilityExitedError) {
+  // A search index config read or apply wraps quit's retirement; the cause is what quit refused.
+  const cause = indexConfigCause(error);
+  if (shuttingDown && cause instanceof IndexerUtilityExitedError) {
     // A signal to Main's process group ends the utility with the shutdown (BST-2135). Info, not
     // warn: the exit cannot lose committed index state (see `IndexerUtilityExitedError`).
     logger.info('Native indexer utility exited before shutdown retired its attachments', {
-      reason: error.message,
+      reason: cause.message,
     });
     return;
   }
   if (
     shuttingDown &&
-    (error instanceof NativeAuthorityTransitionError || isRetirementRefusal(error))
+    (cause instanceof NativeAuthorityTransitionError || isRetirementRefusal(cause))
   ) {
     logger.info('Native index activation retired during shutdown', {
-      reason: error instanceof Error ? error.message : String(error),
+      reason: cause instanceof Error ? cause.message : String(cause),
+    });
+    return;
+  }
+  if (isReplacedOrRetiredGeneration(cause)) {
+    // The owner's requested outcome happened; the current generation reports its own state.
+    logger.info('Native index generation replaced or retired', {
+      reason: cause instanceof Error ? cause.message : String(cause),
     });
     return;
   }
   if (error instanceof NativeIndexSetupRequiredError) {
     logger.info('Workspace index setup required', { reason: error.message });
+    return;
+  }
+  if (error instanceof NativeIndexRefusalError && error.refusal.kind === 'off') {
+    logger.info('Search is off', { reason: error.message });
     return;
   }
   // The logger serializes an AggregateError without its `errors`, so a retirement

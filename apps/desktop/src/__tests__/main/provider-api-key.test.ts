@@ -191,7 +191,7 @@ describe('provider-api-key', () => {
     const secrets = {
       getCredential: vi.fn((provider: string) =>
         provider === 'anthropic'
-          ? Promise.resolve({ access: 'a', expires: 1, refresh: 'r', type: 'oauth' })
+          ? Promise.resolve({ mode: 'profile_chain', region: 'us-east-1', type: 'aws' })
           : Promise.resolve({ key: 'sk-openai', type: 'api_key' })
       ),
       listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
@@ -229,27 +229,6 @@ describe('provider-api-key', () => {
     });
   });
 
-  it('counts a host-held subscription sign-in Main may not read as configured, and nothing else', async () => {
-    mockListAgentProviders.mockReturnValue(['anthropic', 'openai-codex']);
-    mockGetAgentProviderEnvKeys.mockReturnValue([]);
-    mockIsSupportedProvider.mockReturnValue(true);
-
-    const { SecretReadError } = await import('../../secrets');
-    // Main's read-only view refuses OAuth entries with this code.
-    const secrets = {
-      getCredential: vi.fn((provider: string) =>
-        Promise.reject(new SecretReadError('credential_type_unsupported', provider))
-      ),
-      listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai-codex']),
-    };
-    mockGetSecretsService.mockReturnValue(secrets);
-
-    await expect(inspectProviderKeys()).resolves.toMatchObject({
-      configuredProviders: [{ provider: 'openai-codex', source: 'stored' }],
-      readFailures: [{ code: 'credential_type_unsupported', provider: 'anthropic' }],
-    });
-  });
-
   describe('readProviderCredential (BST-1352 typed reader)', () => {
     it('tags an env hit as an api_key credential with source env and never reads the store', async () => {
       mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
@@ -267,12 +246,12 @@ describe('provider-api-key', () => {
 
     it('tags a stored typed credential with source stored', async () => {
       mockGetAgentProviderEnvKeys.mockReturnValue(['ANTHROPIC_KEY']);
-      const oauth = { access: 'a', expires: 1, refresh: 'r', type: 'oauth' as const };
-      const secrets = { getCredential: vi.fn().mockResolvedValue(oauth) };
+      const aws = { mode: 'profile_chain', region: 'us-east-1', type: 'aws' as const };
+      const secrets = { getCredential: vi.fn().mockResolvedValue(aws) };
       mockGetSecretsService.mockReturnValue(secrets);
 
       await expect(readProviderCredential('anthropic')).resolves.toEqual({
-        ...oauth,
+        ...aws,
         source: 'stored',
       });
     });

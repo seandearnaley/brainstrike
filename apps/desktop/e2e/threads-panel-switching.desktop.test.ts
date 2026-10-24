@@ -5,11 +5,11 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest, ModelProviderScript } from './utils/model-provider-shim';
 
-const destinations = ['Notes', 'Git', 'Browser', 'Settings', 'Collections', 'Prompts'] as const;
+const destinations = ['Git', 'Browser', 'Settings', 'Prompts'] as const;
 const transitions = [
   ...destinations.map((destination) => ({ destination, via: undefined as string | undefined })),
-  ...(['Collections', 'Prompts'] as const).flatMap((destination) =>
-    ['Notes', 'Git', 'Browser', 'Settings'].map((via) => ({ destination, via }))
+  ...(['Prompts'] as const).flatMap((destination) =>
+    ['Git', 'Browser', 'Settings'].map((via) => ({ destination, via }))
   ),
 ];
 const CHILD_TASK = 'SWITCH_MATRIX_CHILD';
@@ -138,7 +138,7 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
           await settle(page);
           const before = await geometry(viewport);
           expect(before.scrollTop).toBe(target);
-          const library = destination === 'Collections' || destination === 'Prompts';
+          const library = destination === 'Prompts';
           await page
             .getByRole(library ? 'tab' : 'button', { exact: true, name: destination })
             .click();

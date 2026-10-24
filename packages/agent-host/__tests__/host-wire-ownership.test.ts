@@ -2,19 +2,18 @@ import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
-  ClientOpenExternalParamsSchema,
   HOST_METHOD_SCHEMAS,
   HOST_RESULT_SCHEMAS,
   HostEventSchema,
   parseHostParams,
 } from '../src/protocol.js';
-import wireV12 from './fixtures/host-v12-methods.json' with { type: 'json' };
+import wireV13 from './fixtures/host-v13-methods.json' with { type: 'json' };
 
 test('every first-party host request/result/event grammar has one Effect owner', () => {
   const requests = Object.entries(HOST_METHOD_SCHEMAS);
   const results = Object.entries(HOST_RESULT_SCHEMAS);
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV12.version);
-  expect(requests.map(([name]) => name).sort()).toEqual(wireV12.methods);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV13.version);
+  expect(requests.map(([name]) => name).sort()).toEqual(wireV13.methods);
   expect(results.map(([name]) => name).sort()).toEqual(requests.map(([name]) => name).sort());
   expect(
     [...requests, ...results, ['event', HostEventSchema]]
@@ -24,17 +23,7 @@ test('every first-party host request/result/event grammar has one Effect owner',
 });
 
 test('protocol version and secret-bearing request refusal stay fixed', () => {
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(12);
-  expect(parseHostParams('auth/connect', { method: undefined, provider: 'openai' })).toEqual({
-    method: undefined,
-    provider: 'openai',
-  });
-  expect(() =>
-    parseHostParams('auth/connect', { provider: 'openai', secretRider: 'never-print-me' })
-  ).toThrow('Invalid MCP host request');
-  expect(() =>
-    parseHostParams('auth/connect', { provider: 'openai', secretRider: 'never-print-me' })
-  ).not.toThrow('secretRider');
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(13);
   expect(() => parseHostParams('auth/clear', [])).toThrow('Invalid MCP host request');
   expect(() => parseHostParams('auth/clear', 1)).toThrow('Invalid MCP host request');
   const badAccess = { access: 'x', catalogId: 'github', token: 'never-print-me' };
@@ -77,14 +66,6 @@ test('v12 MCP config writes require the base revision and return the new one', (
     expect(decodeResult(method)(conflict)).toEqual(conflict);
     expect(() => decodeResult(method)({ ...conflict, conflict: false })).toThrow();
   }
-});
-
-test('external URL normalization preserves the former URL decoder output', () => {
-  expect(
-    Schema.decodeSync(ClientOpenExternalParamsSchema, { onExcessProperty: 'error' })({
-      url: ' \thttps://exa\nmple.test/path\r ',
-    })
-  ).toEqual({ url: 'https://example.test/path' });
 });
 
 test('the owned MCP settlement decoder keeps its original refusal', () => {

@@ -446,9 +446,8 @@ export const McpStartupPolicySchema = Schema.Literals(['automatic', 'authenticat
 export type McpStartupPolicy = (typeof McpStartupPolicySchema)['Type'];
 /**
  * A server's `toolTimeoutMs` ceiling (BST-1779): the transport's default total
- * (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`), and so below the stream's
- * tool-executing backstop, which is derived to sit above every guard window.
- * A longer silent window would end at that backstop instead of its own.
+ * (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`). A longer silent window would end at
+ * that total instead of its own.
  */
 export const MAX_MCP_TOOL_TIMEOUT_MS = 600_000;
 /** Below a second, `toolTimeoutMs` is far likelier a value meant in seconds. */

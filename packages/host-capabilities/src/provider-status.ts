@@ -138,14 +138,6 @@ async function collectStoredSources(
       if (!(read.error instanceof SecretReadError)) {
         throw read.error;
       }
-      if (
-        read.error.code === 'credential_type_unsupported' &&
-        findProviderDefinition(read.provider)?.authType === 'oauth_subscription'
-      ) {
-        // A subscription sign-in this reader may not parse: the OAuth engine holds it.
-        configured.set(read.provider, { provider: read.provider, source: 'stored' });
-        continue;
-      }
       logger.error('Stored provider credential is unreadable; reporting provider failure', {
         error: read.error,
         provider: read.provider,

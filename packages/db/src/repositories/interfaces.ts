@@ -4,7 +4,6 @@ import type {
   ViewFilterPreset,
 } from '@brainstrike/types';
 import type { GrepCandidate, GrepCandidateOptions } from '@brainstrike/utils/grep-search';
-import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set.js';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -21,28 +20,6 @@ import type {
   FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record';
-
-/**
- * Common interface for all embedding sets repositories
- */
-export interface IEmbeddingSetsRepository {
-  delete: (id: string) => Promise<boolean>;
-  findAll: () => Promise<EmbeddingSet[]>;
-  getById: (id: string) => Promise<EmbeddingSet | null>;
-  getByModelKey: (modelKey: string) => Promise<EmbeddingSet[]>;
-  getOrCreateSet: (
-    modelKey: string,
-    modelId: string,
-    dimensions: number,
-    distance: EmbeddingDistance,
-    metadata?: { name?: string; description?: string; tags?: string; category?: string }
-  ) => Promise<EmbeddingSet>;
-  getOrCreateWorkspaceIndexSet: () => Promise<EmbeddingSet>;
-  updateMetadata: (
-    id: string,
-    metadata: { name?: string; description?: string; tags?: string; category?: string }
-  ) => Promise<EmbeddingSet | null>;
-}
 
 /**
  * Shared file-chunk repository contract implemented by the direct PGlite,

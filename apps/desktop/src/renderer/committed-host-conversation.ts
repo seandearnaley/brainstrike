@@ -104,8 +104,8 @@ export function createCommittedHostConversation(
      */
     readonly bindThreadRoot?: () => Promise<void>;
     readonly client: HostClient;
-    /** Told when a newer committed title, colour or icon reaches this view. */
-    readonly onTitleCommitted?: () => void;
+    /** Told when a newer committed title, colour, icon or workspace binding reaches this view. */
+    readonly onEntryCommitted?: () => void;
     /**
      * BST-2004: the frame's next client after this one is lost. A send the
      * lost host never answered is settled from that host's committed log.
@@ -119,7 +119,7 @@ export function createCommittedHostConversation(
   const thread = createCommittedHostThread({
     ...(options.bindThreadRoot ? { beforeStart: options.bindThreadRoot } : {}),
     client,
-    ...(options.onTitleCommitted ? { onTitleCommitted: options.onTitleCommitted } : {}),
+    ...(options.onEntryCommitted ? { onEntryCommitted: options.onEntryCommitted } : {}),
     runSettings,
     // BST-2004: a send whose host was lost before it answered, or before the
     // send left, is settled from the replacement's committed log. Only that log

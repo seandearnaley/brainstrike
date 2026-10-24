@@ -1,6 +1,7 @@
 import {
   resolveAssistantResilienceConfig,
   resolveProviderError,
+  ToolExecutions,
 } from '@brainstrike/agent/provider-runtime';
 import { wouldTruncateMcpModelOutput } from '@brainstrike/agent/tool-runtime';
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
@@ -26,6 +27,7 @@ import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
 import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.js';
 import type {
+  HostEnteredWorktree,
   HostPlatform,
   HostPreparedStep,
   HostRunAdmission,
@@ -66,8 +68,7 @@ export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
  * whose response stream never opened, with an `isRetryable` provider error:
  * nothing of that request reached the log, `prepareStep` ran once outside the
  * retry, and no tool executes inside it. Each attempt commits its own
- * `provider.request.prepared` receipt. Subscription quota is typed
- * non-retryable below this boundary by the provider request middleware.
+ * `provider.request.prepared` receipt.
  */
 const HOST_PROVIDER_REQUEST_RETRIES = 2;
 
@@ -92,6 +93,11 @@ export interface HostRunExecutionPorts {
    */
   delegate(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   dispatch(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
+  /** ADR-0028 step 3: a root run's call binds its thread to a worktree; none for a child. */
+  enterWorktree(
+    run: Run,
+    action: HostRunAction
+  ): ((worktree: HostEnteredWorktree) => Promise<void>) | undefined;
   finish(
     run: Run,
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
@@ -242,10 +248,12 @@ async function executeRegisteredTool(
   run.started.add(action.toolCallId);
   run.effectTools.set(action.toolCallId, action.toolCatalogId ?? action.toolId);
   run.controller.signal.throwIfAborted();
+  const enterWorktree = ports.enterWorktree(run, action);
   // The public SDK already validated/transformed this exact admitted input.
   // Revalidating a canonical value can transform it a second time.
   return await registered.execute(input, {
     ...(resumeData === undefined ? {} : { resumeData }),
+    ...(enterWorktree ? { enterWorktree } : {}),
     ...ports.records.context(
       run,
       action,
@@ -517,6 +525,8 @@ async function runHostSdkAttempt(
     // The SDK call's own signal: a watchdog expiry ends provider work without
     // reading as the user's Stop.
     const attempt = new AbortController();
+    // The watchdog never judges a running tool or delegated child (ADR-0009).
+    const toolExecutions = new ToolExecutions();
     const owner = await ports.openRun(run);
     const admission = await ensureHostRunAdmission(ports.platform, run);
     const result = streamText({
@@ -584,6 +594,8 @@ async function runHostSdkAttempt(
           outcome.fail(cause);
         }
       },
+      onToolExecutionEnd: ({ toolCall }) => toolExecutions.end(toolCall.toolCallId),
+      onToolExecutionStart: ({ toolCall }) => toolExecutions.start(toolCall.toolCallId),
       prepareStep: async ({ messages }) => {
         // Resolved approval tool results precede the first model call in the SDK.
         // Commit those public SDK messages before the provider sees them.
@@ -623,7 +635,13 @@ async function runHostSdkAttempt(
           notes
         ).system;
         const activeTools = await hostStepActiveTools(run, ports.platform);
-        const gated = activeTools ? { activeTools } : {};
+        // An approved call that entered a worktree resumes with a model step:
+        // it may answer, never act, in the run's old workspace (ADR-0028).
+        const gated = run.enteredWorktree
+          ? { activeTools: [], toolChoice: 'none' as const }
+          : activeTools
+            ? { activeTools }
+            : {};
         if (!admission.provider) {
           return {
             messages: memory?.messages ?? prepared,
@@ -652,12 +670,8 @@ async function runHostSdkAttempt(
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
       ...hostTelemetry('brainstrike.host-run', run),
     });
-    const tools = hostRunTools(run);
-    const watched = watchHostStream(
-      result.fullStream,
-      resilience,
-      (toolName) => Object.hasOwn(tools, toolName),
-      (error) => stopHostStreamAttempt(run, attempt, error)
+    const watched = watchHostStream(result.fullStream, resilience, toolExecutions, (error) =>
+      stopHostStreamAttempt(run, attempt, error)
     );
     for await (const chunk of watched) {
       outcome.observe(chunk);

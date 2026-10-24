@@ -22,53 +22,12 @@ refusal carries `storeDamage`), and the host sends both as the typed
 `state.read-only` refusal, so callers that write on startup stop quietly
 (BST-2144).
 
-The browser writer (`@brainstrike/web-state-store`, ADR-0011's 2026-10-15
-amendment) runs the same `schema.mjs`, `run-log.mjs`, `catalog-domains.mjs`,
-`state-truth-reader.ts` and their imports on sqlite-wasm. Keep those modules free of static Node imports; reach a Node-only
-fast path through `process.getBuiltinModule`, as the run-log crc does.
-Purge, thread delete and blob GC are shared the same way: `state-deletion.ts`
-orchestrates them over a writer's `deletion-domain.mjs` ops, its derived index
-and its write chain. `__tests__/portable-modules.test.ts` bundles every shared
-module for the browser.
+Purge, thread delete and blob GC: `state-deletion.ts` orchestrates them over the
+writer's `deletion-domain.mjs` ops, its derived index and its write chain.
 
-The web app's writer worker (`@brainstrike/web-writer`) composes the derived
-index beside the state DB as a writer extension, in the same pool and under the
-same lease. Extension ids are part of the wire protocol, so tabs of builds that
-compose different extensions refuse each other's writer. The index's projection
-identity names the app build in place of desktop's producer-source hash; a tab
-without a build is refused, whether it would lead or follow, and the index
-rebuilds from the log when the build changes.
-The browser writer runs `StateDeletion` with the derived index as its
-`IndexerPort`: `purge` and `deleteThread` are writer ops, and no tab unlinks a
-blob directly. Without the derived index both are refused, as on desktop.
-It serves the source catalog and workspace roots on desktop's domains too, with
-desktop's rules: a source change or root deletion needs the derived index, and
-the sources it retires are collected after. A browser root's path is its handle
-key, `/fsa/<rootId>` (`webRootPath`), an absolute POSIX path so the shared
-workspace path rules treat it as a root, and registration refuses a key that names
-another root; the tab keeps the File System Access handle in IndexedDB under
-that id. The root domain is given the host's notion of a
-granted path, so desktop keeps requiring absolute OS paths.
-After each committed append the writer announces every thread's new sequence
-numbers to every tab, the appending one too (`WebStateStore.subscribeLog`);
-a live reader of a thread reads the rows it hears of, and no tab polls the log.
-
-The file index (`fileIndexExtension`) is a worker the writer starts on the lease
-holder, with the scoped store in its own pool, `<pool>--files`
-(`webStateExtensionPool`), which factory reset sweeps with the store's. It
-serves desktop's `ScopedIndexerPort` as `files.*` ops, authorized for the
-catalogs' live roots, collections and their files when it opens (an import in
-no collection has no scope and is left out); `files.reauthorize` reopens it
-after they change. Its ops are `concurrent`: they run outside the writer's
-request order, so a chat append never waits behind index work.
-`files.scan({ rootId, folder })` runs desktop's workspace ingestion runtime in
-the worker (`file-ingestion.ts`): the shared catalog, publication, scan
-admission and inventory over a File System Access lease. The tab hands over the
-folder it holds the user's grant for (a grant is asked for in a window, never in
-a worker); the worker reaches the catalogs through `WebStateWriterContext.request`,
-in the writer's request order. A root keeps the folder its runtime started on. Retirement waits for it to
-release its pool. A coded failure crosses the wire with its code, so
-`WebFileIndex` raises desktop's `IndexerError`.
+Settings the host serves as catalog domains (for example the search index config,
+`index/config` through `host/index-config`) are rows of the same writer; the
+catalog endpoints borrow it and are never a second store.
 
 ## Root and content identity
 

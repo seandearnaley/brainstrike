@@ -44,6 +44,8 @@ export interface WorkspaceSearchNotices {
   scanLimited: boolean;
   skippedMissingLineMetadata: number;
   truncated: boolean;
+  /** Names of open folders left out because the index does not cover them. */
+  unindexedFolders?: readonly string[];
 }
 
 export interface WorkspaceSearchResults {

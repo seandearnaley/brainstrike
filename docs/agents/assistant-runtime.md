@@ -10,12 +10,16 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
 
 - Compose instructions from explicit inputs and the injected host clock. Tool
   descriptions and schemas must describe the admitted executable capability.
-- Distinguish first provider output, reasoning activity, provider silence and
-  host tool execution. SDK scaffolding does not count as provider output;
-  reasoning alone is not an answer. Each child has its own watchdog.
+- The stream watchdog never judges a running tool. The AI SDK's
+  `onToolExecutionStart`/`onToolExecutionEnd` bracket each execution, and while
+  any runs the watchdog has no window, as the SDK's own `chunkMs` never runs
+  during tool execution. Each tool is bounded by its own guard, and a delegated
+  child by its own run's watchdog and `maxChildRuntimeMs`. Otherwise it
+  distinguishes first provider output, reasoning activity and provider
+  silence; SDK scaffolding does not count as provider output, and reasoning
+  alone is not an answer.
 - An expired tool guard cancels the work belonging to that tool call. A provider
-  timeout must abort the provider; a timeout while a host tool runs is terminal
-  rather than an opportunity to execute that tool again.
+  timeout aborts the provider attempt.
 - An MCP tool's guard is an inactivity budget (BST-1779). Each progress
   notification restarts its window (the resilience `toolTimeoutMs`, 60 s), up
   to the transport's own total (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`, 600 s). A
@@ -27,8 +31,7 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
   unexplained failure. A server's own `toolTimeoutMs` (1 s to 10 min) replaces
   the window for its tools, for servers that work long in silence; it also
   bounds that server's unguarded requests. The ceiling is the transport's
-  default total, which keeps every guard ending below the stream's
-  tool-executing backstop. An MCP Tasks settlement wait fits in three quarters
+  default total. An MCP Tasks settlement wait fits in three quarters
   of what the call's guard has left once the task is tracked
   (`readToolGuardRemainingMs`). Native tools keep their flat guard.
 - Failed or abnormal finishes produce failed durable outcomes. Recoverable

@@ -1,10 +1,8 @@
 import type { DiagnosticEventsQueryFilter, DiagnosticEventsRepository } from '@brainstrike/db';
 import type { mainDiagnosticEventsReader } from './assistant-server/query-diagnostics-tool';
-import { collectionCatalogContract } from './ipc-domains/collection-catalog.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
 import { promptLibraryContract } from './ipc-domains/prompt-library.contract';
-import { sourceFilesContract } from './ipc-domains/source-files.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
 import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
 import type { IpcResult } from './platform/ipc-contract';
@@ -29,7 +27,6 @@ import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
-import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
@@ -90,15 +87,6 @@ const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKT
 
 import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
-import type {
-  ChunkingHostChunkBatchRequest,
-  ChunkingHostChunkFileByIdRequest,
-  ChunkingHostChunkFileRequest,
-  ChunkingHostProgressEvent,
-  ChunkingHostRequest,
-  ChunkingHostResponseReport,
-  ChunkingHostStatus,
-} from './chunking-host-shared';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
@@ -126,7 +114,6 @@ import type {
 import type { LoggingSettingsPayload } from './logging-shared';
 import {
   assertDesktopElectronApiKeyParity,
-  type VisibleChunkingHostBridge,
   type VisibleDesktopElectronApi,
   type VisibleEmbeddingHostBridge,
 } from './types/desktop-electron-api';
@@ -318,21 +305,6 @@ contextBridge.exposeInMainWorld('envBootstrap', {
   read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.envBootstrap),
 });
 
-// Provider OAuth bridge (BST-1355). Status-only by contract: every method
-// resolves a token-free ProviderAuthStatus; token material NEVER crosses IPC
-// (legal gate BST-1351 constraint 3). Shape defined ONCE in
-// @brainstrike/assistant-contract provider-auth.ts (ProviderAuthBridge).
-contextBridge.exposeInMainWorld('providerAuth', {
-  cancel: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.cancel, provider),
-  disconnect: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.disconnect, provider),
-  start: (provider: string, method?: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.start, provider, method),
-  status: (provider: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.providerAuth.status, provider),
-});
-
 // Settings Store API (factory reset support)
 exposeBridge('settings', settingsContract);
 if (shouldExposeBridge('indexSearch')) {
@@ -345,19 +317,6 @@ contextBridge.exposeInMainWorld('desktopLifecycle', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.noteReloadIntent, reason),
   requestReload: (reason: string): Promise<void> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.requestReload, reason),
-});
-
-// Parser host bridge — exposed for the chunking-host renderer so its
-// chunking-worker (Web Worker context) can route parse requests through the
-// preload-bridged IPC channel instead of trying to `import('electron')` from
-// the worker realm (which fails under contextIsolation+sandbox). The worker
-// postMessages a parse request to its parent (the renderer), the renderer
-// calls window.parserHost.parse(request) here, and posts the response back
-// to the worker. See packages/chunking-worker/src/parsers/oxc-ipc-adapter.ts
-// and the bridge handler in packages/file-import/src/chunking-worker-context.tsx.
-contextBridge.exposeInMainWorld('parserHost', {
-  parse: (request: unknown) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
 });
 
 // The MCP config picker and MCP App shell (desktop-only), derived from pure
@@ -693,49 +652,6 @@ const embeddingHost = {
 } satisfies VisibleEmbeddingHostBridge;
 contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
 
-const chunkingHost = {
-  chunkBatch: (request: ChunkingHostChunkBatchRequest) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkBatch, request),
-  chunkFile: (request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkFile, request),
-  ensureStarted: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.ensureStarted),
-  getStatus: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.getStatus),
-  onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => {
-    const listener = (_event: unknown, progress: ChunkingHostProgressEvent) => callback(progress);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.chunkingHost.progress, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.chunkingHost.progress, listener);
-    };
-  },
-  onRequest: (callback: (request: ChunkingHostRequest) => void) => {
-    const listener = (_event: unknown, request: ChunkingHostRequest) => callback(request);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.chunkingHost.request, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.chunkingHost.request, listener);
-    };
-  },
-  onStatus: (callback: (status: ChunkingHostStatus) => void) => {
-    const listener = (_event: unknown, status: ChunkingHostStatus) => callback(status);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.chunkingHost.status, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.chunkingHost.status, listener);
-    };
-  },
-  reportResponse: (response: ChunkingHostResponseReport): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportResponse, response);
-  },
-  reportStatus: (status: ChunkingHostStatus): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportStatus, status);
-  },
-  reset: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.reset),
-  stop: (): Promise<ChunkingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.stop),
-} satisfies VisibleChunkingHostBridge;
-contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
-
 // System Clipboard helper (renderer-friendly). Writes go through main over
 // IPC: sandboxed preloads cannot require Electron's clipboard module, so a
 // direct module call here silently fails on real (non-test-mode) builds.
@@ -961,19 +877,6 @@ if (shouldExposeBridge('commandSessions')) {
   exposeBridge('commandSessions', commandSessionsContract);
 }
 
-// Notes vault bridge (desktop-only): Node-fs backend for the markdown notes
-// vault, per packages/notes-vault/src/desktop/bridge-contract.ts. Every path is
-// containment-checked in main against the APPROVED vault roots; every method
-// resolves to a structured NotesVaultResult (never throws across IPC).
-// pickDirectory resolves { ok: true, value: null } when the user cancels the
-// native dialog. Watch change pushes arrive one-way on `notes-vault:changed`
-// for THIS renderer only; `onChanged` registers a listener and returns an
-// unsubscribe fn. Web never constructs this bridge (no preload), so consumers
-// must capability-check `window.notesVault` rather than `isElectron()`.
-if (shouldExposeBridge('notesVault')) {
-  exposeBridge('notesVault', notesVaultContract);
-}
-
 if (shouldExposeBridge('promptLibrary')) {
   exposeBridge('promptLibrary', promptLibraryContract);
 }
@@ -986,12 +889,4 @@ if (shouldExposeBridge('viewFilterPresets')) {
 
 if (shouldExposeBridge('modelCatalog')) {
   exposeBridge('modelCatalog', modelCatalogContract);
-}
-
-if (shouldExposeBridge('collectionCatalog')) {
-  exposeBridge('collectionCatalog', collectionCatalogContract);
-}
-
-if (shouldExposeBridge('sourceFiles')) {
-  exposeBridge('sourceFiles', sourceFilesContract);
 }

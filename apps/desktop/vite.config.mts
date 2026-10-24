@@ -8,13 +8,11 @@ import {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   getWorkspaceSourceOptimizeDepsInclude,
-  isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
@@ -99,9 +97,6 @@ export default defineConfig({
                 if (isZustandModule(moduleId)) {
                   return 'zustand';
                 }
-                if (isBrowserEventsModule(moduleId)) {
-                  return 'browser-events';
-                }
                 if (isSanitizedPersistMergeModule(moduleId)) {
                   return 'sanitized-persist-merge';
                 }
@@ -140,23 +135,14 @@ export default defineConfig({
       '@brainstrike/workers',
       '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
       '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
-      '@brainstrike/db-explorer', // Uses file-import which has worker
-      '@brainstrike/file-import', // Resolves the chunking worker URL (chunking-worker-context) - must not be pre-bundled
       '@brainstrike/token-cache',
       '@brainstrike/token-cache/cache-runtime',
       '@brainstrike/token-cache/background-indexer',
-      '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
     include: [
       ...getCoreAppOptimizeDepsInclude(),
       ...getAssistantOptimizeDepsInclude(),
-      ...getDatabaseOptimizeDepsInclude(),
       ...getWorkspaceSourceOptimizeDepsInclude(),
-      // Imported by @brainstrike/chunking-worker, excluded above, which src/renderer/main.tsx
-      // imports. The scan never crawls an excluded package, so a cold server met these only
-      // after its crawl, re-optimized and reloaded the renderer mid-launch (BST-2091).
-      '@brainstrike/chunking-worker > @babel/parser',
-      '@brainstrike/chunking-worker > web-tree-sitter',
     ],
   },
   plugins: [
@@ -213,16 +199,8 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/workspace-search/styles.css'),
       },
       {
-        find: '@brainstrike/db-explorer/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/db-explorer/styles.css'),
-      },
-      {
         find: '@brainstrike/file-explorer-ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/vector-management/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/vector-management/styles.css'),
       },
       {
         find: '@brainstrike/ui/styles.css',
@@ -272,9 +250,8 @@ export default defineConfig({
       // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
       // the hand-maintained map this file used to carry — every entry it
       // listed besides the exceptions above (including the chunk-init-TDZ
-      // motivated commands/context-actions entries and the renamed
-      // db-explorer/embedding-models subpath) is an exact match for what this
-      // registry derives from each package's own `exports` map.
+      // motivated commands/context-actions entries) is an exact match for what
+      // this registry derives from each package's own `exports` map.
       ...workspaceSrcAliases(path.resolve(__dirname, '../../packages')),
     ],
     dedupe: ['react', 'react-dom'],

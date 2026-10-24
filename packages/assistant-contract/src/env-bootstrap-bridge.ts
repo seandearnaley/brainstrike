@@ -64,6 +64,17 @@ export interface EnvBootstrapFailure {
 }
 
 /**
+ * What became of the login shell's environment. On a Dock or Finder launch
+ * Main runs `$SHELL -i -l -c` and applies the environment it prints; a failure
+ * leaves the app on the environment it was launched with. Names the shell and
+ * the outcome only — never the environment the shell printed.
+ */
+export type EnvBootstrapLoginShell =
+  | { readonly shell: string; readonly status: 'resolved' }
+  | { readonly reason: 'launched-from-shell' | 'test-mode' | 'windows'; readonly status: 'skipped' }
+  | { readonly message: string; readonly shell: string; readonly status: 'failed' };
+
+/**
  * Read-only projection of the recorded desktop env bootstrap.
  *
  * `appliedVariableCount` counts variables the files actually applied (an
@@ -80,6 +91,7 @@ export interface EnvBootstrapReport {
   readonly deprecatedVariablesInFiles: readonly string[];
   readonly failures: readonly EnvBootstrapFailure[];
   readonly loadedFiles: readonly EnvBootstrapLoadedFile[];
+  readonly loginShell: EnvBootstrapLoginShell;
   /** Allow-listed NON-credential names currently set (e.g. AWS_REGION). */
   readonly nonCredentialVariablesPresent: readonly string[];
   /** True when env-file loading was disabled outright (test mode). */

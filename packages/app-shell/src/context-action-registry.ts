@@ -6,9 +6,8 @@ import {
   createActionRegistry,
   createClipboardService,
 } from '@brainstrike/context-actions';
-// Subpath imports keep the heavy db-explorer/file-explorer-ui root barrels out
-// of this always-mounted module so their lazy-loaded graphs stay code-split.
-import { collectionActions } from '@brainstrike/db-explorer/context-actions';
+// Subpath imports keep the heavy file-explorer-ui root barrel out of this
+// always-mounted module so its lazy-loaded graph stays code-split.
 import {
   fileEntryActions,
   workspaceRootActions,
@@ -56,7 +55,6 @@ export function buildAppActionRegistryParts(): AppActionRegistryParts {
     actions: [
       ...fileEntryActions,
       ...workspaceRootActions,
-      ...collectionActions,
       ...assistantThreadActions,
       ...changesActions,
     ],

@@ -364,11 +364,11 @@ for (const mode of ['TEXT', 'VECTOR'] as const) {
             text: 'DisposerStack',
           });
         } catch (error) {
-          return String(error);
+          return (error as { code?: unknown }).code ?? String(error);
         }
         throw new Error('Disconnected root retained native read authorization.');
       }, rootId);
-      expect(revoked).toMatch(/not.*authorized|no longer authorized/i);
+      expect(revoked).toBe('native-search.folder-not-indexed');
       await session.record('deleted-root-authorization-refused', revoked);
       expect(await readDelegatedResetState(context.window, sentinels)).toEqual(precious);
       await session.record('whole-root-delete-preserves-rootless-and-chat', {

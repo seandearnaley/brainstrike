@@ -6,7 +6,6 @@ const {
   isContextActionSystemModule,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getWorkerpoolBrowserStubAliases,
   getLazySurfaceOptimizeDepsEntries,
@@ -47,11 +46,6 @@ describe('utility getter functions', () => {
   it('getCoreAppOptimizeDepsInclude returns an array containing zod', () => {
     const result = getCoreAppOptimizeDepsInclude();
     expect(result).toContain('zod');
-  });
-
-  it('getDatabaseOptimizeDepsInclude returns an array containing jszip', () => {
-    const result = getDatabaseOptimizeDepsInclude();
-    expect(result).toContain('jszip');
   });
 
   it('getHeavyRuntimeOptimizeDepsExclude returns an array containing @huggingface/transformers', () => {

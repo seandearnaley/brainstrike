@@ -1,5 +1,5 @@
-// The canonical catalog over the authoritative source catalog (SourceCatalogPort): desktop's native index and the
-// browser's index worker (BST-1940) scan through the same owner.
+// The canonical catalog over the authoritative source catalog (SourceCatalogPort): desktop's native index scans
+// through this owner.
 
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';

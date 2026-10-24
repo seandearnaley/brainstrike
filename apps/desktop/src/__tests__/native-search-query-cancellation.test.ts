@@ -85,6 +85,7 @@ const vector = Array.from({ length: 384 }, () => 0.1);
 const searchRequest = {
   caseSensitive: false,
   collectionId: null,
+  folderName: String,
   isRegex: false,
   query: 'needle',
   rootIds: ['root-a'],

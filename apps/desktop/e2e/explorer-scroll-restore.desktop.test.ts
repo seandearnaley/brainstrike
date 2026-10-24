@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
+import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 let ROOT_DIR: string;
@@ -51,22 +52,10 @@ test.describe('Explorer scroll restore', () => {
           'rootsList',
           JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId: 'scroll-root-1' }])
         );
-        localStorage.setItem(
-          'background-indexing-preferences.v1',
-          JSON.stringify({
-            state: {
-              enabled: false,
-              indexingPolicyPreset: 'full-root',
-              managedCollectionId: null,
-              mode: 'root-folder-cache',
-              paused: true,
-            },
-            version: 4,
-          })
-        );
       },
       { root: ROOT_DIR }
     );
+    await updateIndexConfig(page, { paused: true });
 
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'scroll-restore-seeded');

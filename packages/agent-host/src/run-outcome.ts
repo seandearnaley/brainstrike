@@ -147,8 +147,7 @@ export class HostRunOutcome {
 
   /**
    * A watchdog expiry, provider or local error, classified once at this choke
-   * point (a provider 401 carries its remedy). The host runs no tool-lifecycle
-   * hooks, so a tool-executing stall never names them.
+   * point (a provider 401 carries its remedy).
    */
   fail(cause: unknown): void {
     this.cause = cause;
@@ -177,7 +176,6 @@ export class HostRunOutcome {
         ? describeStreamStall(cause, {
             model: this.configuration?.model ?? this.modelId,
             provider: this.configuration?.provider,
-            toolHooks: false,
           })
         : cause instanceof ToolCallInputStreamingTimeoutError
           ? describeToolCallInputTimeout(cause)

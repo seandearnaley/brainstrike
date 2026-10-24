@@ -260,8 +260,9 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   /**
    * Curated one-line marketing copy for the composer model menu (e.g. "Best
    * mix of smarts and speed"). REGISTRY-ONLY composer copy source — the DB
-   * model-catalog tagline column feeds the db-explorer, not this menu. Omit
-   * rather than invent copy: a model without a tagline renders name-only.
+   * model-catalog tagline column feeds embedding-model descriptions
+   * (app-shell `embedding-models.ts`), not this menu. Omit rather than invent
+   * copy: a model without a tagline renders name-only.
    */
   tagline?: string;
   /**
@@ -343,11 +344,10 @@ export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinit
 /**
  * How a provider authenticates. `'none'` marks the keyless local runtimes
  * (their optional bearer token is a transport concern, not an authType).
- * `'oauth_subscription'` is carried by `openai-codex` (BST-1356, ChatGPT
- * subscription sign-in) and `'aws'` by `bedrock` (BST-1350).
+ * `'aws'` is carried by `bedrock` (BST-1350).
  * Keyless-ness DERIVES from `authType === 'none'` — never hand-listed.
  */
-export type ProviderAuthType = 'api_key' | 'oauth_subscription' | 'aws' | 'none';
+export type ProviderAuthType = 'api_key' | 'aws' | 'none';
 
 export interface ProviderDefinition {
   authType: ProviderAuthType;
@@ -402,7 +402,6 @@ export type ProviderId =
   | 'cohere'
   | 'voyage'
   | 'bedrock'
-  | 'openai-codex'
   | 'local'
   | 'ollama'
   | 'lmstudio';

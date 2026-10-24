@@ -48,13 +48,8 @@ it.each([
     });
     const secrets = credentials.secrets();
     await secrets.saveKey('openai', 'sk-survives-reset');
-    await secrets.setCredential('openai-codex', {
-      access: 'at',
-      expires: 1,
-      refresh: 'rt',
-      type: 'oauth',
-    });
-    expect(await secrets.listProviders()).toEqual(['openai', 'openai-codex']);
+    await secrets.setCredential('openrouter', { key: 'sk-or-typed', type: 'api_key' });
+    expect(await secrets.listProviders()).toEqual(['openai', 'openrouter']);
 
     const { registerSecretsIpcHandlers } = await import('../../ipc-secrets');
     const { ipcMain } = await import('electron');

@@ -492,21 +492,6 @@ export {
   searchDocsInputSchema,
   type WebDocEntry,
 } from './tools/docs-search';
-// Embedding sets tool factory (Tier 2)
-export {
-  buildToolsWithEmbeddingSets,
-  CREATE_EMBEDDING_SET_TOOL_ID,
-  type CreateEmbeddingSetToolResult,
-  createCreateEmbeddingSetTool,
-  createListEmbeddingSetsTool,
-  EMBEDDING_SETS_ERROR_MESSAGES,
-  type EmbeddingSetCoverage,
-  type EmbeddingSetInfo as EmbeddingSetsToolInfo,
-  type EmbeddingSetsToolDependencies,
-  LIST_EMBEDDING_SETS_TOOL_ID,
-  type ListEmbeddingSetsToolResult,
-  SAFE_EMBEDDING_SETS_ERRORS,
-} from './tools/embedding-sets-tool';
 export {
   FILE_READ_STATE_MAX_ENTRIES,
   forgetFileReadScope,

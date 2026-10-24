@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { useBackgroundIndexingPreferencesStore } from '../stores/background-indexing-preferences-store';
 import { useSubagentPersonasStore } from '../stores/subagent-personas-store';
 import { useTokenPreferencesStore } from '../stores/token-preferences-store';
 import { useVectorPreferencesStore } from '../stores/vector-preferences-store';
@@ -19,29 +18,6 @@ function mergeCurrentVersion<TStore>(
 }
 
 describe('current-version preference sanitization siblings', () => {
-  it('sanitizes background indexing data and preserves actions', () => {
-    const current = useBackgroundIndexingPreferencesStore.getState();
-    const merged = mergeCurrentVersion(
-      useBackgroundIndexingPreferencesStore,
-      {
-        enabled: 'yes',
-        indexingPolicyPreset: 'everything',
-        managedCollectionId: 42,
-        mode: 'legacy',
-        paused: 1,
-        setEnabled: 'injected',
-      },
-      current
-    ) as typeof current;
-
-    expect(merged.enabled).toBe(true);
-    expect(merged.indexingPolicyPreset).toBe('balanced');
-    expect(merged.managedCollectionId).toBeNull();
-    expect(merged.mode).toBe('root-folder-cache');
-    expect(merged.paused).toBe(false);
-    expect(merged.setEnabled).toBe(current.setEnabled);
-  });
-
   it('sanitizes subagent availability at the current version', () => {
     const current = useSubagentPersonasStore.getState();
     const merged = mergeCurrentVersion(

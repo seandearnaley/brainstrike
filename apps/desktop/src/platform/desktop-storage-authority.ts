@@ -1,6 +1,5 @@
 export const MAIN_OWNED_DESKTOP_STORAGE_KEYS = [
   'lastFolderPath',
-  'notesVaultRoots',
   'recentRootsList',
   'recentRootsList.corrupt',
   'rootsList',

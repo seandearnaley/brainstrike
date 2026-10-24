@@ -63,12 +63,6 @@
       "@brainstrike/file-system/path-validation": [
         "../../packages/file-system/dist/path-validation.d.ts"
       ],
-      "@brainstrike/notes-vault/core": [
-        "../../packages/notes-vault/dist/core/index.d.ts"
-      ],
-      "@brainstrike/notes-vault/desktop-contract": [
-        "../../packages/notes-vault/dist/desktop/bridge-contract.d.ts"
-      ],
       "@brainstrike/effect-kit": [
         "../../packages/effect-kit/dist/index.d.ts"
       ],
@@ -101,12 +95,8 @@
     "src/host-lease-entry.ts",
     "src/host-lease-manager.ts",
     "src/diagnostics/main-watchdog-worker.ts",
-    "src/parser-host-entry.ts",
     "src/official-conformance-client-entry.ts",
     "src/official-conformance-client-process.ts",
-    "src/parser-host-shared.ts",
-    "src/parser-host-manager.ts",
-    "src/ipc-parser-host.ts",
     "src/ipc-handlers.ts",
     "src/ipc-secrets.ts",
     "src/ipc-agent.ts",

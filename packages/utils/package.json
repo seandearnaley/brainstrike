@@ -74,10 +74,6 @@
       "types": "./dist/bulk-operation-context.d.ts",
       "default": "./dist/bulk-operation-context.js"
     },
-    "./browser-events": {
-      "types": "./dist/browser-events.d.ts",
-      "default": "./dist/browser-events.js"
-    },
     "./background-indexing-policy": {
       "types": "./dist/background-indexing-policy.d.ts",
       "default": "./dist/background-indexing-policy.js"

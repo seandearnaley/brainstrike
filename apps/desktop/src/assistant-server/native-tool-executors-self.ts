@@ -6,7 +6,6 @@
 import { NATIVE_TOOL_INPUT_SCHEMAS, type QueryDiagnosticsInput } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
-  logToolFailure,
   type NativeToolExecutor,
   parseToolExecuteInput,
   type ToolExecuteInput,
@@ -24,12 +23,7 @@ export function selfInspectionExecutors(diagnostics: DiagnosticsReader): {
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryDiagnostics],
           input
         );
-        try {
-          return await runQueryDiagnosticsWith(resolvedInput, diagnostics);
-        } catch (error) {
-          logToolFailure('queryDiagnostics failed', error, resolvedInput);
-          throw error;
-        }
+        return await runQueryDiagnosticsWith(resolvedInput, diagnostics);
       },
       id: NATIVE_TOOL_ID.queryDiagnostics,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryDiagnostics],

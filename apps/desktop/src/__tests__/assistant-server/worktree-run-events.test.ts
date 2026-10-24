@@ -15,6 +15,7 @@ describe('host-owned worktree tool outcomes', () => {
       create: vi.fn(async () => ({
         ok: true as const,
         value: {
+          root: { displayName: 'wt', path: '/repo/wt', rootId: 'wt-root' },
           setup: { reason: 'Setup command exited with code 3.', status: 'failed' },
           worktree: { branch: 'bs/example', id: 'w-1', path: '/repo/wt' },
         },
@@ -22,10 +23,18 @@ describe('host-owned worktree tool outcomes', () => {
       list: vi.fn(),
     };
     await expect(
-      runManageWorktree({ action: 'create', branch: 'bs/example' }, runtime, capability)
+      runManageWorktree(
+        { action: 'create', branch: 'bs/example' },
+        runtime,
+        capability,
+        async () => {
+          // Bound by Core in the real host; nothing to do here.
+        }
+      )
     ).resolves.toEqual({
       action: 'create',
       branch: 'bs/example',
+      entered: true,
       path: '/repo/wt',
       setupReason: 'Setup command exited with code 3.',
       setupStatus: 'failed',

@@ -1,3 +1,4 @@
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { Data } from 'effect';
 import type {
   NativeIndexAction,
@@ -44,7 +45,11 @@ export type NativeIndexWorkflowFailure =
 export function nativeIndexPublicFailure(failure: NativeIndexWorkflowFailure): unknown {
   switch (failure._tag) {
     case 'NativeIndexEventRefused':
-      return failure;
+      // Refused because search is off: the same typed Off refusal a read gets, so Settings
+      // shows the Off sentence instead of an internal error.
+      return failure.cause.kind === 'off'
+        ? new NativeIndexRefusalError(failure.cause, failure.cause.message)
+        : failure;
     case 'NativeIndexSettingsFailure':
     case 'NativeIndexActionFailure':
     case 'NativeIndexObservationAborted':

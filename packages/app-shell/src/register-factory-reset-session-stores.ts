@@ -9,7 +9,6 @@ import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-compose
 import { resetThreadContextStore } from '@brainstrike/assistant-ui/thread-context-store';
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
@@ -68,13 +67,6 @@ registerFactoryResetSessionStore(() => {
   // clears the in-memory mirror plus the persisted view prefs slice so a
   // reset-without-reload doesn't resurrect stale groups.
   useAssistantThreadGroupsStore.getState().reset();
-});
-
-registerFactoryResetSessionStore(() => {
-  // Session state only (mounted roots, watchers, selection); the persisted
-  // handle database (brainstrike-notes-vault) is wiped via the IndexedDB
-  // fallback list in factory-reset-helpers.ts.
-  resetNotesVaultSessionState();
 });
 
 registerFactoryResetSessionStore(() => {

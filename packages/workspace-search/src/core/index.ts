@@ -13,6 +13,7 @@ export {
   type NativeSemanticAvailability,
   NativeWorkspaceSearchExecutor,
   type NativeWorkspaceSearchRequest,
+  noIndexedFolderRefusal,
 } from './native-workspace-search';
 export {
   type NativeWorkspaceSearchDependencies,

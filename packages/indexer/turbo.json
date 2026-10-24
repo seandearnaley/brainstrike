@@ -8,6 +8,16 @@
         "topo",
         "build"
       ]
+    },
+    "test:integration": {
+      // state-observation-vectors starts the state-store writer worker, which
+      // imports agent-host's emitted memory calculator.
+      "dependsOn": [
+        "topo",
+        "build",
+        "@brainstrike/agent-host#build"
+      ],
+      "cache": false
     }
   }
 }

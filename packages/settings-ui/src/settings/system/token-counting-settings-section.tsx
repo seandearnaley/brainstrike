@@ -29,7 +29,7 @@ export interface TokenCountingRuntimeSupport {
 
 const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
   accurate: {
-    description: 'Accurate token counts are applied across previews and chunking.',
+    description: 'Accurate token counts are applied to Explorer previews.',
     icon: CheckCircle2,
     label: 'Using WASM tokenizer',
     variant: 'secondary',
@@ -79,8 +79,8 @@ export function TokenCountingSettingsSection({
       <CardHeader>
         <CardTitle>Token Counting</CardTitle>
         <CardDescription>
-          Choose how BrainStrike measures tokens for previews and chunking. The default is tiktoken
-          in WebAssembly; heuristic counting is only used when you explicitly disable accurate mode.
+          Choose how BrainStrike measures tokens for previews. The default is tiktoken in
+          WebAssembly; heuristic counting is only used when you explicitly disable accurate mode.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">

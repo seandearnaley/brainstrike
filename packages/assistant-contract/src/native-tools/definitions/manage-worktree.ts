@@ -18,12 +18,12 @@ export const manageWorktree = defineNativeTool({
     riskCategory: 'execute',
   },
   description:
-    'Create an isolated git worktree for the current repository, or archive one. create takes a branch name and a base ref; archive takes the worktree id from listWorktrees and refuses a dirty or in-use worktree unless force is set. Archiving always captures a restorable snapshot first.',
+    'Create an isolated git worktree for the current repository, or archive one. create takes a branch name and a base ref, then moves this conversation into the new worktree: the turn ends and the task continues there. archive takes the worktree id from listWorktrees and refuses a dirty or in-use worktree unless force is set. Archiving always captures a restorable snapshot first.',
   discovery: { family: 'git worktrees', namespace: 'workspace' },
   id: 'brainstrike.manageWorktree',
   inputSchema: effectToolInputSchema(ManageWorktreeInputSchema),
   kind: 'desktop',
   returns:
-    'create returns { worktreeId, path, branch, setupStatus, setupReason }; archive returns { worktreeId, snapshotRef }. A refusal returns its reason verbatim.',
+    'create returns { worktreeId, path, branch, setupStatus, setupReason, entered }; archive returns { worktreeId, snapshotRef }. A refusal returns its reason verbatim.',
   surfaces: ['desktop'],
 });

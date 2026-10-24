@@ -155,9 +155,6 @@
       "@brainstrike/vector-management": [
         "./packages/vector-management/src"
       ],
-      "@brainstrike/db-explorer": [
-        "./packages/db-explorer/src"
-      ],
       "@brainstrike/chunking-worker": [
         "./packages/chunking-worker/src"
       ],
@@ -178,9 +175,6 @@
       ],
       "@brainstrike/file-import/browser-queue-port": [
         "./packages/file-import/src/browser-queue-port.ts"
-      ],
-      "@brainstrike/file-import/chunking-worker-context": [
-        "./packages/file-import/src/chunking-worker-context.tsx"
       ],
       "@brainstrike/file-import/enhanced-import": [
         "./packages/file-import/src/enhanced-import.ts"
@@ -205,9 +199,6 @@
       ],
       "@brainstrike/worker-runtime": [
         "./packages/worker-runtime/src"
-      ],
-      "@brainstrike/notes-vault": [
-        "./packages/notes-vault/src"
       ],
       "@brainstrike/workspace-search": [
         "./packages/workspace-search/src"
@@ -346,9 +337,6 @@
     },
     {
       "path": "./packages/vector-management"
-    },
-    {
-      "path": "./packages/db-explorer"
     },
     {
       "path": "./packages/chunking-worker/tsconfig.references.json"

@@ -1,9 +1,9 @@
 /**
  * The index's partition follows the saved choice (BST-1988), for desktop's
- * native index and the browser's file index alike (BST-1940). A saved
- * collection owns the workspace's sources in either mode. With none, TEXT is
- * the TEXT partition: workspace roots only, and sources with no embedding
- * set. Text search needs no model, so no collection is invented for it.
+ * native index. Under semantic search (VECTOR), the vector space Main ensured
+ * for the saved model owns the workspace's sources. Text search (TEXT) has no
+ * vector space: its partition is the workspace roots only, and sources with no
+ * embedding set. Text search needs no model, so no collection is invented for it.
  */
 import type {
   IndexFileBinding,
@@ -208,8 +208,7 @@ export async function retireUnownedRows(
     ScopedIndexerPort,
     'removeScopedFile' | 'replaceFileBindings' | 'verifyScopedManifest'
   >,
-  requested: PartitionAuthority,
-  selected?: ReadonlySet<string>
+  requested: PartitionAuthority
 ): Promise<void> {
   if (requested.scopes.length === 0) {
     return;
@@ -242,10 +241,7 @@ export async function retireUnownedRows(
         : null;
     const stored = await port.verifyScopedManifest({ files: [], scope });
     for (const row of stored.unexpected) {
-      if (
-        (!selected || selected.has(row.fileId)) &&
-        !(owned.has(row.fileId) || unowned.has(row.fileId))
-      ) {
+      if (!(owned.has(row.fileId) || unowned.has(row.fileId))) {
         unowned.set(row.fileId, unownedBinding(row, scope, profile));
       }
     }

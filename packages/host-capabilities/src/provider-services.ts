@@ -1,7 +1,6 @@
 import type { HostEnvFileFailure, HostProviderService } from '@brainstrike/agent-host';
 import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import {
-  findProviderDefinition,
   isSupportedProvider,
   listProviders,
   providerEnvKeys,
@@ -22,11 +21,7 @@ import {
 import { leaveOnAbort } from './shared-flight.js';
 
 export interface HostProviderServicesOptions {
-  /**
-   * The host's one refresher answers subscription freshness, never a token;
-   * its secrets wait for a pending legacy import like every credential read.
-   */
-  readonly auth: Pick<HostAuthority, 'secrets' | 'verify'>;
+  readonly auth: Pick<HostAuthority, 'secrets'>;
   readonly env: Readonly<NodeJS.ProcessEnv>;
   /** Env files the launching shell rejected. */
   readonly envFileFailures: readonly HostEnvFileFailure[];
@@ -61,7 +56,6 @@ export function createHostProviderServices(
       const key = await readTavilyKey();
       return key === undefined ? undefined : { key, type: 'api_key' };
     },
-    verifySubscriptionSession: (providerId) => options.auth.verify(providerId),
   });
   const metadata = createOpenRouterModelMetadataService(fetchImpl);
   const providers = listProviders()
@@ -87,15 +81,6 @@ export function createHostProviderServices(
         providers,
         secrets,
       }),
-    verify: async (providerId, origin, signal) => {
-      // The same desktop-only gate as a subscription run and auth/verify.
-      if (
-        findProviderDefinition(providerId)?.authType === 'oauth_subscription' &&
-        origin !== 'desktop-ui'
-      ) {
-        throw new Error('A subscription sign-in can be verified only from the desktop app.');
-      }
-      return await verification.verify(providerId, signal);
-    },
+    verify: async (providerId, signal) => await verification.verify(providerId, signal),
   };
 }

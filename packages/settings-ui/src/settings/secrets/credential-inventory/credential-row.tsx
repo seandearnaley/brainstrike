@@ -5,7 +5,6 @@ import type {
   StoredKeyFingerprint,
 } from '@brainstrike/assistant-contract';
 import {
-  Badge,
   Button,
   getProviderColor,
   ProviderIcon,
@@ -19,18 +18,10 @@ import { useEffect, useRef } from 'react';
 import { deprecatedEnvVarMessage } from '../deprecated-env-var-message';
 import { KeySourceBadge } from '../key-source-badge';
 import type { CredentialSourceState } from '../provider-key-types';
-import { CredentialOAuthActions } from './credential-oauth-actions';
-import { CredentialOAuthNotice } from './credential-oauth-notice';
 import { CredentialRowEditor } from './credential-row-editor';
 import type { CredentialSlot } from './credential-slots';
 
 export const CREDENTIAL_TABLE_COLUMN_COUNT = 5;
-
-/** Subscription slots carry a sign-in flow, never a stored secret — so they
- * never open the inline editor and never render Set/Replace/Remove. */
-function isOAuthSlot(slot: CredentialSlot): boolean {
-  return slot.authType === 'oauth_subscription';
-}
 
 interface CredentialRowProps {
   readonly busy: boolean;
@@ -91,34 +82,12 @@ function ProviderNameCell({ slot }: { readonly slot: CredentialSlot }) {
   );
 }
 
-/**
- * The Status column. The credential-source listing describes keychain/env
- * secrets, which a subscription slot has none of — so it gets its own label
- * instead of the listing's "Not set", which would read as "no ChatGPT account
- * connected" and be flatly wrong for a signed-in user. The live sign-in state
- * is rendered by the Actions cell, which owns the bridge.
- */
+/** The Status column: the credential-source listing's keychain/env state. */
 function CredentialStatusCell({
   slot,
   source,
   sourceState,
 }: Pick<CredentialRowProps, 'slot' | 'source' | 'sourceState'>) {
-  if (isOAuthSlot(slot)) {
-    return (
-      // `variant="outline"` is load-bearing, not styling preference: Badge's
-      // DEFAULT variant paints a solid primary background, so overriding only
-      // the text colour left muted grey on solid blue — measured at ~1.16:1
-      // contrast in the live renderer, far below WCAG AA. Outline matches the
-      // sibling KeySourceBadge treatments (transparent + muted text).
-      <Badge
-        className="text-muted-foreground"
-        data-testid={`credential-status-${slot.id}`}
-        variant="outline"
-      >
-        Subscription sign-in
-      </Badge>
-    );
-  }
   if (sourceState === 'loading') {
     return (
       <span
@@ -150,13 +119,6 @@ function RowActions({
 > & {
   readonly editorTriggerRef: RefObject<HTMLButtonElement | null>;
 }) {
-  // FIRST, ahead of every keychain/env branch: a subscription slot has no
-  // secret to set, replace or remove, and its sign-in state is independent of
-  // the credential-source listing — so it must never fall through to those
-  // affordances, not even while the listing is still loading (BST-1356).
-  if (isOAuthSlot(slot)) {
-    return <CredentialOAuthActions slot={slot} />;
-  }
   if (sourceState === 'loading') {
     return null;
   }
@@ -238,7 +200,6 @@ export function CredentialRow({
   sourceState,
 }: CredentialRowProps) {
   const fingerprint = fingerprintOf(source);
-  const oauth = isOAuthSlot(slot);
 
   // Keyboard flow (BST-1362 review): when the inline editor closes — Escape,
   // Cancel, or a completed save — focus returns to the row's Set/Replace
@@ -280,23 +241,12 @@ export function CredentialRow({
           <ProviderNameCell slot={slot} />
         </TableCell>
         <TableCell className="py-2">
-          {slot.envVar ? (
-            <code
-              className="break-all font-mono text-xs"
-              data-testid={`credential-env-var-${slot.id}`}
-            >
-              {slot.envVar}
-            </code>
-          ) : (
-            // A subscription slot has no env name at all — saying so beats an
-            // empty cell the user would read as "not loaded yet".
-            <span
-              className="text-muted-foreground text-xs"
-              data-testid={`credential-no-env-var-${slot.id}`}
-            >
-              Sign-in only — no environment variable
-            </span>
-          )}
+          <code
+            className="break-all font-mono text-xs"
+            data-testid={`credential-env-var-${slot.id}`}
+          >
+            {slot.envVar}
+          </code>
           {deprecatedReports.map((report) => (
             <p
               className="mt-1 text-warning text-xs"
@@ -339,17 +289,7 @@ export function CredentialRow({
           />
         </TableCell>
       </TableRow>
-      {oauth ? (
-        // Always rendered, never behind an expand: the personal-use terms must
-        // be on screen BEFORE the user clicks Connect (OAuth legal gate,
-        // constraint 4).
-        <TableRow data-testid={`credential-oauth-notice-row-${slot.id}`}>
-          <TableCell className="py-2" colSpan={CREDENTIAL_TABLE_COLUMN_COUNT}>
-            <CredentialOAuthNotice slot={slot} />
-          </TableCell>
-        </TableRow>
-      ) : null}
-      {editing && !oauth ? (
+      {editing ? (
         <TableRow data-testid={`credential-editor-row-${slot.id}`}>
           <TableCell className="py-2" colSpan={CREDENTIAL_TABLE_COLUMN_COUNT}>
             <CredentialRowEditor

@@ -18,6 +18,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
+import { NativeAuthorityTransitionError } from '../node-native-index/errors.js';
 import { projectReadDenialDiagnostic, withReadDenialLogging } from './read-denial-diagnostic.js';
 import {
   listRecentRootEntries,
@@ -323,7 +324,9 @@ export class WorkspaceRootRegistry {
           this.retiringSourceRoots.has(mounted) ||
           this.rootDataDeletion?.mounted === mounted
         ) {
-          throw new Error('Mounted source lease was revoked or replaced.');
+          // The owner took the mount back (removal, replacement, root data deletion): the
+          // borrower's work is superseded, typed so, like the lease's own retirement.
+          throw new NativeAuthorityTransitionError('Mounted source lease was revoked or replaced.');
         }
       },
       mounted,

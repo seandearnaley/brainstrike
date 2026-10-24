@@ -5,12 +5,12 @@
 // resume and terminal retirement. Moved from native-index-activation.test.ts.
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { textCollectionSettings } from './helpers/native-index-settings';
 import {
   emptyCollection,
   fixture,
   mocks,
   resetActivationFixture,
-  saveSettingsChange,
 } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
@@ -79,11 +79,11 @@ it('retains the assistant profile through index settings replacement and rebuild
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation, storage } = fixture();
+  const { activation, settings } = fixture();
   try {
     await activation.acquireProfile();
     await activation.acquire();
-    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
+    settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
     await activation.reconfigure();
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.closeProfile).not.toHaveBeenCalled();

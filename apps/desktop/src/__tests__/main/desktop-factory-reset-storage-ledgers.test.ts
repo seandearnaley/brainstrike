@@ -57,7 +57,6 @@ describe('resetDesktopApplicationData — main-process storage grant ledgers', (
       JSON.stringify({
         // Every main-owned grant key enumerated in platform-contracts.md.
         lastFolderPath: '/granted/alpha',
-        notesVaultRoots: JSON.stringify([{ path: '/granted/vault' }]),
         recentRootsList: JSON.stringify([{ lastGrantedAt: 1, path: '/granted/alpha' }]),
         'recentRootsList.corrupt': 'not-json-at-all',
         rootsList: JSON.stringify([{ addedAt: 1, path: '/granted/alpha', rootId: 'r1' }]),

@@ -13,17 +13,14 @@ import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
 import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
-import type { collectionCatalogContract } from '../ipc-domains/collection-catalog.contract';
 import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
-import type { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import type { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
-import type { sourceFilesContract } from '../ipc-domains/source-files.contract';
 import type { settingsContract } from '../ipc-domains/storage-preferences.contract';
 import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
@@ -35,10 +32,8 @@ import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { TransportBridge } from '../platform/ipc-contract';
 import type {
-  ChunkingHostRuntimeBridge,
   DesktopElectronApi,
   EmbeddingHostRuntimeBridge,
-  VisibleChunkingHostBridge,
   VisibleEmbeddingHostBridge,
 } from './desktop-electron-api';
 
@@ -103,10 +98,8 @@ declare global {
     };
     /** Desktop-only Changes bridge, derived from its pure IPC contract. */
     changes?: TransportBridge<typeof changesContract>;
-    chunkingHost?: ChunkingHostRuntimeBridge | VisibleChunkingHostBridge;
     /** Desktop-only clipboard write bridge, derived from its contract (BST-1648). */
     clipboard?: TransportBridge<typeof clipboardContract>;
-    collectionCatalog?: TransportBridge<typeof collectionCatalogContract>;
     commandPalette?: {
       onOpen: (callback: () => void) => () => void;
     };
@@ -192,17 +185,6 @@ declare global {
     mcp: McpBridge;
     modelCatalog?: TransportBridge<typeof modelCatalogContract>;
     /**
-     * Desktop-only notes vault bridge (see
-     * packages/notes-vault/src/desktop/bridge-contract.ts). Absent on web (no
-     * preload) — consumers MUST capability-check `window.notesVault`. Every
-     * path is containment-checked in main against the APPROVED vault roots;
-     * every method resolves to a structured `NotesVaultResult` (never throws
-     * across IPC). `pickDirectory` resolves `{ ok: true, value: null }` when
-     * the user cancels. `onChanged` registers a listener for one-way
-     * `notes-vault:changed` pushes and returns an unsubscribe fn.
-     */
-    notesVault?: TransportBridge<typeof notesVaultContract>;
-    /**
      * OS shell integration bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.platform`.
      *
@@ -229,14 +211,6 @@ declare global {
     };
     promptLibrary?: TransportBridge<typeof promptLibraryContract>;
     /**
-     * Provider OAuth bridge (BST-1355). Shape defined ONCE in
-     * `@brainstrike/assistant-contract/provider-auth` (`ProviderAuthBridge`);
-     * the preload-runtime contract test pins the exposed key set to
-     * `PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS`. Status-only: token material
-     * never crosses IPC. Absent on web — consumers capability-check it.
-     */
-    providerAuth?: import('@brainstrike/assistant-contract/provider-auth').ProviderAuthBridge;
-    /**
      * Secure secrets bridge (BST-1348). The shape is defined ONCE in
      * `@brainstrike/assistant-contract/secrets-bridge` — the preload
      * implements it and the preload-runtime contract test pins the exposed
@@ -257,16 +231,6 @@ declare global {
      */
     skills?: TransportBridge<typeof skillsContract>;
     /**
-     * Desktop-only user-defined slash command discovery bridge. Absent on web
-     * (no preload) — consumers MUST capability-check `window.userCommands`. The
-     * composer's "/" menu calls `list` to load prompt-template commands scanned
-     * from `.brainstrike/commands` + `.claude/commands`.
-     *
-     * Derived from the desktop contract (BST-1648), which is itself pinned
-     * equal to app-shell's `UserCommandsBridge` — nothing here can drift.
-     */
-    sourceFiles?: TransportBridge<typeof sourceFilesContract>;
-    /**
      * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
      * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
      * validated workspace `rootId` (main resolves + containment-checks it). pty
@@ -277,6 +241,15 @@ declare global {
      */
     terminal?: TransportBridge<typeof terminalContract>;
     threadGroups?: TransportBridge<typeof threadGroupsContract>;
+    /**
+     * Desktop-only user-defined slash command discovery bridge. Absent on web
+     * (no preload) — consumers MUST capability-check `window.userCommands`. The
+     * composer's "/" menu calls `list` to load prompt-template commands scanned
+     * from `.brainstrike/commands` + `.claude/commands`.
+     *
+     * Derived from the desktop contract (BST-1648), which is itself pinned
+     * equal to app-shell's `UserCommandsBridge` — nothing here can drift.
+     */
     userCommands?: TransportBridge<typeof userCommandsContract>;
     viewFilterPresets?: TransportBridge<typeof viewFilterPresetsContract>;
     /**

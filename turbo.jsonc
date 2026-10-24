@@ -348,7 +348,6 @@
         "@brainstrike/app-state#dev",
         "@brainstrike/settings-ui#dev",
         "@brainstrike/vector-management#dev",
-        "@brainstrike/db-explorer#dev",
         "@brainstrike/chunking-worker#dev",
         "@brainstrike/file-tree-worker#dev",
         "@brainstrike/platform-utils#dev"

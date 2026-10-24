@@ -10,7 +10,6 @@
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
     "@types/node": "catalog:",
-    "@types/react": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -23,11 +22,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
-    },
-    "./react": {
-      "types": "./dist/react.d.ts",
-      "import": "./dist/react.js",
-      "require": "./dist/react.js"
     }
   },
   "files": [
@@ -35,10 +29,6 @@
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
-  "peerDependencies": {
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
-  },
   "private": true,
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc --build",

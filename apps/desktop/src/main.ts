@@ -58,9 +58,7 @@ import {
 import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
-import { ChunkingHostManager } from './chunking-host-manager';
 import { closeDesktopRenderers } from './close-desktop-renderers';
-import { createDesktopCollectionCatalog } from './collection-catalog';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { joinProfileDirectory } from './database-location';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
@@ -69,6 +67,7 @@ import {
   resolveDesktopDatabaseLocation,
   resolveDesktopDatabaseProfileDirectory,
 } from './desktop-database-location';
+import { getDesktopLoginShellEnvironment } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
 import { createDesktopHookTrust } from './desktop-hook-trust';
@@ -81,6 +80,7 @@ import {
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import { createDesktopResetResume } from './desktop-reset-resume';
 import {
   isDesktopShuttingDown,
   isExpectedShutdownRefusal,
@@ -124,15 +124,13 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
+import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
-import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
-import { registerCollectionCatalogIpc } from './ipc-collection-catalog';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
-import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -148,15 +146,11 @@ import {
   suspendMcpSurfacesForContentClear,
 } from './ipc-mcp';
 import { registerModelCatalogIpc } from './ipc-model-catalog';
-import { registerNotesVaultIpc } from './ipc-notes-vault';
-import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
-import { createShellIpcHandlers } from './ipc-shell-handlers';
 import { registerSkillsIpcHandlers } from './ipc-skills';
-import { registerSourceFilesIpc } from './ipc-source-files';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -192,7 +186,6 @@ import {
   reportAgentHostStartupFailure as reportHostStartupFailure,
   reportNativeIndexActivationError as reportNativeIndexFailure,
 } from './native-index-activation-error';
-import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
   createNativeStartupFailureReporter,
   observeNativeReaderStartup,
@@ -200,7 +193,6 @@ import {
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeRootRegistration } from './native-root-registration';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
-import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
@@ -208,8 +200,6 @@ import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
-import { createSourceChunkReader } from './source-file-chunks';
-import { createDesktopSourceFiles } from './source-files';
 import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
@@ -361,8 +351,8 @@ let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
-// Forge and Notes Vault retire inside their awaited graceful-shutdown steps;
-// the synchronous ledger must never start their physical cleanup again.
+// Forge retires inside its awaited graceful-shutdown step; the synchronous
+// ledger must never start its physical cleanup again.
 const ipcDisposers = createDisposerStack();
 // Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
 // window (rebound on a macOS dock-reopen), so its handle is kept to retire the
@@ -471,9 +461,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           throw new AggregateError(causes, 'Child process shutdown cleanup failed');
         }
       },
-      'chunking-host': async () => {
-        await chunkingHostManager.dispose();
-      },
       // Stops everything that issues database work. It does NOT close the
       // database: that is `closeDatabase` below, a slice that always runs.
       'database-drain': () => {
@@ -529,12 +516,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await nativeRetirement;
         await agentHostClientIpc.close();
       },
-      // Fences new vault watches and joins every native subscribe and
-      // unsubscribe, the renderer reapers' included (BST-2244).
-      'notes-vault': () => closeNotesVaultIpc(),
-      'parser-host': async () => {
-        await parserHostManager.stop();
-      },
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
@@ -556,11 +537,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           admitDocumentClose(window);
         }
         const closes = await Promise.allSettled([
-          closeDesktopRenderers(
-            windows,
-            (window) =>
-              chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
-          ),
+          closeDesktopRenderers(windows, (window) => embeddingHostManager.isHostWindow(window)),
         ]);
         const rejections = [...preparations, ...closes].flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
@@ -655,8 +632,6 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
   }
 };
 
-const chunkingHostManager = new ChunkingHostManager();
-const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager({
   lifecycleDelays: lifecycleDelaySeam,
   storage,
@@ -698,13 +673,11 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   prepareDatabaseProfileReset: () => profileReset.prepare(),
   resetLocalDatabase: (lease) => profileReset.clear(lease),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
-  resumeAfterReset: async (outcome, signal) => {
-    if (outcome === 'succeeded') {
-      await nativeIndexActivation.resume(signal);
-    }
-    signal.throwIfAborted();
-    await resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome);
-  },
+  resumeAfterReset: createDesktopResetResume({
+    publishIndexConfig: () => indexConfig.publishSaved(),
+    resumeIndex: (signal) => nativeIndexActivation.resume(signal),
+    resumeMcp: (outcome) => resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome),
+  }),
   runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
     { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
@@ -717,7 +690,6 @@ const handleResetLocal = createDesktopFactoryResetHandler({
       stopForContent: suspendMcpSurfacesForContentClear,
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
-    { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
     // In-memory diagnostics ring: a factory reset must not carry the previous
     // profile's process samples into the next one.
     {
@@ -816,7 +788,6 @@ configureDesktopCommandSessionManager({
   resolver: createWorkspaceRootResolver(workspaceRootCatalog),
 });
 const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
-  chunkingHostManager,
   embeddingHostManager,
   getRootsCatalog: async () => workspaceRootCatalog,
   getUserDataPath: () => app.getPath('userData'),
@@ -849,14 +820,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     if (key === VECTOR_PREFERENCES_STORAGE_KEY) {
       // Recall's unpinned device follows the preference; the worker keeps its own until restart.
       embeddingHostManager.resolveDevice();
-      return;
     }
-    if (key !== NATIVE_INDEX_SETTINGS_KEY) {
-      return;
-    }
-    activateSavedNativeIndexSettings().catch((error: unknown) =>
-      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
-    );
   },
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
@@ -898,7 +862,43 @@ const nativeIndexActivation = createNativeIndexActivation({
   onReceipt: (receipt) =>
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
   profile: desktopBootstrap.profile,
+  settings: () => indexConfig.nativeSettings(),
   storage,
+});
+const indexConfig = createDesktopIndexConfig({
+  assertModel: assertRegisteredEmbeddingModel,
+  catalog: workspaceRootCatalog,
+  publish: (config) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.configChanged, config);
+      }
+    }
+  },
+  // A saved change joins the native owner's FIFO and `update` returns: the scan runs in the
+  // background, so a Pause saved meanwhile fences admission at once. During a factory reset a
+  // reconfigure waits for the reset while a rebuild or vector-space replacement joins the FIFO
+  // directly, so applies can run out of save order; each re-reads the saved config when it runs,
+  // so the index ends on the last save. Failures stay visible in the lifecycle observation and
+  // these reports.
+  rebuild: async () => {
+    nativeIndexSearch
+      .rebuild()
+      .catch((error: unknown) =>
+        reportNativeIndexActivationError('Search index rebuild for the new chunking failed', error)
+      );
+  },
+  reconfigure: async () => {
+    activateSavedNativeIndexSettings().catch((error: unknown) =>
+      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
+    );
+  },
+  replaceVectorSpace: (id) =>
+    nativeRootDataDeletion.transition(async () => {
+      await nativeIndexActivation.cleanupCollection(id);
+      await workspaceRootCatalog.collections({ id, operation: 'delete' });
+      await nativeIndexActivation.resume();
+    }),
 });
 const nativeLifecycleObserver = new AbortController();
 void nativeIndexActivation
@@ -917,20 +917,11 @@ void nativeIndexActivation
 ipcDisposers.add('native-index-lifecycle', () =>
   nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
 );
-// Main's own desktop-origin client: Settings credential writes, provider sign-in
-// and subscription verification reach the host, their single owner, through it.
-// The host's sign-in pages open through the same validated shell path as the
-// shell IPC domain (allow-listed protocols, never an embedded webview).
-const agentHostShellOpener = createShellIpcHandlers({ shell });
+// Main's own desktop-origin client: Settings credential writes reach the host,
+// their single owner, through it.
 const agentHostMainClient = createAgentHostMainClient(
   nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open,
-  async (url) => {
-    const result = await agentHostShellOpener.openExternal(url);
-    if (!result.ok) {
-      throw new Error(result.error ?? 'shell.openExternal failed');
-    }
-  }
+  agentHostPrivateClients.open
 );
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
@@ -987,35 +978,6 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
   resume: () => nativeIndexActivation.resume(),
   stopSources: () => nativeIndexActivation.stopSources(),
 });
-const collectionCatalog = createDesktopCollectionCatalog({
-  deleteCollection: (id, commit) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupCollection(id);
-      const deleted = await commit();
-      // Resume reopens from saved settings: a deleted saved selection stays an explicit
-      // lifecycle refusal until the user chooses again.
-      await nativeIndexActivation.resume();
-      return deleted;
-    }),
-  native: () => nativeIndexSearch,
-  store: workspaceRootCatalog,
-});
-ipcDisposers.add('collection-catalog', registerCollectionCatalogIpc(collectionCatalog));
-const sourceFiles = createDesktopSourceFiles({
-  catalog: workspaceRootCatalog,
-  publishSources: (partition) => nativeIndexActivation.publishImportedSources(partition),
-  readChunks: createSourceChunkReader({
-    catalog: workspaceRootCatalog,
-    withRead: nativeIndexActivation.withRead,
-  }),
-  removeSources: (files) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupFiles(files);
-      await workspaceRootCatalog.sourceCatalog({ files, operation: 'remove' });
-      await nativeIndexActivation.resume();
-    }),
-});
-ipcDisposers.add('source-files', registerSourceFilesIpc(sourceFiles));
 
 const nativeIndexSearch = createNativeScopedSearchCapability({
   openQuery: openIndexQuery,
@@ -1035,7 +997,8 @@ ipcDisposers.add(
     {
       retryIndexing: () =>
         nativeRootDataDeletion.transition(() => nativeIndexActivation.retryIndexing()),
-    }
+    },
+    indexConfig
   )
 );
 ipcDisposers.add('main', () => {
@@ -1045,8 +1008,6 @@ ipcDisposers.add('main', () => {
     logger.error('Application IPC domain cleanup failed during will-quit', { error });
   });
 });
-ipcDisposers.add('chunking-host', registerChunkingHostIpcHandlers(chunkingHostManager));
-ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
 ipcDisposers.add(
   'embedding-host',
   registerEmbeddingHostIpcHandlers(embeddingHostManager, {
@@ -1186,7 +1147,6 @@ ipcDisposers.add(
   registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)
 );
 ipcDisposers.add('terminal', registerTerminalIpc(workspaceRootCatalog));
-const closeNotesVaultIpc = registerNotesVaultIpc(storage);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1311,18 +1271,15 @@ if (singleInstanceLockAcquired) {
 
   completeFactoryResetRendererReplacement = async (signal) => {
     const visibleWindows = BrowserWindow.getAllWindows().filter(
-      (window) =>
-        !(chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window))
+      (window) => !embeddingHostManager.isHostWindow(window)
     );
     await factoryResetRendererReplacement.replace(visibleWindows, signal);
   };
 
   desktopBootstrap.bindSecondInstanceFocus(() => {
     const existingWindow =
-      BrowserWindow.getAllWindows().find(
-        (window) =>
-          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
-      ) ?? null;
+      BrowserWindow.getAllWindows().find((window) => !embeddingHostManager.isHostWindow(window)) ??
+      null;
     if (!existingWindow) {
       return;
     }
@@ -1508,6 +1465,21 @@ if (singleInstanceLockAcquired) {
       for (const failure of desktopEnvLoadResult.failures) {
         logger.error('Desktop environment file rejected', failure);
       }
+      // Never the printed environment itself: it holds the user's secrets.
+      const loginShell = getDesktopLoginShellEnvironment();
+      if (loginShell.status === 'failed') {
+        logger.error('Login shell environment unavailable; children keep the launch environment', {
+          message: loginShell.message,
+          shell: loginShell.shell,
+        });
+      } else if (loginShell.status === 'resolved') {
+        logger.info('Login shell environment applied', {
+          durationMs: loginShell.durationMs,
+          shell: loginShell.shell,
+        });
+      } else {
+        logger.info('Login shell environment skipped', { reason: loginShell.reason });
+      }
 
       // BST-1361: deprecated env names are detected ONCE per launch from this
       // process's own environment (files were applied by main-bootstrap) and
@@ -1527,8 +1499,7 @@ if (singleInstanceLockAcquired) {
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       // Settings reads the profile store directly and writes through the host,
-      // the single credential writer. Its `auth/clear` also drops the sign-in
-      // engine's in-memory rotated-token overlay (BST-1356) and the host's MCP
+      // the single credential writer. Its `auth/clear` also drops the host's MCP
       // OAuth records with their live providers.
       const secretsService = createDesktopSettingsSecrets({
         clear: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,
@@ -1549,27 +1520,10 @@ if (singleInstanceLockAcquired) {
               appRoot: app.getAppPath(),
               env: process.env,
               isPackaged: app.isPackaged,
+              loginShell,
               result: desktopEnvLoadResult,
               userDataPath: app.getPath('userData'),
             }),
-        })
-      );
-      // Provider sign-in (BST-1355/1356) runs in the host's one OAuth engine,
-      // the only refresher; a second engine would replay a rotating refresh
-      // token. Main forwards the visible window's calls over its private client.
-      ipcDisposers.add(
-        'provider-auth',
-        registerProviderAuthIpcHandlers({
-          auth: {
-            cancel: (provider) => agentHostMainClient.request('auth/cancel', { provider }),
-            connect: (provider, method) =>
-              agentHostMainClient.request('auth/connect', {
-                provider,
-                ...(method === undefined ? {} : { method }),
-              }),
-            disconnect: (provider) => agentHostMainClient.request('auth/disconnect', { provider }),
-            status: (provider) => agentHostMainClient.request('auth/status', { provider }),
-          },
         })
       );
       ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getMainMcpHostControl() }));
@@ -2098,8 +2052,7 @@ if (singleInstanceLockAcquired) {
           return;
         }
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
-          (window) =>
-            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+          (window) => !embeddingHostManager.isHostWindow(window)
         );
         if (!hasVisibleWindow) {
           await createMainWindow();
@@ -2198,6 +2151,16 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         embeddingHostManager,
         modelCatalog,
         nativeIndexSearch,
+        // The ledger authorizes a managed worktree's mount; no picker grant is needed.
+        // The window is then asked to show it, as for any folder Main opens.
+        openWorktreeFolder: async (path) => {
+          const root = await applicationIpcDomain.roots.addRootByPath(path);
+          desktopBootstrap.workspaceOpenQueue.enqueue({
+            origin: 'agent-worktree',
+            path: root.handle.path,
+          });
+          return { displayName: root.displayName, path: root.handle.path, rootId: root.rootId };
+        },
         resolveForgeService: () => forgeService ?? null,
         resolveWorktreeService: () => worktreeService,
         retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),

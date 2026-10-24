@@ -48,7 +48,6 @@ describe('Main process sampler owner composition', () => {
       const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
       const steps: Record<DesktopShutdownStepName, DesktopShutdownStepRun> = {
         'child-processes': () => {},
-        'chunking-host': () => {},
         'database-drain': () => {},
         'embedding-host': () => {},
         'factory-reset': () => {},
@@ -58,8 +57,6 @@ describe('Main process sampler owner composition', () => {
         'main-catalog': () => {},
         'mcp-runtime': () => {},
         'native-index': () => {},
-        'notes-vault': () => {},
-        'parser-host': () => {},
         renderers: () => {},
         'snapshot-maintenance': () => {},
       };

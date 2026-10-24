@@ -52,26 +52,6 @@ export class UnsupportedCredentialTypeError extends Error {
 const PROFILE_CHAIN_UNSUPPORTED_DETAIL =
   'AWS profile/credential-chain auth requires the desktop app (it reads your local AWS profiles); store a Bedrock API key (bearer) instead.';
 
-/**
- * Static guidance for a host that cannot mint a subscription session
- * (BST-1356, legal gate BST-1351 constraint 4). Subscription OAuth is
- * INTERACTIVE-DESKTOP-ONLY: it must be structurally unavailable to any
- * scheduled, headless, server, or multi-user execution context. Enforcement
- * is the missing `oauthSubscriptionFetch` capability below — a host that did
- * not inject one cannot resolve the credential and says so, exactly the way
- * Hosted Web fails closed on `profile_chain`.
- */
-const OAUTH_SUBSCRIPTION_UNSUPPORTED_DETAIL =
-  'Subscription sign-in requires the interactive desktop app; it is unavailable to headless, scheduled, and server contexts. Use a platform API key there instead.';
-
-/**
- * Placeholder handed to the AI SDK's `apiKey` option. The wire NEVER sees it:
- * the injected fetch closure strips the SDK's authorization header and
- * substitutes the real subscription bearer. It exists only because the SDK
- * factories require some key to construct.
- */
-export const OAUTH_SUBSCRIPTION_DUMMY_KEY = 'oauth-subscription-no-api-key';
-
 export interface ProviderAuthProjectionOptions {
   /**
    * Builds the AWS default credential chain for a profile. INJECTED, not
@@ -93,26 +73,6 @@ export interface ProviderAuthProjectionOptions {
    * no region of their own). Defaults to `process.env`.
    */
   readonly env?: Readonly<Record<string, string | undefined>>;
-  /**
-   * Builds the authenticated fetch closure for an `oauth_subscription`
-   * provider. INJECTED, not imported — this is the STRUCTURAL enforcement of
-   * legal gate constraint 4 (interactive-desktop-only), mirroring
-   * `awsCredentialChain` above.
-   *
-   * Only the interactive desktop assistant-server supplies one. Web, headless,
-   * scheduled and any future non-interactive host supply nothing, so a stored
-   * subscription credential is REJECTED there rather than degraded. A future
-   * headless mode therefore fails closed by construction: it would have to
-   * deliberately add this capability to break the constraint, which no
-   * accidental refactor can do.
-   *
-   * The returned closure holds the token in its own scope; it never crosses
-   * IPC and is never serialized (RequestContext.toJSON drops functions).
-   */
-  readonly oauthSubscriptionFetch?: (
-    provider: string,
-    credential: Extract<ResolvedProviderCredential, { type: 'oauth' }>
-  ) => typeof globalThis.fetch;
 }
 
 /**
@@ -157,8 +117,7 @@ function envAwsRegion(options: ProviderAuthProjectionOptions | undefined): strin
  * - `aws`/`profile_chain` projects to `{ kind: 'aws', region,
  *   credentialProvider }` when — and ONLY when — the caller injected an
  *   `awsCredentialChain` capability (BST-1353). Desktop main does; Hosted Web
- *   does not, so the same credential throws typed there. `oauth` is minted by
- *   its consumer (BST-1356) and throws here.
+ *   does not, so the same credential throws typed there.
  *
  * The string shim below deliberately calls this with NO options, so a
  * profile_chain credential still throws on every bearer-only consumer
@@ -180,28 +139,6 @@ export function providerAuthInputFromCredential(
   }
   const authType = findProviderDefinition(provider)?.authType;
   const isAwsAuthProvider = authType === 'aws';
-  if (credential.type === 'oauth') {
-    // A stored oauth credential on a provider that does not declare
-    // subscription auth is a credential/provider mismatch — minting a
-    // subscription session for it would be a credential confusion.
-    if (authType !== 'oauth_subscription') {
-      throw new UnsupportedCredentialTypeError(provider);
-    }
-    const buildFetch = options?.oauthSubscriptionFetch;
-    if (!buildFetch) {
-      throw new UnsupportedCredentialTypeError(provider, OAUTH_SUBSCRIPTION_UNSUPPORTED_DETAIL);
-    }
-    return {
-      apiKey: OAUTH_SUBSCRIPTION_DUMMY_KEY,
-      fetch: buildFetch(provider, credential),
-      kind: 'custom_fetch',
-    };
-  }
-  if (authType === 'oauth_subscription') {
-    // The subscription provider has NO api-key mode. Accepting one would send
-    // a metered platform key to the subscription backend.
-    throw new UnsupportedCredentialTypeError(provider);
-  }
   if (credential.type === 'api_key') {
     if (isAwsAuthProvider) {
       return { apiKey: credential.key, kind: 'aws', region: envAwsRegion(options) };

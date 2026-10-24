@@ -2,11 +2,10 @@ import { useNativeWorkspaceSearchDependencies } from '../core/native-workspace-s
 import { NativeSearchCoverage } from './native-search-coverage';
 
 export interface SearchCoverageBannerProps {
-  collectionId: string | null;
   rootIds: readonly string[];
 }
 
-/** Coverage banner for the selected embedding set, projected from the native index owner. */
+/** Coverage banner for the searched workspace roots, projected from the native index owner. */
 export function SearchCoverageBanner(props: SearchCoverageBannerProps) {
   const native = useNativeWorkspaceSearchDependencies();
   if (!native) {

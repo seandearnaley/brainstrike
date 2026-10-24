@@ -16,10 +16,6 @@ const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['threadGroups', 'request'],
   ['threadGroups', 'readRoots'],
   ['promptLibrary', 'request'],
-  ['collectionCatalog', 'snapshot'],
-  ['sourceFiles', 'list'],
-  ['sourceFiles', 'read'],
-  ['sourceFiles', 'chunks'],
   ['logging', 'getPreferences'],
   ['logging', 'setPreferences'],
 ] as const;

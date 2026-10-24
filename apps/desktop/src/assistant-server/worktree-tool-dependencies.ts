@@ -9,6 +9,10 @@ import type { WorktreeToolCapability } from './worktree-tools';
 
 /** Main's lazily constructed worktree and forge services for host threads. */
 export interface DesktopWorktreeServices {
+  /** Opens a worktree an agent created as a workspace folder (ADR-0028 step 3). */
+  readonly openWorktreeFolder?:
+    | ((path: string) => Promise<{ displayName: string; path: string; rootId: string }>)
+    | undefined;
   readonly resolveForgeService?: (() => ForgeService | null) | undefined;
   readonly resolveWorktreeService?: (() => WorktreeService | null) | undefined;
 }
@@ -27,14 +31,26 @@ export function desktopWorktreeToolDependencies(
   const worktreeTools: WorktreeToolCapability | undefined = service
     ? {
         archive: (params) => service.archive({ ...params, ...(runId ? { runId } : {}) }),
-        create: (params) =>
-          service.create({
+        // The thread moves into the worktree it created, so Main opens it as a
+        // folder first: a binding names only a mounted, recorded root.
+        create: async (params) => {
+          const open = services.openWorktreeFolder;
+          if (!open) {
+            return { error: 'Worktrees cannot be opened as folders in this session.', ok: false };
+          }
+          const created = await service.create({
             ...params,
             branch: { name: params.branch },
             createdBy: 'agent',
             ...(runId ? { runId } : {}),
             ...(threadId ? { threadId } : {}),
-          }),
+          });
+          if (!created.ok) {
+            return created;
+          }
+          const root = await open(created.value.worktree.path);
+          return { ok: true, value: { ...created.value, root } };
+        },
         list: () => service.list(),
       }
     : undefined;

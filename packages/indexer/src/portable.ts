@@ -1,9 +1,8 @@
 /**
- * The indexer's few platform needs, written so its store runs both in the
- * desktop's utility process and in the browser writer (BST-1940). Hashing is
- * `@brainstrike/utils/crypto`'s synchronous SHA-256 (Node's native crypto
- * where the runtime provides it). Random ids come from Web Crypto.
- * Float32 vectors are plain little-endian bytes, not Node Buffers.
+ * The indexer's few platform needs. Hashing is `@brainstrike/utils/crypto`'s
+ * synchronous SHA-256 (Node's native crypto where the runtime provides it).
+ * Random ids come from Web Crypto. Float32 vectors are plain little-endian
+ * bytes, not Node Buffers.
  */
 export { sha256Bytes, sha256Hex } from '@brainstrike/utils/crypto';
 

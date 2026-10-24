@@ -3,8 +3,8 @@
 // src/frame.ts). A row's payload is its event body with the row's seq written first: `{"seq":N,...}`.
 // SQLite stores no checksum of row content: a flipped payload byte passes `integrity_check` and is returned as if
 // nothing happened (M0-A2 item 3c), so every row also carries crc32(payload).
-// The browser writer (@brainstrike/web-state-store) shares this module, so the crc comes from Node's zlib only where
-// the runtime provides it, and otherwise from the same CRC-32 (IEEE 802.3, zlib's) computed here.
+// The crc comes from Node's zlib where the runtime provides it, and otherwise from the same CRC-32 (IEEE 802.3,
+// zlib's) computed here.
 
 /** @type {((data: string) => number) | undefined} */
 const zlibCrc32 = globalThis.process?.getBuiltinModule?.('node:zlib')?.crc32;

@@ -2,9 +2,8 @@ import type { IndexWriter } from './store.js';
 
 /**
  * Desktop's `ScopedIndexerPort`, by operation, plus `info`. Desktop's process
- * splits these between its read-only connection and its writer thread; a host
- * whose one IndexWriter also answers reads (the browser's index worker,
- * BST-1940) serves them all from it.
+ * splits these between its read-only connection and its writer thread;
+ * `scopedIndexOperations` serves them all from one IndexWriter.
  */
 export const SCOPED_INDEX_OPERATIONS = [
   'commitScopedFile',

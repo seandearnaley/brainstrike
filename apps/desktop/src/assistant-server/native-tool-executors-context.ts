@@ -10,7 +10,6 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
-  logToolFailure,
   type NativeToolExecutor,
   parseToolExecuteInput,
   type ToolExecuteInput,
@@ -38,12 +37,7 @@ export function contextReadExecutors(readWorkspaceIndex: () => Promise<Workspace
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
           input
         );
-        try {
-          return runListWorkspaceContext(resolvedInput, runtimeData, await readWorkspaceIndex());
-        } catch (error) {
-          logToolFailure('listWorkspaceContext failed', error, resolvedInput);
-          throw error;
-        }
+        return runListWorkspaceContext(resolvedInput, runtimeData, await readWorkspaceIndex());
       },
       id: NATIVE_TOOL_ID.listWorkspaceContext,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
@@ -57,12 +51,7 @@ export function contextReadExecutors(readWorkspaceIndex: () => Promise<Workspace
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
           input
         );
-        try {
-          return await runReadWorkspaceContext(resolvedInput, runtimeData);
-        } catch (error) {
-          logToolFailure('readWorkspaceContext failed', error, resolvedInput);
-          throw error;
-        }
+        return await runReadWorkspaceContext(resolvedInput, runtimeData);
       },
       id: NATIVE_TOOL_ID.readWorkspaceContext,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],

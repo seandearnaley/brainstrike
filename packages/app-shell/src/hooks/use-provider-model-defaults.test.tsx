@@ -46,13 +46,11 @@ describe('useProviderModelDefaults', () => {
     }
   });
 
-  it('dispatches the seed policy for openrouter, openai-codex and bedrock', () => {
-    renderHook(() =>
-      useProviderModelDefaults(['openrouter', 'openai-codex', 'bedrock'], db, 1, true)
-    );
+  it('dispatches the seed policy for openrouter and bedrock', () => {
+    renderHook(() => useProviderModelDefaults(['openrouter', 'bedrock'], db, 1, true));
 
-    expect(initializeProviderModelDefaults).toHaveBeenCalledTimes(3);
-    for (const provider of ['openrouter', 'openai-codex', 'bedrock']) {
+    expect(initializeProviderModelDefaults).toHaveBeenCalledTimes(2);
+    for (const provider of ['openrouter', 'bedrock']) {
       expect(initializeProviderModelDefaults).toHaveBeenCalledWith(
         db,
         provider,
@@ -110,21 +108,21 @@ describe('useProviderModelDefaults', () => {
     });
   });
 
-  it.each([
-    ['openai-codex', 'OpenAI (ChatGPT) model setup failed'],
-    ['bedrock', 'Amazon Bedrock model setup failed'],
-  ] as const)('raises a destructive toast naming %s that failed', async (provider, title) => {
-    initializeProviderModelDefaults.mockRejectedValueOnce(new Error('db is closed'));
+  it.each([['bedrock', 'Amazon Bedrock model setup failed']] as const)(
+    'raises a destructive toast naming %s that failed',
+    async (provider, title) => {
+      initializeProviderModelDefaults.mockRejectedValueOnce(new Error('db is closed'));
 
-    renderHook(() => useProviderModelDefaults([provider], db, 1, true));
-    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+      renderHook(() => useProviderModelDefaults([provider], db, 1, true));
+      await vi.waitFor(() => expect(toast).toHaveBeenCalled());
 
-    expect(toast).toHaveBeenCalledWith({
-      description: 'db is closed',
-      title,
-      variant: 'destructive',
-    });
-  });
+      expect(toast).toHaveBeenCalledWith({
+        description: 'db is closed',
+        title,
+        variant: 'destructive',
+      });
+    }
+  );
 
   it('dispatches nothing while provider discovery is disabled', () => {
     renderHook(() => useProviderModelDefaults(['anthropic'], db, 1, false));

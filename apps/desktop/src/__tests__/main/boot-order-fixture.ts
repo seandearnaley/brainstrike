@@ -14,35 +14,30 @@ const mockSession = {
   },
 };
 
-const mockBrowserWindowInstance = {
-  destroy: vi.fn(),
-  getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
-  getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
-  isDestroyed: vi.fn(() => false),
-  isFullScreen: vi.fn(() => false),
-  isMaximized: vi.fn(() => false),
-  loadFile: vi.fn(() => Promise.resolve()),
-  loadURL: vi.fn(() => Promise.resolve()),
-  maximize: vi.fn(),
-  on: vi.fn(),
-  once: vi.fn(),
-  setFullScreen: vi.fn(),
-  show: vi.fn(),
-  webContents: {
+/** One window's spies. A boot's windows share them; no other boot's calls reach them. */
+function createMockBrowserWindow() {
+  return {
+    destroy: vi.fn(),
+    getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+    getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+    isDestroyed: vi.fn(() => false),
+    isFullScreen: vi.fn(() => false),
+    isMaximized: vi.fn(() => false),
+    loadFile: vi.fn(() => Promise.resolve()),
+    loadURL: vi.fn(() => Promise.resolve()),
+    maximize: vi.fn(),
     on: vi.fn(),
-    openDevTools: vi.fn(),
-    setWindowOpenHandler: vi.fn(),
-  },
-};
-
-// Use function syntax for Vitest 4 constructor mocks
-const mockBrowserWindow = vi.fn();
-mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
-  Object.assign(this, mockBrowserWindowInstance);
-});
-Object.assign(mockBrowserWindow, {
-  getAllWindows: vi.fn(() => []),
-});
+    once: vi.fn(),
+    setFullScreen: vi.fn(),
+    show: vi.fn(),
+    webContents: {
+      on: vi.fn(),
+      openDevTools: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    },
+  };
+}
+type MockBrowserWindow = ReturnType<typeof createMockBrowserWindow>;
 
 const mockApp = {
   commandLine: { appendSwitch: vi.fn() },
@@ -59,9 +54,8 @@ const mockApp = {
   whenReady: vi.fn(() => Promise.resolve()),
 };
 
-vi.mock('electron', () => ({
+const electronServices = {
   app: mockApp,
-  BrowserWindow: mockBrowserWindow,
   clipboard: { writeText: vi.fn() },
   ipcMain: {
     handle: vi.fn(),
@@ -88,7 +82,34 @@ vi.mock('electron', () => ({
     openPath: vi.fn().mockResolvedValue(''),
     showItemInFolder: vi.fn(),
   },
-}));
+};
+
+const bootWindowCapture = { current: null as MockBrowserWindow | null };
+
+/**
+ * Electron for one Main boot, with its own window. Each test registers it again, so its Main
+ * imports a new module, and a boot still running from an earlier test calls its own window.
+ */
+function electronForOneBoot() {
+  const window = createMockBrowserWindow();
+  bootWindowCapture.current = window;
+  // Use function syntax for Vitest 4 constructor mocks
+  const BrowserWindow = vi.fn(function (this: Record<string, unknown>) {
+    Object.assign(this, window);
+  });
+  Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => []) });
+  return { ...electronServices, BrowserWindow };
+}
+
+vi.mock('electron', () => electronForOneBoot());
+
+/** The window spies of this test's own Main boot, once that boot imported Electron. */
+function bootWindow(): MockBrowserWindow {
+  if (!bootWindowCapture.current) {
+    throw new Error('Main never imported Electron in this test');
+  }
+  return bootWindowCapture.current;
+}
 
 const statSyncMock = vi.fn(() => ({ isDirectory: () => true }));
 const accessSyncMock = vi.fn();
@@ -167,25 +188,6 @@ vi.mock('../../ipc-handlers', async () => {
   };
 });
 
-const { notesVaultCapture } = vi.hoisted(() => ({
-  notesVaultCapture: {
-    close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
-  },
-}));
-
-vi.mock('../../ipc-notes-vault', async () => {
-  const actual =
-    await vi.importActual<typeof import('../../ipc-notes-vault')>('../../ipc-notes-vault');
-  return {
-    ...actual,
-    registerNotesVaultIpc: (...args: Parameters<typeof actual.registerNotesVaultIpc>) => {
-      const close = vi.fn(actual.registerNotesVaultIpc(...args));
-      notesVaultCapture.close = close;
-      return close;
-    },
-  };
-});
-
 const {
   nativeActualPrepareForPause,
   nativeAcquireProfile,
@@ -193,6 +195,7 @@ const {
   nativeAcquireRead,
   nativeCloseForShutdown,
   nativePrepareForPause,
+  nativeRebuild,
   nativeReconfigureForReset,
   publicEmbeddingStop,
 } = vi.hoisted(() => ({
@@ -212,6 +215,7 @@ const {
       typeof import('../../native-index-activation').createNativeIndexActivation
     >['prepareSavedPause']
   >(async () => null),
+  nativeRebuild: { current: null as null | (() => Promise<void>) },
   nativeReconfigureForReset: { current: null as null | (() => Promise<void>) },
   publicEmbeddingStop: {
     current: null as null | import('../../embedding-host-manager').EmbeddingHostManager['stop'],
@@ -233,11 +237,38 @@ vi.mock('../../native-index-activation', async (importOriginal) => {
         acquireRead: nativeAcquireRead,
         close: nativeCloseForShutdown,
         prepareSavedPause: nativePrepareForPause,
+        rebuild: () => nativeRebuild.current?.() ?? owner.rebuild(),
         reconfigure: () => nativeReconfigureForReset.current?.() ?? owner.reconfigure(),
       };
     },
   };
 });
+
+const { indexConfigCapture } = vi.hoisted(() => ({
+  indexConfigCapture: {
+    current: null as null | import('../../index-config').DesktopIndexConfigDependencies,
+  },
+}));
+vi.mock('../../index-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../index-config')>();
+  return {
+    ...actual,
+    createDesktopIndexConfig: (
+      dependencies: import('../../index-config').DesktopIndexConfigDependencies
+    ) => {
+      indexConfigCapture.current = dependencies;
+      return actual.createDesktopIndexConfig(dependencies);
+    },
+  };
+});
+
+/** Main's config owner's dependencies, as `main.ts` composed them. */
+function requireIndexConfig(): import('../../index-config').DesktopIndexConfigDependencies {
+  if (!indexConfigCapture.current) {
+    throw new Error('main.ts never created its search index config owner');
+  }
+  return indexConfigCapture.current;
+}
 
 vi.mock('../../ipc-embedding-host', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../ipc-embedding-host')>();
@@ -300,6 +331,8 @@ export function installMainBootFixture(): void {
     uncaughtExceptionListenersBeforeMain = new Set(process.listeners('uncaughtException'));
     unhandledRejectionListenersBeforeMain = new Set(process.listeners('unhandledRejection'));
     vi.resetModules();
+    bootWindowCapture.current = null;
+    vi.doMock('electron', electronForOneBoot);
     vi.clearAllMocks();
     nativeAcquireProfile.mockReset().mockImplementation(() => new Promise(() => undefined));
     nativeAcquire.mockReset().mockResolvedValue(undefined);
@@ -309,9 +342,10 @@ export function installMainBootFixture(): void {
     shutdownPlanCapture.run = null;
     applicationDomainCapture.close = null;
     applicationDomainCapture.options = null;
-    notesVaultCapture.close = null;
     nativeReconfigureForReset.current = null;
+    nativeRebuild.current = null;
     nativeActualPrepareForPause.current = null;
+    indexConfigCapture.current = null;
     nativePrepareForPause.mockReset().mockResolvedValue(null);
     publicEmbeddingStop.current = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
@@ -339,20 +373,22 @@ export function installMainBootFixture(): void {
 
 export {
   applicationDomainCapture,
+  bootWindow,
   createLoggerMock,
   existsSyncMock,
+  indexConfigCapture,
   isDesktopShuttingDownMock,
   mockApp,
-  mockBrowserWindowInstance,
   nativeAcquire,
   nativeAcquireProfile,
   nativeAcquireRead,
   nativeActualPrepareForPause,
   nativeCloseForShutdown,
   nativePrepareForPause,
+  nativeRebuild,
   nativeReconfigureForReset,
-  notesVaultCapture,
   publicEmbeddingStop,
+  requireIndexConfig,
   requireMainLogger,
   shutdownPlanCapture,
 };

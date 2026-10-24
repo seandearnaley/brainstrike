@@ -40,7 +40,6 @@ interface Session {
   retired?: boolean;
   runtime?: Runtime;
   scan?: { requestId: string; work: Promise<unknown>; joining: boolean } | undefined;
-  stopping: boolean;
   watch?: Parameters<CanonicalWorkspaceLease['subscribe']> | undefined;
 }
 /** Desktop attachment lives beside the engine; @brainstrike/indexer has no product dependency. */
@@ -62,7 +61,7 @@ export class CanonicalUtilityChild {
       if (!session) {
         throw new Error('Canonical event has an unknown utility owner.');
       }
-      if (session.stopping) {
+      if (session.leaseController.signal.aborted) {
         return;
       }
       switch (frame.event) {
@@ -86,8 +85,9 @@ export class CanonicalUtilityChild {
       if (!(session && this.controls.has(frame.id))) {
         throw new Error('Canonical control cancellation has no owner.');
       }
-      session.stopping = true;
-      session.leaseController.abort(new DOMException('Canonical control cancelled.', 'AbortError'));
+      session.leaseController.abort(
+        new CanonicalOperationCancelledError('Canonical control cancelled.')
+      );
       return;
     }
     if (this.controls.has(frame.id)) {
@@ -135,8 +135,8 @@ export class CanonicalUtilityChild {
     if (!session?.runtime) {
       throw new Error('Canonical control has no acquired runtime.');
     }
-    if (frame.op !== 'join-scan' && (session.stopping || this.closed)) {
-      throw new Error('Canonical utility admission is closed.');
+    if (frame.op !== 'join-scan') {
+      session.leaseController.signal.throwIfAborted();
     }
     switch (frame.op) {
       case 'trigger':
@@ -207,7 +207,7 @@ export class CanonicalUtilityChild {
     ) {
       throw new Error('Canonical utility scope and mounted lease disagree.');
     }
-    const session: Session = { config, leaseController: new AbortController(), stopping: false };
+    const session: Session = { config, leaseController: new AbortController() };
     this.sessions.set(frame.owner, session);
     session.acquisition = this.acquireRuntime(frame.owner, session);
     return session.acquisition;
@@ -215,9 +215,7 @@ export class CanonicalUtilityChild {
   private async acquireRuntime(owner: string, session: Session): Promise<null> {
     const { config } = session;
     const publicRuntime = await import('@brainstrike/canonical-ingestion');
-    if (this.closed || session.stopping) {
-      throw new Error('Canonical utility closed during runtime acquisition.');
-    }
+    session.leaseController.signal.throwIfAborted();
     const { catalog, inference, inventory, publication } = this.ports(owner);
     const mode =
       config.mode === 'VECTOR' ? { inference, mode: 'VECTOR' as const } : { mode: 'TEXT' as const };
@@ -273,15 +271,15 @@ export class CanonicalUtilityChild {
         }),
       });
     }
-    if (session.stopping || this.closed) {
+    if (session.leaseController.signal.aborted) {
       await session.runtime.close();
-      throw new Error('Canonical runtime retired during acquisition.');
+      session.leaseController.signal.throwIfAborted();
     }
     return null;
   }
   private async closeSession(owner: string, session: Session): Promise<void> {
-    session.stopping = true;
-    session.leaseController.abort(new DOMException('Canonical mount retired.', 'AbortError'));
+    // Main's retirement of this attachment: work ending on it is Main's cancellation (BST-2140).
+    session.leaseController.abort(new CanonicalOperationCancelledError('Canonical mount retired.'));
     // Acquisition reports its own error to the initiating caller. Retirement
     // still joins it and retains any actually acquired runtime for cleanup retry.
     await session.acquisition?.catch(() => {});

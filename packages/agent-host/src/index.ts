@@ -30,11 +30,6 @@ export {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
-export {
-  HostAuthStatusSchema,
-  type HostAuthVerdict,
-  HostAuthVerdictSchema,
-} from './auth-wire.js';
 export { hostChildCallSign } from './child-presentation.js';
 export {
   type HostCliDefaults,

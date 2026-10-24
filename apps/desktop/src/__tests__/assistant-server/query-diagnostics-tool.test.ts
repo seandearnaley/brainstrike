@@ -2,6 +2,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { type DiagnosticEvent, serializeDiagnosticEventLine } from '@brainstrike/utils/diagnostics';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -165,25 +166,26 @@ it('counts all retained unseen diagnostics strictly after the watermark without 
   const { mainDiagnosticEventsReader } = await import(
     '../../assistant-server/query-diagnostics-tool'
   );
+  const watermark = Math.ceil(performance.timeOrigin) + 1000;
   await write([
-    event({ id: 'at-watermark', occurredAt: 1000 }),
-    event({ id: 'old', occurredAt: 999, severity: 'warn' }),
+    event({ id: 'at-watermark', occurredAt: watermark }),
+    event({ id: 'old', occurredAt: watermark - 1, severity: 'warn' }),
     ...Array.from({ length: 205 }, (_, index) =>
-      event({ id: `error-${index}`, occurredAt: 1001 + index })
+      event({ id: `error-${index}`, occurredAt: watermark + 1 + index })
     ),
   ]);
   await write(
     [
-      event({ id: 'fatal', occurredAt: 2000, severity: 'fatal' }),
-      event({ id: 'warning', occurredAt: 2001, severity: 'warn' }),
+      event({ id: 'fatal', occurredAt: watermark + 1000, severity: 'fatal' }),
+      event({ id: 'warning', occurredAt: watermark + 1001, severity: 'warn' }),
     ],
     '.1'
   );
-  expect(await mainDiagnosticEventsReader.getUnseenCounts(1000)).toEqual({
+  expect(await mainDiagnosticEventsReader.getUnseenCounts(watermark)).toEqual({
     errorCount: 206,
     warningCount: 1,
   });
-  expect(await mainDiagnosticEventsReader.getUnseenCounts(2001)).toEqual({
+  expect(await mainDiagnosticEventsReader.getUnseenCounts(watermark + 1001)).toEqual({
     errorCount: 0,
     warningCount: 0,
   });

@@ -1,6 +1,5 @@
 import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
-import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods, type HostMethodHandler } from '../src/auth-connection.js';
 import { HostPlatformLaunchOptionsSchema } from '../src/platform-launch-options.js';
 
@@ -15,7 +14,7 @@ describe('no legacy credential import', () => {
     const handle: HostMethodHandler = (method) => {
       methods.push(method);
     };
-    bindHostAuthMethods(handle, {} as MessageConnection, undefined, 'desktop-ui');
+    bindHostAuthMethods(handle, undefined, 'desktop-ui');
     expect(methods).toContain('auth/credential/set');
     expect(methods.filter((method) => method.includes('legacy'))).toEqual([]);
   });

@@ -11,8 +11,6 @@ import path from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
-import { SettingsPage } from './page-objects/settings-page';
 import { readHostProcess, readHostRootRecords, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -33,24 +31,6 @@ async function enableModel(page: Page): Promise<void> {
     provider: 'openrouter',
   });
   await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
-}
-
-/** Text search through the visible Search & Indexing controls: deleting a folder's data needs it. */
-async function enableTextIndexing(page: Page): Promise<void> {
-  await new HomePage(page).openSettings();
-  const section = await new SettingsPage(page).openCategory(
-    /Search & Indexing/i,
-    'search-indexing'
-  );
-  await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-  await page.getByRole('option', { name: /BGE Small/ }).click();
-  await section.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-  await expect(section.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-    'Workspace Index (BGE Small)',
-    { timeout: 15_000 }
-  );
-  await section.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text search' }).click();
 }
 
 /** The durable `roots.id` of a mounted folder, from the app's own database. */
@@ -82,23 +62,6 @@ async function scannedRoots(page: Page): Promise<readonly string[] | 'not-ready'
   });
 }
 
-/** How many indexed file records the app holds for a root. */
-async function indexedFileCount(page: Page, rootId: string): Promise<number> {
-  return await page.evaluate(async (wanted) => {
-    if (!window.sourceFiles) {
-      throw new Error('Canonical source capability unavailable');
-    }
-    return (
-      await window.sourceFiles.list().then((result) => {
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
-        return result.value;
-      })
-    ).filter((file) => file.rootId === wanted).length;
-  }, rootId);
-}
-
 test('deleting another folder’s indexed data leaves a streaming host run running in the same host', async ({
   electron,
   electronApp,
@@ -127,7 +90,6 @@ test('deleting another folder’s indexed data leaves a streaming host run runni
     const bravoId = await rootIdOf(page, bravoRoot);
 
     await enableModel(page);
-    await enableTextIndexing(page);
     await expect
       .poll(async () => await scannedRoots(page), { timeout: 120_000 })
       .toEqual([alphaId, bravoId].sort());
@@ -160,7 +122,6 @@ test('deleting another folder’s indexed data leaves a streaming host run runni
     await expect
       .poll(async () => await scannedRoots(page), { timeout: 120_000 })
       .toEqual([alphaId]);
-    expect(await indexedFileCount(page, bravoId)).toBe(0);
 
     hold.resolve();
     await expect(region.getByText(FINAL)).toBeVisible({ timeout: 90_000 });

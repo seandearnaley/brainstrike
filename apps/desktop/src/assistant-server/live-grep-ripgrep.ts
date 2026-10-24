@@ -69,21 +69,6 @@ function credentialFloorIgnoreFile(): string {
 const RIPGREP_BINARY_NAMES =
   process.platform === 'win32' ? (['rg.exe', 'rg'] as const) : (['rg'] as const);
 
-/**
- * Fallback install locations probed ONLY when ripgrep is not on `PATH`. Covers
- * Homebrew (Apple-silicon + Intel), the common `/usr/local` install, the distro
- * package location, and the Windows winget/scoop/choco shim dir. Order is
- * preference; the first executable hit wins.
- */
-const RIPGREP_FALLBACK_DIRS: readonly string[] =
-  process.platform === 'win32'
-    ? [
-        path.join(process.env['LOCALAPPDATA'] ?? '', 'Microsoft', 'WinGet', 'Links'),
-        path.join(process.env['USERPROFILE'] ?? '', 'scoop', 'shims'),
-        path.join(process.env['ProgramData'] ?? '', 'chocolatey', 'bin'),
-      ]
-    : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
-
 /** Wall-clock bound for one ripgrep prefilter invocation (per root). */
 const RIPGREP_TIMEOUT_MS = 4000;
 /** Shorter per-root ripgrep ceiling for the optional excluded-path probe. */
@@ -120,16 +105,15 @@ async function isExecutableFile(candidate: string): Promise<boolean> {
 
 /**
  * Discover ripgrep on disk WITHOUT a hardcoded install path: scan every `PATH`
- * directory for an executable `rg` (`rg.exe` on Windows), then fall back to a
- * small list of common install dirs only if PATH has none. Returns the resolved
- * absolute path, or null when ripgrep is genuinely unavailable (→ JS-walk).
+ * directory for an executable `rg` (`rg.exe` on Windows). A Dock launch has the
+ * login shell's PATH (login-shell-environment.ts). Returns the resolved absolute
+ * path, or null when ripgrep is genuinely unavailable (→ JS-walk).
  */
 async function discoverRipgrepPath(): Promise<string | null> {
   const pathDirs = (process.env['PATH'] ?? '')
     .split(path.delimiter)
     .filter((dir) => dir.length > 0);
-  // PATH first (respects the user's environment), then the fallback dirs.
-  for (const dir of [...pathDirs, ...RIPGREP_FALLBACK_DIRS]) {
+  for (const dir of pathDirs) {
     for (const name of RIPGREP_BINARY_NAMES) {
       const candidate = path.join(dir, name);
       if (await isExecutableFile(candidate)) {

@@ -218,29 +218,21 @@ test('renderer IPC producers are not joined at quit: they run until their window
   ownedProcess.stdout?.on('data', capture);
   await page.evaluate(async () => {
     const catalog = window.modelCatalog;
-    const chunkingHost = (
-      window as typeof window & {
-        chunkingHost?: { ensureStarted(): Promise<unknown> };
-      }
-    ).chunkingHost;
-    if (!(catalog && chunkingHost)) {
+    if (!catalog) {
       throw new Error('Desktop producer capabilities unavailable');
     }
     const ready = Promise.withResolvers<void>();
     const produce = async () => {
       let completed = 0;
       while (true) {
-        await Promise.all([
-          catalog.read().then((result) => {
-            if (!result.ok) {
-              throw new Error(
-                `${result.error.category}/${result.error.code}: ${result.error.message}`
-              );
-            }
-            return result.value;
-          }),
-          chunkingHost.ensureStarted(),
-        ]);
+        await catalog.read().then((result) => {
+          if (!result.ok) {
+            throw new Error(
+              `${result.error.category}/${result.error.code}: ${result.error.message}`
+            );
+          }
+          return result.value;
+        });
         completed += 1;
         if (completed === 3) {
           ready.resolve();
@@ -273,8 +265,6 @@ test('renderer IPC producers are not joined at quit: they run until their window
     .map((line) => JSON.parse(line) as { level?: number; msg?: string })
     .filter((record) => (record.level ?? 0) >= 50);
   expect(errorRecords).toEqual([]);
-  expect(log).not.toContain('chunking-host lifecycle has been disposed');
-  expect(log).not.toContain('Chunking host is not running (state: stopped)');
   expect(log).not.toContain('DB host manager is closing');
   expect(log).not.toContain("Error occurred in handler for 'db:query'");
 });

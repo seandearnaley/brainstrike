@@ -183,7 +183,7 @@ const EmbeddingModelSchema = Schema.Struct({
 const ProviderModelSchema = Schema.Union([LlmModelSchema, EmbeddingModelSchema], { mode: 'oneOf' });
 const ProviderSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
-  authType: Schema.Literals(['api_key', 'oauth_subscription', 'aws', 'none']),
+  authType: Schema.Literals(['api_key', 'aws', 'none']),
   capabilities: Schema.Struct({
     embeddings: Schema.Boolean,
     llm: Schema.Boolean,
@@ -202,7 +202,6 @@ const ProviderSchema = Schema.Struct({
     'cohere',
     'voyage',
     'bedrock',
-    'openai-codex',
     'local',
     'ollama',
     'lmstudio',

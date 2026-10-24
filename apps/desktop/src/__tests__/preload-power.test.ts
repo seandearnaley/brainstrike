@@ -2,19 +2,6 @@ import Module from 'node:module';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
-  CHUNKING_HOST_CHUNK_FILE_CHANNEL,
-  CHUNKING_HOST_ENSURE_STARTED_CHANNEL,
-  CHUNKING_HOST_GET_STATUS_CHANNEL,
-  CHUNKING_HOST_PROGRESS_EVENT,
-  CHUNKING_HOST_REPORT_RESPONSE_CHANNEL,
-  CHUNKING_HOST_REPORT_STATUS_CHANNEL,
-  CHUNKING_HOST_REQUEST_EVENT,
-  CHUNKING_HOST_RESET_CHANNEL,
-  CHUNKING_HOST_STATUS_EVENT,
-  CHUNKING_HOST_STOP_CHANNEL,
-} from '../chunking-host-shared';
-import {
   EMBEDDING_HOST_COMMAND_EVENT,
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
@@ -109,25 +96,6 @@ describe('preload power bridge', () => {
           reportStatus: (status: unknown) => void;
           onStatus: (cb: (status: unknown) => void) => () => void;
           onCommand: (cb: (command: unknown) => void) => () => void;
-        }
-      | undefined;
-  }
-
-  function getChunkingHostApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'chunkingHost');
-    return call?.[1] as
-      | {
-          ensureStarted: () => Promise<unknown>;
-          stop: () => Promise<unknown>;
-          reset: () => Promise<unknown>;
-          getStatus: () => Promise<unknown>;
-          chunkFile: (request: unknown) => Promise<unknown>;
-          chunkBatch: (request: unknown) => Promise<unknown>;
-          reportStatus: (status: unknown) => void;
-          reportResponse: (response: unknown) => void;
-          onStatus: (cb: (status: unknown) => void) => () => void;
-          onProgress: (cb: (progress: unknown) => void) => () => void;
-          onRequest: (cb: (request: unknown) => void) => () => void;
         }
       | undefined;
   }
@@ -319,110 +287,6 @@ describe('preload power bridge', () => {
     );
     expect(mockRemoveListener).toHaveBeenCalledWith(
       EMBEDDING_HOST_COMMAND_EVENT,
-      expect.any(Function)
-    );
-  });
-
-  it('exposes the chunkingHost lifecycle and request bridge', async () => {
-    mockInvoke.mockResolvedValue({ active: false, lastError: null, state: 'running' });
-    const chunkingHostApi = getChunkingHostApi();
-    expect(chunkingHostApi).toBeDefined();
-
-    await chunkingHostApi?.ensureStarted();
-    await chunkingHostApi?.stop();
-    await chunkingHostApi?.reset();
-    await chunkingHostApi?.getStatus();
-    await chunkingHostApi?.chunkFile({ kind: 'chunk-file', requestId: 'file-1' });
-    await chunkingHostApi?.chunkBatch({ kind: 'chunk-batch', requestId: 'batch-1' });
-
-    expect(mockInvoke).toHaveBeenCalledWith(CHUNKING_HOST_ENSURE_STARTED_CHANNEL);
-    expect(mockInvoke).toHaveBeenCalledWith(CHUNKING_HOST_STOP_CHANNEL);
-    expect(mockInvoke).toHaveBeenCalledWith(CHUNKING_HOST_RESET_CHANNEL);
-    expect(mockInvoke).toHaveBeenCalledWith(CHUNKING_HOST_GET_STATUS_CHANNEL);
-    expect(mockInvoke).toHaveBeenCalledWith(CHUNKING_HOST_CHUNK_FILE_CHANNEL, {
-      kind: 'chunk-file',
-      requestId: 'file-1',
-    });
-    expect(mockInvoke).toHaveBeenCalledWith(CHUNKING_HOST_CHUNK_BATCH_CHANNEL, {
-      kind: 'chunk-batch',
-      requestId: 'batch-1',
-    });
-  });
-
-  it('forwards chunking host status, progress, requests, and responses', () => {
-    mockOn.mockClear();
-    mockSend.mockClear();
-    mockRemoveListener.mockClear();
-
-    const chunkingHostApi = getChunkingHostApi();
-    const statusCallback = vi.fn();
-    const progressCallback = vi.fn();
-    const requestCallback = vi.fn();
-
-    chunkingHostApi?.reportStatus({ active: true, lastError: null, state: 'running' });
-    chunkingHostApi?.reportResponse({ requestId: 'file-1', result: { ok: true }, type: 'result' });
-    const cleanupStatus = chunkingHostApi?.onStatus(statusCallback);
-    const cleanupProgress = chunkingHostApi?.onProgress(progressCallback);
-    const cleanupRequest = chunkingHostApi?.onRequest(requestCallback);
-
-    expect(mockSend).toHaveBeenCalledWith(CHUNKING_HOST_REPORT_STATUS_CHANNEL, {
-      active: true,
-      lastError: null,
-      state: 'running',
-    });
-    expect(mockSend).toHaveBeenCalledWith(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, {
-      requestId: 'file-1',
-      result: { ok: true },
-      type: 'result',
-    });
-    expect(mockOn).toHaveBeenCalledWith(CHUNKING_HOST_STATUS_EVENT, expect.any(Function));
-    expect(mockOn).toHaveBeenCalledWith(CHUNKING_HOST_PROGRESS_EVENT, expect.any(Function));
-    expect(mockOn).toHaveBeenCalledWith(CHUNKING_HOST_REQUEST_EVENT, expect.any(Function));
-
-    const statusListener = mockOn.mock.calls.find(
-      ([channel]) => channel === CHUNKING_HOST_STATUS_EVENT
-    )?.[1] as (event: unknown, status: unknown) => void;
-    const progressListener = mockOn.mock.calls.find(
-      ([channel]) => channel === CHUNKING_HOST_PROGRESS_EVENT
-    )?.[1] as (event: unknown, progress: unknown) => void;
-    const requestListener = mockOn.mock.calls.find(
-      ([channel]) => channel === CHUNKING_HOST_REQUEST_EVENT
-    )?.[1] as (event: unknown, request: unknown) => void;
-
-    statusListener(null, { active: false, lastError: null, state: 'running' });
-    progressListener(null, { fileRecordId: 'file-1', requestId: 'batch-1', type: 'progress' });
-    requestListener(null, { fileRecordId: 'file-1', kind: 'chunk-file', requestId: 'file-1' });
-
-    expect(statusCallback).toHaveBeenCalledWith({
-      active: false,
-      lastError: null,
-      state: 'running',
-    });
-    expect(progressCallback).toHaveBeenCalledWith({
-      fileRecordId: 'file-1',
-      requestId: 'batch-1',
-      type: 'progress',
-    });
-    expect(requestCallback).toHaveBeenCalledWith({
-      fileRecordId: 'file-1',
-      kind: 'chunk-file',
-      requestId: 'file-1',
-    });
-
-    cleanupStatus?.();
-    cleanupProgress?.();
-    cleanupRequest?.();
-
-    expect(mockRemoveListener).toHaveBeenCalledWith(
-      CHUNKING_HOST_STATUS_EVENT,
-      expect.any(Function)
-    );
-    expect(mockRemoveListener).toHaveBeenCalledWith(
-      CHUNKING_HOST_PROGRESS_EVENT,
-      expect.any(Function)
-    );
-    expect(mockRemoveListener).toHaveBeenCalledWith(
-      CHUNKING_HOST_REQUEST_EVENT,
       expect.any(Function)
     );
   });

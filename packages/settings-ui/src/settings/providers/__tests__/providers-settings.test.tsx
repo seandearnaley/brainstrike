@@ -265,61 +265,6 @@ describe('ProvidersSettings — card state', () => {
   });
 });
 
-describe('ProvidersSettings — subscription providers (BST-1356)', () => {
-  // Exercised against the REAL registry entry, not a synthetic definition.
-  const CODEX = 'openai-codex';
-
-  it('never presents a subscription provider as a key to paste', async () => {
-    installSecretsBridge(() => Promise.resolve([]));
-
-    render(<ProvidersSettings verifyProvider={idleVerifier} />);
-
-    await screen.findByTestId(`provider-card-${CODEX}`);
-    // Its state comes from sign-in, so the key listing being "ready and empty"
-    // must not render it as an unset API key.
-    expect(screen.getByTestId(`provider-key-source-${CODEX}`)).toHaveTextContent(
-      /subscription sign-in|signed in/i
-    );
-    // …and the "add a key" shortlist must not offer it.
-    expect(screen.queryByTestId(`provider-recommendation-${CODEX}`)).not.toBeInTheDocument();
-  });
-
-  it('renders the sign-in arm and its personal-use notice, not a credential editor', async () => {
-    installSecretsBridge(() => Promise.resolve([]));
-    const user = userEvent.setup();
-
-    render(<ProvidersSettings verifyProvider={idleVerifier} />);
-
-    await user.click(await screen.findByTestId(`provider-card-toggle-${CODEX}`));
-
-    // The composed row owns the oauth treatment (BST-1356), so the Hub gets it
-    // without duplicating a single affordance.
-    expect(await screen.findByTestId(`credential-oauth-personal-use-${CODEX}`)).toBeInTheDocument();
-    // No key-management affordances exist for this auth type at all.
-    expect(screen.queryByTestId(`credential-set-${CODEX}`)).not.toBeInTheDocument();
-    expect(screen.queryByTestId(`credential-key-input-${CODEX}`)).not.toBeInTheDocument();
-    // jsdom has no `window.providerAuth`, which is exactly the web case: the
-    // row says sign-in is desktop-only rather than offering a dead button.
-    expect(screen.getByTestId(`credential-oauth-unavailable-${CODEX}`)).toBeInTheDocument();
-    // …and the card must not offer "Get an API key" for an account you sign
-    // into. Its row already links the same docs as "How sign-in works".
-    expect(screen.queryByTestId(`provider-docs-link-${CODEX}`)).not.toBeInTheDocument();
-  });
-
-  it('keeps the personal-use notice on web, where there is no bridge at all', async () => {
-    // No secrets bridge either — the real web wiring. The legal copy must
-    // survive the read-only path rather than being replaced by the env note.
-    const user = userEvent.setup();
-
-    render(<ProvidersSettings verifyProvider={idleVerifier} />);
-
-    await user.click(await screen.findByTestId(`provider-card-toggle-${CODEX}`));
-
-    expect(await screen.findByTestId(`credential-oauth-personal-use-${CODEX}`)).toBeInTheDocument();
-    expect(screen.queryByTestId(`provider-readonly-note-${CODEX}`)).not.toBeInTheDocument();
-  });
-});
-
 describe('ProvidersSettings — test connection', () => {
   it.each<[ProviderVerificationStatus, string]>([
     ['verified', 'success'],

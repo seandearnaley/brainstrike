@@ -112,9 +112,6 @@ describe('desktop graceful shutdown', () => {
       'native-index',
       'mcp-runtime',
       'file-system',
-      'notes-vault',
-      'chunking-host',
-      'parser-host',
       'embedding-host',
       'git-inventory',
       'forge',
@@ -138,14 +135,13 @@ describe('desktop graceful shutdown', () => {
     await Promise.race([entered.promise, shutdown]);
 
     expect(events).toContain('step:file-system');
-    expect(events).not.toContain('step:chunking-host');
     expect(events).not.toContain('step:embedding-host');
     expect(events).not.toContain('close:database');
 
     retirement.resolve();
     await shutdown;
 
-    expect(events.indexOf('step:chunking-host')).toBeGreaterThan(
+    expect(events.indexOf('step:embedding-host')).toBeGreaterThan(
       events.indexOf('step:file-system')
     );
     expect(events).toContain('close:database');
@@ -266,7 +262,7 @@ describe('desktop graceful shutdown', () => {
     expect(planRun).toHaveBeenCalledTimes(1);
   });
 
-  it('a renderers step that takes 15 s still runs file-system and notes-vault and exits 0', async () => {
+  it('a renderers step that takes 15 s still runs file-system and exits 0', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const { events, logger, options } = createHarness(
       { renderers: () => new Promise<void>((resolve) => setTimeout(resolve, 15_000)) },
@@ -278,9 +274,7 @@ describe('desktop graceful shutdown', () => {
     await running;
 
     expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
-    for (const physicalJoin of ['file-system', 'notes-vault']) {
-      expect(events).toContain(`step:${physicalJoin}`);
-    }
+    expect(events).toContain('step:file-system');
     expect(events.slice(-2)).toEqual([
       'close:error-log-sink',
       'log:info:Graceful shutdown completed',
@@ -295,7 +289,7 @@ describe('desktop graceful shutdown', () => {
       expect.objectContaining({
         steps: expect.arrayContaining([
           { elapsedMs: 15_000, failed: false, step: 'renderers' },
-          { elapsedMs: 0, failed: false, step: 'notes-vault' },
+          { elapsedMs: 0, failed: false, step: 'file-system' },
         ]),
       })
     );

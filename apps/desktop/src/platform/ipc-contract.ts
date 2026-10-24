@@ -43,7 +43,7 @@ export function ipcFailure<T = never>(error: IpcFailure): IpcResult<T> {
  * the renderer capability decodes it into `Promise<Result>`.
  * `raw`: the handler's return value crosses untouched — for domains whose
  * consumers already read a typed envelope of their own (`GitResult`,
- * `TerminalResult`, `NotesVaultResult`) and never throw across IPC.
+ * `TerminalResult`) and never throw across IPC.
  */
 export type IpcEnvelope = 'ipc-result' | 'raw';
 

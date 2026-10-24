@@ -8,19 +8,16 @@
  * response payload interpretation, and any host-specific bookkeeping stay in
  * the adapter and reach the channel through the hooks below.
  *
- * Every host manager uses it: chunking, parser, db, llm and embedding. The
- * hooks carry their host-specific needs: `onLateResponse` for the DB host's
- * abandoned-request ledger, `onAbort` for the llm host's pre-cancel ledger and
- * cancel-to-host, and `onTimeout`'s `terminate` policy for a transaction whose
- * connection cannot survive an abandoned statement.
+ * The embedding host manager uses it for its query, document, model-cache and
+ * WebGPU-adapter channels. The hooks carry its host-specific needs: `onAbort`
+ * and `onTimeout` send the cancel to the host.
  *
  * This module deliberately never imports Electron: managers are constructed at
  * module scope before `app.whenReady`, so the channel must be safe to build in
  * a constructor. `@brainstrike/worker-runtime` is main-process safe for the
  * same reason — its entry declares types and two `Set` literals at module
  * scope, touches `Worker`/`MessageEvent` only in type positions, and is
- * already loaded in main by `chunking-host-shared` and
- * `renderer-host-lifecycle`.
+ * already loaded in main by `renderer-host-lifecycle`.
  */
 
 import { createLogger } from '@brainstrike/logging';
@@ -50,8 +47,7 @@ export interface HostRequestTimeoutContext {
  * What a timeout means for this host. `abandon` rejects only the timed-out
  * request; `terminate` rejects it first, then every other in-flight request
  * with the SAME error, then hands the error to `terminate` so the adapter can
- * kill its transport (intended for the DB host's transaction requests, whose
- * connection state cannot survive an abandoned statement — not yet migrated).
+ * kill its transport.
  */
 export type HostRequestTimeoutDecision =
   | HostRequestTimeoutDecisionFor<'abandon'>
@@ -107,7 +103,7 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
   /**
    * A response whose id is not pending (timed out, aborted, rejected, or never
    * known). Default logs at warn — a late response is never dropped silently.
-   * Adapters with their own ledger (DB abandoned-request map) take over here.
+   * An adapter with its own ledger takes over here.
    */
   readonly onLateResponse?: (requestId: string, response: TResponse) => void;
   /**
@@ -130,7 +126,7 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
   readonly progressTimeoutMs?: (request: TRequest, response: TResponse) => number;
   readonly requestId: (request: TRequest) => string;
   readonly responseId: (response: TResponse) => string;
-  /** Human-readable host label used in error messages and log context, e.g. `Chunking host`. */
+  /** Human-readable host label used in error messages and log context, e.g. `Embedding host`. */
   readonly role: string;
   /** The transport write. Throwing here rejects the request with a wrapped send failure. */
   readonly send: (request: TRequest) => void;

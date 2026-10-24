@@ -106,11 +106,6 @@ describe('createAppActionRegistry', () => {
 
   it('includes the composed global actions', () => {
     const registry = createAppActionRegistry();
-    const grouped = registry.actionsFor({ content: 'x', id: 'c', kind: 'chunk' });
-    const flatIds = grouped.flatMap((group) => group.actions.map((action) => action.id));
-    expect(flatIds).toContain('collection.copy-id');
-    expect(flatIds).toContain('collection.copy-content');
-
     const threadGroups = registry.actionsFor({
       id: 'thread-a',
       kind: 'assistant-thread',

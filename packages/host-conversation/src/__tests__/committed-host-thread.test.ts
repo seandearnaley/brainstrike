@@ -163,6 +163,34 @@ describe('the shared committed conversation core (BST-1940)', () => {
     await expect(idle.commands.onCancel()).rejects.toThrow('Stop has no committed active root run');
   });
 
+  it('tells its tabs when the host moves the thread into a worktree, as it does for a rename', async () => {
+    const moved: HostLogRow = {
+      event: {
+        binding: {
+          checkoutMode: 'worktree',
+          operatingRootDisplayName: 'fox',
+          operatingRootId: 'wt-root',
+          operatingRootPath: '/managed/fox',
+        },
+        type: 'workspace.binding.updated',
+      },
+      seq: 4,
+      threadId: THREAD,
+      ts: 4,
+    };
+    const committed: number[] = [];
+    const thread = createCommittedHostThread({
+      client: scriptedClient([...running, moved], () => ({})).client,
+      onEntryCommitted: () => committed.push(thread.source.getSnapshot().rows.length),
+      runSettings: () => ({ configuration: { provider: 'openai' }, modelId: 'openai' }),
+      threadId: THREAD,
+    });
+    threads.push(thread);
+    thread.connect();
+
+    await expect.poll(() => committed).toEqual([4]);
+  });
+
   it('subscribes the session only when connected, so a part composed first sees its replay', async () => {
     const { client, requests } = scriptedClient(running, () => ({}));
     const thread = open(client);

@@ -12,8 +12,7 @@ import type {
   McpHostTaskOwner,
   OpenRouterModelMetadataSnapshot,
   PermissionToolGateSnapshot,
-  ProviderAuthStartMethod,
-  ProviderAuthStatus,
+  ProviderCredential,
   ProviderVerificationSnapshot,
   ReferencedFileFailure,
   ToolRiskCategory,
@@ -41,13 +40,11 @@ import type {
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
-import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostApprovalTargetRoot,
   HostEditOp,
   HostEvent,
   HostHookSkip,
-  HostLoginCredential,
   HostLogRow,
   HostMemoryModels,
   HostObservationalMemoryState,
@@ -141,11 +138,25 @@ export interface HostShellWorktree {
   readonly path: string;
   readonly worktreeId: string;
 }
+/** A worktree a root run's call created, already open as a folder (ADR-0028 step 3). */
+export interface HostEnteredWorktree {
+  readonly branch: string | null;
+  /** The folder the worktree was created from: the person's own checkout. */
+  readonly localRootId: string;
+  readonly root: { readonly displayName: string; readonly path: string; readonly rootId: string };
+  readonly worktreeId: string;
+}
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */
   readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
   /** Present for every Core-dispatched execution; file tools must refuse without it. */
   readonly edits?: HostWorkspaceEditTracker | undefined;
+  /**
+   * ADR-0028 step 3, a root run's calls only: bind the thread to the worktree
+   * this call created. The run ends after this step, and the host starts the
+   * thread's next run in the worktree. A child never moves its parent.
+   */
+  readonly enterWorktree?: ((worktree: HostEnteredWorktree) => Promise<void>) | undefined;
   readonly mcp?: HostMcpExecution | undefined;
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
@@ -418,29 +429,14 @@ export interface HostRunAdmission {
   readonly workingMemory?: false;
 }
 
-/**
- * The host's single credential writer, token holder and OAuth refresher.
- * `connect` and subscription use require the private desktop origin.
- */
+/** The host's single credential writer and token holder. */
 export interface HostAuthService {
-  cancel(provider: string): Promise<ProviderAuthStatus>;
   clear(): Promise<boolean>;
-  /** `openExternal` asks the requesting client to open the sign-in page. */
-  connect(
-    provider: string,
-    method: ProviderAuthStartMethod | undefined,
-    origin: HostClientOrigin | undefined,
-    openExternal: (url: string) => Promise<void>
-  ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
-  disconnect(provider: string): Promise<ProviderAuthStatus>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
-  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
-  status(provider: string): Promise<ProviderAuthStatus>;
+  setCredential(account: string, credential: ProviderCredential): Promise<void>;
   /** A provider login, validated against the provider's authentication form. */
-  storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
-  /** Refresh-aware session liveness through the one refresher; never a token. */
-  verify(provider: string): Promise<HostAuthVerdict>;
+  storeProviderCredential(provider: string, credential: ProviderCredential): Promise<void>;
 }
 
 /**
@@ -582,8 +578,6 @@ export interface HostTool {
 export interface HostMemoryEmbedderRequest {
   /** The client's Assistant Memory settings, as a run's configuration carries them. */
   readonly memorySettings: Readonly<Record<string, unknown>>;
-  /** The requesting client: credentials resolve for it, as a run's do. */
-  readonly origin: HostClientOrigin;
   readonly signal: AbortSignal;
 }
 /** A resolved memory embedder and the identity its failures name. */
@@ -596,12 +590,7 @@ export interface HostProviderService {
   openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
   /** The availability payload Settings and the assistant panel gate on. */
   status(): Promise<Readonly<Record<string, unknown>>>;
-  /** A subscription probe needs the desktop origin, like a subscription run. */
-  verify(
-    provider: string,
-    origin: HostClientOrigin,
-    signal: AbortSignal
-  ): Promise<ProviderVerificationSnapshot>;
+  verify(provider: string, signal: AbortSignal): Promise<ProviderVerificationSnapshot>;
 }
 
 /**

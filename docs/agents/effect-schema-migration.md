@@ -63,16 +63,15 @@ tabs/newlines, protocol restrictions and credential refusal.
 
 This census counts import files, not schemas. The E05 scope froze 46 owner/consumer
 files at `9e733d679`: 44 declaration/mixed files and two type consumers. Their
-receiving/composition closure moved together. The remaining 25 production imports
+receiving/composition closure moved together. The remaining 21 production imports
 have these owners:
 
 | Category | Files | Reason |
 | --- | --- | --- |
-| Vendor date-time format patterns | 9 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, desktop `agent-host-platform/platform-wire`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,prompt-library,view-filter-preset,worktree-forge}-store` |
+| Vendor date-time format patterns | 8 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,prompt-library,view-filter-preset,worktree-forge}-store` |
 | SDK schema/type adapters | 5 | `assistant-contract/{sdk-schema,mcp-host}` invokes/infers actual SDK validation; `mcp-tasks-extension/schema` composes SDK sampling/roots/elicitation validators with JSON extension checks; `agent/providers/provider-tool-schema` adapts genuine third-party Zod inputs; `agent-host/provider-schema-selection` selects that vendor branch |
 | Offline retrieval qualification | 6 | desktop `qualification/retrieval/{arms,bootstrap-margin,evidence,native-grep,produce-hidden-host-vectors,produce-product-path-vectors}` owns separate evaluation envelopes |
 | Protocol-lab reference fixtures | 2 | `mcp-test-lab/{reference-server,reference-runner}` uses the SDK/reference schema interface |
-| Independent web owners | 3 | web `src/{entry,server/web-assistant-runtime-schema}` and web-writer `src/web-run-recorder` retain their own web envelopes |
 
 The source census includes TS/JS module imports and excludes generated output and
 tests. Two additional JS servers (`agent/test-fixtures/mcp-stdio-handshake-exit-server.mjs`
@@ -83,12 +82,12 @@ The date-time imports supply vendor patterns to Effect-authored grammars, not
 parallel production schemas. Frozen Zod fixtures under tests are parity oracles only.
 
 `host-conversation` no longer needs Zod in its manifest. Packages with a remaining
-vendor, web, qualification or test requirement retain their dependency.
+vendor, qualification or test requirement retain their dependency.
 
 Pure preload `*.contract.ts` parsers remain runtime-free under ADR-0004. The actual
 preload value-graph guard remains authoritative; there is no Effect export shim or
-bundler exemption. Independent web work and a preload security-boundary change
-are not required to make an import counter zero.
+bundler exemption. A preload security-boundary change is not required to make an
+import counter zero.
 
 The qualified Effect family stays catalog-pinned; use `effect` / `effect/testing`
 and the package's strict stability diagnostics. See [Effect boundary](effect-boundary.md).

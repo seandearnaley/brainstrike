@@ -1,7 +1,7 @@
 /**
  * Ambient File System Access API types (queryPermission/requestPermission,
  * showDirectoryPicker, FileSystemObserver). lib.dom does not declare them; the
- * handle-permission code across the file-explorer and notes packages relies on
+ * handle-permission code across the file-explorer packages relies on
  * this global augmentation being part of every program that imports this
  * package.
  */
