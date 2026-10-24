@@ -101,11 +101,6 @@ export {
 } from './debug-bundle-context';
 export { type DecisionDispatchOutcome, submitDecisionOrQueue } from './decision-dispatch';
 export type { DecisionRoute } from './decision-route-context';
-export type {
-  ChildContinuationIdentity,
-  ChildConversationOwner,
-  DelegatedConversationUpdate,
-} from './delegated-conversation-receiver';
 export {
   type EditCheckpointContextValue,
   EditCheckpointProvider,
@@ -193,10 +188,6 @@ export {
   useCommittedAssistantRuntime,
   useCommittedAssistantSelector,
 } from './use-committed-assistant-runtime';
-export {
-  type DelegatedConversationRuntimeOptions,
-  useDelegatedConversationRuntime,
-} from './use-delegated-conversation-runtime';
 export { useMcpTaskBridge } from './use-mcp-task-bridge';
 export {
   type ToolResultRenderer,

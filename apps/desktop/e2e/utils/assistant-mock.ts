@@ -1,14 +1,6 @@
-import {
-  ASSISTANT_STREAM_EVENT_ID_HEADER,
-  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-} from '@brainstrike/assistant-contract/assistant-stream-session';
 import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
-import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import type { Page } from '@playwright/test';
-
-/** Replaced at serve time with the requesting leg's durable host run id. */
-const HOST_RUN_ID_PLACEHOLDER = '__BRAINSTRIKE_HOST_RUN_ID__';
 
 const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
@@ -21,17 +13,8 @@ export interface AssistantMockOptions {
   readonly apiKey?: string;
   /** `provider::model` selected via the desktop test hooks after install. */
   readonly compositeModelKey?: string;
-  readonly errorMessage?: string;
-  readonly message?: string;
   readonly models?: Record<string, string>;
   readonly provider?: string;
-  readonly variant?:
-    | 'simple'
-    | 'detailed'
-    | 'tool'
-    | 'tool-error'
-    | 'stream-error'
-    | 'network-suspend';
 }
 
 export interface AssistantProviderOptions {
@@ -40,219 +23,11 @@ export interface AssistantProviderOptions {
   readonly provider?: string;
 }
 
-interface AssistantMockInstallPayload {
-  readonly assistantMessageId: string;
-  /** Page-injected code carries no module scope: the placeholder travels here. */
-  readonly hostRunIdPlaceholder: string;
-  readonly models: Record<string, string>;
-  readonly provider: string;
-  readonly resumeStreamChunks?: Array<{ delayMs: number; payload: string }>;
-  readonly streamChunks: Array<{ delayMs: number; payload: string }>;
-  readonly streamEventIdHeaderName: string;
-  readonly streamMessageIdHeaderName: string;
-}
-
-function installAssistantMockInPage(payload: AssistantMockInstallPayload): void {
-  const globals = globalThis as unknown as Window & {
-    __assistantMockApplied?: boolean;
-    __assistantMockConfig?: AssistantMockInstallPayload;
-    __assistantMockRequests?: unknown[];
-    fetch: typeof fetch;
-  };
-
-  globals.__assistantMockConfig = payload;
-
-  if (globals.__assistantMockApplied) {
-    return;
-  }
-
-  globals.__assistantMockApplied = true;
-
-  const encoder = new TextEncoder();
-  const originalFetch = globals.fetch.bind(globals);
-
-  function createMockResponse(
-    signal: AbortSignal | undefined,
-    configuredChunks?: Array<{ delayMs: number; payload: string }>,
-    hostRunId?: string
-  ): Response {
-    const activeConfig = globals.__assistantMockConfig;
-    if (!activeConfig) {
-      throw new Error('Assistant mock config is unavailable.');
-    }
-
-    const streamChunks = (configuredChunks ?? activeConfig.streamChunks).map((chunk) => {
-      if (!chunk.payload.includes(payload.hostRunIdPlaceholder)) {
-        return { ...chunk };
-      }
-      if (!hostRunId) {
-        throw new Error('Assistant mock cannot stamp a pause: the request named no host run.');
-      }
-      // The placeholder sits inside a JSON string, so the id is escaped the way
-      // JSON would have written it (a `"` or `\` in an id would corrupt the
-      // frame otherwise).
-      const encodedHostRunId = JSON.stringify(hostRunId).slice(1, -1);
-      return {
-        ...chunk,
-        payload: chunk.payload.split(payload.hostRunIdPlaceholder).join(encodedHostRunId),
-      };
-    });
-    const chunkQueue = streamChunks.map((chunk) => ({ ...chunk }));
-    let chunkIndex = 0;
-    let aborted = false;
-
-    const handleAbort = (controller: ReadableStreamDefaultController<Uint8Array>) => {
-      controller.error(new DOMException('Aborted', 'AbortError'));
-    };
-
-    const processNextChunk = async (
-      controller: ReadableStreamDefaultController<Uint8Array>
-    ): Promise<void> => {
-      const nextChunk = chunkQueue[chunkIndex++];
-      if (!nextChunk) {
-        return;
-      }
-      if (nextChunk.delayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, nextChunk.delayMs));
-      }
-      if (aborted) {
-        handleAbort(controller);
-        return;
-      }
-
-      controller.enqueue(encoder.encode(nextChunk.payload));
-    };
-
-    const stream = new ReadableStream<Uint8Array>({
-      cancel() {
-        aborted = true;
-      },
-      async pull(controller) {
-        if (aborted) {
-          return handleAbort(controller);
-        }
-        if (chunkIndex >= chunkQueue.length) {
-          controller.close();
-          return;
-        }
-        await processNextChunk(controller);
-      },
-    });
-
-    if (signal) {
-      const onAbort = (): void => {
-        aborted = true;
-      };
-      if (signal.aborted) {
-        aborted = true;
-      } else {
-        signal.addEventListener('abort', onAbort, { once: true });
-      }
-    }
-
-    return new Response(stream, {
-      headers: {
-        'Cache-Control': 'no-store',
-        'Content-Type': 'text/plain; charset=utf-8',
-        [payload.streamEventIdHeaderName]: `e2e-session-${Date.now()}:-1`,
-        [payload.streamMessageIdHeaderName]: payload.assistantMessageId,
-        'x-vercel-ai-data-stream': 'v1',
-      },
-      status: 200,
-    });
-  }
-
-  // Record the outgoing request body so specs can assert the effective run
-  // configuration the app actually sends (e.g. BST-1170's reasoning-aware
-  // output window). A malformed body fails the fetch — and therefore the
-  // spec — visibly.
-  async function recordAssistantRequestBody(
-    input: Parameters<typeof fetch>[0],
-    init: Parameters<typeof fetch>[1]
-  ): Promise<unknown> {
-    const rawBody =
-      typeof init?.body === 'string'
-        ? init.body
-        : input instanceof Request
-          ? await input.clone().text()
-          : undefined;
-    if (!rawBody) {
-      return;
-    }
-    const body: unknown = JSON.parse(rawBody);
-    globals.__assistantMockRequests = globals.__assistantMockRequests ?? [];
-    globals.__assistantMockRequests.push(body);
-    return body;
-  }
-
-  /**
-   * The DURABLE host leg of THIS request (`data.memory.runId`, minted by
-   * `prepareRequestData` -> `createThreadRun` before the POST). The real host
-   * stamps it on every pause it streams; a mock that served a fixed id would
-   * hand the history topology adapter a leg that never existed.
-   */
-  function readRequestHostRunId(body: unknown): string | undefined {
-    const isRecord = (value: unknown): value is Record<string, unknown> =>
-      typeof value === 'object' && value !== null && !Array.isArray(value);
-    if (!isRecord(body)) {
-      return;
-    }
-    const data = body['data'];
-    if (!isRecord(data)) {
-      return;
-    }
-    const memory = data['memory'];
-    if (!isRecord(memory)) {
-      return;
-    }
-    const runId = memory['runId'];
-    return typeof runId === 'string' && runId.length > 0 ? runId : undefined;
-  }
-
-  function selectConfiguredStreamChunks(): Array<{ delayMs: number; payload: string }> | undefined {
-    const activeConfig = globals.__assistantMockConfig;
-    const requestCount = globals.__assistantMockRequests?.length ?? 0;
-    if (requestCount > 1 && activeConfig?.resumeStreamChunks) {
-      return activeConfig.resumeStreamChunks;
-    }
-    return activeConfig?.streamChunks;
-  }
-
-  globals.fetch = async (input, init) => {
-    const url =
-      typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
-
-    if (url.includes('/assistant/status') || url.endsWith('/status')) {
-      return new Response(JSON.stringify({ enabled: true }), {
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        status: 200,
-      });
-    }
-
-    if (
-      (url.includes('/assistant') || url.includes('/api/assistant')) &&
-      (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'POST'
-    ) {
-      const body = await recordAssistantRequestBody(input, init);
-      return createMockResponse(
-        init?.signal ?? undefined,
-        selectConfiguredStreamChunks(),
-        readRequestHostRunId(body)
-      );
-    }
-
-    return originalFetch(input, init);
-  };
-}
-
 const defaultOptions: Required<AssistantMockOptions> = {
   apiKey: 'test-api-key-for-e2e-tests',
   compositeModelKey: 'openai::gpt-5.2',
-  errorMessage: 'Assistant request failed.',
-  message: 'Hello from desktop assistant!',
   models: DEFAULT_MODELS,
   provider: 'openai',
-  variant: 'simple',
 };
 
 interface AssistantProviderInstallPayload {
@@ -406,9 +181,8 @@ export async function enableAssistantCatalogModel(
 }
 
 /**
- * Configures the real assistant provider/key/model seams without replacing
- * the app's internal `/assistant` endpoint. Use this when an E2E needs the
- * real server-side Mastra loop and native-tool execution.
+ * Configures the real assistant provider/key/model seams. Use this when an E2E
+ * needs the real host-side Mastra loop and native-tool execution.
  */
 export async function configureAssistantProvider(
   page: Page,
@@ -435,147 +209,15 @@ export async function configureAssistantProvider(
   });
 }
 
-function buildAssistantStreamChunks(
-  options: Required<AssistantMockOptions>,
-  assistantMessageId: string
-): Array<{
-  delayMs: number;
-  payload: string;
-}> {
-  const createToolCallId = (): string => `tool-${Date.now()}`;
-
-  const chunks: Array<{ delayMs: number; payload: string }> = [];
-
-  const enqueueChunk = (code: string, value: unknown, delayMs = 0): void => {
-    chunks.push({ delayMs, payload: `${code}:${JSON.stringify(value)}\n` });
-  };
-
-  const writeAssistantText = (text: string): void => {
-    enqueueChunk('0', text);
-  };
-
-  const writeFinish = (
-    finishReason: 'stop' | 'error',
-    usage: { completionTokens: number; promptTokens: number }
-  ): void => {
-    const dataStreamUsage = {
-      inputTokens: usage.promptTokens,
-      outputTokens: usage.completionTokens,
-    };
-
-    enqueueChunk('e', {
-      finishReason,
-      isContinued: false,
-      usage: dataStreamUsage,
-    });
-    enqueueChunk('d', {
-      finishReason,
-      path: [],
-      usage: dataStreamUsage,
-    });
-  };
-
-  enqueueChunk('f', { messageId: assistantMessageId, path: [] });
-
-  switch (options.variant) {
-    case 'stream-error':
-      writeAssistantText(options.errorMessage);
-      enqueueChunk('3', options.errorMessage);
-      writeFinish('error', { completionTokens: 0, promptTokens: 0 });
-      return chunks;
-    case 'detailed':
-      writeAssistantText(options.message);
-      writeFinish('stop', { completionTokens: 8, promptTokens: 5 });
-      return chunks;
-    case 'network-suspend':
-      enqueueChunk('aui-data', {
-        data: {
-          // Substituted per request with that leg's durable host run id, the
-          // way the desktop host stamps a live pause.
-          hostRunId: HOST_RUN_ID_PLACEHOLDER,
-          runId: 'run-network-e2e',
-          suspendPayload: {
-            allowedDomains: ['pypi.org', '*.githubusercontent.com'],
-            kind: 'network',
-          },
-          toolCallId: 'call-network-e2e',
-          toolName: 'brainstrike.runPython',
-        },
-        name: TOOL_SUSPEND_DATA_NAME,
-      });
-      writeFinish('stop', { completionTokens: 0, promptTokens: 5 });
-      return chunks;
-    case 'tool': {
-      const toolCallId = createToolCallId();
-      const args = { limit: 3, query: 'mock retrieval query' };
-      enqueueChunk('b', { toolCallId, toolName: 'brainstrike.retrieveContext' });
-      enqueueChunk('c', { argsTextDelta: JSON.stringify(args), toolCallId });
-      enqueueChunk('9', {
-        args,
-        toolCallId,
-        toolName: 'brainstrike.retrieveContext',
-      });
-      enqueueChunk('a', {
-        result: {
-          chunks: [{ chunkIndex: 0, filePath: 'src/app.ts', id: 'chunk-1', tokenCount: 5 }],
-          context: 'File: src/app.ts\nconst answer = 42;',
-        },
-        toolCallId,
-      });
-      writeAssistantText(options.message);
-      writeFinish('stop', { completionTokens: 8, promptTokens: 5 });
-      return chunks;
-    }
-    case 'tool-error': {
-      const toolCallId = createToolCallId();
-      const args = { limit: 3, query: 'mock retrieval query' };
-      enqueueChunk('b', { toolCallId, toolName: 'brainstrike.retrieveContext' });
-      enqueueChunk('c', { argsTextDelta: JSON.stringify(args), toolCallId });
-      enqueueChunk('9', {
-        args,
-        toolCallId,
-        toolName: 'brainstrike.retrieveContext',
-      });
-      enqueueChunk('a', {
-        isError: true,
-        result: { error: options.errorMessage },
-        toolCallId,
-      });
-      writeAssistantText(options.errorMessage);
-      writeFinish('stop', { completionTokens: 8, promptTokens: 5 });
-      return chunks;
-    }
-    default:
-      writeAssistantText(options.message);
-      writeFinish('stop', { completionTokens: 5, promptTokens: 10 });
-      return chunks;
-  }
-}
-
-function buildResumeStreamChunks(assistantMessageId: string): Array<{
-  delayMs: number;
-  payload: string;
-}> {
-  const encode = (code: string, value: unknown): string => `${code}:${JSON.stringify(value)}\n`;
-  const usage = { inputTokens: 5, outputTokens: 2 };
-  return [
-    { delayMs: 0, payload: encode('f', { messageId: assistantMessageId, path: [] }) },
-    { delayMs: 0, payload: encode('0', 'Network decision resumed.') },
-    {
-      delayMs: 0,
-      payload: encode('e', { finishReason: 'stop', isContinued: false, usage }),
-    },
-    { delayMs: 0, payload: encode('d', { finishReason: 'stop', path: [], usage }) },
-  ];
-}
-
+/**
+ * Saves a fake provider key and selects a model the way `configureAssistantProvider`
+ * does, tolerating renderer storage that refuses the preference write.
+ */
 export async function setupAssistantMock(
   page: Page,
   options?: AssistantMockOptions
 ): Promise<void> {
   const merged = { ...defaultOptions, ...options };
-  const assistantMessageId = `msg-${Date.now()}`;
-
   await configureAssistantProviderWithModels(page, {
     apiKey: merged.apiKey,
     compositeModelKey: merged.compositeModelKey,
@@ -583,19 +225,4 @@ export async function setupAssistantMock(
     models: merged.models,
     provider: merged.provider,
   });
-
-  const installPayload: AssistantMockInstallPayload = {
-    assistantMessageId,
-    hostRunIdPlaceholder: HOST_RUN_ID_PLACEHOLDER,
-    models: merged.models,
-    provider: merged.provider,
-    ...(merged.variant === 'network-suspend'
-      ? { resumeStreamChunks: buildResumeStreamChunks(`${assistantMessageId}-resume`) }
-      : {}),
-    streamChunks: buildAssistantStreamChunks(merged, assistantMessageId),
-    streamEventIdHeaderName: ASSISTANT_STREAM_EVENT_ID_HEADER,
-    streamMessageIdHeaderName: ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-  };
-
-  await page.evaluate(installAssistantMockInPage, installPayload);
 }

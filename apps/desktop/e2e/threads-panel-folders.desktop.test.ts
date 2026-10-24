@@ -92,7 +92,7 @@ async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
  * the library sidebar never renders.
  */
 async function openThreadsPanel(page: Page): Promise<void> {
-  await setupAssistantMock(page, { variant: 'simple' });
+  await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   const showSidebar = page.getByTestId('show-threads-panel');
   if (await showSidebar.isVisible().catch(() => false)) {

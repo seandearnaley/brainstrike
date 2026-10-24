@@ -1,14 +1,13 @@
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter } from '@assistant-ui/react';
-import { useLocalRuntime } from '@assistant-ui/react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Keep @assistant-ui/react REAL (per CLAUDE.md: real AssistantRuntimeProvider,
 // not mocked stream parts) so the actual slash-command + trigger-popover
-// machinery runs. We only swap the panel's data-stream runtime for a real
-// local runtime (no network on submit) and stub heavy leaf renderers.
+// machinery runs. The live thread surface runs over a real local runtime (no
+// network on submit); only heavy leaf renderers are stubbed.
 const NOOP_ADAPTER: ChatModelAdapter = {
   // The composer never submits in these tests, so this is never iterated; it
   // yields one empty result purely to be a valid async generator.
@@ -16,12 +15,6 @@ const NOOP_ADAPTER: ChatModelAdapter = {
     yield { content: [] };
   },
 };
-
-vi.mock('../data-stream-runtime', () => ({
-  // A real assistant runtime backs the composer so typing "/" exercises the
-  // library's trigger detection against actual composer state.
-  useBrainstrikeDataStreamRuntime: () => useLocalRuntime(NOOP_ADAPTER),
-}));
 
 vi.mock('../assistant-message-text', () => ({
   AssistantMessageText: () => <div data-testid="markdown-text" />,
@@ -31,16 +24,14 @@ vi.mock('../assistant-message-text', () => ({
 
 import { expandUserCommandTemplate } from '@brainstrike/assistant-contract';
 import { useState } from 'react';
-import { AssistantUiPanel } from '../assistant-ui-panel';
 import type { ComposerDraftCommand } from '../composer-draft-command';
 import type { SlashCommand } from '../slash-commands';
+import { LocalConversationPanel } from './local-conversation-panel';
 
 const SettingsIcon = (_props: { className?: string }) => null;
 
 function renderPanel(slashCommands: readonly SlashCommand[]) {
-  return render(
-    <AssistantUiPanel pickerModels={[]} pickerProviders={[]} slashCommands={slashCommands} />
-  );
+  return render(<LocalConversationPanel adapter={NOOP_ADAPTER} slashCommands={slashCommands} />);
 }
 
 /**
@@ -67,10 +58,9 @@ function PlaceholderFillHarness({ template }: { readonly template: string }) {
     },
   ];
   return (
-    <AssistantUiPanel
+    <LocalConversationPanel
+      adapter={NOOP_ADAPTER}
       composerDraftCommand={command}
-      pickerModels={[]}
-      pickerProviders={[]}
       slashCommands={slashCommands}
     />
   );
