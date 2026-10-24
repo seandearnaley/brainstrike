@@ -32,83 +32,83 @@
   "exports": {
     "./styles.css": "./styles.css",
     "./components/global-download-indicator": {
-      "types": "./dist/components/global-download-indicator.d.ts",
+      "types": "./src/components/global-download-indicator.tsx",
       "import": "./dist/components/global-download-indicator.js"
     },
     "./settings-page-content": {
-      "types": "./dist/settings-page-content.d.ts",
+      "types": "./src/settings-page-content.tsx",
       "import": "./dist/settings-page-content.js"
     },
     "./settings-category-factories": {
-      "types": "./dist/settings-category-factories.d.ts",
+      "types": "./src/settings-category-factories.tsx",
       "import": "./dist/settings-category-factories.js"
     },
     "./settings/models/model-runtime-services": {
-      "types": "./dist/settings/models/model-runtime-services.d.ts",
+      "types": "./src/settings/models/model-runtime-services.ts",
       "import": "./dist/settings/models/model-runtime-services.js"
     },
     "./settings/models/model-selection-page": {
-      "types": "./dist/settings/models/model-selection-page.d.ts",
+      "types": "./src/settings/models/model-selection-page.tsx",
       "import": "./dist/settings/models/model-selection-page.js"
     },
     "./settings/models/use-model-toggle": {
-      "types": "./dist/settings/models/use-model-toggle.d.ts",
+      "types": "./src/settings/models/use-model-toggle.ts",
       "import": "./dist/settings/models/use-model-toggle.js"
     },
     "./settings/providers/providers-settings-category": {
-      "types": "./dist/settings/providers/providers-settings-category.d.ts",
+      "types": "./src/settings/providers/providers-settings-category.tsx",
       "import": "./dist/settings/providers/providers-settings-category.js"
     },
     "./settings/secrets/credential-inventory": {
-      "types": "./dist/settings/secrets/credential-inventory/index.d.ts",
+      "types": "./src/settings/secrets/credential-inventory/index.ts",
       "import": "./dist/settings/secrets/credential-inventory/index.js"
     },
     "./settings/system/logging-settings-section": {
-      "types": "./dist/settings/system/logging-settings-section.d.ts",
+      "types": "./src/settings/system/logging-settings-section.tsx",
       "import": "./dist/settings/system/logging-settings-section.js"
     },
     "./settings/system/logs-page": {
-      "types": "./dist/settings/system/logs-page.d.ts",
+      "types": "./src/settings/system/logs-page.tsx",
       "import": "./dist/settings/system/logs-page.js"
     },
     "./settings/system/notification-settings-category": {
-      "types": "./dist/settings/system/notification-settings-category.d.ts",
+      "types": "./src/settings/system/notification-settings-category.tsx",
       "import": "./dist/settings/system/notification-settings-category.js"
     },
     "./settings/system/skills-settings-category": {
-      "types": "./dist/settings/system/skills-settings-category.d.ts",
+      "types": "./src/settings/system/skills-settings-category.tsx",
       "import": "./dist/settings/system/skills-settings-category.js"
     },
     "./settings/system/workspace-instructions-settings-category": {
-      "types": "./dist/settings/system/workspace-instructions-settings-category.d.ts",
+      "types": "./src/settings/system/workspace-instructions-settings-category.tsx",
       "import": "./dist/settings/system/workspace-instructions-settings-category.js"
     },
     "./settings/system/worktree-settings-section": {
-      "types": "./dist/settings/system/worktree-settings-section.d.ts",
+      "types": "./src/settings/system/worktree-settings-section.tsx",
       "import": "./dist/settings/system/worktree-settings-section.js"
     },
     "./settings/tools/index": {
-      "types": "./dist/settings/tools/index.d.ts",
+      "types": "./src/settings/tools/index.tsx",
       "import": "./dist/settings/tools/index.js"
     },
     "./settings/tools/mcp-elicitation-capability": {
-      "types": "./dist/settings/tools/mcp-elicitation-capability.d.ts",
+      "types": "./src/settings/tools/mcp-elicitation-capability.tsx",
       "import": "./dist/settings/tools/mcp-elicitation-capability.js"
     },
     "./settings/tools/use-mcp-elicitation-capability": {
-      "types": "./dist/settings/tools/use-mcp-elicitation-capability.d.ts",
+      "types": "./src/settings/tools/use-mcp-elicitation-capability.ts",
       "import": "./dist/settings/tools/use-mcp-elicitation-capability.js"
     },
     "./settings/tools/mcp-task-input-canceller": {
-      "types": "./dist/settings/tools/mcp-task-input-canceller.d.ts",
+      "types": "./src/settings/tools/mcp-task-input-canceller.ts",
       "import": "./dist/settings/tools/mcp-task-input-canceller.js"
     },
     "./settings/tools/mcp-elicitation-dialog": {
-      "types": "./dist/settings/tools/mcp-elicitation-dialog.d.ts",
+      "types": "./src/settings/tools/mcp-elicitation-dialog.tsx",
       "import": "./dist/settings/tools/mcp-elicitation-dialog.js"
     },
     "./settings/tools/mcp-elicitation-host": {
-      "types": "./dist/settings/tools/mcp-elicitation-host.d.ts",
+      "types": "./src/settings/tools/mcp-elicitation-host.tsx",
       "import": "./dist/settings/tools/mcp-elicitation-host.js"
     }
   },
@@ -122,9 +122,9 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",

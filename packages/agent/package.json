@@ -54,57 +54,57 @@
   },
   "exports": {
     "./tool-runtime": {
-      "types": "./dist/tool-runtime.d.ts",
+      "types": "./src/tool-runtime.ts",
       "import": "./dist/tool-runtime.mjs",
       "require": "./dist/tool-runtime.js"
     },
     "./tool-guard-deadline": {
-      "types": "./dist/tool-guard-deadline.d.ts",
+      "types": "./src/tool-guard-deadline.ts",
       "import": "./dist/tool-guard-deadline.js",
       "require": "./dist/tool-guard-deadline.js"
     },
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
     "./client": {
-      "types": "./dist/client.d.ts",
+      "types": "./src/client.ts",
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
     },
     "./provider-request": {
-      "types": "./dist/provider-request.d.ts",
+      "types": "./src/provider-request.ts",
       "import": "./dist/provider-request.mjs",
       "require": "./dist/provider-request.js"
     },
     "./provider-runtime": {
-      "types": "./dist/provider-runtime.d.ts",
+      "types": "./src/provider-runtime.ts",
       "import": "./dist/provider-runtime.mjs",
       "require": "./dist/provider-runtime.js"
     },
     "./code-execution": {
-      "types": "./dist/code-execution.d.ts",
+      "types": "./src/code-execution.ts",
       "import": "./dist/code-execution.mjs",
       "require": "./dist/code-execution.js"
     },
     "./fence-executor": {
-      "types": "./dist/fence-executor.d.ts",
+      "types": "./src/fence-executor.ts",
       "import": "./dist/fence-executor.mjs",
       "require": "./dist/fence-executor.js"
     },
     "./mcp-client": {
-      "types": "./dist/mcp-client.d.ts",
+      "types": "./src/mcp-client.ts",
       "import": "./dist/mcp-client.mjs",
       "require": "./dist/mcp-client.js"
     },
     "./test-fixtures/scripted-agent-model": {
-      "types": "./dist/test-fixtures/scripted-agent-model.d.ts",
+      "types": "./src/test-fixtures/scripted-agent-model.ts",
       "import": "./dist/test-fixtures/scripted-agent-model.mjs",
       "require": "./dist/test-fixtures/scripted-agent-model.js"
     },
     "./test-fixtures/mcp-host-lifecycle": {
-      "types": "./dist/test-fixtures/mcp-host-lifecycle.d.ts",
+      "types": "./src/test-fixtures/mcp-host-lifecycle.ts",
       "import": "./dist/test-fixtures/mcp-host-lifecycle.mjs",
       "require": "./dist/test-fixtures/mcp-host-lifecycle.js"
     },
@@ -113,37 +113,37 @@
     "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs": "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs",
     "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs": "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs",
     "./mcp-tasks": {
-      "types": "./dist/mcp-tasks.d.ts",
+      "types": "./src/mcp-tasks.ts",
       "import": "./dist/mcp-tasks.mjs",
       "require": "./dist/mcp-tasks.js"
     },
     "./browser-safe": {
-      "types": "./dist/browser-safe.d.ts",
+      "types": "./src/browser-safe.ts",
       "import": "./dist/browser-safe.mjs",
       "require": "./dist/browser-safe.js"
     },
     "./tool-metadata": {
-      "types": "./dist/tool-metadata.d.ts",
+      "types": "./src/tool-metadata.ts",
       "import": "./dist/tool-metadata.mjs",
       "require": "./dist/tool-metadata.js"
     },
     "./provider-metadata": {
-      "types": "./dist/provider-metadata.d.ts",
+      "types": "./src/provider-metadata.ts",
       "import": "./dist/provider-metadata.mjs",
       "require": "./dist/provider-metadata.js"
     },
     "./context-packer": {
-      "types": "./dist/context-packer.d.ts",
+      "types": "./src/context-packer.ts",
       "import": "./dist/context-packer.mjs",
       "require": "./dist/context-packer.js"
     },
     "./memory-settings": {
-      "types": "./dist/memory-settings.d.ts",
+      "types": "./src/memory-settings.ts",
       "import": "./dist/memory-settings.mjs",
       "require": "./dist/memory-settings.js"
     },
     "./run-events": {
-      "types": "./dist/run-events.d.ts",
+      "types": "./src/run-events.ts",
       "import": "./dist/run-events.mjs",
       "require": "./dist/run-events.js"
     }
@@ -157,7 +157,7 @@
   "module": "./dist/index.mjs",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && tsup",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc && tsup",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "concurrently --kill-others --names types,bundle \"tsc --project tsconfig.json --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",
@@ -172,5 +172,5 @@
       "dist/**"
     ]
   },
-  "types": "./dist/index.d.ts"
+  "types": "./src/index.ts"
 }

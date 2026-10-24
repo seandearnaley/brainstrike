@@ -19,17 +19,17 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
     "./canonical-symbol-inserts": {
-      "types": "./dist/canonical-symbol-inserts.d.ts",
+      "types": "./src/canonical-symbol-inserts.ts",
       "import": "./dist/canonical-symbol-inserts.js",
       "require": "./dist/canonical-symbol-inserts.js"
     },
     "./canonical-index-publication": {
-      "types": "./dist/canonical-index-publication.d.ts",
+      "types": "./src/canonical-index-publication.ts",
       "import": "./dist/canonical-index-publication.js",
       "require": "./dist/canonical-index-publication.js"
     }
@@ -41,11 +41,11 @@
   "module": "dist/index.js",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "types": "dist/index.d.ts"
+  "types": "./src/index.ts"
 }

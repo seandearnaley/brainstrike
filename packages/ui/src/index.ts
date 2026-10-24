@@ -1,3 +1,4 @@
+/// <reference path="./vite-env.d.ts" />
 // Export utilities
 
 export { default as appleTouchIcon } from '../icons/apple-touch-icon.png?url';

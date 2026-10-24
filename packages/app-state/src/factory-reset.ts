@@ -95,9 +95,9 @@ async function clearElectronStorage(): Promise<ClearPersistentUiStateFailure[]> 
   }
 
   const w = window as {
-    electronAPI?: { storage?: { clear?: () => Promise<void> } };
-    secrets?: { clearAll?: (confirmationToken?: string) => Promise<unknown> };
-    settings?: { clearAll?: () => Promise<void> };
+    electronAPI?: { storage?: { clear?: () => Promise<unknown> } };
+    secrets?: { clearAll?: (confirmationToken: string) => Promise<unknown> };
+    settings?: { clearAll?: () => Promise<unknown> };
   };
   const failures: ClearPersistentUiStateFailure[] = [];
 

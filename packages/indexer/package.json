@@ -7,23 +7,23 @@
   "license": "MIT",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
     "./transport": {
-      "types": "./dist/transport.d.ts",
+      "types": "./src/transport.ts",
       "default": "./dist/transport.js"
     },
     "./host": {
-      "types": "./dist/process-core.d.ts",
+      "types": "./src/process-core.ts",
       "default": "./dist/process-core.js"
     },
     "./metadata": {
-      "types": "./dist/metadata-reader.d.ts",
+      "types": "./src/metadata-reader.ts",
       "default": "./dist/metadata-reader.js"
     },
     "./coverage-reader": {
-      "types": "./dist/coverage-reader.d.ts",
+      "types": "./src/coverage-reader.ts",
       "default": "./dist/coverage-reader.js"
     },
     "./test-fixtures/state-observation-schema": "./__tests__/fixtures/state-observation-schema.mjs"
@@ -53,7 +53,7 @@
     "vitest": "catalog:"
   },
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && node scripts/build-process-entries.mjs",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc && node scripts/build-process-entries.mjs",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
