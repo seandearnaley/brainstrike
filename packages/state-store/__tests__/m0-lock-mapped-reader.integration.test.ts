@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { chmodSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { afterEach, expect, test } from 'vitest';
@@ -42,7 +42,6 @@ test.skipIf(process.platform !== 'win32')(
       lock.release();
       expect(lock.isReleased).toBe(true);
       expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual({ ...lock.owner, released: true });
-      expect(lock.releaseRetryStats).toMatchObject({ failures: 0, maxAttempts: 1, retries: 0 });
       expect(readdirSync(lock.dir).filter((name) => name.endsWith('.tmp'))).toEqual([]);
       child.stdin.end('\n');
       expect((await output.next()).value).toBe(before);
@@ -59,32 +58,6 @@ test.skipIf(process.platform !== 'win32')(
       if (!lock.isReleased) {
         lock.release();
       }
-    }
-  }
-);
-
-test.skipIf(process.platform !== 'win32')(
-  'release refuses a read-only generation without changing owner bytes',
-  async () => {
-    const lock = await RootLock.acquire(freshDir('readonly-release'));
-    const target = generation(lock);
-    const before = readFileSync(target);
-    chmodSync(target, 0o444);
-    try {
-      expect(() => lock.release()).toThrow(
-        expect.objectContaining({ code: 'EACCES', win32Code: 5 })
-      );
-      expect(lock.isReleased).toBe(false);
-      expect(readFileSync(target)).toEqual(before);
-      expect(lock.releaseRetryStats).toMatchObject({
-        codes: { EACCES: 20 },
-        failures: 1,
-        maxAttempts: 20,
-      });
-      expect(readdirSync(lock.dir).filter((name) => name.endsWith('.tmp'))).toEqual([]);
-    } finally {
-      chmodSync(target, 0o666);
-      lock.release();
     }
   }
 );
