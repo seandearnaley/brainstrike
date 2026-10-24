@@ -53,7 +53,7 @@ async function selectedTabId(strip: Locator): Promise<string> {
 }
 
 async function openThreeThreads(page: Page): Promise<Locator> {
-  await setupAssistantMock(page, { variant: 'simple' });
+  await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   const strip = page.getByRole('tablist', { name: 'Open assistant threads' });
   await expect(strip).toBeVisible({ timeout: 30_000 });

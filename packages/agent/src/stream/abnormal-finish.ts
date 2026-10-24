@@ -1,7 +1,6 @@
 /**
- * Visible copy for a provider finish that did not complete the response.
- * Shared by the legacy data-stream mapper and the CLI-first host, so both
- * paths tell the user the same truth about the same finish reason.
+ * Visible copy for a provider finish that did not complete the response, so
+ * the host tells the user the truth about the finish reason.
  */
 import {
   findLlmModelDefinition,

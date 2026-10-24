@@ -13,7 +13,7 @@ test('deletes a committed host thread from the Threads panel and it stays delete
   window: page,
 }) => {
   test.setTimeout(120_000);
-  await setupAssistantMock(page, { variant: 'simple' });
+  await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   const strip = page.getByRole('tablist', { name: 'Open assistant threads' });
   await expect(strip).toBeVisible({ timeout: 30_000 });

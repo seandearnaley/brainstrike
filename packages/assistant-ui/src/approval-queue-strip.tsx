@@ -15,7 +15,6 @@ import {
 } from './approval-notice-status';
 import type { ApprovalCategoryKey } from './approval-presentation';
 import { usePendingApprovalsByCategory } from './approval-ranks-context';
-import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { PendingApprovalReview } from './pending-approval-review';
@@ -57,7 +56,6 @@ export function ApprovalQueueStrip() {
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const threadKey = use(ActiveThreadKeyContext);
   const decisionRoute = useDecisionRoute();
-  const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
   const [inFlight, setInFlight] = useState<ReadonlySet<ToolRiskCategory>>(() => new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const pendingKeys = new Set([...pending.values()].flat());
@@ -77,7 +75,7 @@ export function ApprovalQueueStrip() {
   const allowCategory = (category: ToolRiskCategory, keys: readonly string[]): void => {
     const firstKey = keys[0];
     const first = firstKey === undefined ? undefined : index.requests.get(firstKey);
-    if (!(grants && first) || recoveryBlocked) {
+    if (!(grants && first)) {
       return;
     }
     setInFlight((current) => new Set(current).add(category));
@@ -131,7 +129,7 @@ export function ApprovalQueueStrip() {
               aria-label={`Allow ${RISK_CATEGORY_GRANT_NOUN[category]} this session for the ${keys.length} waiting ${keys.length === 1 ? 'approval' : 'approvals'}`}
               className="bs-approval-strip-grant"
               data-testid={`approval-strip-grant-${category}`}
-              disabled={recoveryBlocked || inFlight.has(category)}
+              disabled={inFlight.has(category)}
               onClick={() => allowCategory(category, keys)}
               title={`Allow all ${RISK_CATEGORY_GRANT_NOUN[category]} until the app reloads and answer the waiting ${RISK_CATEGORY_GRANT_NOUN[category]}`}
               type="button"

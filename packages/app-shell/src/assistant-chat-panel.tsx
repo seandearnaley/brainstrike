@@ -1,8 +1,4 @@
 import {
-  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
-  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-} from '@brainstrike/assistant-contract/assistant-request-body-limit';
-import {
   PROVIDER_DEFAULT_MODELS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -163,8 +159,6 @@ function getAssistantDisabledDescription(reason: string | undefined): string {
       return 'Configure an AI provider in Settings → Providers to enable the assistant.';
     case 'production_auth_required':
       return 'Use a protected Preview deployment, or add application authentication with distributed quota and cost controls before enabling the assistant publicly.';
-    case 'invalid_request_body_limit_config':
-      return `Set ${ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR} to a positive safe integer no greater than ${HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES}, then restart or redeploy the server.`;
     default:
       return 'The assistant status endpoint reported that the assistant is disabled.';
   }

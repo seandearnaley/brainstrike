@@ -67,7 +67,7 @@ async function openComposer(page: Page, repoPath: string): Promise<void> {
     reloadReason: 'w4-forge-seed-root',
     rootId: ROOT_ID,
   });
-  await setupAssistantMock(page, { variant: 'simple' });
+  await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   await expect(page.getByTestId('workspace-bar')).toBeVisible({ timeout: 30_000 });
 }

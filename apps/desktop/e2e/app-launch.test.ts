@@ -28,7 +28,7 @@ test.describe('Electron App Launch', () => {
   });
 
   test('does not start persisted stores without storage', async ({ electronApp, window }) => {
-    await setupAssistantMock(window, { variant: 'simple' });
+    await setupAssistantMock(window);
 
     const { getBufferedElectronOutput } = await loadElectronHelpers();
     const output = await getBufferedElectronOutput(electronApp.app);

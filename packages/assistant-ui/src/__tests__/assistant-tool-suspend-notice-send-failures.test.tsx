@@ -2,7 +2,6 @@ import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contrac
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AssistantDecisionRecoveryProvider } from '../assistant-decision-recovery-provider';
 import { AssistantToolSuspendNotice } from '../assistant-tool-suspend-notice';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
 
@@ -67,25 +66,6 @@ describe('AssistantToolSuspendNotice send failures', () => {
     threadRunningMock.isRunning = false;
     threadMessagesMock.splice(0);
     resetFollowUpQueueStore();
-  });
-
-  it('waits for hosted recovery before allowing a suspended decision', async () => {
-    const user = userEvent.setup();
-    const view = render(
-      <AssistantDecisionRecoveryProvider blocked>
-        <AssistantToolSuspendNotice data={planRequest} />
-      </AssistantDecisionRecoveryProvider>
-    );
-    const approve = screen.getByRole('button', { name: /approve/i });
-    expect(approve).toBeDisabled();
-    await user.click(approve);
-    expect(appendMessageMock).not.toHaveBeenCalled();
-    view.rerender(
-      <AssistantDecisionRecoveryProvider blocked={false}>
-        <AssistantToolSuspendNotice data={planRequest} />
-      </AssistantDecisionRecoveryProvider>
-    );
-    expect(approve).toBeEnabled();
   });
 
   it.each<[string, AssistantToolSuspendRequest, AnswerNotice]>([

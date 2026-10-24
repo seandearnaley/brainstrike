@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { StreamChunk } from '..';
-import { sanitizeStreamChunk, toJsonSafe } from '../stream/json';
+import { toJsonSafe } from '../stream/json';
 
 describe('toJsonSafe', () => {
   it('serializes diverse runtime values into JSON-friendly forms', () => {
@@ -32,36 +31,5 @@ describe('toJsonSafe', () => {
 
     const result = toJsonSafe(circular) as { self: string };
     expect(result.self).toBe('[Circular]');
-  });
-});
-
-describe('sanitizeStreamChunk', () => {
-  it('clones payloads and usage fields without mutating the original chunk', () => {
-    const originalPayload = { map: new Map([['foo', 'bar']]) };
-    const usage = { completionTokens: 2n, promptTokens: 1n };
-
-    const chunk: StreamChunk = {
-      name: 'example',
-      payload: originalPayload,
-      status: 'success',
-      type: 'tool-event',
-      usage,
-    } as StreamChunk;
-
-    const sanitized = sanitizeStreamChunk(chunk);
-
-    expect(sanitized).not.toBe(chunk);
-    const sanitizedRecord = sanitized as unknown as Record<string, unknown>;
-    expect(sanitizedRecord['payload']).toEqual({
-      map: { __type: 'Map', entries: { foo: 'bar' } },
-    });
-    expect(sanitizedRecord['usage']).toEqual({
-      completionTokens: '2',
-      promptTokens: '1',
-    });
-
-    // Original structures remain untouched.
-    expect(originalPayload.map instanceof Map).toBe(true);
-    expect(typeof usage.promptTokens).toBe('bigint');
   });
 });
