@@ -14,7 +14,6 @@ export {
   FILE_EXPLORER_STORAGE_KEY,
   FILE_EXPLORER_STORAGE_VERSION,
 } from './persistence/persistence-constants';
-export * from './persistence/tab-persistence';
 export * from './store';
 export type { GetState, SetState } from './types/store-types';
 export {

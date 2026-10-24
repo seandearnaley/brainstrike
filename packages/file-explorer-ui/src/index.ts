@@ -1,6 +1,4 @@
 export * from './action-buttons';
-export * from './components/restore-access-banner';
-export * from './components/restore-access-modal';
 export * from './context-actions';
 export * from './contexts/file-editor-context';
 export * from './contexts/markdown-preview-capabilities';

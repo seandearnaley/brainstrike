@@ -11,7 +11,6 @@ export * from './use-file-system.js';
 export * from './use-file-system-watcher.js';
 export * from './use-file-tree.js';
 export * from './use-report-generation.js';
-export * from './use-restore-access.js';
 export * from './use-selection-manager.js';
 export * from './use-tab-file-restoration.js';
 export * from './use-toast-manager.js';

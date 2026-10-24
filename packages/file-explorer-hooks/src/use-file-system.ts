@@ -428,10 +428,7 @@ export function useFileSystem({
   );
 
   const isFileSystemAccessSupported = useCallback((): { supported: boolean; reason: string } => {
-    const hasWebAPI =
-      typeof (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
-    const hasAdapterAPI = typeof fileSystemAdapter?.requestDirectoryAccess === 'function';
-    if (hasWebAPI || hasAdapterAPI) {
+    if (typeof fileSystemAdapter?.requestDirectoryAccess === 'function') {
       return { reason: '', supported: true };
     }
     return { reason: 'File system access not supported in this environment', supported: false };
@@ -705,11 +702,7 @@ export function useFileSystem({
     updateCurrentFolderId(null);
   }, [updateCurrentFolderId]);
 
-  /**
-   * Set root directory handle from external source (e.g., restore banner).
-   * This allows the useRestoreAccess hook to update the root handle after
-   * successful permission restoration.
-   */
+  /** Set root directory handle from an external source (e.g., the inline fixture). */
   const setRootDirectoryHandle = useCallback(
     (handle: DirectoryHandle | null) => {
       if (handle === null) {
@@ -719,7 +712,7 @@ export function useFileSystem({
       }
       // Stamp once at this funnel (the sole non-null setRoot dispatcher) so the
       // stored handle and currentFolderId share one identity. Every caller (the
-      // inline fixture, the restore modal) now supplies a rootId; ensureStamped is
+      // inline fixture) now supplies a rootId; ensureStamped is
       // the fail-loud backstop. Storage v5 keys folderStates by RootId.
       const stamped = ensureStamped(handle, 'setRootDirectoryHandle');
       dispatch({ handle: stamped, type: 'setRoot' });

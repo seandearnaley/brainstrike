@@ -28,7 +28,6 @@ function createPlan(overrides: Partial<TokenIndexingDispatchPlan> = {}): TokenIn
       tooLarge: 0,
     },
     webFiles: [],
-    webResolverFiles: [],
     ...overrides,
   };
 }

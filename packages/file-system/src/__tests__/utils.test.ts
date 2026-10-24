@@ -4,76 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateDirectoryPath } from '../utils.js';
-import {
-  createLimiter,
-  isFileSystemDirectoryHandle,
-  isFileSystemFileHandle,
-  normalizeDirectoryReadOptions,
-} from '../utils-browser.js';
+import { createLimiter, normalizeDirectoryReadOptions } from '../utils-browser.js';
 
 describe('utils', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  describe('isFileSystemDirectoryHandle', () => {
-    it('returns true for objects with directory shape', () => {
-      const handle = {
-        entries: vi.fn(),
-        kind: 'directory',
-        name: 'root',
-      } as unknown as FileSystemDirectoryHandle;
-
-      expect(isFileSystemDirectoryHandle(handle)).toBe(true);
-    });
-
-    it('returns false when required properties are missing or invalid', () => {
-      const noEntries = { kind: 'directory', name: 'root' } as unknown as FileSystemDirectoryHandle;
-      const wrongKind = {
-        entries: vi.fn(),
-        kind: 'file',
-        name: 'root',
-      } as unknown as FileSystemDirectoryHandle;
-      const missingName = {
-        entries: vi.fn(),
-        kind: 'directory',
-      } as unknown as FileSystemDirectoryHandle;
-
-      expect(isFileSystemDirectoryHandle(null)).toBe(false);
-      expect(isFileSystemDirectoryHandle(undefined)).toBe(false);
-      expect(isFileSystemDirectoryHandle('directory')).toBe(false);
-      expect(isFileSystemDirectoryHandle(noEntries)).toBe(false);
-      expect(isFileSystemDirectoryHandle(wrongKind)).toBe(false);
-      expect(isFileSystemDirectoryHandle(missingName)).toBe(false);
-    });
-  });
-
-  describe('isFileSystemFileHandle', () => {
-    it('returns true for objects with file handle shape', () => {
-      const handle = {
-        getFile: vi.fn(),
-        kind: 'file',
-        name: 'file.txt',
-      } as unknown as FileSystemFileHandle;
-
-      expect(isFileSystemFileHandle(handle)).toBe(true);
-    });
-
-    it('returns false when shape checks fail', () => {
-      const wrongKind = {
-        getFile: vi.fn(),
-        kind: 'directory',
-        name: 'file.txt',
-      } as unknown as FileSystemFileHandle;
-      const missingName = { getFile: vi.fn(), kind: 'file' } as unknown as FileSystemFileHandle;
-      const missingGetFile = { kind: 'file', name: 'file.txt' } as unknown as FileSystemFileHandle;
-
-      expect(isFileSystemFileHandle(null)).toBe(false);
-      expect(isFileSystemFileHandle(42)).toBe(false);
-      expect(isFileSystemFileHandle(wrongKind)).toBe(false);
-      expect(isFileSystemFileHandle(missingName)).toBe(false);
-      expect(isFileSystemFileHandle(missingGetFile)).toBe(false);
-    });
   });
 
   describe('normalizeDirectoryReadOptions', () => {

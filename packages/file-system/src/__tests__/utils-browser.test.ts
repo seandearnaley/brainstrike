@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createLimiter,
-  isFileSystemDirectoryHandle,
-  isFileSystemFileHandle,
-  normalizeDirectoryReadOptions,
-} from '../utils-browser.js';
+import { createLimiter, normalizeDirectoryReadOptions } from '../utils-browser.js';
 
 describe('createLimiter', () => {
   it('runs tasks immediately when max <= 0 (unlimited)', async () => {
@@ -104,107 +99,5 @@ describe('normalizeDirectoryReadOptions', () => {
   it('treats non-finite concurrency as NaN', () => {
     const result = normalizeDirectoryReadOptions({ concurrency: Number.POSITIVE_INFINITY });
     expect(Number.isNaN(result.concurrency)).toBe(true);
-  });
-});
-
-describe('isFileSystemDirectoryHandle', () => {
-  it('returns true for valid directory handle shape', () => {
-    expect(
-      isFileSystemDirectoryHandle({
-        entries: () => {},
-        kind: 'directory',
-        name: 'test',
-      })
-    ).toBe(true);
-  });
-
-  it('returns false for null', () => {
-    expect(isFileSystemDirectoryHandle(null)).toBe(false);
-  });
-
-  it('returns false for undefined', () => {
-    expect(isFileSystemDirectoryHandle(undefined)).toBe(false);
-  });
-
-  it('returns false for non-object', () => {
-    expect(isFileSystemDirectoryHandle('string')).toBe(false);
-  });
-
-  it('returns false for wrong kind', () => {
-    expect(
-      isFileSystemDirectoryHandle({
-        entries: () => {},
-        kind: 'file',
-        name: 'test',
-      })
-    ).toBe(false);
-  });
-
-  it('returns false when name is not a string', () => {
-    expect(
-      isFileSystemDirectoryHandle({
-        entries: () => {},
-        kind: 'directory',
-        name: 123,
-      })
-    ).toBe(false);
-  });
-
-  it('returns false when entries method is missing', () => {
-    expect(
-      isFileSystemDirectoryHandle({
-        kind: 'directory',
-        name: 'test',
-      })
-    ).toBe(false);
-  });
-});
-
-describe('isFileSystemFileHandle', () => {
-  it('returns true for valid file handle shape', () => {
-    expect(
-      isFileSystemFileHandle({
-        getFile: () => {},
-        kind: 'file',
-        name: 'test.txt',
-      })
-    ).toBe(true);
-  });
-
-  it('returns false for null', () => {
-    expect(isFileSystemFileHandle(null)).toBe(false);
-  });
-
-  it('returns false for undefined', () => {
-    expect(isFileSystemFileHandle(undefined)).toBe(false);
-  });
-
-  it('returns false for wrong kind', () => {
-    expect(
-      isFileSystemFileHandle({
-        getFile: () => {},
-        kind: 'directory',
-        name: 'test',
-      })
-    ).toBe(false);
-  });
-
-  it('returns false when name is not a string', () => {
-    expect(
-      isFileSystemFileHandle({
-        getFile: () => {},
-        kind: 'file',
-        name: 42,
-      })
-    ).toBe(false);
-  });
-
-  it('returns false when getFile method is missing', () => {
-    expect(
-      isFileSystemFileHandle({
-        kind: 'file',
-        name: 'test.txt',
-      })
-    ).toBe(false);
   });
 });

@@ -7,23 +7,15 @@
  * Key behaviors:
  * - Automatically attempts restoration when tabs are loaded from storage
  * - Tracks restoration status per-tab for UI display
- * - Provides function to request permission for tabs that need it
  * - Cleans up stale tab entries when files no longer exist
- * - Platform-aware: Works differently on web (IndexedDB handles) vs desktop (direct file paths)
+ * - Restores on Electron by checking each file path through the adapter
  */
 
-import {
-  type FileHandleCache,
-  requestFilePermission,
-  restoreAllTabFileHandles,
-  type TabRestoreStatus,
-} from '@brainstrike/file-explorer';
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { readHandleCache } from './adapter-with-handle-cache.js';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useTabFileRestoration');
@@ -44,29 +36,6 @@ interface CircuitBreakerState {
 /** Circuit breaker configuration */
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Number of failures before opening
 const CIRCUIT_BREAKER_RESET_MS = 30_000; // Time before attempting to close circuit
-
-const FILE_HANDLE_CACHE_METHODS = [
-  'getFileHandle',
-  'removeFileHandle',
-] as const satisfies readonly (keyof FileHandleCache)[];
-type UncoveredFileHandleCacheMethod = Exclude<
-  keyof FileHandleCache,
-  (typeof FILE_HANDLE_CACHE_METHODS)[number]
->;
-const FILE_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE: UncoveredFileHandleCacheMethod extends never
-  ? true
-  : never = true;
-
-function isFileHandleCache(value: unknown): value is FileHandleCache {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
-  return (
-    FILE_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE &&
-    FILE_HANDLE_CACHE_METHODS.every((method) => typeof candidate[method] === 'function')
-  );
-}
 
 /**
  * Concurrency limiter with circuit breaker pattern.
@@ -243,6 +212,9 @@ function safeJoinPath(rootPath: string, relativePath: string): string | null {
   return result;
 }
 
+/** Restoration status of a persisted tab's file. */
+export type TabRestoreStatus = 'restored' | 'needs-permission' | 'not-found' | 'pending';
+
 /** Status information for a tab's file handle */
 export interface TabFileStatus {
   compositeKey: string;
@@ -392,38 +364,6 @@ function updateStatusesFromElectronResult(
   return next;
 }
 
-/** Maximum number of file handles to keep in memory to prevent unbounded growth */
-const MAX_CACHED_HANDLES = 100;
-
-/**
- * Store handle in ref map if present, with LRU eviction to prevent memory leaks.
- * When the cache exceeds MAX_CACHED_HANDLES, the oldest entry is removed.
- */
-function storeHandleIfPresent(
-  handlesRef: React.RefObject<Map<string, FileSystemFileHandle>>,
-  compositeKey: string,
-  handle: FileSystemFileHandle | null
-): void {
-  if (!(handle && handlesRef.current)) {
-    return;
-  }
-
-  // If key already exists, delete it first so it moves to end (most recent)
-  if (handlesRef.current.has(compositeKey)) {
-    handlesRef.current.delete(compositeKey);
-  }
-
-  // Evict oldest entry if at capacity
-  if (handlesRef.current.size >= MAX_CACHED_HANDLES) {
-    const firstKey = handlesRef.current.keys().next().value;
-    if (firstKey !== undefined) {
-      handlesRef.current.delete(firstKey);
-    }
-  }
-
-  handlesRef.current.set(compositeKey, handle);
-}
-
 /**
  * Hook to manage file handle restoration for editor tabs.
  *
@@ -441,8 +381,6 @@ export function useTabFileRestoration(
 
   // Track which tabs we've already attempted to restore
   const restoredTabsRef = useRef<Set<string>>(new Set());
-  // Track handles for permission requests (web platform only)
-  const handlesRef = useRef<Map<string, FileSystemFileHandle>>(new Map());
   // Track if a restoration is currently in progress to prevent race conditions
   const restorationInProgressRef = useRef(false);
   // Track the last set of tabs we attempted to restore (for stable key comparison)
@@ -450,14 +388,6 @@ export function useTabFileRestoration(
 
   // Detect platform once
   const platform = useMemo<Platform>(() => detectPlatform(), []);
-
-  // Get handle cache from adapter (web platform only)
-  const handleCache = useMemo(() => {
-    if (platform !== 'web') {
-      return null;
-    }
-    return readHandleCache(fileSystemAdapter, isFileHandleCache);
-  }, [fileSystemAdapter, platform]);
 
   // Handle Electron restoration
   const restoreElectronTabsWithStatus = useCallback(
@@ -476,69 +406,6 @@ export function useTabFileRestoration(
       });
     },
     [fileSystemAdapter, onTabNotFound]
-  );
-
-  // Handle Web restoration
-  const restoreWebTabsWithStatus = useCallback(
-    async (newTabs: Array<{ tabId: string; compositeKey: string }>) => {
-      if (!handleCache) {
-        logger.warn('Web platform but no handle cache available');
-        return;
-      }
-
-      const result = await restoreAllTabFileHandles(
-        newTabs.map((t) => ({ compositeKey: t.compositeKey, tabId: t.tabId })),
-        handleCache
-      );
-
-      // Notify for tabs whose files weren't found
-      for (const info of result.notFound) {
-        const tab = newTabs.find((t) => t.compositeKey === info.compositeKey);
-        if (tab && onTabNotFound) {
-          onTabNotFound(tab.tabId);
-        }
-      }
-
-      // Store handles first (side effect - must be outside state updater)
-      for (const info of result.restored) {
-        storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
-      }
-      for (const info of result.needsPermission) {
-        storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
-      }
-
-      // Update statuses map (pure function)
-      setTabStatuses((prev) => {
-        const next = new Map(prev);
-
-        for (const info of result.restored) {
-          next.set(info.compositeKey, createTabFileStatus(info.compositeKey, 'restored'));
-        }
-
-        for (const info of result.needsPermission) {
-          next.set(
-            info.compositeKey,
-            createTabFileStatus(info.compositeKey, 'needs-permission', info.error)
-          );
-        }
-
-        for (const info of result.notFound) {
-          next.set(
-            info.compositeKey,
-            createTabFileStatus(info.compositeKey, 'not-found', info.error)
-          );
-        }
-
-        return next;
-      });
-
-      logger.info('Tab restoration completed (Web)', {
-        needsPermission: result.needsPermission.length,
-        notFound: result.notFound.length,
-        restored: result.restored.length,
-      });
-    },
-    [handleCache, onTabNotFound]
   );
 
   // Restore tabs that haven't been attempted yet
@@ -563,12 +430,7 @@ export function useTabFileRestoration(
           restoredTabsRef.current.add(tab.compositeKey);
         }
 
-        // Platform-specific restoration
-        if (platform === 'electron') {
-          await restoreElectronTabsWithStatus(newTabs);
-        } else {
-          await restoreWebTabsWithStatus(newTabs);
-        }
+        await restoreElectronTabsWithStatus(newTabs);
       } catch (err) {
         logger.warn('Tab restoration failed', {
           error: err instanceof Error ? err.message : String(err),
@@ -577,7 +439,7 @@ export function useTabFileRestoration(
         setIsRestoring(false);
       }
     },
-    [platform, restoreElectronTabsWithStatus, restoreWebTabsWithStatus]
+    [restoreElectronTabsWithStatus]
   );
 
   // Store restoreTabs in a ref to avoid useEffect re-running when callback changes
@@ -586,11 +448,8 @@ export function useTabFileRestoration(
 
   // Auto-restore tabs on mount/when tabs change
   useEffect(() => {
-    // On web, we need the handle cache; on Electron, we need the adapter
-    if (platform === 'web' && !handleCache) {
-      return;
-    }
-    if (platform === 'electron' && !fileSystemAdapter) {
+    // Only Electron restores persisted tabs, through its adapter.
+    if (platform !== 'electron' || !fileSystemAdapter) {
       return;
     }
     if (tabs.length === 0) {
@@ -637,24 +496,14 @@ export function useTabFileRestoration(
     }, RESTORATION_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [platform, handleCache, fileSystemAdapter, tabs]);
+  }, [platform, fileSystemAdapter, tabs]);
 
   // Memoize tab keys to avoid unnecessary cleanup runs
   const tabKeys = useMemo(() => new Set(tabs.map((t) => t.compositeKey)), [tabs]);
 
-  // Clean up in-memory state when tabs are closed
-  // Note: We don't remove file handles from IndexedDB - LRU eviction handles that
+  // Clean up statuses when tabs are closed
   // biome-ignore lint/plugin: This effect cleans up refs, not data fetching
   useEffect(() => {
-    // Clean up handles and statuses for closed tabs
-    for (const key of handlesRef.current.keys()) {
-      if (!tabKeys.has(key)) {
-        handlesRef.current.delete(key);
-        restoredTabsRef.current.delete(key);
-      }
-    }
-
-    // Clean up statuses map
     setTabStatuses((prev) => {
       let hasChanges = false;
       const next = new Map(prev);
@@ -668,32 +517,9 @@ export function useTabFileRestoration(
     });
   }, [tabKeys]);
 
-  // Request permission for a specific tab (web platform only)
+  // Electron has direct file access, so no tab waits on a permission prompt.
   const requestTabPermission = useCallback(
-    async (compositeKey: string): Promise<boolean> => {
-      // On Electron, permission is always granted
-      if (platform === 'electron') {
-        return true;
-      }
-
-      const handle = handlesRef.current.get(compositeKey);
-      if (!handle) {
-        logger.warn('requestTabPermission: no handle for tab', { compositeKey });
-        return false;
-      }
-
-      const granted = await requestFilePermission(handle);
-
-      if (granted) {
-        setTabStatuses((prev) => {
-          const next = new Map(prev);
-          next.set(compositeKey, createTabFileStatus(compositeKey, 'restored'));
-          return next;
-        });
-      }
-
-      return granted;
-    },
+    (_compositeKey: string): Promise<boolean> => Promise.resolve(platform === 'electron'),
     [platform]
   );
 
