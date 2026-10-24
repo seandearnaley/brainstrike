@@ -171,7 +171,6 @@ function CommittedRuntimePanel({
   // The composer stages images only while the presentation offers them; the
   // owner's send command carries them as the user message's attachments.
   const { adapters: attachmentAdapters } = useAssistantThreadRuntimeAdapters(
-    undefined,
     panel.attachmentsAvailability !== undefined
   );
   const runtimeAdapters = useMemo(

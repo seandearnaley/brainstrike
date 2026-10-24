@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-import type { Attachment } from '@assistant-ui/react';
-import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import type { AssistantRuntime, Attachment } from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -9,22 +8,18 @@ import {
 } from '@brainstrike/assistant-contract';
 import { COMPACTION_SUMMARY_METADATA_KEY } from '@brainstrike/assistant-contract/compaction-summary';
 import { TooltipProvider } from '@brainstrike/ui';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Fragment } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  ModelPickerModel,
-  ModelPickerProvider,
-  ProviderGroupConfig,
-} from '../assistant-ui-panel';
-import { AssistantUiPanel, ProviderSettingsPanel } from '../assistant-ui-panel';
-import { AssistantRequestPreparationTimeoutError } from '../data-stream-runtime';
-import { webAssistantRequestLogger } from '../use-web-assistant-request-session';
+import {
+  AssistantConversationPanel,
+  type AssistantConversationPanelProps,
+} from '../assistant-conversation-panel';
+import type { ModelPickerModel, ProviderGroupConfig } from '../assistant-ui-panel';
+import { ProviderSettingsPanel } from '../assistant-ui-panel';
+import { useAssistantThreadRuntimeAdapters } from '../use-assistant-thread-runtime-adapters';
 
-const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
-  runtime: 'test-runtime',
-}));
 const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 interface MockAuiState {
   composer: {
@@ -59,13 +54,6 @@ let mockAuiState = createMockAuiState([completedReasoningPart]);
 // cmdk (composer model picker) scrolls the active option into view; happy-dom
 // has no layout.
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
-
-vi.mock('../data-stream-runtime', () => ({
-  AssistantRequestPreparationTimeoutError: class AssistantRequestPreparationTimeoutError extends Error {},
-  AssistantRunAdmissionRejectedError: class AssistantRunAdmissionRejectedError extends Error {},
-  useBrainstrikeDataStreamRuntime: (options: unknown) =>
-    useBrainstrikeDataStreamRuntimeMock(options),
-}));
 
 vi.mock('../assistant-message-text', () => ({
   AssistantMessageText: () => <div data-testid="markdown-text" />,
@@ -390,12 +378,6 @@ const providerGroups: ProviderGroupConfig[] = [
   },
 ];
 
-// ModelPicker-compatible providers (matching the enabled models in providerGroups)
-const pickerProviders: ModelPickerProvider[] = [
-  { icon: null, id: 'openai', name: 'OpenAI' },
-  { icon: null, id: 'anthropic', name: 'Anthropic' },
-];
-
 // ModelPicker-compatible models (only enabled models)
 const pickerModels: ModelPickerModel[] = [
   {
@@ -416,13 +398,31 @@ const pickerModels: ModelPickerModel[] = [
 
 const baseProps = {
   pickerModels,
-  pickerProviders,
   providerGroups,
   selectedModel: 'openai::gpt-5.2',
   selectedProvider: 'openai',
 };
 
-describe('AssistantUiPanel model picker', () => {
+// `@assistant-ui/react` is mocked above, so the provider never reads it.
+const TEST_RUNTIME = {} as AssistantRuntime;
+
+/** The live thread surface (`CommittedAssistantConversation` renders it). */
+function Panel(
+  props: Omit<AssistantConversationPanelProps, 'label' | 'runtime' | 'threadKey'> & {
+    readonly threadKey?: string;
+  }
+) {
+  return (
+    <AssistantConversationPanel
+      label="Assistant chat"
+      runtime={TEST_RUNTIME}
+      threadKey="thread-1"
+      {...props}
+    />
+  );
+}
+
+describe('assistant thread surface', () => {
   beforeEach(() => {
     mockAuiState = createMockAuiState([completedReasoningPart]);
   });
@@ -439,7 +439,7 @@ describe('AssistantUiPanel model picker', () => {
   // the ANCESTOR, not just the text, is the point — the first version of this
   // feature rendered the right words in the wrong container.
   it('keeps a capability notice out of the scrolling transcript', () => {
-    render(<AssistantUiPanel {...baseProps} capabilityNotice="Memory is unavailable here." />);
+    render(<Panel {...baseProps} capabilityNotice="Memory is unavailable here." />);
 
     const notice = screen.getByTestId('assistant-capability-notice');
     expect(notice).toHaveTextContent('Memory is unavailable here.');
@@ -453,38 +453,11 @@ describe('AssistantUiPanel model picker', () => {
   // host-unavailable, and the reading-position browser test depends on the
   // notice landing inside the viewport so scroll anchoring can hold a reader.
   it('leaves a disabled reason above the transcript, with no capability notice', () => {
-    render(<AssistantUiPanel {...baseProps} disabledReason="The agent host is unavailable." />);
+    render(<Panel {...baseProps} disabledReason="The agent host is unavailable." />);
 
     expect(screen.queryByTestId('assistant-capability-notice')).toBeNull();
     const reason = screen.getByText('The agent host is unavailable.');
     expect(reason.closest('[data-testid="assistant-ui-viewport"]')).not.toBeNull();
-  });
-
-  it('registers its owning runtime and releases the registration when the panel closes', () => {
-    const release = vi.fn();
-    const onRuntimeReady = vi.fn(() => release);
-    const { unmount } = render(<AssistantUiPanel {...baseProps} onRuntimeReady={onRuntimeReady} />);
-    expect(onRuntimeReady).toHaveBeenCalledWith({ runtime: 'test-runtime' });
-    expect(release).not.toHaveBeenCalled();
-    unmount();
-    expect(release).toHaveBeenCalledTimes(1);
-  });
-
-  it('uses the Brainstrike data-stream runtime for hosted providers', () => {
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        onModelChange={() => {}}
-        requestBodyLimitBytes={HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES}
-      />
-    );
-
-    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        api: '/api/assistant',
-        requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-      })
-    );
   });
 
   describe('compaction summary dispatch', () => {
@@ -510,7 +483,7 @@ describe('AssistantUiPanel model picker', () => {
     it('renders a valid compaction summary as a card instead of the normal assistant bubble', () => {
       setAssistantMessage(summaryPayload);
 
-      const { container } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+      const { container } = render(<Panel {...baseProps} onModelChange={() => {}} />);
 
       expect(screen.getByTestId('compaction-summary-card')).toBeVisible();
       expect(container.querySelector('.aui-assistant-message-content')).not.toBeInTheDocument();
@@ -528,7 +501,7 @@ describe('AssistantUiPanel model picker', () => {
         setAssistantMessage(marker, role);
       }
 
-      const { container } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+      const { container } = render(<Panel {...baseProps} onModelChange={() => {}} />);
 
       expect(screen.queryByTestId('compaction-summary-card')).not.toBeInTheDocument();
       expect(container.querySelector('.aui-assistant-message-content')).toBeInTheDocument();
@@ -541,19 +514,19 @@ describe('AssistantUiPanel model picker', () => {
         droppedSummaryLine: 'Dropped 8 messages from August 1–2.',
         fallbackKind: 'deterministic',
       });
-      const { rerender } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+      const { rerender } = render(<Panel {...baseProps} onModelChange={() => {}} />);
 
       expect(screen.getByText(/no summarization model ran/i)).toBeVisible();
 
       setAssistantMessage(summaryPayload);
-      rerender(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+      rerender(<Panel {...baseProps} onModelChange={() => {}} />);
 
       expect(screen.queryByText(/no summarization model ran/i)).not.toBeInTheDocument();
     });
   });
 
   it('registers assistant data renderers through assistant-ui data UI', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     expect(useAssistantDataUIMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -570,7 +543,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   it('registers a null renderer for the context-breakdown data part (never a stray element)', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     expect(useAssistantDataUIMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -600,7 +573,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   it('hides background run-event rows by default (memory/context bookkeeping)', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     const dataUi = useAssistantDataUIMock.mock.calls
       .map((call) => call[0] as { name?: string; render?: React.ComponentType<{ data: unknown }> })
@@ -627,7 +600,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   it('still surfaces run.failed/run.cancelled at default detail (failures never silently hidden)', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     const dataUi = useAssistantDataUIMock.mock.calls
       .map((call) => call[0] as { name?: string; render?: React.ComponentType<{ data: unknown }> })
@@ -672,373 +645,8 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByText('Run cancelled')).toBeInTheDocument();
   });
 
-  it('prepares per-run request data when the hosted runtime starts a request', async () => {
-    const prepareRequestData = vi.fn(async () => ({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-1',
-        threadId: 'thread-1',
-      },
-    }));
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-        requestData={{ projectId: 'project-1' }}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: () => Promise<Record<string, unknown> | undefined>;
-    };
-
-    await expect(options.body?.()).resolves.toEqual({
-      data: {
-        memory: {
-          resourceId: 'workspace-1',
-          runId: 'run-1',
-          threadId: 'thread-1',
-        },
-        model: 'gpt-5.2',
-        projectId: 'project-1',
-        provider: 'openai',
-      },
-    });
-    expect(prepareRequestData).toHaveBeenCalledTimes(1);
-  });
-
-  it('completes hosted prepared requests from data stream terminal callbacks', async () => {
-    const prepareRequestData = vi.fn(async () => ({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-1',
-        threadId: 'thread-1',
-      },
-    }));
-    const completePreparedRequest = vi.fn();
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: () => Promise<Record<string, unknown> | undefined>;
-      onCancel?: (cancelled: { readonly messages: readonly unknown[] }) => void;
-      onError?: (error: Error) => void;
-      onFinish?: () => void;
-    };
-
-    const preparedBody = await options.body?.();
-    options.onFinish?.();
-    options.onError?.(new Error('late stream error'));
-    options.onCancel?.({ messages: [] });
-
-    expect(preparedBody).toMatchObject({
-      data: {
-        memory: {
-          runId: 'run-1',
-        },
-      },
-    });
-    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      {
-        memory: {
-          resourceId: 'workspace-1',
-          runId: 'run-1',
-          threadId: 'thread-1',
-        },
-      },
-      'completed',
-      undefined,
-      false
-    );
-  });
-
-  it('cancels a prepared run that resolves after Stop aborts preparation', async () => {
-    const deferred = Promise.withResolvers<Record<string, unknown>>();
-    const prepareRequestData = vi.fn(() => deferred.promise);
-    const completePreparedRequest = vi.fn();
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: (abortSignal: AbortSignal) => Promise<Record<string, unknown> | undefined>;
-    };
-    const abortController = new AbortController();
-    const bodyPromise = options.body?.(abortController.signal);
-    await waitFor(() => expect(prepareRequestData).toHaveBeenCalledOnce());
-
-    const abortError = new DOMException('The user aborted a request.', 'AbortError');
-    abortController.abort(abortError);
-    deferred.resolve({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-cancel-late',
-        threadId: 'thread-1',
-      },
-    });
-
-    await expect(bodyPromise).rejects.toBe(abortError);
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        memory: expect.objectContaining({ runId: 'run-cancel-late' }),
-      }),
-      'cancelled',
-      undefined
-    );
-  });
-
-  it('fails a prepared run that resolves after its preparation watchdog expires', async () => {
-    const deferred = Promise.withResolvers<Record<string, unknown>>();
-    const prepareRequestData = vi.fn(() => deferred.promise);
-    const completePreparedRequest = vi.fn();
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: (abortSignal: AbortSignal) => Promise<Record<string, unknown> | undefined>;
-    };
-    const abortController = new AbortController();
-    const bodyPromise = options.body?.(abortController.signal);
-    await waitFor(() => expect(prepareRequestData).toHaveBeenCalledOnce());
-
-    const timeoutError = new AssistantRequestPreparationTimeoutError(
-      'Assistant request preparation timed out after 30000ms.'
-    );
-    abortController.abort(timeoutError);
-    deferred.resolve({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-timeout-late',
-        threadId: 'thread-1',
-      },
-    });
-
-    await expect(bodyPromise).rejects.toBe(timeoutError);
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        memory: expect.objectContaining({ runId: 'run-timeout-late' }),
-      }),
-      'failed',
-      timeoutError.message
-    );
-  });
-
-  it('preserves and logs a terminal preparation reason when run completion fails', async () => {
-    const deferred = Promise.withResolvers<Record<string, unknown>>();
-    const prepareRequestData = vi.fn(() => deferred.promise);
-    const completionError = new Error('failed to persist terminal run state');
-    const completePreparedRequest = vi.fn().mockRejectedValue(completionError);
-    const logger = vi.spyOn(webAssistantRequestLogger, 'error').mockImplementation(() => undefined);
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: (abortSignal: AbortSignal) => Promise<Record<string, unknown> | undefined>;
-    };
-    const abortController = new AbortController();
-    const bodyPromise = options.body?.(abortController.signal);
-    await waitFor(() => expect(prepareRequestData).toHaveBeenCalledOnce());
-
-    const timeoutError = new AssistantRequestPreparationTimeoutError(
-      'Assistant request preparation timed out after 30000ms.'
-    );
-    abortController.abort(timeoutError);
-    deferred.resolve({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-timeout-completion-failed',
-        threadId: 'thread-1',
-      },
-    });
-
-    await expect(bodyPromise).rejects.toBe(timeoutError);
-    expect(logger).toHaveBeenCalledWith('Failed to complete abandoned assistant preparation', {
-      error: completionError,
-      reason: timeoutError,
-    });
-  });
-
-  it('uses the latest hosted completion callback when the panel rerenders mid-run', async () => {
-    const prepareRequestData = vi.fn(async () => ({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-1',
-        threadId: 'thread-1',
-      },
-    }));
-    const firstCompletePreparedRequest = vi.fn();
-    const secondCompletePreparedRequest = vi.fn();
-
-    const view = render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={firstCompletePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: () => Promise<Record<string, unknown> | undefined>;
-      onFinish?: () => void;
-    };
-
-    await options.body?.();
-    view.rerender(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={secondCompletePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-    options.onFinish?.();
-
-    expect(firstCompletePreparedRequest).not.toHaveBeenCalled();
-    expect(secondCompletePreparedRequest).toHaveBeenCalledWith(
-      {
-        memory: {
-          resourceId: 'workspace-1',
-          runId: 'run-1',
-          threadId: 'thread-1',
-        },
-      },
-      'completed',
-      undefined,
-      false
-    );
-  });
-
-  it('rejects concurrent hosted prepared requests before creating a second run', async () => {
-    const prepareRequestData = vi
-      .fn()
-      .mockResolvedValueOnce({
-        memory: {
-          resourceId: 'workspace-1',
-          runId: 'run-1',
-          threadId: 'thread-1',
-        },
-      })
-      .mockResolvedValueOnce({
-        memory: {
-          resourceId: 'workspace-1',
-          runId: 'run-2',
-          threadId: 'thread-1',
-        },
-      });
-    const completePreparedRequest = vi.fn();
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: () => Promise<Record<string, unknown> | undefined>;
-      onCancel?: () => void;
-    };
-
-    await options.body?.();
-    await expect(options.body?.()).rejects.toThrow(
-      'Cannot start a hosted assistant run while another run is in progress.'
-    );
-    options.onCancel?.();
-
-    expect(prepareRequestData).toHaveBeenCalledTimes(1);
-    await waitFor(() => {
-      expect(completePreparedRequest).toHaveBeenCalledTimes(1);
-    });
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      {
-        memory: {
-          resourceId: 'workspace-1',
-          runId: 'run-1',
-          threadId: 'thread-1',
-        },
-      },
-      'cancelled',
-      undefined,
-      false
-    );
-  });
-
-  it('marks hosted prepared requests failed when the data stream errors', async () => {
-    const prepareRequestData = vi.fn(async () => ({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-1',
-        threadId: 'thread-1',
-      },
-    }));
-    const completePreparedRequest = vi.fn();
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: () => Promise<Record<string, unknown> | undefined>;
-      onError?: (error: Error) => void;
-    };
-
-    await options.body?.();
-    options.onError?.(new Error('stream failed'));
-
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      {
-        memory: {
-          resourceId: 'workspace-1',
-          runId: 'run-1',
-          threadId: 'thread-1',
-        },
-      },
-      'failed',
-      'stream failed',
-      false
-    );
-  });
-
   it('renders the model menu in the composer controls dock', async () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     // The selected model appears on the menu trigger.
     const modelTexts = screen.getAllByText('GPT-5.2');
@@ -1055,7 +663,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   it('keeps the model picker operable when message submission is disabled', () => {
-    render(<AssistantUiPanel {...baseProps} disabled onModelChange={() => {}} />);
+    render(<Panel {...baseProps} isComposerDisabled onModelChange={() => {}} />);
 
     const input = screen.getByTestId('composer-input');
     expect(input).toBeDisabled();
@@ -1065,7 +673,7 @@ describe('AssistantUiPanel model picker', () => {
 
   it('renders the always-visible effort readout beside the model menu (BST-948)', () => {
     render(
-      <AssistantUiPanel
+      <Panel
         {...baseProps}
         onModelChange={() => {}}
         onProviderSettingsChange={() => {}}
@@ -1084,7 +692,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   it('keeps model and controls inside the composer surface with icon send controls', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     const composerInput = screen.getByTestId('composer-input');
     const composerShell = composerInput.closest('.bs-composer-shell');
@@ -1102,7 +710,7 @@ describe('AssistantUiPanel model picker', () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     const onModelChange = vi.fn();
 
-    render(<AssistantUiPanel {...baseProps} onModelChange={onModelChange} />);
+    render(<Panel {...baseProps} onModelChange={onModelChange} />);
 
     // Open the composer model picker and search for the model.
     const container = screen.getByTestId('assistant-model-dropdown');
@@ -1129,13 +737,7 @@ describe('AssistantUiPanel model picker', () => {
     }));
 
     // Provide empty pickerModels - shows the "no models" state
-    render(
-      <AssistantUiPanel
-        pickerModels={[]}
-        pickerProviders={pickerProviders}
-        providerGroups={noModelsGroups}
-      />
-    );
+    render(<Panel pickerModels={[]} providerGroups={noModelsGroups} />);
 
     expect(screen.getByText('No models enabled')).toBeInTheDocument();
     const trigger = screen.getByTestId('assistant-model-dropdown');
@@ -1152,13 +754,7 @@ describe('AssistantUiPanel model picker', () => {
     }));
 
     // Provide empty pickerModels - the picker should be disabled
-    render(
-      <AssistantUiPanel
-        pickerModels={[]}
-        pickerProviders={pickerProviders}
-        providerGroups={noModelsGroups}
-      />
-    );
+    render(<Panel pickerModels={[]} providerGroups={noModelsGroups} />);
 
     expect(screen.getByText('No models enabled')).toBeInTheDocument();
     // The menu trigger should be disabled when no models are available
@@ -1168,7 +764,7 @@ describe('AssistantUiPanel model picker', () => {
 
   it('omits context summary and context controls while keeping tool controls visible', () => {
     render(
-      <AssistantUiPanel
+      <Panel
         {...baseProps}
         onModelChange={() => {}}
         toolMenu={{
@@ -1791,7 +1387,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 });
 
-describe('AssistantUiPanel composer attachments availability', () => {
+describe('composer attachments availability', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -1799,7 +1395,7 @@ describe('AssistantUiPanel composer attachments availability', () => {
 
   it('renders the attach affordance and registers the attachment adapter when enabled', () => {
     render(
-      <AssistantUiPanel
+      <Panel
         {...baseProps}
         attachmentsAvailability={{ state: 'enabled' }}
         onModelChange={() => {}}
@@ -1807,16 +1403,11 @@ describe('AssistantUiPanel composer attachments availability', () => {
     );
 
     expect(screen.getByTestId('assistant-attach-image')).toBeEnabled();
-    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        adapters: expect.objectContaining({ attachments: expect.anything() }),
-      })
-    );
   });
 
   it('renders a visibly disabled attach button carrying the reason when the model lacks vision', () => {
     const { container } = render(
-      <AssistantUiPanel
+      <Panel
         {...baseProps}
         attachmentsAvailability={{
           reason: 'GPT-Text cannot read images. Switch to a vision-capable model to attach images.',
@@ -1829,115 +1420,52 @@ describe('AssistantUiPanel composer attachments availability', () => {
     const attach = screen.getByTestId('assistant-attach-image');
     expect(attach).toBeDisabled();
     expect(attach).toHaveAttribute('title', expect.stringContaining('GPT-Text cannot read images'));
-    // The adapter STAYS registered while disabled: an attachment staged before
-    // a switch to a text-only model must remain removable/sendable (the
-    // visible provider error is the net) — an adapter-less composer would
-    // wipe the typed text + staged image with an unhandled "Attachments are
-    // not supported" rejection on Send. New adds are blocked by the disabled
-    // button and the absent paste frame instead.
-    const lastRuntimeOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
-      | { adapters?: { attachments?: unknown } }
-      | undefined;
-    expect(lastRuntimeOptions?.adapters?.attachments).toBeDefined();
     // The preview strip stays mounted so a staged image keeps its Remove button.
     expect(container.querySelector('.bs-composer-attachments')).not.toBeNull();
   });
 
-  it('keeps the same adapter instance across an enabled-to-disabled model switch', () => {
-    const { rerender } = render(
-      <AssistantUiPanel
-        {...baseProps}
-        attachmentsAvailability={{ state: 'enabled' }}
-        onModelChange={() => {}}
-      />
+  // An attachment staged before a switch to a text-only model must remain
+  // removable/sendable (the visible provider error is the net): an
+  // adapter-less composer would wipe the typed text + staged image with an
+  // unhandled "Attachments are not supported" rejection on Send. The adapter
+  // therefore follows availability PRESENCE, so an enabled-to-disabled model
+  // switch keeps the same instance and its staged attachments.
+  it('keeps the same adapter instance while attachments stay offered', () => {
+    const { result, rerender } = renderHook(
+      ({ present }: { present: boolean }) => useAssistantThreadRuntimeAdapters(present),
+      { initialProps: { present: true } }
     );
-    const enabledOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
-      | { adapters?: { attachments?: unknown } }
-      | undefined;
+    const offered = result.current.adapters?.attachments;
+    expect(offered).toBeDefined();
 
-    rerender(
-      <AssistantUiPanel
-        {...baseProps}
-        attachmentsAvailability={{ reason: 'No vision.', state: 'disabled' }}
-        onModelChange={() => {}}
-      />
-    );
-    const disabledOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
-      | { adapters?: { attachments?: unknown } }
-      | undefined;
+    rerender({ present: true });
+    expect(result.current.adapters?.attachments).toBe(offered);
 
-    // Same instance — a re-created (or torn-down) adapter would reset staged
-    // composer attachments mid-thread on a model switch.
-    expect(disabledOptions?.adapters?.attachments).toBe(enabledOptions?.adapters?.attachments);
+    rerender({ present: false });
+    expect(result.current.adapters).toBeUndefined();
   });
 
   it('renders no attachment affordance at all when availability is absent (provider-gated)', () => {
-    const { container } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    const { container } = render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     expect(screen.queryByTestId('assistant-attach-image')).toBeNull();
-    const lastRuntimeOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
-      | { adapters?: { attachments?: unknown } }
-      | undefined;
-    expect(lastRuntimeOptions?.adapters?.attachments).toBeUndefined();
     expect(container.querySelector('.bs-composer-attachments')).toBeNull();
   });
 });
 
-describe('AssistantUiPanel reports its own run state (BST-1844)', () => {
-  const localGroups: ProviderGroupConfig[] = [
-    {
-      label: 'Local',
-      providers: [
-        {
-          capabilities: {
-            embeddings: false,
-            llm: true,
-            streaming: false,
-            supportsStandardEmbeddingDimension: false,
-          },
-          id: 'local',
-          models: [
-            {
-              default: true,
-              enabled: true,
-              id: 'onnx-community/gemma-4-E2B-it-ONNX',
-              label: 'Gemma 4 E2B',
-              type: 'llm',
-            },
-          ],
-          name: 'Local',
-          runtime: 'local',
-        },
-      ],
-      runtime: 'local',
-    },
-  ];
-  const localProps = {
-    pickerModels: [],
-    pickerProviders: [{ icon: null, id: 'local', name: 'Local' }],
-    providerGroups: localGroups,
-    selectedModel: 'local::onnx-community/gemma-4-E2B-it-ONNX',
-    selectedProvider: 'local',
-  };
-  // The in-renderer local runtime and the data-stream runtime are separate
-  // chat components; both must hand the owner the runtime's `thread.isRunning`.
-  const variants = [
-    { name: 'the in-renderer local runtime', props: localProps },
-    { name: 'the data-stream runtime', props: baseProps },
-  ] as const;
-
+describe('thread run state reporting (BST-1844)', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
   });
 
-  it.each(variants)('reports the run state of $name, and false when it unmounts', ({ props }) => {
+  it('reports the run state of its thread, and false when it unmounts', () => {
     const onRunningChange = vi.fn();
     mockAuiState = createMockAuiState([completedReasoningPart]);
     mockAuiState.thread.isRunning = true;
     const { unmount } = render(
-      <AssistantUiPanel
-        {...props}
+      <Panel
+        {...baseProps}
         onModelChange={() => {}}
         onRunningChange={onRunningChange}
         threadKey="thread-1"
@@ -1952,17 +1480,5 @@ describe('AssistantUiPanel reports its own run state (BST-1844)', () => {
       ['thread-1', true],
       ['thread-1', false],
     ]);
-  });
-
-  it('reports nothing for a session with no thread to key the report by', () => {
-    const onRunningChange = vi.fn();
-    mockAuiState = createMockAuiState([completedReasoningPart]);
-    mockAuiState.thread.isRunning = true;
-
-    render(
-      <AssistantUiPanel {...baseProps} onModelChange={() => {}} onRunningChange={onRunningChange} />
-    );
-
-    expect(onRunningChange).not.toHaveBeenCalled();
   });
 });

@@ -6,11 +6,10 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
 import type React from 'react';
-import { use, useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
-import { RootsContext } from '../use-delegated-conversation-root';
 
 interface CapturedWorkspaceApp {
   readonly id: string;
@@ -151,10 +150,7 @@ vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
 }));
 
 vi.mock('../assistant-chat-panel', () => ({
-  AssistantChatPanel: () => {
-    const roots = use(RootsContext);
-    return <div data-has-root-owner={roots !== null} data-testid="assistant-chat-shell" />;
-  },
+  AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
   AssistantProviderStatusProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 

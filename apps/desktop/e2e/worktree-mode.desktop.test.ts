@@ -44,7 +44,7 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
 }
 
 async function openComposer(page: Page): Promise<void> {
-  await setupAssistantMock(page, { variant: 'simple' });
+  await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   await expect(page.getByTestId('workspace-bar')).toBeVisible({ timeout: 30_000 });
 }

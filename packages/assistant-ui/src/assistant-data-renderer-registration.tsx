@@ -58,9 +58,8 @@ const assistantShellOutputDataUI = {
   render: () => null,
 } satisfies AssistantDataUIProps;
 
-// The run-start prompt breakdown is consumed by the onContextBreakdown tap
-// (buildContextBreakdownTap in data-stream-runtime.ts) and rendered in the
-// Context Usage popover, NOT inline in the message flow — register a null
+// The run-start prompt breakdown is rendered in the Context Usage popover,
+// NOT inline in the message flow — register a null
 // renderer so the transient data part never surfaces as a stray element
 // (mirrors assistantShellOutputDataUI above).
 const assistantContextBreakdownDataUI = {
