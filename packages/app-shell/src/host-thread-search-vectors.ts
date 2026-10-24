@@ -1,4 +1,3 @@
-import type { ThreadSearchCoverage } from '@brainstrike/db';
 import {
   quantizesUnpinnedLoad,
   unpinnedEmbeddingDType,
@@ -6,6 +5,7 @@ import {
 import { parseEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
 import type { EmbedderRuntime, EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 import type { ThreadSearchEmbedder } from './thread-search-embedding';
+import type { ThreadSearchCoverage } from './thread-search-service';
 
 /**
  * The identity of the embedder that computed a vector, as the host's state

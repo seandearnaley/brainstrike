@@ -41,12 +41,6 @@
       "@brainstrike/tokenization": [
         "../tokenization/dist/index.d.ts"
       ],
-      "@brainstrike/db": [
-        "../db/dist/index.d.ts"
-      ],
-      "@brainstrike/db/*": [
-        "../db/dist/*.d.ts"
-      ],
       "@brainstrike/embeddings": [
         "../embeddings/dist/index.d.ts"
       ],

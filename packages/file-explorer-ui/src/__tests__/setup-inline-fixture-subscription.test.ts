@@ -14,19 +14,6 @@ const loggerMocks = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-interface TestRuntimeHostBridge {
-  getStatus: () => Promise<unknown>;
-}
-
-type TestWindowWithRuntimeHosts = Window & {
-  electronAPI?: {
-    db: {
-      query: unknown;
-    };
-  };
-  embeddingHost?: TestRuntimeHostBridge;
-};
-
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
@@ -150,7 +137,6 @@ describe('setup-inline-fixture-subscription', () => {
     window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;
     window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
     window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
-    window.__BRAINSTRIKE_INDEXING_DEBUG__ = undefined;
     Object.defineProperty(window.navigator, 'webdriver', {
       configurable: true,
       value: undefined,
@@ -169,7 +155,6 @@ describe('setup-inline-fixture-subscription', () => {
     window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;
     window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
     window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
-    window.__BRAINSTRIKE_INDEXING_DEBUG__ = undefined;
     Object.defineProperty(window.navigator, 'webdriver', {
       configurable: true,
       value: undefined,
@@ -347,184 +332,6 @@ describe('setup-inline-fixture-subscription', () => {
     expect(window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__).toBeUndefined();
   });
 
-  it('exposes a read-only indexing debug snapshot through the global testing API', async () => {
-    const adapter = createFixtureCapableAdapter();
-    const store = createFixtureStore(false);
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            created_at: '2026-06-16T00:00:00.000Z',
-            display_name: 'root',
-            id: 'root-1',
-            kind: 'path',
-            last_verified_at: '2026-06-16T00:00:00.000Z',
-            path: '/workspace/root',
-            status: 'live',
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            chunk_count: 4,
-            dirty: false,
-            embedded_chunk_count: 1,
-            embedding_set_id: 'set-1',
-            file_count: 2,
-            last_refreshed_at: '2026-06-16T00:01:00.000Z',
-            pending_chunk_count: 3,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            count: 3,
-            job_type: 'embed_chunk',
-            queue: 'embeddings',
-            state: 'queued',
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            embedding_set_id: 'set-1',
-            file_count: 2,
-            oldest_updated_at: '2026-06-16T00:02:00.000Z',
-            root_id: 'root-1',
-          },
-        ],
-      });
-    const debugWindow = window as TestWindowWithRuntimeHosts;
-    debugWindow.electronAPI = {
-      db: { query },
-    };
-    debugWindow.embeddingHost = {
-      getStatus: vi.fn(async () => ({
-        active: true,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'running',
-      })),
-    };
-
-    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
-
-    expect(window.__BRAINSTRIKE_INDEXING_DEBUG__).toBeDefined();
-    expect(Object.isFrozen(window.__BRAINSTRIKE_INDEXING_DEBUG__)).toBe(true);
-
-    const snapshot = await window.__BRAINSTRIKE_INDEXING_DEBUG__?.snapshot();
-
-    expect(snapshot).toEqual({
-      chunkingBacklog: [
-        {
-          embedding_set_id: 'set-1',
-          file_count: 2,
-          oldest_updated_at: '2026-06-16T00:02:00.000Z',
-          root_id: 'root-1',
-        },
-      ],
-      collectionStats: [
-        {
-          chunk_count: 4,
-          dirty: false,
-          embedded_chunk_count: 1,
-          embedding_set_id: 'set-1',
-          file_count: 2,
-          last_refreshed_at: '2026-06-16T00:01:00.000Z',
-          pending_chunk_count: 3,
-        },
-      ],
-      hosts: {
-        embedding: {
-          available: true,
-          status: {
-            active: true,
-            lastError: null,
-            runtimeId: 'embedding-host:test',
-            runtimeKind: 'embedding-host',
-            state: 'running',
-          },
-        },
-      },
-      queueCounts: [
-        {
-          count: 3,
-          job_type: 'embed_chunk',
-          queue: 'embeddings',
-          state: 'queued',
-        },
-      ],
-      roots: [
-        {
-          created_at: '2026-06-16T00:00:00.000Z',
-          display_name: 'root',
-          id: 'root-1',
-          kind: 'path',
-          last_verified_at: '2026-06-16T00:00:00.000Z',
-          path: '/workspace/root',
-          status: 'live',
-        },
-      ],
-    });
-    expect(query).toHaveBeenNthCalledWith(
-      1,
-      'SELECT id, path, display_name, kind, status, created_at, last_verified_at FROM roots ORDER BY created_at ASC',
-      []
-    );
-    expect(query).toHaveBeenNthCalledWith(
-      2,
-      'SELECT embedding_set_id, file_count, chunk_count, embedded_chunk_count, pending_chunk_count, dirty, last_refreshed_at FROM collection_indexing_stats ORDER BY last_refreshed_at DESC',
-      []
-    );
-    expect(query).toHaveBeenNthCalledWith(
-      3,
-      "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type = 'embed_chunk' GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
-      []
-    );
-    expect(query).toHaveBeenNthCalledWith(
-      4,
-      'SELECT embedding_set_id, root_id, COUNT(*)::int AS file_count, MIN(updated_at) AS oldest_updated_at FROM file_records WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL AND chunks_processed_at IS NULL GROUP BY embedding_set_id, root_id ORDER BY embedding_set_id, root_id',
-      []
-    );
-
-    unsubscribe();
-    expect(window.__BRAINSTRIKE_INDEXING_DEBUG__).toBeUndefined();
-    Reflect.deleteProperty(window, 'electronAPI');
-    Reflect.deleteProperty(debugWindow, 'embeddingHost');
-  });
-
-  it('reports unavailable indexing debug dependencies explicitly', async () => {
-    const adapter = createFixtureCapableAdapter();
-    const store = createFixtureStore(false);
-
-    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
-
-    const snapshot = await window.__BRAINSTRIKE_INDEXING_DEBUG__?.snapshot();
-
-    expect(snapshot).toEqual({
-      accessIssues: [
-        {
-          reason: 'database bridge unavailable',
-          source: 'electronAPI.db.query',
-        },
-      ],
-      chunkingBacklog: [],
-      collectionStats: [],
-      hosts: {
-        embedding: { available: false, reason: 'embeddingHost bridge unavailable' },
-      },
-      queueCounts: [],
-      roots: [],
-    });
-
-    unsubscribe();
-  });
-
   it('does not expose fixture globals outside dev and test mode', () => {
     import.meta.env.DEV = false;
     import.meta.env.MODE = 'production';
@@ -538,7 +345,6 @@ describe('setup-inline-fixture-subscription', () => {
 
     expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeUndefined();
     expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeUndefined();
-    expect(window.__BRAINSTRIKE_INDEXING_DEBUG__).toBeUndefined();
 
     unsubscribe();
   });
@@ -561,7 +367,6 @@ describe('setup-inline-fixture-subscription', () => {
 
     expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeTypeOf('function');
     expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeTypeOf('function');
-    expect(window.__BRAINSTRIKE_INDEXING_DEBUG__).toBeDefined();
 
     unsubscribe();
     window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;
@@ -585,7 +390,6 @@ describe('setup-inline-fixture-subscription', () => {
 
     expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeUndefined();
     expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeUndefined();
-    expect(window.__BRAINSTRIKE_INDEXING_DEBUG__).toBeUndefined();
 
     unsubscribe();
     window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;

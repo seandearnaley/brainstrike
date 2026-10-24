@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import type {
-  ThreadMessageFtsMatch,
-  ThreadMessageVectorMatch,
-  ThreadTitleMatch,
-} from '../src/models/thread-search.js';
 import {
   createThreadSearchService,
+  type ThreadMessageFtsMatch,
+  type ThreadMessageVectorMatch,
   type ThreadSearchServiceRepository,
-} from '../src/search/thread-search-service.js';
+  type ThreadTitleMatch,
+} from '../thread-search-service';
 
 const RESOURCE_ID = 'workspace-memory';
 const NOW = new Date('2026-07-19T00:00:00Z');

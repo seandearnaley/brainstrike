@@ -135,7 +135,6 @@ apps/desktop/electron-storage.json
 
 # PGlite
 *:memory:*
-packages/db/*.db
 apps/desktop/*.db
 
 # Storage test artifacts

@@ -1,17 +1,3 @@
-export {
-  initializeQueueTelemetrySink,
-  type QueueTelemetryRuntime,
-  type QueueTelemetrySink,
-  type QueueTelemetrySinkOptions,
-} from './remote-telemetry-sink.js';
-export {
-  addQueueTelemetryListener,
-  createQueueTelemetryAggregator,
-  emitQueueTelemetry,
-  type QueueTelemetryAdapter,
-  type QueueTelemetryEvent,
-  type QueueTelemetrySnapshot,
-} from './telemetry.js';
 export type {
   DurableQueueStats,
   // Queue Health Diagnostics (BST-166)

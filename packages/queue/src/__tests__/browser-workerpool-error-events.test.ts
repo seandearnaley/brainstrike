@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueueResult } from '../types.js';
 import { createResult, createTask } from './browser-workerpool-test-fixtures.js';
 
-const { emitQueueTelemetryMock, poolExecMock, poolFactoryMock } = vi.hoisted(() => ({
-  emitQueueTelemetryMock: vi.fn(),
+const { poolExecMock, poolFactoryMock } = vi.hoisted(() => ({
   poolExecMock: vi.fn(),
   poolFactoryMock: vi.fn(),
 }));
@@ -22,7 +21,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 vi.mock('workerpool', () => ({ default: { pool: poolFactoryMock } }));
-vi.mock('../telemetry', () => ({ emitQueueTelemetry: emitQueueTelemetryMock }));
 vi.mock('../util', async () => {
   const actual = await vi.importActual<typeof import('../util.js')>('../util');
   return { ...actual, estimateHardwareConcurrency: vi.fn(() => 4) };
@@ -71,7 +69,6 @@ describe('workerpool request error events', () => {
         }
       } as unknown as typeof BroadcastChannel
     );
-    emitQueueTelemetryMock.mockReset();
     poolExecMock.mockReset();
     poolFactoryMock.mockReset();
     poolFactoryMock.mockReturnValue({
@@ -307,12 +304,6 @@ describe('workerpool request error events', () => {
     off();
     expect(errorListener).toHaveBeenCalledWith(workerError);
     expect(promise.cancel).toHaveBeenCalledTimes(1);
-    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'error', taskId: workerError.id })
-    );
-    expect(emitQueueTelemetryMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'complete', taskId: workerError.id })
-    );
   });
 
   it('keeps an unavailable device typed, so its owner can refuse it with the remedy (BST-2058)', async () => {

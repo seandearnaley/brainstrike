@@ -10,7 +10,6 @@ import { createEmbeddingHostCommand } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 import {
   commandListenerRef,
-  createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   disposeQueryEmbeddingServiceMock,
   ensureVectorPreferencesHydratedMock,
@@ -112,9 +111,8 @@ describe('EmbeddingHostRuntime', () => {
     expect(setDetectedDevicePrefMock).not.toHaveBeenCalledWith('wasm');
   });
 
-  it('never constructs a PGlite embedding cache for native readiness', async () => {
+  it('reaches native readiness without reading the model catalog', async () => {
     await mountReady();
-    expect(createEmbeddingCacheRepositoryMock).not.toHaveBeenCalled();
     expect(readModelCatalogMock).not.toHaveBeenCalled();
   });
 

@@ -1,5 +1,40 @@
 import type { PortableSymbol, PortableSymbolRef } from '@brainstrike/chunking-worker';
-import type { FileSymbolInsert, FileSymbolRefInsert } from '@brainstrike/db';
+
+export type FileSymbolKind =
+  | 'class'
+  | 'enum'
+  | 'function'
+  | 'interface'
+  | 'method'
+  | 'type'
+  | 'variable';
+
+export type FileSymbolRefKind = 'call' | 'extends' | 'implements' | 'import';
+
+export interface FileSymbolInsert {
+  readonly endLine: number;
+  readonly endOffset: number;
+  readonly exported: boolean;
+  readonly fileRecordId: string;
+  readonly kind: FileSymbolKind;
+  readonly name: string;
+  readonly seq: number;
+  readonly startLine: number;
+  readonly startOffset: number;
+}
+
+export interface FileSymbolRefInsert {
+  readonly fileRecordId: string;
+  /** Enclosing definition's seq; MUST come from the same insert batch.
+   * Absent = module-level code. */
+  readonly fromSymbolSeq?: number;
+  readonly kind: FileSymbolRefKind;
+  readonly line: number;
+  /** For imports: the source module specifier. */
+  readonly module?: string;
+  readonly name: string;
+  readonly seq: number;
+}
 
 /**
  * Convert extracted symbols/refs to database inserts (BST-919).

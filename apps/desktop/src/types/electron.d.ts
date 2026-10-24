@@ -1,12 +1,14 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { DiagnosticEventsRepository } from '@brainstrike/db';
 import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
   WorkspaceIndexingThermalState,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
-import type { mainDiagnosticEventsReader } from '../assistant-server/query-diagnostics-tool';
+import type {
+  DiagnosticEventsReader,
+  mainDiagnosticEventsReader,
+} from '../assistant-server/query-diagnostics-tool';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
@@ -111,7 +113,7 @@ declare global {
      * to `ContextFilesBridge` in `@brainstrike/assistant-contract`.
      */
     contextFiles?: TransportBridge<typeof contextFilesContract>;
-    desktopDiagnostics?: Pick<DiagnosticEventsRepository, 'queryEvents' | 'countByFingerprint'> & {
+    desktopDiagnostics?: DiagnosticEventsReader & {
       getUnseenCounts: typeof mainDiagnosticEventsReader.getUnseenCounts;
       getSnapshot: () => Promise<BoundaryResult<DesktopPlatformDiagnosticsSnapshot>>;
       readMainLogWindow: (

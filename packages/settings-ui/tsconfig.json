@@ -42,9 +42,6 @@
       "path": "../assistant-contract"
     },
     {
-      "path": "../db"
-    },
-    {
       "path": "../indexing-contract"
     },
     {

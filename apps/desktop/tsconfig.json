@@ -105,9 +105,6 @@
       "@brainstrike/tokenization": [
         "../../packages/tokenization/src"
       ],
-      "@brainstrike/db": [
-        "../../packages/db/src"
-      ],
       "@brainstrike/storage": [
         "../../packages/storage/src"
       ],
@@ -211,9 +208,6 @@
     },
     {
       "path": "../../packages/assistant-ui"
-    },
-    {
-      "path": "../../packages/db"
     },
     {
       "path": "../../packages/queue"

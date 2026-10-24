@@ -14,44 +14,10 @@ import { resetWorktreeSetupConsentStoreToDefaults } from './stores/worktree-setu
 
 const logger = createLogger('FactoryReset');
 
-/**
- * Known IndexedDB database names that Brainstrike creates across environments.
- * Used as a fallback when the browser cannot enumerate databases (Safari/WebKit, Firefox).
- * Keep this in sync with any new `idb://` paths introduced in DbProvider/App bootstraps.
- *
- * IMPORTANT: PGlite's idb backend (Emscripten IDBFS) names its IndexedDB database
- * `/pglite/<dataDir>` — NOT the bare data-dir name — so for every `idb://<name>`
- * PGlite store we list the REAL `/pglite/<name>` database name. (Verified against
- * pglite 0.5.1; see IDB_DB_NAME_PREFIX in @brainstrike/db browser-pglite-storage.)
- * The bare names are kept too as harmless no-ops / for any non-PGlite store that
- * really is named bare. Non-PGlite IndexedDB stores (queue/file-handles) are NOT
- * prefixed.
- */
-export const FALLBACK_INDEXED_DB_NAMES = [
-  // PGlite stores — the real database names are `/pglite/<dataDir>`.
-  '/pglite/app-pg18', // Default DbProvider path (idb://app-pg18), engine-versioned for PG18
-  '/pglite/web-pg18', // apps/web persisted storage (idb://web-pg18), engine-versioned for PG18
-  '/pglite/app', // Legacy PG17 DbProvider path (idb://app)
-  '/pglite/web', // Legacy PG17 apps/web path (idb://web)
-  '/pglite/brainstrike-web', // Legacy web builds used idb://brainstrike-web (PGlite)
-  // Bare names kept as no-op safety nets for stale installs.
-  'app-pg18',
-  'web-pg18',
-  'app',
-  'web',
-  // Non-PGlite IndexedDB stores (named bare, not via Emscripten IDBFS).
-  'brainstrike-desktop', // Desktop renderer queue/embeddings database
-  'brainstrike-file-handles', // Web File System Access handle cache (IndexedDB)
-  // NOTE: `brainstrike-web` was a PGlite store (idb://brainstrike-web) → its real
-  // database name is `/pglite/brainstrike-web` (listed above), so there is no bare
-  // `brainstrike-web` entry here.
-] as const;
-
 export interface ClearPersistentUiStateOptions {
   /**
-   * When true, skips clearing IndexedDB databases. Use when the database layer has already deleted
-   * its storage (e.g., DbProvider factoryReset). Defaults to false so standalone callers still wipe
-   * IndexedDB completely.
+   * When true, skips clearing IndexedDB databases. Defaults to false so callers wipe IndexedDB
+   * completely.
    */
   skipIndexedDb?: boolean;
 }
@@ -61,15 +27,9 @@ export type ClearPersistentUiStateTarget =
   | 'electron-renderer-storage'
   | 'electron-secrets'
   | 'electron-settings'
-  | 'indexed-db'
-  | 'opfs-pglite';
+  | 'indexed-db';
 
-export type ClearPersistentUiStateOperation =
-  | 'clear'
-  | 'delete'
-  | 'enumerate'
-  | 'getDirectory'
-  | 'removeEntry';
+export type ClearPersistentUiStateOperation = 'clear' | 'delete' | 'enumerate';
 
 export interface ClearPersistentUiStateFailure {
   readonly error: unknown;
@@ -212,150 +172,34 @@ async function deleteIndexedDb(name: string): Promise<ClearPersistentUiStateFail
 }
 
 /**
- * Nuclear option: enumerate and delete ALL IndexedDB databases. Browsers that
- * cannot enumerate use the explicit Brainstrike compatibility names instead.
+ * Nuclear option: enumerate and delete ALL IndexedDB databases. A renderer that
+ * cannot enumerate them reports an incomplete reset.
  */
 async function clearIndexedDbDatabases(): Promise<ClearPersistentUiStateFailure[]> {
   if (typeof window === 'undefined' || !window.indexedDB) {
     return [];
   }
 
-  let enumeratedNames: string[] = [];
-
-  if (typeof window.indexedDB.databases === 'function') {
-    try {
-      const databases = await window.indexedDB.databases();
-      enumeratedNames = databases
-        .map((entry) => entry?.name)
-        .filter((value): value is string => Boolean(value));
-    } catch (error) {
-      logger.warn('Failed to enumerate IndexedDB databases, falling back to known stores', {
-        error,
-      });
-    }
-  } else {
-    logger.warn(
-      'IndexedDB.databases() not available - falling back to known Brainstrike databases'
-    );
+  const enumerationFailure = (error: unknown): ClearPersistentUiStateFailure[] => {
+    logger.warn('Failed to enumerate IndexedDB databases during factory reset', { error });
+    return [{ error, operation: 'enumerate', target: 'indexed-db' }];
+  };
+  if (typeof window.indexedDB.databases !== 'function') {
+    return enumerationFailure(new Error('IndexedDB.databases() is not available'));
   }
-
-  const targets = enumeratedNames.length > 0 ? enumeratedNames : [...FALLBACK_INDEXED_DB_NAMES];
-  if (targets.length === 0) {
-    return [];
-  }
-
-  const uniqueTargets = [...new Set(targets)];
-  const failuresByDatabase = await Promise.all(uniqueTargets.map((name) => deleteIndexedDb(name)));
-  return failuresByDatabase.flat();
-}
-
-/**
- * OPFS-AHP root directory names that Brainstrike's PGlite stores live under, used
- * as a fallback when the OPFS root cannot be enumerated. Unlike IndexedDB (where
- * Emscripten IDBFS names the database `/pglite/<dataDir>`), the OPFS-AHP backend
- * stores under the BARE data-dir name at the OPFS root, so these are bare.
- * Keep in sync with `getOpfsAhpBrowserPGliteDataDir` and engine-version bumps.
- */
-export const FALLBACK_OPFS_DIR_NAMES = [
-  'app-pg18',
-  'web-pg18',
-  'app',
-  'web',
-  'brainstrike-web-state-default', // The browser state DB's default store (@brainstrike/web-state-store)
-  'brainstrike-web-state-default--files', // Its file index's own pool (webStateExtensionPool)
-] as const;
-
-// Matches the pglite OPFS-AHP root dirs for our db names (`app`/`web`), versioned
-// or not, so enumeration-based clearing never touches an unrelated OPFS consumer.
-const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
-
-// Every browser state DB pool: `WEB_STATE_POOL_PREFIX` plus the store's name
-// (@brainstrike/web-state-store protocol.ts `webStateNames`), and the pools its
-// extensions keep in workers of their own, `<pool>--<part>` (`webStateExtensionPool`,
-// the file index's). Its writer must first retire the store (`WebStateStore.retire`)
-// so no OPFS handle is open.
-const OPFS_WEB_STATE_POOL_RE = /^brainstrike-web-state-[a-z0-9][a-z0-9-]*$/;
-
-/**
- * Removes Brainstrike's PGlite OPFS-AHP stores so a factory reset is a true fresh
- * start for users who opted into OPFS storage. The rest of this module is
- * IndexedDB-only; OPFS is a separate persistent location made first-class (and
- * engine-versioned, `opfs-ahp://app-pg18`) by the PGlite 0.5 upgrade, so per the
- * FACTORY RESET CONTRACT it must be integrated into the reset pipeline — otherwise
- * the current-major OPFS store survives the reset and reopens on next launch.
- *
- * Enumerates the OPFS root when supported (clearing every versioned/older pglite
- * dir, scoped to the base pattern so unrelated entries are never swept); falls back
- * to the known names otherwise. Absent dirs are ignored; held handles and other
- * removal failures are reported so factory reset callers can fail visibly instead
- * of leaving a live OPFS store behind.
- */
-async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]> {
-  if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
-    return [];
-  }
-
-  let root: (FileSystemDirectoryHandle & { keys?: () => AsyncIterable<string> }) | null = null;
+  let names: string[];
   try {
-    root = (await navigator.storage.getDirectory()) as FileSystemDirectoryHandle & {
-      keys?: () => AsyncIterable<string>;
-    };
+    names = (await window.indexedDB.databases())
+      .map((entry) => entry?.name)
+      .filter((value): value is string => Boolean(value));
   } catch (error) {
-    logger.warn('Failed to open OPFS root during factory reset', { error });
-    return [{ error, operation: 'getDirectory', target: 'opfs-pglite' }];
+    return enumerationFailure(error);
   }
 
-  const failures: ClearPersistentUiStateFailure[] = [];
-  const names: string[] = [];
-  if (typeof root.keys === 'function') {
-    try {
-      for await (const name of root.keys()) {
-        if (OPFS_PGLITE_DIR_RE.test(name) || OPFS_WEB_STATE_POOL_RE.test(name)) {
-          names.push(name);
-        }
-      }
-    } catch (error) {
-      logger.warn('Failed to enumerate OPFS root; falling back to known names', { error });
-      failures.push({ error, operation: 'enumerate', target: 'opfs-pglite' });
-    }
-  }
-  if (names.length === 0) {
-    names.push(...FALLBACK_OPFS_DIR_NAMES);
-  }
-
-  const opfsRoot = root;
-  const removalResults = await Promise.all(
-    [...new Set(names)].map(async (name): Promise<ClearPersistentUiStateFailure | null> => {
-      try {
-        await opfsRoot.removeEntry(name, { recursive: true });
-        return null;
-      } catch (error) {
-        if (isMissingStorageEntryError(error)) {
-          return null;
-        }
-        return {
-          error,
-          name,
-          operation: 'removeEntry',
-          target: 'opfs-pglite',
-        } satisfies ClearPersistentUiStateFailure;
-      }
-    })
+  const failuresByDatabase = await Promise.all(
+    [...new Set(names)].map((name) => deleteIndexedDb(name))
   );
-  const removalFailures = removalResults.filter(
-    (failure): failure is ClearPersistentUiStateFailure => failure !== null
-  );
-  return [...failures, ...removalFailures];
-}
-
-function isMissingStorageEntryError(error: unknown): boolean {
-  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
-    return error.name === 'NotFoundError';
-  }
-  if (typeof error !== 'object' || error === null || !('name' in error)) {
-    return false;
-  }
-  return error.name === 'NotFoundError';
+  return failuresByDatabase.flat();
 }
 
 /**
@@ -529,7 +373,6 @@ async function collectPersistentUiStateResetFailures(
     clearCacheStorage()
       .then(noFailures)
       .catch((error: unknown) => [{ error, operation: 'clear', target: 'cache-storage' }]),
-    clearOpfsPGliteStores(),
   ];
   if (!skipIndexedDb) {
     tasks.push(clearIndexedDbDatabases());
@@ -593,13 +436,8 @@ async function clearCacheStorage(): Promise<void> {
  * - Electron secrets: API keys and provider configurations (brainstrike-secrets.json)
  * - Electron settings: panel layouts, logging preferences (brainstrike-settings.json)
  * - IndexedDB: All databases enumerated and deleted (unless skipIndexedDb=true)
- * - OPFS-AHP: Brainstrike's PGlite OPFS stores (opfs-ahp://app-pg18 etc.) — always
- *   run (separate from the IndexedDB layer); missing dirs are idempotent, other
- *   failures are surfaced as incomplete reset results
  * - CacheStorage: All caches (fetch, worker bundles)
  *
- * Enumeration is preferred; explicit compatibility names cover browser APIs
- * that cannot enumerate IndexedDB / OPFS storage.
  * If any storage survives, the user gets phantom data. This is a true nuke.
  *
  * Throws when any required storage target cannot be fully cleared or verified. Factory reset

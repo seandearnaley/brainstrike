@@ -1,4 +1,3 @@
-import { DIAGNOSTIC_EVENTS_PURGE_LIMIT } from '@brainstrike/db';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
@@ -8,6 +7,7 @@ import {
 } from '@brainstrike/app-state/stores/diagnostics-retention-store';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection } from './logging-settings-section';
+import { DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD } from './use-diagnostics-purge-action';
 
 const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }));
 
@@ -126,15 +126,11 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     );
   });
 
-  // Pins the no-silent-completion rule: a purge that hits the repository's
-  // real per-call limit (DIAGNOSTIC_EVENTS_PURGE_LIMIT, imported from
-  // @brainstrike/db rather than hardcoded here) must say more may remain
-  // instead of implying the backlog is fully drained. Importing the REAL
-  // constant means a future change to the repository's limit fails this
-  // test loudly if the section's mirrored threshold drifts out of sync.
-  it('says more may remain when the deleted count hits the repository per-call limit', async () => {
+  // Pins the no-silent-completion rule: a purge that hits the per-call limit
+  // must say more may remain instead of implying the backlog is fully drained.
+  it('says more may remain when the deleted count hits the per-call limit', async () => {
     const user = userEvent.setup();
-    const onPurgeNow = vi.fn(async () => DIAGNOSTIC_EVENTS_PURGE_LIMIT);
+    const onPurgeNow = vi.fn(async () => DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD);
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 
     await user.click(screen.getByRole('button', { name: /purge now/i }));
@@ -142,7 +138,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          description: `Purged ${DIAGNOSTIC_EVENTS_PURGE_LIMIT} diagnostic events (more may remain; run again).`,
+          description: `Purged ${DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD} diagnostic events (more may remain; run again).`,
           title: 'Diagnostics purged',
         })
       )
@@ -158,7 +154,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
   // assertion fail RED.
   it('does not claim more may remain one row below the repository per-call limit', async () => {
     const user = userEvent.setup();
-    const belowLimit = DIAGNOSTIC_EVENTS_PURGE_LIMIT - 1;
+    const belowLimit = DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD - 1;
     const onPurgeNow = vi.fn(async () => belowLimit);
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 

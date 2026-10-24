@@ -375,7 +375,6 @@
     },
     {
       "includes": [
-        "packages/db/**",
         "packages/token-cache/**",
         "packages/assistant-contract/src/mcp-task-row-schema.ts",
         "**/ipc-handlers.ts"
@@ -499,10 +498,6 @@
         "packages/app-shell/src/threads-panel.tsx",
         "packages/app-state/src/__tests__/assistant-preferences-store.test.ts",
         "packages/app-state/src/stores/assistant-preferences-store.ts",
-        "packages/db/__tests__/file-chunk-repository.test.ts",
-        "packages/db/__tests__/managed-cache-batch.test.ts",
-        "packages/db/src/database-work-scheduler.ts",
-        "packages/db/src/queue/job-queue.ts",
         "packages/embedding-worker/src/embedding.worker.ts",
         "packages/embedding-worker/test/embedding.worker.runtime.spec.ts",
         "packages/embeddings/src/__tests__/embedding-worker-batch-optimization.integration.test.ts",
@@ -534,7 +529,6 @@
         "packages/file-system/src/__tests__/web-adapter.test.ts",
         "packages/file-tree-worker/src/bfs-engine.test.ts",
         "packages/file-tree-worker/src/bfs-engine.ts",
-        "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
         "packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx",
         "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
         "packages/assistant-ui/src/__tests__/assistant-ui-panel.test.tsx",

@@ -2,12 +2,6 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import {
-  createThreadSearchService,
-  THREAD_SEARCH_VECTOR_THRESHOLD,
-  type ThreadSearchCoverage,
-  type ThreadSearchExtraArms,
-} from '@brainstrike/db';
 import type {
   EmbeddingSetModelInfo,
   UseSearchEmbedderResult,
@@ -24,6 +18,12 @@ import {
 } from './host-thread-search-vectors';
 import { resolveSingletonProfileModelInfo } from './prompt-embedding-model-info';
 import type { ThreadSearchEmbedder } from './thread-search-embedding';
+import {
+  createThreadSearchService,
+  THREAD_SEARCH_VECTOR_THRESHOLD,
+  type ThreadSearchCoverage,
+  type ThreadSearchExtraArms,
+} from './thread-search-service';
 import { type ThreadSearchSemanticState, useThreadSearchStore } from './thread-search-store';
 
 /** Minimum query length before a search runs (titles match from 2 chars). */

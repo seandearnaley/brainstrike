@@ -23,9 +23,6 @@
   ],
   "references": [
     {
-      "path": "../db"
-    },
-    {
       "path": "../indexing-contract"
     }
   ]

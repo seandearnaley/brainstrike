@@ -110,9 +110,6 @@
       "@brainstrike/workers/*": [
         "./packages/workers/*"
       ],
-      "@brainstrike/db": [
-        "./packages/db/src"
-      ],
       "@brainstrike/queue": [
         "./packages/queue/src"
       ],
@@ -316,9 +313,6 @@
     },
     {
       "path": "./packages/storage"
-    },
-    {
-      "path": "./packages/db"
     },
     {
       "path": "./packages/agent"
