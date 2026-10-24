@@ -12,7 +12,7 @@ import type {
   IndexRetryCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
-  NativeIndexLifecycleObservation,
+  NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
@@ -186,7 +186,7 @@ export const indexSearchContract = {
   onConfigChanged: pushEvent<IndexConfig>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.configChanged,
   }),
-  onLifecycleChanged: pushEvent<NativeIndexLifecycleObservation>({
+  onLifecycleChanged: pushEvent<NativeIndexObservation>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged,
   }),
   readConfig: channel<[], IndexConfig>({

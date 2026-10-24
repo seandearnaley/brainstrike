@@ -6,6 +6,7 @@ import type {
   IndexLifecycleCapability,
   IndexSearchCapability,
   NativeIndexLifecycleObservation,
+  NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import { useNativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
@@ -65,7 +66,15 @@ export function mountNativeSearchController(
     truncated: false,
   };
   const readCoverage = coverageOverride ?? (async () => observedCoverage);
-  const lifecycleListeners = new Set<(value: NativeIndexLifecycleObservation) => void>();
+  const lifecycleListeners = new Set<(value: NativeIndexObservation) => void>();
+  let lifecycle: NativeIndexLifecycleObservation = { generation: 1, kind: 'ready' };
+  /** What Main pushes after a change: its lifecycle and the status it read then. */
+  const push = (): void => {
+    const status = cloneObservations ? structuredClone(observation) : observation;
+    for (const listener of lifecycleListeners) {
+      listener({ lifecycle, progress: { kind: 'read', status } });
+    }
+  };
   let capability: IndexSearchCapability & IndexLifecycleCapability = {
     coverage: vi.fn(readCoverage),
     coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => {
@@ -107,11 +116,12 @@ export function mountNativeSearchController(
     ...mounted,
     capability,
     emitLifecycle: (value: NativeIndexLifecycleObservation) => {
-      for (const listener of lifecycleListeners) {
-        listener(value);
-      }
+      lifecycle = value;
+      push();
     },
     observedCoverage,
+    /** Main pushes the status it reads after a scan starts, settles or is invalidated. */
+    publish: push,
     refresh: (next: IndexerStatus) => {
       observation = withSourceProof(next);
     },

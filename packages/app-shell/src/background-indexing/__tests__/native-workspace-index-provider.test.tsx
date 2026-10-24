@@ -21,9 +21,10 @@ import type {
   IndexerCoverageBatch,
   IndexerCoverageRequest,
   IndexerStatus,
+  NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { act, render, waitFor } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { NativeWorkspaceIndexProvider } from '../native-workspace-index-provider';
 
 const { adapter, roots, reconciliation } = vi.hoisted(() => ({
@@ -92,10 +93,93 @@ function mainConfig(read: () => Promise<IndexConfig>) {
 
 const savedConfig = (config: IndexConfig) => mainConfig(async () => config);
 
+/** Main's index observations: each one it pushes after its index changed. */
+function mainIndex() {
+  let listener: ((observation: NativeIndexObservation) => void) | undefined;
+  return {
+    onLifecycleChanged: (next: (observation: NativeIndexObservation) => void) => {
+      listener = next;
+      return () => {
+        listener = undefined;
+      };
+    },
+    push: (progress: NativeIndexObservation['progress']) =>
+      act(() => listener?.({ lifecycle: { generation: 1, kind: 'ready' }, progress })),
+  };
+}
+
 beforeEach(() => {
   __resetIndexingActivityStoreForTests();
   useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null });
   __resetWorkspaceCollectionSyncStatusStoreForTests();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it('shows what Main pushes when its index changes, and nothing new until it pushes again', async () => {
+  vi.useFakeTimers();
+  const status: IndexerStatus = {
+    authorizedCollectionIds: ['selected'],
+    authorizedRootIds: ['root'],
+    embedding: { indexMode: 'text-only' },
+    kind: 'ready',
+    rootReadiness: [{ rootId: 'root', scanComplete: true }],
+    storeId: 'store',
+  };
+  const settled = (indexedFiles: number): IndexerCoverageBatch => {
+    const counts = { chunks: indexedFiles * 4, indexedFiles, missingVectors: 0, vectors: 0 };
+    return {
+      coverage: [
+        {
+          embedding: status.embedding,
+          roots: [{ rootId: 'root', ...counts }],
+          storeId: 'store',
+          totals: counts,
+          vectorCoverageComplete: true,
+        },
+      ],
+      kind: 'current',
+      status,
+    };
+  };
+  const index = mainIndex();
+  const capability = {
+    ...savedConfig(DEFAULT_INDEX_CONFIG),
+    ...index,
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(async (): Promise<IndexerCoverageBatch> => settled(54)),
+    grep: vi.fn(),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(async (): Promise<IndexerStatus> => status),
+  };
+  const mounted = render(
+    <NativeWorkspaceIndexProvider capability={capability}>
+      <span>Workspace</span>
+    </NativeWorkspaceIndexProvider>
+  );
+  await vi.waitFor(() =>
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      processedFiles: 54,
+      state: 'idle',
+    })
+  );
+  // The index grows, but Main has not said so: what the app shows stays as it was.
+  capability.coverageBatch.mockImplementation(async () => settled(99));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  expect(useWorkspaceCollectionSyncStatusStore.getState().processedFiles).toBe(54);
+  // Main's next observation is what the app shows.
+  index.push({ coverage: settled(120), kind: 'read', status });
+  expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+    processedFiles: 120,
+    state: 'idle',
+  });
+  expect(useIndexingActivityStore.getState().managedCollectionStats.stats?.fileCount).toBe(120);
+  mounted.unmount();
 });
 
 it('waits for Main’s config before reading the index, then follows each change', async () => {
@@ -111,6 +195,7 @@ it('waits for Main’s config before reading the index, then follows each change
     coverage: vi.fn(),
     coverageBatch: vi.fn(),
     grep: vi.fn(),
+    onLifecycleChanged: vi.fn(() => () => {}),
     rebuild: vi.fn(),
     search: vi.fn(),
     status: vi.fn(async () => ({
@@ -152,6 +237,7 @@ it('shows why Main could not read the config instead of waiting forever', async 
     coverage: vi.fn(),
     coverageBatch: vi.fn(),
     grep: vi.fn(),
+    onLifecycleChanged: vi.fn(() => () => {}),
     rebuild: vi.fn(),
     search: vi.fn(),
     status: vi.fn(),
@@ -210,6 +296,7 @@ it.each([
         })
       ),
       grep: vi.fn(),
+      onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
       search: vi.fn(),
       status: vi.fn(async (): Promise<IndexerStatus> => status),
@@ -256,8 +343,10 @@ it('observes an atomic batch and preserves acknowledged counters across ordinary
     totals: counts,
     vectorCoverageComplete: true,
   };
+  const index = mainIndex();
   const capability = {
     ...savedConfig(SEMANTIC_CONFIG),
+    ...index,
     coverage: vi.fn(async () => {
       throw new Error('strict observation invalidated');
     }),
@@ -279,41 +368,27 @@ it('observes an atomic batch and preserves acknowledged counters across ordinary
   );
   expect(capability.coverage).not.toHaveBeenCalled();
   expect(useIndexingActivityStore.getState().managedCollectionStats.stats?.fileCount).toBe(54);
-  capability.coverageBatch.mockImplementation(async () => ({
-    code: 'native-coverage-observation-invalidated',
-    kind: 'invalidated',
-  }));
-  await waitFor(() => expect(capability.coverageBatch).toHaveBeenCalledTimes(2), { timeout: 4000 });
+  index.push({
+    coverage: { code: 'native-coverage-observation-invalidated', kind: 'invalidated' },
+    kind: 'read',
+    status,
+  });
   expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
     activeRootPath: '/owned/repo',
     lastError: null,
     processedFiles: 54,
     state: 'scanning',
   });
-  const statusReads = capability.status.mock.calls.length;
-  capability.status.mockResolvedValueOnce({
-    kind: 'unavailable',
-    phase: 'preparing',
-    reason: 'Authority transition.',
-  });
-  await waitFor(() => expect(capability.status.mock.calls.length).toBeGreaterThan(statusReads), {
-    timeout: 4000,
+  index.push({
+    kind: 'read',
+    status: { kind: 'unavailable', phase: 'preparing', reason: 'Authority transition.' },
   });
   expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
     lastError: null,
     processedFiles: 54,
     state: 'scanning',
   });
-  capability.coverageBatch.mockRejectedValueOnce(new Error('Stored vector payload is corrupt.'));
-  await waitFor(
-    () => expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('error'),
-    { timeout: 4000 }
-  );
-  const failedReadCount = capability.coverageBatch.mock.calls.length;
-  await waitFor(
-    () => expect(capability.coverageBatch.mock.calls.length).toBeGreaterThan(failedReadCount),
-    { timeout: 4000 }
-  );
+  index.push({ kind: 'failed', reason: 'Stored vector payload is corrupt.' });
   expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
     lastError: 'Stored vector payload is corrupt.',
     processedFiles: 54,
@@ -334,8 +409,10 @@ it.each(['roots', 'profile', 'store'] as const)(
       storeId: 'store',
     };
     const counts = { chunks: 251, indexedFiles: 54, missingVectors: 0, vectors: 251 };
+    const index = mainIndex();
     const capability = {
       ...savedConfig(SEMANTIC_CONFIG),
+      ...index,
       coverage: vi.fn(),
       coverageBatch: vi.fn(
         async (): Promise<IndexerCoverageBatch> => ({
@@ -365,10 +442,6 @@ it.each(['roots', 'profile', 'store'] as const)(
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState().processedFiles).toBe(54)
     );
-    capability.coverageBatch.mockImplementation(async () => ({
-      code: 'native-coverage-observation-invalidated',
-      kind: 'invalidated',
-    }));
     if (changed === 'roots') {
       status = { ...status, authorizedRootIds: ['new-root'] };
     } else if (changed === 'store') {
@@ -389,10 +462,12 @@ it.each(['roots', 'profile', 'store'] as const)(
         },
       };
     }
-    await waitFor(
-      () => expect(useIndexingActivityStore.getState().managedCollectionStats.stats).toBeNull(),
-      { timeout: 4000 }
-    );
+    index.push({
+      coverage: { code: 'native-coverage-observation-invalidated', kind: 'invalidated' },
+      kind: 'read',
+      status,
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats.stats).toBeNull();
     expect(useWorkspaceCollectionSyncStatusStore.getState().processedFiles).toBe(0);
     expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toBeNull();
     mounted.unmount();
@@ -400,12 +475,14 @@ it.each(['roots', 'profile', 'store'] as const)(
 );
 
 it.each(['status', 'batch'] as const)(
-  'keeps a retained startup failure from %s visibly blocked across polling and exposes its actionable reason',
+  'keeps a retained startup failure from %s visibly blocked across observations and exposes its actionable reason',
   async (source) => {
     const reason =
       'Native indexing is blocked: Indexer startup exceeded its caller-provided deadline. Open Diagnostics for details.';
+    const index = mainIndex();
     const capability = {
       ...savedConfig(SEMANTIC_CONFIG),
+      ...index,
       coverage: vi.fn(),
       coverageBatch: vi.fn(
         async (): Promise<IndexerCoverageBatch> => ({ kind: 'blocked', reason })
@@ -438,16 +515,21 @@ it.each(['status', 'batch'] as const)(
         state: 'blocked',
       })
     );
-    await waitFor(() => expect(capability.status).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    // Main reports the same retained failure after its next change.
+    const status = await capability.status();
+    index.push(
+      status.kind === 'ready'
+        ? {
+            coverage: await capability.coverageBatch(),
+            kind: 'read',
+            status,
+          }
+        : { kind: 'read', status }
+    );
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
       lastError: reason,
       state: 'blocked',
     });
-    if (source === 'status') {
-      expect(capability.coverageBatch).not.toHaveBeenCalled();
-    } else {
-      expect(capability.coverageBatch).toHaveBeenCalledTimes(2);
-    }
     mounted.unmount();
   }
 );
@@ -459,8 +541,10 @@ it.each(['status', 'batch'] as const)(
       'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
     const cause = { kind: 'embedding-host-unresponsive' as const, message: reason };
     let unresponsive = true;
+    const index = mainIndex();
     const capability = {
       ...savedConfig(SEMANTIC_CONFIG),
+      ...index,
       coverage: vi.fn(),
       coverageBatch: vi.fn(
         async (): Promise<IndexerCoverageBatch> =>
@@ -510,15 +594,21 @@ it.each(['status', 'batch'] as const)(
     );
     // A block with any other cause names no remedy.
     unresponsive = false;
-    await waitFor(
-      () =>
-        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-          blockedReason: null,
-          lastError: 'Workspace walk failed.',
-          state: 'blocked',
-        }),
-      { timeout: 4000 }
+    const status = await capability.status();
+    index.push(
+      status.kind === 'ready'
+        ? {
+            coverage: await capability.coverageBatch(),
+            kind: 'read',
+            status,
+          }
+        : { kind: 'read', status }
     );
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      blockedReason: null,
+      lastError: 'Workspace walk failed.',
+      state: 'blocked',
+    });
     mounted.unmount();
   }
 );
@@ -559,6 +649,7 @@ it.each([
         }
       ),
       grep: vi.fn(),
+      onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
       search: vi.fn(),
       status: vi.fn(async (): Promise<IndexerStatus> => status),
@@ -620,6 +711,7 @@ it.each([
       coverage: vi.fn(),
       coverageBatch: vi.fn(),
       grep: vi.fn(),
+      onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
       search: vi.fn(),
       status: vi.fn(async () => {
@@ -662,6 +754,7 @@ it.each([
       coverage: vi.fn(),
       coverageBatch: vi.fn(),
       grep: vi.fn(),
+      onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
       search: vi.fn(),
       status: vi.fn(async () => PREPARING),
@@ -721,6 +814,7 @@ it.each([
       coverage: vi.fn(),
       coverageBatch: vi.fn(),
       grep: vi.fn(),
+      onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
       search: vi.fn(),
       status: vi.fn(async (): Promise<IndexerStatus> => status),

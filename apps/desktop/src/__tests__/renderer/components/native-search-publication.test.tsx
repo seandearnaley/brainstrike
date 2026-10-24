@@ -107,9 +107,7 @@ describe('native source publication handoff', () => {
         if (ordering === 'before-response') {
           vi.mocked(mounted.capability.grep).mockReturnValueOnce(held.promise);
         }
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
+        await act(async () => mounted.publish());
         act(() => {
           useWorkspaceSearchStore.getState().setQuery('notarize');
           mounted.result.current.controller.runTextSearch();
@@ -117,9 +115,7 @@ describe('native source publication handoff', () => {
         if (ordering === 'before-response') {
           await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledOnce());
           mounted.refresh(structuredClone(ready));
-          await act(async () => {
-            await vi.advanceTimersByTimeAsync(2000);
-          });
+          await act(async () => mounted.publish());
           const partial = { ...mounted.response };
           mounted.response.scanLimited = false;
           mounted.response.sourceComplete = true;
@@ -137,9 +133,7 @@ describe('native source publication handoff', () => {
         mounted.refresh(structuredClone(ready));
         mounted.response.scanLimited = false;
         mounted.response.sourceComplete = true;
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
+        await act(async () => mounted.publish());
         await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
         expect(useWorkspaceSearchStore.getState().query).toBe('notarize');
         expect(useWorkspaceSearchStore.getState().results?.notices.scanLimited).toBe(false);
@@ -163,9 +157,7 @@ describe('native source publication handoff', () => {
           expect(mounted.result.current.dependencies?.profile).toEqual(profile)
         );
         mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
+        await act(async () => mounted.publish());
         mounted.response.sourceComplete = false;
         act(() => {
           useWorkspaceSearchStore.getState().setQuery('notarize');
@@ -205,6 +197,7 @@ describe('native source publication handoff', () => {
           mounted.refresh(ready);
         }
         mounted.response.sourceComplete = true;
+        await act(async () => mounted.publish());
         await act(async () => {
           await vi.advanceTimersByTimeAsync(6000);
         });
@@ -235,9 +228,7 @@ describe('native source publication handoff', () => {
       await vi.waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
       mounted.refresh(incomplete);
       mounted.response.sourceComplete = false;
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       act(() => {
         const store = useWorkspaceSearchStore.getState();
         store.setQuery('notarize');
@@ -251,9 +242,7 @@ describe('native source publication handoff', () => {
           { rootId: 'root-b', scanComplete: true },
         ],
       });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(4000);
-      });
+      await act(async () => mounted.publish());
       expect(mounted.capability.grep).toHaveBeenCalledOnce();
       mounted.refresh({
         ...incomplete,
@@ -263,9 +252,7 @@ describe('native source publication handoff', () => {
         ],
       });
       mounted.response.sourceComplete = true;
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
     } finally {
       mounted.unmount();
@@ -324,14 +311,10 @@ describe('native source publication handoff', () => {
         },
       };
       mounted.refresh(completed);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
       mounted.refresh(structuredClone(completed));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
+      await act(async () => mounted.publish());
       expect(mounted.capability.grep).toHaveBeenCalledTimes(2);
       mounted.response.sourceComplete = true;
       mounted.refresh({
@@ -344,9 +327,7 @@ describe('native source publication handoff', () => {
           })),
         },
       });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-      });
+      await act(async () => mounted.publish());
       await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(3));
     } finally {
       mounted.unmount();
